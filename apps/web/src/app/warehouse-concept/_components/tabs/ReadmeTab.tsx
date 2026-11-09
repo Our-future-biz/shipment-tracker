@@ -356,7 +356,7 @@ export function ReadmeTab() {
           </li>
           <li>
             <b>{TERMS.exportContainer}</b> (inbound cargo): the <b>{TERMS.stuffingPlan}</b> — add positions in the warehouse (received, not on hold, not in another
-            container; by POD, then ETD), order them by dragging or with the arrows, watch the fill. {TERMS.containerGateIn} (empty at the dock) → mark each house{" "}
+            container; by Port of Discharge, then ETD), order them by dragging or with the arrows, watch the fill. {TERMS.containerGateIn} (empty at the dock) → mark each house{" "}
             <b>{TERMS.stuffed}</b> → <b>{TERMS.closeContainer}</b> with the seal → {TERMS.containerGateOut} with the truck plate: every stuffed house leaves the
             warehouse (its storage clock stops; its shipment gets the released date and the plate). Planned houses not stuffed stay in the warehouse.
           </li>

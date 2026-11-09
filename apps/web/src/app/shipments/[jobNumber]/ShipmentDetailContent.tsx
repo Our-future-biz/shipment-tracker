@@ -446,8 +446,8 @@ function MemberRow({
   );
 }
 
-// Commercial Invoice number(s) / value: shown from the shipment's invoices and edited in
-// the Commercial Invoices dialog (the same one the Shipments table opens).
+// Invoice Number(s) / Invoice Value: shown from the shipment's commercial invoices and edited in
+// the Invoices dialog (the same one the Shipments table opens).
 const INVOICE_FIELDS = new Set(["commercialInvoice", "commercialInvoiceValue"]);
 
 interface InvoiceRowProps {
@@ -493,7 +493,7 @@ function InvoiceRow({
         onClose={() => setOpen(false)}
         onSave={(s, commercialInvoices) =>
           updateShipment({ id: s.id, data: { commercialInvoices } }).catch((e) => {
-            toast.error(`Could not save the commercial invoices: ${apiErrorMessage(e)}`);
+            toast.error(`Could not save the invoices: ${apiErrorMessage(e)}`);
             throw e;
           })
         }
@@ -845,8 +845,8 @@ const EQUIP_DEPOT_R: FieldDef[] = [
 const REFS_ROUTING: FieldDef[] = [
   { key: "personalReference", label: "Personal Reference" },
   { key: "bookingNumber", label: "Booking Number" },
-  { key: "pol", label: "POL" },
-  { key: "pod", label: "POD" },
+  { key: "pol", label: "Port of Loading" },
+  { key: "pod", label: "Port of Discharge" },
   { key: "origin", label: "Origin" },
   { key: "destination", label: "Destination" },
 ];
@@ -913,7 +913,7 @@ const CARGO_COMMERCIAL_L: CargoField[] = [
   { key: "hsCode", label: "HS code", highlight: true },
   { key: "cargoDescription", label: "Cargo description", highlight: true },
   { key: "cargoOrigin", label: "Cargo origin" },
-  { key: "commercialInvoice", label: "Commercial invoice number(s)" },
+  { key: "commercialInvoice", label: "Invoice Number(s)" },
 ];
 const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "containerTypeSummary", label: "Container type", ro: true },
@@ -921,7 +921,7 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "dimensionsSummary", label: "Dimensions", ro: true },
   { key: "creditCheck", label: "Credit check" },
   { key: "approvedBy", label: "Approved by" },
-  { key: "commercialInvoiceValue", label: "Commercial invoice value" },
+  { key: "commercialInvoiceValue", label: "Invoice Value" },
 ];
 
 interface CargoRowProps {
@@ -1397,7 +1397,8 @@ export function ShipmentDetailContent() {
                     { key: "consignee", label: "Consignee", ro: true },
                     { key: "personInCharge", label: "Handled By" },
                     { key: "salesPerson", label: "Sales Person", ro: true },
-                    { key: "incoterm", label: "Incoterms Origin/Destination", ro: true },
+                    { key: "incotermOrigin", label: "Incoterms Origin", ro: true },
+                    { key: "incotermDestination", label: "Incoterms Destination", ro: true },
                     { key: "freeComments", label: "Free Comments" },
                     { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
@@ -1406,10 +1407,10 @@ export function ShipmentDetailContent() {
                     // Follows the paperwork; its manual steps are set in the Customs tab.
                     { key: "customsStatus", label: "Customs Status", ro: true },
                     { key: "invoicingStatus", label: "Invoicing Status" },
-                    { key: "pol", label: "POL" },
+                    { key: "pol", label: "Port of Loading" },
                     { key: "estimatedDeparture", label: "ETD Estimated" },
                     { key: "estimatedDepartureWeek", label: "Est. Departure Week", ro: true },
-                    { key: "pod", label: "POD" },
+                    { key: "pod", label: "Port of Discharge" },
                     { key: "estimatedArrival", label: "ETA Estimated" },
                     { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
                     { key: "shipmentsDate", label: "Shipments Month", ro: true },
@@ -1481,16 +1482,6 @@ export function ShipmentDetailContent() {
                     ),
                     // Worked out by the server from the shipping line, and no column of the grid either.
                     carrierCode: <RoRow label="Carrier code" value={shipment.carrierCode} />,
-                    incoterm: (
-                      <div className={ROW}>
-                        <span className={LABEL}>Incoterms Origin/Destination</span>
-                        <FadeText className="flex-1 text-slate-900">
-                          {shipment.incotermOrigin || shipment.incotermDestination
-                            ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
-                            : <span className={EMPTY}>—</span>}
-                        </FadeText>
-                      </div>
-                    ),
                   };
 
                   const allKeys = [...left, ...right].map((f) => f.key);

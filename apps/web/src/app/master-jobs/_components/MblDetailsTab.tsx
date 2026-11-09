@@ -164,15 +164,15 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   // Equipment & Depot beside MBL Cargo once the column is wide enough, and Basic Information last.
   // The stages, as the shipment's progress bar shows them. A master job has no task ticks, customs
   // status or delivery (those are its shipments'), so its own dates move it, by the shipment's
-  // rule: departed = In transit, arrived = past Arrive at POD.
+  // rule: departed = In transit, arrived = past Arrive at Port of Discharge.
   const stage = getStageFromFacts({ tradeDirection: mj.tradeDirection, actualDeparture: mj.actualDeparture, actualArrival: mj.actualArrival });
   const stageFacts: Record<string, string> = {
     "In transit": mj.actualDeparture ? `ATD ${formatDate(mj.actualDeparture)}` : "",
-    "Arrive at POD": mj.actualArrival ? `ATA ${formatDate(mj.actualArrival)}` : "",
+    "Arrive at Port of Discharge": mj.actualArrival ? `ATA ${formatDate(mj.actualArrival)}` : "",
   };
 
   return (
-    // The freight mode reaches every cell, as on a shipment: by air POL and POD also offer
+    // The freight mode reaches every cell, as on a shipment: by air Port of Loading and Port of Discharge also offer
     // airports, by sea Destination ocean terminals, and by air a Full Load reads Single Shipment.
     <FreightModeContext.Provider value={mj.freightMode || undefined}>
     <div className="@container flex flex-col gap-4 min-w-0">
@@ -255,8 +255,8 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
         </MasterJobCard>
         <MasterJobCard icon={<NodeIndexOutlined />} title="References & Routing" className="h-full">
           <FieldRow label="Booking Number" fieldKey="bookingNumber" value={mj.bookingNumber} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="POL" fieldKey="pol" value={mj.pol} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="POD" fieldKey="pod" value={mj.pod} onCommit={handleCommit} styleFor={styleFor} synced />
+          <FieldRow label="Port of Loading" fieldKey="pol" value={mj.pol} onCommit={handleCommit} styleFor={styleFor} synced />
+          <FieldRow label="Port of Discharge" fieldKey="pod" value={mj.pod} onCommit={handleCommit} styleFor={styleFor} synced />
           <FieldRow label="HUB" fieldKey="hub" value={mj.hub} onCommit={handleCommit} styleFor={styleFor} synced />
           <FieldRow label="Destination" fieldKey="destination" value={mj.destination} onCommit={handleCommit} styleFor={styleFor} />
         </MasterJobCard>

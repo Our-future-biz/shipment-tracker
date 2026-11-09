@@ -40,7 +40,7 @@ const table = z
   })
   .refine((t) => t.firstDataRow > t.headerRow, { message: "the first rate row must come after the headings row", path: ["firstDataRow"] })
   .refine((t) => t.lastDataRow === null || t.lastDataRow >= t.firstDataRow, { message: "the last rate row comes before the first", path: ["lastDataRow"] })
-  .refine((t) => t.pol !== null || t.polFixed !== null, { message: "say which column holds the ports of loading, or what they are", path: ["pol"] })
+  .refine((t) => t.pol !== null || t.polFixed !== null, { message: "say which column holds the Ports of Loading, or what they are", path: ["pol"] })
   .refine((t) => t.currency !== null || t.currencyFixed !== null, { message: "say which column holds the currency, or what it is", path: ["currency"] })
   .refine((t) => new Set(t.prices.map((p) => p.column)).size === t.prices.length, { message: "a price column is listed twice", path: ["prices"] })
   .refine((t) => new Set(t.prices.map((p) => p.equipment)).size === t.prices.length, { message: "two price columns are for the same container", path: ["prices"] });
@@ -122,9 +122,38 @@ export function tidyOceanLayout(input: unknown): unknown {
   };
 }
 
+// A rate table's and a surcharge's port fields as the form labels them: a layout refused for one of
+// them names the field so ("Table 1: Port of Discharge column"), not by its key (tables.0.pod).
+const TABLE_PORT_FIELDS = new Map([
+  ["pol", "Port of Loading column"],
+  ["polFixed", "Ports of Loading"],
+  ["pod", "Port of Discharge column"],
+  ["podCountries", "Port of Discharge countries"],
+]);
+const SURCHARGE_PORT_FIELDS = new Map([
+  ["countries", "Only for Port of Discharge countries"],
+  ["exceptCountries", "Except Port of Discharge countries"],
+  ["ports", "Only for Ports of Discharge"],
+  ["exceptPorts", "Except Ports of Discharge"],
+]);
+
+/** A refused field as the user sees it when it is a table's or a surcharge's port field; null for any other field. */
+function portFieldName([list, index, key]: (string | number)[]): string | null {
+  if (typeof index !== "number" || typeof key !== "string") return null;
+  if (list === "tables") {
+    const field = TABLE_PORT_FIELDS.get(key);
+    return field ? `Table ${index + 1}: ${field}` : null;
+  }
+  if (list === "surcharges") {
+    const field = SURCHARGE_PORT_FIELDS.get(key);
+    return field ? `Surcharge ${index + 1}: ${field}` : null;
+  }
+  return null;
+}
+
 /** A layout as checked and tidied; one that does not hold is refused with the first problem found. */
 export function parseOceanLayout(input: unknown): OceanLayout {
-  return parseLayout(layoutSchema, input);
+  return parseLayout(layoutSchema, input, portFieldName);
 }
 
 /** Whether the layout can be read from the file at all: every sheet it names is there and long enough. */

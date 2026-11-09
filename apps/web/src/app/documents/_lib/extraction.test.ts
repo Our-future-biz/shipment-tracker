@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containerNumbersOnFile, containersAfterReading, customerNamed, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, normalizeExtracted, partyLinks, sealNote, sealsOf, sealsOnFileThatDiffer, withMblSeals, type ShipmentPartyDetails } from "./extraction";
+import { containerNumbersOnFile, containersAfterReading, customerNamed, fieldName, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, normalizeExtracted, partyLinks, sealNote, sealsOf, sealsOnFileThatDiffer, withMblSeals, type ShipmentPartyDetails } from "./extraction";
 
 const acme = { id: "k1", companyName: "Acme Logistics s.r.o." };
 const zelezny = { id: "k2", companyName: "Železný a syn" };
@@ -229,5 +229,11 @@ describe("seal numbers read with containers", () => {
   it("tidies a seal list and drops one with no seal in it", () => {
     expect(normalizeExtracted({ "Seal Number": "S1 ,S2" })["Seal Number"]).toBe("S1, S2");
     expect(normalizeExtracted({ "Seal Number": " , " })["Seal Number"]).toBeUndefined();
+  });
+});
+
+describe("fieldName", () => {
+  it("names the ports in full and keeps every other label as read", () => {
+    expect(["POL", "POD", "Vessel"].map(fieldName)).toEqual(["Port of Loading", "Port of Discharge", "Vessel"]);
   });
 });

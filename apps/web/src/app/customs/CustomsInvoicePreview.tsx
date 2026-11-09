@@ -50,7 +50,7 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
     th { background: #f8fafc; }
     tr.totals td { background: #f1f5f9; font-weight: bold; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13px; }
-    .grid div span { color: #64748b; display: inline-block; width: 140px; }
+    .grid div span { color: #64748b; display: inline-block; width: 140px; vertical-align: top; }
   </style></head><body>
     <div class="header">
       <div>
@@ -73,7 +73,7 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
     <div class="grid">
       <div><span>Internal reference</span>${escapeHtml(shipment.jobNumber)}</div>
       <div><span>Direction</span>${escapeHtml(shipment.tradeDirection) || "—"}</div>
-      <div><span>POL → POD</span>${escapeHtml(route(shipment))}</div>
+      <div><span>Port of Loading → Port of Discharge</span>${escapeHtml(route(shipment))}</div>
       <div><span>Customs procedure</span>${escapeHtml(shipment.customsProcedure) || "—"}</div>
       <div><span>MRN number</span>${escapeHtml(shipment.mrn) || "—"}</div>
       <div><span>Container number</span>${escapeHtml(shipment.containerNumber) || "—"}</div>
@@ -164,7 +164,7 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
           <div className="grid grid-cols-2 gap-x-6 gap-y-1">
             <Field label="Internal reference" value={shipment.jobNumber} />
             <Field label="Direction" value={shipment.tradeDirection} />
-            <Field label="POL → POD" value={route(shipment)} />
+            <Field label="Port of Loading → Port of Discharge" value={route(shipment)} />
             <Field label="Customs procedure" value={shipment.customsProcedure} />
             <Field label="MRN number" value={shipment.mrn} />
             <Field label="Container number" value={shipment.containerNumber} />

@@ -77,7 +77,7 @@ export function ContainerFormModal({
   const scheduleFields: FieldDef[] = [
     { name: "masterJob", label: "Master job", section: "Unloading / loading schedule" },
     { name: "carrier", label: "Carrier" },
-    { name: "dischargePort", label: "Discharge port" },
+    { name: "dischargePort", label: "Port of Discharge" },
     { name: "arrivedAt", label: "Arrived at WH", type: "datetime" },
     { name: "houses", label: "Houses expected", type: "number" },
     { name: "dockSlot", label: "Dock slot", placeholder: "Dock 4 · 09:00" },

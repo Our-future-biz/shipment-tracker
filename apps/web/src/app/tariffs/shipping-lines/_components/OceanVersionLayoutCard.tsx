@@ -46,17 +46,17 @@ export const OceanVersionLayoutCard = ({ version, editable, isRelayouting, onRel
   />
 );
 
-// "sheet Far East, rows 11–24, POL column B, POD column C, via D, currency USD"
+// "sheet Far East, rows 11–24, Port of Loading column B, Port of Discharge column C, via D, currency USD"
 function tableText(t: interfaces.OceanTable): string {
   return [
     `sheet ${t.sheet}`,
     `rows ${t.firstDataRow}–${t.lastDataRow ?? "end"}`,
-    t.pol ? `POL column ${t.pol}` : `POL ${t.polFixed ?? "—"}`,
-    `POD column ${t.pod}`,
+    t.pol ? `Port of Loading column ${t.pol}` : `Ports of Loading ${t.polFixed ?? "—"}`,
+    `Port of Discharge column ${t.pod}`,
     t.via && `via column ${t.via}`,
     t.currency ? `currency column ${t.currency}` : `currency ${t.currencyFixed ?? "—"}`,
     t.note && `note column ${t.note}`,
-    t.podCountries.length > 0 && `PODs in ${t.podCountries.join(", ")}`,
+    t.podCountries.length > 0 && `Ports of Discharge in ${t.podCountries.join(", ")}`,
   ]
     .filter(Boolean)
     .join(", ");

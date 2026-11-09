@@ -452,7 +452,7 @@ class OceanTariffService {
     const polCode = req.polCode.trim().toUpperCase();
     const podCode = req.podCode.trim().toUpperCase();
     if (!/^[A-Z]{2}[A-Z0-9]{3}$/.test(podCode) || (!req.comparePols && !/^[A-Z]{2}[A-Z0-9]{3}$/.test(polCode))) {
-      throw APIError.invalidArgument("Choose the ports of loading and discharge (UN/LOCODE places)");
+      throw APIError.invalidArgument("Choose the Port of Loading and Port of Discharge (UN/LOCODE places)");
     }
     if (!req.containers.length) throw APIError.invalidArgument("Add the containers in Cargo details first");
     if (req.containers.length > MAX_CONTAINER_LINES) throw APIError.invalidArgument(`At most ${MAX_CONTAINER_LINES} container lines are priced at once`);

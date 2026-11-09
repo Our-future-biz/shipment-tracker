@@ -114,7 +114,7 @@ describe("oceanLayoutProblems", () => {
       surcharges: [{ ...newSurcharge(), currency: "US" }],
     });
     expect(problems).toEqual([
-      "Far East direct calls: choose the column of the ports of loading, or type them",
+      "Far East direct calls: choose the column of the Ports of Loading, or type them",
       "Far East direct calls: choose the currency column, or type the currency (e.g. USD)",
       "Far East direct calls: every price column needs its column",
       "Far East direct calls: two price columns are for the same container",
@@ -144,7 +144,7 @@ describe("ports and places", () => {
     const tables = [TABLE, { label: "Reefer" }];
     expect(surchargeScopeText(newSurcharge(), tables)).toBe("Every table");
     expect(surchargeScopeText({ ...newSurcharge(), tables: [1], equipment: ["reefer"], countries: ["CN"], exceptPorts: ["CNSHA"] }, tables)).toBe(
-      "Reefer · reefer only · ports of discharge in CN · not to CNSHA",
+      "Reefer · reefer only · Ports of Discharge in CN · not to CNSHA",
     );
   });
 });

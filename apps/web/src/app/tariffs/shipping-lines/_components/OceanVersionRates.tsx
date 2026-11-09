@@ -51,8 +51,8 @@ export const OceanVersionRates = ({ version }: OceanVersionRatesProps) => {
       ...(tables.length > 1
         ? ([{ key: "table", title: "Table", render: (_, r) => <span className="text-xs text-slate-500">{tables[r.table]?.label ?? "—"}</span> }] satisfies TableColumnsType<OceanRateView>)
         : []),
-      { key: "pol", title: "POL", render: (_, r) => <Port name={r.polName} code={r.polCode} /> },
-      { key: "pod", title: "POD", render: (_, r) => <Port name={r.podName} code={r.podCode} /> },
+      { key: "pol", title: "Port of Loading", render: (_, r) => <Port name={r.polName} code={r.polCode} /> },
+      { key: "pod", title: "Port of Discharge", render: (_, r) => <Port name={r.podName} code={r.podCode} /> },
       { key: "via", title: "Via", render: (_, r) => r.via || EMPTY_CELL },
       ...prices,
       { key: "currency", title: "Currency", render: (_, r) => r.currency },

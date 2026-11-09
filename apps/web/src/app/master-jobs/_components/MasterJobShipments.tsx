@@ -311,7 +311,7 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
           autoFocus
           allowClear
           prefix={<SearchOutlined className="text-slate-400" />}
-          placeholder="Search job number, customer, shipper, consignee, POL, POD…"
+          placeholder="Search job number, customer, shipper, consignee, Port of Loading, Port of Discharge…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search shipments"

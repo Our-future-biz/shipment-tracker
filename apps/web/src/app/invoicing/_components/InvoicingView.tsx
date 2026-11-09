@@ -41,13 +41,15 @@ function InvoicingStatusTag({ value }: { value: string }) {
 
 interface SummaryItemProps {
   label: string;
+  /** The label may take two lines in a narrow column (the ports' long names) instead of running into the next fact. */
+  wrapLabel?: boolean;
   children: React.ReactNode;
 }
 
-function SummaryItem({ label, children }: SummaryItemProps) {
+function SummaryItem({ label, wrapLabel = false, children }: SummaryItemProps) {
   return (
     <div className="min-w-0">
-      <div className={`${LABEL_TEXT} whitespace-nowrap`}>{label}</div>
+      <div className={`${LABEL_TEXT} ${wrapLabel ? "" : "whitespace-nowrap"}`}>{label}</div>
       <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
     </div>
   );
@@ -87,7 +89,7 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
 
   return (
     // 9 facts in one row on a wide screen: the text facts share the width, the last three take
-    // the width of their label (labels do not wrap); a long Shipment Status is cut, not widened
+    // the width of their label (labels do not wrap, but the ports' may); a long Shipment Status is cut, not widened
     <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_fit-content(120px)_max-content_max-content] gap-x-4 gap-y-3">
       <SummaryItem label="Job">
         <Link href={`/shipments/${shipment.id}`} className={`${REF} font-semibold ${LINK}`}>
@@ -96,8 +98,8 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
       </SummaryItem>
       <SummaryItem label="Direction">{shipment.tradeDirection || EMPTY_CELL}</SummaryItem>
       <SummaryItem label="Customer">{shipment.customer || <span className="text-slate-500">Not linked</span>}</SummaryItem>
-      <SummaryItem label="POL">{shipment.pol || EMPTY_CELL}</SummaryItem>
-      <SummaryItem label="POD">
+      <SummaryItem label="Port of Loading" wrapLabel>{shipment.pol || EMPTY_CELL}</SummaryItem>
+      <SummaryItem label="Port of Discharge" wrapLabel>
         <span className="min-w-0">
           {shipment.pod || EMPTY_CELL}
           {/* the final destination, which the old Route column also showed */}

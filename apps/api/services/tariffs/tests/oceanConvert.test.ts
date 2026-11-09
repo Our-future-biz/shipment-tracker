@@ -128,10 +128,16 @@ describe("tidyOceanLayout", () => {
 
   it("refuses a table without ports of loading or currency, and a surcharge for a table that is not there", () => {
     const bad = (change: object) => () => parseOceanLayout({ ...LAYOUT, ...change });
-    expect(bad({ tables: [{ ...LAYOUT.tables[0], pol: null, polFixed: null }] })).toThrow(expect.objectContaining({ message: expect.stringContaining("tables.0.pol") }));
+    expect(bad({ tables: [{ ...LAYOUT.tables[0], pol: null, polFixed: null }] })).toThrow(
+      expect.objectContaining({ message: "The tariff layout is not usable: Table 1: Port of Loading column say which column holds the Ports of Loading, or what they are" }),
+    );
+    expect(bad({ tables: [{ ...LAYOUT.tables[0], pod: "C9" }] })).toThrow(expect.objectContaining({ message: "The tariff layout is not usable: Table 1: Port of Discharge column must be a column letter, e.g. C" }));
     expect(bad({ tables: [{ ...LAYOUT.tables[0], currencyFixed: null }] })).toThrow(expect.objectContaining({ message: expect.stringContaining("tables.0.currency") }));
     const ebs = { name: "EBS", code: "EBS", amount: 70, currency: "USD", basis: "teu", equipment: [], tables: [9], countries: [], exceptCountries: [], ports: [], exceptPorts: [], condition: "always", charge: "fcl_baf" };
     expect(bad({ surcharges: [ebs] })).toThrow(expect.objectContaining({ message: expect.stringContaining("surcharges") }));
+    expect(bad({ surcharges: [{ ...ebs, tables: [0], countries: ["China"] }] })).toThrow(
+      expect.objectContaining({ message: "The tariff layout is not usable: Surcharge 1: Only for Port of Discharge countries must be a country code, e.g. CN" }),
+    );
   });
 
   it("refuses rows past the end of any sheet and a port key longer than any tariff's", () => {

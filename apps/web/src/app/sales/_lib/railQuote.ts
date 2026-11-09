@@ -87,11 +87,14 @@ export function railContainersOf(data: SalesQuoteData): interfaces.RailOfferCont
     .filter((c) => c.type && c.qty > 0);
 }
 
+/** The route's port by its name for the direction (railRouteOf): an import runs from the Port of Discharge, an export to the Port of Loading. */
+export const railPortLabel = (direction: interfaces.RailDirection): string => (direction === "import" ? "Port of Discharge" : "Port of Loading");
+
 /** What keeps the route from being asked for, in words; null when it can be. */
 export function railRouteProblem(route: RailRoute): string | null {
   if (route.directionChosen === false) return TRADE_DIRECTION_FIRST;
   if (!route.containers.length) return "Add the containers in Cargo details first";
-  if (!route.port) return `Choose the port (tariffs are for ${portsText(TARIFF_PORTS.map((p) => p.code))})`;
+  if (!route.port) return `Choose the ${railPortLabel(route.direction)} (tariffs are for ${portsText(TARIFF_PORTS.map((p) => p.code))})`;
   if (!route.place.trim()) return "Type the inland place or its postcode";
   return null;
 }

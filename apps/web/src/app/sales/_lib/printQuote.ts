@@ -278,8 +278,8 @@ export function quoteDocument(
       <div><span>Direction</span>${esc(data.direction) || "—"}</div>
       <div><span>Incoterms</span>${esc(data.incoterm) || "—"}</div>
       <div><span>Cargo ready</span>${esc(cargoReady) || "—"}</div>
-      <div><span>POL</span>${esc(data.pol) || "—"}</div>
-      <div><span>POD</span>${esc(data.pod) || "—"}</div>
+      <div><span>Port of Loading</span>${esc(data.pol) || "—"}</div>
+      <div><span>Port of Discharge</span>${esc(data.pod) || "—"}</div>
     </div>
 
     <h2>Cargo</h2>

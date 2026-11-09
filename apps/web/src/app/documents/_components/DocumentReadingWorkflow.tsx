@@ -57,6 +57,7 @@ import {
   type CustomerRef,
   type Destination,
   type ExtractedField,
+  fieldName,
   type InputMode,
   INVOICE_FIELD_LABELS,
   type InvoiceExtracted,
@@ -2372,11 +2373,11 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
                     checked={!!ticked[label]}
                     disabled={filed}
                     onChange={() => onToggle(label)}
-                    aria-label={`File ${label} to the master job`}
+                    aria-label={`File ${fieldName(label)} to the master job`}
                   />
                 )}
               </span>
-              <span className={`w-[150px] shrink-0 pt-0.5 ${LABEL_TEXT}`}>{label}</span>
+              <span className={`w-[150px] shrink-0 pt-0.5 ${LABEL_TEXT}`}>{fieldName(label)}</span>
               <span className="flex-1 min-w-0">
                 {label === MBL_SEALS_LABEL && !filed ? (
                   <Input

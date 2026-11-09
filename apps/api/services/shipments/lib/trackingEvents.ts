@@ -237,7 +237,7 @@ export const TICK_EVENTS: Readonly<Record<string, TrackingKind>> = {
   imp_cargo_readiness: "cargo_ready",
   exp_cargo_readiness: "cargo_ready",
   imp_cargo_shipped: "departed",
-  // "Departed from port" is read on the desk as leaving the POD for the hub: it sets no ATD.
+  // "Cargo departed from Port of Discharge" is leaving the Port of Discharge for the hub: it sets no ATD.
   imp_departed_port: "terminal_out",
   imp_arrived_hub: "hub_arrived",
   imp_customs_cleared: "customs_released",

@@ -11,7 +11,7 @@ import { businessToday } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
 import { formatPostcode } from "@/lib/postcode";
 import { TARIFF_PORTS, railVersionHref } from "@/app/tariffs/_lib/railTariffs";
-import { railOffersRequest, railRouteOf, railRouteProblem, type RailOffer, type RailRoute } from "../../../_lib/railQuote";
+import { railOffersRequest, railPortLabel, railRouteOf, railRouteProblem, type RailOffer, type RailRoute } from "../../../_lib/railQuote";
 import { offerInQuoteCurrency, rankOffers, viaTerminals, type ToQuoteCurrency } from "../../../_lib/tariffQuote";
 import type { SalesQuoteData } from "../../../_lib/types";
 import { TariffDirectionField, TariffDrawerField } from "./TariffDrawerField";
@@ -107,18 +107,21 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
     pickColumn((o) => onPick(o, asked), isFetching),
   ];
 
+  // The port is named by the direction, as the quote gives it.
+  const portLabel = railPortLabel(route.direction);
+
   const summary = offers.length
     ? `${narrowed ? `${offers.length} of ${ranked.length} options, via ${terminals.filter((t) => offers.some((o) => o.via === t)).join(", ")},` : `${offers.length} ${offers.length === 1 ? "option" : "options"}`} from the most economic to the most expensive; "Use" puts it on the buying line.`
     : result?.matchedBy === "place"
-      ? `No rail tariff has "${route.place.trim()}" for this port and direction. Places are found by their exact name; try the postcode.`
-      : "No rail tariff prices this route: check the port, the direction and the postcode.";
+      ? `No rail tariff has "${route.place.trim()}" for this ${portLabel} and direction. Places are found by their exact name; try the postcode.`
+      : `No rail tariff prices this route: check the ${portLabel}, the direction and the postcode.`;
 
   const form = (
     <>
       <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_1.2fr_64px_150px] gap-3 items-end">
         <TariffDirectionField direction={route.direction} />
-        <TariffDrawerField label="Port">
-          <Select aria-label="Port" placeholder="Port" value={route.port} options={PORT_OPTIONS} onChange={(port: interfaces.TariffPortCode) => set({ port })} />
+        <TariffDrawerField label={portLabel}>
+          <Select aria-label={portLabel} placeholder={portLabel} value={route.port} options={PORT_OPTIONS} onChange={(port: interfaces.TariffPortCode) => set({ port })} />
         </TariffDrawerField>
         <TariffDrawerField label="Inland place or postcode">
           <Input aria-label="Inland place or postcode" placeholder="602 00, or Brno" value={route.place} maxLength={300} allowClear onChange={(e) => set({ place: e.target.value })} />

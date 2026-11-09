@@ -137,8 +137,8 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
   const summary = offers.length
     ? `${narrowed ? `${offers.length} of ${ranked.length} options` : `${offers.length} ${offers.length === 1 ? "option" : "options"}`} from the most economic to the most expensive all-in; "Use" puts the freight and its surcharges on the buying lines.`
     : route.comparePols
-      ? "No shipping line's tariff has a rate to this port of discharge for these containers."
-      : 'No shipping line\'s tariff has a rate on this route for these containers. Try "Compare other ports of loading".';
+      ? "No shipping line's tariff has a rate to this Port of Discharge for these containers."
+      : 'No shipping line\'s tariff has a rate on this route for these containers. Try "Compare other Ports of Loading".';
 
   const containersText = route.containers.map((c) => `${c.qty} × ${c.type}`).join(" · ");
 
@@ -146,11 +146,11 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
     <>
       <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_1fr_150px] gap-3 items-end">
         <TariffDirectionField direction={route.direction} exportFirst />
-        <TariffDrawerField label="Port of loading">
-          <GeoSelect kind="place" className="w-full" placeholder="Port of loading" value={route.pol} onChange={(v) => set({ pol: v })} />
+        <TariffDrawerField label="Port of Loading">
+          <GeoSelect kind="place" className="w-full" placeholder="Port of Loading" value={route.pol} onChange={(v) => set({ pol: v })} />
         </TariffDrawerField>
-        <TariffDrawerField label="Port of discharge">
-          <GeoSelect kind="place" className="w-full" placeholder="Port of discharge" value={route.pod} onChange={(v) => set({ pod: v })} />
+        <TariffDrawerField label="Port of Discharge">
+          <GeoSelect kind="place" className="w-full" placeholder="Port of Discharge" value={route.pod} onChange={(v) => set({ pod: v })} />
         </TariffDrawerField>
         <TariffDrawerField label="Rates valid on">
           <DatePicker
@@ -165,7 +165,7 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
       </div>
       <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer w-fit">
         <Switch size="small" checked={route.comparePols} onChange={(comparePols) => set({ comparePols })} />
-        Compare other ports of loading
+        Compare other Ports of Loading
       </label>
 
       <div className="text-[13px] text-slate-700">

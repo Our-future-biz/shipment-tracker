@@ -220,8 +220,8 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     render: (_, r) => (r.m?.openExceptions ? <Badge tone={isOnHold(r.m) ? "r" : "a"}>{exceptionText(r.m)}</Badge> : dim("")),
   },
   textCol("customsStatus", "Customs Status", 230, { filterOptions: [...CUSTOMS_STATUSES] }),
-  textCol("pol", "POL", 110),
-  textCol("pod", "POD", 110),
+  textCol("pol", "Port of Loading", 150),
+  textCol("pod", "Port of Discharge", 150),
   { key: "etd", title: "ETD", width: 110, text: (r) => formatDate(r.m?.etd), sorter: byText((r) => r.m?.etd || "9999"), render: (_, r) => dim(formatDate(r.m?.etd)) },
   { key: "eta", title: "ETA", width: 110, text: (r) => formatDate(r.m?.eta), sorter: byText((r) => r.m?.eta || "9999"), render: (_, r) => dim(formatDate(r.m?.eta)) },
   {

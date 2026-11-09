@@ -3,7 +3,7 @@
 import { Table, Checkbox, Input, Tag } from "antd";
 import { Pill } from "@/components/Pill";
 import { EMPTY } from "@/styles/ui";
-import { parseContainerNumbers, SEAL_LABEL, sealContainers, sealNote, type ExtractedField } from "../_lib/extraction";
+import { fieldName, parseContainerNumbers, SEAL_LABEL, sealContainers, sealNote, type ExtractedField } from "../_lib/extraction";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { LABEL_GEO_FIELDS } from "@/lib/places";
 
@@ -54,7 +54,7 @@ export function FieldReviewTable({
       title: "Field",
       dataIndex: "column",
       width: 220,
-      render: (v: string) => <span className="font-medium text-slate-700">{v}</span>,
+      render: (v: string) => <span className="font-medium text-slate-700">{fieldName(v)}</span>,
     },
     {
       title: "Extracted Value",

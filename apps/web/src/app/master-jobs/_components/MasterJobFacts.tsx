@@ -50,7 +50,7 @@ const CHIP = `${REF} truncate text-[12px] font-bold px-2 py-0.5 rounded-md bg-in
 
 export function MasterJobFacts({ masterJob: mj, shipments, onJump = jumpTo }: MasterJobFactsProps) {
   return (
-    // The shipment header's columns (ShipmentFacts), so POL, ETD, POD and ETA stay where they are
+    // The shipment header's columns (ShipmentFacts), so Port of Loading, ETD, Port of Discharge and ETA stay where they are
     // when you go from a house to its master job.
     <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
       <Fact label="Master Job" className="col-span-full xl:col-span-1">
@@ -75,17 +75,17 @@ export function MasterJobFacts({ masterJob: mj, shipments, onJump = jumpTo }: Ma
       <Fact label="Freight Mode">{text(mj.freightMode)}</Fact>
       <Fact label="Load Type">{text(mj.loadType ? loadTypeLabel(mj.loadType, mj.freightMode) : "")}</Fact>
       <Fact label="Shipping line / Coloader">{text(mj.shippingLine)}</Fact>
-      <Fact label="POL">{text(mj.pol)}</Fact>
+      <Fact label="Port of Loading">{text(mj.pol)}</Fact>
       {/* The dates jump to their rows in MBL Details, as the old summary tiles did. */}
       <Fact label="ETD Estimated">
         <button type="button" onClick={() => onJump(MJ_ANCHORS.etd)} title="Go to ETD Estimated" className={DATE_JUMP}>
           {formatDate(mj.estimatedDeparture) || dash}
         </button>
       </Fact>
-      <Fact label="POD">
+      <Fact label="Port of Discharge">
         <span className="min-w-0">
           {mj.pod ? <span className="block truncate" title={mj.pod}>{mj.pod}</span> : dash}
-          {/* the final destination, as the shipment header's POD fact shows it */}
+          {/* the final destination, as the shipment header's Port of Discharge fact shows it */}
           {mj.destination && mj.destination !== mj.pod && (
             <span className="block truncate text-[12px] font-normal text-slate-500" title={mj.destination}>
               Destination: {mj.destination}

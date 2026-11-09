@@ -6,7 +6,7 @@ export interface TaskDef {
   stage: number;
 }
 
-// Stage bar: 0 Booking confirmed · 1 Cargo ready · 2 In transit · 3 Arrive at POD · 4 Customs clearance · 5 Delivered
+// Stage bar: 0 Booking confirmed · 1 Cargo ready · 2 In transit · 3 Arrive at Port of Discharge · 4 Customs clearance · 5 Delivered
 
 export const IMPORT_TASKS: TaskDef[] = [
   { key: "imp_booking_to_agent", label: "Booking to agent", description: "Booking sent to agent", stage: 0 },
@@ -19,7 +19,8 @@ export const IMPORT_TASKS: TaskDef[] = [
   { key: "imp_paperwork_customs", label: "Paperwork provided to customs", description: "Paperwork provided to customs", stage: 4 },
   { key: "imp_cargo_released", label: "Cargo released for further transport", description: "Cargo released for further transport", stage: 4 },
   { key: "imp_booked_transport", label: "Booked for further transport", description: "Booked for further transport", stage: 4 },
-  { key: "imp_departed_port", label: "Cargo departed from port", description: "Cargo departed from port", stage: 2 },
+  // Leaving the Port of Discharge for the hub: it records terminal_out (TICK_EVENTS), not the ATD.
+  { key: "imp_departed_port", label: "Cargo departed from Port of Discharge", description: "Cargo departed from Port of Discharge", stage: 2 },
   { key: "imp_arrived_hub", label: "Cargo arrived to HUB", description: "Cargo arrived to HUB", stage: 3 },
   { key: "imp_customs_cleared", label: "Cargo customs cleared", description: "Cargo customs cleared", stage: 4 },
   { key: "imp_billed", label: "Billed", description: "Shipment has been billed", stage: 5 },
@@ -166,7 +167,7 @@ export interface StageFacts {
 
 /**
  * The stage a shipment's own dates put it at, whatever is ticked: departed = In transit, arrived =
- * past Arrive at POD, cleared = past Customs clearance, delivered = every stage done. An export is
+ * past Arrive at Port of Discharge, cleared = past Customs clearance, delivered = every stage done. An export is
  * cleared before it sails, so its customs status says nothing about the stages.
  */
 export function getStageFromFacts(facts: StageFacts): number {

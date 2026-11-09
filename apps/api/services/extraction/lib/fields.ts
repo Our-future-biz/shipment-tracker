@@ -1,3 +1,6 @@
+// The labels the AI returns its fields by. The Documents review shows them as they are, but for
+// "POL" and "POD": those keys stay for the AI, and the review names them Port of Loading and Port of
+// Discharge (fieldName in apps/web/src/app/documents/_lib/extraction.ts).
 export const SHIPMENT_FIELDS = [
   "Shipper", "Consignee", "Personal Reference", "Container Number", "Seal Number",
   "Booking Number", "Load Type", "Shipping line / Coloader",
