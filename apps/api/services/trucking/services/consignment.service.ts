@@ -158,7 +158,7 @@ const toStop = (s: StopInput, kind: Stop["kind"], before?: Stop): Stop => ({
 export const routeText = (pickup: StopInput, delivery: StopInput) =>
   `${pickup.city} ${pickup.country === "CZ" ? showPostcode(pickup.postcode) : pickup.postcode} → ${delivery.city} ${delivery.country === "CZ" ? showPostcode(delivery.postcode) : delivery.postcode}`;
 
-const money = (n: number, currency: string) => `${roundToStep(n, 0.01).toLocaleString("en-US").replace(/,/g, " ")} ${currency}`;
+const money = (n: number, currency: string) => `${roundToStep(n, 0.01).toLocaleString("en-US")} ${currency}`;
 
 /** The rate request of a consignment: one level, with buy prices (FTL unless said otherwise). */
 export function rateRequestOf(

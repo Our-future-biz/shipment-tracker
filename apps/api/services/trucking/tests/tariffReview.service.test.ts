@@ -171,7 +171,7 @@ describe("test lane", () => {
   it("says why a lane is not priced", async () => {
     const levels = await tariffReviewService.testLane(C, V, lane({ weightKg: 3000 }));
     expect((levels[4].result as Unpriced).reason).toBe("Above the top band — price on request");
-    expect(levels[0].result).toMatchObject({ bandLabel: "over 2 500 kg" });
+    expect(levels[0].result).toMatchObject({ bandLabel: "over 2,500 kg" });
   });
 
   it("converts a EUR tariff at the ČNB rate of the pickup date", async () => {

@@ -133,7 +133,7 @@ export function offerEnds(offer: Pick<CollectionOffer, "hubPlace" | "customerPla
 }
 
 /** "206 km" for a tariff by distance, its zone ("Zone 3") for one by postcode area. */
-export const offerReach = (offer: Pick<CollectionOffer, "distanceKm" | "zoneLabel">) => (offer.distanceKm !== null ? `${offer.distanceKm.toLocaleString("cs-CZ")} km` : offer.zoneLabel);
+export const offerReach = (offer: Pick<CollectionOffer, "distanceKm" | "zoneLabel">) => (offer.distanceKm !== null ? `${offer.distanceKm.toLocaleString("en-US")} km` : offer.zoneLabel);
 
 /** "Delivery Dobrovíz → Brno · 206 km · up to 150 kg". */
 export function collectionDescription(offer: CollectionOffer, route: Pick<CollectionRoute, "leg" | "hubPostcode" | "customerPostcode">): string {

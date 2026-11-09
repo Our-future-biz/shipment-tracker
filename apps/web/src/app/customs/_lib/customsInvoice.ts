@@ -6,7 +6,7 @@ export interface CustomsInvoiceLine {
   value: number;
 }
 
-export const fmt = (n: number) => n.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const fmt = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
  * An amount as typed — "1250.50", "1 250,50", "1,250.50", "1.250,50" — as a plain decimal

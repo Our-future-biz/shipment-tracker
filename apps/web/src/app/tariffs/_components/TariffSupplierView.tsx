@@ -58,7 +58,7 @@ function versionColumns(customerId: string, today: string, versionHref: (custome
       ),
     },
     { key: "validity", title: "Valid", render: (_, v) => validityText(v) },
-    { key: "rows", title: rowsTitle, align: "right", render: (_, v) => v.rowCount.toLocaleString("cs-CZ") },
+    { key: "rows", title: rowsTitle, align: "right", render: (_, v) => v.rowCount.toLocaleString("en-US") },
     {
       key: "problems",
       title: "Problems",

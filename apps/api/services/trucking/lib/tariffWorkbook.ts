@@ -463,7 +463,7 @@ const META_LABELS: Record<string, MetaKey> = {
   notes: "notes",
 };
 
-const fmtNumber = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const fmtNumber = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 /** Reads the tables of a filled tariff file into a version input, its problems and a report per sheet. */
 export function parseTariffTables(tables: SheetTable[], defaults: ParseDefaults): ParsedWorkbook {

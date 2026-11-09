@@ -1616,7 +1616,7 @@ describe("road transport", () => {
       });
       expect((document!.sellingLines as unknown[]).at(-1)).toEqual(manual(500));
       expect(entries).toEqual([
-        { kind: "road_price", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Priced from tariff: Standard v3, +1 day, 4 250 CZK" },
+        { kind: "road_price", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Priced from tariff: Standard v3, +1 day, 4,250 CZK" },
       ]);
     });
 

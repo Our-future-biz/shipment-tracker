@@ -16,7 +16,7 @@ import {
   type CellStyle,
 } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
-import { moneyCz } from "@/lib/money";
+import { money } from "@/lib/money";
 import { compareJobNumbers } from "@/lib/jobNumber";
 import {
   invoicingStatusOf,
@@ -240,7 +240,7 @@ export function queueColumns({
       ellipsis: true,
       render: (_, r) => {
         if (r.invoiceNumbers.length > 0) {
-          const amounts = r.invoiced.map((i) => `${moneyCz(i.gross)} ${i.currency}`).join(" + ");
+          const amounts = r.invoiced.map((i) => `${money(i.gross)} ${i.currency}`).join(" + ");
           return (
             // focusable, so the amounts open by keyboard too; screen readers read them as text.
             // The numbers lead the tooltip as well: in this width a second one is cut off.

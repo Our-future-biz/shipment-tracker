@@ -118,7 +118,7 @@ describe("addLegsWarnings", () => {
     const w = addLegsWarnings({ ldm: 13, kg: 23800, palletPlaces: 32 }, [leg("1", { adr: true, tailLift: true, promisedDate: "2026-10-15", consignmentRef: "TCZ1" })], ctx);
     expect(w).toEqual([
       "Over capacity: 13.8 of 13.6 LDM",
-      "Over capacity: 24 300 of 24 000 kg",
+      "Over capacity: 24,300 of 24,000 kg",
       "Over capacity: 34 of 33 pallet places",
       "TCZ1: ADR on a haulier without ADR",
       "TCZ1: tail-lift needed, the vehicle has none",

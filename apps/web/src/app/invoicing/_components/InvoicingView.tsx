@@ -14,7 +14,7 @@ import { Pill } from "@/components/Pill";
 import { CARD, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { formatDate } from "@/lib/date";
 import { StatusBadge } from "@/components/StatusBadge";
-import { moneyCz } from "@/lib/money";
+import { money } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
@@ -145,12 +145,12 @@ function CostsTotals({ shipment }: ShipmentProps) {
   return (
     // one block that does not squeeze; its parts wrap only if it is wider than the whole row
     <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[13px] text-slate-500 tabular-nums">
-      <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
-      <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
+      <span>Buying <strong className="text-slate-900">{money(t.buyTotal)}</strong></span>
+      <span>Selling <strong className="text-slate-900">{money(t.sellTotal)}</strong></span>
       <span>
         Profit{" "}
         <strong className={t.sellTotal - t.buyTotal >= 0 ? "text-ok" : "text-danger"}>
-          {moneyCz(t.sellTotal - t.buyTotal)}
+          {money(t.sellTotal - t.buyTotal)}
         </strong>
       </span>
       <span className="text-slate-500">{billingCur}</span>

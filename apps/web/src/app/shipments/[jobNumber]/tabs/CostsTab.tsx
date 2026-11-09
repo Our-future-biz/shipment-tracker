@@ -11,7 +11,7 @@ import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
-import { amountTypingAllowed, normaliseAmount } from "@/lib/money";
+import { amountEdited, amountInBox, amountTypingAllowed, normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
@@ -100,6 +100,13 @@ function CurrencyPicker({ value, onChange, locked = false }: CurrencyPickerProps
  * left alone: pasted text goes in as it is, and the save refuses it when it is no amount (cleanAmounts)
  * rather than saving what is left of it once its letters are gone ("2 x 40HC" is not 240).
  */
+/** Leaving an amount box: saved when it is another amount, and written the way figures are, 1,250.50. */
+const onAmountBlur = (stored: string, save: (typed: string) => void) => (e: React.FocusEvent<HTMLInputElement>) => {
+  const typed = e.target.value;
+  if (amountEdited(typed, stored)) save(typed);
+  e.target.value = amountInBox(typed);
+};
+
 function onlyNumbers(e: React.KeyboardEvent<HTMLInputElement>) {
   // Ctrl / Cmd shortcuts pass; AltGr (Ctrl + Alt on Windows) and Option types a character, judged below
   if (e.key.length !== 1 || e.metaKey || (e.ctrlKey && !e.altKey) || e.nativeEvent.isComposing) return;
@@ -831,20 +838,20 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-center${est}`}
                       {...closed(locked || estClosed)}
-                      defaultValue={r.estQty}
+                      defaultValue={amountInBox(r.estQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
+                      onBlur={onAmountBlur(r.estQty, (estQty) => updateBuy.mutate({ id: r.id, estQty }))}
                     />
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-right${est}`}
                       {...closed(locked || estClosed)}
-                      defaultValue={r.estAmount}
+                      defaultValue={amountInBox(r.estAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
+                      onBlur={onAmountBlur(r.estAmount, (estAmount) => updateBuy.mutate({ id: r.id, estAmount }))}
                     />
                   </td>
                   <td className={CELL}>
@@ -859,10 +866,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-center${fld}`}
                       {...closed(locked)}
-                      defaultValue={r.realQty}
+                      defaultValue={amountInBox(r.realQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.realQty && updateBuy.mutate({ id: r.id, realQty: e.target.value })}
+                      onBlur={onAmountBlur(r.realQty, (realQty) => updateBuy.mutate({ id: r.id, realQty }))}
                     />
                   </td>
                   <td
@@ -877,10 +884,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
                       {...closed(locked)}
-                      defaultValue={r.realAmount}
+                      defaultValue={amountInBox(r.realAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.realAmount && updateBuy.mutate({ id: r.id, realAmount: e.target.value })}
+                      onBlur={onAmountBlur(r.realAmount, (realAmount) => updateBuy.mutate({ id: r.id, realAmount }))}
                     />
                   </td>
                   <td className={CELL}>
@@ -1057,7 +1064,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         {r.customer.trim() && <span className={OWN_TEXT_HINT}>Own text from Issue invoice</span>}
                         {truckingTag && <TruckingCostTagLink tag={truckingTag} />}
                       </td>
-                      <td className={CELL}><span className={`${READ} text-center`}>{r.qty}</span></td>
+                      <td className={CELL}><span className={`${READ} text-center`}>{amountInBox(r.qty)}</span></td>
                       <td className={CELL}>
                         {/* A cost sold on from a master job: its number is the one thing that changes here. */}
                         {masterJobRows.has(r.id) && !invoicedOn && !billed ? (
@@ -1071,7 +1078,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             onDone={invalidate}
                           />
                         ) : (
-                          <span className={`${READ} text-right tabular-nums`}>{r.amount}</span>
+                          <span className={`${READ} text-right tabular-nums`}>{amountInBox(r.amount)}</span>
                         )}
                       </td>
                       <td className={CELL}><span className={READ_SELECT}>{r.currency}</span></td>
@@ -1179,20 +1186,20 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-center${fld}`}
                       {...closed(locked)}
-                      defaultValue={r.qty}
+                      defaultValue={amountInBox(r.qty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.qty && updateSell.mutate({ id: r.id, qty: e.target.value })}
+                      onBlur={onAmountBlur(r.qty, (qty) => updateSell.mutate({ id: r.id, qty }))}
                     />
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-right${fld}`}
                       {...closed(locked)}
-                      defaultValue={r.amount}
+                      defaultValue={amountInBox(r.amount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.amount && updateSell.mutate({ id: r.id, amount: e.target.value })}
+                      onBlur={onAmountBlur(r.amount, (amount) => updateSell.mutate({ id: r.id, amount }))}
                     />
                   </td>
                   <td className={CELL}>

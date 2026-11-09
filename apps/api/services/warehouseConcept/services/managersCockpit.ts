@@ -48,7 +48,7 @@ type Container = WarehouseContainerItem;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const nf = (n: number) => Math.round(n).toLocaleString("en-US").replace(/,/g, " ");
+const nf = (n: number) => Math.round(n).toLocaleString("en-US");
 
 const PRAGUE_STAMP = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 /** "23.10. 09:12" (Prague) of an ISO time; "" for none. */

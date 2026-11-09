@@ -102,7 +102,7 @@ describe("collectionLayoutProblems", () => {
 
 describe("how a tariff reads", () => {
   it("names its weight rows, volumes and surcharges", () => {
-    expect(weightToText(1500)).toBe("up to 1 500 kg");
+    expect(weightToText(1500)).toBe("up to 1,500 kg");
     expect(volumeToText(0.12)).toBe("≤ 0.12 m³");
     expect(surchargeText(LAYOUT.surcharges[0]!, "CZK")).toBe("Oversize: +50 % for a piece over 350 cm");
     expect(surchargeText({ kind: "flat", label: "Handling", overLengthCm: null, percent: null, amount: 50 }, "CZK")).toBe("Handling: 50 CZK per consignment");

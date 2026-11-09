@@ -23,9 +23,9 @@ const band = (basis: interfaces.BandBasis, fromExcl: number, toIncl: number | nu
 
 describe("band labels", () => {
   it("reads weight bands as whole kilograms", () => {
-    expect(bandLabel(band("KG", 1000, 1500))).toBe("1 001 – 1 500 kg");
+    expect(bandLabel(band("KG", 1000, 1500))).toBe("1,001 – 1,500 kg");
     expect(bandLabel(band("KG", 0, 500))).toBe("up to 500 kg");
-    expect(bandLabel(band("KG", 5000, null))).toBe("over 5 000 kg");
+    expect(bandLabel(band("KG", 5000, null))).toBe("over 5,000 kg");
   });
 
   it("reads pallets, LDM and trips", () => {
@@ -38,14 +38,14 @@ describe("band labels", () => {
   });
 
   it("keeps a lower end that is not a whole step as 'over'", () => {
-    expect(bandLabel(band("KG", 999.5, 1500))).toBe("over 999.5 – 1 500 kg");
+    expect(bandLabel(band("KG", 999.5, 1500))).toBe("over 999.5 – 1,500 kg");
   });
 });
 
 describe("money, percent and quantities", () => {
   it("shows cents only when there are some", () => {
-    expect(formatMoney(1250, "CZK")).toBe("1 250 CZK");
-    expect(formatMoney(1250.5, "EUR")).toBe("1 250.50 EUR");
+    expect(formatMoney(1250, "CZK")).toBe("1,250 CZK");
+    expect(formatMoney(1250.5, "EUR")).toBe("1,250.50 EUR");
     expect(formatMoney(-300, "CZK")).toBe("−300 CZK");
     expect(formatMoney(null, "CZK")).toBe("—");
   });
@@ -58,7 +58,7 @@ describe("money, percent and quantities", () => {
   });
 
   it("formats quantities without needless decimals", () => {
-    expect(formatQty(1250)).toBe("1 250");
+    expect(formatQty(1250)).toBe("1,250");
     expect(formatQty(2.5)).toBe("2.5");
     expect(formatQty(0.25)).toBe("0.25");
   });
@@ -167,7 +167,7 @@ describe("price matrix", () => {
     const [d1, d2] = buildLevelMatrices(input);
     expect(d1!.level).toBe("D1");
     expect(d2!.level).toBe("D2");
-    expect(d1!.rows.map((r) => r.label)).toEqual(["up to 500 kg", "501 – 1 000 kg"]);
+    expect(d1!.rows.map((r) => r.label)).toEqual(["up to 500 kg", "501 – 1,000 kg"]);
     expect(d1!.rows[0]!.cells.map((c) => c?.amount ?? null)).toEqual([120, null]);
     expect(d1!.rows[1]!.cells.map((c) => c?.amount ?? null)).toEqual([null, 200]);
     expect(d1!.minRow).toEqual([null, 150]);

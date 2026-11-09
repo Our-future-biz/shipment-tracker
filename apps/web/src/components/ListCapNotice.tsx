@@ -25,7 +25,7 @@ export function ListCapNotice({ shown, total, noun, hint = "search or filter to 
       type="info"
       showIcon
       className="!mb-3"
-      message={`Showing the newest ${shown.toLocaleString("cs-CZ")} of ${total.toLocaleString("cs-CZ")} ${noun} — ${hint}.`}
+      message={`Showing the newest ${shown.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} ${noun} — ${hint}.`}
     />
   );
 }

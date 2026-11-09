@@ -108,9 +108,9 @@ describe("chargeable weight", () => {
   });
 
   it("lets pallet places, loading metres or cubic metres win, saying which", () => {
-    expect(chargeable("KG", ship({ weightKg: 900, palletPlaces: 3 }), input())).toMatchObject({ quantity: 1200, explanation: "1 200 kg (3 pallets × 400 kg beats 900 kg actual)" });
-    expect(chargeable("KG", ship({ weightKg: 900, ldm: 2.4 }), input())).toMatchObject({ quantity: 4200, explanation: "4 200 kg (2.4 ldm × 1 750 kg beats 900 kg actual)" });
-    expect(chargeable("KG", ship({ weightKg: 900, cbm: 5.5 }), input())).toMatchObject({ quantity: 1375, explanation: "1 375 kg (5.5 cbm × 250 kg beats 900 kg actual)" });
+    expect(chargeable("KG", ship({ weightKg: 900, palletPlaces: 3 }), input())).toMatchObject({ quantity: 1200, explanation: "1,200 kg (3 pallets × 400 kg beats 900 kg actual)" });
+    expect(chargeable("KG", ship({ weightKg: 900, ldm: 2.4 }), input())).toMatchObject({ quantity: 4200, explanation: "4,200 kg (2.4 ldm × 1,750 kg beats 900 kg actual)" });
+    expect(chargeable("KG", ship({ weightKg: 900, cbm: 5.5 }), input())).toMatchObject({ quantity: 1375, explanation: "1,375 kg (5.5 cbm × 250 kg beats 900 kg actual)" });
   });
 
   it("rounds up to the weight step", () => {
@@ -165,7 +165,7 @@ describe("band and freight", () => {
 
   it("prices PER_100KG per started 100 kg, in the open top band", () => {
     const r = priced(rate({ weightKg: 1250 }));
-    expect(r.bandLabel).toBe("over 1 000 kg");
+    expect(r.bandLabel).toBe("over 1,000 kg");
     expect(line(r, "FREIGHT")).toMatchObject({ qty: 13, unit: "100 kg", unitPrice: 250, amount: 3250 });
   });
 
@@ -192,7 +192,7 @@ describe("band and freight", () => {
       ],
     };
     const r = priced(rate({ weightKg: 480 }, v));
-    expect(line(r, "FREIGHT")).toMatchObject({ amount: 1700, label: expect.stringContaining("over 1 000 kg price (break-point") });
+    expect(line(r, "FREIGHT")).toMatchObject({ amount: 1700, label: expect.stringContaining("over 1,000 kg price (break-point") });
   });
 
   it("starts a higher band one step above its exclusive lower limit", () => {

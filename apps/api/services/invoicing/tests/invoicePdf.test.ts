@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { PDFParse } from "pdf-parse";
-import { czDate, czIbanFromAccount, czMoney, czRate, renderInvoicePdf, spdPayment, variableSymbol, type InvoiceForPdf } from "../lib/invoicePdf";
+import { czDate, czIbanFromAccount, docMoney, docRate, renderInvoicePdf, spdPayment, variableSymbol, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 
 async function textOf(bytes: Uint8Array): Promise<string> {
@@ -81,12 +81,12 @@ const base: InvoiceForPdf = {
 };
 
 describe("formatting", () => {
-  it("formats money, rates and dates the Czech way", () => {
-    expect(czMoney("29999.5")).toBe("29 999,50");
-    expect(czMoney(-1234567.891)).toBe("-1 234 567,89");
-    expect(czMoney("0")).toBe("0,00");
-    expect(czMoney("-0.001")).toBe("0,00");
-    expect(czRate("25.123400")).toBe("25,123");
+  it("formats money and rates as the app writes figures, dates the Czech way", () => {
+    expect(docMoney("29999.5")).toBe("29,999.50");
+    expect(docMoney(-1234567.891)).toBe("-1,234,567.89");
+    expect(docMoney("0")).toBe("0.00");
+    expect(docMoney("-0.001")).toBe("0.00");
+    expect(docRate("25.123400")).toBe("25.123");
     expect(czDate("2026-10-03")).toBe("03.10.2026");
   });
 
@@ -139,9 +139,9 @@ describe("renderInvoicePdf", () => {
       "CZ65 0800 0000 1920 0014 5399",
       "GIBACZPX",
       "MSCU1234567",
-      "1121,00EUR", // total due
-      "CelkemCZK/TotalCZK28163,33CZK", // total in CZK
-      "1EUR=25,123CZK",
+      "1,121.00EUR", // total due
+      "CelkemCZK/TotalCZK28,163.33CZK", // total in CZK
+      "1EUR=25.123CZK",
       "Osvobozeno od daně dle §69 ZDPH",
       "Děkujemezaspolupráci.",
       "Strana/Page1/1",
@@ -159,7 +159,7 @@ describe("renderInvoicePdf", () => {
       lines: [{ ...base.lines[0]!, unitCurrency: "USD" }, ...base.lines.slice(1)],
     };
     const text = squash(await textOf(await renderInvoicePdf(cnbRated, await loadPdfFonts())));
-    expect(text).toContain(squash("Kurz ČNB k DUZP / CNB rate at tax date: 1 EUR = 25,123 CZK (fixing 13.10.2026)"));
+    expect(text).toContain(squash("Kurz ČNB k DUZP / CNB rate at tax date: 1 EUR = 25.123 CZK (fixing 13.10.2026)"));
     expect(text).toContain(squash("Položky v jiné měně přepočteny kurzem ČNB k DUZP + 2 %"));
     expect(text).not.toContain("2026-W42");
   });
@@ -184,7 +184,7 @@ describe("renderInvoicePdf", () => {
     expect(text).toContain("INV2026CZ00000028-001");
     expect(text).toContain("Špatnásazba");
     expect(text).toContain("KVRÁCENÍ");
-    expect(text).toContain("1121,00EUR");
+    expect(text).toContain("1,121.00EUR");
   });
 
   it("continues long invoices on further pages and keeps the same output", async () => {

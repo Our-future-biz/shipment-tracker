@@ -27,7 +27,7 @@ const pragueTime = (iso: string | Date) => {
 
 const group = (n: number, digits: number) => {
   const [i, f] = n.toFixed(digits).split(".");
-  return `${i!.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}${f ? `.${f}` : ""}`;
+  return `${i!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${f ? `.${f}` : ""}`;
 };
 export const kg = (v: number) => `${group(Math.round(v * 10) / 10, v % 1 ? 1 : 0)} kg`;
 export const cbm = (v: number) => `${group(v, 3)} cbm`;

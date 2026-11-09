@@ -62,7 +62,7 @@ const cell =
   "w-full min-w-0 bg-transparent border border-transparent rounded-md px-1.5 py-1 text-[13px] font-medium text-slate-900 outline-none hover:bg-slate-50 focus:bg-white focus:border-slate-300 placeholder:text-slate-300 placeholder:font-normal disabled:opacity-40 disabled:cursor-not-allowed";
 const numCell = `${cell} tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
 
-const fmt = (v: number, unit: string) => (v ? `${v.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} ${unit}` : "0");
+const fmt = (v: number, unit: string) => (v ? `${v.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${unit}` : "0");
 
 const Total = ({ label, children }: { label: string; children: ReactNode }) => (
   <span className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-[13px]">

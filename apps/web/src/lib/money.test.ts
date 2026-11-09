@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountTypingAllowed, money, moneyCz, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
+import { amountEdited, amountInBox, amountTypingAllowed, money, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
 
 describe("num", () => {
   it.each([
@@ -44,8 +44,7 @@ describe("parseMoney", () => {
     expect(parseMoney(input)).toBe(expected);
   });
 
-  it.each(["abc", "12a", "1,234", "1.2.3", "1,005", "--5", "1e5"])("rejects %j", (input) => {
-    // "1,234" is ambiguous (thousands or decimal?) and has 3 decimals, so it is rejected
+  it.each(["abc", "12a", "1.2.3", "1,0055", "--5", "1e5"])("rejects %j", (input) => {
     expect(parseMoney(input)).toBeNull();
   });
 });
@@ -96,10 +95,27 @@ describe("formatting", () => {
     expect(money(NaN)).toBe("0.00");
   });
 
-  it("moneyCz is Czech style", () => {
-    // Intl uses a non-breaking space as the thousands separator
-    expect(moneyCz(1234567.891).replace(/\s/g, " ")).toBe("1 234 567,89");
-    expect(moneyCz(-0.5)).toBe("-0,50");
+  it("reads commas in threes as thousands, any other single comma as the decimal one", () => {
+    expect(parseMoney("1,234")).toBe(1234);
+    expect(parseMoney("12,222,222")).toBe(12222222);
+    expect(parseMoney("12,222,222.00")).toBe(12222222);
+    expect(parseMoney("25,20")).toBe(25.2);
+  });
+
+  it("writes an amount in a box as figures are written, and leaves what is no amount", () => {
+    expect(amountInBox("12222222")).toBe("12,222,222.00");
+    expect(amountInBox("25,20")).toBe("25.20");
+    expect(amountInBox("12 222 222")).toBe("12,222,222.00");
+    expect(amountInBox("")).toBe("");
+    expect(amountInBox("abc")).toBe("abc");
+  });
+
+  it("tells another amount from the same one written differently", () => {
+    expect(amountEdited("1,111,111.00", "1111111.00")).toBe(false);
+    expect(amountEdited("25,20", "25.20")).toBe(false);
+    expect(amountEdited("26", "25.20")).toBe(true);
+    expect(amountEdited("", "25.20")).toBe(true);
+    expect(amountEdited("", "")).toBe(false);
   });
 });
 

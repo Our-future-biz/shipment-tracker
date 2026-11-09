@@ -105,8 +105,8 @@ describe("margin", () => {
   });
 
   it("says a loss in words, not only in colour", () => {
-    expect(marginText(-1200)).toBe("−1 200 CZK (loss)");
-    expect(marginText(1200)).toBe("1 200 CZK");
+    expect(marginText(-1200)).toBe("−1,200 CZK (loss)");
+    expect(marginText(1200)).toBe("1,200 CZK");
     expect(belowFloorText(2)).toBe("2 below floor");
     expect(belowFloorText(0)).toBe("");
   });
@@ -130,7 +130,7 @@ describe("haulier scorecard", () => {
     expect(daysText(null)).toBe("—");
     expect(perKgText(3.25)).toBe("3.25 CZK/kg");
     expect(perKgText(null)).toBe("—");
-    expect(claimsText(2, 4500)).toBe("2 · 4 500 CZK");
+    expect(claimsText(2, 4500)).toBe("2 · 4,500 CZK");
     expect(claimsText(0, 0)).toBe("—");
   });
 });
