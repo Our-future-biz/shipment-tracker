@@ -9099,6 +9099,7 @@ export namespace controllers {
          * ISO 3166-1 alpha-2; CZ is read from ARES by its IČO.
          */
         country: string
+
         ico?: string
         companyName?: string
         registrationNumber?: string
