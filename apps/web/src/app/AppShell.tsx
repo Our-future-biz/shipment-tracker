@@ -11,9 +11,9 @@ import { Suspense, useEffect, useState } from "react";
 const PUBLIC_PATHS = ["/login"];
 // Pages anyone with the link opens, signed in or not, without the app around them and without a
 // redirect: the haulier's transport-order page (/haulier/order/<token>) and the haulier portal
-// (/haulier/portal/...), the customer's link to a shipment (/track/<token>), and a company's link to register itself (/register/<token>). They call only the API's public endpoints, without the app session (the
+// (/haulier/portal/...), the customer's link to a shipment (/track/<token>), a company's link to register itself (/register/<token>), and a customer's link to its Import Instructions (/import-instructions/<token>). They call only the API's public endpoints, without the app session (the
 // portal sends its own portal session instead).
-const OPEN_PATHS = ["/haulier/", "/track/", "/register/"];
+const OPEN_PATHS = ["/haulier/", "/track/", "/register/", "/import-instructions/"];
 // Signed-in pages shown full screen, without the sidebar and top bar (the warehouse phone floor mode).
 const FULL_SCREEN_PATHS = ["/warehouse-concept/floor"];
 

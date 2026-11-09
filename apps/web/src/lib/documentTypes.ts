@@ -8,6 +8,7 @@ export const DOCUMENT_TYPES = [
   "Bill of Lading",
   "Booking confirmation",
   "Customs document",
+  "Import Instructions",
   "CMR / POD",
   "Carrier notice",
   "Insurance",
@@ -88,7 +89,7 @@ export const SUPPLIER_INVOICE_TYPES = [
 export const DOCUMENT_GROUPS = [
   { title: "Commercial Documents", types: ["Invoice", "Packing list"] },
   { title: "Shipping Documents", types: ["Bill of Lading", "Booking confirmation", "CMR / POD", "Insurance"] },
-  { title: "Customs Documents", types: ["Customs document", "Certificate of origin"] },
+  { title: "Customs Documents", types: ["Customs document", "Import Instructions", "Certificate of origin"] },
   { title: "Safety Paperwork", types: SAFETY_PAPERWORK_TYPES },
   { title: "Suppliers Invoice(s)", types: SUPPLIER_INVOICE_TYPES },
 ] as const;

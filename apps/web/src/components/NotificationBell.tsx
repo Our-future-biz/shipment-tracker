@@ -21,6 +21,7 @@ import { useSellingAmountBell, type SellingAmountRequest } from "@/hooks/useSell
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { useApprovalChatsUnread } from "@/hooks/useCompanyRegistration";
+import { useImportInstructionsWaiting } from "@/hooks/useImportInstructions";
 import { ApprovalChatDrawer } from "@/components/ApprovalChatDrawer";
 import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/useShipmentAlerts";
@@ -189,6 +190,7 @@ export function NotificationBell() {
   const supplierAnswers = supplierApprovals.filter((a) => a.decision !== "" && !!user && a.requestedByUserId === user.id);
   // The chats on companies in Company approval with something new for the user.
   const { chats: approvalChats } = useApprovalChatsUnread();
+  const { waiting: importInstructions } = useImportInstructionsWaiting();
   const [approvalChat, setApprovalChat] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
@@ -394,6 +396,7 @@ export function NotificationBell() {
 
   // The badge counts what is unread, whatever the view or the search.
   const total =
+    importInstructions.length +
     approvalChats.length +
     unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
@@ -521,6 +524,17 @@ export function NotificationBell() {
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
           </span>
+        </button>
+      ))}
+      {importInstructions.length > 0 && <div className={headingClass}>Import Instructions to approve</div>}
+      {importInstructions.map((w) => (
+        <button key={`ii:${w.shipmentId}`} type="button" onClick={() => go(`/shipments/${w.shipmentId}?tab=warehouse`)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">Import Instructions · {w.jobNumber}</span>
+          </span>
+          <span className="text-[12px] text-slate-700">Completed by {w.filledBy || "the customer"} · waiting for your approval</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(w.submittedAt)}</span>
         </button>
       ))}
       {approvalChats.length > 0 && <div className={headingClass}>Company approval chats</div>}

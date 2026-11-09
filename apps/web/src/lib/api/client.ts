@@ -2557,6 +2557,12 @@ export namespace shipments {
             this.documentChangeRequestList = this.documentChangeRequestList.bind(this)
             this.documentChangeRequestSeen = this.documentChangeRequestSeen.bind(this)
             this.documentChangeRequestsOfShipment = this.documentChangeRequestsOfShipment.bind(this)
+            this.importInstructionsApprove = this.importInstructionsApprove.bind(this)
+            this.importInstructionsCancelLink = this.importInstructionsCancelLink.bind(this)
+            this.importInstructionsCreateLink = this.importInstructionsCreateLink.bind(this)
+            this.importInstructionsGet = this.importInstructionsGet.bind(this)
+            this.importInstructionsReject = this.importInstructionsReject.bind(this)
+            this.importInstructionsWaiting = this.importInstructionsWaiting.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
@@ -2565,6 +2571,8 @@ export namespace shipments {
             this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
             this.masterJobTracking = this.masterJobTracking.bind(this)
             this.masterJobUpdate = this.masterJobUpdate.bind(this)
+            this.publicImportInstructionsForm = this.publicImportInstructionsForm.bind(this)
+            this.publicImportInstructionsSubmit = this.publicImportInstructionsSubmit.bind(this)
             this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
@@ -2971,6 +2979,53 @@ export namespace shipments {
 }
         }
 
+        public async importInstructionsApprove(shipmentId: string, params: controllers.ImportInstructionsApproveRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions/approve`, JSON.stringify(params))
+        }
+
+        public async importInstructionsCancelLink(shipmentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions`)
+        }
+
+        /**
+         * A new link. The answer is the only time the URL is known.
+         */
+        public async importInstructionsCreateLink(shipmentId: string): Promise<{
+    url: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions`)
+            return await resp.json() as {
+    url: string
+}
+        }
+
+        public async importInstructionsGet(shipmentId: string): Promise<{
+    state: interfaces.ImportInstructionState | null
+    askable: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions`)
+            return await resp.json() as {
+    state: interfaces.ImportInstructionState | null
+    askable: boolean
+}
+        }
+
+        public async importInstructionsReject(shipmentId: string, params: controllers.ImportInstructionsRejectRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions/reject`, JSON.stringify(params))
+        }
+
+        public async importInstructionsWaiting(): Promise<{
+    waiting: interfaces.ImportInstructionWaiting[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/import-instructions/waiting`)
+            return await resp.json() as {
+    waiting: interfaces.ImportInstructionWaiting[]
+}
+        }
+
         /**
          * Replaces the master BL's containers and their house assignments, then copies
          * each house's assigned containers onto it.
@@ -3043,6 +3098,20 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/master-jobs/${encodeURIComponent(masterJobId)}`, JSON.stringify(params))
             return await resp.json() as controllers.MasterJobUpdateResponse
+        }
+
+        public async publicImportInstructionsForm(token: string): Promise<{
+    form: interfaces.PublicImportInstructionForm
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/import-instructions/${encodeURIComponent(token)}`)
+            return await resp.json() as {
+    form: interfaces.PublicImportInstructionForm
+}
+        }
+
+        public async publicImportInstructionsSubmit(token: string, params: controllers.PublicImportInstructionsSubmitRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/public/import-instructions/${encodeURIComponent(token)}`, JSON.stringify(params))
         }
 
         /**
@@ -8353,6 +8422,17 @@ export namespace controllers {
         fileName: string
     }
 
+    export interface ImportInstructionsApproveRequest {
+        /**
+         * As edited in the preview.
+         */
+        answers: interfaces.ImportInstructionAnswers
+    }
+
+    export interface ImportInstructionsRejectRequest {
+        reason: string
+    }
+
     export interface ImportQuoteRequest {
         /**
          * The whole reference of a sales quote, variant suffix included: QCZ20261010001-2 is not QCZ20261010001.
@@ -8980,6 +9060,15 @@ export namespace controllers {
 
     export interface PreviewResponse {
         preview: interfaces.InvoicePreviewItem
+    }
+
+    export interface PublicImportInstructionsSubmitRequest {
+        /**
+         * Must be true: the form's tick box.
+         */
+        confirmed: boolean
+
+        answers: interfaces.ImportInstructionAnswers
     }
 
     export interface PublicRegistrationSearchRequest {
@@ -15657,6 +15746,101 @@ export namespace interfaces {
         country: "CZ"
     }
 
+    /**
+     * What the customer filled in; the sections of the paper form. Every text "" when left empty.
+     */
+    export interface ImportInstructionAnswers {
+        /**
+         * 2 a) release for free circulation, b) T1 transit, c) customs warehousing or another procedure.
+         */
+        procedure: "" | "free_circulation" | "t1" | "other"
+
+        bank: string
+        accountNumber: string
+        t1Office: string
+        otherProcedure: string
+        /**
+         * 3. Combined Nomenclature code.
+         */
+        tariffCode: string
+
+        /**
+         * 4.
+         */
+        description: string
+
+        whatIsIt: string
+        madeOf: string
+        usedFor: string
+        /**
+         * 5. Only if delivery by our vehicle is required.
+         */
+        deliveryAddress: string
+
+        deliveryContact: string
+        deliveryPhone: string
+        /**
+         * 6.
+         */
+        billingAddress: string
+
+        eori: string
+        companyId: string
+        vatId: string
+        /**
+         * Who confirmed it.
+         */
+        name: string
+
+        telephone: string
+    }
+
+    export interface ImportInstructionShipmentValues {
+        customsProcedure: string
+        customsOffice: string
+        hsCode: string
+        deliveryAddress: string
+    }
+
+    /**
+     * A shipment's latest Import Instructions as the desk sees them. The link itself can't be told again.
+     */
+    export interface ImportInstructionState {
+        status: "open" | "submitted" | "approved" | "rejected"
+        /**
+         * The link ran out before anybody filled it in.
+         */
+        expired: boolean
+
+        createdBy: string
+        createdAt: string
+        expiresAt: string
+        submittedAt: string | null
+        answers: ImportInstructionAnswers | null
+        decidedBy: string
+        decidedAt: string | null
+        reason: string
+        /**
+         * The one who created the link, or a manager.
+         */
+        canAnswer: boolean
+
+        /**
+         * What the shipment holds now, to compare.
+         */
+        onShipment: ImportInstructionShipmentValues
+    }
+
+    /**
+     * Completed forms waiting for the user: the bell.
+     */
+    export interface ImportInstructionWaiting {
+        shipmentId: string
+        jobNumber: string
+        submittedAt: string
+        filledBy: string
+    }
+
     export interface ImportRunItem {
         id: string
         startedAt: string
@@ -16995,6 +17179,15 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -17012,15 +17205,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -17515,6 +17699,31 @@ export namespace interfaces {
          * What was priced on a fallback someone should look at (a missing or an earlier month's fuel index); absent when none
          */
         findings?: string[]
+    }
+
+    export interface PublicImportInstructionForm {
+        reference: string
+        prefill: {
+            procedure?: "" | "free_circulation" | "t1" | "other"
+            bank?: string
+            accountNumber?: string
+            t1Office?: string
+            otherProcedure?: string
+            tariffCode?: string
+            description?: string
+            whatIsIt?: string
+            madeOf?: string
+            usedFor?: string
+            deliveryAddress?: string
+            deliveryContact?: string
+            deliveryPhone?: string
+            billingAddress?: string
+            eori?: string
+            companyId?: string
+            vatId?: string
+            name?: string
+            telephone?: string
+        }
     }
 
     /**
