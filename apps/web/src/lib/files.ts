@@ -28,6 +28,14 @@ export function downloadDataUrl(dataUrl: string, fileName: string) {
   a.click();
 }
 
+// A base64 data URL's bytes as a Blob of the given type. Decoded here, as the app's security policy
+// (connect-src in next.config.ts) does not let fetch() read a data: URL.
+export function dataUrlToBlob(dataUrl: string, type: string): Blob {
+  const match = /^data:[^,]*;base64,(.*)$/.exec(dataUrl);
+  if (!match) throw new Error("Not a base64 data URL");
+  return new Blob([Uint8Array.from(atob(match[1]!), (c) => c.charCodeAt(0))], { type });
+}
+
 // "1.4 MB" style size for file lists.
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
