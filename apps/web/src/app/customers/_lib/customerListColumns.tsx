@@ -13,8 +13,8 @@ import { fmtMoney, marginPct } from "./customerMoney";
 import { EMPTY_CELL } from "./customerTable";
 
 // The columns of the Customer Database list, in their order. Each says how its cell looks (`render`) and
-// what text the "Filter by column" filters match in it (`text`); `options` give a filter a list of values to
-// pick from. Only this list uses them: nothing here is shared with the shipment grids.
+// what text the "Filter by column" filters match in it and the CSV export writes (`text`); `options` give a
+// filter a list of values to pick from. Only this list uses them: nothing here is shared with the shipment grids.
 
 /** The keys the list can be sorted by (?sort=, a leading "-" for descending). */
 export const SORT_KEYS = ["name", "status", "owner", "rating", "revenue", "margin", "activity", "lastContact", "created"] as const;
@@ -36,6 +36,16 @@ const money = (value: number, currency: string) => (
   <span className="text-slate-700 tabular-nums">{fmtMoney(value, currency)}</span>
 );
 const plain = (value: string) => value || EMPTY_CELL;
+// Rows are one line, and each column as wide as its widest cell. Free text that may run long is
+// cut at this width with "…" and shown whole on hover, so one long note does not stretch the list.
+const clipped = (value: string, maxWidth: "max-w-[240px]" | "max-w-[320px]") =>
+  value ? (
+    <span className={`block truncate ${maxWidth}`} title={value}>
+      {value}
+    </span>
+  ) : (
+    EMPTY_CELL
+  );
 // A timestamp as its day on the company's (Prague) calendar, not the viewer's.
 const day = (iso: string | null | undefined) => (iso ? formatDate(businessDayOf(iso)) : "");
 // Who rated a supplier and on which day.
@@ -80,7 +90,7 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "roles",
     title: "Roles",
     width: 170,
-    render: (c) => <CustomerRoleBadges roles={c.roles} withCustomer />,
+    render: (c) => <CustomerRoleBadges roles={c.roles} withCustomer oneLine />,
     text: (c) => c.roles.map((role) => CUSTOMER_ROLE_LABELS[role]).join(", "),
     options: Object.values(CUSTOMER_ROLE_LABELS),
   },
@@ -106,7 +116,7 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "supplierRatingReason",
     title: "Rating reason",
     width: 220,
-    render: (c) => plain(c.supplierRatingReason),
+    render: (c) => clipped(c.supplierRatingReason, "max-w-[320px]"),
     text: (c) => c.supplierRatingReason,
   },
   {
@@ -230,7 +240,7 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "companyWebsite",
     title: "Website",
     width: 160,
-    render: (c) => plain(c.companyWebsite),
+    render: (c) => clipped(c.companyWebsite, "max-w-[240px]"),
     text: (c) => c.companyWebsite,
   },
 ];
@@ -269,6 +279,18 @@ export function normalizeCustomerColumns(keys: readonly string[]): string[] {
   return [NAME_COLUMN_KEY, ...known];
 }
 
-/** The text of a customer's cell in a column, for the filters. */
+/** The text of a customer's cell in a column, for the filters (and, through `text`, the CSV export). */
 export const customerCellText = (customer: CustomerItem, key: string): string =>
   CUSTOMER_COLUMN_MAP.get(key)?.text(customer) ?? "";
+
+/**
+ * A CSV file of these customers in the columns shown, in their order: the headings, then a line per
+ * customer with the text the filters match. The name column is headed as the view calls it.
+ */
+export function customerCsvRows(customers: readonly CustomerItem[], keys: readonly string[], nameTitle: string): string[][] {
+  const columns = keys.flatMap((key) => CUSTOMER_COLUMN_MAP.get(key) ?? []);
+  return [
+    columns.map((c) => (c.key === NAME_COLUMN_KEY ? nameTitle : c.title)),
+    ...customers.map((customer) => columns.map((c) => c.text(customer))),
+  ];
+}

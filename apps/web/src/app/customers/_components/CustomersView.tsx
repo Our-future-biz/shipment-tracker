@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import type { ChangeEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Input, Select, Tooltip } from "antd";
+import { Button, Dropdown, Input, Select, Tooltip } from "antd";
 import type { TableProps } from "antd";
-import { EditOutlined, LinkOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { DownOutlined, DownloadOutlined, EditOutlined, LinkOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import {
   DndContext,
   PointerSensor,
@@ -53,6 +53,7 @@ import {
   NAME_COLUMN_KEY,
   SORT_KEYS,
   customerCellText,
+  customerCsvRows,
   normalizeCustomerColumns,
   type SortKey,
 } from "../_lib/customerListColumns";
@@ -67,16 +68,16 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../_lib/customerPermissions";
 import { DeletedCustomersPanel } from "./DeletedCustomersPanel";
 import { apiFileUrl } from "@/lib/api";
-import { BTN, BTN_PRIMARY, CARD, LINK, PAGE_TITLE } from "@/styles/ui";
+import { downloadCsv } from "@/lib/csv";
+import { businessToday } from "@/lib/date";
+import { BTN_PRIMARY, CARD, LINK, PAGE_TITLE } from "@/styles/ui";
 
 // Superadmins also get the deleted companies, to restore one (?view=deleted).
 const DELETED_PILL = { key: "deleted", label: "Deleted" };
 
 // Inside the Customers view: the customer's status, as the list was filtered before it had views.
-const STATUS_PILLS = [
-  { key: "all", label: "All" },
-  ...CUSTOMER_STATUSES.map((status) => ({ key: status, label: status })),
-];
+// A select like the toolbar's other filters (and the Shipments status filter), so the toolbar keeps to one row.
+const STATUS_OPTIONS = CUSTOMER_STATUSES.map((status) => ({ value: status, label: status }));
 
 const ACCOUNT_TYPE_OPTIONS = CUSTOMER_LABELS.map((label) => ({ value: label, label }));
 // Every role, hauliers included for everyone (Council Outlay 7, D3): they are real suppliers.
@@ -159,6 +160,8 @@ export function CustomersView() {
   const searchParams = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
   const [registrationLinkOpen, setRegistrationLinkOpen] = useState(false);
+  // The menu behind the Add button's arrow.
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   // Search, both filters and the sort live in the URL, so the list is the same after opening
   // a customer and coming back.
@@ -339,7 +342,7 @@ export function CustomersView() {
       ? replaceParams({ ...VIEW_FILTER_PARAMS, view: DELETED_PILL.key }, { dropColumnFilters: true })
       : replaceParams({ ...VIEW_FILTER_PARAMS, kind: key === "customers" ? "" : key, view: "" }, { dropColumnFilters: true });
 
-  const handleStatusChange = (key: string) => replaceParams({ status: key === "all" ? "" : key });
+  const handleStatusChange = (value?: string) => replaceParams({ status: value ?? "" });
 
   const handleAccountTypeChange = (value?: string) => replaceParams({ type: value ?? "" });
 
@@ -407,6 +410,25 @@ export function CustomersView() {
     // The customer's name stays first: nothing moves before it.
     if (from === -1 || to <= 0) return;
     handleColumnsChange(arrayMove(visibleColumns, from, to));
+  };
+
+  // Ticked rows (the checkbox column, as in Shipments). Kept as records, not keys: search and the view's
+  // filters are the server's, so a ticked company they hide is gone from `customers`, yet it stays ticked
+  // and is still exported. They belong to the view they were ticked in: another view starts with none.
+  const [selectedRows, setSelectedRows] = useState<CustomerItem[]>([]);
+  useEffect(() => {
+    setSelectedRows((rows) => (rows.length ? [] : rows));
+  }, [view, showDeleted]);
+
+  // The ticked companies in the list's order and as the list has them now. One the search or the filters
+  // hide now comes after them, as the server last returned it, or as it was when ticked.
+  const handleExportSelected = () => {
+    const ticked = new Set(selectedRows.map((c) => c.id));
+    const shown = rows.filter((c) => ticked.has(c.id));
+    const shownIds = new Set(shown.map((c) => c.id));
+    const latest = new Map(customers.map((c) => [c.id, c]));
+    const hidden = selectedRows.filter((c) => !shownIds.has(c.id)).map((c) => latest.get(c.id) ?? c);
+    downloadCsv(`${words.many}-${businessToday()}.csv`, customerCsvRows([...shown, ...hidden], visibleColumns, words.one));
   };
 
   const handleAddOpen = () => setAddOpen(true);
@@ -496,40 +518,77 @@ export function CustomersView() {
         ) : (
           <>
             <div className={`flex flex-wrap items-center justify-between gap-3 ${CARD} px-4 py-3`}>
-              <div className="flex items-center gap-3 min-w-0">
+              {/* One button with an arrow: Add, and behind the arrow the other way in, a link the company
+                  registers itself by. Kept to one button so the toolbar fits on one row. */}
+              <div className="flex items-center shrink-0">
                 <button
                   type="button"
                   onClick={handleAddOpen}
-                  className={BTN_PRIMARY}
+                  className={`${BTN_PRIMARY} !rounded-r-none`}
                 >
                   <PlusOutlined />
                   Add Customer / Supplier
                 </button>
-                <button type="button" onClick={() => setRegistrationLinkOpen(true)} className={BTN}>
-                  <LinkOutlined />
-                  Registration link
-                </button>
-                {inCustomers && (
-                  <div role="group" aria-label="Filter by status">
-                    <PillTabs tabs={STATUS_PILLS} active={status || "all"} onChange={handleStatusChange} />
-                  </div>
-                )}
+                {/* No tooltip over the open menu. */}
+                <Tooltip title={addMenuOpen ? undefined : "More ways to add"}>
+                  {/* The button is the menu's own child, so Esc or Tab out of the menu gives it the focus back. */}
+                  <span className="inline-flex">
+                    <Dropdown
+                      trigger={["click"]}
+                      placement="bottomRight"
+                      open={addMenuOpen}
+                      onOpenChange={setAddMenuOpen}
+                      menu={{
+                        items: [
+                          {
+                            key: "registration-link",
+                            icon: <LinkOutlined />,
+                            label: "Registration link",
+                            onClick: () => setRegistrationLinkOpen(true),
+                          },
+                        ],
+                      }}
+                    >
+                      <button
+                        type="button"
+                        aria-label="More ways to add"
+                        aria-haspopup="menu"
+                        aria-expanded={addMenuOpen}
+                        className={`${BTN_PRIMARY} !w-8 !px-0 !rounded-l-none !border-l-indigo-400`}
+                      >
+                        <DownOutlined className="text-[10px]" />
+                      </button>
+                    </Dropdown>
+                  </span>
+                </Tooltip>
               </div>
-              <div className="flex items-center gap-3 shrink-0 ml-auto">
-                {/* antd gives the input width: 100% outside Tailwind's cascade layers, where a plain
-                    w-60 cannot override it — hence the important flag. */}
-                <Input
-                  placeholder={`Search ${words.many}...`}
-                  aria-label={`Search ${words.many}`}
-                  prefix={<SearchOutlined className="text-slate-400" />}
-                  value={search}
-                  onChange={handleSearchChange}
-                  allowClear
-                  className="!w-60"
-                />
+              {/* Takes the rest of the row. It stays beside Add while it fits with the search at 180 px (the
+                  search then grows to 240 px); past that the whole group goes below, and on a screen too
+                  narrow even for that its own items wrap, so nothing sticks out of the card. */}
+              <div className="flex flex-auto flex-wrap items-center justify-end gap-3">
+                {/* antd's input is width: 100%, so it fills this box. */}
+                <div className="w-[180px] grow shrink-0 max-w-[240px]">
+                  <Input
+                    placeholder={`Search ${words.many}...`}
+                    aria-label={`Search ${words.many}`}
+                    prefix={<SearchOutlined className="text-slate-400" />}
+                    value={search}
+                    onChange={handleSearchChange}
+                    allowClear
+                  />
+                </div>
                 <div className="w-px h-6 bg-slate-200 shrink-0" />
                 {inCustomers && (
                   <>
+                    <Select
+                      value={status || undefined}
+                      onChange={handleStatusChange}
+                      options={STATUS_OPTIONS}
+                      placeholder="All statuses"
+                      aria-label="Status"
+                      allowClear
+                      className="w-32"
+                    />
                     <Select
                       value={accountType || undefined}
                       onChange={handleAccountTypeChange}
@@ -589,41 +648,44 @@ export function CustomersView() {
                     className="w-44"
                   />
                 )}
-                <CustomerFiltersPopover
-                  filters={shownFilters}
-                  onChange={handleFiltersChange}
-                  columns={FILTER_COLUMNS}
-                  templates={knownFilterTemplates}
-                  onSaveTemplate={handleSaveFilterTemplate}
-                  onDeleteTemplate={handleDeleteFilterTemplate}
-                  isSaving={filterTemplates.isSaving}
-                  defaultColumn={NAME_COLUMN_KEY}
-                />
-                <CustomerColumnPicker
-                  visible={visibleColumns}
-                  onChange={handleColumnsChange}
-                  templates={columnTemplates.value}
-                  onSaveTemplate={handleSaveColumnTemplate}
-                  onDeleteTemplate={handleDeleteColumnTemplate}
-                  ready={columnPref.loaded}
-                />
-                <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
-                  <button
-                    type="button"
-                    aria-label="Reorder columns"
-                    aria-pressed={reordering}
-                    disabled={!columnPref.loaded}
-                    onClick={() => setReordering((on) => !on)}
-                    // On: the toolbar button in the app's active indigo ("!" over its own frame and fill).
-                    className={
-                      reordering
-                        ? `${TOOLBAR_BUTTON_CLASS} !border-indigo-500 !bg-indigo-50 !text-indigo-600`
-                        : TOOLBAR_BUTTON_CLASS
-                    }
-                  >
-                    <EditOutlined />
-                  </button>
-                </Tooltip>
+                {/* The three icon buttons stay together when a narrow screen wraps the group. */}
+                <div className="flex items-center gap-3">
+                  <CustomerFiltersPopover
+                    filters={shownFilters}
+                    onChange={handleFiltersChange}
+                    columns={FILTER_COLUMNS}
+                    templates={knownFilterTemplates}
+                    onSaveTemplate={handleSaveFilterTemplate}
+                    onDeleteTemplate={handleDeleteFilterTemplate}
+                    isSaving={filterTemplates.isSaving}
+                    defaultColumn={NAME_COLUMN_KEY}
+                  />
+                  <CustomerColumnPicker
+                    visible={visibleColumns}
+                    onChange={handleColumnsChange}
+                    templates={columnTemplates.value}
+                    onSaveTemplate={handleSaveColumnTemplate}
+                    onDeleteTemplate={handleDeleteColumnTemplate}
+                    ready={columnPref.loaded}
+                  />
+                  <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
+                    <button
+                      type="button"
+                      aria-label="Reorder columns"
+                      aria-pressed={reordering}
+                      disabled={!columnPref.loaded}
+                      onClick={() => setReordering((on) => !on)}
+                      // On: the toolbar button in the app's active indigo ("!" over its own frame and fill).
+                      className={
+                        reordering
+                          ? `${TOOLBAR_BUTTON_CLASS} !border-indigo-500 !bg-indigo-50 !text-indigo-600`
+                          : TOOLBAR_BUTTON_CLASS
+                      }
+                    >
+                      <EditOutlined />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
             </div>
 
@@ -634,23 +696,55 @@ export function CustomersView() {
               </div>
             )}
 
+            {/* Bulk action bar (shown when rows are ticked), as in Shipments. */}
+            {selectedRows.length > 0 && (
+              <div
+                role="region"
+                aria-label="Bulk actions"
+                className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5"
+              >
+                <span className="text-[13px] text-indigo-700 font-medium">{selectedRows.length} selected</span>
+                <Button size="small" icon={<DownloadOutlined />} onClick={handleExportSelected}>
+                  Export CSV
+                </Button>
+                <Button size="small" type="text" onClick={() => setSelectedRows([])}>
+                  Clear
+                </Button>
+              </div>
+            )}
+
             <ListCapNotice shown={customers.length} total={total} noun={words.many} />
 
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
                 <DataTable<CustomerItem>
+                  // Heads and cells stay on one line, as in Shipments: a column is always as wide as its
+                  // widest head or cell (long free text is cut in customerListColumns).
+                  className="[&_.ant-table-cell]:!whitespace-nowrap"
                   resizeKey="customers"
                   components={reordering ? { header: { cell: DraggableHeaderCell } } : undefined}
                   dataSource={rows}
                   columns={columns}
                   rowKey="id"
                   loading={isFetching}
+                  rowSelection={{
+                    selectedRowKeys: selectedRows.map((c) => c.id),
+                    // Ticked rows on other pages come back from antd's own store of them.
+                    onChange: (_keys, picked) => setSelectedRows(picked.filter(Boolean)),
+                    preserveSelectedRowKeys: true,
+                    fixed: true,
+                    columnWidth: 44,
+                  }}
                   scroll={{ x: "max-content" }}
                   resetKey={`${view}|${debouncedSearch}|${status}|${accountType}|${owner}|${supplierTypes.join(",")}|${ratingFilter}|${role}|${sortKey ?? ""}|${sortDirection}|${JSON.stringify(activeFilters)}`}
                   locale={{ emptyText }}
                   onChange={handleTableChange}
                   onRow={(record) => ({
-                    onClick: () => router.push(`/customers/${record.id}`),
+                    // Ticking the row's checkbox must not open the row.
+                    onClick: (e) => {
+                      if ((e.target as HTMLElement).closest(".ant-table-selection-column")) return;
+                      router.push(`/customers/${record.id}`);
+                    },
                     className: "cursor-pointer",
                   })}
                 />
