@@ -6,7 +6,7 @@ import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
 import type { RouteWhere } from "@/lib/placeWhere";
 import { unpricedOverweight } from "./overweight";
-import { fclOfferRows } from "./fclPricing";
+import { fclOfferGroups } from "./fclPricing";
 import type { PickableUser } from "@/lib/people";
 import { ownerNameForCustomer, ownerNameLoading } from "./ownerName";
 import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, isContainerQuote, quoteValidUntil, ratesNeeded } from "./salesQuote";
@@ -176,14 +176,15 @@ export function quoteDocument(
         <td style="text-align:right">${money(amount)}</td>
       </tr>`;
   const sellingAmount = (l: CostLine) => convertLine(l, data, sheet, { selling: true, live: exchange });
-  // A quote priced in the FCL layout offers an all-in rate per container type, the charges kept
-  // out of it on their own lines (fclOfferRows).
-  const fclRows = data.fclPricing && isContainerQuote(data) ? fclOfferRows(data, sellingLines, sellingAmount) : null;
-  const lineRows = (fclRows ?? sellingLines.map((l) => ({ label: l.description?.trim() || l.type, amount: sellingAmount(l) })))
-    .map((r) => row(r.label, r.amount))
-    .join("");
+  // A quote priced in the FCL layout offers its charges in the sections of its Pricing, a container
+  // type or the charges per shipment, each with a heading (fclOfferGroups).
+  const groupHead = (label: string) => `<tr class="group"><td colspan="2">${esc(label)}</td></tr>`;
+  const fclGroups = data.fclPricing && isContainerQuote(data) ? fclOfferGroups(data, sellingLines, sellingAmount) : null;
+  const lineRows = fclGroups
+    ? fclGroups.map((g) => groupHead(g.label) + g.rows.map((r) => row(r.label, r.amount)).join("")).join("")
+    : sellingLines.map((l) => row(l.description?.trim() || l.type, sellingAmount(l))).join("");
   // Any other all-in quote offers the total as one price.
-  const sellingRows = lineRows && data.allIn && !fclRows ? row("All-in rate", totals.selling) : lineRows;
+  const sellingRows = lineRows && data.allIn && !fclGroups ? row("All-in rate", totals.selling) : lineRows;
 
   // A quote without selling lines has no price to offer yet, so its document has no rate offer:
   // a "Total price 0.00 EUR" in its place would read as the offer.
@@ -223,6 +224,7 @@ export function quoteDocument(
     th, td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
     th { background: #f8fafc; }
     tr.totals td { background: #f1f5f9; font-weight: bold; }
+    tr.group td { background: #f8fafc; font-weight: bold; color: #475569; }
     .fx-clause { font-size: 11px; color: #64748b; margin-top: 6px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13px; }
     .grid div span { color: #64748b; display: inline-block; width: 120px; }

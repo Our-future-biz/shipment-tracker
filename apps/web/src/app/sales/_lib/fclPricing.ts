@@ -369,34 +369,52 @@ export interface OfferRow {
   amount: number | null;
 }
 
-// A charge's name for the customer, with its containers when it is charged per container of a type.
-function chargeName(line: CostLine, data: SalesQuoteData): string {
+/** One section of the rate offer: a container type, or the charges per shipment, as in Pricing. */
+export interface OfferGroup {
+  /** "20' DC · 2 containers", "All containers", "Per shipment". */
+  label: string;
+  rows: OfferRow[];
+}
+
+// A charge's name for the customer. Its section says the containers, so a tariff line's own
+// "- 2 × 20' DC" (from when it was priced, however many there are now) is left off.
+function chargeName(line: CostLine): string {
   const name = line.description?.trim() || line.type;
-  if (line.basis !== "container" || !line.containerType || name.includes(line.containerType)) return name;
-  return `${name} - ${quoteContainerCount(data, line.containerType)} × ${line.containerType}`;
+  return line.basis === "container" && line.containerType ? name.replace(new RegExp(` - \\d+ × ${escapeRegExp(line.containerType)}$`), "") : name;
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function offerGroupLabel(key: string, data: SalesQuoteData): string {
+  if (key === PER_SHIPMENT) return "Per shipment";
+  if (key === ALL_CONTAINERS) return "All containers";
+  const boxes = quoteContainerCount(data, key);
+  return `${key} · ${boxes} ${boxes === 1 ? "container" : "containers"}`;
 }
 
 /**
- * The rate offer of an FCL-priced quote: in a breakdown offer its selling lines one by one; in an
- * all-in offer one all-in rate per block (a container type, or the charges per shipment), and then
- * the charges kept out of it, each on its own line. `amountOf` is a line in the quote's currency.
+ * The rate offer of an FCL-priced quote, in the sections of its Pricing: the container types in the
+ * order of the cargo, then the charges per shipment. In each, the charges in the all-in price are
+ * one all-in rate, and the others follow on their own lines; a quote sent as a breakdown has every
+ * charge on its own line. `amountOf` is a line in the quote's currency.
  */
-export function fclOfferRows(data: SalesQuoteData, lines: readonly CostLine[], amountOf: (line: CostLine) => number | null): OfferRow[] {
-  if (!data.allIn) return lines.map((l) => ({ label: chargeName(l, data), amount: amountOf(l) }));
+export function fclOfferGroups(data: SalesQuoteData, lines: readonly CostLine[], amountOf: (line: CostLine) => number | null): OfferGroup[] {
   const types = quoteTypes(data);
-  const groups = new Map<string, CostLine[]>();
-  for (const line of lines.filter(isInAllIn)) {
+  const blocks = new Map<string, CostLine[]>();
+  for (const line of lines) {
     const key = blockKeyOf(line, types);
-    groups.set(key, [...(groups.get(key) ?? []), line]);
+    blocks.set(key, [...(blocks.get(key) ?? []), line]);
   }
-  const rows: OfferRow[] = [...groups].map(([key, group]) => {
-    const amounts = group.map(amountOf);
-    const amount = amounts.some((a) => a === null) ? null : roundCents(amounts.reduce((s: number, a) => s + a!, 0));
-    const boxes = key === ALL_CONTAINERS ? quoteContainerCount(data) : quoteContainerCount(data, key);
-    const what = key === PER_SHIPMENT ? (groups.size > 1 ? " - per shipment" : "") : key === ALL_CONTAINERS ? ` - ${boxes} containers` : ` - ${boxes} × ${key}`;
-    return { label: `All-in rate${what}`, amount };
+  const others = [...blocks.keys()].filter((key) => key !== PER_SHIPMENT && !types.includes(key));
+  return [...types, ...others, PER_SHIPMENT].flatMap((key) => {
+    const block = blocks.get(key);
+    if (!block) return [];
+    const inAllIn = data.allIn ? block.filter(isInAllIn) : [];
+    const amounts = inAllIn.map(amountOf);
+    const allInRow: OfferRow[] = inAllIn.length ? [{ label: "All-in rate", amount: amounts.some((a) => a === null) ? null : roundCents(amounts.reduce((s: number, a) => s + a!, 0)) }] : [];
+    const rest = block.filter((l) => !inAllIn.includes(l)).map((l) => ({ label: chargeName(l), amount: amountOf(l) }));
+    return [{ label: offerGroupLabel(key, data), rows: [...allInRow, ...rest] }];
   });
-  return [...rows, ...lines.filter((l) => !isInAllIn(l)).map((l) => ({ label: chargeName(l, data), amount: amountOf(l) }))];
 }
 
 /**
