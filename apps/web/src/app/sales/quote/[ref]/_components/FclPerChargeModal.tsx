@@ -21,31 +21,21 @@ interface FclPerChargeModalProps {
   currency: string;
   onClose: () => void;
   onSave: (profits: Map<number, FclProfit>) => void;
-  onOneProfit: (total: number) => void;
 }
 
-// "Edit per charge": the profit of each charge of a block that takes profit, as a % of its selling
-// price or a sum, opened with what the block's profit puts on each now.
-export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose, onSave, onOneProfit }: FclPerChargeModalProps) {
+// "Edit per charge": the profit of every charge of a block, in the all-in price or not, as a % of
+// its selling price or a sum.
+export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose, onSave }: FclPerChargeModalProps) {
   const lines = quote.buyingLines ?? [];
   const setting = blockProfitOf(quote, block.key);
   const now = priceFclBlock(quote, sheet, block, live);
-  const taking = now.charges.filter((c) => c.takesProfit && c.buying !== null);
-  const [profits, setProfits] = useState<Map<number, FclProfit>>(
-    () =>
-      new Map(
-        taking.map((c) => {
-          const own = setting.perCharge ? lines[c.index]!.chargeProfit : undefined;
-          return [c.index, own ?? (setting.mode === "percent" && !setting.perCharge ? { mode: "percent", value: setting.value } : { mode: "sum", value: c.profit })];
-        }),
-      ),
-  );
+  const [profits, setProfits] = useState<Map<number, FclProfit>>(() => new Map(now.charges.map((c) => [c.index, lines[c.index]!.chargeProfit ?? { mode: "sum", value: c.profit }])));
   // The block as the window has it: each charge with the profit set here.
   const preview = priceFclBlock(
     {
       ...quote,
       buyingLines: lines.map((l, i) => (profits.has(i) ? { ...l, chargeProfit: profits.get(i)! } : l)),
-      fclPricing: { blocks: { ...quote.fclPricing?.blocks, [block.key]: { ...setting, perCharge: true } } },
+      fclPricing: { ...quote.fclPricing, blocks: { ...quote.fclPricing?.blocks, [block.key]: { ...setting, perCharge: true } } },
     },
     sheet,
     block,
@@ -62,16 +52,11 @@ export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose
       title={`Profit per charge - ${block.label}`}
       subtitle={block.perContainer ? "Per container. % profit is a whole number." : "% profit is a whole number."}
       footer={
-        <div className="flex flex-wrap justify-between gap-2">
-          <Button onClick={() => onOneProfit(now.profit)} disabled={!setting.perCharge}>
-            Use one profit for the block
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="primary" onClick={() => onSave(profits)}>
+            Save
           </Button>
-          <div className="flex gap-2">
-            <Button onClick={onClose}>Cancel</Button>
-            <Button type="primary" onClick={() => onSave(profits)}>
-              Save
-            </Button>
-          </div>
         </div>
       }
     >
@@ -149,7 +134,6 @@ export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose
           </tr>
         </tfoot>
       </LineTable>
-      <p className="mt-2 mb-0 text-[12px] text-slate-500">Charges that take no profit are offered at cost and are not listed here.</p>
     </AppModal>
   );
 }

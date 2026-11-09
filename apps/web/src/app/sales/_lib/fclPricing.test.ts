@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fclBlocks, fclChanges, fclLines, fclOfferRows, fclProfitBlock, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
+import { fclBlocks, fclChanges, fclLines, fclOfferRows, fclProfitBlock, isInAllIn, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
 import { computeTotals, convertLine } from "./salesQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
@@ -118,10 +118,89 @@ describe("a block's profit", () => {
     expect(profits(data, "20' DC")).toEqual([50, 0, 0, 125]);
   });
 
-  it("says so when no charge of the block takes the profit set", () => {
-    const lines = quote().buyingLines!.map((l) => ({ ...l, profitBasis: false }));
-    const data = quote({ buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
-    expect(priceFclBlock(data, SHEET, block(data, "20' DC")).profitUnplaced).toBe(true);
+});
+
+describe("a profit per charge", () => {
+  const sum = (value: number) => ({ mode: "sum" as const, value });
+  const byCharge = (lines: CostLine[], over: Partial<SalesQuoteData> = {}) => quote({ allIn: true, buyingLines: lines, fclPricing: { blocks: {}, byCharge: true }, ...over });
+
+  it("is on any charge, in the all-in price or not, the freight or not", () => {
+    const lines = quote().buyingLines!.map((l, i) => (i === 1 ? { ...l, chargeProfit: sum(10), inAllIn: false } : i === 2 ? { ...l, chargeProfit: sum(20) } : l));
+    const priced = priceFclBlock(byCharge(lines), SHEET, block(byCharge(lines), "20' DC"));
+    expect(priced.charges.map((c) => c.takesProfit)).toEqual([true, true, true, true]);
+    expect(priced.charges.map((c) => c.profit)).toEqual([0, 10, 20, 0]);
+  });
+
+  it("does not round a block without one up to fives, and rounds one with it", () => {
+    const lines = quote().buyingLines!.map((l, i) => (i === 0 ? { ...l, unitPrice: 1001 } : l));
+    const none = byCharge(lines, { fclPricing: { blocks: {}, byCharge: true, roundUp: true } });
+    expect(priceFclBlock(none, SHEET, block(none, "20' DC")).profit).toBe(0);
+    const some = byCharge(lines.map((l, i) => (i === 3 ? { ...l, chargeProfit: sum(1) } : l)), { fclPricing: { blocks: {}, byCharge: true, roundUp: true } });
+    expect(priceFclBlock(some, SHEET, block(some, "20' DC")).selling % 5).toBe(0);
+  });
+
+  it("adds the ticked charges to the all-in price and leaves the others on their own lines", () => {
+    const lines = quote().buyingLines!.map((l, i) => (i === 1 ? { ...l, inAllIn: false, chargeProfit: sum(5) } : i === 0 ? { ...l, chargeProfit: sum(100) } : l));
+    const data = byCharge(lines);
+    expect(fclOfferRows(data, fclLines(data, SHEET)!.sellingLines!, (l) => Number(l.amount))).toEqual([
+      { label: "All-in rate - 2 × 20' DC", amount: 3600 },
+      { label: "All-in rate - 1 × 40' HC", amount: 1800 },
+      { label: "All-in rate - per shipment", amount: 60 },
+      { label: "fcl_baf - 2 × 20' DC", amount: 210 },
+    ]);
+  });
+
+  describe("an open quote brought over", () => {
+    const sellingOf = (data: SalesQuoteData, options?: Parameters<typeof withFclPricing>[3]) => withFclPricing(data, SHEET, undefined, options)!.sellingLines!.map((l) => l.amount);
+
+    it("starts a new quote with every charge in the all-in price", () => {
+      const out = withFclPricing(quote({ fclPricing: undefined }), SHEET, undefined, { open: true })!;
+      expect(out.allIn).toBe(true);
+      expect(out.fclPricing!.byCharge).toBe(true);
+      expect(out.buyingLines!.every(isInAllIn)).toBe(true);
+    });
+
+    it("keeps a breakdown offer's prices and leaves every charge on its own line", () => {
+      const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+      const out = withFclPricing(data, SHEET, undefined, { open: true })!;
+      expect(out.sellingLines!.map((l) => l.amount)).toEqual(sellingOf(data));
+      expect(out.allIn).toBe(true);
+      expect(out.buyingLines!.some(isInAllIn)).toBe(false);
+      expect(fclOfferRows({ ...data, ...out }, out.sellingLines!, (l) => Number(l.amount)).some((r) => r.label.startsWith("All-in"))).toBe(false);
+    });
+
+    it("keeps an all-in offer's ticks and a charge at cost at no profit", () => {
+      const lines = quote().buyingLines!.map((l, i) => (i === 2 ? { ...l, inAllIn: false } : l));
+      const data = quote({ allIn: true, buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "sum", value: 160 } } } });
+      const out = withFclPricing(data, SHEET, undefined, { open: true })!;
+      expect(out.sellingLines!.map((l) => l.amount)).toEqual(sellingOf(data));
+      expect(out.buyingLines!.map(isInAllIn)).toEqual([true, true, false, true, true, true]);
+      expect(out.buyingLines![2]!.chargeProfit).toEqual({ mode: "sum", value: 0 });
+    });
+
+    it("keeps a block's % as each charge's, and a charge's own profit", () => {
+      const percent = quote({ fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } } });
+      expect(withFclPricing(percent, SHEET, undefined, { open: true })!.buyingLines![0]!.chargeProfit).toEqual({ mode: "percent", value: 10 });
+      const lines = quote().buyingLines!.map((l, i) => (i === 0 ? { ...l, chargeProfit: { mode: "percent" as const, value: 7 } } : l));
+      const own = quote({ buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "percent", value: 0, perCharge: true } } } });
+      expect(withFclPricing(own, SHEET, undefined, { open: true })!.buyingLines![0]!.chargeProfit).toEqual({ mode: "percent", value: 7 });
+    });
+
+    it("is done once: a quote already brought over stays as it is", () => {
+      const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+      const once = withFclPricing(data, SHEET, undefined, { open: true })!;
+      const twice = withFclPricing({ ...data, ...once }, SHEET, undefined, { open: true })!;
+      expect(twice.buyingLines).toEqual(once.buyingLines);
+      expect(twice.sellingLines).toEqual(once.sellingLines);
+    });
+
+    it("leaves a sent quote as it was sent", () => {
+      const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+      const out = withFclPricing(data, SHEET)!;
+      expect(out.fclPricing!.byCharge).toBeUndefined();
+      expect(out.allIn).toBeUndefined();
+      expect(out.buyingLines![0]!.chargeProfit).toBeUndefined();
+    });
   });
 });
 

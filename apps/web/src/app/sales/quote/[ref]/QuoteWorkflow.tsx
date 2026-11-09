@@ -352,7 +352,7 @@ export function QuoteWorkflow() {
     const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
     const priced = { ...next, ...based };
     // An open quote's blocks are sold at full fives (fclPricing.ts SELLING_ROUNDS_TO).
-    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange, { roundUp: true }) : null;
+    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange, { roundUp: true, open: true }) : null;
     return fcl ? { ...based, ...fclChanges(fcl, priced) } : based;
   };
   const set = (patch: Partial<SalesQuoteData>) => {
@@ -560,9 +560,9 @@ export function QuoteWorkflow() {
   // sent. Shown once today's rates are known; until then (or for want of a rate) the lines as they are.
   const fclLayout = usesFclPricing(draft, quoteClosed);
   const fclView = useMemo(() => {
-    const fcl = fclLayout ? withFclPricing(draft, exchange.rates, exchange) : null;
+    const fcl = fclLayout ? withFclPricing(draft, exchange.rates, exchange, { open: !quoteClosed }) : null;
     return fcl && { ...draft, ...fcl };
-  }, [fclLayout, draft, exchange]);
+  }, [fclLayout, draft, exchange, quoteClosed]);
   // Buying lines priced by a tariff for another cargo weight than Cargo details has now: marked, to recheck.
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
   // And those priced from a tariff in another Trade Direction than the quote has now: picked again before sending.
