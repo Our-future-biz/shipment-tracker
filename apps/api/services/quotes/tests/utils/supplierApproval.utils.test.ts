@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkedSupplierIds, supplierGate, typedSupplierLines, typedSupplierMessage, type LinkedSupplierState } from "../../utils/supplierApproval.utils";
+import { customerGate, linkedSupplierIds, supplierGate, typedSupplierLines, typedSupplierMessage, type LinkedSupplierState } from "../../utils/supplierApproval.utils";
 
 const A = "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f";
 const B = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -68,5 +68,25 @@ describe("typedSupplierLines", () => {
     expect(typedSupplierMessage([{ charge: "Road freight", supplier: "DANGO" }, { charge: "Customs", supplier: "Celní" }])).toBe(
       "The suppliers of the buying lines Road freight (DANGO), Customs (Celní) are only typed — pick each from the Customer Database on Pricing (or add it there)",
     );
+  });
+});
+
+describe("customerGate", () => {
+  const ID = "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f";
+  const states = (status: "" | "pending" | "declined" | "missing") => new Map([[ID, { companyName: "DANGO s.r.o.", status, comment: status === "declined" ? "not ours" : "" }]]);
+
+  it("holds a quote for a company that waits for a manager, or that a manager declined", () => {
+    expect(customerGate({ customerId: ID }, states("pending")).message).toMatch(/^DANGO s\.r\.o\. waits for a manager's approval/);
+    expect(customerGate({ customerId: ID }, states("declined")).message).toMatch(/^A manager declined DANGO s\.r\.o\. \(not ours\)/);
+  });
+
+  it("lets every other customer go, and a quote without one", () => {
+    expect(customerGate({ customerId: ID }, states("")).message).toBeNull();
+    expect(customerGate({ customerId: ID }, states("missing")).message).toBeNull();
+    expect(customerGate({ customerName: "typed" }, new Map())).toEqual({ message: null, unknown: false });
+  });
+
+  it("says when the customer changed since the states were read", () => {
+    expect(customerGate({ customerId: ID }, new Map())).toEqual({ message: null, unknown: true });
   });
 });

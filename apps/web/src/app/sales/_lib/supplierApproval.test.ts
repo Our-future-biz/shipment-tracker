@@ -63,7 +63,7 @@ describe("typedSupplierLines", () => {
 });
 
 describe("approvalStatusChanged", () => {
-  const item = (customerId: string, status: string) => ({ customerId, status });
+  const item = (threadId: string, status: string) => ({ threadId, status });
   it("is news when a supplier is answered, taken back, added or gone; not on the first read", () => {
     expect(approvalStatusChanged(undefined, [item("a", "pending")])).toBe(false);
     expect(approvalStatusChanged([item("a", "pending")], [item("a", "pending")])).toBe(false);

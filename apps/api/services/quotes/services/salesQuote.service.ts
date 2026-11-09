@@ -28,7 +28,7 @@ import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
 import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
 import { tryCustomerRefs } from "../lib/customerRefs";
-import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
+import { linkedSupplierIds, supplierGate, type LinkedSupplierState, customerGate, linkedCustomerIds } from "../utils/supplierApproval.utils";
 import { fclProfitGateMessage } from "../utils/fclProfit.utils";
 import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
 import { tariffDirectionGateMessage, tariffUpdateGateMessage, withoutRoadUpdates } from "../utils/tariffDirection.utils";
@@ -585,7 +585,7 @@ class SalesQuoteService {
     // Asked only for a move the gates hold (not Quoted → Won); one that turns out gated under the lock
     // with a linked supplier nobody looked up is tried again (supplierGate's unknown).
     const gatedBefore = (q: SalesQuoteRecord) => isGatedMove(effectiveStatus(stateOf(q).status, q.validUntil, ctx.today), request.to);
-    const suppliers = before && gatedBefore(before) ? await linkedSupplierStates(linkedSupplierIds(before.data)) : undefined;
+    const suppliers = before && gatedBefore(before) ? await linkedSupplierStates([...linkedSupplierIds(before.data), ...linkedCustomerIds(before.data)]) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -624,6 +624,10 @@ class SalesQuoteService {
         const supplierCheck = supplierGate(quote.data, suppliers ?? new Map());
         if (supplierCheck.unknown) throw conflict();
         if (supplierCheck.message) throw APIError.failedPrecondition(supplierCheck.message);
+        // Nor to a company that registered through a link and has not been approved yet.
+        const customerCheck = customerGate(quote.data, suppliers ?? new Map());
+        if (customerCheck.unknown) throw conflict();
+        if (customerCheck.message) throw APIError.failedPrecondition(customerCheck.message);
         // An approval given before the quote had a validity covers the one it is sent with, and no later one.
         const stamped = approvalWithValidity(quote.data, change.state.validUntil);
         if (stamped) serverKeys = { marginApproval: stamped };

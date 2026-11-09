@@ -89,10 +89,10 @@ export function supplierSendBlock(
  * again too. Nothing on the first read: there is nothing to compare with.
  */
 export function approvalStatusChanged(
-  before: readonly { customerId: string; status: string }[] | undefined,
-  after: readonly { customerId: string; status: string }[],
+  before: readonly { threadId: string; status: string }[] | undefined,
+  after: readonly { threadId: string; status: string }[],
 ): boolean {
   if (!before) return false;
-  const was = new Map(before.map((a) => [a.customerId, a.status]));
-  return before.length !== after.length || after.some((a) => was.get(a.customerId) !== a.status);
+  const was = new Map(before.map((a) => [a.threadId, a.status]));
+  return before.length !== after.length || after.some((a) => was.get(a.threadId) !== a.status);
 }

@@ -32,6 +32,27 @@ export function linkedSupplierIds(data: unknown): string[] {
   return [...new Set(ids)];
 }
 
+/** The Customer Database company the quote is for, when it is linked to one. */
+export function linkedCustomerIds(data: unknown): string[] {
+  const id = text(isPlainObject(data) ? data.customerId : undefined).toLowerCase();
+  return isUuid(id) ? [id] : [];
+}
+
+/**
+ * Why the quote can't go out for its customer: a company that registered through a link and waits for a
+ * manager, or that a manager declined. Null when it may go. `unknown` as in supplierGate.
+ */
+export function customerGate(data: unknown, states: ReadonlyMap<string, LinkedSupplierState>): { message: string | null; unknown: boolean } {
+  const [id] = linkedCustomerIds(data);
+  if (!id) return { message: null, unknown: false };
+  const state = states.get(id);
+  if (!state) return { message: null, unknown: true };
+  const name = state.companyName || "The customer";
+  if (state.status === "pending") return { message: `${name} waits for a manager's approval (Sales → Managers → Company approval) — the quote can be sent once it is approved`, unknown: false };
+  if (state.status === "declined") return { message: `A manager declined ${name}${state.comment ? ` (${state.comment})` : ""} — choose another customer`, unknown: false };
+  return { message: null, unknown: false };
+}
+
 /**
  * The buying lines whose supplier is only typed: a name, and no Customer Database company behind it.
  * A line priced from a tariff is not one of them: its supplier is the tariff's, and is not changed on

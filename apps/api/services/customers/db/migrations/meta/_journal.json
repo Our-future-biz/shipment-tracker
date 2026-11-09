@@ -239,6 +239,13 @@
       "when": 1793862283976,
       "tag": "0033_supplier_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794215650668,
+      "tag": "0034_company_registration",
+      "breakpoints": true
     }
   ]
 }

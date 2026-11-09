@@ -68,6 +68,16 @@ export type SupplierApprovalDecision = "" | "approved" | "declined";
 /** A new supplier on Sales → Managers → Company approval: waiting, or answered lately. */
 export interface SupplierApprovalItem {
   customerId: string;
+  /** What the answer, the chat and "seen" go by: the company, or a registration of one already in the database. */
+  threadId: string;
+  /** It came through a registration link. */
+  registered: boolean;
+  /** Registered, but the company was already in the Customer Database. */
+  alreadyInDatabase: boolean;
+  /** What it accepted on the registration form; "" and null when it did not register. */
+  termsName: string;
+  termsUrl: string;
+  termsAcceptedAt: string | null;
   companyName: string;
   ico: string;
   dic: string;

@@ -56,7 +56,7 @@ export interface ManualCustomerInput {
 }
 
 // The first contact of a new customer: its main one. Somebody must be reachable, so an email or a phone is needed.
-function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "companyId" | "customerId"> {
+export function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "companyId" | "customerId"> {
   const names = contactNames(contact.firstName, contact.lastName);
   const email = (contact.email ?? "").trim();
   const phone = (contact.phone ?? "").trim();
@@ -137,6 +137,8 @@ export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | un
 export interface NewSupplierRequest {
   userId: string;
   quoteNumber: string;
+  /** Registered through a link instead: who created it, by e-mail as a person is recorded. The company itself filled it in. */
+  viaLink?: { requestedBy: string };
 }
 
 /**
@@ -156,6 +158,9 @@ export function supplierRequestOf(userId: string, fromQuote: string | undefined)
  * supplier is already a manager's right. Anything else needs no approval.
  */
 async function approvalOf(actorRole: string, request: NewSupplierRequest | undefined): Promise<Partial<NewCustomerRecord>> {
+  if (request?.viaLink) {
+    return { approvalStatus: "pending", approvalRequestedBy: request.viaLink.requestedBy, approvalRequestedByUserId: request.userId, approvalRequestedAt: new Date() };
+  }
   if (!request || canManageSales(actorRole)) return {};
   const quoteNumber = request.quoteNumber.trim();
   if (!quoteNumber) throw APIError.invalidArgument("A new supplier names the quote it is added from");
@@ -344,7 +349,8 @@ class CustomerService {
     roles: CustomerRole[] = ["customer"],
     supplierRequest?: NewSupplierRequest,
   ): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, roles, !!supplierRequest);
+    // The roles of a company registered through a link were given when the link was created.
+    if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, roles, !!supplierRequest);
     const checkedRoles = requireRoles(roles);
     const mainContact = firstContact(contact);
     if (await customerRepository.findByIco(ico, companyId)) {
@@ -379,7 +385,7 @@ class CustomerService {
   }
 
   async createManual(companyId: string, actorRole: string, input: ManualCustomerInput, supplierRequest?: NewSupplierRequest): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, input.roles, !!supplierRequest);
+    if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, input.roles, !!supplierRequest);
     const mainContact = firstContact(input.contact);
     const checkedRoles = requireRoles(input.roles ?? ["customer"]);
     const country = input.country.trim().toUpperCase();

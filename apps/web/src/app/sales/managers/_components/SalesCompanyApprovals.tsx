@@ -3,12 +3,13 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { Checkbox, Input, Modal, Popconfirm, Segmented } from "antd";
-import { CheckOutlined, CloseOutlined, EditOutlined, UndoOutlined } from "@ant-design/icons";
+import { CheckOutlined, CloseOutlined, EditOutlined, MessageOutlined, UndoOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
+import { ApprovalChatDrawer } from "@/components/ApprovalChatDrawer";
 import { LINK_CLASS } from "@/components/linkClass";
 import { Pill } from "@/components/Pill";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
@@ -49,13 +50,14 @@ export function SalesCompanyApprovals() {
   const [declining, setDeclining] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [editing, setEditing] = useState<SupplierApprovalItem | null>(null);
+  const [chat, setChat] = useState<string | null>(null);
 
   const listed = approvals.filter((a) => (view === "waiting" ? a.status === "pending" : a.decision !== ""));
   const who = (a: SupplierApprovalItem) => a.requestedBy || "whoever added it";
 
   const answer = (a: SupplierApprovalItem, decision: "approve" | "decline") =>
     decide
-      .mutateAsync({ id: a.customerId, decision, comment: decision === "decline" ? reason : undefined })
+      .mutateAsync({ id: a.threadId, decision, comment: decision === "decline" ? reason : undefined })
       .then(() => {
         toast.success(`${a.companyName} ${decision === "approve" ? "approved" : "declined"} — ${who(a)} is notified`);
         setDeclining(null);
@@ -64,9 +66,9 @@ export function SalesCompanyApprovals() {
 
   const takeBack = (a: SupplierApprovalItem) =>
     undoDecline
-      .mutateAsync(a.customerId)
+      .mutateAsync(a.threadId)
       .then(() => {
-        toast.success(`${a.companyName} is back in the Customer Database, waiting for approval again`);
+        toast.success(a.alreadyInDatabase ? `The registration of ${a.companyName} waits for approval again` : `${a.companyName} is back in the Customer Database, waiting for approval again`);
         setView("waiting");
       })
       .catch((e) => toast.error(apiErrorMessage(e)));
@@ -78,9 +80,9 @@ export function SalesCompanyApprovals() {
       <section className={`${CARD} overflow-hidden`}>
         <div className={`${CARD_BAR} flex-wrap justify-between`}>
           <div>
-            <h3 className={CARD_TITLE}>Company approval · new suppliers</h3>
+            <h3 className={CARD_TITLE}>Company approval · new companies</h3>
             <div className={HINT}>
-              Added from a quote&apos;s Pricing; its quote can&apos;t be sent until the supplier is approved. Approve it, edit it first, or decline it with a reason (it is then deleted; Undo decline under Answered brings it back). The one who added it is told.
+              Added from a quote&apos;s Pricing, or registered by a company through its link; a quote linked to one can&apos;t be sent until it is approved. Approve it, edit it first, or decline it with a reason (it is then deleted; Undo decline under Answered brings it back). The one who added it is told.
             </div>
           </div>
           <Segmented
@@ -112,9 +114,9 @@ export function SalesCompanyApprovals() {
                 </tr>
               )}
               {listed.map((a) => {
-                const open = a.status === "pending" && declining === a.customerId;
+                const open = a.status === "pending" && declining === a.threadId;
                 return (
-                  <Fragment key={a.customerId}>
+                  <Fragment key={a.threadId}>
                     <tr>
                       <td className={CELL}>
                         {a.status === "declined" ? (
@@ -125,6 +127,11 @@ export function SalesCompanyApprovals() {
                           </Link>
                         )}
                         <div className="text-[12px] text-slate-700">{rolesText(a.roles)}</div>
+                        {a.alreadyInDatabase && (
+                          <div className="mt-0.5">
+                            <Pill tone="amber">Already in the database</Pill>
+                          </div>
+                        )}
                         <div className="text-[11px] text-slate-500">
                           {[a.ico && `${a.country === "CZ" ? "IČO" : "Reg. no."} ${a.ico}`, a.dic && `VAT ${a.dic}`, a.dataSource === "ARES" ? "from ARES" : "typed in"].filter(Boolean).join(" · ")}
                         </div>
@@ -137,6 +144,14 @@ export function SalesCompanyApprovals() {
                       <td className={`${CELL} whitespace-nowrap`}>
                         {a.requestedBy || "—"}
                         <div className="text-[11px] text-slate-400 tabular-nums">{a.requestedAt ? formatDateTime(a.requestedAt) : ""}</div>
+                        {a.registered && (
+                          <div className="text-[11px] text-slate-500">
+                            Registered by link · accepted{" "}
+                            <a href={a.termsUrl} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+                              the terms
+                            </a>
+                          </div>
+                        )}
                         {a.quoteNumber && (
                           <Link href={quoteHref(a.quoteNumber)} className={`text-[12px] tabular-nums font-semibold ${LINK_CLASS}`}>
                             {a.quoteNumber}
@@ -153,7 +168,7 @@ export function SalesCompanyApprovals() {
                             <button
                               type="button"
                               onClick={() => {
-                                setDeclining(a.customerId);
+                                setDeclining(a.threadId);
                                 setReason("");
                               }}
                               className={BTN}
@@ -161,9 +176,15 @@ export function SalesCompanyApprovals() {
                               <CloseOutlined className="text-[14px]" />
                               Decline
                             </button>
-                            <button type="button" onClick={() => setEditing(a)} className={BTN}>
-                              <EditOutlined className="text-[14px]" />
-                              Edit
+                            {!a.alreadyInDatabase && (
+                              <button type="button" onClick={() => setEditing(a)} className={BTN}>
+                                <EditOutlined className="text-[14px]" />
+                                Edit
+                              </button>
+                            )}
+                            <button type="button" onClick={() => setChat(a.threadId)} className={BTN}>
+                              <MessageOutlined className="text-[14px]" />
+                              Chat
                             </button>
                           </div>
                         ) : (
@@ -177,7 +198,7 @@ export function SalesCompanyApprovals() {
                             {a.comment && <div className="text-[12px] text-slate-700 mt-1 max-w-[280px] whitespace-pre-wrap">{a.comment}</div>}
                             {a.status === "declined" && (
                               <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                                <span className="text-[11px] text-slate-400">Deleted from the Customer Database</span>
+                                <span className="text-[11px] text-slate-400">{a.alreadyInDatabase ? "The company stays in the Customer Database" : "Deleted from the Customer Database"}</span>
                                 <Popconfirm
                                   title={`Undo the decline of ${a.companyName}?`}
                                   description="It comes back to the Customer Database and waits for approval again; its quote stays held until it is answered."
@@ -211,7 +232,7 @@ export function SalesCompanyApprovals() {
                                 className="w-full text-[13px] text-slate-900 border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors"
                               />
                               <span className={`block ${HINT} mt-0.5`}>
-                                Sent to {who(a)}. The company is deleted, and its quote&apos;s line asks for another supplier. Given by mistake, it can be undone under Answered.
+                                {a.alreadyInDatabase ? <>Sent to {who(a)}. The company stays as it is in the Customer Database.</> : a.registered ? <>Sent to {who(a)}. The company is deleted. Given by mistake? Undo decline under Answered brings it back.</> : <>Sent to {who(a)}. The company is deleted, and its quote&apos;s line asks for another supplier. Given by mistake, it can be undone under Answered.</>}
                               </span>
                             </label>
                             <div className="flex gap-2">
@@ -239,6 +260,7 @@ export function SalesCompanyApprovals() {
         </div>
       </section>
       {editing && <EditSupplierModal item={editing} onClose={() => setEditing(null)} />}
+      <ApprovalChatDrawer threadId={chat} onClose={() => setChat(null)} />
     </div>
   );
 }
@@ -253,7 +275,8 @@ function EditSupplierModal({ item, onClose }: { item: SupplierApprovalItem; onCl
   const [roles, setRoles] = useState<interfaces.CustomerRole[]>(item.roles);
   const [saving, setSaving] = useState(false);
   const options = customerRoleOptions(canSeeConcepts);
-  const hasSupplierRole = roles.some((r) => r !== "customer");
+  // A company that registered by link may be a customer; one added from a quote's Pricing is a supplier.
+  const rolesAreFine = item.registered ? roles.length > 0 : roles.some((r) => r !== "customer");
 
   const save = async () => {
     setSaving(true);
@@ -278,7 +301,7 @@ function EditSupplierModal({ item, onClose }: { item: SupplierApprovalItem; onCl
       title={<span className={MODAL_TITLE}>Edit new supplier</span>}
       okText="Save"
       onOk={() => void save()}
-      okButtonProps={{ disabled: !companyName.trim() || !hasSupplierRole, loading: saving }}
+      okButtonProps={{ disabled: !companyName.trim() || !rolesAreFine, loading: saving }}
       destroyOnHidden
     >
       <div className="flex flex-col gap-3 pt-2">
@@ -293,7 +316,7 @@ function EditSupplierModal({ item, onClose }: { item: SupplierApprovalItem; onCl
         <div>
           <span className={LABEL}>Roles</span>
           <Checkbox.Group options={options} value={roles} onChange={setRoles} />
-          {!hasSupplierRole && <div className="text-[12px] text-red-600 mt-1">Keep at least one supplier role</div>}
+          {!rolesAreFine && <div className="text-[12px] text-red-600 mt-1">{item.registered ? "Keep at least one role" : "Keep at least one supplier role"}</div>}
         </div>
         <div className="text-[12px] text-slate-500">
           Addresses, contacts and terms:{" "}
