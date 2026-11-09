@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fclBlocks, fclChanges, fclLines, fclOfferRows, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
-import { computeTotals, convertLine } from "./salesQuote";
+import { fclBlocks, fclChanges, fclLines, fclOfferGroups, fclProfitBlock, isInAllIn, priceFclBlock, usesFclPricing, withContainerTypes, withFclPricing } from "./fclPricing";
+import { basisUnits, computeTotals, convertLine } from "./salesQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // CZK per 1 unit.
@@ -118,10 +118,166 @@ describe("a block's profit", () => {
     expect(profits(data, "20' DC")).toEqual([50, 0, 0, 125]);
   });
 
-  it("says so when no charge of the block takes the profit set", () => {
-    const lines = quote().buyingLines!.map((l) => ({ ...l, profitBasis: false }));
-    const data = quote({ buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
-    expect(priceFclBlock(data, SHEET, block(data, "20' DC")).profitUnplaced).toBe(true);
+});
+
+describe("a rate per container stays with its size", () => {
+  const untyped = { type: "Inland container haulage", chargeCode: "inland_haulage", description: "Rail", currency: "EUR", basis: "container" as const, unitPrice: 560, amount: 1120, tariffRef: "rail:v1:r1" };
+  const one = [{ qty: 2, type: "20' DC" }];
+  const two = [...one, { qty: 1, type: "40' DC" }];
+
+  it("gives a line saved without a type the quote's only type, buying and selling", () => {
+    const out = withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [untyped], sellingLines: [untyped] })!;
+    expect(out.buyingLines![0]!.containerType).toBe("20' DC");
+    expect(out.sellingLines![0]!.containerType).toBe("20' DC");
+  });
+
+  it("stays in that type's block when another type is added, counting only its containers", () => {
+    const typed = withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [untyped] })!;
+    const data: SalesQuoteData = { serviceType: "Sea FCL", currency: "EUR", containers: two, ...typed };
+    expect(fclBlocks(data).map((b) => [b.key, b.lines])).toEqual([["20' DC", [0]], ["40' DC", []], ["", []]]);
+    expect(basisUnits(data, "container", typed.buyingLines![0]!.containerType)).toBe(2);
+  });
+
+  it("puts a line already moved to All containers back by the size its tariff priced", () => {
+    const moved = { ...untyped, pricedFor: "20' DC 12000 kg" };
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: two, buyingLines: [moved] })!.buyingLines![0]!.containerType).toBe("20' DC");
+  });
+
+  it("does not guess: several sizes priced, a size no longer on the quote, or nothing to go by", () => {
+    for (const pricedFor of ["20' DC 0 kg, 40' DC 0 kg", "45' HC 0 kg", undefined]) {
+      expect(withContainerTypes({ serviceType: "Sea FCL", containers: two, buyingLines: [{ ...untyped, pricedFor }] })).toBeNull();
+    }
+  });
+
+  it("leaves typed lines, lump sums, trucking lines and other freight modes alone", () => {
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [{ ...untyped, containerType: "40' DC" }] })).toBeNull();
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [{ ...untyped, basis: "lumpsum" }] })).toBeNull();
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [{ ...untyped, tariffRef: "trucking:v1:std" }] })).toBeNull();
+    expect(withContainerTypes({ serviceType: "Sea LCL", containers: one, buyingLines: [untyped] })).toBeNull();
+  });
+});
+
+describe("a profit per charge", () => {
+  const sum = (value: number) => ({ mode: "sum" as const, value });
+  const byCharge = (lines: CostLine[], over: Partial<SalesQuoteData> = {}) => quote({ allIn: true, buyingLines: lines, fclPricing: { blocks: {}, byCharge: true }, ...over });
+
+  it("is on any charge, in the all-in price or not, the freight or not", () => {
+    const lines = quote().buyingLines!.map((l, i) => (i === 1 ? { ...l, chargeProfit: sum(10), inAllIn: false } : i === 2 ? { ...l, chargeProfit: sum(20) } : l));
+    const priced = priceFclBlock(byCharge(lines), SHEET, block(byCharge(lines), "20' DC"));
+    expect(priced.charges.map((c) => c.takesProfit)).toEqual([true, true, true, true]);
+    expect(priced.charges.map((c) => c.profit)).toEqual([0, 10, 20, 0]);
+  });
+
+  it("does not round a block without one up to fives, and rounds one with it", () => {
+    const lines = quote().buyingLines!.map((l, i) => (i === 0 ? { ...l, unitPrice: 1001 } : l));
+    const none = byCharge(lines, { fclPricing: { blocks: {}, byCharge: true, roundUp: true } });
+    expect(priceFclBlock(none, SHEET, block(none, "20' DC")).profit).toBe(0);
+    const some = byCharge(lines.map((l, i) => (i === 3 ? { ...l, chargeProfit: sum(1) } : l)), { fclPricing: { blocks: {}, byCharge: true, roundUp: true } });
+    expect(priceFclBlock(some, SHEET, block(some, "20' DC")).selling % 5).toBe(0);
+  });
+
+  it("adds the ticked charges to the all-in price and leaves the others on their own lines", () => {
+    const lines = quote().buyingLines!.map((l, i) => (i === 1 ? { ...l, inAllIn: false, chargeProfit: sum(5) } : i === 0 ? { ...l, chargeProfit: sum(100) } : l));
+    const data = byCharge(lines);
+    expect(fclOfferGroups(data, fclLines(data, SHEET)!.sellingLines!, (l) => Number(l.amount))).toEqual([
+      { label: "20' DC · 2 containers", rows: [{ label: "All-in rate", amount: 3600 }, { label: "fcl_baf", amount: 210 }] },
+      { label: "40' HC · 1 container", rows: [{ label: "All-in rate", amount: 1800 }] },
+      { label: "Per shipment", rows: [{ label: "All-in rate", amount: 60 }] },
+    ]);
+  });
+
+  describe("an open quote brought over", () => {
+    const sellingOf = (data: SalesQuoteData, options?: Parameters<typeof withFclPricing>[3]) => withFclPricing(data, SHEET, undefined, options)!.sellingLines!.map((l) => l.amount);
+
+    it("starts a new quote with every charge in the all-in price", () => {
+      const out = withFclPricing(quote({ fclPricing: undefined }), SHEET, undefined, { open: true })!;
+      expect(out.allIn).toBe(true);
+      expect(out.fclPricing!.byCharge).toBe(true);
+      expect(out.buyingLines!.every(isInAllIn)).toBe(true);
+    });
+
+    it("keeps a breakdown offer's prices and leaves every charge on its own line", () => {
+      const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+      const out = withFclPricing(data, SHEET, undefined, { open: true })!;
+      expect(out.sellingLines!.map((l) => l.amount)).toEqual(sellingOf(data));
+      expect(out.allIn).toBe(true);
+      expect(out.buyingLines!.some(isInAllIn)).toBe(false);
+      expect(fclOfferGroups({ ...data, ...out }, out.sellingLines!, (l) => Number(l.amount)).flatMap((g) => g.rows).some((r) => r.label.startsWith("All-in"))).toBe(false);
+    });
+
+    it("keeps an all-in offer's ticks and a charge at cost at no profit", () => {
+      const lines = quote().buyingLines!.map((l, i) => (i === 2 ? { ...l, inAllIn: false } : l));
+      const data = quote({ allIn: true, buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "sum", value: 160 } } } });
+      const out = withFclPricing(data, SHEET, undefined, { open: true })!;
+      expect(out.sellingLines!.map((l) => l.amount)).toEqual(sellingOf(data));
+      expect(out.buyingLines!.map(isInAllIn)).toEqual([true, true, false, true, true, true]);
+      expect(out.buyingLines![2]!.chargeProfit).toEqual({ mode: "sum", value: 0 });
+    });
+
+    it("keeps a block's % as each charge's, and a charge's own profit", () => {
+      const percent = quote({ fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } } });
+      expect(withFclPricing(percent, SHEET, undefined, { open: true })!.buyingLines![0]!.chargeProfit).toEqual({ mode: "percent", value: 10 });
+      const lines = quote().buyingLines!.map((l, i) => (i === 0 ? { ...l, chargeProfit: { mode: "percent" as const, value: 7 } } : l));
+      const own = quote({ buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "percent", value: 0, perCharge: true } } } });
+      expect(withFclPricing(own, SHEET, undefined, { open: true })!.buyingLines![0]!.chargeProfit).toEqual({ mode: "percent", value: 7 });
+    });
+
+    it("is done once: a quote already brought over stays as it is", () => {
+      const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+      const once = withFclPricing(data, SHEET, undefined, { open: true })!;
+      const twice = withFclPricing({ ...data, ...once }, SHEET, undefined, { open: true })!;
+      expect(twice.buyingLines).toEqual(once.buyingLines);
+      expect(twice.sellingLines).toEqual(once.sellingLines);
+    });
+
+    it("leaves a sent quote as it was sent", () => {
+      const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+      const out = withFclPricing(data, SHEET)!;
+      expect(out.fclPricing!.byCharge).toBeUndefined();
+      expect(out.allIn).toBeUndefined();
+      expect(out.buyingLines![0]!.chargeProfit).toBeUndefined();
+    });
+  });
+});
+
+describe("a profit on every container type before the quote goes out", () => {
+  const twoTypes = (blocks: Record<string, { mode: "percent" | "sum"; value: number }>, over: Partial<SalesQuoteData> = {}) => quote({ fclPricing: { blocks }, ...over });
+  const twenty = { mode: "sum" as const, value: 100 };
+
+  it("names the types without one", () => {
+    expect(fclProfitBlock(twoTypes({}), SHEET)).toMatch(/^No profit on 20' DC, 40' HC yet/);
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty }), SHEET)).toMatch(/^No profit on 40' HC yet/);
+  });
+
+  it("lets it go once each has one", () => {
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty, "40' HC": { mode: "percent", value: 10 } }), SHEET)).toBeNull();
+  });
+
+  it("does not take a profit per shipment for one on a container", () => {
+    expect(fclProfitBlock(twoTypes({ "": twenty }), SHEET)).toMatch(/20' DC, 40' HC/);
+  });
+
+  it("holds a loss", () => {
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty, "40' HC": { mode: "sum", value: -1 } }), SHEET)).toMatch(/^No profit on 40' HC yet/);
+  });
+
+  it("takes one whole cent for a profit, as the server does, and a profit cancelled by every type's charges for none", () => {
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty, "40' HC": { mode: "sum", value: 0.01 } }), SHEET)).toBeNull();
+    const buyingLines = [perCtr("ocean_freight", "20' DC", 1000, 2), perCtr("ocean_freight", "40' HC", 1800, 1), perCtr("fcl_baf", "", 50, 3, { profitBasis: true })];
+    // 0.1 on 20' DC and -0.1 on every container: no profit on 20' DC.
+    const blocks = { "20' DC": { mode: "sum" as const, value: 0.1 }, "40' HC": twenty, "*": { mode: "sum" as const, value: -0.1 } };
+    expect(fclProfitBlock(twoTypes(blocks, { buyingLines }), SHEET)).toMatch(/^No profit on 20' DC yet/);
+  });
+
+  it("counts the charges per container of every type for each", () => {
+    const buyingLines = [perCtr("ocean_freight", "20' DC", 1000, 2), perCtr("ocean_freight", "40' HC", 1800, 1), perCtr("fcl_baf", "", 50, 3, { profitBasis: true })];
+    expect(fclProfitBlock(twoTypes({ "*": twenty }, { buyingLines }), SHEET)).toBeNull();
+  });
+
+  it("does not hold a type no container is chosen of, or another freight mode", () => {
+    const containers = [{ qty: 2, type: "20' DC" }, { qty: 0, type: "40' HC" }];
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty }, { containers }), SHEET)).toBeNull();
+    expect(fclProfitBlock(twoTypes({}, { serviceType: "Sea LCL" }), SHEET)).toBeNull();
   });
 });
 
@@ -184,8 +340,41 @@ describe("a block's selling, rounded up to full fives", () => {
     // The 20' DC lines on the totals: 2 containers at the card's price, to the cent.
     const of20 = priced.sellingLines!.filter((l) => l.containerType === "20' DC");
     const sold = of20.reduce((sum, l) => sum + convertLine(l, { ...data, ...priced }, SHEET, { selling: true, live })!, 0);
-    expect(Math.abs(sold - card * 2)).toBeLessThanOrEqual(0.02);
+    expect(Math.round(sold * 100)).toBe(Math.round(card * 200));
     expect(computeTotals({ ...data, ...priced }, SHEET, live).roePct).toBe(102);
+  });
+
+  // Charges in another currency than the quote's: the amounts that once left 6,915.01 on the totals.
+  it.each([
+    ["all in EUR", () => true],
+    ["freight in USD, the rest in EUR", (l: CostLine) => l.chargeCode !== "ocean_freight"],
+    ["freight in EUR, the rest in USD", (l: CostLine) => l.chargeCode === "ocean_freight"],
+  ])("comes to full fives on the totals with %s, whatever the rates and profit", (_name, inEur) => {
+    const sheets = [{ USD: 21.804, EUR: 24.345 }, { USD: 23, EUR: 25 }, { USD: 21.777, EUR: 24.513 }];
+    for (const sheet of sheets) {
+      for (const roePct of [100, 102, 101.5]) {
+        for (let profit = 37.13; profit < 900; profit += 83.37) {
+          const lines = quote().buyingLines!.filter((l) => l.basis === "container").map((l) => ({ ...l, currency: inEur(l) ? "EUR" : "USD", unitPrice: (l.unitPrice ?? 0) + 0.37, amount: l.amount + 0.37 * (l.qty ?? 1) }));
+          const data = quote({
+            buyingLines: lines,
+            fclPricing: { blocks: { "20' DC": { mode: "sum", value: profit }, "40' HC": { mode: "percent", value: 11 } } },
+          });
+          const live = { roePct, fixingDate: "2026-11-06" };
+          const priced = withFclPricing(data, sheet, live, { roundUp: true })!;
+          const { selling } = computeTotals({ ...data, ...priced }, sheet, live);
+          expect(Math.round(selling * 100) % 500).toBe(0);
+        }
+      }
+    }
+  });
+
+  it("is the same when priced again, so nothing is saved for it", () => {
+    const lines = quote().buyingLines!.map((l) => ({ ...l, currency: "EUR" }));
+    const data = quote({ buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "sum", value: 123.45 } } } });
+    const live = { roePct: 101.5, fixingDate: "2026-11-06" };
+    const first = withFclPricing(data, SHEET, live, { roundUp: true })!;
+    const again = withFclPricing({ ...data, ...first }, SHEET, live, { roundUp: true })!;
+    expect(fclChanges(again, { ...data, ...first })).toEqual({});
   });
 
   it("is asked for when an open quote is priced, and its selling lines follow", () => {
@@ -321,23 +510,35 @@ describe("what FCL pricing changes of a quote", () => {
 describe("the rate offer of an FCL-priced quote", () => {
   const usd = (l: CostLine) => convertLine(l, quote(), SHEET, { selling: true });
 
-  it("is the selling lines one by one in a breakdown offer, each with its containers", () => {
+  it("is the selling lines one by one under their sections in a breakdown offer", () => {
     const selling = fclLines(quote(), SHEET)!.sellingLines!;
-    expect(fclOfferRows(quote(), selling, usd).slice(0, 2)).toEqual([
-      { label: "ocean_freight - 2 × 20' DC", amount: 2000 },
-      { label: "fcl_baf - 2 × 20' DC", amount: 200 },
+    const groups = fclOfferGroups(quote(), selling, usd);
+    expect(groups.map((g) => g.label)).toEqual(["20' DC · 2 containers", "40' HC · 1 container", "Per shipment"]);
+    expect(groups[0]!.rows.slice(0, 2)).toEqual([
+      { label: "ocean_freight", amount: 2000 },
+      { label: "fcl_baf", amount: 200 },
     ]);
   });
 
-  it("is an all-in rate per container type and per shipment, then each charge kept out of it", () => {
+  it("has an all-in rate in each section, then each charge kept out of it", () => {
     const lines = quote().buyingLines!.map((l, i) => (i === 2 ? { ...l, inAllIn: false } : l));
     const data = quote({ allIn: true, buyingLines: lines });
     const selling = fclLines(data, SHEET)!.sellingLines!;
-    expect(fclOfferRows(data, selling, usd)).toEqual([
-      { label: "All-in rate - 2 × 20' DC", amount: 3200 },
-      { label: "All-in rate - 1 × 40' HC", amount: 1800 },
-      { label: "All-in rate - per shipment", amount: 60 },
-      { label: "fcl_thc_origin - 2 × 20' DC", amount: 400 },
+    expect(fclOfferGroups(data, selling, usd)).toEqual([
+      { label: "20' DC · 2 containers", rows: [{ label: "All-in rate", amount: 3200 }, { label: "fcl_thc_origin", amount: 400 }] },
+      { label: "40' HC · 1 container", rows: [{ label: "All-in rate", amount: 1800 }] },
+      { label: "Per shipment", rows: [{ label: "All-in rate", amount: 60 }] },
     ]);
+  });
+
+  it("leaves a tariff line's own count off its name, whichever it was priced for", () => {
+    const lines = [perCtr("inland_haulage", "20' DC", 500, 2, { description: "Rail Praha - 3 × 20' DC" })];
+    const data = quote({ buyingLines: lines });
+    expect(fclOfferGroups(data, fclLines(data, SHEET)!.sellingLines!, usd)[0]!.rows).toEqual([{ label: "Rail Praha", amount: 1000 }]);
+  });
+
+  it("keeps the order of Pricing whatever order the lines come in, and has no empty section", () => {
+    const data = quote({ buyingLines: [perShipment("fcl_documentation", 60), perCtr("ocean_freight", "40' HC", 1800, 1)] });
+    expect(fclOfferGroups(data, fclLines(data, SHEET)!.sellingLines!, usd).map((g) => g.label)).toEqual(["40' HC · 1 container", "Per shipment"]);
   });
 });

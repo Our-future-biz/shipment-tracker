@@ -25,7 +25,7 @@ import {
 import { getFieldValue, buildRowData, useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { ListCapNotice } from "@/components/ListCapNotice";
 import Link from "next/link";
-import { canChangeShipmentDetails, canChangeShipmentField, isApprovedByLocked, isCreditCheckLocked } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, canChangeShipmentField, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
 import { CUSTOMS_PROCEDURE_LOCKED_HINT, customsProcedureLocked } from "@/lib/customsOffices";
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth, useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
@@ -39,6 +39,7 @@ import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { DocumentsPanel } from "./DocumentsPanel";
+import { dimensionLineIsEmpty } from "@/lib/cargo";
 import { DimensionsModal } from "./DimensionsModal";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
@@ -520,12 +521,12 @@ export const ShipmentsTable = ({
             <span className={EMPTY}>{"\u2014"}</span>
           );
         }
-        // Dimensions \u2192 a link to the dimension lines, shown and edited in a dialog.
+        // Dimensions \u2192 a link to the dimension lines, shown and edited in a dialog. Bold once some are filled in.
         if (col.key === "dimensionsSummary") {
           return (
             <button
               onClick={(e) => { e.stopPropagation(); setDimsShipmentId(record.id); }}
-              className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
+              className={`${cellLinkClass(textStyle?.color)} ${(record.cargoDimensions ?? []).some((l) => !dimensionLineIsEmpty(l)) ? "font-bold" : "font-medium"} bg-transparent border-none p-0 cursor-pointer`}
               style={textStyle}
             >
               Click for Preview
@@ -591,6 +592,14 @@ export const ShipmentsTable = ({
         if (col.key === "customsProcedure" && customsProcedureLocked(record.customsProcedure, record.customsOffice, canChangeOffice)) {
           return (
             <span className="text-slate-700" style={textStyle} title={CUSTOMS_PROCEDURE_LOCKED_HINT}>
+              {val}
+            </span>
+          );
+        }
+        // An invoiced shipment keeps the offer it was invoiced from (the server refuses a change too).
+        if (col.key === "salesNumber" && salesReferenceLocked(record.invoicingStatus)) {
+          return (
+            <span className="text-slate-700" style={textStyle} title={SALES_REFERENCE_LOCKED_HINT}>
               {val}
             </span>
           );

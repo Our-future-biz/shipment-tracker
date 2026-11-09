@@ -50,7 +50,7 @@ export function periodText(r: KpiRange): string {
 export function kpiValueText(value: number | null, unit: string): string {
   if (value == null) return "";
   const n = Number.isInteger(value) ? String(value) : value.toFixed(1);
-  const num = n.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const num = n.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   if (unit === "%") return `${num} %`;
   return unit ? `${num} ${unit}` : num;
 }

@@ -49,7 +49,9 @@ export function parseMoney(text: string | null | undefined): number | null {
     const thousands = decimal === "," ? "." : ",";
     t = t.split(thousands).join("").replace(decimal, ".");
   } else if (lastComma >= 0) {
-    t = t.replace(",", ".");
+    // Figures are written 1,250.50: commas in threes separate thousands; any other single comma is the decimal one.
+    // A thousands figure never starts with 0, so "0,500" is a decimal comma (and has too many decimals).
+    t = /^-?[1-9]\d{0,2}(,\d{3})+$/.test(t) ? t.replace(/,/g, "") : t.replace(",", ".");
   }
   return /^-?\d{1,12}(\.\d{1,2})?$/.test(t) ? Number(t) : null;
 }
@@ -62,6 +64,19 @@ export function normaliseAmount(text: string | null | undefined): string | null 
   if (String(text ?? "").trim() === "") return "";
   const n = parseMoney(text);
   return n === null ? null : String(n);
+}
+
+/** An amount as an entry box shows it, "12,222,222.00"; text that is no amount stays as it is, nothing stays nothing. */
+export function amountInBox(value: string | null | undefined): string {
+  const text = String(value ?? "");
+  if (text.trim() === "") return "";
+  const n = parseMoney(text);
+  return n === null ? text : money(n);
+}
+
+/** Whether what is in an entry box is another amount than the one stored. */
+export function amountEdited(typed: string, stored: string | null | undefined): boolean {
+  return (typed.trim() === "") !== (String(stored ?? "").trim() === "") || parseMoney(typed) !== parseMoney(stored);
 }
 
 /**
@@ -98,14 +113,6 @@ export function sumRounded(values: number[]): number {
 /** Two decimals with thousands separators, English style: 1,234.50 (Costs tab, Quotes). */
 export function money(v: number): string {
   return (Number.isFinite(v) ? v : 0).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-/** Two decimals, Czech style: 1 234,50 - for invoices issued to Czech customers. */
-export function moneyCz(v: number): string {
-  return (Number.isFinite(v) ? round2(v) : 0).toLocaleString("cs-CZ", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -149,7 +156,7 @@ export function normalizeMoneyInput(text: string | undefined): string {
 // the returned text itself (its default parser returns text too), which keeps an emptied field empty.
 export const moneyInputParser = (text: string | undefined) => normalizeMoneyInput(text) as unknown as number;
 
-/** "1 250 CZK", "1 250.50 EUR" (cents only when there are some); "—" for none. */
+/** "1,250 CZK", "1,250.50 EUR" (cents only when there are some); "—" for none. */
 export function formatAmount(amount: number | null | undefined, currency: string): string {
   if (amount == null || !Number.isFinite(amount)) return "—";
   const cents = Math.round(amount * 100);

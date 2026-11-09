@@ -690,7 +690,7 @@ export function CargoDetailsTab({
                 <span className="text-center truncate">Unit</span>
                 <span className="text-center truncate">Weight (kg)</span>
                 <span className="text-center truncate">Volume (m³)</span>
-                <span className="text-center truncate">Stackability</span>
+                <span className="text-center truncate">Cargo Stackability</span>
                 {/* The longest header: it wraps onto two lines on a narrow screen rather than being cut. */}
                 <span className="text-center leading-tight">Dangerous goods</span>
                 <span />
@@ -855,7 +855,7 @@ export function CargoDetailsTab({
                         <Select
                           size="small"
                           className={CENTERED_SELECT}
-                          aria-label="Stackability"
+                          aria-label="Cargo Stackability"
                           value={l.stackable || undefined}
                           allowClear
                           placeholder="—"

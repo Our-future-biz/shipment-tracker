@@ -284,6 +284,8 @@ export interface CostSplitResultLine {
   existing: CostSplitExisting | null;
   /** the part was posted to the shipment */
   written: boolean;
+  /** the shipment is billed: a real cost it has stays, Replace or not (lib/billedLock) */
+  billed: boolean;
 }
 
 /** A buying cost posted by its charge code (one line per code of a shipment). */
@@ -755,6 +757,11 @@ export interface MasterJobSplitState {
   inSync: boolean;
   /** Selling rows of the split that differ from it but stay as they are, being on an issued invoice */
   sellingOnInvoices: number;
+  /**
+   * The billed shipments (an issued invoice not credited) whose rows differ from the split: processing
+   * leaves them as they are, buying and selling, until the invoice is credited
+   */
+  billedKept: string[];
 }
 
 /** The master job's Costs Breakdown: its lines, its shipments and the split as it stands now. */

@@ -33,7 +33,7 @@ const LEG_OPTIONS: { value: CollectionLeg; label: string }[] = [
 
 const FREIGHT_LABEL = { sea_lcl: "Sea LCL", air: "Air" } as const;
 
-const kgText = (kg: number) => `${kg.toLocaleString("cs-CZ")} kg`;
+const kgText = (kg: number) => `${kg.toLocaleString("en-US")} kg`;
 
 interface CollectionTariffsDrawerProps {
   open: boolean;

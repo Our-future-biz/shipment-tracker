@@ -352,9 +352,9 @@ export function OverviewTab({
                 <FieldRow label="Commodity">
                   <InlineText value={m.commodity} onSave={(v) => save({ commodity: v })} />
                 </FieldRow>
-                <FieldRow label="Stackable">
+                <FieldRow label="Cargo Stackability">
                   <YesNo
-                    label="Stackable"
+                    label="Cargo Stackability"
                     value={m.stackable}
                     neg="no"
                     onSave={(v) => save({ stackable: v })}

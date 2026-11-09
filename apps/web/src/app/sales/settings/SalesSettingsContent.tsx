@@ -7,6 +7,7 @@ import { RecordTabs } from "@/components/RecordTabs";
 import { LINK_CLASS } from "@/components/linkClass";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { CompanyDetailsCard } from "../_components/CompanyDetailsCard";
+import { RegistrationTermsCard } from "../_components/RegistrationTermsCard";
 import { SalesPage } from "../_components/SalesPage";
 import { TermsTab } from "../_components/TermsTab";
 import { GuardrailsTab } from "../_components/GuardrailsTab";
@@ -87,6 +88,7 @@ function SalesSettingsTabs() {
           lost by looking at the other tab. */}
       <div hidden={activeTab !== "company"}>
         <CompanyDetailsCard />
+        <RegistrationTermsCard />
       </div>
       <div hidden={activeTab !== "terms"}>
         <TermsTab />

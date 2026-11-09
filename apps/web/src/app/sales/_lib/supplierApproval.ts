@@ -84,15 +84,30 @@ export function supplierSendBlock(
 }
 
 /**
+ * Why the quote can't be sent for its customer: a company that registered through a link and waits for a
+ * manager, or that a manager declined (the server's customerGate, in its words). `approvals` is the
+ * Company approval list by company - a registration of a company already in the database is not in it,
+ * as it says nothing about where that company stands. Null when it may go.
+ */
+export function customerSendBlock(customerId: string | undefined, approvals: ReadonlyMap<string, ApprovalAnswer>): string | null {
+  const state = customerId ? approvals.get(customerId) : undefined;
+  if (!state) return null;
+  const name = state.companyName || "The customer";
+  if (state.status === "pending") return `${name} waits for a manager's approval (Sales → Managers → Company approval) — the quote can be sent once it is approved`;
+  if (state.status === "declined") return `A manager declined ${name}${state.comment ? ` (${state.comment})` : ""} — choose another customer`;
+  return null;
+}
+
+/**
  * Whether the Company approval list read again says something new: a supplier added, answered, taken
  * back or gone from the list. The Customer Database lists (the pickers, a quote's lines) are then read
  * again too. Nothing on the first read: there is nothing to compare with.
  */
 export function approvalStatusChanged(
-  before: readonly { customerId: string; status: string }[] | undefined,
-  after: readonly { customerId: string; status: string }[],
+  before: readonly { threadId: string; status: string }[] | undefined,
+  after: readonly { threadId: string; status: string }[],
 ): boolean {
   if (!before) return false;
-  const was = new Map(before.map((a) => [a.customerId, a.status]));
-  return before.length !== after.length || after.some((a) => was.get(a.customerId) !== a.status);
+  const was = new Map(before.map((a) => [a.threadId, a.status]));
+  return before.length !== after.length || after.some((a) => was.get(a.threadId) !== a.status);
 }

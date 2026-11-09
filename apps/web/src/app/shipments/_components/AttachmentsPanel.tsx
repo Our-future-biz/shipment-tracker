@@ -6,6 +6,7 @@ import { Button, Upload } from "antd";
 import { CloseOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 import { api, apiErrorMessage, apiFileUrl } from "@/lib/api";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { fileToBase64, formatFileSize } from "@/lib/files";
@@ -33,6 +34,7 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
   const canManageDocuments = useCanManageDocuments();
 
   const toast = useToast();
+  const filePreview = useFilePreview();
   // The file whose Delete waits for a yes: a document is not removed by a stray click.
   const [toDelete, setToDelete] = useState<{ id: string; fileName: string } | null>(null);
   const deleteAttachment = useMutation({
@@ -59,6 +61,7 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
 
   return (
     <div className="flex flex-col h-full w-[300px] border-l border-slate-200 bg-white">
+      {filePreview.modal}
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-slate-200">
         <div>
@@ -105,7 +108,7 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
               <div className="text-[13px] font-medium text-slate-900 truncate">{file.fileName}</div>
               <div className={`${HINT} tabular-nums`}>{formatFileSize(file.fileSize)}</div>
             </div>
-            <a href={apiFileUrl(file.contentUrl)} target="_blank" rel="noreferrer" title="View">
+            <a href={apiFileUrl(file.contentUrl)} target="_blank" rel="noreferrer" title="View" onClick={filePreview.previewOnClick(file)}>
               <Button type="text" size="small" icon={<EyeOutlined className="text-[10px]" />} />
             </a>
             <a href={apiFileUrl(file.contentUrl, true)} title="Download">

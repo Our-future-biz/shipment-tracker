@@ -9,6 +9,8 @@ import {
   checkConsistency,
   compareFigure,
   dimensionLineIsEmpty,
+  isDangerousShipment,
+  adrUnText,
   dimensionLineVolume,
   dimensionTotals,
   lineInCm,
@@ -295,5 +297,29 @@ describe("shipmentWeightKg", () => {
   it("is null with neither", () => {
     expect(shipmentWeightKg({ cargoDimensions: [], totalWeightTons: "" })).toBeNull();
     expect(shipmentWeightKg({ totalWeightTons: null })).toBeNull();
+  });
+});
+
+describe("isDangerousShipment", () => {
+  const line = { containerId: null, pieces: "1", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "", volumePerPcM3: "" };
+
+  it("is marked so on the shipment, or told by a cargo line's ADR details", () => {
+    expect(isDangerousShipment({ dangerous: "Yes" })).toBe(true);
+    expect(isDangerousShipment({ dangerous: "", cargoDimensions: [{ ...line, adrUn: "1203" }] })).toBe(true);
+  });
+
+  it("is not otherwise", () => {
+    expect(isDangerousShipment({ dangerous: "No", cargoDimensions: [line] })).toBe(false);
+    expect(isDangerousShipment({ dangerous: "" })).toBe(false);
+    expect(isDangerousShipment({})).toBe(false);
+  });
+});
+
+describe("adrUnText", () => {
+  it("shows the UN prefix once, however it was typed, and nothing without a number", () => {
+    expect(adrUnText({ adrUn: "2673" })).toBe("UN 2673");
+    expect(adrUnText({ adrUn: "un2382" })).toBe("UN 2382");
+    expect(adrUnText({ adrUn: "" })).toBe("");
+    expect(adrUnText({})).toBe("");
   });
 });

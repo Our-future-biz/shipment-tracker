@@ -56,7 +56,7 @@ export interface ManualCustomerInput {
 }
 
 // The first contact of a new customer: its main one. Somebody must be reachable, so an email or a phone is needed.
-function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "companyId" | "customerId"> {
+export function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "companyId" | "customerId"> {
   const names = contactNames(contact.firstName, contact.lastName);
   const email = (contact.email ?? "").trim();
   const phone = (contact.phone ?? "").trim();
@@ -137,6 +137,8 @@ export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | un
 export interface NewSupplierRequest {
   userId: string;
   quoteNumber: string;
+  /** Registered through a link instead: who created it, by e-mail as a person is recorded. The company itself filled it in. */
+  viaLink?: { requestedBy: string };
 }
 
 /**
@@ -156,6 +158,9 @@ export function supplierRequestOf(userId: string, fromQuote: string | undefined)
  * supplier is already a manager's right. Anything else needs no approval.
  */
 async function approvalOf(actorRole: string, request: NewSupplierRequest | undefined): Promise<Partial<NewCustomerRecord>> {
+  if (request?.viaLink) {
+    return { approvalStatus: "pending", approvalRequestedBy: request.viaLink.requestedBy, approvalRequestedByUserId: request.userId, approvalRequestedAt: new Date() };
+  }
   if (!request || canManageSales(actorRole)) return {};
   const quoteNumber = request.quoteNumber.trim();
   if (!quoteNumber) throw APIError.invalidArgument("A new supplier names the quote it is added from");
@@ -344,7 +349,8 @@ class CustomerService {
     roles: CustomerRole[] = ["customer"],
     supplierRequest?: NewSupplierRequest,
   ): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, roles, !!supplierRequest);
+    // The roles of a company registered through a link were given when the link was created.
+    if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, roles, !!supplierRequest);
     const checkedRoles = requireRoles(roles);
     const mainContact = firstContact(contact);
     if (await customerRepository.findByIco(ico, companyId)) {
@@ -379,7 +385,7 @@ class CustomerService {
   }
 
   async createManual(companyId: string, actorRole: string, input: ManualCustomerInput, supplierRequest?: NewSupplierRequest): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, input.roles, !!supplierRequest);
+    if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, input.roles, !!supplierRequest);
     const mainContact = firstContact(input.contact);
     const checkedRoles = requireRoles(input.roles ?? ["customer"]);
     const country = input.country.trim().toUpperCase();
@@ -416,8 +422,14 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async update(id: string, companyId: string, role: string, patch: CustomerPatch, actorUserId = ""): Promise<CustomerItem> {
+  /**
+   * `options.addRoles`: roles added to those the company has when the row is locked (a manager's approval of a
+   * registration of a company already in the database) - a change of roles like any other, a manager's.
+   */
+  async update(id: string, companyId: string, role: string, patch: CustomerPatch, actorUserId = "", options: { addRoles?: CustomerRole[] } = {}): Promise<CustomerItem> {
+    const addRoles = options.addRoles ?? [];
     const restricted = managerFieldsIn(patch);
+    if (addRoles.length && !restricted.includes("roles")) restricted.push("roles");
     if (restricted.length && !canManageSales(role)) {
       throw APIError.permissionDenied(`Only a manager can change: ${restricted.join(", ")}`);
     }
@@ -438,10 +450,15 @@ class CustomerService {
     if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
     // What depends on the row as it is now is worked out with the row locked, after every check above: a change
     // of roles may write to Trucking first (K3), and it then runs one after the other with a save of the terms.
-    const fromCurrent = values.roles !== undefined || values.currency !== undefined || values.secondaryCurrencies !== undefined;
+    const fromCurrent = values.roles !== undefined || addRoles.length > 0 || values.currency !== undefined || values.secondaryCurrencies !== undefined;
     const row = fromCurrent
       ? await customerRepository.updateLocked(id, companyId, async (current) => {
           const locked = { ...values };
+          if (addRoles.length) {
+            // Each role kept once, the company's own first; unchanged when it has them all.
+            const union = requireRoles([...(locked.roles ?? current.roles), ...addRoles]);
+            if (locked.roles || union.length > current.roles.length) locked.roles = union;
+          }
           if (locked.currency !== undefined || locked.secondaryCurrencies !== undefined) {
             Object.assign(locked, billingCurrencies(locked.currency ?? current.currency, locked.secondaryCurrencies ?? current.secondaryCurrencies));
           }
@@ -463,6 +480,16 @@ class CustomerService {
     if (!row) throw APIError.notFound("Customer not found");
     await announce(companyId, row, false);
     return toCustomerItem(row);
+  }
+
+  /**
+   * The roles added to those the company has: a manager approving a registration of a company already in
+   * the Customer Database, through a link made for these roles. Nothing is written when it has them all.
+   */
+  async addRoles(id: string, companyId: string, actorRole: string, roles: CustomerRole[], actorUserId: string): Promise<void> {
+    const current = await this.requireLive(id, companyId);
+    if (roles.every((r) => current.roles.includes(r))) return;
+    await this.update(id, companyId, actorRole, {}, actorUserId, { addRoles: roles });
   }
 
   // Written only by the shipments service, which owns the shipments these are computed from.

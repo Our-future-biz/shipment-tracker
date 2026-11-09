@@ -124,9 +124,9 @@ describe("supplier e-mail text", () => {
         { note: "Please update the VGM." },
       ),
     );
-    expect(text).toContain("Re-weighed gross weight: 1 290 kg");
+    expect(text).toContain("Re-weighed gross weight: 1,290 kg");
     expect(text).toContain("Weighed: 15.10.2026 10:30 by Petr");
-    expect(text).toContain("Declared gross weight: 1 200 kg (from the shipment)");
+    expect(text).toContain("Declared gross weight: 1,200 kg (from the shipment)");
     expect(text).toContain("Difference: 90 kg heavier (+7.5 %) — more than 5 %, please check the declared weight");
     expect(text).toContain("not a signed SOLAS VGM declaration");
     expect(text).toContain("Warehouse ref.: WCZ2026101500012");
@@ -187,10 +187,10 @@ describe("supplier e-mail text", () => {
       }),
     );
     expect(text).toContain("1. Qty 10 · 120 × 80 × 100 cm · 110 kg per piece");
-    expect(text).toContain("Remeasured total: 10 pieces · 1 100 kg · 9.600 cbm");
-    expect(text).toContain("Declared (shipment): 10 pieces · 1 000 kg · 9.500 cbm");
+    expect(text).toContain("Remeasured total: 10 pieces · 1,100 kg · 9.600 cbm");
+    expect(text).toContain("Declared (shipment): 10 pieces · 1,000 kg · 9.500 cbm");
     expect(text).toContain("Compared with the declared figures: pieces match, weight +10.0 % (more than 5 %), volume +1.1 %");
-    expect(text).toContain("Warehouse gate record: 10 pieces · 1 000 kg · 4.200 cbm");
+    expect(text).toContain("Warehouse gate record: 10 pieces · 1,000 kg · 4.200 cbm");
   });
 });
 

@@ -65,7 +65,7 @@ function quoteCurrency(data: Record<string, unknown>): string {
 // CZK per 1 unit of `currency` for this quote, as the editor takes it: a sent quote's stored rate
 // (data.fx); else on a draft today's, its own typed rate (data.rates) only filling a currency the
 // sheet lacks, and on an older sent quote its own rate before today's. Null when none is known.
-function rateOf(currency: string, data: Record<string, unknown>, ctx: QuoteRates): number | null {
+export function rateOf(currency: string, data: Record<string, unknown>, ctx: QuoteRates): number | null {
   if (currency === "CZK") return 1;
   const stored = isObject(data.fx) && isObject(data.fx.rates) ? data.fx.rates[currency] : undefined;
   const ownEntry = isObject(data.rates) ? data.rates[currency] : undefined;

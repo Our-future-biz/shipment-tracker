@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { App, Tooltip } from "antd";
+import { Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
 import {
   CalendarOutlined,
@@ -105,7 +106,7 @@ export const MJ_ANCHORS = {
 } as const;
 
 export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const { user } = useAuth();
   const qc = useQueryClient();
   const pathname = usePathname();

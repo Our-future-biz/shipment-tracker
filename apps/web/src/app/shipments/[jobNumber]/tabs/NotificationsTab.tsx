@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MessageOutlined, PaperClipOutlined, RightOutlined } from "@ant-design/icons";
 import { apiFileUrl } from "@/lib/api";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { CountChip, SectionCard } from "@/components/SectionCard";
@@ -72,6 +73,7 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
 // mark the chat read - that stays with opening the chat, which "Open chat" does, in a drawer on
 // this page (as on the Shipments list), so the shipment stays open.
 function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
+  const filePreview = useFilePreview();
   const [chatOpen, setChatOpen] = useState(false);
   const { data, isLoading, isError } = useQuery({ ...shipmentChatQuery(shipment.id), refetchInterval: 10000 });
   const messages = [...(data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -82,6 +84,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     <>
+      {filePreview.modal}
       <ShipmentChatDrawer
         shipment={chatOpen ? { id: shipment.id, jobNumber: shipment.jobNumber ?? "" } : null}
         onClose={() => setChatOpen(false)}
@@ -132,6 +135,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
                           href={apiFileUrl(f.contentUrl)}
                           target="_blank"
                           rel="noreferrer"
+                          onClick={filePreview.previewOnClick(f)}
                           title={f.fileName}
                           className="inline-flex items-center gap-1.5 max-w-[260px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[12px] text-indigo-600 hover:bg-slate-100"
                         >

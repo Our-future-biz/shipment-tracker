@@ -23,6 +23,6 @@ describe("Reports period", () => {
     expect(periodText({ from: "2026-10-15", to: "2026-10-15" })).toBe("15.10.2026 (1 day)");
     expect(kpiValueText(null, "days")).toBe("");
     expect(kpiValueText(12.25, "%")).toBe("12.3 %");
-    expect(kpiValueText(12500, "kg")).toBe("12 500 kg");
+    expect(kpiValueText(12500, "kg")).toBe("12,500 kg");
   });
 });

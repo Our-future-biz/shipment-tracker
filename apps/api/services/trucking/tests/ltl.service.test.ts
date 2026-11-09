@@ -424,7 +424,7 @@ describe("pick-up runs: legs, cost split and costs per job", () => {
   it("warns (never blocks) about ADR on a haulier without ADR and an overloaded van", async () => {
     const a = await ltl({ weightKg: 1500, loadOver: { adr: true, adrUn: "1263", adrClass: "3" } });
     const trip = await pickupRun([legOf(a.id, "PICKUP")]);
-    expect(trip.warnings).toEqual(["Over capacity: 1 500 of 1 200 kg", `${a.ref} is ADR goods and Bravo is not ADR-capable`]);
+    expect(trip.warnings).toEqual(["Over capacity: 1,500 of 1,200 kg", `${a.ref} is ADR goods and Bravo is not ADR-capable`]);
   });
 
   it("shows the fill and the warnings in the trips list too", async () => {

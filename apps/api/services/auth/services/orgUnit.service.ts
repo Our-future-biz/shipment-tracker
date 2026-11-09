@@ -53,6 +53,8 @@ export interface PlaceCandidateQuery {
   // The written name (accents are folded here).
   name: string;
   countryCode?: string;
+  // The state or province, as the location table names it.
+  subdivision?: string;
 }
 
 const asciiFold = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
@@ -221,7 +223,7 @@ class OrgUnitService {
       queries.map((q) => {
         const name = likeSafe(asciiFold(q.name));
         if (name.length < 2) return [];
-        return locationRepository.findCandidates(name, q.countryCode ? q.countryCode.toUpperCase() : null, 25);
+        return locationRepository.findCandidates(name, q.countryCode ? q.countryCode.toUpperCase() : null, 25, q.subdivision);
       }),
     );
   }

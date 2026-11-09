@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App } from "antd";
+import { useMessages } from "@/lib/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, clientForBody } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
@@ -51,7 +51,7 @@ export function useSalesQuoteDraft(ref: string) {
   // antd's message API itself rather than useToast(): it is the same object on every render,
   // which the leave effect below needs - it must run when the page is left, not on each render -
   // and it lets a toast be replaced and taken down by its key.
-  const { message } = App.useApp();
+  const message = useMessages();
 
   const [load, setLoad] = useState<QuoteLoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -236,7 +236,7 @@ export function useSalesQuoteDraft(ref: string) {
     (result: QuoteSaveState) => {
       const s = session.current;
       if (result.problem && s.save.problem === result.problem && s.mounted) {
-        message.error({ key: SAVE_TOAST_KEY, content: `${ref} is not being saved - ${result.problem.reason}`, duration: 8 });
+        message.error({ key: SAVE_TOAST_KEY, content: `${ref} is not being saved - ${result.problem.reason}` });
       }
       return result;
     },
@@ -412,7 +412,7 @@ export function useSalesQuoteDraft(ref: string) {
       // time the answer arrives, so a refusal can only be reported as a toast.
       flush().then(({ problem }) => {
         if (problem && !s.mounted) {
-          message.error({ key: SAVE_TOAST_KEY, content: `${ref}: your last changes were not saved - ${problem.reason}`, duration: 8 });
+          message.error({ key: SAVE_TOAST_KEY, content: `${ref}: your last changes were not saved - ${problem.reason}` });
         }
       });
     };

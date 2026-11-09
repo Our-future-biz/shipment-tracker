@@ -2,13 +2,16 @@
 
 import { useRef } from "react";
 import Link from "next/link";
-import { Alert, App, Checkbox, Segmented, Select, Spin, Tooltip } from "antd";
+import { Alert, Checkbox, Segmented, Select, Spin, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { CopyOutlined, DeleteOutlined, LoadingOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, normaliseAmount } from "@/lib/money";
+import { useLatestRates } from "@/lib/fx";
+import { eurTotal, type EurTotal } from "../_lib/eurTotal";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { Pill, type PillTone } from "@/components/Pill";
@@ -78,11 +81,16 @@ interface Props {
   masterJob: interfaces.MasterJobItem;
 }
 
+// A sum in EUR as the screen writes it; a currency without a ČNB rate is named instead of being left out.
+const eurText = ({ eur, missing }: EurTotal) => (eur === null ? `no ČNB rate for ${missing.join(", ")}` : `${money(eur)} EUR`);
+
 // A master job's buying costs. Each line is shared out over the master job's shipments - by W/M or
 // the same part each, as the line says. The split below always shows how that stands; a shipment
 // carries its share, as a read-only row of its own Costs Breakdown, once the split is processed.
 export function MasterJobCostsTab({ masterJob }: Props) {
-  const { message } = App.useApp();
+  // The EUR figures wait for the rates: until they are in, every currency would read as one without a rate.
+  const { rates, fixingLabel, isLoading: ratesLoading } = useLatestRates();
+  const message = useMessages();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: costsKey(masterJob.id),
@@ -236,6 +244,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     const total = lineTotal(l.realAmount, l.realQty);
     return total ? { total, currency: l.realCurrency } : null;
   }));
+  // For checking the total: the same amounts in EUR at today's ČNB rates, without the ROE %. The split itself stays in the currencies as received.
+  const allInEur = eurTotal(allIn, rates);
   const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
   // The shipments that would carry a part of the line: by W/M, only those with a W/M.
   const carriersOf = (l: Line) => houses.filter((h) => l.splitMethod !== "wm" || h.freightTon > 0);
@@ -581,6 +591,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       return (
                         <td key={l.id} className={FOOT}>
                           {total != null ? `${money(total)} ${currency}` : EMPTY_CELL}
+                          {total != null && currency !== "EUR" && !ratesLoading && (
+                            <span className="block text-[11px] font-normal text-slate-500">
+                              {eurText(eurTotal([[currency ?? "", total]], rates))}
+                            </span>
+                          )}
                           {/* What one W/M costs on a line split by W/M, over the shipments in its split. */}
                           {total != null && byWm && lineWm > 0 && (
                             <span className="block text-[11px] font-normal text-slate-500">
@@ -610,6 +625,15 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   {split.sellingOnInvoices === 1 ? "s" : ""} as invoiced: credit the invoice to change {split.sellingOnInvoices === 1 ? "it" : "them"}.
                 </span>
               )}
+              {/* A billed shipment keeps what it carries of the split, buying and selling, until its invoice is credited. */}
+              {(split.billedKept ?? []).length > 0 && (
+                <span className="text-[12px] text-amber-700">
+                  {split.billedKept.map((id) => houses.find((h) => h.shipmentId === id)?.jobNumber ?? id).join(", ")}{" "}
+                  {split.billedKept.length === 1 ? "is" : "are"} billed and keep{split.billedKept.length === 1 ? "s" : ""} the costs{" "}
+                  {split.billedKept.length === 1 ? "it carries" : "they carry"}: processing doesn&apos;t change {split.billedKept.length === 1 ? "it" : "them"}. Credit the
+                  invoice to change {split.billedKept.length === 1 ? "it" : "them"}.
+                </span>
+              )}
               {status && (
                 <Tooltip title={status.sentence}>
                   <Pill tone={status.tone}>{status.label}</Pill>
@@ -621,6 +645,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   {allIn
                     .map(([currency, total]) => `${money(total)} ${currency}`)
                     .join(" + ")}
+                  {!(allIn.length === 1 && allIn[0]![0] === "EUR") && !ratesLoading && (
+                    <Tooltip title={`At the rates of ${fixingLabel || "today's ČNB fixing"}, without the ROE %. The split stays in the currencies as received.`}>
+                      <span className="ml-1.5 text-indigo-700"> = {eurText(allInEur)}</span>
+                    </Tooltip>
+                  )}
                 </span>
               )}
               <button

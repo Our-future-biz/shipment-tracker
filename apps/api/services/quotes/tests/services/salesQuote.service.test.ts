@@ -640,6 +640,17 @@ describe("transition", () => {
     await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
   });
 
+  it("refuses a send of a Sea FCL quote with a container type without a profit; Lost is let", async () => {
+    const line = (containerType: string, unitPrice: number) => ({ type: "Ocean freight", basis: "container", containerType, unitPrice, amount: unitPrice, currency: "EUR" });
+    const data = { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: "Standard", direction: "Import", serviceType: "Sea FCL", containers: [{ type: "20' DC", qty: 1 }, { type: "40' DC", qty: 1 }] };
+    stored = quote({ data: { ...data, buyingLines: [line("20' DC", 100), line("40' DC", 200)], sellingLines: [line("20' DC", 150), line("40' DC", 200)] } });
+    for (const to of ["ready_to_send", "quoted"] as const) {
+      await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/^No profit on 40' DC yet/) });
+    }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
   it("refuses a send while a rail or ocean line is priced in the other Trade Direction; Lost is let", async () => {
     const data = { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: "Standard", direction: "Import", serviceType: "Sea FCL" };
     stored = quote({ data: { ...data, buyingLines: [{ type: "Ocean freight", tariffRef: "ocean:v1", pricedDirection: "export" }] } });
@@ -1616,7 +1627,7 @@ describe("road transport", () => {
       });
       expect((document!.sellingLines as unknown[]).at(-1)).toEqual(manual(500));
       expect(entries).toEqual([
-        { kind: "road_price", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Priced from tariff: Standard v3, +1 day, 4 250 CZK" },
+        { kind: "road_price", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Priced from tariff: Standard v3, +1 day, 4,250 CZK" },
       ]);
     });
 
@@ -2293,5 +2304,26 @@ describe("the suppliers of the buying lines (Customer Database only, a new one a
     repository.withLockedQuote.mockImplementation(async (_companyId, _quoteNumber, change) => change(reopened, TX));
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "aborted" });
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("says in the list that a quote for a customer waiting for a manager can't be sent yet, asking once for the open quotes", async () => {
+    const forWaiting = priced([], { quoteNumber: `${REF}-2` });
+    (forWaiting.data as Record<string, unknown>).customerId = WAITS;
+    const sent = priced([], { quoteNumber: `${REF}-3`, status: "quoted", sentAt: SENT, firstSentAt: SENT });
+    (sent.data as Record<string, unknown>).customerId = "7a2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b";
+    repository.list.mockResolvedValue({ rows: [forWaiting, sent], total: 2 });
+    supplierStates.mockResolvedValue({ states: [{ id: WAITS, companyName: "ACME s.r.o.", status: "pending", comment: "" }] });
+    const page = await salesQuoteService.list(martin, {});
+    expect(supplierStates).toHaveBeenCalledTimes(1);
+    expect(supplierStates).toHaveBeenCalledWith({ ids: [WAITS] });
+    expect(page.data[0]!.sendBlocked).toMatch(/^ACME s\.r\.o\. waits for a manager's approval/);
+  });
+
+  it("still lists the quotes when the Customer Database does not answer", async () => {
+    const forWaiting = priced([]);
+    (forWaiting.data as Record<string, unknown>).customerId = WAITS;
+    repository.list.mockResolvedValue({ rows: [forWaiting], total: 1 });
+    supplierStates.mockRejectedValue(new Error("down"));
+    await expect(salesQuoteService.list(martin, {})).resolves.toMatchObject({ pagination: { total: 1 } });
   });
 });

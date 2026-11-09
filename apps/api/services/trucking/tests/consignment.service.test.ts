@@ -595,10 +595,10 @@ describe("a price change after the customer invoice (decision 9, C8)", () => {
     expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [diff])).toBe(0);
     expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [])).toBe(0);
     expect(eventsOf("selling_difference_pushed")).toEqual([
-      expect.objectContaining({ payload: expect.objectContaining({ summary: 'The customer invoice was issued already: the price change of +2 240 CZK was added to job CZ00000042 as "Price change after invoice"' }) }),
+      expect.objectContaining({ payload: expect.objectContaining({ summary: 'The customer invoice was issued already: the price change of +2,240 CZK was added to job CZ00000042 as "Price change after invoice"' }) }),
     ]);
     const d = await consignmentService.get(user, c.id);
-    expect(d.needsAttention).toContain("Price change after invoice: +2 240 CZK added to job CZ00000042 as its own line — invoice it");
+    expect(d.needsAttention).toContain("Price change after invoice: +2,240 CZK added to job CZ00000042 as its own line — invoice it");
     expect((await consignmentService.list(user, { view: "attention" })).consignments.map((x) => x.id)).toEqual([c.id]);
     await consignmentService.clearNotice(manager, c.id, `${diff.sourceRef}|CZK`, "Invoiced on 2026100123");
     expect((await consignmentService.get(user, c.id)).needsAttention.some((r) => r.startsWith("Price change after invoice"))).toBe(false);
@@ -610,7 +610,7 @@ describe("a price change after the customer invoice (decision 9, C8)", () => {
     expect(outboxOf("costs")[0]!.payload).toMatchObject({ selling: [], differenceLabel: `${c.ref} · Price change after invoice` });
     await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [{ sourceRef: `trucking:consignment:${c.id}:diff:1`, currency: "CZK", amount: -12000 }]);
     const { consignments, counts } = await consignmentService.list(user, { view: "attention" });
-    expect(consignments.map((x) => [x.status, x.needsAttention])).toEqual([["CANCELLED", ["Price change after invoice: −12 000 CZK added to job CZ00000042 as its own line — invoice it as a credit note"]]]);
+    expect(consignments.map((x) => [x.status, x.needsAttention])).toEqual([["CANCELLED", ["Price change after invoice: −12,000 CZK added to job CZ00000042 as its own line — invoice it as a credit note"]]]);
     expect(counts.attention).toBe(1);
   });
 });

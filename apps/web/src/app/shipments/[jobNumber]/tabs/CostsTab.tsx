@@ -2,14 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { App, Input, Select, Checkbox, Tooltip, Modal, Popover } from "antd";
+import { Alert, App, Input, Select, Checkbox, Tooltip, Modal, Popover } from "antd";
+import { useMessages } from "@/lib/toast";
 import { CloseOutlined, DeleteOutlined, FileDoneOutlined, PlusOutlined, RollbackOutlined, SendOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
-import { normaliseAmount } from "@/lib/money";
+import { amountEdited, amountInBox, normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
@@ -48,6 +49,13 @@ import {
   TD_TOTAL,
   TH,
 } from "@/styles/ui";
+
+/** Leaving an amount box: saved when it is another amount, and written the way figures are, 1,250.50. */
+const onAmountBlur = (stored: string, save: (typed: string) => void) => (e: React.FocusEvent<HTMLInputElement>) => {
+  const typed = e.target.value;
+  if (amountEdited(typed, stored)) save(typed);
+  e.target.value = amountInBox(typed);
+};
 
 /** Amount fields of a row: the database (numeric) takes "4999.5", not "4 999,50". */
 const AMOUNT_FIELDS = ["estQty", "estAmount", "realQty", "realAmount", "qty", "amount"];
@@ -146,7 +154,8 @@ interface CostsTabProps {
 export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const queryClient = useQueryClient();
   // Toasts go through the App context: antd's static `message` shows nothing under React 19.
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
+  const message = useMessages();
   const [quoteInput, setQuoteInput] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
   // the Copy from quote dialog
@@ -158,7 +167,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   /* Row locking: a filled row turns read-only once left, a double-click opens it again.
      The ids of unlocked rows are kept; every other filled row is locked. */
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
-  const unlock = (id: string) => setUnlocked((p) => new Set(p).add(id));
+  const unlock = (id: string) => {
+    if (!billed) setUnlocked((p) => new Set(p).add(id));
+  };
   const lock = (id: string) => setUnlocked((p) => {
     const n = new Set(p);
     n.delete(id);
@@ -346,9 +357,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   /** whether a row is filled — a filled row locks */
   const buyLocked = (r: BuyingRow) =>
-    !unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount));
+    billed || (!unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount)));
   const sellLocked = (r: SellingRow) =>
-    (!unlocked.has(r.id) || !invoicedKnown) && !!(r.category || num(r.amount));
+    billed || ((!unlocked.has(r.id) || !invoicedKnown) && !!(r.category || num(r.amount)));
 
   // Selling rows on an issued invoice (a credited one frees them): the invoice each is on.
   // Until the list has come, no filled row opens for editing (it may turn out to be invoiced).
@@ -361,6 +372,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     if (!isOpenInvoice(doc)) continue;
     for (const line of doc.lines) if (line.sourceSellingCostId) invoicedBy.set(line.sourceSellingCostId, doc);
   }
+  // Billed: with an issued invoice no cost is changed by hand until it is credited (the server refuses it too).
+  const billed = (invoiceDocs?.invoices ?? []).some(isOpenInvoice);
 
   /** a locked row: fields look like text, a double-click opens them (or Enter on the row; the
    *  fields themselves are read-only and out of the Tab order meanwhile, see `closed`) */
@@ -620,6 +633,16 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   return (
     <div>
+      {billed && (
+        <Alert
+          className="mb-4"
+          type="info"
+          showIcon
+          icon={<LockOutlined />}
+          message="This shipment is billed: its costs are locked"
+          description="Credit the invoice to change them. A supplier's invoice can still be posted through Document / Text Reading, and paid dates can still be noted."
+        />
+      )}
       {/* ═══════════ 1. BUYING COSTS ═══════════ */}
       <div className="mb-4">
       <SectionCard
@@ -627,15 +650,15 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Bring back the last deleted buying cost" ariaLabel="Undo the last deleted buying cost">
+            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={billed || !undoBuyCount} title="Bring back the last deleted buying cost" ariaLabel="Undo the last deleted buying cost">
               <RollbackOutlined />
               Undo
             </HeadBtn>
             {/* Copies the quote's buying and selling costs both. */}
-            <HeadBtn onClick={openQuoteModal}>
+            <HeadBtn onClick={openQuoteModal} disabled={billed}>
               Copy from quote
             </HeadBtn>
-            <HeadBtn primary onClick={() => addBuy.mutate()}><PlusOutlined />Add buying cost</HeadBtn>
+            <HeadBtn primary disabled={billed} onClick={() => addBuy.mutate()}><PlusOutlined />Add buying cost</HeadBtn>
           </>
         }
       >
@@ -750,20 +773,20 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-center${est}`}
                       {...closed(locked || estClosed)}
-                      defaultValue={r.estQty}
+                      defaultValue={amountInBox(r.estQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
+                      onBlur={onAmountBlur(r.estQty, (estQty) => updateBuy.mutate({ id: r.id, estQty }))}
                     />
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-right${est}`}
                       {...closed(locked || estClosed)}
-                      defaultValue={r.estAmount}
+                      defaultValue={amountInBox(r.estAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
+                      onBlur={onAmountBlur(r.estAmount, (estAmount) => updateBuy.mutate({ id: r.id, estAmount }))}
                     />
                   </td>
                   <td className={CELL}>
@@ -778,10 +801,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-center${fld}`}
                       {...closed(locked)}
-                      defaultValue={r.realQty}
+                      defaultValue={amountInBox(r.realQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.realQty && updateBuy.mutate({ id: r.id, realQty: e.target.value })}
+                      onBlur={onAmountBlur(r.realQty, (realQty) => updateBuy.mutate({ id: r.id, realQty }))}
                     />
                   </td>
                   <td
@@ -796,10 +819,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
                       {...closed(locked)}
-                      defaultValue={r.realAmount}
+                      defaultValue={amountInBox(r.realAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.realAmount && updateBuy.mutate({ id: r.id, realAmount: e.target.value })}
+                      onBlur={onAmountBlur(r.realAmount, (realAmount) => updateBuy.mutate({ id: r.id, realAmount }))}
                     />
                   </td>
                   <td className={CELL}>
@@ -836,6 +859,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateBuy(r, rowIndex))}
+                        disabled={billed}
                         aria-label="Duplicate buying cost row"
                         className={ROW_BTN}
                       >
@@ -856,6 +880,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       <Tooltip title="Delete row">
                         <button
                           onClick={() => removeBuy(r, rowIndex)}
+                          disabled={billed}
                           aria-label="Delete buying cost row"
                           className={ROW_DELETE_BTN}
                         >
@@ -872,7 +897,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   <td colSpan={13} className="px-4 py-8 text-center">
                     <button
                       onClick={() => addBuy.mutate()}
-                      disabled={addBuy.isPending}
+                      disabled={billed || addBuy.isPending}
                       className={ADD_FIRST_BTN}
                     >
                       No buying costs yet — add the first one
@@ -911,12 +936,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Bring back the last deleted selling cost" ariaLabel="Undo the last deleted selling cost">
+            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={billed || !undoSellCount} title="Bring back the last deleted selling cost" ariaLabel="Undo the last deleted selling cost">
               <RollbackOutlined />
               Undo
             </HeadBtn>
-            <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
-            <HeadBtn primary onClick={() => addSell.mutate({})}><PlusOutlined />Add selling cost</HeadBtn>
+            <HeadBtn disabled={billed} onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
+            <HeadBtn primary disabled={billed} onClick={() => addSell.mutate({})}><PlusOutlined />Add selling cost</HeadBtn>
           </>
         }
       >
@@ -974,10 +999,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         {r.customer.trim() && <span className={OWN_TEXT_HINT}>Own text from Issue invoice</span>}
                         {truckingTag && <TruckingCostTagLink tag={truckingTag} />}
                       </td>
-                      <td className={CELL}><span className={`${READ} text-center`}>{r.qty}</span></td>
+                      <td className={CELL}><span className={`${READ} text-center`}>{amountInBox(r.qty)}</span></td>
                       <td className={CELL}>
                         {/* A cost sold on from a master job: its number is the one thing that changes here. */}
-                        {masterJobRows.has(r.id) && !invoicedOn ? (
+                        {masterJobRows.has(r.id) && !invoicedOn && !billed ? (
                           <SoldAtCostAmount
                             amount={r.amount}
                             currency={r.currency}
@@ -988,7 +1013,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             onDone={invalidate}
                           />
                         ) : (
-                          <span className={`${READ} text-right tabular-nums`}>{r.amount}</span>
+                          <span className={`${READ} text-right tabular-nums`}>{amountInBox(r.amount)}</span>
                         )}
                       </td>
                       <td className={CELL}><span className={READ_SELECT}>{r.currency}</span></td>
@@ -1002,6 +1027,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                           <Tooltip title="Duplicate row">
                             <button
                               onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex, true))}
+                              disabled={billed}
                               aria-label="Duplicate selling cost row"
                               className={ROW_BTN}
                             >
@@ -1009,7 +1035,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             </button>
                           </Tooltip>
                         ))}
-                        {masterJobRows.has(r.id) && !invoicedOn && (
+                        {masterJobRows.has(r.id) && !invoicedOn && !billed && (
                           <SoldAtCostRemove
                             amount={r.amount}
                             currency={r.currency}
@@ -1092,20 +1118,20 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-center${fld}`}
                       {...closed(locked)}
-                      defaultValue={r.qty}
+                      defaultValue={amountInBox(r.qty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.qty && updateSell.mutate({ id: r.id, qty: e.target.value })}
+                      onBlur={onAmountBlur(r.qty, (qty) => updateSell.mutate({ id: r.id, qty }))}
                     />
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-right${fld}`}
                       {...closed(locked)}
-                      defaultValue={r.amount}
+                      defaultValue={amountInBox(r.amount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={(e) => e.target.value !== r.amount && updateSell.mutate({ id: r.id, amount: e.target.value })}
+                      onBlur={onAmountBlur(r.amount, (amount) => updateSell.mutate({ id: r.id, amount }))}
                     />
                   </td>
                   <td className={CELL}>
@@ -1116,6 +1142,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
+                        disabled={billed}
                         aria-label="Duplicate selling cost row"
                         className={ROW_BTN}
                       >
@@ -1125,6 +1152,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <Tooltip title="Delete row">
                       <button
                         onClick={() => removeSell(r, rowIndex)}
+                        disabled={billed}
                         aria-label="Delete selling cost row"
                         className={ROW_DELETE_BTN}
                       >
@@ -1140,7 +1168,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   <td colSpan={8} className="px-4 py-8 text-center">
                     <button
                       onClick={() => addSell.mutate({})}
-                      disabled={addSell.isPending}
+                      disabled={billed || addSell.isPending}
                       className={ADD_FIRST_BTN}
                     >
                       No selling costs yet — add the first one
@@ -1566,7 +1594,7 @@ interface InvoicedMarkProps {
  * number (a link to its PDF) and where to find it in Invoicing; a click (or Enter) shows the PDF.
  */
 function InvoicedMark({ doc, shipmentId }: InvoicedMarkProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const show = () => openInvoicePdf(doc.id).catch(() => message.error(`Could not open the PDF of ${doc.number}`));
   return (
     <Popover

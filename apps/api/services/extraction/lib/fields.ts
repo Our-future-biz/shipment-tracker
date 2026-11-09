@@ -49,7 +49,7 @@ export const BOOKING_FIELDS = [
 // A Master Bill of Lading, filed to its master job: what a booking confirmation gives, the B/L's own
 // details, and the containers with their seals (labels as the master-job review shows them).
 export const MBL_FIELDS = [
-  "Master BoL Number", "Master BoL Type", "Booking Number", "Shipping line / Coloader", "Load Type",
+  "Master BoL Number", "Master BoL Type", "Booking Number", "Shipping line / Coloader", "Load Type", "Trade Direction",
   "Shipper", "Consignee", "Vessel", "Voyage", "POL", "POD", "Destination",
   "Estimated Departure", "Estimated Arrival",
   "Cargo Closing", "VGM Closing", "SI Closing",

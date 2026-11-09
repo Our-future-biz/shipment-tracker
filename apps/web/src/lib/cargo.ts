@@ -97,12 +97,22 @@ export const ADR_PACKING_GROUPS: interfaces.AdrPackingGroup[] = ["I", "II", "III
 export const hasAdr = (l: interfaces.CargoDimensionLine): boolean =>
   !!(l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
 
+/** Whether a shipment carries dangerous goods: marked so, or a cargo line with ADR details. */
+export const isDangerousShipment = (shipment: { dangerous?: string | null; cargoDimensions?: interfaces.CargoDimensionLine[] | null }): boolean =>
+  shipment.dangerous?.trim().toLowerCase() === "yes" || (shipment.cargoDimensions ?? []).some(hasAdr);
+
+/** A line's UN number as shown, "UN 1203", however it was typed; "" without one. */
+export const adrUnText = (l: Pick<interfaces.CargoDimensionLine, "adrUn">): string => {
+  const un = l.adrUn?.trim().replace(/^UN\s*/i, "");
+  return un ? `UN ${un}` : "";
+};
+
 /**
  * The ADR details of a line in one short text, e.g. "UN 1203 / Cls: 3 / PG II / LQ". A UN
  * number typed with its prefix ("UN2382", "un 2382") shows the prefix once: "UN 2382".
  */
 export const adrSummary = (l: interfaces.CargoDimensionLine): string =>
-  [l.adrUn?.trim() && `UN ${l.adrUn.trim().replace(/^UN\s*/i, "")}`, l.adrClass?.trim() && `Cls: ${l.adrClass.trim()}`, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
+  [adrUnText(l), l.adrClass?.trim() && `Cls: ${l.adrClass.trim()}`, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
     .filter(Boolean)
     .join(" / ");
 

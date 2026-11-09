@@ -58,23 +58,17 @@ interface ContainerPrice {
 
 /**
  * The freight lines a picked offer makes of `base` (the picked line with the offer's supplier,
- * currency and tariffRef on it). One line per container when every container costs the same and
- * the offer prices all of the quote's containers (the quote's containers its quantity); otherwise
- * one line per container type, charged per container of that type (containerType) at its price, of
- * which only the first keeps the pairing with a selling line the picked line had.
+ * currency and tariffRef on it): one per container type, charged per container of that type
+ * (containerType) at its price, even when the sizes cost the same or there is only one, as its
+ * rate is that size's and stays with it when another size is added. Only the first keeps the
+ * pairing with a selling line the picked line had. A line for all of the quote's containers needs
+ * no count in its description: the quotation says it from the cargo as it is then.
  */
 export function containerFreightLines(base: CostLine, description: string, prices: readonly ContainerPrice[], quote: SalesQuoteData): CostLine[] {
-  const distinct = new Set(prices.map((l) => l.price));
-  const counted = prices.reduce((sum, l) => sum + l.qty, 0);
-  const containers = quoteContainerCount(quote);
-  if (distinct.size === 1 && counted === containers) {
-    const all: CostLine = { ...base, description, basis: "container" };
-    delete all.containerType;
-    return [withRate(all, prices[0]!.price, containers)];
-  }
+  const whole = prices.length === 1 && prices[0]!.qty === quoteContainerCount(quote);
   return prices.map((l, i) => {
     const type = containerType(l.type);
-    const sized = withRate({ ...base, description: `${description} - ${l.qty} × ${type}`, basis: "container", containerType: type }, l.price, l.qty);
+    const sized = withRate({ ...base, description: whole ? description : `${description} - ${l.qty} × ${type}`, basis: "container", containerType: type }, l.price, l.qty);
     if (i > 0) delete sized.pairId;
     return sized;
   });

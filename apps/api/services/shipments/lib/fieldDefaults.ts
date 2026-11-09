@@ -83,8 +83,18 @@ export const CANCELLED_STATUS = "Cancelled Shipment";
 // the status already fits (or has no direction, like "Cancelled Shipment").
 const SHARED_STEPS = ["Booking Confirmation Pending", "All Done - Waiting To Be Shipped", "Billing", "Billed"];
 
+const directionTag = (tradeDirection: string | null | undefined) =>
+  eq(tradeDirection, "Import") ? "IMP" : eq(tradeDirection, "Export") ? "EXP" : eq(tradeDirection, "Domestic") ? "DOM" : null;
+
+// The status a shipment without one starts on once it has a Trade Direction (a document read into
+// a new shipment leaves both blank when it doesn't show the direction); undefined with no direction.
+export function startingStatusFor(tradeDirection: string | null | undefined): string | undefined {
+  const tag = directionTag(tradeDirection);
+  return tag ? `${SHARED_STEPS[0]} [${tag}]` : undefined;
+}
+
 export function statusForDirection(status: string | null | undefined, tradeDirection: string | null | undefined): string | undefined {
-  const tag = eq(tradeDirection, "Import") ? "IMP" : eq(tradeDirection, "Export") ? "EXP" : eq(tradeDirection, "Domestic") ? "DOM" : null;
+  const tag = directionTag(tradeDirection);
   if (!tag) return undefined;
   const others = ["IMP", "EXP", "DOM"].filter((t) => t !== tag).join("|");
   const match = (status ?? "").trim().match(new RegExp(`^(.*) \\[(?:${others})\\]$`));

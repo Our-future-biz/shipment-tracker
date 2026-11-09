@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { App, Button, Spin } from "antd";
+import { Button, Spin } from "antd";
+import { useMessages } from "@/lib/toast";
 import { InboxOutlined } from "@ant-design/icons";
 import { CARD } from "@/styles/ui";
 import { BackLink } from "@/components/BackLink";
@@ -34,7 +35,7 @@ const isDetailTab = (key: string | null): key is DetailTab => DETAIL_TABS.some((
 export function MasterJobsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { message } = App.useApp();
+  const message = useMessages();
   const openId = searchParams.get("open");
 
   const { masterJobs, isLoading, isError } = useMasterJobs();

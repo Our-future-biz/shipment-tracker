@@ -3,13 +3,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Spin } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useConsignment, useConsignmentDocuments, useTrip } from "@/hooks/useTruckingConsignments";
-import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { CONSIGNMENT_STATUS_CHIP, TRIP_STATUS_CHIP, consignmentActions, consignmentHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
 import { TRIP_KIND_LABEL, ltlTripOrderActions, type TripOrderActions } from "../../_lib/planning";
@@ -20,6 +18,7 @@ import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import { TripDialogs, type TripDialog } from "./TripDialogs";
 import { TripLtlSections } from "./TripLtlSections";
 import { TripPanel } from "./TripPanel";
+import { BackLink } from "@/components/BackLink";
 
 const LIST_HREF = "/trucking?tab=trips";
 
@@ -66,10 +65,8 @@ export const TripView = ({ tripId }: TripViewProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={LIST_HREF} aria-label="Back to Trips" className={LINK_ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </Link>
           <div className="min-w-0 flex-1">
+<BackLink href={LIST_HREF} className="mb-1">Trips</BackLink>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className={`${PAGE_TITLE} ${REF}`}>{trip.ref}</h1>
               <TruckingStatusChip chip={TRIP_STATUS_CHIP[trip.status]} />

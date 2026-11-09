@@ -20,9 +20,9 @@ import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf,
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
+import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
-import type { ShipmentListFilters } from "../repositories/shipment.repository";
+import type { NamingShipment, ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type { CargoItemRecord } from "../schemas/cargoItem.schema";
@@ -52,13 +52,13 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
-import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, SALES_REFERENCE_INVOICED, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
-import { jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
+import { INVOICED_STATUS, jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
 import { jobNumberDigits } from "../../../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
@@ -1156,7 +1156,7 @@ class ShipmentService {
     normalizeCustomsPriority(written, after);
     // A Trade Direction change carries the shipment status over to the new direction.
     if ("tradeDirection" in shipmentData && after("tradeDirection") !== existing.tradeDirection) {
-      const moved = statusForDirection(after("status"), after("tradeDirection"));
+      const moved = after("status").trim() ? statusForDirection(after("status"), after("tradeDirection")) : startingStatusFor(after("tradeDirection"));
       if (moved) shipmentData.status = moved;
     }
     Object.assign(
@@ -1214,6 +1214,8 @@ class ShipmentService {
     const previousSalesNumber = existing.salesNumber.trim();
     const nextSalesNumber = shipmentData.salesNumber;
     const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
+    // Invoiced: marked so (by hand too), or with an issued invoice not credited, whatever the status says.
+    if (salesNumberChanged && (existing.invoicingStatus === INVOICED_STATUS || (await this.isInvoiced(id)))) throw APIError.failedPrecondition(SALES_REFERENCE_INVOICED);
     if (salesNumberChanged && nextSalesNumber) {
       const quote = await this.linkableQuoteOwner(nextSalesNumber);
       const owner = quote && !("salesPerson" in shipmentData) ? await this.quoteOwnerEmail(quote, users) : "";
@@ -1341,7 +1343,11 @@ class ShipmentService {
     const previous = from.trim();
     const next = to.trim();
     if (!previous || !next || previous === next) return [];
-    const naming = await shipmentRepository.liveBySalesNumber(companyId, previous);
+    // An invoiced shipment stays with the offer it was invoiced from: marked so, or with an issued invoice not credited.
+    const naming: NamingShipment[] = [];
+    for (const shipment of await shipmentRepository.liveBySalesNumber(companyId, previous)) {
+      if (shipment.invoicingStatus !== INVOICED_STATUS && !(await this.isInvoiced(shipment.id))) naming.push(shipment);
+    }
     for (const shipment of naming) {
       await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next });
       await shipmentRepository.updateForCompany(shipment.id, companyId, { salesNumber: next });

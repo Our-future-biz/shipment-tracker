@@ -4,6 +4,7 @@ import { getClient, MODEL, replyText } from "../lib/anthropic";
 import { parseJsonFromResponse } from "../lib/fields";
 import { countryValue, fold, placeCodeOf, placeLabel, resolveCountryCode, type GeoKind } from "../../../lib/geo/format";
 import type { Place } from "../../../lib/geo/place";
+import { subdivisionOf, type Subdivision } from "../../../lib/geo/subdivisions";
 
 // Turns places and countries read by the AI (or typed into an inquiry) into the form the
 // database uses: "Hamburg (DEHAM)", "Germany (DE)", "DE". Text that matches nothing is left
@@ -44,9 +45,10 @@ const BARE_CODE = /^([A-Z]{2})\s?([A-Z0-9]{3})$/;
  * "Chicago, IL, United States" → name "Chicago", country "US"; "PORT OF HAMBURG" → "HAMBURG".
  * A bare two-letter last part ("Hamburg, DE" but also "Chicago, IL") may be a country code or
  * a state/province, so it is only a hint (`weakCountry`): the name is searched worldwide and
- * the hint applies only when the place exists in that country.
+ * the hint applies only when the place exists in that country. `state` is the US state or
+ * Canadian province the text names ("Aurora, IL", "Aurora, il, us", "Aurora, Illinois").
  */
-export function splitPlace(text: string): { name: string; countryCode: string | null; weakCountry: boolean } {
+export function splitPlace(text: string): { name: string; countryCode: string | null; weakCountry: boolean; state: Subdivision | null } {
   const parts = text.split(/[,;/]/).map((p) => p.trim()).filter(Boolean);
   const last = parts.length > 1 ? parts[parts.length - 1]! : null;
   const countryCode = last ? resolveCountryCode(last) : null;
@@ -55,11 +57,13 @@ export function splitPlace(text: string): { name: string; countryCode: string | 
     .replace(/^port\s+of\s+/i, "")
     .replace(/\s+(sea)?port$/i, "")
     .trim();
-  return { name, countryCode, weakCountry };
+  // Before the country ("Aurora, IL, US"), or alone ("Aurora, IL"; "Quitman, Georgia" may be either Georgia).
+  const state = !last ? null : parts.length > 2 ? (countryCode ? subdivisionOf(parts[parts.length - 2]!, countryCode) : null) : subdivisionOf(last);
+  return { name, countryCode, weakCountry, state };
 }
 
 // The places a lookup returned; on failure none, so the values stay as read and get flagged.
-async function lookupPlaces(codes: string[], names: { name: string; countryCode?: string }[]): Promise<{ byCode: Place[]; candidates: Place[][] }> {
+async function lookupPlaces(codes: string[], names: { name: string; countryCode?: string; subdivision?: string }[]): Promise<{ byCode: Place[]; candidates: Place[][] }> {
   try {
     return await auth.placeLookup({ codes, names });
   } catch (err) {
@@ -75,7 +79,7 @@ export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
   // rows the text could mean (empty when none were found by name).
   const open: { index: number; candidates: Place[] }[] = [];
 
-  const placeItems: { index: number; code: string | null; name: string; countryCode: string | null; weakCountry: boolean }[] = [];
+  const placeItems: { index: number; code: string | null; name: string; countryCode: string | null; weakCountry: boolean; state: Subdivision | null }[] = [];
   items.forEach((item, index) => {
     const text = item.text.trim();
     if (!text) return;
@@ -93,18 +97,30 @@ export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
   if (placeItems.length > 0) {
     // Each item is looked up by name in its country (or worldwide when it names none). A weak
     // hint is also looked up worldwide: the worldwide list is capped, so the in-country match
-    // must not depend on it ("San Jose, US" has more namesakes than fit).
-    const names: { name: string; countryCode?: string }[] = [];
+    // must not depend on it ("San Jose, US" has more namesakes than fit). A state is looked up in
+    // itself: of the twelve Auroras in the US, the text means one.
+    const names: { name: string; countryCode?: string; subdivision?: string }[] = [];
     const slots = placeItems.map((p) => ({
       main: names.push({ name: p.name, countryCode: p.countryCode ?? undefined }) - 1,
       world: p.weakCountry ? names.push({ name: p.name }) - 1 : -1,
+      state: p.state ? names.push({ name: p.name, countryCode: p.state.countryCode, subdivision: p.state.name }) - 1 : -1,
     }));
     const { byCode, candidates } = await lookupPlaces(placeItems.flatMap((p) => (p.code ? [p.code] : [])), names);
     const known = new Map(byCode.map((p) => [p.code, p]));
     placeItems.forEach((p, i) => {
       const slot = slots[i]!;
       let found = candidates[slot.main] ?? [];
-      if (p.weakCountry && found.length === 0) {
+      const inState = p.state ? (candidates[slot.state] ?? []).filter((c) => sameName(c.name, p.name)) : [];
+      // The text's last part may be that state or another country of the same letters or name.
+      const elsewhere = p.countryCode !== null && p.countryCode !== p.state?.countryCode && found.some((c) => sameName(c.name, p.name));
+      if (inState.length > 0 && !elsewhere) {
+        // "Aurora, IL" is the one in Illinois.
+        found = inState;
+        p.countryCode = p.state!.countryCode;
+      } else if (inState.length > 0) {
+        // "Greenfield, CA" is in California and in Canada: the AI weighs both, nothing is taken as sure.
+        found = [...found, ...inState];
+      } else if (p.weakCountry && found.length === 0) {
         // "Hamburg, DE" keeps DE; "Chicago, IL" finds nothing in Israel, so the hint is dropped.
         found = candidates[slot.world] ?? [];
         p.countryCode = null;

@@ -4,7 +4,7 @@ import type { interfaces } from "@/lib/api/client";
 import { matchesGridFilters, type GridFilterColumn } from "@/components/gridFilters";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
-import { moneyCz } from "@/lib/money";
+import { money } from "@/lib/money";
 import { statusLabel } from "@/lib/shipmentStatus";
 
 // The Invoicing queue's columns as data: which ones exist, which are shown in what order, and the
@@ -74,7 +74,7 @@ export function queueCellText(r: QueueRow, key: string, flagMissingLines: boolea
       if (r.billingState === "none") return flagMissingLines ? "No selling lines" : "";
       if (r.rowsToBill === 0) return "";
       // cs-CZ groups digits with a non-breaking space; a typed "12 500" has a plain one
-      return `${moneyCz(r.amountToBill)} ${r.billingCurrency}`.replace(/[  ]/g, " ");
+      return `${money(r.amountToBill)} ${r.billingCurrency}`;
     case "invoices":
       if (r.invoiceNumbers.length > 0) return r.invoiceNumbers.join(", ");
       if (r.rowsToBill > 0) return `${r.rowsToBill} line${r.rowsToBill !== 1 ? "s" : ""}`;

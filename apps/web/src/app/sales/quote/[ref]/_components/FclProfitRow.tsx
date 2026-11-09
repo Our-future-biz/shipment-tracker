@@ -1,26 +1,22 @@
 "use client";
 
-import { Button, InputNumber, Select } from "antd";
+import { Button } from "antd";
 import { EditOutlined } from "@ant-design/icons";
-import { fmtMoney, moneyInputParser, roundCents } from "@/lib/money";
-import { MAX_PROFIT_PERCENT, type FclBlock, type FclBlockPrice } from "@/app/sales/_lib/fclPricing";
-import type { FclBlockProfit, FclProfit } from "@/app/sales/_lib/types";
+import { fmtMoney, roundCents } from "@/lib/money";
+import type { FclBlock, FclBlockPrice } from "@/app/sales/_lib/fclPricing";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { FCL_NOTE_CLASS, FCL_PROFIT_MODES } from "../_lib/fclPricingUi";
 
 interface FclProfitRowProps {
   block: FclBlock;
   priced: FclBlockPrice;
-  setting: FclBlockProfit;
   currency: string;
   closed: boolean;
-  onSetting: (patch: Partial<FclBlockProfit>) => void;
   onEditPerCharge: () => void;
 }
 
-// The block's profit - % or SUM, then the figure - and what it makes: profit, total buying, total
-// selling (per container in a container block, and for all its containers beside).
-export function FclProfitRow({ block, priced, setting, currency, closed, onSetting, onEditPerCharge }: FclProfitRowProps) {
+// Where the block's profit is set - charge by charge - and what it makes: profit, total buying,
+// total selling (per container in a container block, and for all its containers beside).
+export function FclProfitRow({ block, priced, currency, closed, onEditPerCharge }: FclProfitRowProps) {
   const per = block.perContainer ? " / ctr" : "";
   const many = block.perContainer && block.units > 1;
   const times = (amount: number) => fmtMoney(roundCents(amount * block.units), currency);
@@ -38,34 +34,7 @@ export function FclProfitRow({ block, priced, setting, currency, closed, onSetti
     <div className="flex flex-col gap-1.5 px-3 py-2.5 border-t border-slate-200 bg-slate-50/60">
       <div className="flex flex-wrap items-center gap-2">
         <span className={LABEL_TEXT}>Profit</span>
-        {setting.perCharge ? (
-          <span className={HINT}>Set per charge</span>
-        ) : (
-          <>
-            <Select
-              size="small"
-              className="w-[76px]"
-              aria-label="Profit as"
-              value={setting.mode}
-              options={FCL_PROFIT_MODES}
-              onChange={(mode: FclProfit["mode"]) => onSetting({ mode, value: 0 })}
-            />
-            <InputNumber
-              size="small"
-              className="!w-[120px]"
-              aria-label={setting.mode === "percent" ? "Profit %" : `Profit ${currency}${per}`}
-              min={setting.mode === "percent" ? 0 : undefined}
-              max={setting.mode === "percent" ? MAX_PROFIT_PERCENT : undefined}
-              // % profit is a whole number.
-              precision={setting.mode === "percent" ? 0 : 2}
-              parser={moneyInputParser}
-              addonAfter={setting.mode === "percent" ? "%" : currency}
-              value={setting.value}
-              onChange={(v) => onSetting({ value: Number(v) || 0 })}
-            />
-          </>
-        )}
-        <Button size="small" type="link" icon={<EditOutlined />} disabled={closed || priced.charges.every((c) => !c.takesProfit)} onClick={onEditPerCharge}>
+        <Button size="small" type="link" icon={<EditOutlined />} disabled={closed || priced.charges.length === 0} onClick={onEditPerCharge}>
           Edit per charge
         </Button>
         <div className="ml-auto flex flex-wrap items-stretch gap-2">
@@ -79,7 +48,6 @@ export function FclProfitRow({ block, priced, setting, currency, closed, onSetti
           Total selling includes {fmtMoney(priced.roe, currency)}{per} of ROE (the FX buffer) on the charges in another currency than {currency}, as the quotation and the totals do.
         </span>
       )}
-      {priced.profitUnplaced && <span className={FCL_NOTE_CLASS}>No charge in this block takes profit: tick the profit basis of one, or put one in the all-in price.</span>}
     </div>
   );
 }

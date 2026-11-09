@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Input, Select, Tooltip } from "antd";
 import type { TableProps } from "antd";
-import { EditOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { EditOutlined, LinkOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import {
   DndContext,
   PointerSensor,
@@ -57,6 +57,7 @@ import {
   type SortKey,
 } from "../_lib/customerListColumns";
 import { AddCustomerModal } from "./AddCustomerModal";
+import { RegistrationLinkModal } from "./RegistrationLinkModal";
 import { AlsoChip } from "./AlsoChip";
 import { CustomerColumnPicker, type ColumnTemplate } from "./CustomerColumnPicker";
 import { CustomerFiltersPopover, type FilterTemplate, type StoredFilter } from "./CustomerFiltersPopover";
@@ -66,7 +67,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../_lib/customerPermissions";
 import { DeletedCustomersPanel } from "./DeletedCustomersPanel";
 import { apiFileUrl } from "@/lib/api";
-import { BTN_PRIMARY, CARD, LINK, PAGE_TITLE } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, CARD, LINK, PAGE_TITLE } from "@/styles/ui";
 
 // Superadmins also get the deleted companies, to restore one (?view=deleted).
 const DELETED_PILL = { key: "deleted", label: "Deleted" };
@@ -157,6 +158,7 @@ export function CustomersView() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
+  const [registrationLinkOpen, setRegistrationLinkOpen] = useState(false);
 
   // Search, both filters and the sort live in the URL, so the list is the same after opening
   // a customer and coming back.
@@ -503,6 +505,10 @@ export function CustomersView() {
                   <PlusOutlined />
                   Add Customer / Supplier
                 </button>
+                <button type="button" onClick={() => setRegistrationLinkOpen(true)} className={BTN}>
+                  <LinkOutlined />
+                  Registration link
+                </button>
                 {inCustomers && (
                   <div role="group" aria-label="Filter by status">
                     <PillTabs tabs={STATUS_PILLS} active={status || "all"} onChange={handleStatusChange} />
@@ -653,7 +659,8 @@ export function CustomersView() {
           </>
         )}
 
-        <AddCustomerModal
+        <RegistrationLinkModal open={registrationLinkOpen} onClose={() => setRegistrationLinkOpen(false)} />
+      <AddCustomerModal
           open={addOpen}
           onClose={handleAddClose}
           onCreated={handleCreated}

@@ -143,13 +143,14 @@ class LocationRepository {
    * "Shanghai Pt", "Nagoya" → "Nagoya, Aichi") or carrying it in brackets ("Ostend (Oostende)").
    * `name` is ASCII-folded.
    */
-  async findCandidates(name: string, countryCode: string | null, limit: number) {
+  async findCandidates(name: string, countryCode: string | null, limit: number, subdivision?: string) {
     return db
       .selectDistinctOn([locationTable.code], this.placeColumns)
       .from(locationTable)
       .where(
         and(
           countryCode ? eq(locationTable.countryCode, countryCode) : undefined,
+          subdivision ? eq(locationTable.subdivisionName, subdivision) : undefined,
           sql`(${locationTable.nameAscii} ILIKE ${name} OR ${locationTable.nameAscii} ILIKE ${`${name} %`} OR ${locationTable.nameAscii} ILIKE ${`${name},%`} OR ${locationTable.nameAscii} ILIKE ${`%(${name})%`})`,
         ),
       )

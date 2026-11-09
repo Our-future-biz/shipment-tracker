@@ -5,6 +5,7 @@ import { classifyPages, extractFromPages } from "./extraction.service";
 import { splitPdfToPages, detectMediaType, mergePagesToPdf } from "../lib/pdf";
 import { MBL_FIELDS, SHIPMENT_FIELDS } from "../lib/fields";
 import { MASTER_JOB_PROMPT, MBL_PROMPT } from "../lib/prompts";
+import { applyTradeDirection } from "../lib/tradeDirection";
 import { groupHblPages } from "../lib/hblGroups";
 import { canonicalizeRecords } from "./places.service";
 import { chargeReading } from "../lib/readingBudget";
@@ -193,7 +194,10 @@ export async function extractMbl(sessionId: string, who: SessionOwner): Promise<
   );
 
   const mblInfo = results[0] || null;
-  if (mblInfo) await canonicalizeRecords([mblInfo]);
+  if (mblInfo) {
+    await canonicalizeRecords([mblInfo]);
+    applyTradeDirection(mblInfo);
+  }
   session.mblInfo = mblInfo;
 
   return { mblInfo };
@@ -256,6 +260,9 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
       }
     }
   }
+
+  // After the MBL's details: a House B/L may have its POD only from there.
+  shipments.forEach((shipment) => applyTradeDirection(shipment));
 
   session.shipments.push(...shipments);
   const done = batchIndex + 1 >= totalBatches;

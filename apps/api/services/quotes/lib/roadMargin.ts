@@ -166,14 +166,14 @@ export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null
   };
 }
 
-/** "4 250 CZK", "95.50 EUR": thousands apart, cents only when there are any. */
+/** "4,250 CZK", "95.50 EUR": thousands apart, cents only when there are any. */
 export function formatMoney(amount: number, currency: string): string {
   const [whole, cents] = Math.abs(amount).toFixed(2).split(".");
-  const grouped = whole!.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const grouped = whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${amount < 0 ? "-" : ""}${grouped}${cents === "00" ? "" : `.${cents}`} ${currency}`;
 }
 
-/** "4 250 CZK": whole crowns. */
+/** "4,250 CZK": whole crowns. */
 export function formatCzk(amount: number): string {
   return formatMoney(Math.round(amount), "CZK");
 }

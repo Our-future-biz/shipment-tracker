@@ -322,6 +322,8 @@ const STATUS_BUCKETS: Record<string, string[]> = {
 export interface NamingShipment {
   id: string;
   jobNumber: string;
+  /** Read where it decides something: a revision doesn't take over an invoiced shipment. */
+  invoicingStatus?: string;
 }
 
 /** What the company's live shipments say about one customer. */
@@ -402,7 +404,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   /** The live shipments of the company whose Sales Number is `reference`, the oldest first (no lock). */
   async liveBySalesNumber(companyId: string, reference: string): Promise<NamingShipment[]> {
     return this.db
-      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber })
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, invoicingStatus: shipmentTable.invoicingStatus })
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${SALES_NUMBER} = ${reference}`))
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));

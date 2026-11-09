@@ -15,6 +15,7 @@ import * as documentChangeRequestSchema from "../schemas/documentChangeRequest.s
 import * as shipmentTrackingEventSchema from "../schemas/shipmentTrackingEvent.schema";
 import * as shipmentCustomerNoticeSchema from "../schemas/shipmentCustomerNotice.schema";
 import * as shipmentCustomerLinkSchema from "../schemas/shipmentCustomerLink.schema";
+import * as shipmentImportInstructionSchema from "../schemas/shipmentImportInstruction.schema";
 import * as shipmentTrackingReadSchema from "../schemas/shipmentTrackingRead.schema";
 
 export const DB = new SQLDatabase("shipments", {
@@ -39,6 +40,7 @@ export const db = drizzle(pool, {
     ...shipmentTrackingEventSchema,
     ...shipmentCustomerNoticeSchema,
     ...shipmentCustomerLinkSchema,
+    ...shipmentImportInstructionSchema,
     ...shipmentTrackingReadSchema,
   },
 });

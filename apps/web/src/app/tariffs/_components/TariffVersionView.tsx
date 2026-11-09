@@ -118,7 +118,7 @@ export function TariffVersionView<V extends TariffVersionCore>({
       toast.success(`${label} approved`);
       setConfirm(null);
     } catch (e) {
-      toast.error(`Could not approve: ${apiErrorMessage(e)}`, 8);
+      toast.error(`Could not approve: ${apiErrorMessage(e)}`);
     }
   };
 
@@ -128,7 +128,7 @@ export function TariffVersionView<V extends TariffVersionCore>({
       toast.success(`Draft ${label} discarded`);
       router.push(backHref);
     } catch (e) {
-      toast.error(`Could not discard: ${apiErrorMessage(e)}`, 8);
+      toast.error(`Could not discard: ${apiErrorMessage(e)}`);
     }
   };
 

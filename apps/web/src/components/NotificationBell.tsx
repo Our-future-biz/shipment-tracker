@@ -20,6 +20,9 @@ import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } f
 import { useSellingAmountBell, type SellingAmountRequest } from "@/hooks/useSellingAmountRequests";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
+import { useApprovalChatsUnread } from "@/hooks/useCompanyRegistration";
+import { useImportInstructionsWaiting } from "@/hooks/useImportInstructions";
+import { ApprovalChatDrawer } from "@/components/ApprovalChatDrawer";
 import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/useShipmentAlerts";
 import { useTrackingBell, useTrackingMarkRead, type TrackingBellNotice } from "@/hooks/useShipmentTracking";
@@ -77,9 +80,10 @@ const waitingTitle = (r: MarginInquiryRow) => `Discount waiting · ${r.inquiry.q
 const waitingText = (r: MarginInquiryRow) =>
   `${r.inquiry.requestedByName || "A rep"} asks for ${czkText(r.inquiry.snapshot.marginCzk)}${r.customer ? ` · ${r.customer}` : ""} — ${r.inquiry.reason}${r.inquiry.escalated ? " · waiting long" : ""}`;
 // A new supplier waiting for a manager, and the manager's answer to whoever added it from a quote.
-const supplierWaitingTitle = (a: SupplierApprovalItem) => `Supplier waiting approval · ${a.companyName}`;
-const supplierWaitingText = (a: SupplierApprovalItem) => `${a.requestedBy || "A colleague"} added it from ${a.quoteNumber || "a quote"}`;
-const supplierAnswerTitle = (a: SupplierApprovalItem) => `Supplier ${a.decision === "approved" ? "approved" : "declined"} · ${a.companyName}`;
+const supplierWaitingTitle = (a: SupplierApprovalItem) => `${a.registered ? "Company registered" : "Supplier waiting approval"} · ${a.companyName}`;
+const supplierWaitingText = (a: SupplierApprovalItem) =>
+  a.registered ? `Through ${a.requestedBy || "a colleague"}'s link${a.alreadyInDatabase ? " · already in the database" : ""} · waiting for approval` : `${a.requestedBy || "A colleague"} added it from ${a.quoteNumber || "a quote"}`;
+const supplierAnswerTitle = (a: SupplierApprovalItem) => `${a.registered ? "Registration" : "Supplier"} ${a.decision === "approved" ? "approved" : "declined"} · ${a.companyName}`;
 const supplierAnswerText = (a: SupplierApprovalItem) =>
   a.decision === "approved"
     ? `${a.quoteNumber ? `${a.quoteNumber} can be sent` : "It can be used"}${a.comment ? ` — ${a.comment}` : ""}`
@@ -184,6 +188,10 @@ export function NotificationBell() {
   const { approvals: supplierApprovals, hasLoaded: suppliersLoaded, seen: supplierSeen } = useSupplierApprovals();
   const supplierWaiting = canManageSales ? supplierApprovals.filter((a) => a.status === "pending") : [];
   const supplierAnswers = supplierApprovals.filter((a) => a.decision !== "" && !!user && a.requestedByUserId === user.id);
+  // The chats on companies in Company approval with something new for the user.
+  const { chats: approvalChats } = useApprovalChatsUnread();
+  const { waiting: importInstructions } = useImportInstructionsWaiting();
+  const [approvalChat, setApprovalChat] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
   // they have been opened. Mentions exist here only while unread.
@@ -330,13 +338,14 @@ export function NotificationBell() {
     if (!suppliersLoaded) return;
     const before = seenSuppliers.current;
     const keys = [
-      ...supplierApprovals.filter((a) => a.status === "pending").map((a) => `w:${a.customerId}`),
-      ...supplierAnswers.map((a) => `a:${a.customerId}`),
+      ...supplierApprovals.filter((a) => a.status === "pending").map((a) => `w:${a.threadId}`),
+      // By thread, as asked below: a registration of a company already in the database is not its company.
+      ...supplierAnswers.map((a) => `a:${a.threadId}`),
     ];
     if (before) {
-      for (const a of supplierWaiting) if (!before.has(`w:${a.customerId}`)) toast.notify({ title: supplierWaitingTitle(a), description: supplierWaitingText(a), type: "warning" });
+      for (const a of supplierWaiting) if (!before.has(`w:${a.threadId}`)) toast.notify({ title: supplierWaitingTitle(a), description: supplierWaitingText(a), type: "warning" });
       for (const a of supplierAnswers)
-        if (!a.answerSeen && !before.has(`a:${a.customerId}`)) toast.notify({ title: supplierAnswerTitle(a), description: supplierAnswerText(a), type: a.decision === "approved" ? "info" : "warning" });
+        if (!a.answerSeen && !before.has(`a:${a.threadId}`)) toast.notify({ title: supplierAnswerTitle(a), description: supplierAnswerText(a), type: a.decision === "approved" ? "info" : "warning" });
     }
     seenSuppliers.current = new Set(keys);
     // The lists are filtered from the one answer; it changes only with the server's.
@@ -388,10 +397,12 @@ export function NotificationBell() {
 
   // The badge counts what is unread, whatever the view or the search.
   const total =
+    importInstructions.length +
+    approvalChats.length +
     unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
-    if (!a.answerSeen) supplierSeen.mutate([a.customerId]);
-    go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : "/customers");
+    if (!a.answerSeen) supplierSeen.mutate([a.threadId]);
+    go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : a.decision === "approved" && a.customerId ? `/customers/${a.customerId}` : "/customers");
   };
   const openAnswer = (a: WarehouseInquiryItem) => {
     if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
@@ -516,9 +527,39 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {supplierWaitingShown.length > 0 && <div className={headingClass}>Suppliers waiting for approval</div>}
+      {importInstructions.length > 0 && <div className={headingClass}>Import Instructions to approve</div>}
+      {importInstructions.map((w) => (
+        <button key={`ii:${w.shipmentId}`} type="button" onClick={() => go(`/shipments/${w.shipmentId}?tab=warehouse`)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">Import Instructions · {w.jobNumber}</span>
+          </span>
+          <span className="text-[12px] text-slate-700">Completed by {w.filledBy || "the customer"} · waiting for your approval</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(w.submittedAt)}</span>
+        </button>
+      ))}
+      {approvalChats.length > 0 && <div className={headingClass}>Company approval chats</div>}
+      {approvalChats.map((c) => (
+        <button
+          key={`ac:${c.threadId}`}
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setApprovalChat(c.threadId);
+          }}
+          className={rowClass}
+        >
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">Chat · {c.companyName}</span>
+          </span>
+          <span className="text-[12px] text-slate-700">{c.unread ? `${c.unread} new ${c.unread === 1 ? "message" : "messages"}` : "You were added to this chat"}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(c.latestAt)}</span>
+        </button>
+      ))}
+      {supplierWaitingShown.length > 0 && <div className={headingClass}>Companies waiting for approval</div>}
       {supplierWaitingShown.map((a) => (
-        <button key={`sw:${a.customerId}`} type="button" onClick={() => go(salesManagersHref({ tab: "approvals" }))} className={rowClass}>
+        <button key={`sw:${a.threadId}`} type="button" onClick={() => go(salesManagersHref({ tab: "approvals" }))} className={rowClass}>
           <span className="flex items-center gap-2">
             <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
             <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{supplierWaitingTitle(a)}</span>
@@ -527,9 +568,9 @@ export function NotificationBell() {
           <span className="block text-[11px] text-slate-400 mt-0.5">{a.requestedAt ? formatTime(a.requestedAt) : ""}</span>
         </button>
       ))}
-      {supplierAnswersShown.length > 0 && <div className={headingClass}>Supplier answers</div>}
+      {supplierAnswersShown.length > 0 && <div className={headingClass}>Company answers</div>}
       {supplierAnswersShown.map((a) => (
-        <button key={`sa:${a.customerId}`} type="button" onClick={() => openSupplierAnswer(a)} className={rowClass}>
+        <button key={`sa:${a.threadId}`} type="button" onClick={() => openSupplierAnswer(a)} className={rowClass}>
           <span className="flex items-center gap-2">
             {!a.answerSeen && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.decision === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
             <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeen ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{supplierAnswerTitle(a)}</span>
@@ -660,16 +701,19 @@ export function NotificationBell() {
   );
 
   return (
-    <Dropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" popupRender={() => panel}>
-      <button
-        type="button"
-        aria-label={total ? `Notifications — ${total} unread` : "Notifications"}
-        className={`${ICON_BTN_GHOST} !w-9 !h-9`}
-      >
-        <Badge count={total} size="small" color="red">
-          <BellOutlined className="text-[18px]" />
-        </Badge>
-      </button>
-    </Dropdown>
+    <>
+      <Dropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" popupRender={() => panel}>
+        <button
+          type="button"
+          aria-label={total ? `Notifications — ${total} unread` : "Notifications"}
+          className={`${ICON_BTN_GHOST} !w-9 !h-9`}
+        >
+          <Badge count={total} size="small" color="red">
+            <BellOutlined className="text-[18px]" />
+          </Badge>
+        </button>
+      </Dropdown>
+      <ApprovalChatDrawer threadId={approvalChat} onClose={() => setApprovalChat(null)} />
+    </>
   );
 }

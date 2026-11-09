@@ -3,6 +3,7 @@ import log from "encore.dev/log";
 import { customers, quotes, shipments } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
+import { BILLED, assertNotBilled, isBilled, leavesBuyingCostAlone, leavesSellingCostAlone } from "../lib/billedLock";
 import { toChargeCode } from "../../../lib/chargeCodes";
 import { canDecideQuoteInquiry, quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
@@ -370,6 +371,7 @@ class InvoicingService {
   // Once a shipment holds buying lines copied from a quote, the estimate is the quote's alone: a
   // line added by hand carries a real cost only (setsEstimate / quoteEstimateOnly).
   async addBuyingCost(shipmentId: string, companyId: string, input: BuyingCostInput, actorUserId = ""): Promise<InvoiceCostItem> {
+    await assertNotBilled(shipmentId, companyId);
     const changes = buyingChanges(input);
     const values = { shipmentId, category: "", ...changes, ...receiptChanges(null, changes, new Date(), businessDay(new Date()), await payer(changes, actorUserId)) };
     await assertShipmentExists(shipmentId);
@@ -382,6 +384,7 @@ class InvoicingService {
   // a change to them is refused, the same value sent back with the rest of the row is not one.
   // Which quote a row came from is set when it is copied and never changes afterwards.
   async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput, actorUserId = ""): Promise<InvoiceCostItem> {
+    if (!leavesBuyingCostAlone(input)) await assertNotBilled(shipmentId, companyId);
     const changes = buyingChanges(input);
     const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
     if (!current) throw APIError.notFound("Buying cost not found");
@@ -410,6 +413,7 @@ class InvoicingService {
 
   // A row copied from a quote is not deleted: the estimate stays the quote's.
   async deleteBuyingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
+    await assertNotBilled(shipmentId, companyId);
     const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
     if (!current) throw APIError.notFound("Buying cost not found");
     if (current.sourceQuoteNumber) {
@@ -424,6 +428,7 @@ class InvoicingService {
    * shipment's estimate is its quote's.
    */
   async restoreBuyingCost(id: string, companyId: string, shipmentId: string, sortOrder?: number): Promise<InvoiceCostItem> {
+    await assertNotBilled(shipmentId, companyId);
     await assertShipmentExists(shipmentId);
     const deleted = await invoiceCostRepository.findDeletedLine(id, companyId, shipmentId);
     if (!deleted) throw APIError.notFound("Deleted buying cost not found");
@@ -436,12 +441,16 @@ class InvoicingService {
   /**
    * A buying cost posted by its charge code (master jobs, document reading). It goes onto the
    * shipment's first line of that code - so a real cost lands on the estimate it belongs to
-   * instead of a second line - and a line is created when the shipment has none.
+   * instead of a second line - and a line is created when the shipment has none. On a billed
+   * shipment (lib/billedLock) an estimate is not changed, and a real cost never replaces one the
+   * line has already: the supplier's invoice comes as a new line.
    */
   async upsertCost(shipmentId: string, companyId: string, category: string, input: CategoryCostInput): Promise<InvoiceCostItem> {
     const code = toChargeCode(category);
     await assertNotKeptByTrucking(companyId, [shipmentId], code);
     const changes = buyingChanges(input);
+    const billed = await isBilled(shipmentId, companyId);
+    if (billed && (changes.estAmount !== undefined || changes.estCurrency !== undefined)) throw APIError.failedPrecondition(BILLED);
     // Checked again under the shipment's trucking-lines lock, so a Trucking push running at the
     // same moment can't slip its line in between the check and this write.
     return truckingLinesRepository.withShipmentLock(shipmentId, async () => {
@@ -450,7 +459,8 @@ class InvoicingService {
       // On a shipment priced from a quote the real cost lands and the estimate stays the quote's.
       const quoted = existing?.sourceQuoteNumber || (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId));
       const kept = quoted ? definedOnly({ ...changes, estAmount: undefined, estCurrency: undefined }) : changes;
-      if (existing) {
+      const posted = !!existing && (existing.realAmount !== null || !!existing.invoiceNumber.trim());
+      if (existing && !(billed && posted)) {
         const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, { ...kept, ...unlinkOnVendorChange(existing, kept) });
         if (!row) throw APIError.notFound("Buying cost not found");
         return toCostItem(row);
@@ -464,8 +474,9 @@ class InvoicingService {
    * One vendor invoice split over shipments by weight (a master job's invoice by freight tons):
    * the parts add up to the total to the cent and are posted as the real cost of each
    * shipment's line of the code. A shipment of weight 0 gets nothing. A shipment that already
-   * has a real cost of the code keeps it unless it is in `overwriteShipmentIds`; its part is
-   * not handed to the others. `dryRun` only answers the split and what each shipment has.
+   * has a real cost of the code keeps it unless it is in `overwriteShipmentIds` - a billed one
+   * keeps it whatever is asked (lib/billedLock), and says so; its part is not handed to the
+   * others. `dryRun` only answers the split and what each shipment has.
    */
   async splitCost(companyId: string, input: CostSplitInput): Promise<CostSplitResultLine[]> {
     const code = toChargeCode(input.category);
@@ -489,7 +500,9 @@ class InvoicingService {
         ? { realAmount: row.realAmount, realCurrency: row.realCurrency, invoiceNumber: row.invoiceNumber }
         : null;
       const amount = line.weight > 0 ? parts[i]! : null;
-      const write = !input.dryRun && amount !== null && (!existing || overwrite.has(line.shipmentId));
+      // A billed shipment's real cost stays: the part is not posted over it.
+      const billed = await isBilled(line.shipmentId, companyId);
+      const write = !input.dryRun && amount !== null && (!existing || (overwrite.has(line.shipmentId) && !billed));
       if (write) {
         await this.upsertCost(line.shipmentId, companyId, code, {
           realAmount: amount,
@@ -498,7 +511,7 @@ class InvoicingService {
           ...(input.vendor?.trim() ? { vendor: input.vendor.trim() } : {}),
         });
       }
-      result.push({ shipmentId: line.shipmentId, amount, existing, written: write });
+      result.push({ shipmentId: line.shipmentId, amount, existing, written: write, billed });
     }
     return result;
   }
@@ -573,12 +586,14 @@ class InvoicingService {
 
   // ── Selling costs ──
   async addSellingCost(shipmentId: string, companyId: string, input: SellingCostInput): Promise<SellingCostItem> {
+    await assertNotBilled(shipmentId, companyId);
     const values = { shipmentId, ...sellingChanges(input) };
     await assertShipmentExists(shipmentId);
     return toSellingItem(await sellingCostRepository.createForCompany(companyId, values));
   }
 
   async updateSellingCost(id: string, companyId: string, shipmentId: string, input: SellingCostInput, role?: string): Promise<SellingCostItem> {
+    if (!leavesSellingCostAlone(input)) await assertNotBilled(shipmentId, companyId);
     // A master job's demurrage taken off the invoice is sold for nothing: a manager's to do, as its
     // deletion is (asked for, then approved). A call from inside the app (no role) may.
     const mayUntickSplit = role === undefined || canDecideQuoteInquiry(role);
@@ -596,6 +611,7 @@ class InvoicingService {
   }
 
   async deleteSellingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
+    await assertNotBilled(shipmentId, companyId);
     const row = await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { delete: true });
     if (row === "invoiced") throw APIError.failedPrecondition(INVOICED_ROW);
     if (!row) throw APIError.notFound("Selling cost not found");
@@ -617,6 +633,7 @@ class InvoicingService {
     force: boolean,
   ): Promise<QuoteImportResult> {
     await assertShipmentExists(shipmentId);
+    await assertNotBilled(shipmentId, companyId);
     let quote;
     try {
       ({ quote } = await quotes.salesQuoteGet({ quoteNumber }));
@@ -654,18 +671,21 @@ class InvoicingService {
 
   // ── Additional charges ──
   async addAdditionalCharge(shipmentId: string, companyId: string, input: AdditionalChargeInput): Promise<AdditionalChargeItem> {
+    await assertNotBilled(shipmentId, companyId);
     const values = { shipmentId, ...chargeChanges(input) };
     await assertShipmentExists(shipmentId);
     return toChargeItem(await additionalChargeRepository.createForCompany(companyId, values));
   }
 
   async updateAdditionalCharge(id: string, companyId: string, shipmentId: string, input: AdditionalChargeInput): Promise<AdditionalChargeItem> {
+    await assertNotBilled(shipmentId, companyId);
     const row = await additionalChargeRepository.updateForCompany(id, companyId, chargeChanges(input));
     if (!row || row.shipmentId !== shipmentId) throw APIError.notFound("Charge not found");
     return toChargeItem(row);
   }
 
   async deleteAdditionalCharge(id: string, companyId: string, shipmentId: string): Promise<void> {
+    await assertNotBilled(shipmentId, companyId);
     const charge = await additionalChargeRepository.getByIdForCompany(id, companyId);
     if (!charge || charge.shipmentId !== shipmentId) throw APIError.notFound("Charge not found");
     await additionalChargeRepository.softDeleteForCompany(id, companyId);

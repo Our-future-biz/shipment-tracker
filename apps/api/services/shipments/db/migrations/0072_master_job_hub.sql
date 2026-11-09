@@ -1,1 +1,0 @@
-ALTER TABLE "master_job" ADD COLUMN "hub" text DEFAULT '' NOT NULL;

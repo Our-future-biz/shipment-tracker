@@ -403,13 +403,15 @@ export function normalizeCurrency(raw?: string): string {
 }
 
 // No job number and no Created By: the server gives the next job number when it stores the
-// shipment, and stamps who created it.
+// shipment, and stamps who created it. No Trade Direction or status either: a direction read from
+// the document is written next, and the server then starts the status on that direction's side;
+// with none read both stay blank for a person to set.
 export function baseCreatePayload(): controllers.ShipmentCreateRequest {
   return {
-    tradeDirection: "Import",
+    tradeDirection: "",
     freightMode: "Sea Freight",
     department: "Operation Department",
-    status: "Booking Confirmation Pending [IMP]",
+    status: "",
     customsStatus: "Waiting For Commercial Paperwork",
   };
 }

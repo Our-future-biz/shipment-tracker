@@ -1,0 +1,3 @@
+ALTER TABLE "company_registration" ADD CONSTRAINT "company_registration_link_id_company_registration_link_id_fk" FOREIGN KEY ("link_id") REFERENCES "public"."company_registration_link"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "company_registration" ADD CONSTRAINT "company_registration_customer_id_customer_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customer"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "company_registration_link_id_idx" ON "company_registration" USING btree ("link_id");

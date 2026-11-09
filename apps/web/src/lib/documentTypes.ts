@@ -8,10 +8,13 @@ export const DOCUMENT_TYPES = [
   "Bill of Lading",
   "Booking confirmation",
   "Customs document",
+  "Import Instructions",
   "CMR / POD",
   "Carrier notice",
   "Insurance",
   "Certificate of origin",
+  "MSDS",
+  "Dangerous Goods Declaration",
   "Airfreight Charges",
   "Railfreight Charges",
   "Seafreight Charges",
@@ -42,12 +45,21 @@ export const REQUIRED_DOCUMENT_TYPES = [
   "CMR / POD",
 ] as const;
 
+/** The safety paperwork a shipment of dangerous goods has to have as well. */
+export const SAFETY_PAPERWORK_TYPES = ["MSDS", "Dangerous Goods Declaration"] as const;
+
+/** Every document a shipment is expected to have; missing ones are flagged. */
+export const requiredDocumentTypes = (dangerous: boolean): readonly string[] =>
+  dangerous ? [...REQUIRED_DOCUMENT_TYPES, ...SAFETY_PAPERWORK_TYPES] : REQUIRED_DOCUMENT_TYPES;
+
 /**
  * Best-effort type guess from a file name, offered to the user as a
  * pre-filled suggestion — never applied silently.
  */
 export function guessDocumentType(fileName: string): string {
   const n = fileName.toLowerCase();
+  if (/((^|[^a-z])m?sds([^a-z]|$)|safety.?data.?sheet)/.test(n)) return "MSDS";
+  if (/((^|[^a-z])dgd([^a-z]|$)|dangerous.?goods|(^|[^a-z])imo.?decl)/.test(n)) return "Dangerous Goods Declaration";
   if (/(^|[^a-z])(inv|invoice|faktura)/.test(n)) return "Invoice";
   if (/(packing|balic|pack.?list)/.test(n)) return "Packing list";
   if (/(bill.?of.?lading|\bbol\b|\bhbl\b|\bmbl\b|konosament)/.test(n)) return "Bill of Lading";
@@ -77,12 +89,16 @@ export const SUPPLIER_INVOICE_TYPES = [
 export const DOCUMENT_GROUPS = [
   { title: "Commercial Documents", types: ["Invoice", "Packing list"] },
   { title: "Shipping Documents", types: ["Bill of Lading", "Booking confirmation", "CMR / POD", "Insurance"] },
-  { title: "Customs Documents", types: ["Customs document", "Certificate of origin"] },
+  { title: "Customs Documents", types: ["Customs document", "Import Instructions", "Certificate of origin"] },
+  { title: "Safety Paperwork", types: SAFETY_PAPERWORK_TYPES },
   { title: "Suppliers Invoice(s)", types: SUPPLIER_INVOICE_TYPES },
 ] as const;
 
-/** The tables the Customs tab shows: all but the suppliers' invoices, which customs doesn't work with. */
-export const CUSTOMS_TAB_GROUPS = DOCUMENT_GROUPS.slice(0, 3);
+/**
+ * The tables the Customs tab shows: all but the suppliers' invoices, which customs doesn't work with,
+ * and the safety paperwork of dangerous goods, kept on the Documents tab.
+ */
+export const CUSTOMS_TAB_GROUPS = DOCUMENT_GROUPS.filter((g) => g.title !== "Suppliers Invoice(s)" && g.title !== "Safety Paperwork");
 
 const FALLBACK_DOCUMENT_GROUP = DOCUMENT_GROUPS[1];
 
@@ -111,6 +127,18 @@ export const CUSTOMS_DOCUMENT_TYPES: readonly string[] = ["Invoice", "Packing li
  */
 export const isReviewedDocumentType = (documentType: string) =>
   ([...DOCUMENT_GROUPS[0].types, ...DOCUMENT_GROUPS[2].types] as string[]).includes(documentType);
+
+/**
+ * The document that stands for each type among a shipment's files. One customs declined does not:
+ * the type counts as missing until a file that was not declined is there.
+ */
+export function receivedDocumentsByType<T extends { documentType: string; customsStatus: string }>(files: readonly T[]): Map<string, T> {
+  const byType = new Map<string, T>();
+  for (const file of files) {
+    if (file.documentType && file.customsStatus !== "declined" && !byType.has(file.documentType)) byType.set(file.documentType, file);
+  }
+  return byType;
+}
 
 /** Customs review status of one document. */
 export type CustomsReviewStatus = "" | "approved" | "declined";

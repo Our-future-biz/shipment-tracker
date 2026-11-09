@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
-import { Alert, InputNumber, Button, Tooltip, message } from "antd";
+import { Alert, InputNumber, Button, Tooltip } from "antd";
+import { useMessages, type Messages } from "@/lib/toast";
 import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { formatDateTime } from "@/lib/date";
 import { NOT_STACKABLE, STACKABLE, dimensionVolumePerPiece, shipmentStackability } from "@/lib/cargo";
@@ -67,12 +67,11 @@ interface WarehouseTabProps {
  */
 export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !readOnly, editHref }: WarehouseTabProps) {
   const [subTab, setSubTab] = useState<string>("details");
-  const [messageApi, contextHolder] = message.useMessage();
+  const messageApi = useMessages();
   const rowData = buildRowData(shipment);
 
   return (
     <div className="flex flex-col gap-5">
-      {contextHolder}
 
       <div className="flex items-center gap-3">
         <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
@@ -194,7 +193,7 @@ function describeRows(json: string | undefined): string {
     .join("\n");
 }
 
-function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: ShipmentItem; messageApi: MessageInstance; readOnly: boolean }) {
+function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: ShipmentItem; messageApi: Messages; readOnly: boolean }) {
   const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;

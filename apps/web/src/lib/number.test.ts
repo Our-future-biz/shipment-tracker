@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { formatNumber } from "./number";
 
 describe("formatNumber", () => {
-  it("separates thousands with a space and keeps the decimals asked for", () => {
-    expect(formatNumber(1234567.891, 2)).toBe("1 234 567.89");
+  it("separates thousands with a comma and keeps the decimals asked for", () => {
+    expect(formatNumber(1234567.891, 2)).toBe("1,234,567.89");
     expect(formatNumber(12)).toBe("12");
   });
 

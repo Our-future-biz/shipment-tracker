@@ -359,8 +359,10 @@ const text = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(
 
 /**
  * A number from a cell: numbers as they are; text with a decimal comma or point ("12,5", "12.5"),
- * spaces as thousands separators ("1 250,50") and a currency or % sign. A single comma is a
- * decimal comma (the Czech way); several commas or dots are thousands separators. NaN when it is none.
+ * spaces as thousands separators ("1 250,50") and a currency or % sign. Commas in threes after a
+ * first group of 1-9 are thousands, as the app writes figures ("1,250", "12,345,678"); any other
+ * single comma is a decimal comma (the Czech way: "12,5", "0,500"); several commas or dots are
+ * thousands separators. NaN when it is none.
  */
 export function parseNumber(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : NaN;
@@ -378,7 +380,7 @@ export function parseNumber(v: unknown): number {
     const decimal = s.lastIndexOf(",") > s.lastIndexOf(".") ? "," : ".";
     const thousands = decimal === "," ? "." : ",";
     normal = s.split(thousands).join("").replace(decimal, ".");
-  } else if (commas) normal = commas === 1 ? s.replace(",", ".") : s.split(",").join("");
+  } else if (commas) normal = commas > 1 || /^[-+]?[1-9]\d{0,2}(,\d{3})+$/.test(s) ? s.split(",").join("") : s.replace(",", ".");
   else if (dots > 1) normal = s.split(".").join("");
   else normal = s;
   const n = Number(normal);
@@ -463,7 +465,7 @@ const META_LABELS: Record<string, MetaKey> = {
   notes: "notes",
 };
 
-const fmtNumber = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const fmtNumber = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 /** Reads the tables of a filled tariff file into a version input, its problems and a report per sheet. */
 export function parseTariffTables(tables: SheetTable[], defaults: ParseDefaults): ParsedWorkbook {

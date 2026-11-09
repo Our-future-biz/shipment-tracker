@@ -21,3 +21,13 @@ export function BackLink({ href, children, className = "", arrow = true }: BackL
     </Link>
   );
 }
+
+/** The same way back where it is a step inside a page and not a page of its own. */
+export function BackButton({ onClick, children, className = "" }: { onClick: () => void; children: ReactNode; className?: string }) {
+  return (
+    <button type="button" onClick={onClick} className={`inline-flex items-center gap-1.5 text-[13px] bg-transparent border-0 p-0 cursor-pointer ${LINK} ${className}`}>
+      <ArrowLeftOutlined className="text-[11px]" />
+      {children}
+    </button>
+  );
+}

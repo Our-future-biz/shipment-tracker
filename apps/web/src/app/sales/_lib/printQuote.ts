@@ -4,8 +4,9 @@ import type { SalesQuoteData, PackageLine, CostLine } from "./types";
 import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
+import type { RouteWhere } from "@/lib/placeWhere";
 import { unpricedOverweight } from "./overweight";
-import { fclOfferRows } from "./fclPricing";
+import { fclOfferGroups } from "./fclPricing";
 import type { PickableUser } from "@/lib/people";
 import { ownerNameForCustomer, ownerNameLoading } from "./ownerName";
 import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, isContainerQuote, quoteValidUntil, ratesNeeded } from "./salesQuote";
@@ -37,13 +38,15 @@ export interface QuoteDocumentUsers {
 // buying/cost/margin. A total that cannot be worked out must not reach the customer, so such a
 // quote has no document. `exchange` is today's ČNB fixing and ROE % (useCurrentExchangeRates); a
 // sent quote is priced at the rates stored on it. `people` are the company's users, to name the
-// sales owner for the customer.
+// sales owner for the customer. `route` says where its Origin and Destination are, as the quote's
+// Routing does.
 export function quoteDocument(
   quoteNumber: string,
   data: SalesQuoteData,
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
   people: QuoteDocumentUsers,
+  route: RouteWhere,
 ): QuoteDocument {
   // A draft with lines in other currencies is priced at today's rates: not before they are in.
   if (!data.fx && exchange.isLoading && ratesNeeded(data).length) {
@@ -52,6 +55,9 @@ export function quoteDocument(
   // The owner is recorded by e-mail and the customer reads a name: not before the users are in.
   if (ownerNameLoading(data.salesOwner, people.isLoading)) {
     return { html: null, blocked: "The company's users are still loading. Try again in a moment." };
+  }
+  if (route.isLoading) {
+    return { html: null, blocked: "The route's places are still loading. Try again in a moment." };
   }
   const sheet = exchange.rates;
   const totals = computeTotals(data, sheet, exchange);
@@ -170,14 +176,15 @@ export function quoteDocument(
         <td style="text-align:right">${money(amount)}</td>
       </tr>`;
   const sellingAmount = (l: CostLine) => convertLine(l, data, sheet, { selling: true, live: exchange });
-  // A quote priced in the FCL layout offers an all-in rate per container type, the charges kept
-  // out of it on their own lines (fclOfferRows).
-  const fclRows = data.fclPricing && isContainerQuote(data) ? fclOfferRows(data, sellingLines, sellingAmount) : null;
-  const lineRows = (fclRows ?? sellingLines.map((l) => ({ label: l.description?.trim() || l.type, amount: sellingAmount(l) })))
-    .map((r) => row(r.label, r.amount))
-    .join("");
+  // A quote priced in the FCL layout offers its charges in the sections of its Pricing, a container
+  // type or the charges per shipment, each with a heading (fclOfferGroups).
+  const groupHead = (label: string) => `<tr class="group"><td colspan="2">${esc(label)}</td></tr>`;
+  const fclGroups = data.fclPricing && isContainerQuote(data) ? fclOfferGroups(data, sellingLines, sellingAmount) : null;
+  const lineRows = fclGroups
+    ? fclGroups.map((g) => groupHead(g.label) + g.rows.map((r) => row(r.label, r.amount)).join("")).join("")
+    : sellingLines.map((l) => row(l.description?.trim() || l.type, sellingAmount(l))).join("");
   // Any other all-in quote offers the total as one price.
-  const sellingRows = lineRows && data.allIn && !fclRows ? row("All-in rate", totals.selling) : lineRows;
+  const sellingRows = lineRows && data.allIn && !fclGroups ? row("All-in rate", totals.selling) : lineRows;
 
   // A quote without selling lines has no price to offer yet, so its document has no rate offer:
   // a "Total price 0.00 EUR" in its place would read as the offer.
@@ -195,6 +202,12 @@ export function quoteDocument(
   const preparedBy = ownerNameForCustomer(data.salesOwner, people.users);
   const signature = [preparedBy, from.name].filter(Boolean).join(" · ");
 
+  // Origin and Destination in full: the place, and where it is in light grey behind it.
+  const routePlace = (place: string | undefined) => {
+    const where = route.where[place?.trim() ?? ""];
+    return `${esc(place) || "—"}${where ? `<span class="where">${esc(where)}</span>` : ""}`;
+  };
+
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(quoteNumber)}</title>
   <style>
     /* Backgrounds are part of the document - the header is white on dark - so they print as shown. */
@@ -211,6 +224,7 @@ export function quoteDocument(
     th, td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
     th { background: #f8fafc; }
     tr.totals td { background: #f1f5f9; font-weight: bold; }
+    tr.group td { background: #f8fafc; font-weight: bold; color: #475569; }
     .fx-clause { font-size: 11px; color: #64748b; margin-top: 6px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13px; }
     .grid div span { color: #64748b; display: inline-block; width: 120px; }
@@ -220,6 +234,7 @@ export function quoteDocument(
     .from .name { font-size: 15px; font-weight: bold; }
     .route { font-size: 15px; font-weight: bold; margin: 4px 0 8px; }
     .route .arrow { color: #64748b; padding: 0 8px; }
+    .route .where { color: #64748b; font-size: 12px; font-weight: normal; margin-left: 6px; }
     .chargeable { margin-top: 8px; font-size: 13px; color: #334155; }
     .chargeable strong { color: #1e293b; }
     .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -258,7 +273,7 @@ export function quoteDocument(
     </div>
 
     <h2>Shipment routing</h2>
-    <div class="route">${esc(data.origin) || "—"}<span class="arrow">→</span>${esc(data.destination) || "—"}</div>
+    <div class="route">${routePlace(data.origin)}<span class="arrow">→</span>${routePlace(data.destination)}</div>
     <div class="grid">
       <div><span>Direction</span>${esc(data.direction) || "—"}</div>
       <div><span>Incoterms</span>${esc(data.incoterm) || "—"}</div>
@@ -310,9 +325,10 @@ export function printQuote(
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
   people: QuoteDocumentUsers,
+  route: RouteWhere,
   target?: Window | null,
 ): string | null {
-  const doc = quoteDocument(quoteNumber, data, exchange, company, people);
+  const doc = quoteDocument(quoteNumber, data, exchange, company, people, route);
   if (doc.blocked !== null) {
     target?.close();
     return doc.blocked;

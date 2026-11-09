@@ -3,17 +3,20 @@
 import { useCustomsOfficeApprovals } from "@/hooks/useCustomsOfficeRequests";
 import { useDocumentChangeApprovals } from "@/hooks/useDocumentChangeRequests";
 import { apiFileUrl } from "@/lib/api";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { HINT, LINK } from "@/styles/ui";
 import { ApprovalsCard } from "./ApprovalsCard";
 
 // What waits for a manager's approval: requests to change a chosen Customs Office, and to replace a
 // document customs has approved.
 export function CustomsOfficeApprovals() {
+  const filePreview = useFilePreview();
   const offices = useCustomsOfficeApprovals();
   const documents = useDocumentChangeApprovals();
 
   return (
     <div className="flex flex-col gap-4">
+      {filePreview.modal}
       <ApprovalsCard
         title="Approvals · change of Customs Office"
         hint="Once chosen, a Customs Office is changed only with approval: approving puts the new office on the shipment, rejecting needs a reason. The answer goes to whoever asked."
@@ -38,7 +41,7 @@ export function CustomsOfficeApprovals() {
             <div className={HINT}>
               {r.documentType ? `${r.documentType} · ` : ""}From:{" "}
               {r.status === "pending" ? (
-                <a href={apiFileUrl(r.fileUrl)} target="_blank" rel="noreferrer" className={LINK}>
+                <a href={apiFileUrl(r.fileUrl)} target="_blank" rel="noreferrer" className={LINK} onClick={filePreview.previewOnClick({ fileName: r.fileName, contentUrl: r.fileUrl })}>
                   {r.fileName}
                 </a>
               ) : (
@@ -48,7 +51,7 @@ export function CustomsOfficeApprovals() {
             <div className="font-semibold text-slate-900">
               To:{" "}
               {r.newFileUrl ? (
-                <a href={apiFileUrl(r.newFileUrl)} target="_blank" rel="noreferrer" className={LINK}>
+                <a href={apiFileUrl(r.newFileUrl)} target="_blank" rel="noreferrer" className={LINK} onClick={filePreview.previewOnClick({ fileName: r.newFileName, contentUrl: r.newFileUrl })}>
                   {r.newFileName}
                 </a>
               ) : (

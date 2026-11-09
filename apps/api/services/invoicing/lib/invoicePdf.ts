@@ -59,21 +59,26 @@ export interface PdfFonts {
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-/** 29999.5 -> "29 999,50" (Czech style, plain spaces so every font can print it). */
-export function czMoney(v: string | number): string {
+/** 29999.5 -> "29,999.50", as figures are written everywhere in the app. */
+export function docMoney(v: string | number): string {
   const n = typeof v === "number" ? v : Number(v);
   const fixed = (Number.isFinite(n) ? n : 0).toFixed(2);
   const [int, dec] = fixed.split(".");
   const neg = int!.startsWith("-");
   const digits = neg ? int!.slice(1) : int!;
-  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-  return `${neg && Number(fixed) !== 0 ? "-" : ""}${grouped},${dec}`;
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${neg && Number(fixed) !== 0 ? "-" : ""}${grouped}.${dec}`;
 }
 
-/** Exchange rate with 3 decimals, Czech style: 25.12345 -> "25,123" */
-export function czRate(v: string | number): string {
+/** A line's quantity: whole ones without decimals ("1", "1,000"), others as money ("2.50"). */
+export function docQty(v: string | number): string {
+  return docMoney(v).replace(/\.00$/, "");
+}
+
+/** Exchange rate with 3 decimals: 25.12345 -> "25.123" */
+export function docRate(v: string | number): string {
   const n = typeof v === "number" ? v : Number(v);
-  return (Number.isFinite(n) ? n : 0).toFixed(3).replace(".", ",");
+  return (Number.isFinite(n) ? n : 0).toFixed(3);
 }
 
 /** "2026-11-07" -> "07.11.2026" (DD.MM.YYYY, as everywhere else in the app) */
@@ -383,11 +388,11 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     }
     if (i % 2 === 1) w.rect(M, w.y - rowH, right - M, rowH, ZEBRA);
     descLines.forEach((d, j) => w.text(d, cols.desc, w.y - 13 - j * 12, 9));
-    w.text(czMoney(l.qty).replace(/,00$/, ""), cols.qty, w.y - 13, 9, { align: "right" });
-    const price = `${czMoney(l.unitPrice)} ${l.unitCurrency}`;
+    w.text(docQty(l.qty), cols.qty, w.y - 13, 9, { align: "right" });
+    const price = `${docMoney(l.unitPrice)} ${l.unitCurrency}`;
     w.text(price, cols.unit, w.y - 13, regular.widthOfTextAtSize(price, 9) <= priceMax ? 9 : 7.5, { align: "right" });
     vatLines.forEach((v, j) => w.text(v, cols.vat, w.y - 13 - j * 12, 8, { align: "right", color: MUTED }));
-    w.text(czMoney(l.net), cols.net, w.y - 13, 9, { align: "right" });
+    w.text(docMoney(l.net), cols.net, w.y - 13, 9, { align: "right" });
     w.y -= rowH;
   });
   w.hline(M, right, w.y);
@@ -415,11 +420,11 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     w.y -= 12;
     const label = isVatCode(v.vatCode) ? VAT_CODE_INFO[v.vatCode].label : v.vatCode;
     w.text(label, rc.rate, w.y, 8.5);
-    w.text(czMoney(v.base), rc.base, w.y, 8.5, { align: "right" });
-    w.text(czMoney(v.vat), rc.vat, w.y, 8.5, { align: "right" });
+    w.text(docMoney(v.base), rc.base, w.y, 8.5, { align: "right" });
+    w.text(docMoney(v.vat), rc.vat, w.y, 8.5, { align: "right" });
     if (foreign) {
-      w.text(czMoney(v.baseCzk), rc.baseCzk, w.y, 8.5, { align: "right" });
-      w.text(czMoney(v.vatCzk), rc.vatCzk, w.y, 8.5, { align: "right" });
+      w.text(docMoney(v.baseCzk), rc.baseCzk, w.y, 8.5, { align: "right" });
+      w.text(docMoney(v.vatCzk), rc.vatCzk, w.y, 8.5, { align: "right" });
     }
   }
   // the notes under the recap stay left of the totals box
@@ -435,14 +440,14 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     w.y -= 5;
     // ČNB rate valid on the DUZP (§4 odst. 8 ZDPH); older invoices carry their weekly-sheet label.
     const rateNote = inv.fxFixingDate
-      ? `Kurz ČNB k DUZP / CNB rate at tax date: 1 ${inv.currency} = ${czRate(inv.fxRate)} CZK (fixing ${czDate(inv.fxFixingDate)})`
-      : `Kurz / Exchange rate: 1 ${inv.currency} = ${czRate(inv.fxRate)} CZK${inv.fxWeek ? ` (${inv.fxWeek})` : ""}`;
+      ? `Kurz ČNB k DUZP / CNB rate at tax date: 1 ${inv.currency} = ${docRate(inv.fxRate)} CZK (fixing ${czDate(inv.fxFixingDate)})`
+      : `Kurz / Exchange rate: 1 ${inv.currency} = ${docRate(inv.fxRate)} CZK${inv.fxWeek ? ` (${inv.fxWeek})` : ""}`;
     note(rateNote);
   }
   // Lines priced in another currency were converted at the ČNB rate (+ the company ROE %).
   if (inv.fxFixingDate && inv.lines.some((l) => l.unitCurrency !== inv.currency)) {
     const pct = Number(inv.roePct ?? 100);
-    const buffer = pct !== 100 ? ` + ${String(Math.round((pct - 100) * 1000) / 1000).replace(".", ",")} %` : "";
+    const buffer = pct !== 100 ? ` + ${String(Math.round((pct - 100) * 1000) / 1000)} %` : "";
     w.y -= 1;
     note(`Položky v jiné měně přepočteny kurzem ČNB k DUZP${buffer} / Items in other currencies converted at the CNB rate on the tax date${buffer}`);
   }
@@ -459,16 +464,16 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     w.text(value, right, ty, size, { bold: strong, align: "right" });
     ty -= 14;
   };
-  totalRow("Celkem bez DPH / Net", `${czMoney(inv.net)} ${inv.currency}`);
-  totalRow("DPH / VAT", `${czMoney(inv.vat)} ${inv.currency}`);
+  totalRow("Celkem bez DPH / Net", `${docMoney(inv.net)} ${inv.currency}`);
+  totalRow("DPH / VAT", `${docMoney(inv.vat)} ${inv.currency}`);
   ty -= 4;
   w.rect(tx - 8, ty - 26, right - tx + 8, 34, rgb(0.93, 0.94, 0.99));
   w.text(isCredit ? "K VRÁCENÍ / TO BE REFUNDED" : "K ÚHRADĚ / TOTAL DUE", tx, ty - 4, 8, { bold: true, color: MUTED });
-  w.text(`${czMoney(isCredit ? -Number(inv.gross) : inv.gross)} ${inv.currency}`, right - 4, ty - 19, 14, { bold: true, align: "right" });
+  w.text(`${docMoney(isCredit ? -Number(inv.gross) : inv.gross)} ${inv.currency}`, right - 4, ty - 19, 14, { bold: true, align: "right" });
   ty -= 40;
   if (foreign) {
-    totalRow("Celkem CZK / Total CZK", `${czMoney(inv.grossCzk)} CZK`);
-    totalRow("DPH CZK / VAT CZK", `${czMoney(inv.vatCzk)} CZK`);
+    totalRow("Celkem CZK / Total CZK", `${docMoney(inv.grossCzk)} CZK`);
+    totalRow("DPH CZK / VAT CZK", `${docMoney(inv.vatCzk)} CZK`);
   }
 
   // QR Platba under the totals: account, amount, currency and variable symbol for banking apps

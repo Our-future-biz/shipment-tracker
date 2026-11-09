@@ -151,6 +151,17 @@ describe("cell parsing", () => {
     expect(parseNumber(true)).toBeNaN();
   });
 
+  it("reads commas in threes as thousands, as the app writes figures, and a comma after a leading 0 as a decimal comma", () => {
+    expect(parseNumber("1,250")).toBe(1250);
+    expect(parseNumber("-1,250")).toBe(-1250);
+    expect(parseNumber("12,345,678")).toBe(12345678);
+    expect(parseNumber("1,850 kg")).toBe(1850);
+    expect(parseNumber("0,500")).toBe(0.5);
+    expect(parseNumber("-0,250")).toBe(-0.25);
+    expect(parseNumber("0,125")).toBe(0.125);
+    expect(parseNumber("1,2500")).toBe(1.25);
+  });
+
   it("reads postcodes as text with a space, text or a number", () => {
     expect(parsePostcode("110 00")).toBe("11000");
     expect(parsePostcode("11000")).toBe("11000");
@@ -348,7 +359,7 @@ describe("reading filled files", () => {
     expect(r.input.rounding).toEqual({ weightStepKg: 1, moneyStep: 0.01 });
     expect(r.input.validFrom).toBe("2026-10-15");
     expect(errors(r)).toEqual([{ severity: "error", message: "Valid from is empty; 2026-10-15 stands in until a file with the date is uploaded", where: "Sheet Meta" }]);
-    expect(r.findings).toContainEqual({ severity: "warning", message: "kg per LDM is empty: 1 850 from the Trucking settings was used", where: "Sheet Meta, row 2, column B" });
+    expect(r.findings).toContainEqual({ severity: "warning", message: "kg per LDM is empty: 1,850 from the Trucking settings was used", where: "Sheet Meta, row 2, column B" });
     expect(r.findings.filter((f) => f.severity === "warning")).toHaveLength(5);
   });
 
@@ -358,7 +369,7 @@ describe("reading filled files", () => {
     s.Meta[3] = ["kg per LDM", "lots"];
     const r = await read(s);
     expect(errors(r)).toEqual([
-      { severity: "error", message: 'kg per LDM "lots" is not a number above 0; 1 850 stands in', where: "Sheet Meta, row 4, column B" },
+      { severity: "error", message: 'kg per LDM "lots" is not a number above 0; 1,850 stands in', where: "Sheet Meta, row 4, column B" },
       { severity: "error", message: '"35O" is not a number', where: "Sheet D1, row 5, column F" },
     ]);
     expect(r.input.rates).toHaveLength(3);

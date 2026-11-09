@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Spin } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { InfoRow } from "@/components/InfoRow";
 import { Pill } from "@/components/Pill";
@@ -15,7 +14,6 @@ import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { fetchTariffTemplate, fetchTariffVersionSource, useTariff, useTariffVersion, useTruckingSettings } from "@/hooks/useTrucking";
 import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
-import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { isTruckingManager } from "../../_lib/roles";
 import { buildLevelMatrices, countErrors, formatMoney, formatQty, validityLabel, versionLabel, type ServiceLevelCode } from "../../_lib/tariffs";
 import { TariffVersionStatusChip } from "../../_components/TariffVersionStatusChip";
@@ -26,6 +24,7 @@ import { TariffFindingList } from "./TariffFindingList";
 import { TariffMatrix } from "./TariffMatrix";
 import { TariffSurchargesTable } from "./TariffSurchargesTable";
 import { TariffZonesTable } from "./TariffZonesTable";
+import { BackLink } from "@/components/BackLink";
 
 interface TariffVersionViewProps {
   tariffId: string;
@@ -99,10 +98,8 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={tariffHref} aria-label="Back to the tariff" className={LINK_ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </Link>
           <div className="min-w-0 flex-1">
+<BackLink href={tariffHref} className="mb-1">Tariff</BackLink>
             <div className="flex flex-wrap items-center gap-3">
               <h1 className={PAGE_TITLE}>
                 {tariff?.name ?? "Tariff"} · {versionLabel(version)}

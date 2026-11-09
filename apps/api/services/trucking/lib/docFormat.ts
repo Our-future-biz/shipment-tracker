@@ -148,30 +148,29 @@ export function titleLines(lang: DocLanguage, key: LabelKey): { main: string; su
 const isEnglish = (lang: DocLanguage) => lang === "en";
 
 /**
- * 1250.5 -> "1 250,5" (cs) or "1,250.5" (en), at most `maxDecimals` decimals, trailing zeros
- * dropped. Plain spaces so every font can print them.
+ * 1250.5 -> "1,250.5", at most `maxDecimals` decimals, trailing zeros dropped. Figures are written
+ * this way in every language of the documents, as everywhere in the app.
  */
-export function formatNumber(value: number, lang: DocLanguage, maxDecimals = 2): string {
+export function formatNumber(value: number, _lang: DocLanguage, maxDecimals = 2): string {
   const n = Number.isFinite(value) ? value : 0;
   const fixed = Math.abs(n).toFixed(maxDecimals);
   const [int, dec = ""] = fixed.split(".");
   const decimals = dec.replace(/0+$/, "");
-  const grouped = int!.replace(/\B(?=(\d{3})+(?!\d))/g, isEnglish(lang) ? "," : " ");
+  const grouped = int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const sign = n < 0 && Number(fixed) !== 0 ? "-" : "";
-  return `${sign}${grouped}${decimals ? (isEnglish(lang) ? "." : ",") + decimals : ""}`;
+  return `${sign}${grouped}${decimals ? `.${decimals}` : ""}`;
 }
 
-/** 1250.5, "kg" -> "1 250,5 kg" */
+/** 1250.5, "kg" -> "1,250.5 kg" */
 export function formatQuantity(value: number, unit: string, lang: DocLanguage, maxDecimals = 2): string {
   return `${formatNumber(value, lang, maxDecimals)} ${unit}`;
 }
 
-/** Money always with two decimals: 12500, "CZK" -> "12 500,00 CZK" (cs) or "12,500.00 CZK" (en). */
+/** Money always with two decimals: 12500, "CZK" -> "12,500.00 CZK". */
 export function formatMoney(total: number, currency: string, lang: DocLanguage): string {
   const s = formatNumber(total, lang, 2);
-  const sep = isEnglish(lang) ? "." : ",";
-  const [int, dec = ""] = s.split(sep);
-  return `${int}${sep}${dec.padEnd(2, "0")} ${currency}`;
+  const [int, dec = ""] = s.split(".");
+  return `${int}.${dec.padEnd(2, "0")} ${currency}`;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

@@ -78,10 +78,10 @@ export function roundUpToStep(x: number, step: number): number {
   return clean(Math.ceil(clean(x / step)) * step);
 }
 
-/** 1250 → "1 250", 2.5 → "2.5" (space as thousands separator). */
+/** 1250 → "1,250", 2.5 → "2.5" (comma as thousands separator). */
 export function fmt(x: number): string {
   const [int, dec] = String(clean(x)).split(".");
-  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return dec ? `${grouped}.${dec}` : grouped;
 }
 

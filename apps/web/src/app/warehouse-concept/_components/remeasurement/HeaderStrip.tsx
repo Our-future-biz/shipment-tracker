@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
@@ -9,7 +8,8 @@ import { TERMS, directionOf } from "../../_lib/glossary";
 import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, nf } from "../../gate-log/_lib/gate";
 import { wm, type CargoTotals } from "../../_lib/cargoCompare";
 import { StorageLine } from "../../_lib/storageText";
-import { CARD, EMPTY, ICON_BTN_GHOST, LABEL_TEXT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
+import { CARD, EMPTY, LABEL_TEXT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
+import { BackButton } from "@/components/BackLink";
 
 // Block A — who and where: the WCZ ref (opens the gate job), job no., customer, warehouse status,
 // customs, days in the warehouse with the free time left, and the chargeable W/M.
@@ -43,9 +43,7 @@ export function HeaderStrip({
     <div className={`${CARD} px-4 py-3`}>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={onBack} aria-label="Back to the worklist" className={ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </button>
+          <BackButton onClick={onBack}>Worklist</BackButton>
           {m ? (
             <Link href={`/warehouse-concept/gate-log/${m.id}`} className={`${MODAL_TITLE} ${REF} ${LINK}`} title="Open the gate job">
               {ref}

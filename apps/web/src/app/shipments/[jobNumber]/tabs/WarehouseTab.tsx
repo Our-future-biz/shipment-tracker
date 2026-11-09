@@ -1,20 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { App, Input, Button, Tooltip } from "antd";
+import { Input, Button, Modal, Tooltip } from "antd";
+import { useMessages, type Messages } from "@/lib/toast";
 import { CheckCircleFilled, PlusOutlined, WarningOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
-import { NOT_STACKABLE, STACKABLE, dimensionLineVolume, dimensionTotals, numberInput, shipmentStackability } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, adrUnText, dimensionLineVolume, dimensionTotals, hasAdr, isDangerousShipment, numberInput, shipmentStackability } from "@/lib/cargo";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
-import { ADD_BTN, BTN_BAR, HINT } from "@/styles/ui";
+import { ADD_BTN, BTN_BAR, HINT, TD, TH } from "@/styles/ui";
 import { COLS2, EMPTY, LABEL, ROW, VALUE } from "../_components/detailStyles";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -60,7 +60,7 @@ const SUB_TABS = [
 export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
   const [subTab, setSubTab] = useState<string>("details");
   // The app's own toasts, so a save that ends after the tab is left still says how it went.
-  const { message: messageApi } = App.useApp();
+  const messageApi = useMessages();
   const rowData = buildRowData(shipment);
   // Weight and volume of the cargo as Cargo Details holds it (its lines' totals); a shipment with
   // no cargo lines falls back to its own totals.
@@ -77,7 +77,7 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
       {subTab === "details" && (
         <>
           {/* The rows of the shipment's own detail cards */}
-          <Card title="Shipment details" extra={<StackabilityBadge shipment={shipment} />} bodyClassName="px-4 py-1.5">
+          <Card title="Shipment details" extra={<ShipmentBadges shipment={shipment} />} bodyClassName="px-4 py-1.5">
             <div className={COLS2}>
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
@@ -124,6 +124,64 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   return <Pill tone={tone}>{label}</Pill>;
 }
 
+// What the warehouse has to know of the cargo at a glance: dangerous goods only when it is, and a
+// click on that shows what was filled in.
+function ShipmentBadges({ shipment }: { shipment: ShipmentItem }) {
+  const [dangerousOpen, setDangerousOpen] = useState(false);
+  return (
+    <span className="flex items-center gap-2">
+      {isDangerousShipment(shipment) && (
+        <button type="button" aria-haspopup="dialog" className="bg-transparent border-none p-0 cursor-pointer" onClick={() => setDangerousOpen(true)}>
+          <Pill tone="red">Dangerous goods</Pill>
+        </button>
+      )}
+      <StackabilityBadge shipment={shipment} />
+      <DangerousGoodsDialog shipment={shipment} open={dangerousOpen} onClose={() => setDangerousOpen(false)} />
+    </span>
+  );
+}
+
+function DangerousGoodsDialog({ shipment, open, onClose }: { shipment: ShipmentItem; open: boolean; onClose: () => void }) {
+  const lines = (shipment.cargoDimensions ?? []).filter(hasAdr);
+  const containerOf = (id: string | null | undefined) => shipment.containers?.find((c) => c.id === id)?.containerNumber || "\u2014";
+  const inContainers = lines.some((l) => l.containerId);
+  const text = (value: string | null | undefined) => value?.trim() || "\u2014";
+  return (
+    <Modal open={open} onCancel={onClose} footer={null} width={720} title="Dangerous goods" destroyOnHidden>
+      {lines.length ? (
+        <table className="w-full border-collapse">
+          <thead>
+            <tr>
+              {inContainers && <th scope="col" className={TH}>Container</th>}
+              <th scope="col" className={TH}>Pieces</th>
+              <th scope="col" className={TH}>Package</th>
+              <th scope="col" className={TH}>UN number</th>
+              <th scope="col" className={TH}>Class</th>
+              <th scope="col" className={TH}>Packing group</th>
+              <th scope="col" className={TH}>Limited quantity</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={i}>
+                {inContainers && <td className={TD}>{containerOf(l.containerId)}</td>}
+                <td className={TD}>{text(l.pieces)}</td>
+                <td className={TD}>{text(l.packageType)}</td>
+                <td className={TD}>{text(adrUnText(l))}</td>
+                <td className={TD}>{text(l.adrClass)}</td>
+                <td className={TD}>{text(l.adrPackingGroup)}</td>
+                <td className={TD}>{l.adrLimitedQuantity ? "Yes" : "No"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className={HINT}>Marked as dangerous goods, but no details have been filled in under Cargo Details.</p>
+      )}
+    </Modal>
+  );
+}
+
 // ─── Dimensions / Remeasurement Editor (shipment-specific) ──────
 // The warehouse's own remeasured lines, kept in its job section (remeasure_rows, the same
 // JSON as in Warehouse Concept) and compared with the shipment's cargo dimensions, which
@@ -156,7 +214,7 @@ const FIELD_NAMES: Record<DimField, string> = { pieces: "Qty", lengthCm: "Length
 // A remeasured line counted as a cargo dimension line (lib/cargo): its volume from its sizes.
 const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
 
-function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
+function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: Messages }) {
   const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;

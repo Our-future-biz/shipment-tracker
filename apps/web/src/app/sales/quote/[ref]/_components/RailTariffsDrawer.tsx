@@ -21,7 +21,7 @@ import { pickColumn, rankColumn, tariffColumn, totalColumn } from "./tariffOffer
 
 const PORT_OPTIONS = TARIFF_PORTS.map((p) => ({ value: p.code, label: `${p.name} (${p.code})` }));
 
-const tonnes = (kg: number) => `${(kg / 1000).toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t`;
+const tonnes = (kg: number) => `${(kg / 1000).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t`;
 
 // "2 × 20' DC · 12,0 t cargo + 2,3 t tare = 14,3 t gross"
 function containerText(c: interfaces.RailPricedContainer): string {

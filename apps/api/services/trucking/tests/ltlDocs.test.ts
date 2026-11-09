@@ -45,7 +45,7 @@ describe("LTL documents", () => {
     ]);
     expect(doc.rows[1]!.notes).toBe("tail lift");
     expect(doc.totals).toEqual({ pieces: 4, palletPlaces: 4, ldm: 1.6, weightKg: 1200 });
-    expect(doc.capacityText).toBe("7.2 LDM / 9 000 kg — 22.2 % LDM, 13.3 % kg");
+    expect(doc.capacityText).toBe("7.2 LDM / 9,000 kg — 22.2 % LDM, 13.3 % kg");
     expect(doc.vehicleText).toBe("Solo truck 7.2 m with tail lift, tail lift");
     expect(capacityText(null, fill)).toBe("");
   });

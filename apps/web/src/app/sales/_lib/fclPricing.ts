@@ -4,17 +4,20 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { roundCents } from "@/lib/money";
 import { counterpartIndex, newPairId } from "./costPairs";
 import { isTruckingLine } from "./roadQuote";
-import { basisUnits, isContainerQuote, lineRate, perUnitBasis, quoteContainerCount, quoteCurrencyFactor, sellingRoeFactor, withRate, type LivePricing } from "./salesQuote";
+import { basisUnits, convertLine, isContainerQuote, lineRate, perUnitBasis, quoteContainerCount, quoteCurrencyFactor, sellingRoeFactor, withRate, type LivePricing } from "./salesQuote";
 import type { CostLine, FclBlockProfit, FclPricing, FclProfit, SalesQuoteData } from "./types";
 
 // FCL pricing: how a Sea FCL quote is priced (the Pricing step's FCL layout). The buying lines are
 // the charges, in blocks: one per container type, priced per container, and one for the charges per
-// shipment (B/L fee and the like). Each block has a profit - a % of the selling price or a sum in
-// the quote's currency, per container in a container block - which is put on its charges pro rata
-// to their buying; the cents left over by rounding go to the ocean freight, so the charges always
-// add up to the block's profit ("one profit"). "Edit per charge" sets the profit of each charge
-// instead. Which charges take profit: in an all-in offer those in the all-in price (the others are
-// offered at cost, on their own line); in a breakdown offer those ticked as profit basis.
+// shipment (B/L fee and the like). Each charge has its own profit ("Edit per charge") - a % of its
+// selling price or a sum in the quote's currency, per container in a container block. The charges
+// ticked "All in" add up to the all-in price the customer is offered; the others stay on their own
+// lines.
+//
+// A quote sent before that (no fclPricing.byCharge) keeps what it had: a profit per block put on its
+// charges pro rata to their buying, on those in the all-in price of an all-in offer (the others at
+// cost) or those ticked as profit basis of a breakdown offer. An open quote is brought over once, as
+// it is priced (toByCharge), with the same prices and the same offer.
 //
 // The selling lines are made from the buying lines and the profit, every time either changes: each
 // takes its charge's currency, with its profit converted into it at the quote's rates (without the
@@ -33,6 +36,8 @@ export const PER_SHIPMENT = "";
  * charge the rounding cents go to (the ocean freight, else the dearest), one in the quote's currency first.
  */
 export const SELLING_ROUNDS_TO = 5;
+// How far off the full five a block's lines can come from their own rounding alone.
+const MAX_ROUNDING_LEFT = 1;
 
 /** The highest profit % a charge can take: at 100 % of the selling price there is no price. */
 export const MAX_PROFIT_PERCENT = 99;
@@ -88,6 +93,35 @@ export function blockKeyOf(line: CostLine, types: readonly string[]): string {
   const type = line.containerType ? containerType(line.containerType) : "";
   if (type) return type;
   return types.length === 1 ? types[0]! : ALL_CONTAINERS;
+}
+
+// The container type a line charged per container but saved without one is for: the quote's only
+// type, or the only one its tariff priced it for. "" when that can't be told.
+function ownContainerType(line: CostLine, types: readonly string[]): string {
+  if (line.basis !== "container" || line.containerType || !priceable(line)) return "";
+  if (types.length === 1) return types[0]!;
+  const priced = (line.pricedFor ?? "").split(", ").map((box) => /^(.+) \d+(?:\.\d+)? kg$/.exec(box)?.[1]);
+  return priced.length === 1 && priced[0] && types.includes(priced[0]) ? priced[0] : "";
+}
+
+/**
+ * A rate per container is the rate of one size: the lines saved without their container type get
+ * it, so they stay in that type's block when another type is added to the cargo, and count only
+ * its containers. Null when no line needs it.
+ */
+export function withContainerTypes(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
+  if (!isContainerQuote(data)) return null;
+  const types = quoteTypes(data);
+  let changed = false;
+  const typed = (lines: CostLine[] | undefined) =>
+    lines?.map((line) => {
+      const type = ownContainerType(line, types);
+      if (!type) return line;
+      changed = true;
+      return { ...line, containerType: type };
+    });
+  const result = { buyingLines: typed(data.buyingLines), sellingLines: typed(data.sellingLines) };
+  return changed ? result : null;
 }
 
 /** The blocks of a quote: one per container type of its cargo, then any its lines have besides, then the charges per shipment. */
@@ -150,9 +184,11 @@ export interface FclBlockPrice {
   selling: number;
   /** Its profit in % of its selling price before the ROE, rounded to a whole number; null without one. */
   percent: number | null;
-  /** No charge of it takes profit, so a profit set for it is put nowhere. */
-  profitUnplaced: boolean;
+  /** The buying line that took the rounding up to full fives; null when the block is not rounded. */
+  roundedOn: number | null;
 }
+
+const zeroProfit: FclProfit = { mode: "sum", value: 0 };
 
 const wholePercent = (profit: number, selling: number | null) => (selling ? Math.round((profit / selling) * 100) : null);
 
@@ -168,15 +204,16 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
   const lines = data.buyingLines ?? [];
   const allIn = !!data.allIn;
   const setting = blockProfitOf(data, block.key);
+  const byCharge = !!data.fclPricing?.byCharge;
   const charges: FclChargePrice[] = block.lines.map((index) => {
     const line = lines[index]!;
     const factor = quoteCurrencyFactor(line.currency, data, sheet);
-    return { index, takesProfit: takesProfit(line, allIn), buying: factor === null ? null : roundCents(ownBuying(line, block) * factor), profit: 0, roe: 0, selling: null, percent: null };
+    return { index, takesProfit: byCharge || takesProfit(line, allIn), buying: factor === null ? null : roundCents(ownBuying(line, block) * factor), profit: 0, roe: 0, selling: null, percent: null };
   });
   const taking = charges.filter((c) => c.takesProfit && c.buying !== null);
-  if (setting.perCharge) {
+  if (byCharge || setting.perCharge) {
     for (const c of taking) {
-      const own: FclProfit = lines[c.index]!.chargeProfit ?? { mode: setting.mode, value: setting.mode === "percent" ? setting.value : 0 };
+      const own: FclProfit = lines[c.index]!.chargeProfit ?? (byCharge ? zeroProfit : { mode: setting.mode, value: setting.mode === "percent" ? setting.value : 0 });
       c.profit = own.mode === "sum" ? roundCents(Number(own.value) || 0) : percentProfit(c.buying!, Number(own.value) || 0);
     }
   } else {
@@ -185,8 +222,9 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     allocate(profit, taking, lines);
   }
   for (const c of charges) if (c.buying !== null) sell(c, lines[c.index]!, data, live);
-  const blockSetsProfit = setting.perCharge || (Number(setting.value) || 0) !== 0;
-  if (data.fclPricing?.roundUp && blockSetsProfit) roundSellingUp(charges, taking, lines, data, live);
+  // No profit yet is no reason to round: a block goes to the full five only once it has one.
+  const blockSetsProfit = byCharge ? taking.some((c) => c.profit !== 0) : setting.perCharge || (Number(setting.value) || 0) !== 0;
+  const roundedOn = data.fclPricing?.roundUp && blockSetsProfit ? roundSellingUp(charges, taking, lines, data, live) : null;
   const sum = (pick: (c: FclChargePrice) => number | null) => roundCents(charges.reduce((s, c) => s + (pick(c) ?? 0), 0));
   const profit = sum((c) => c.profit);
   const roe = sum((c) => c.roe);
@@ -198,8 +236,27 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     roe,
     selling,
     percent: wholePercent(profit, roundCents(selling - roe)),
-    profitUnplaced: blockSetsProfit && taking.length === 0,
+    roundedOn,
   };
+}
+
+/**
+ * Why a Sea FCL quote can't go out: a container type it offers without a profit. What counts is the
+ * profit of the type's block, with what the charges per container of every type add to each; the
+ * charges per shipment and the trucking lines are not on a container, and the ROE % is no profit.
+ * Twin of apps/api/services/quotes/utils/fclProfit.utils.ts, which refuses it.
+ */
+export function fclProfitBlock(data: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing): string | null {
+  if (!isContainerQuote(data)) return null;
+  const blocks = fclBlocks(data);
+  const everyType = blocks.find((b) => b.key === ALL_CONTAINERS);
+  const onEvery = everyType ? priceFclBlock(data, sheet, everyType, live).profit : 0;
+  const without = blocks
+    .filter((b) => b.perContainer && b.key !== ALL_CONTAINERS && b.units > 0)
+    // In whole cents, as the server counts it: a cent of profit is a profit.
+    .filter((b) => Math.round((priceFclBlock(data, sheet, b, live).profit + onEvery) * 100) <= 0)
+    .map((b) => b.label);
+  return without.length ? `No profit on ${without.join(", ")} yet — every container type needs a profit in Pricing before the quote goes out` : null;
 }
 
 // A charge's selling from its buying and profit: the ROE % on a charge in another currency than the quote's.
@@ -212,15 +269,15 @@ function sell(c: FclChargePrice, line: CostLine, data: SalesQuoteData, live?: Li
 
 // The block's selling up to full fives (SELLING_ROUNDS_TO), the difference put on the charge the rounding
 // cents go to as more profit; with the ROE % on it, the cents it rounds to are made up one at a time.
-function roundSellingUp(charges: FclChargePrice[], taking: FclChargePrice[], lines: readonly CostLine[], data: SalesQuoteData, live?: LivePricing) {
-  if (!taking.length) return;
+function roundSellingUp(charges: FclChargePrice[], taking: FclChargePrice[], lines: readonly CostLine[], data: SalesQuoteData, live?: LivePricing): number | null {
+  if (!taking.length) return null;
   const total = () => roundCents(charges.reduce((s, c) => s + (c.selling ?? 0), 0));
   // In whole cents, so 6,275.01 goes to 6,280 and 6,275.00 stays.
   const target = (Math.ceil(Math.round(total() * 100) / (SELLING_ROUNDS_TO * 100)) * SELLING_ROUNDS_TO);
-  if (total() >= target) return;
   const inQuoteCurrency = taking.filter((c) => sellingRoeFactor(lines[c.index]!.currency, data, live) === 1);
   const pool = inQuoteCurrency.length ? inQuoteCurrency : taking;
   const anchor = pool.find((c) => codeOf(lines[c.index]!) === "ocean_freight") ?? pool.reduce((best, c) => (c.buying! > best.buying! ? c : best), pool[0]!);
+  if (total() >= target) return anchor.index;
   const line = lines[anchor.index]!;
   anchor.profit = roundCents(anchor.profit + (target - total()) / sellingRoeFactor(line.currency, data, live));
   sell(anchor, line, data, live);
@@ -228,6 +285,27 @@ function roundSellingUp(charges: FclChargePrice[], taking: FclChargePrice[], lin
     anchor.profit = roundCents(anchor.profit + 0.01);
     sell(anchor, line, data, live);
   }
+  // A step of the ROE % can pass the full five by a cent: the five is what the block sells for.
+  if (total() > target) anchor.selling = roundCents(anchor.selling! - (total() - target));
+  return anchor.index;
+}
+
+// Each selling line is rounded to the cents of its own currency and then converted, so a block whose
+// card comes to a full five can reach the totals a cent or more off it. The line the rounding went
+// to takes up the difference, in as many decimals as that needs: only its amount changes.
+function settleRounding(priced: FclBlockPrice, block: FclBlock, selling: Map<number, CostLine>, quote: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing) {
+  const anchor = priced.roundedOn === null ? undefined : selling.get(priced.roundedOn);
+  if (!anchor) return;
+  const sold = priced.charges.flatMap((c) => (selling.has(c.index) ? [selling.get(c.index)!] : []));
+  const converted = sold.map((l) => convertLine(l, quote, sheet, { selling: true, live }));
+  const factor = quoteCurrencyFactor(anchor.currency, quote, sheet);
+  if (factor === null || converted.some((v) => v === null)) return;
+  const units = block.perContainer ? basisUnits(quote, anchor.basis, anchor.containerType) : 1;
+  const difference = roundCents(priced.selling * units - converted.reduce<number>((sum, v) => sum + v!, 0));
+  // Only what rounding left: anything more is a real difference, not for this to hide.
+  if (difference === 0 || Math.abs(difference) > MAX_ROUNDING_LEFT) return;
+  const own = convertLine(anchor, quote, sheet, { selling: true, live })! + difference;
+  selling.set(priced.roundedOn!, { ...anchor, amount: Math.round((own / (factor * sellingRoeFactor(anchor.currency, quote, live))) * 1e6) / 1e6 });
 }
 
 // The block's profit on the charges that take it, pro rata to their buying, each to the cent; what
@@ -280,6 +358,7 @@ export function fclLines(data: SalesQuoteData, sheet: ExchangeRates, live?: Live
       const sold = withRate(sellingCopy(line), rate, units);
       if (Number(sold.amount) || lineRate(sold)) selling.set(c.index, sold);
     }
+    settleRounding(priced, block, selling, quote, sheet, live);
   }
   const trucking = (data.sellingLines ?? []).filter(isTruckingLine);
   return { buyingLines, sellingLines: [...buyingLines.flatMap((_, i) => (selling.has(i) ? [selling.get(i)!] : [])), ...trucking] };
@@ -291,34 +370,52 @@ export interface OfferRow {
   amount: number | null;
 }
 
-// A charge's name for the customer, with its containers when it is charged per container of a type.
-function chargeName(line: CostLine, data: SalesQuoteData): string {
+/** One section of the rate offer: a container type, or the charges per shipment, as in Pricing. */
+export interface OfferGroup {
+  /** "20' DC · 2 containers", "All containers", "Per shipment". */
+  label: string;
+  rows: OfferRow[];
+}
+
+// A charge's name for the customer. Its section says the containers, so a tariff line's own
+// "- 2 × 20' DC" (from when it was priced, however many there are now) is left off.
+function chargeName(line: CostLine): string {
   const name = line.description?.trim() || line.type;
-  if (line.basis !== "container" || !line.containerType || name.includes(line.containerType)) return name;
-  return `${name} - ${quoteContainerCount(data, line.containerType)} × ${line.containerType}`;
+  return line.basis === "container" && line.containerType ? name.replace(new RegExp(` - \\d+ × ${escapeRegExp(line.containerType)}$`), "") : name;
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function offerGroupLabel(key: string, data: SalesQuoteData): string {
+  if (key === PER_SHIPMENT) return "Per shipment";
+  if (key === ALL_CONTAINERS) return "All containers";
+  const boxes = quoteContainerCount(data, key);
+  return `${key} · ${boxes} ${boxes === 1 ? "container" : "containers"}`;
 }
 
 /**
- * The rate offer of an FCL-priced quote: in a breakdown offer its selling lines one by one; in an
- * all-in offer one all-in rate per block (a container type, or the charges per shipment), and then
- * the charges kept out of it, each on its own line. `amountOf` is a line in the quote's currency.
+ * The rate offer of an FCL-priced quote, in the sections of its Pricing: the container types in the
+ * order of the cargo, then the charges per shipment. In each, the charges in the all-in price are
+ * one all-in rate, and the others follow on their own lines; a quote sent as a breakdown has every
+ * charge on its own line. `amountOf` is a line in the quote's currency.
  */
-export function fclOfferRows(data: SalesQuoteData, lines: readonly CostLine[], amountOf: (line: CostLine) => number | null): OfferRow[] {
-  if (!data.allIn) return lines.map((l) => ({ label: chargeName(l, data), amount: amountOf(l) }));
+export function fclOfferGroups(data: SalesQuoteData, lines: readonly CostLine[], amountOf: (line: CostLine) => number | null): OfferGroup[] {
   const types = quoteTypes(data);
-  const groups = new Map<string, CostLine[]>();
-  for (const line of lines.filter(isInAllIn)) {
+  const blocks = new Map<string, CostLine[]>();
+  for (const line of lines) {
     const key = blockKeyOf(line, types);
-    groups.set(key, [...(groups.get(key) ?? []), line]);
+    blocks.set(key, [...(blocks.get(key) ?? []), line]);
   }
-  const rows: OfferRow[] = [...groups].map(([key, group]) => {
-    const amounts = group.map(amountOf);
-    const amount = amounts.some((a) => a === null) ? null : roundCents(amounts.reduce((s: number, a) => s + a!, 0));
-    const boxes = key === ALL_CONTAINERS ? quoteContainerCount(data) : quoteContainerCount(data, key);
-    const what = key === PER_SHIPMENT ? (groups.size > 1 ? " - per shipment" : "") : key === ALL_CONTAINERS ? ` - ${boxes} containers` : ` - ${boxes} × ${key}`;
-    return { label: `All-in rate${what}`, amount };
+  const others = [...blocks.keys()].filter((key) => key !== PER_SHIPMENT && !types.includes(key));
+  return [...types, ...others, PER_SHIPMENT].flatMap((key) => {
+    const block = blocks.get(key);
+    if (!block) return [];
+    const inAllIn = data.allIn ? block.filter(isInAllIn) : [];
+    const amounts = inAllIn.map(amountOf);
+    const allInRow: OfferRow[] = inAllIn.length ? [{ label: "All-in rate", amount: amounts.some((a) => a === null) ? null : roundCents(amounts.reduce((s: number, a) => s + a!, 0)) }] : [];
+    const rest = block.filter((l) => !inAllIn.includes(l)).map((l) => ({ label: chargeName(l), amount: amountOf(l) }));
+    return [{ label: offerGroupLabel(key, data), rows: [...allInRow, ...rest] }];
   });
-  return [...rows, ...lines.filter((l) => !isInAllIn(l)).map((l) => ({ label: chargeName(l, data), amount: amountOf(l) }))];
 }
 
 /**
@@ -333,14 +430,47 @@ export function withFclPricing(
   data: SalesQuoteData,
   sheet: ExchangeRates,
   live?: LivePricing,
-  { roundUp = false }: { roundUp?: boolean } = {},
-): Pick<SalesQuoteData, "buyingLines" | "sellingLines" | "fclPricing"> | null {
-  const start = data.fclPricing || !(data.sellingLines ?? []).some(priceable) ? data : fromTypedSelling(data, sheet, live);
+  { roundUp = false, open = false }: { roundUp?: boolean; open?: boolean } = {},
+): (Pick<SalesQuoteData, "buyingLines" | "sellingLines" | "fclPricing"> & { allIn?: boolean }) | null {
+  const typed = data.fclPricing || !(data.sellingLines ?? []).some(priceable) ? data : fromTypedSelling(data, sheet, live);
+  if (!typed) return null;
+  // An open quote has a profit per charge and its "All in" ticks; a quote shown as it was sent keeps what it had.
+  const start = open ? toByCharge(typed, sheet, live) : typed;
   if (!start) return null;
   // An open quote priced now has its selling rounded up to full fives; a quote shown as it was sent keeps what it had.
   const fclPricing = { ...(start.fclPricing ?? { blocks: {} }), ...(roundUp ? { roundUp: true } : {}) };
   const lines = fclLines({ ...start, fclPricing }, sheet, live);
-  return lines && { ...lines, fclPricing };
+  return lines && { ...lines, fclPricing, ...(open ? { allIn: true } : {}) };
+}
+
+// An open quote from before each charge had its own profit, brought over with the same prices and
+// the same offer: each charge keeps the profit it has now, and in what was a breakdown offer no
+// charge is in the all-in price, so each stays on its own line. A new quote just starts so. Null
+// while a rate it needs is missing: the profit on a charge could not be told.
+function toByCharge(data: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing): SalesQuoteData | null {
+  if (data.fclPricing?.byCharge) return data;
+  if (!data.fclPricing) return { ...data, fclPricing: { blocks: {}, byCharge: true } };
+  const offer = (line: CostLine): CostLine => (data.allIn ? line : { ...line, inAllIn: false });
+  const buyingLines = (data.buyingLines ?? []).map(offer);
+  const blocks: FclPricing["blocks"] = {};
+  for (const block of fclBlocks(data)) {
+    const setting = blockProfitOf(data, block.key);
+    const priced = priceFclBlock(data, sheet, block, live);
+    for (const c of priced.charges) {
+      if (c.buying === null) return null;
+      const line = buyingLines[c.index]!;
+      buyingLines[c.index] = { ...line, chargeProfit: chargeProfitNow(c, line, setting) };
+    }
+    if (block.lines.length) blocks[block.key] = { mode: "sum", value: priced.profit, perCharge: true };
+  }
+  return { ...data, buyingLines, sellingLines: (data.sellingLines ?? []).map(offer), fclPricing: { ...data.fclPricing, blocks, byCharge: true } };
+}
+
+// The profit a charge has now, as its own: a charge offered at cost none, one the block's % applied to that %.
+function chargeProfitNow(c: FclChargePrice, line: CostLine, setting: FclBlockProfit): FclProfit {
+  if (!c.takesProfit) return zeroProfit;
+  if (setting.perCharge && line.chargeProfit) return line.chargeProfit;
+  return !setting.perCharge && setting.mode === "percent" ? { mode: "percent", value: setting.value } : { mode: "sum", value: c.profit };
 }
 
 // A value of the document with every object's keys in one order: the server stores the document

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Input, Button } from "antd";
 import { LockOutlined, PlusOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
+import type { Messages } from "@/lib/toast";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
@@ -29,7 +29,7 @@ const emptyRow = (): PickupRow => ({ haulier: "", licensePlate: "", driver: "" }
 /** A driver is a name: letters only (any alphabet), with the spaces, hyphens, dots and apostrophes names have. */
 const driverInput = (text: string) => text.replace(/[^\p{L}\s'.-]/gu, "");
 
-export function PickupSection({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function PickupSection({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
   const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
   // The PIN and the rows are saved together (one section): each save sends the other's last value,

@@ -706,6 +706,38 @@ class TariffRepository {
     return { rows, total };
   }
 
+  /** For the overnight check of quotes: the versions and whether each is in force on the day, and which rail rates are. */
+  async quoteRefs(companyId: string, date: string, versionIds: string[], railRateIds: string[]): Promise<{ versions: { id: string; tariffId: string; valid: boolean }[]; validRailRateIds: string[] }> {
+    const versions = versionIds.length
+      ? await db
+          .select({ id: tariffVersionTable.id, tariffId: tariffVersionTable.tariffId, status: tariffVersionTable.status, validFrom: tariffVersionTable.validFrom, validTo: tariffVersionTable.validTo, deletedAt: tariffTable.deletedAt })
+          .from(tariffVersionTable)
+          .innerJoin(tariffTable, eq(tariffTable.id, tariffVersionTable.tariffId))
+          .where(and(live(companyId), inArray(tariffVersionTable.id, versionIds)))
+      : [];
+    const rates = railRateIds.length
+      ? await db
+          .select({ id: railRateTable.id })
+          .from(railRateTable)
+          .where(
+            and(
+              eq(railRateTable.companyId, companyId),
+              inArray(railRateTable.id, railRateIds),
+              or(isNull(railRateTable.validFrom), lte(railRateTable.validFrom, date)),
+              or(isNull(railRateTable.validTo), gte(railRateTable.validTo, date)),
+            ),
+          )
+      : [];
+    return {
+      versions: versions.map((v) => ({
+        id: v.id,
+        tariffId: v.tariffId,
+        valid: !v.deletedAt && v.status === "active" && !!v.validFrom && v.validFrom <= date && (!v.validTo || v.validTo >= date),
+      })),
+      validRailRateIds: rates.map((r) => r.id),
+    };
+  }
+
   /** The ocean versions that price on the day, of tariffs for the direction, with their tariffs. */
   async oceanCandidates(companyId: string, direction: RailDirection, date: string): Promise<CollectionCandidate[]> {
     return db

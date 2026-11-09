@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Input, InputNumber, Radio, Spin } from "antd";
-import { ArrowLeftOutlined, UploadOutlined } from "@ant-design/icons";
+import { UploadOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
@@ -13,7 +13,6 @@ import { useToast } from "@/lib/toast";
 import { fetchTariffTemplate, useTariff, useTruckingSettings, type TariffDetail, type TariffUpdate, type TariffVersionSummary } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
-import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, discountLabel, modeLabel, ownerLabel, versionLabel } from "../../_lib/tariffs";
@@ -21,6 +20,7 @@ import { TruckingField } from "../../_components/TruckingField";
 import { TariffActivateDialog } from "./TariffActivateDialog";
 import { TariffDownloadButton } from "./TariffDownloadButton";
 import { TariffVersionsTable } from "./TariffVersionsTable";
+import { BackLink } from "@/components/BackLink";
 
 /** What the header form edits; the discount may be empty while typing (the save checks it). */
 interface TariffDraft {
@@ -128,10 +128,8 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={backHref} aria-label="Back to Tariffs" className={LINK_ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </Link>
           <div className="min-w-0 flex-1">
+<BackLink href={backHref} className="mb-1">Tariffs</BackLink>
             <h1 className={PAGE_TITLE}>{tariff.name}</h1>
             <div className={`${PAGE_SUBTITLE} mt-1 flex flex-wrap gap-x-1`}>
               <span>{sideLabel} tariff</span>

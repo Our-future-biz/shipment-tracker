@@ -226,9 +226,9 @@ describe("approvalOf", () => {
 
 describe("formatting", () => {
   it("writes amounts with thousands apart", () => {
-    expect(formatCzk(4250)).toBe("4 250 CZK");
+    expect(formatCzk(4250)).toBe("4,250 CZK");
     expect(formatCzk(380.4)).toBe("380 CZK");
-    expect(formatCzk(-1234567)).toBe("-1 234 567 CZK");
+    expect(formatCzk(-1234567)).toBe("-1,234,567 CZK");
     expect(formatMoney(95.5, "EUR")).toBe("95.50 EUR");
   });
 });

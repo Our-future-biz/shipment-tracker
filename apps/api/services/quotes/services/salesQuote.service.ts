@@ -28,9 +28,10 @@ import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
 import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
 import { tryCustomerRefs } from "../lib/customerRefs";
-import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
+import { linkedSupplierIds, supplierGate, type LinkedSupplierState, customerGate, linkedCustomerIds } from "../utils/supplierApproval.utils";
+import { fclProfitGateMessage } from "../utils/fclProfit.utils";
 import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
-import { tariffDirectionGateMessage } from "../utils/tariffDirection.utils";
+import { tariffDirectionGateMessage, tariffUpdateGateMessage, withoutRoadUpdates } from "../utils/tariffDirection.utils";
 import { columnFiltersOf } from "../utils/quoteColumnFilters.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
@@ -65,7 +66,7 @@ import {
   type StatusChange,
 } from "../utils/quoteLifecycle.utils";
 import { searchTokens } from "../utils/quoteSearch.utils";
-import { toItem } from "../utils/salesQuoteItem.utils";
+import { holdsSending, toItem } from "../utils/salesQuoteItem.utils";
 import { ownerBackfillService } from "./ownerBackfill.service";
 import { companyUsers } from "../../../lib/companyUsers";
 import { companyPeople, peopleOf, type People } from "../lib/people";
@@ -395,6 +396,20 @@ async function linkedSupplierStates(ids: string[]): Promise<Map<string, LinkedSu
   return new Map(states.map((s) => [s.id, { companyName: s.companyName, status: s.status, comment: s.comment }]));
 }
 
+// Where the companies the quotes are for stand, for what the quotes are handed out with (sendBlocked
+// says beforehand what customerGate refuses): asked once, for the quotes whose prices are open.
+// Unknown when the Customer Database does not answer - the transition still asks it.
+async function customerStatesOf(rows: readonly SalesQuoteRecord[], at: Date): Promise<Map<string, LinkedSupplierState> | undefined> {
+  const ids = [...new Set(rows.filter((row) => holdsSending(row, at)).flatMap((row) => linkedCustomerIds(row.data)))];
+  if (!ids.length) return undefined;
+  try {
+    return await linkedSupplierStates(ids);
+  } catch (err) {
+    log.warn("where the quotes' customers stand could not be read", { error: err instanceof Error ? err.message : String(err) });
+    return undefined;
+  }
+}
+
 // The rules refuse in words meant for the user; the API adds what kind of refusal it is.
 function ruled<T>(run: () => T): T {
   try {
@@ -463,7 +478,8 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    return toItem(stored, people.emails, actor, at, await marginsFor(actor.companyID, [stored], at));
+    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, [stored], at), customerStatesOf([stored], at)]);
+    return toItem(stored, people.emails, actor, at, margins, customerStates);
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -485,10 +501,10 @@ class SalesQuoteService {
       { today: businessDay(at), dueBefore: followUpDueBefore(at) },
       people.users,
     );
-    const margins = await marginsFor(actor.companyID, rows, at);
+    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, rows, at), customerStatesOf(rows, at)]);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
-      data: rows.map((row) => toItem(row, people.emails, actor, at, margins)),
+      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, customerStates)),
     };
   }
 
@@ -584,7 +600,7 @@ class SalesQuoteService {
     // Asked only for a move the gates hold (not Quoted → Won); one that turns out gated under the lock
     // with a linked supplier nobody looked up is tried again (supplierGate's unknown).
     const gatedBefore = (q: SalesQuoteRecord) => isGatedMove(effectiveStatus(stateOf(q).status, q.validUntil, ctx.today), request.to);
-    const suppliers = before && gatedBefore(before) ? await linkedSupplierStates(linkedSupplierIds(before.data)) : undefined;
+    const suppliers = before && gatedBefore(before) ? await linkedSupplierStates([...linkedSupplierIds(before.data), ...linkedCustomerIds(before.data)]) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -601,12 +617,18 @@ class SalesQuoteService {
         if (guardrailModeOf(quote.data) !== guardrailModeOf(before?.data)) throw conflict();
         const modeGate = freightModeGateMessage(quote.data);
         if (modeGate) throw APIError.failedPrecondition(modeGate);
+        // A Sea FCL quote has a profit on every container type it offers.
+        const profitGate = fclProfitGateMessage(quote.data, margins);
+        if (profitGate) throw APIError.failedPrecondition(profitGate);
         // Its Shipping terms come from a template, chosen before it goes on.
         const termsGate = shippingTermsGateMessage(quote.data);
         if (termsGate) throw APIError.failedPrecondition(termsGate);
         // A rail or ocean tariff prices only its Trade Direction: a line priced in the other is priced again first.
         const directionGate = tariffDirectionGateMessage(quote.data);
         if (directionGate) throw APIError.failedPrecondition(directionGate);
+        // A new tariff rate is approved knowingly first.
+        const tariffUpdateGate = tariffUpdateGateMessage(quote.data);
+        if (tariffUpdateGate) throw APIError.failedPrecondition(tariffUpdateGate);
         // Judged as the quote will be once moved: a validity the sending sets is part of what an approval covers (D10).
         const judged = isPlainObject(quote.data) ? { ...quote.data, validUntil: change.state.validUntil ?? undefined } : quote.data;
         const margin = margins ? roadMargin(judged, margins) : null;
@@ -617,6 +639,10 @@ class SalesQuoteService {
         const supplierCheck = supplierGate(quote.data, suppliers ?? new Map());
         if (supplierCheck.unknown) throw conflict();
         if (supplierCheck.message) throw APIError.failedPrecondition(supplierCheck.message);
+        // Nor to a company that registered through a link and has not been approved yet.
+        const customerCheck = customerGate(quote.data, suppliers ?? new Map());
+        if (customerCheck.unknown) throw conflict();
+        if (customerCheck.message) throw APIError.failedPrecondition(customerCheck.message);
         // An approval given before the quote had a validity covers the one it is sent with, and no later one.
         const stamped = approvalWithValidity(quote.data, change.state.validUntil);
         if (stamped) serverKeys = { marginApproval: stamped };
@@ -761,6 +787,7 @@ class SalesQuoteService {
         document: {
           road: request.road,
           roadPricing,
+          ...withoutRoadUpdates(data),
           sellingLines: replaceTruckingLines(data.sellingLines, sellLines),
           buyingLines: replaceTruckingLines(data.buyingLines, buyLines),
         },

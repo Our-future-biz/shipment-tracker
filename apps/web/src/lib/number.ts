@@ -5,15 +5,15 @@ export function toNumber(value: string | number | null | undefined): number {
 }
 
 /**
- * A number for reading: thousands separated by a space, a decimal point, `decimals` places
- * (readable for CZ and EN users). `empty` is what a missing value shows ("" or "—").
+ * A number for reading: thousands separated by a comma, a decimal point, `decimals` places
+ * (1,250.50, as figures are written everywhere in the app). `empty` is what a missing value shows ("" or "—").
  */
 export function formatNumber(value: number | null | undefined, decimals = 0, empty = ""): string {
   if (value == null) return empty;
-  return value.toLocaleString("en-GB", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).replace(/,/g, " ");
+  return value.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
-/** "1 250" / "12.5" / "0.25": whole numbers without decimals, others with up to 2. */
+/** "1,250" / "12.5" / "0.25": whole numbers without decimals, others with up to 2. */
 export function formatQty(n: number): string {
   const rounded = Math.round(n * 100) / 100;
   if (Number.isInteger(rounded)) return formatNumber(rounded, 0);

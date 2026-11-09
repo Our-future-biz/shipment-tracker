@@ -4,6 +4,7 @@ import { BUSINESS_TZ } from "../../../lib/businessDate";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { TenantRepository } from "../../../lib/db/repository";
 import type { StoredFx } from "../lib/quoteFx";
+import { TARIFF_CHECK_STATUSES } from "../lib/tariffOvernight";
 import { db } from "../db/db";
 import { quoteTable, type NewQuoteRecord, type QuoteRecord, type SalesQuoteRecord } from "../schemas/quote.schema";
 import { quoteInquiryTable } from "../schemas/quoteInquiry.schema";
@@ -437,16 +438,19 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
    * A save of the document of a live sales quote, in ONE statement: the version check is part of
    * it, so nothing can slip in between the check and the write. The keys in `carry` are taken
    * from the stored document, whatever the incoming one says - the lifecycle keys always, so a
-   * save can neither change nor lose them. Null when nothing was written: the quote is not that
-   * version any more, or not there.
+   * save can neither change nor lose them. `statuses`: written only while the quote still has one
+   * of them (the overnight tariff check, for a quote not yet sent). Null when nothing was written:
+   * the quote is not that version any more, not in such a status, or not there.
    */
   async saveDocument(
     companyId: string,
     quoteNumber: string,
     save: { data: Record<string, unknown>; carry: string[] },
     expected: SavedVersion,
+    { statuses }: { statuses?: readonly string[] } = {},
   ): Promise<SalesQuoteRecord | null> {
     const carry = textArray(save.carry);
+    const live = this.liveSalesQuote(companyId, quoteNumber, expected);
     const saved = await db
       .update(quoteTable)
       .set({
@@ -457,7 +461,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
         dataVersion: sql`${quoteTable.dataVersion} + 1`,
         updatedAt: new Date(),
       })
-      .where(this.liveSalesQuote(companyId, quoteNumber, expected))
+      .where(statuses ? and(live, inArray(quoteTable.status, [...statuses])) : live)
       .returning();
     return salesRows(saved)[0] ?? null;
   }
@@ -506,6 +510,27 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       .from(quoteTable)
       .where(and(eq(quoteTable.companyId, companyId), isNull(quoteTable.deletedAt), isSalesQuote, isNotNull(quoteTable.shipmentId)));
     return rows.flatMap((r) => (r.shipmentId ? [{ quoteNumber: r.quoteNumber, shipmentId: r.shipmentId }] : []));
+  }
+
+  /**
+   * For the overnight check: every company's live quotes not yet sent with a line priced from a
+   * tariff, a page at a time by id (after `afterId`). Only which quotes they are - each is read again
+   * whole when its turn comes.
+   */
+  async unsentWithTariffLines(afterId: string | null, limit: number): Promise<{ id: string; companyId: string; quoteNumber: string }[]> {
+    return db
+      .select({ id: quoteTable.id, companyId: quoteTable.companyId, quoteNumber: quoteTable.quoteNumber })
+      .from(quoteTable)
+      .where(
+        and(
+          isNull(quoteTable.deletedAt),
+          inArray(quoteTable.status, [...TARIFF_CHECK_STATUSES]),
+          sql`${quoteTable.data}::text LIKE '%"tariffRef"%'`,
+          afterId ? gt(quoteTable.id, afterId) : undefined,
+        ),
+      )
+      .orderBy(asc(quoteTable.id))
+      .limit(limit);
   }
 
   /**

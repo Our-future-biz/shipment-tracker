@@ -40,7 +40,7 @@ describe("manifest PDF", () => {
       "602 00 Brno",
       "České Budějovice",
       "UN 1263, 3, II",
-      "18 450", // total kg
+      "18,450", // total kg
       "Celkem / Total",
       "13,6 LDM / 24 000 kg — 82 % LDM, 41 % kg",
       "NALOŽIL / LOADED BY",
@@ -82,7 +82,7 @@ describe("labels PDF", () => {
 
   it("prints destination, consignee, ref, piece number, zone, service and the marks when set", async () => {
     const [first, adr, whole] = await pageTexts(await buildLabelsPdf(sampleLabels));
-    for (const v of ["702 00", "Ostrava", "Odběratel Ostrava, s.r.o.", "Mostní 1", "TCZ2026001234", "1 / 3", "MS-2", "+1 den", "Barvy Šťastný s.r.o., Kladno", "CZ00000142", "412,5 kg"]) {
+    for (const v of ["702 00", "Ostrava", "Odběratel Ostrava, s.r.o.", "Mostní 1", "TCZ2026001234", "1 / 3", "MS-2", "+1 den", "Barvy Šťastný s.r.o., Kladno", "CZ00000142", "412.5 kg"]) {
       expect(first).toContain(squash(v));
     }
     expect(first).not.toContain("TAILLIFT");
@@ -121,12 +121,12 @@ describe("LTL transport order PDF", () => {
       "Avízo nutné / Avizace required",
       "ADR UN 1263, 3",
       "Celkem / Total",
-      "1 320 kg",
-      "2,4 LDM",
+      "1,320 kg",
+      "2.4 LDM",
       "482913",
       "tracker.example.cz/trucking/pod",
       "1AB2345 / 2CD6789",
-      "12 500,00 CZK",
+      "12,500.00 CZK",
       "ZA ZASÍLATELE / FOR THE FORWARDER",
       "Počet zastávek / Number of stops",
     ]) {

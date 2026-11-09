@@ -53,7 +53,7 @@ export const OceanVersionPorts = ({ version, editable }: OceanVersionPortsProps)
       await setPort({ id: version.id, side: port.side, name: port.name, code });
       toast.success(code ? `${port.name} is ${code}` : `${port.name} left out: its rates are not used`);
     } catch (e) {
-      toast.error(`Could not set ${port.name}: ${apiErrorMessage(e)}`, 8);
+      toast.error(`Could not set ${port.name}: ${apiErrorMessage(e)}`);
     }
   };
 

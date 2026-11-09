@@ -692,6 +692,14 @@ describe("saveDocument", () => {
   it("is null when nothing was written: no longer that version, or gone", async () => {
     await expect(salesQuoteRepository.saveDocument(COMPANY, "QCZ20261010001", { data, carry }, { dataVersion: 1 })).resolves.toBeNull();
   });
+
+  it("writes only while the quote has one of the statuses named (the overnight tariff check: not sent yet)", async () => {
+    await salesQuoteRepository.saveDocument(COMPANY, "QCZ20261010001", { data, carry }, { dataVersion: 4 }, { statuses: ["draft", "ready_to_send", "revised"] });
+    expect(rendered(fake.state.updates[0]!.where)).toMatchObject({
+      sql: '(("quote"."company_id" = $1 and "quote"."quote_number" = $2 and "quote"."deleted_at" is null and "quote"."status" is not null and "quote"."data_version" = $3) and "quote"."status" in ($4, $5, $6))',
+      params: [COMPANY, "QCZ20261010001", 4, "draft", "ready_to_send", "revised"],
+    });
+  });
 });
 
 describe("list", () => {

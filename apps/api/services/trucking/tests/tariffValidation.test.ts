@@ -106,7 +106,7 @@ describe("validation findings", () => {
 
   it("warns when a slower level is dearer than a faster one, once per pair of levels", () => {
     const rates = input().rates.map((r) => (r.serviceLevel === "D2" ? { ...r, amount: r.amount + 500 } : r));
-    expect(messages(input({ rates }))).toEqual(["warning: D2 costs 1 000, more than the faster D1 at 600 (and 1 more cells) @ Sheet D2, zone 1, band 1–100 kg"]);
+    expect(messages(input({ rates }))).toEqual(["warning: D2 costs 1,000, more than the faster D1 at 600 (and 1 more cells) @ Sheet D2, zone 1, band 1–100 kg"]);
   });
 
   it("lists the postcodes no zone covers", () => {

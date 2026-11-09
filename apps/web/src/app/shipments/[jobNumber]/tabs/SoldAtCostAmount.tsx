@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { App, Input, Modal, Tooltip } from "antd";
+import { Input, Modal, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { DeleteOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -31,7 +32,7 @@ interface Props {
 const MIN_REASON = 3;
 
 export function SoldAtCostAmount({ amount, currency, cost, request, onChange, onWithdraw, onDone }: Props) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const { user } = useAuth();
   const [text, setText] = useState(amount);
   const [asking, setAsking] = useState<string | null>(null);
@@ -173,7 +174,7 @@ interface RemoveProps {
 
 /** Deleting a selling row a shipment sells on at cost: a window asks why, and a manager decides on Quote inquiries. */
 export function SoldAtCostRemove({ amount, currency, waiting, gone, className, onAsk }: RemoveProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);

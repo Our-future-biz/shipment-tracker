@@ -51,4 +51,4 @@ export function reweighVariance(weighedKg: number, declaredKg: number | null | u
 export const pctText = (p: number | null) => (p == null ? "" : `${p >= 0 ? "+" : "−"}${Math.abs(p * 100).toFixed(1)} %`);
 
 /** "1 234.5 kg" */
-export const kgText = (kg: number) => `${(Math.round(kg * 10) / 10).toLocaleString("en-GB").replace(/,/g, " ")} kg`;
+export const kgText = (kg: number) => `${(Math.round(kg * 10) / 10).toLocaleString("en-US")} kg`;

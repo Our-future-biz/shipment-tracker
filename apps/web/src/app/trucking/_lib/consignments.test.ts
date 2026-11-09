@@ -247,7 +247,7 @@ describe("recorded-as-sent wording", () => {
 
 describe("load in a line", () => {
   it("formats the numbers instead of printing them raw", () => {
-    expect(loadText({ palletPlaces: 12, weightKg: 1250.5, adr: true })).toBe("12 pallet places · 1 250.5 kg · ADR");
+    expect(loadText({ palletPlaces: 12, weightKg: 1250.5, adr: true })).toBe("12 pallet places · 1,250.5 kg · ADR");
     expect(loadText({ palletPlaces: 1, weightKg: 800, adr: false })).toBe("1 pallet place · 800 kg");
   });
 });

@@ -292,7 +292,7 @@ export function DimensionsModal({
                     (m³)
                   </th>
                   <th scope="col" className={TH_TXT}>
-                    Stackability
+                    Cargo Stackability
                   </th>
                   <th scope="col" className={TH} aria-label="Actions" />
                 </tr>

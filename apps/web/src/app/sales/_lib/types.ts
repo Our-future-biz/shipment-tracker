@@ -68,6 +68,21 @@ export interface QuoteOog {
 
 export type ChargeBasis = "lumpsum" | "wm" | "container";
 
+/** A new rate the overnight tariff check found. Twin of TariffUpdate in the API's lib/tariffOvernight. */
+export interface TariffUpdate {
+  oldRef: string;
+  kind: "ocean" | "rail" | "collection" | "road";
+  newVersionId: string;
+  newRateId: string | null;
+  supplierName: string;
+  // On a road quote the selling price, which its tariff also sets.
+  was: { currency: string; amount: number }[];
+  now: { currency: string; amount: number }[];
+  // On a road quote with a haulier: its buying price.
+  buyWas?: { currency: string; amount: number }[];
+  buyNow?: { currency: string; amount: number }[];
+}
+
 export interface CostLine {
   // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
   type: string;
@@ -106,8 +121,8 @@ export interface CostLine {
   // Without it a line charged per container counts all of the quote's containers.
   containerType?: string;
   // FCL pricing (fclPricing.ts), on a buying line: whether the charge is part of the all-in price
-  // (true when absent), whether profit is put on it in a breakdown offer (absent: by its charge),
-  // and the profit set for it alone in "Edit per charge". A selling line made from it keeps inAllIn,
+  // (true when absent), whether profit was put on it in a breakdown offer sent before each charge
+  // had its own profit (absent: by its charge), and the profit set for it alone in "Edit per charge". A selling line made from it keeps inAllIn,
   // which the printed quotation goes by.
   inAllIn?: boolean;
   profitBasis?: boolean;
@@ -133,6 +148,9 @@ export interface FclPricing {
   // Each block's selling (per container, or per shipment) is rounded up to full 5s (fclPricing.ts
   // SELLING_ROUNDS_TO). Set as an open quote is priced; a quote sent before keeps its prices as sent.
   roundUp?: boolean;
+  // Every charge has its own profit, whether or not it is in the all-in price. Set as an open quote
+  // is priced; a quote sent before keeps its one profit per block and its profit basis.
+  byCharge?: boolean;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read
@@ -283,6 +301,11 @@ export interface SalesQuoteData {
   weight?: number;
   cbm?: number;
   // Pricing
+  // New rates of lapsed tariffs waiting for the user's approval (_lib/tariffUpdates.ts).
+  tariffUpdates?: TariffUpdate[];
+  // The lapsed tariffs (tariffRef) the overnight check could not ask today's rates for, and has told
+  // the user about once in the chat; their lines are kept. Written by the server's check only.
+  tariffUnchecked?: string[];
   buyingLines?: CostLine[];
   sellingLines?: CostLine[];
   // Quoted as an all-in rate: the customer's document shows the selling total as one price, without

@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
-import { downloadDataUrl } from "@/lib/files";
+import { dataUrlToBlob, downloadDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import type { Announcement } from "@/hooks/useNoticeboard";
 import { NoticeAttachmentList } from "./NoticeAttachmentList";
@@ -104,10 +104,9 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
     setPreviewing(attachmentId);
     try {
       const file = await loadContent(attachmentId);
-      const bytes = await (await fetch(file.fileData)).arrayBuffer();
       // No longer wanted: the notice was closed or another document was chosen meanwhile.
       if (request !== previewRequest.current) return;
-      setPreview({ name: file.fileName, url: URL.createObjectURL(new Blob([bytes], { type })), type });
+      setPreview({ name: file.fileName, url: URL.createObjectURL(dataUrlToBlob(file.fileData, type)), type });
     } catch {
       if (request === previewRequest.current) toast.error("Could not open the document — try downloading it instead");
     } finally {

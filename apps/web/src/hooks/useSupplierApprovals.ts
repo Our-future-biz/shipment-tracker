@@ -50,7 +50,8 @@ export const useSupplierApprovals = ({ enabled = true }: { enabled?: boolean } =
     onSettled: () => queryClient.invalidateQueries({ queryKey: supplierApprovalKeys.all }),
   });
   const approvals = query.data ?? NONE;
-  const byId = useMemo(() => new Map(approvals.map((a) => [a.customerId, a])), [approvals]);
+  // A registration of a company already in the database says nothing about where that company stands.
+  const byId = useMemo(() => new Map(approvals.filter((a) => !a.alreadyInDatabase).map((a) => [a.customerId, a])), [approvals]);
   return {
     approvals,
     waiting: approvals.filter((a) => a.status === "pending").length,

@@ -534,6 +534,11 @@ export namespace customers {
             this.addressDelete = this.addressDelete.bind(this)
             this.addressList = this.addressList.bind(this)
             this.addressUpdate = this.addressUpdate.bind(this)
+            this.approvalChatAddPerson = this.approvalChatAddPerson.bind(this)
+            this.approvalChatGet = this.approvalChatGet.bind(this)
+            this.approvalChatPost = this.approvalChatPost.bind(this)
+            this.approvalChatRemovePerson = this.approvalChatRemovePerson.bind(this)
+            this.approvalChatUnread = this.approvalChatUnread.bind(this)
             this.aresLookup = this.aresLookup.bind(this)
             this.aresSearch = this.aresSearch.bind(this)
             this.contactCreate = this.contactCreate.bind(this)
@@ -572,6 +577,15 @@ export namespace customers {
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
             this.noteList = this.noteList.bind(this)
+            this.publicRegistrationAres = this.publicRegistrationAres.bind(this)
+            this.publicRegistrationAresSearch = this.publicRegistrationAresSearch.bind(this)
+            this.publicRegistrationForm = this.publicRegistrationForm.bind(this)
+            this.publicRegistrationSubmit = this.publicRegistrationSubmit.bind(this)
+            this.registrationLinkCreate = this.registrationLinkCreate.bind(this)
+            this.registrationLinkList = this.registrationLinkList.bind(this)
+            this.registrationLinkRevoke = this.registrationLinkRevoke.bind(this)
+            this.registrationSettingsGet = this.registrationSettingsGet.bind(this)
+            this.registrationSettingsSave = this.registrationSettingsSave.bind(this)
             this.supplierApprovalDecide = this.supplierApprovalDecide.bind(this)
             this.supplierApprovalList = this.supplierApprovalList.bind(this)
             this.supplierApprovalSeen = this.supplierApprovalSeen.bind(this)
@@ -607,6 +621,62 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/customer-addresses/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.AddressUpdateResponse
+        }
+
+        /**
+         * Managers and admins only.
+         */
+        public async approvalChatAddPerson(threadId: string, params: controllers.ApprovalChatAddPersonRequest): Promise<{
+    chat: interfaces.ApprovalChat
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/approval-chats/${encodeURIComponent(threadId)}/people`, JSON.stringify(params))
+            return await resp.json() as {
+    chat: interfaces.ApprovalChat
+}
+        }
+
+        public async approvalChatGet(threadId: string): Promise<{
+    chat: interfaces.ApprovalChat
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/approval-chats/${encodeURIComponent(threadId)}`)
+            return await resp.json() as {
+    chat: interfaces.ApprovalChat
+}
+        }
+
+        public async approvalChatPost(threadId: string, params: controllers.ApprovalChatPostRequest): Promise<{
+    chat: interfaces.ApprovalChat
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/approval-chats/${encodeURIComponent(threadId)}/messages`, JSON.stringify(params))
+            return await resp.json() as {
+    chat: interfaces.ApprovalChat
+}
+        }
+
+        /**
+         * Managers and admins only.
+         */
+        public async approvalChatRemovePerson(threadId: string, userId: string): Promise<{
+    chat: interfaces.ApprovalChat
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/approval-chats/${encodeURIComponent(threadId)}/people/${encodeURIComponent(userId)}`)
+            return await resp.json() as {
+    chat: interfaces.ApprovalChat
+}
+        }
+
+        public async approvalChatUnread(): Promise<{
+    chats: interfaces.ApprovalChatUnread[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/approval-chats/unread`)
+            return await resp.json() as {
+    chats: interfaces.ApprovalChatUnread[]
+}
         }
 
         public async aresLookup(ico: string): Promise<interfaces.AresResult> {
@@ -895,6 +965,87 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/notes`)
             return await resp.json() as controllers.NoteListResponse
+        }
+
+        public async publicRegistrationAres(token: string, ico: string): Promise<interfaces.AresResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/company-registration/${encodeURIComponent(token)}/ares/${encodeURIComponent(ico)}`)
+            return await resp.json() as interfaces.AresResult
+        }
+
+        public async publicRegistrationAresSearch(token: string, params: controllers.PublicRegistrationSearchRequest): Promise<{
+    companies: interfaces.AresSearchHit[]
+    tooMany: boolean
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                name: params.name,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/company-registration/${encodeURIComponent(token)}/ares-search`, undefined, {query})
+            return await resp.json() as {
+    companies: interfaces.AresSearchHit[]
+    tooMany: boolean
+}
+        }
+
+        public async publicRegistrationForm(token: string): Promise<{
+    form: interfaces.PublicRegistrationForm
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/company-registration/${encodeURIComponent(token)}`)
+            return await resp.json() as {
+    form: interfaces.PublicRegistrationForm
+}
+        }
+
+        public async publicRegistrationSubmit(token: string, params: controllers.PublicRegistrationSubmitRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/public/company-registration/${encodeURIComponent(token)}`, JSON.stringify(params))
+        }
+
+        /**
+         * A new link. The answer is the only time the URL is known.
+         */
+        public async registrationLinkCreate(params: controllers.RegistrationLinkCreateRequest): Promise<{
+    url: string
+    link: interfaces.RegistrationLinkItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/registration-links`, JSON.stringify(params))
+            return await resp.json() as {
+    url: string
+    link: interfaces.RegistrationLinkItem
+}
+        }
+
+        public async registrationLinkList(): Promise<{
+    links: interfaces.RegistrationLinkItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/registration-links`)
+            return await resp.json() as {
+    links: interfaces.RegistrationLinkItem[]
+}
+        }
+
+        public async registrationLinkRevoke(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/customers/registration-links/${encodeURIComponent(id)}`)
+        }
+
+        public async registrationSettingsGet(): Promise<interfaces.RegistrationSettings> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/registration-settings`)
+            return await resp.json() as interfaces.RegistrationSettings
+        }
+
+        /**
+         * Managers and admins only.
+         */
+        public async registrationSettingsSave(params: controllers.RegistrationSettingsSaveRequest): Promise<interfaces.RegistrationSettings> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customers/registration-settings`, JSON.stringify(params))
+            return await resp.json() as interfaces.RegistrationSettings
         }
 
         /**
@@ -2406,6 +2557,12 @@ export namespace shipments {
             this.documentChangeRequestList = this.documentChangeRequestList.bind(this)
             this.documentChangeRequestSeen = this.documentChangeRequestSeen.bind(this)
             this.documentChangeRequestsOfShipment = this.documentChangeRequestsOfShipment.bind(this)
+            this.importInstructionsApprove = this.importInstructionsApprove.bind(this)
+            this.importInstructionsCancelLink = this.importInstructionsCancelLink.bind(this)
+            this.importInstructionsCreateLink = this.importInstructionsCreateLink.bind(this)
+            this.importInstructionsGet = this.importInstructionsGet.bind(this)
+            this.importInstructionsReject = this.importInstructionsReject.bind(this)
+            this.importInstructionsWaiting = this.importInstructionsWaiting.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
@@ -2414,6 +2571,8 @@ export namespace shipments {
             this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
             this.masterJobTracking = this.masterJobTracking.bind(this)
             this.masterJobUpdate = this.masterJobUpdate.bind(this)
+            this.publicImportInstructionsForm = this.publicImportInstructionsForm.bind(this)
+            this.publicImportInstructionsSubmit = this.publicImportInstructionsSubmit.bind(this)
             this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
@@ -2820,6 +2979,55 @@ export namespace shipments {
 }
         }
 
+        public async importInstructionsApprove(shipmentId: string, params: controllers.ImportInstructionsApproveRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions/approve`, JSON.stringify(params))
+        }
+
+        public async importInstructionsCancelLink(shipmentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions`)
+        }
+
+        /**
+         * A new link. The answer is the only time the URL is known.
+         */
+        public async importInstructionsCreateLink(shipmentId: string): Promise<{
+    url: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions`)
+            return await resp.json() as {
+    url: string
+}
+        }
+
+        public async importInstructionsGet(shipmentId: string): Promise<{
+    state: interfaces.ImportInstructionState | null
+    askable: boolean
+    canAsk: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions`)
+            return await resp.json() as {
+    state: interfaces.ImportInstructionState | null
+    askable: boolean
+    canAsk: boolean
+}
+        }
+
+        public async importInstructionsReject(shipmentId: string, params: controllers.ImportInstructionsRejectRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions/reject`, JSON.stringify(params))
+        }
+
+        public async importInstructionsWaiting(): Promise<{
+    waiting: interfaces.ImportInstructionWaiting[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/import-instructions/waiting`)
+            return await resp.json() as {
+    waiting: interfaces.ImportInstructionWaiting[]
+}
+        }
+
         /**
          * Replaces the master BL's containers and their house assignments, then copies
          * each house's assigned containers onto it.
@@ -2892,6 +3100,20 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/master-jobs/${encodeURIComponent(masterJobId)}`, JSON.stringify(params))
             return await resp.json() as controllers.MasterJobUpdateResponse
+        }
+
+        public async publicImportInstructionsForm(token: string): Promise<{
+    form: interfaces.PublicImportInstructionForm
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/import-instructions/${encodeURIComponent(token)}`)
+            return await resp.json() as {
+    form: interfaces.PublicImportInstructionForm
+}
+        }
+
+        public async publicImportInstructionsSubmit(token: string, params: controllers.PublicImportInstructionsSubmitRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/public/import-instructions/${encodeURIComponent(token)}`, JSON.stringify(params))
         }
 
         /**
@@ -6311,6 +6533,14 @@ export namespace controllers {
         body?: string
     }
 
+    export interface ApprovalChatAddPersonRequest {
+        userId: string
+    }
+
+    export interface ApprovalChatPostRequest {
+        text: string
+    }
+
     export interface AresSearchRequest {
         /**
          * Part of the company name; at least 3 characters.
@@ -8194,6 +8424,17 @@ export namespace controllers {
         fileName: string
     }
 
+    export interface ImportInstructionsApproveRequest {
+        /**
+         * As edited in the preview.
+         */
+        answers: interfaces.ImportInstructionAnswers
+    }
+
+    export interface ImportInstructionsRejectRequest {
+        reason: string
+    }
+
     export interface ImportQuoteRequest {
         /**
          * The whole reference of a sales quote, variant suffix included: QCZ20261010001-2 is not QCZ20261010001.
@@ -8830,6 +9071,44 @@ export namespace controllers {
         preview: interfaces.InvoicePreviewItem
     }
 
+    export interface PublicImportInstructionsSubmitRequest {
+        /**
+         * Must be true: the form's tick box.
+         */
+        confirmed: boolean
+
+        answers: interfaces.ImportInstructionAnswers
+    }
+
+    export interface PublicRegistrationSearchRequest {
+        name: string
+    }
+
+    export interface PublicRegistrationSubmitRequest {
+        /**
+         * Must be true: the form's tick box.
+         */
+        termsAccepted: boolean
+
+        /**
+         * The web address of the terms the form showed; refused when a manager changed them since.
+         */
+        termsUrl?: string
+
+        /**
+         * ISO 3166-1 alpha-2; CZ is read from ARES by its IČO.
+         */
+        country: string
+        ico?: string
+        companyName?: string
+        registrationNumber?: string
+        vatId?: string
+        street?: string
+        city?: string
+        postalCode?: string
+        contact: interfaces.CustomerContactRequest
+    }
+
     export interface PublicTransportOrderPodRequest {
         fileName: string
         /**
@@ -9024,6 +9303,19 @@ export namespace controllers {
 
     export interface RatesOnRequest {
         date?: IsoDate
+    }
+
+    export interface RegistrationLinkCreateRequest {
+        roles: interfaces.CustomerRole[]
+        /**
+         * Who the link is for, as a reminder.
+         */
+        label?: string
+    }
+
+    export interface RegistrationSettingsSaveRequest {
+        termsName: string
+        termsUrl: string
     }
 
     export interface ReleaseHouseBolResponse {
@@ -11892,6 +12184,56 @@ export namespace interfaces {
 
     export type AdrPackingGroup = "I" | "II" | "III"
 
+    export interface ApprovalChat {
+        threadId: string
+        companyName: string
+        messages: ApprovalChatMessage[]
+        people: ApprovalChatPerson[]
+        /**
+         * Managers bring others in.
+         */
+        canAddPeople: boolean
+    }
+
+    export interface ApprovalChatMessage {
+        id: string
+        /**
+         * "" for what the system says itself.
+         */
+        author: string
+
+        isSystem: boolean
+        mine: boolean
+        text: string
+        /**
+         * ISO.
+         */
+        at: string
+    }
+
+    export interface ApprovalChatPerson {
+        userId: string
+        name: string
+        /**
+         * The one whose link or request this is.
+         */
+        isRequester: boolean
+    }
+
+    export interface ApprovalChatUnread {
+        threadId: string
+        companyName: string
+        /**
+         * 0 when the user was just added to a chat nobody has written in.
+         */
+        unread: number
+
+        /**
+         * ISO.
+         */
+        latestAt: string
+    }
+
     export interface AresResult {
         ico: string
         dic: string
@@ -13371,6 +13713,11 @@ export namespace interfaces {
          * the part was posted to the shipment
          */
         written: boolean
+
+        /**
+         * the shipment is billed: a real cost it has stays, Replace or not (lib/billedLock)
+         */
+        billed: boolean
     }
 
     /**
@@ -15421,6 +15768,125 @@ export namespace interfaces {
         country: "CZ"
     }
 
+    /**
+     * What the customer filled in; the sections of the paper form. Every text "" when left empty.
+     */
+    export interface ImportInstructionAnswers {
+        /**
+         * 2 a) release for free circulation, b) T1 transit, c) customs warehousing or another procedure.
+         */
+        procedure: "" | "free_circulation" | "t1" | "other"
+
+        bank: string
+        accountNumber: string
+        t1Office: string
+        otherProcedure: string
+        /**
+         * 3. Combined Nomenclature code.
+         */
+        tariffCode: string
+
+        /**
+         * 4.
+         */
+        description: string
+
+        whatIsIt: string
+        madeOf: string
+        usedFor: string
+        /**
+         * 5. Only if delivery by our vehicle is required.
+         */
+        deliveryAddress: string
+
+        deliveryContact: string
+        deliveryPhone: string
+        /**
+         * 6.
+         */
+        billingAddress: string
+
+        eori: string
+        companyId: string
+        vatId: string
+        /**
+         * Who confirmed it.
+         */
+        name: string
+
+        telephone: string
+    }
+
+    /**
+     * One answer the reviewer changed before approving: what the customer sent, and what was approved.
+     */
+    export interface ImportInstructionChange {
+        field: "procedure" | "bank" | "accountNumber" | "t1Office" | "otherProcedure" | "tariffCode" | "description" | "whatIsIt" | "madeOf" | "usedFor" | "deliveryAddress" | "deliveryContact" | "deliveryPhone" | "billingAddress" | "eori" | "companyId" | "vatId" | "name" | "telephone"
+        label: string
+        sent: string
+        approved: string
+    }
+
+    export interface ImportInstructionShipmentValues {
+        customsProcedure: string
+        customsOffice: string
+        hsCode: string
+        deliveryAddress: string
+    }
+
+    /**
+     * A shipment's latest Import Instructions as the desk sees them. The link itself can't be told again.
+     */
+    export interface ImportInstructionState {
+        status: "open" | "submitted" | "approved" | "rejected"
+        /**
+         * The link ran out before anybody filled it in.
+         */
+        expired: boolean
+
+        createdBy: string
+        createdAt: string
+        expiresAt: string
+        submittedAt: string | null
+        /**
+         * What the customer confirmed, as sent.
+         */
+        answers: ImportInstructionAnswers | null
+
+        /**
+         * What was approved, as the reviewer left it; null until approved.
+         */
+        approvedAnswers: ImportInstructionAnswers | null
+
+        /**
+         * What the reviewer changed of the customer's answers; [] when nothing or not approved yet.
+         */
+        changes: ImportInstructionChange[]
+
+        decidedBy: string
+        decidedAt: string | null
+        reason: string
+        /**
+         * Whether this user may answer or cancel it: whoever may change the shipment's details.
+         */
+        canAnswer: boolean
+
+        /**
+         * What the shipment holds now, to compare.
+         */
+        onShipment: ImportInstructionShipmentValues
+    }
+
+    /**
+     * Completed forms waiting for the user: the bell.
+     */
+    export interface ImportInstructionWaiting {
+        shipmentId: string
+        jobNumber: string
+        submittedAt: string
+        filledBy: string
+    }
+
     export interface ImportRunItem {
         id: string
         startedAt: string
@@ -16396,6 +16862,12 @@ export namespace interfaces {
          * Selling rows of the split that differ from it but stay as they are, being on an issued invoice
          */
         sellingOnInvoices: number
+
+        /**
+         * The billed shipments (an issued invoice not credited) whose rows differ from the split: processing
+         * leaves them as they are, buying and selling, until the invoice is credited
+         */
+        billedKept: string[]
     }
 
     /**
@@ -17297,6 +17769,31 @@ export namespace interfaces {
         findings?: string[]
     }
 
+    export interface PublicImportInstructionForm {
+        reference: string
+        prefill: {
+            procedure?: "" | "free_circulation" | "t1" | "other"
+            bank?: string
+            accountNumber?: string
+            t1Office?: string
+            otherProcedure?: string
+            tariffCode?: string
+            description?: string
+            whatIsIt?: string
+            madeOf?: string
+            usedFor?: string
+            deliveryAddress?: string
+            deliveryContact?: string
+            deliveryPhone?: string
+            billingAddress?: string
+            eori?: string
+            companyId?: string
+            vatId?: string
+            name?: string
+            telephone?: string
+        }
+    }
+
     /**
      * One step on the customer's page.
      */
@@ -17309,6 +17806,14 @@ export namespace interfaces {
         actual: string | null
         detail: string
         state: "done" | "next" | "open"
+    }
+
+    /**
+     * What the public form needs to show. Nothing about who created the link or for whom.
+     */
+    export interface PublicRegistrationForm {
+        termsName: string
+        termsUrl: string
     }
 
     /**
@@ -18346,6 +18851,34 @@ export namespace interfaces {
          * had an invoice, Invoicing is numbering one, or it is marked Invoiced.
          */
         keptInvoiced: string[]
+    }
+
+    /**
+     * A link that can still be used, as the desk sees it. The URL itself can't be told again.
+     */
+    export interface RegistrationLinkItem {
+        id: string
+        label: string
+        roles: CustomerRole[]
+        createdBy: string
+        createdByUserId: string
+        /**
+         * ISO.
+         */
+        createdAt: string
+
+        /**
+         * ISO.
+         */
+        expiresAt: string
+    }
+
+    /**
+     * What the registration form calls the terms and where they are read.
+     */
+    export interface RegistrationSettings {
+        termsName: string
+        termsUrl: string
     }
 
     export interface ResolvedRate {
@@ -19585,6 +20118,33 @@ export namespace interfaces {
      */
     export interface SupplierApprovalItem {
         customerId: string
+        /**
+         * What the answer, the chat and "seen" go by: the company, or a registration of one already in the database.
+         */
+        threadId: string
+
+        /**
+         * It came through a registration link.
+         */
+        registered: boolean
+
+        /**
+         * Registered, but the company was already in the Customer Database.
+         */
+        alreadyInDatabase: boolean
+
+        /**
+         * That company's own name in the Customer Database (what was typed on the form may name another); "" otherwise.
+         */
+        matchedCompanyName: string
+
+        /**
+         * What it accepted on the registration form; "" and null when it did not register.
+         */
+        termsName: string
+
+        termsUrl: string
+        termsAcceptedAt: string | null
         companyName: string
         ico: string
         dic: string

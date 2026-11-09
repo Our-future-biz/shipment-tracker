@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Input, Button, Popconfirm, Space } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
+import type { Messages } from "@/lib/toast";
 import { useGeneratePickupPin, useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
 import { APIError } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
@@ -43,7 +43,7 @@ function storedRows(sectionData: unknown): { tripRows: PickupRowData[]; ownRows:
   }
 }
 
-export function PickupSection({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
+export function PickupSection({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: Messages; readOnly?: boolean }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
   const generate = useGeneratePickupPin(ownerId);
   const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;

@@ -17,7 +17,7 @@ export interface SellingDifference {
   amount: number;
 }
 
-const signed = (n: number, currency: string) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${roundToStep(Math.abs(n), 0.01).toLocaleString("en-US").replace(/,/g, " ")} ${currency}`;
+const signed = (n: number, currency: string) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${roundToStep(Math.abs(n), 0.01).toLocaleString("en-US")} ${currency}`;
 
 /** Records the difference lines of a costs push on the row's consignment; never throws for a consignment that is gone. */
 export async function recordSellingDifferences(row: Pick<TruckingOutboxRecord, "companyId" | "consignmentId">, differences: SellingDifference[] | undefined): Promise<number> {

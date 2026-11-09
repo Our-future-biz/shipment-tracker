@@ -49,6 +49,7 @@ import { ClaimsTab } from "./tabs/ClaimsTab";
 import { CostsTab } from "./tabs/CostsTab";
 import { InvoicePanel } from "@/app/invoicing/_components/InvoicePanel";
 import { AppModal } from "@/components/AppModal";
+import { BackLink } from "@/components/BackLink";
 import { useCostsData } from "./tabs/useCostsData";
 import { money } from "./tabs/costsCalc";
 import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
@@ -372,7 +373,7 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
   const [editing, setEditing] = useState(false);
   return (
     <div className={ROW_TOP}>
-      <span className={LABEL_TOP}>Stackability</span>
+      <span className={LABEL_TOP}>Cargo Stackability</span>
       {editing ? (
         <Select
           size="small"
@@ -1268,9 +1269,9 @@ export function ShipmentDetailContent() {
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
       <div className="bg-white border-b border-slate-200 px-4 md:px-6 pt-3.5 pb-0">
-        {/* Top row: the actions, all one height and look, on the right. The way back to the
-            list is the sidebar's Shipments item. */}
-        <div className="flex items-center justify-end gap-x-6 gap-y-2 flex-wrap">
+        {/* Top row: the way back to the grid on the left, the actions, all one height and look, on the right. */}
+        <div className="flex items-center justify-between gap-x-6 gap-y-2 flex-wrap">
+          <BackLink href="/shipments">Shipments</BackLink>
           <div className="flex items-center gap-2 flex-wrap">
             {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
                 to its page. A shipment without one may still carry the reference its costs were
@@ -1388,7 +1389,6 @@ export function ShipmentDetailContent() {
                     { key: "loadType", label: "Load Type" },
                     { key: "serviceType", label: "Service Type" },
                     { key: "customerReference", label: "Customer Reference" },
-                    { key: "salesNumber", label: "Sales Reference" },
                     { key: "serviceName", label: "Service Name" },
                     { key: "customer", label: "Customer", ro: true },
                     // Picked from the customer's contacts (the contact cell), with its card on hover.
@@ -1700,6 +1700,9 @@ export function ShipmentDetailContent() {
 
               </div>
 
+              {/* CARGO & COMMERCIAL */}
+              <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+
               {/* QUOTE — full width, the money of the shipment */}
               <div className={CARD}>
                 {(() => {
@@ -1711,7 +1714,8 @@ export function ShipmentDetailContent() {
                   const validUntil = costsQuote?.validUntil ?? null;
                   const validity = validUntil ? (validUntil >= businessToday() ? "Ok" : "Check") : null;
                   const custom: Record<string, React.ReactNode> = {
-                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={costsQuoteRef} />,
+                    // The shipment's own Sales Reference; without one, the quote its costs were copied from.
+                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={salesNumber || costsQuoteRef} />,
                     selling: <RoRow key="selling" label="Total Selling Costs" value={amount(costs.totals.sellTotal)} />,
                     buying: <RoRow key="buying" label="Total Buying Costs" value={amount(costs.totals.buyTotal)} />,
                     profit: <RoRow key="profit" label="Profit" value={amount(costs.totals.sellTotal - costs.totals.buyTotal)} />,
@@ -1741,9 +1745,6 @@ export function ShipmentDetailContent() {
                   );
                 })()}
               </div>
-
-              {/* CARGO & COMMERCIAL */}
-              <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
 
               {/* BASIC INFORMATION — admin of the job, at the bottom */}
               <div className={CARD}>

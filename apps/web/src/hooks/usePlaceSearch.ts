@@ -1,7 +1,9 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { whereOfCode, type FoundByCode, type RouteWhere } from "@/lib/placeWhere";
+import { placeCodeOf } from "@/lib/places";
 
 const PLACES_KEY = "places";
 const AIRPORTS_KEY = "airports";
@@ -33,6 +35,51 @@ export const useTerminalSearch = (q: string, enabled = true) =>
     enabled: enabled && q.length >= 2,
     staleTime: Infinity,
   });
+
+// Asks for one code in the one list a code of its form comes from: the same requests the place
+// fields make, so what they already know is not asked again.
+function whereQuery(code: string) {
+  const airport = /^[A-Z]{3}$/.test(code);
+  const place = /^[A-Z]{2}[A-Z0-9]{3}$/.test(code);
+  return {
+    queryKey: [airport ? AIRPORTS_KEY : place ? PLACES_KEY : TERMINALS_KEY, code],
+    queryFn: (): Promise<FoundByCode> =>
+      airport ? api.auth.airportSearch({ q: code }) : place ? api.auth.placeSearch({ q: code }) : api.auth.terminalSearch({ q: code }),
+    staleTime: Infinity,
+  };
+}
+
+interface QuoteRoute {
+  origin?: string | null;
+  destination?: string | null;
+}
+
+// The route's places that have a code to ask by; older free text has none.
+const coded = ({ origin, destination }: QuoteRoute) =>
+  [origin, destination].flatMap((value) => {
+    const code = placeCodeOf(value);
+    return code ? [{ value: value!.trim(), code }] : [];
+  });
+
+const whereByValue = (places: ReturnType<typeof coded>, found: (FoundByCode | undefined)[]) =>
+  Object.fromEntries(places.map((p, i) => [p.value, whereOfCode(p.code, found[i] ?? {})]));
+
+/** Where a quote's Origin and Destination are. A place that can't be found just goes without it. */
+export function useRouteWhere(route: QuoteRoute): RouteWhere {
+  const places = coded(route);
+  const answers = useQueries({ queries: places.map((p) => whereQuery(p.code)) });
+  return { where: whereByValue(places, answers.map((a) => a.data)), isLoading: answers.some((a) => a.isLoading) };
+}
+
+/** The same, asked at the moment of need: for a quote known only once the user acts on it. */
+export function useFetchRouteWhere() {
+  const queryClient = useQueryClient();
+  return async (route: QuoteRoute): Promise<RouteWhere> => {
+    const places = coded(route);
+    const answers = await Promise.allSettled(places.map((p) => queryClient.fetchQuery(whereQuery(p.code))));
+    return { where: whereByValue(places, answers.map((a) => (a.status === "fulfilled" ? a.value : undefined))), isLoading: false };
+  };
+}
 
 /**
  * Counts a picked place, airport or terminal for the user (by its code), whose pickers list the

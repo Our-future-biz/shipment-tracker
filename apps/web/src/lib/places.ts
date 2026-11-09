@@ -37,6 +37,18 @@ export function placeCodeOf(value: string | null | undefined): string | null {
   return PLACE_RE.exec((value ?? "").trim())?.[1] ?? null;
 }
 
+/**
+ * What a machine reading takes as the Trade Direction of cargo going to a stored place: operations
+ * run from the Czech Republic, so there is an import and anywhere else an export. Null when the
+ * value doesn't say the country: not from the database, or an airport (its IATA code has none).
+ * Twin of apps/api/services/extraction/lib/tradeDirection.ts.
+ */
+export function tradeDirectionTo(destination: string | null | undefined): "Import" | "Export" | null {
+  const code = placeCodeOf(destination);
+  if (!code || /^[A-Z]{3}$/.test(code)) return null;
+  return code.startsWith("CZ") ? "Import" : "Export";
+}
+
 /** True when a non-empty value is not in the database's form, so the screen flags it. */
 export function isUnmatched(kind: GeoKind, value: string | null | undefined): boolean {
   const v = (value ?? "").trim();

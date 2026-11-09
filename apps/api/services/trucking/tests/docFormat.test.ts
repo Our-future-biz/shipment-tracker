@@ -20,9 +20,9 @@ describe("labels", () => {
 });
 
 describe("numbers", () => {
-  it("formats Czech style with a space and a decimal comma", () => {
-    expect(formatQuantity(1250.5, "kg", "cs")).toBe("1 250,5 kg");
-    expect(formatNumber(1234567.891, "both")).toBe("1 234 567,89");
+  it("writes figures the one way in Czech too", () => {
+    expect(formatQuantity(1250.5, "kg", "cs")).toBe("1,250.5 kg");
+    expect(formatNumber(1234567.891, "both")).toBe("1,234,567.89");
   });
 
   it("formats English style with a comma and a decimal point", () => {
@@ -30,16 +30,16 @@ describe("numbers", () => {
   });
 
   it("drops trailing zeros and respects the decimals asked for", () => {
-    expect(formatNumber(13.6, "cs")).toBe("13,6");
+    expect(formatNumber(13.6, "cs")).toBe("13.6");
     expect(formatNumber(33, "cs")).toBe("33");
-    expect(formatNumber(2.4567, "cs", 3)).toBe("2,457");
-    expect(formatNumber(-1500, "cs")).toBe("-1 500");
+    expect(formatNumber(2.4567, "cs", 3)).toBe("2.457");
+    expect(formatNumber(-1500, "cs")).toBe("-1,500");
     expect(formatNumber(-0.001, "cs")).toBe("0");
     expect(formatNumber(Number.NaN, "cs")).toBe("0");
   });
 
   it("prints money with two decimals", () => {
-    expect(formatMoney(12500, "CZK", "cs")).toBe("12 500,00 CZK");
+    expect(formatMoney(12500, "CZK", "cs")).toBe("12,500.00 CZK");
     expect(formatMoney(980.5, "EUR", "en")).toBe("980.50 EUR");
   });
 });

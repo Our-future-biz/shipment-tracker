@@ -178,7 +178,7 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
     const waited = `Discount waiting ${officeTime(mi.waitedOfficeMinutes)}${mi.needsBy ? ` · needs it by ${stampText(mi.needsBy)}` : ""}`;
     out.push(mi.escalated ? urgent(0, waited) : attention(9, waited));
     if (mi.askedMarginCzk !== null && q.marginCzk !== null && q.marginCzk < mi.askedMarginCzk - CHANGED_TOLERANCE_CZK) {
-      out.push(urgent(0, `Changed since asked · margin now ${Math.round(q.marginCzk).toLocaleString("en-US").replace(/,/g, " ")} CZK`));
+      out.push(urgent(0, `Changed since asked · margin now ${Math.round(q.marginCzk).toLocaleString("en-US")} CZK`));
     }
   }
 

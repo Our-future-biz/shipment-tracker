@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { billingStatusFor } from "../lib/roadBilling";
-import { statusForDirection } from "../lib/fieldDefaults";
+import { startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
 
 describe("the Billing step of a road job", () => {
   it("keeps the status's own direction, else the trade direction, else DOM (domestic)", () => {
@@ -27,5 +27,11 @@ describe("a domestic job's status when the Trade Direction changes", () => {
     expect(statusForDirection("Billed [DOM]", "Import")).toBe("Billed [IMP]");
     expect(statusForDirection("Pre-Alert Sent [EXP]", "Domestic")).toBe("Booking Confirmation Pending [DOM]");
     expect(statusForDirection("Billing [DOM]", "Domestic")).toBeUndefined();
+  });
+
+  it("starts a shipment without a status on its direction's side, and leaves it blank with no direction", () => {
+    expect(startingStatusFor("Import")).toBe("Booking Confirmation Pending [IMP]");
+    expect(startingStatusFor("Export")).toBe("Booking Confirmation Pending [EXP]");
+    expect(startingStatusFor("")).toBeUndefined();
   });
 });

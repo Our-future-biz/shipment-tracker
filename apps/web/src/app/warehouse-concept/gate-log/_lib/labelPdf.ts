@@ -10,7 +10,7 @@ import { businessToday } from "@/lib/date";
 const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "");
 
 const num = (v: number, digits = 0) =>
-  v ? v.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits }).replace(/,/g, " ") : "";
+  v ? v.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits }) : "";
 
 /** Most labels in one print (all positions together). */
 export const MAX_LABELS = 500;

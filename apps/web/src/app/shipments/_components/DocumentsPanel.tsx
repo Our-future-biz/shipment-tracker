@@ -2,10 +2,12 @@
 
 import { useCanManageDocuments } from "@/lib/auth/AuthContext";
 import { useRef, useState } from "react";
-import { Button, Input, Modal, Tooltip, message } from "antd";
+import { Button, Input, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 import { api, apiFileUrl } from "@/lib/api";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 import { guessDocumentType } from "@/lib/documentTypes";
@@ -18,13 +20,11 @@ import { HINT, ICON_BTN_GHOST } from "@/styles/ui";
 export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
   // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
   const canManageDocuments = useCanManageDocuments();
-  const [messageApi, contextHolder] = message.useMessage();
+  const messageApi = useMessages();
   const [search, setSearch] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
-  // Preview is rendered from a blob of the file, not by opening the API URL in a tab:
-  // ad blockers tend to block that URL outright (ERR_BLOCKED_BY_CLIENT).
-  const [preview, setPreview] = useState<{ name: string; url: string; type: string } | null>(null);
+  const filePreview = useFilePreview();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { attachments, isLoading, refresh } = useShipmentAttachments(shipmentId);
@@ -63,22 +63,6 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
     else messageApi.success(picked.length === 1 ? "Document added" : `${picked.length} documents added`);
   };
 
-  const openPreview = async (f: { fileName: string; fileType: string; contentUrl: string }) => {
-    try {
-      const resp = await fetch(apiFileUrl(f.contentUrl));
-      if (!resp.ok) throw new Error(String(resp.status));
-      const blob = await resp.blob();
-      setPreview({ name: f.fileName, url: URL.createObjectURL(blob), type: f.fileType });
-    } catch {
-      messageApi.error("Could not open the document — try downloading it instead");
-    }
-  };
-
-  const closePreview = () => {
-    if (preview) URL.revokeObjectURL(preview.url);
-    setPreview(null);
-  };
-
   return (
     <div
       className={`flex flex-col h-full ${dragOver ? "bg-indigo-50" : "bg-white"}`}
@@ -93,7 +77,6 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
         void upload(e.dataTransfer.files);
       }}
     >
-      {contextHolder}
       <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => void upload(e.target.files).finally(() => (e.target.value = ""))} />
 
       <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-200">
@@ -141,7 +124,7 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
               <button
                 type="button"
                 aria-label={`View ${f.fileName}`}
-                onClick={() => void openPreview(f)}
+                onClick={() => void filePreview.open(f)}
                 className={ICON_BTN_GHOST}
               >
                 <EyeOutlined />
@@ -173,17 +156,7 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
         ))}
       </div>
 
-      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" classNames={{ body: "!p-0 !h-[78vh]" }} destroyOnHidden>
-        {preview &&
-          (preview.type.startsWith("image/") ? (
-            <div className="h-full overflow-auto bg-slate-100 flex items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={preview.url} alt={preview.name} className="max-w-full max-h-full object-contain" />
-            </div>
-          ) : (
-            <iframe src={preview.url} title={preview.name} className="w-full h-full border-0" />
-          ))}
-      </Modal>
+      {filePreview.modal}
 
       <div className={`${HINT} shrink-0 px-4 py-2 border-t border-slate-200`}>
         {uploading ? "Uploading…" : dragOver ? "Drop the files to attach them" : `${files.length} file${files.length === 1 ? "" : "s"} · drop files anywhere in this panel`}

@@ -25,7 +25,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { CopyButton } from "@/components/CopyButton";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { InfoRow } from "@/components/InfoRow";
-import { KpiTile, type KpiTone } from "@/components/KpiTile";
+import { KPI_TONE_CLASS, KpiTile, type KpiTone } from "@/components/KpiTile";
 import { Pill } from "@/components/Pill";
 import { LINK_CLASS } from "@/components/linkClass";
 import { PillTabs } from "@/components/SectionCard";
@@ -45,11 +45,12 @@ import { fmtMoney, moneyInputParser } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import { useRouteWhere } from "@/hooks/usePlaceSearch";
 import { NewSupplierFromQuote } from "@/components/SupplierPicker";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
 import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
-import { supplierSendBlock } from "../../_lib/supplierApproval";
-import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine } from "../../_lib/types";
+import { customerSendBlock, supplierSendBlock } from "../../_lib/supplierApproval";
+import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine, TariffUpdate } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
 import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shipmentLink";
@@ -91,9 +92,21 @@ import { buyingBasis, buyingQuantity, counterpartIndex, lineRemovals, newPairId,
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
-import { fclChanges, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
+import { fclChanges, fclProfitBlock, usesFclPricing, withContainerTypes, withFclPricing } from "../../_lib/fclPricing";
 import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
 import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
+import {
+  approvalLineOf,
+  isOfferOfUpdate,
+  linesWaitingForRate,
+  roadForToday,
+  tariffUpdateBlock,
+  tariffUpdateChange,
+  tariffUpdateSelling,
+  waitingTariffUpdates,
+  withApprovedRate,
+  withoutTariffUpdate,
+} from "../../_lib/tariffUpdates";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
@@ -214,6 +227,7 @@ export function QuoteWorkflow() {
   // The quote's chat (shared by the original and all its revisions); ?chat=1 (a mention under the
   // bell) opens it.
   const [chatOpen, setChatOpen] = useState(false);
+  const [approvingRate, setApprovingRate] = useState<string | null>(null);
   const chatUnread = useQuoteChatUnread().get(quoteThreadOf(ref)) ?? 0;
   useEffect(() => {
     if (searchParams.get("chat") !== "1") return;
@@ -344,12 +358,15 @@ export function QuoteWorkflow() {
   // the cargo has it, then the lines priced by their basis.
   // A Sea FCL quote's selling lines are then made from its buying lines and profit (fclPricing.ts) -
   // only once today's rates are known, as they convert each charge's profit into its currency.
-  const derived = (next: SalesQuoteData): Partial<SalesQuoteData> => {
+  const derived = (changed: SalesQuoteData): Partial<SalesQuoteData> => {
+    // Rates per container stay with their size, whatever is added to the cargo.
+    const sized = withContainerTypes(changed) ?? {};
+    const next = { ...changed, ...sized };
     const overweight = withOverweight(next) ?? {};
-    const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
+    const based = { ...sized, ...overweight, ...withLineBasis({ ...next, ...overweight }) };
     const priced = { ...next, ...based };
     // An open quote's blocks are sold at full fives (fclPricing.ts SELLING_ROUNDS_TO).
-    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange, { roundUp: true }) : null;
+    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange, { roundUp: true, open: true }) : null;
     return fcl ? { ...based, ...fclChanges(fcl, priced) } : based;
   };
   const set = (patch: Partial<SalesQuoteData>) => {
@@ -396,8 +413,7 @@ export function QuoteWorkflow() {
   // "Price from tariff": the server prices the road input at the picked level and haulier, writes
   // the trucking lines and the road pricing, and answers with the quote. Those are document keys
   // the page edits too, so the stored quote is read again whole rather than merged.
-  const priceRoad = async (pick: RatePick) => {
-    const road = draft.road ?? roadInputDefaults(draft);
+  const priceRoad = async (pick: RatePick, road: NonNullable<SalesQuoteData["road"]> = draft.road ?? roadInputDefaults(draft)) => {
     const refused = await act(
       (expectedDataVersion) => api.quotes.salesQuoteRoadPrice(ref, { road, ...pick, expectedDataVersion }),
       { versioned: true },
@@ -558,14 +574,17 @@ export function QuoteWorkflow() {
   // sent. Shown once today's rates are known; until then (or for want of a rate) the lines as they are.
   const fclLayout = usesFclPricing(draft, quoteClosed);
   const fclView = useMemo(() => {
-    const fcl = fclLayout ? withFclPricing(draft, exchange.rates, exchange) : null;
+    const fcl = fclLayout ? withFclPricing(draft, exchange.rates, exchange, { open: !quoteClosed }) : null;
     return fcl && { ...draft, ...fcl };
-  }, [fclLayout, draft, exchange]);
+  }, [fclLayout, draft, exchange, quoteClosed]);
   // Buying lines priced by a tariff for another cargo weight than Cargo details has now: marked, to recheck.
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
   // And those priced from a tariff in another Trade Direction than the quote has now: picked again before sending.
   const otherDirection = quoteClosed ? [] : linesForOtherDirection(draft);
-  const toRecheck = (index: number) => recheck.includes(index) || otherDirection.includes(index);
+  // And those whose lapsed tariff has a new rate waiting for approval.
+  const waitingUpdates = quoteClosed ? [] : waitingTariffUpdates(draft);
+  const waitingRate = quoteClosed ? [] : linesWaitingForRate(draft);
+  const toRecheck = (index: number) => recheck.includes(index) || otherDirection.includes(index) || waitingRate.includes(index);
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
   const missingFee = quote && !quoteClosed ? missingWarehouseFee(draft) : null;
@@ -616,8 +635,10 @@ export function QuoteWorkflow() {
   const oceanCount = useOceanOffers(
     !quoteClosed && draft.serviceType === "Sea FCL" && (draft.buyingLines ?? []).some(isOceanFreightLine) ? oceanOffersRequest(oceanRouteOf(draft, businessToday())) : null,
   );
+  // Where the route's places are: the quotation says it, as Routing does.
+  const routeWhere = useRouteWhere(draft);
   const printNow = () => {
-    const blocked = printQuote(ref, draft, exchange, company, people);
+    const blocked = printQuote(ref, draft, exchange, company, people, routeWhere);
     if (blocked) toast.error(blocked);
   };
   // Export PDF closes a quote that has not gone out yet: it is sent as it stands (Quoted), which
@@ -652,7 +673,7 @@ export function QuoteWorkflow() {
     }
     setModal(null);
     toast.success(`${ref} closed and marked as sent`);
-    const blocked = printQuote(ref, sent ?? draft, exchange, company, people, target);
+    const blocked = printQuote(ref, sent ?? draft, exchange, company, people, routeWhere, target);
     if (blocked) toast.error(blocked);
   };
   // A quote that can't go out is not e-mailed either: the server never sees a mail, so it is
@@ -783,9 +804,17 @@ export function QuoteWorkflow() {
   // And a buying line linked to a new supplier that waits for a manager's approval, or was declined, or
   // with a supplier only typed: the server refuses the sending too, this says it beforehand.
   // So does a line priced from a tariff in the other Trade Direction (a tariff prices only the directions it is for).
+  // And a Sea FCL quote with a container type that has no profit yet, a new tariff rate that waits for
+  // approval, or a customer that registered through a link and waits for a manager (or was declined).
   const sendBlocked =
     quote.sendBlocked ??
-    (quoteClosed ? null : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.byId) ?? otherDirectionBlock(draft)));
+    (quoteClosed
+      ? null
+      : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.byId) ??
+        otherDirectionBlock(draft) ??
+        tariffUpdateBlock(draft) ??
+        customerSendBlock(draft.customerId, supplierApprovals.byId) ??
+        (exchange.isLoading ? null : fclProfitBlock(fclView ?? draft, exchange.rates, exchange))));
   // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
   // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
   // out is e-mailed again as it was sent, whatever its margin says now.
@@ -866,12 +895,13 @@ export function QuoteWorkflow() {
   const toQuoteCurrency = (amount: number, currency: string) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange });
   // The buying lines after a pick, with the rows' React keys following them: the keys of the lines
   // an earlier pick made go, and the offer's further lines get new ones.
-  const putPick = (pick: TariffPick) => {
+  // `also`: what else changes with the lines, in the same change.
+  const putPick = (pick: TariffPick, also: Partial<SalesQuoteData> = {}) => {
     for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
     for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
     // The offer's lines are priced for the cargo weight and in the Trade Direction the quote has now.
     const picked = Array.from({ length: pick.count }, (_, k) => pick.at + k);
-    updateLines("buyingLines", stampDirection(stampPricedFor(pick.lines, picked, draft), picked, draft));
+    set({ ...also, buyingLines: stampDirection(stampPricedFor(pick.lines, picked, draft), picked, draft) });
   };
   // An offer picked under "Tariffs available" goes on the line it was opened from (see
   // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
@@ -910,6 +940,62 @@ export function QuoteWorkflow() {
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.freight, offer.currency)} freight${surcharges}`);
     const freight = pick.lines[pick.at];
     if (!fclLayout && freight && !(Number(before?.amount) > 0) && offerToSelling(freight, sellingLines)) setToSelling({ line: freight, index: pick.at });
+  };
+
+  // The new rate of a lapsed tariff, approved: the offer is asked for again as of today and put in the
+  // place of the old lines, each charge keeping the profit, "All in" tick and pairing it had
+  // (withApprovedRate), and the rate leaves the quote's waiting ones in the same change. Typed
+  // selling lines are left as they are and the user sees the new margin; a quote in the FCL layout
+  // sells each charge at its new buying plus the same profit.
+  const approveTariffUpdate = async (update: TariffUpdate) => {
+    const today = businessToday();
+    if (update.kind === "road") {
+      if (quoteClosed || !draft.roadPricing) return;
+      setApprovingRate(update.oldRef);
+      const refused = await priceRoad(
+        { serviceLevel: draft.roadPricing.serviceLevel, haulierCustomerId: draft.roadPricing.buy?.haulierCustomerId ?? null },
+        roadForToday(draft.road ?? roadInputDefaults(draft), today),
+      );
+      setApprovingRate(null);
+      if (refused) toast.error(refused);
+      return;
+    }
+    const freightOf = update.kind === "ocean" ? isOceanFreightLine : update.kind === "rail" ? isInlandHaulageLine : () => true;
+    const at = approvalLineOf(buyingLines, update, freightOf);
+    if (quoteClosed || at < 0) {
+      if (!quoteClosed) toast.error(`No buying line is priced from the old ${update.supplierName} rate any more`);
+      return;
+    }
+    const old = buyingLines.filter((l) => l.tariffRef === update.oldRef);
+    const settled = { tariffUpdates: withoutTariffUpdate(draft, update) };
+    const gone = () => toast.error(`The new ${update.supplierName} rate is no longer offered for this route: pick a tariff under Tariffs available`);
+    setApprovingRate(update.oldRef);
+    try {
+      if (update.kind === "ocean") {
+        const route = oceanRouteOf(draft, today);
+        const request = oceanOffersRequest(route);
+        const offer = request && (await api.tariffs.oceanOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
+        if (!offer) return gone();
+        putPick(withApprovedRate(withOceanOffer(buyingLines, at, offer, route, draft), old), settled);
+      } else if (update.kind === "rail") {
+        const route = railRouteOf(draft, today);
+        const request = railOffersRequest(route);
+        const offer = request && (await api.tariffs.railOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
+        if (!offer || !route.port) return gone();
+        putPick(withApprovedRate(withRailOffer(buyingLines, at, offer, route.port, route.direction, draft), old), settled);
+      } else {
+        const route = collectionRouteOf(draft, collectionHubs, today);
+        const request = collectionOffersRequest(route);
+        const offer = request && (await api.tariffs.collectionOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
+        if (!offer) return gone();
+        set({ ...settled, buyingLines: stampPricedFor(withCollectionOffer(buyingLines, at, offer, route), [at], draft) });
+      }
+      toast.success(`New ${update.supplierName} rate approved`);
+    } catch (err) {
+      toast.error(`Could not approve the new rate: ${apiErrorMessage(err)}`);
+    } finally {
+      setApprovingRate(null);
+    }
   };
 
   const linesOf = (side: LineSide) => (side === "buying" ? buyingLines : sellingLines);
@@ -1375,7 +1461,7 @@ export function QuoteWorkflow() {
             {packages.length === 0 ? (
               <LineBlockEmpty>No packages yet.</LineBlockEmpty>
             ) : (
-              <LineTable minWidthClass="min-w-[620px]">
+              <LineTable minWidthClass="min-w-[700px]">
                 <colgroup>
                   <col className="w-[76px]" />
                   <col />
@@ -1383,7 +1469,7 @@ export function QuoteWorkflow() {
                   <col className="w-[84px]" />
                   <col className="w-[84px]" />
                   <col className="w-[92px]" />
-                  <col className="w-16" />
+                  <col className="w-[144px]" />
                   <col className="w-10" />
                 </colgroup>
                 <thead>
@@ -1394,7 +1480,7 @@ export function QuoteWorkflow() {
                     <th scope="col" className={LINE_TH_CLASS}>W (cm)</th>
                     <th scope="col" className={LINE_TH_CLASS}>H (cm)</th>
                     <th scope="col" className={LINE_TH_CLASS}>Kg/each</th>
-                    <th scope="col" className={LINE_TH_CLASS}>Stack</th>
+                    <th scope="col" className={LINE_TH_CLASS}>Cargo Stackability</th>
                     <th scope="col" aria-label="Remove package" className={LINE_TH_CLASS} />
                   </tr>
                 </thead>
@@ -1564,6 +1650,20 @@ export function QuoteWorkflow() {
               onPrice={() => setModal("roadPrice")}
             />
           )}
+          {waitingUpdates.map((update) => (
+            <Alert
+              key={update.oldRef}
+              type="warning"
+              showIcon
+              message={update.kind === "road" ? `The road tariff "${update.supplierName}" has a new rate` : `The ${update.supplierName} tariff has a new rate`}
+              description={`${tariffUpdateChange(update)} ${update.kind === "road" ? "" : "The old tariff is no longer valid. "}${tariffUpdateSelling(update, fclLayout)} The quote can't be sent until you approve this or pick another tariff.`}
+              action={
+                <Button size="small" type="primary" loading={approvingRate === update.oldRef} onClick={() => void approveTariffUpdate(update)}>
+                  Approve new rate
+                </Button>
+              }
+            />
+          ))}
           {otherDirection.length > 0 && (
             <Alert
               type="warning"
@@ -1695,7 +1795,7 @@ export function QuoteWorkflow() {
             <KpiTile label="Buying" value={fmtMoney(totals.buying, totals.currency)} />
             <KpiTile label="Selling" value={fmtMoney(totals.selling, totals.currency)} />
             <KpiTile
-              label={totals.margin === null ? "Profit" : `Profit · ${totals.margin}%`}
+              label={<span className={isThinProfit(totals) ? KPI_TONE_CLASS.red : undefined}>{totals.margin === null ? "Profit" : `Profit · ${totals.margin}%`}</span>}
               value={fmtMoney(totals.profit, totals.currency)}
               tone={marginTone(totals)}
             />
@@ -2020,7 +2120,7 @@ export function QuoteWorkflow() {
         hrefOf={hrefOf}
         changingOwner={changingOwner}
         onChangeOwner={changeOwner}
-        price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} />}
+        price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} labelTone={isThinProfit(totals) ? "red" : undefined} />}
       />
 
       {/* ── Form and summary ── */}
@@ -2486,11 +2586,19 @@ function TariffTag({ tag }: { tag: LineTariffTag }) {
   );
 }
 
+// The margin under which a profit is too thin: its label says so in red.
+const THIN_MARGIN = 5;
+
+// A profit, but a thin one: the figure is no loss, so it stays black and its label is red.
+const isThinProfit = ({ profit, margin }: QuoteTotals) => profit > 0 && margin !== null && margin < THIN_MARGIN;
+
 // The colour of the profit: by the margin when there is selling to relate it to, otherwise only a
 // loss stands out.
-function marginTone({ profit, margin }: QuoteTotals): KpiTone | undefined {
+function marginTone(totals: QuoteTotals): KpiTone | undefined {
+  const { profit, margin } = totals;
   if (margin === null) return profit < 0 ? "red" : undefined;
-  return margin >= 15 ? "green" : margin >= 5 ? "amber" : "red";
+  if (isThinProfit(totals)) return undefined;
+  return margin >= 15 ? "green" : margin >= THIN_MARGIN ? "amber" : "red";
 }
 
 // The KG / CONTAINER field by where the cargo weight stands: no colour within the standard limit,

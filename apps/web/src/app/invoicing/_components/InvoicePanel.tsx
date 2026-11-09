@@ -35,7 +35,7 @@ import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
 import { isTruckingCost } from "@/lib/truckingCosts";
-import { moneyCz, round2 } from "@/lib/money";
+import { money, round2 } from "@/lib/money";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { SectionCard } from "@/components/SectionCard";
@@ -694,7 +694,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                           </td>
                           <td className={`${TD} text-right tabular-nums${muted}`}>{Number(l ? l.qty : t.row!.qty ?? 1) || 1}</td>
                           <td className={`${TD} text-right tabular-nums${muted}`}>
-                            {moneyCz(Number(l ? l.unitPrice : t.row!.amount))} {l ? l.unitCurrency : t.row!.currency}
+                            {money(Number(l ? l.unitPrice : t.row!.amount))} {l ? l.unitCurrency : t.row!.currency}
                           </td>
                           <td className={TD}>
                             {!l ? (
@@ -713,9 +713,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                               />
                             )}
                           </td>
-                          <td className={`${TD} text-right tabular-nums${muted}`}>{l ? moneyCz(Number(l.net)) : t.ticked ? "…" : EMPTY_CELL}</td>
-                          <td className={`${TD} text-right tabular-nums${muted}`}>{l ? moneyCz(vatOfLine(l)) : t.ticked ? "…" : EMPTY_CELL}</td>
-                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(round2(Number(l.net) + vatOfLine(l))) : t.ticked ? "…" : EMPTY_CELL}</td>
+                          <td className={`${TD} text-right tabular-nums${muted}`}>{l ? money(Number(l.net)) : t.ticked ? "…" : EMPTY_CELL}</td>
+                          <td className={`${TD} text-right tabular-nums${muted}`}>{l ? money(vatOfLine(l)) : t.ticked ? "…" : EMPTY_CELL}</td>
+                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? money(round2(Number(l.net) + vatOfLine(l))) : t.ticked ? "…" : EMPTY_CELL}</td>
                         </tr>
                       );
                     })}
@@ -738,16 +738,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                             VAT breakdown
                           </Button>
                         </td>
-                        <td className={`${TD_TOTAL} !text-right tabular-nums`}>{moneyCz(p.net)}</td>
-                        <td className={`${TD_TOTAL} !text-right tabular-nums`}>{moneyCz(p.vat)}</td>
+                        <td className={`${TD_TOTAL} !text-right tabular-nums`}>{money(p.net)}</td>
+                        <td className={`${TD_TOTAL} !text-right tabular-nums`}>{money(p.vat)}</td>
                         <td className={`${TD_TOTAL} !text-right tabular-nums !text-[14px] whitespace-nowrap`}>
-                          {moneyCz(p.gross)} {p.currency}
+                          {money(p.gross)} {p.currency}
                         </td>
                       </tr>
                       {foreign && (
                         <tr>
                           <td colSpan={8} className="px-2 pb-1 text-right tabular-nums text-[13px] text-slate-500">
-                            = {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)
+                            = {money(p.grossCzk)} CZK (VAT {money(p.vatCzk)} CZK)
                           </td>
                         </tr>
                       )}
@@ -786,10 +786,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                       {p.vatSummary.map((v) => (
                         <tr key={v.vatCode} className="tabular-nums">
                           <td className={TD}>{VAT_LABEL[v.vatCode] ?? v.vatCode}</td>
-                          <td className={`${TD} text-right`}>{moneyCz(v.base)}</td>
-                          <td className={`${TD} text-right`}>{moneyCz(v.vat)}</td>
-                          {foreign && <td className={`${TD} text-right`}>{moneyCz(v.baseCzk)}</td>}
-                          {foreign && <td className={`${TD} text-right`}>{moneyCz(v.vatCzk)}</td>}
+                          <td className={`${TD} text-right`}>{money(v.base)}</td>
+                          <td className={`${TD} text-right`}>{money(v.vat)}</td>
+                          {foreign && <td className={`${TD} text-right`}>{money(v.baseCzk)}</td>}
+                          {foreign && <td className={`${TD} text-right`}>{money(v.vatCzk)}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -829,7 +829,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
               </span>
               <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
                 <Button type="primary" icon={<SendOutlined />} disabled={!canIssue} onClick={() => setConfirmKey(newKey())} className="shrink-0 tabular-nums">
-                  {p && hasLines ? `Issue invoice · ${moneyCz(p.gross)} ${p.currency}` : "Issue invoice…"}
+                  {p && hasLines ? `Issue invoice · ${money(p.gross)} ${p.currency}` : "Issue invoice…"}
                 </Button>
               </Tooltip>
             </div>
@@ -902,7 +902,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                           </td>
                           <td className={`${TD} tabular-nums`}>{czDate(d.issueDate)}</td>
                           <td className={`${TD} text-right tabular-nums`}>{d.lines.length}</td>
-                          <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(d.grossCzk))}</td>
+                          <td className={`${TD} text-right tabular-nums font-medium`}>{money(Number(d.grossCzk))}</td>
                           <td className={`${TD} !pl-6 !pr-4`}>
                             <Pill tone={status.tone}>{status.label}</Pill>
                           </td>
@@ -927,10 +927,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                                         <td className={TD}>{l.description}</td>
                                         <td className={`${TD} text-right tabular-nums`}>{Number(l.qty)}</td>
                                         <td className={`${TD} text-right tabular-nums`}>
-                                          {moneyCz(Number(l.unitPrice))} {l.unitCurrency}
+                                          {money(Number(l.unitPrice))} {l.unitCurrency}
                                         </td>
                                         <td className={`${TD} !pl-6`}>{VAT_LABEL[l.vatCode] ?? l.vatCode}</td>
-                                        <td className={`${TD} text-right tabular-nums`}>{moneyCz(Number(l.net))}</td>
+                                        <td className={`${TD} text-right tabular-nums`}>{money(Number(l.net))}</td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -970,7 +970,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                       </td>
                       <td className={`${TD} !text-slate-500`}>{czDate(d.issueDate)}</td>
                       <td className={TD}>{d.customer.companyName}</td>
-                      <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(d.gross))} {d.currency}</td>
+                      <td className={`${TD} text-right tabular-nums font-medium`}>{money(Number(d.gross))} {d.currency}</td>
                       <td className={`${TD} text-right whitespace-nowrap`}>
                         <Button size="small" type="text" icon={<FilePdfOutlined />} loading={downloading === d.id} onClick={() => void download(d)}>
                           PDF
@@ -1004,8 +1004,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
           <div className="text-[13px] text-slate-700 flex flex-col gap-2">
             <p className="m-0">
               Issue a tax document to <strong>{p.customer?.companyName}</strong> for{" "}
-              <strong className="tabular-nums">{moneyCz(p.gross)} {p.currency}</strong>
-              {foreign && <> (= {moneyCz(p.grossCzk)} CZK)</>}, DUZP {czDate(p.duzp)}, due {czDate(p.dueDate)}.
+              <strong className="tabular-nums">{money(p.gross)} {p.currency}</strong>
+              {foreign && <> (= {money(p.grossCzk)} CZK)</>}, DUZP {czDate(p.duzp)}, due {czDate(p.dueDate)}.
             </p>
             {notReleasedWarning && <Alert type="warning" showIcon message={notReleasedWarning} />}
             <p className="m-0 text-slate-500">
@@ -1038,7 +1038,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
       >
         <div className="text-[13px] text-slate-700 flex flex-col gap-2">
           <p className="m-0">
-            Reverses the whole invoice ({creditTarget && <strong className="tabular-nums">{moneyCz(Number(creditTarget.doc.gross))} {creditTarget.doc.currency}</strong>}) with the same
+            Reverses the whole invoice ({creditTarget && <strong className="tabular-nums">{money(Number(creditTarget.doc.gross))} {creditTarget.doc.currency}</strong>}) with the same
             rates and VAT. The reason is printed on the credit note.
           </p>
           <Input.TextArea

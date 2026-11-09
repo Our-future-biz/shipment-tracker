@@ -9,9 +9,9 @@ import { chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { fmtMoney } from "@/lib/money";
 import { fmtQuantity } from "../_lib/fmtQuantity";
-import { isInAllIn, isProfitBasis, priceFclBlock, type FclBlock } from "@/app/sales/_lib/fclPricing";
+import { isInAllIn, priceFclBlock, type FclBlock } from "@/app/sales/_lib/fclPricing";
 import { lineRate, perUnitBasis, type LivePricing } from "@/app/sales/_lib/salesQuote";
-import type { CostLine, FclBlockProfit, SalesQuoteData } from "@/app/sales/_lib/types";
+import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
 import { FclProfitRow } from "./FclProfitRow";
 import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
@@ -25,13 +25,11 @@ interface FclBlockCardProps {
   live?: LivePricing;
   currency: string;
   closed: boolean;
-  setting: FclBlockProfit;
   onAdd: () => void;
   onPatchLine: (index: number, patch: Partial<CostLine>) => void;
   onChooseService: (index: number, code: string) => void;
   onRate: (index: number, rate: number) => void;
   onRemove: (index: number) => void;
-  onSetting: (patch: Partial<FclBlockProfit>) => void;
   onEditPerCharge: () => void;
   lineTag?: (line: CostLine) => ReactNode;
   lineAction?: (line: CostLine, index: number) => ReactNode;
@@ -47,13 +45,11 @@ export function FclBlockCard({
   live,
   currency,
   closed,
-  setting,
   onAdd,
   onPatchLine,
   onChooseService,
   onRate,
   onRemove,
-  onSetting,
   onEditPerCharge,
   lineTag,
   lineAction,
@@ -86,7 +82,6 @@ export function FclBlockCard({
         <LineTable minWidthClass="min-w-[1080px]">
           <colgroup>
             <col className="w-14" />
-            <col className="w-20" />
             <col className="w-[150px]" />
             <col />
             <col className="w-[110px]" />
@@ -100,7 +95,6 @@ export function FclBlockCard({
           <thead>
             <tr>
               <th scope="col" className={LINE_TH_CHECK_CLASS}>All in</th>
-              <th scope="col" className={LINE_TH_CHECK_CLASS}>Profit basis</th>
               <th scope="col" className={LINE_TH_CLASS}>Charge</th>
               <th scope="col" className={LINE_TH_CLASS}>Description</th>
               <th scope="col" className={LINE_TH_CLASS}>Supplier</th>
@@ -122,19 +116,9 @@ export function FclBlockCard({
                   <td className={`${LINE_TD_CLASS} text-center`}>
                     <Checkbox
                       aria-label="In the all-in price"
-                      checked={isInAllIn(l)}
-                      // Only an all-in offer has an all-in price. `undefined` when open: a closed quote's lock still applies.
-                      disabled={!allIn || undefined}
+                      // A quote sent as a breakdown had no all-in price.
+                      checked={allIn && isInAllIn(l)}
                       onChange={(e) => onPatchLine(c.index, { inAllIn: e.target.checked })}
-                    />
-                  </td>
-                  <td className={`${LINE_TD_CLASS} text-center`}>
-                    <Checkbox
-                      aria-label="Profit basis"
-                      checked={isProfitBasis(l)}
-                      // In an all-in offer the profit goes on the all-in price.
-                      disabled={allIn || undefined}
-                      onChange={(e) => onPatchLine(c.index, { profitBasis: e.target.checked })}
                     />
                   </td>
                   <td className={LINE_TD_CLASS}>
@@ -212,10 +196,8 @@ export function FclBlockCard({
       <FclProfitRow
         block={block}
         priced={priced}
-        setting={setting}
         currency={currency}
         closed={closed}
-        onSetting={onSetting}
         onEditPerCharge={onEditPerCharge}
       />
     </LineBlock>

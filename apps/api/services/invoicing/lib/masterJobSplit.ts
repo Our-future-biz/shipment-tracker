@@ -154,6 +154,29 @@ export function waivedShares(
 /** Whether the plan writes nothing. */
 export const soldAtCostInSync = (plan: SoldAtCostPlan) => plan.add.length === 0 && plan.change.length === 0 && plan.remove.length === 0;
 
+/**
+ * What the split writes to: every shipment but the billed ones. A billed shipment (an issued invoice not
+ * credited, lib/billedLock) keeps the shares it carries, buying and selling, as they are.
+ */
+export const notBilled = <T extends { shipmentId: string }>(list: readonly T[], billed: ReadonlySet<string>): T[] => list.filter((r) => !billed.has(r.shipmentId));
+
+/**
+ * The billed shipments whose rows differ from the split - a buying share, or a selling row it calls for -
+ * and so stay as they are until the invoice is credited; sorted.
+ */
+export function billedOutOfSync(
+  billed: ReadonlySet<string>,
+  written: (Pick<InvoiceCostRecord, "shipmentId" | "sourceMasterJobRef" | (typeof SPLIT_FIELDS)[number]>)[],
+  rows: SplitRowValues[],
+  selling: { current: CurrentSoldAtCostRow[]; wanted: SoldAtCostRow[]; invoiced: Set<string>; noRowFor?: Set<string> },
+): string[] {
+  return [...billed].sort().filter((shipmentId) => {
+    const of = <T extends { shipmentId: string }>(list: readonly T[]) => list.filter((r) => r.shipmentId === shipmentId);
+    const plan = planSoldAtCost(of(selling.current), of(selling.wanted), selling.invoiced, selling.noRowFor);
+    return !splitRowsInSync(of(written), of(rows)) || !soldAtCostInSync(plan) || plan.onInvoices > 0;
+  });
+}
+
 /** A shipment of the master job and its freight tons (W/M: the greater of tons and cbm). */
 export interface SplitHouse {
   shipmentId: string;

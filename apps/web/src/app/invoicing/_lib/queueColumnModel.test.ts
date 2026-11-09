@@ -134,10 +134,10 @@ describe("queueCellText", () => {
     expect(queueCellText(row({ shipmentStatus: "Billing [IMP]" }), "status", false)).toBe("Billing");
   });
 
-  it("writes the amount to bill with plain spaces, so a typed amount matches", () => {
+  it("writes the amount to bill as figures are written, so a typed amount matches", () => {
     const r = row({ amountToBill: 12500, rowsToBill: 2 });
     expect(queueCellText(r, "selling", false)).not.toMatch(/[  ]/);
-    expect(matchesGridFilters(r, [{ key: "selling", value: "12 500" }], (x, k) => queueCellText(x, k, false))).toBe(true);
+    expect(matchesGridFilters(r, [{ key: "selling", value: "12,500" }], (x, k) => queueCellText(x, k, false))).toBe(true);
     expect(queueCellText(row({ amountToBill: 0, rowsToBill: 0 }), "selling", false)).toBe("");
   });
 

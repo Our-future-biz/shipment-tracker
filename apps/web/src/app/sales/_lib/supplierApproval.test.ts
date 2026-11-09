@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approvalStatusChanged, supplierApprovalOf, supplierSendBlock, typedSupplierLines, typedSupplierMessage, type ApprovalAnswer } from "./supplierApproval";
+import { approvalStatusChanged, customerSendBlock, supplierApprovalOf, supplierSendBlock, typedSupplierLines, typedSupplierMessage, type ApprovalAnswer } from "./supplierApproval";
 
 const directory = new Map([
   ["a", { companyName: "DANGO s.r.o.", approvalStatus: "pending" }],
@@ -63,7 +63,7 @@ describe("typedSupplierLines", () => {
 });
 
 describe("approvalStatusChanged", () => {
-  const item = (customerId: string, status: string) => ({ customerId, status });
+  const item = (threadId: string, status: string) => ({ threadId, status });
   it("is news when a supplier is answered, taken back, added or gone; not on the first read", () => {
     expect(approvalStatusChanged(undefined, [item("a", "pending")])).toBe(false);
     expect(approvalStatusChanged([item("a", "pending")], [item("a", "pending")])).toBe(false);
@@ -71,5 +71,22 @@ describe("approvalStatusChanged", () => {
     expect(approvalStatusChanged([item("a", "declined")], [item("a", "pending")])).toBe(true);
     expect(approvalStatusChanged([item("a", "pending")], [item("a", "pending"), item("b", "pending")])).toBe(true);
     expect(approvalStatusChanged([item("a", "pending"), item("b", "")], [item("a", "pending")])).toBe(true);
+  });
+});
+
+describe("customerSendBlock", () => {
+  const answer = (status: ApprovalAnswer["status"], comment = ""): ApprovalAnswer => ({ companyName: "ACME s.r.o.", status, comment });
+
+  it("holds a quote for a customer waiting for a manager, or declined, in the server's words", () => {
+    expect(customerSendBlock("c1", new Map([["c1", answer("pending")]]))).toBe(
+      "ACME s.r.o. waits for a manager's approval (Sales → Managers → Company approval) — the quote can be sent once it is approved",
+    );
+    expect(customerSendBlock("c1", new Map([["c1", answer("declined", "duplicate")]]))).toBe("A manager declined ACME s.r.o. (duplicate) — choose another customer");
+  });
+
+  it("lets a quote go for an approved customer, one not on the list, or none", () => {
+    expect(customerSendBlock("c1", new Map([["c1", answer("")]]))).toBeNull();
+    expect(customerSendBlock("c2", new Map([["c1", answer("pending")]]))).toBeNull();
+    expect(customerSendBlock(undefined, new Map([["c1", answer("pending")]]))).toBeNull();
   });
 });

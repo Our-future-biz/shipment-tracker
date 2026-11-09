@@ -14,7 +14,8 @@ import { Pill } from "@/components/Pill";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { interfaces } from "@/lib/api/client";
 import { periodBasisLabel, provisionalText } from "../_lib/jobPeriod";
-import { CARD, LABEL_TEXT, REF } from "@/styles/ui";
+import { CARD, LABEL_TEXT, LINK, REF } from "@/styles/ui";
+import { MonthBreakdownDialog } from "./MonthBreakdownDialog";
 
 type Report = interfaces.JobProfitReport;
 type Row = Report["rows"][number];
@@ -32,6 +33,7 @@ export function ShipmentReportsTab() {
   // so a page rendered on the server (possibly in another month) can't disagree with it.
   const [range, setRange] = useState<[string, string] | null>(null);
   const [search, setSearch] = useState("");
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
   useEffect(() => {
     const thisMonth = todayIso().slice(0, 7);
     setRange((r) => r ?? [`${thisMonth.slice(0, 4)}-01`, thisMonth]);
@@ -106,7 +108,15 @@ export function ShipmentReportsTab() {
   ];
 
   const monthColumns: ColumnsType<Month> = [
-    { title: "Month", dataIndex: "month", render: (v: string) => dayjs(`${v}-01`).format("MMMM YYYY") },
+    {
+      title: "Month",
+      dataIndex: "month",
+      render: (v: string) => (
+        <button type="button" aria-haspopup="dialog" className={`bg-transparent border-none p-0 cursor-pointer font-semibold ${LINK}`} onClick={() => setOpenMonth(v)}>
+          {dayjs(`${v}-01`).format("MMMM YYYY")}
+        </button>
+      ),
+    },
     { title: "Jobs", dataIndex: "jobs", align: "right" },
     { title: "Revenue (CZK)", dataIndex: "revenueCzk", align: "right", render: (v: number) => czk(v) },
     { title: "Costs (CZK)", dataIndex: "costCzk", align: "right", render: (v: number) => czk(v) },
@@ -167,7 +177,14 @@ export function ShipmentReportsTab() {
 
       {(data?.months.length ?? 0) > 1 && (
         <div className="mb-4">
-          <DataTable<Month> dataSource={data?.months ?? []} columns={monthColumns} rowKey="month" loading={isLoading} />
+          <DataTable<Month>
+            dataSource={data?.months ?? []}
+            columns={monthColumns}
+            rowKey="month"
+            loading={isLoading}
+            rowClassName="cursor-pointer"
+            onRow={(m) => ({ onClick: () => setOpenMonth(m.month) })}
+          />
         </div>
       )}
 
@@ -180,6 +197,8 @@ export function ShipmentReportsTab() {
         scroll={{ x: "max-content" }}
         resetKey={`${search}|${range?.join("-") ?? ""}`}
       />
+
+      <MonthBreakdownDialog month={openMonth} rows={data?.rows ?? []} onClose={() => setOpenMonth(null)} />
     </div>
   );
 }

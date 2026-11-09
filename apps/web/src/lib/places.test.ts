@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isUnmatched, placeCodeOf } from "./places";
+import { isUnmatched, placeCodeOf, tradeDirectionTo } from "./places";
+
+describe("the Trade Direction of cargo going to a place", () => {
+  it("is an import to the Czech Republic and an export anywhere else", () => {
+    expect(tradeDirectionTo("Prague (CZPRG)")).toBe("Import");
+    expect(tradeDirectionTo("Hamburg (DEHAM)")).toBe("Export");
+    expect(tradeDirectionTo("Duisburg DIT (DE-IT116)")).toBe("Export");
+  });
+
+  it("is not told by a value that doesn't say the country", () => {
+    expect(tradeDirectionTo("Kladno")).toBeNull();
+    expect(tradeDirectionTo("Václav Havel Airport Prague (PRG)")).toBeNull();
+    expect(tradeDirectionTo(undefined)).toBeNull();
+  });
+});
 
 describe("a stored place", () => {
   it("is from the database as a UN/LOCODE place, an IATA airport, an ocean terminal (CY) or an inland terminal", () => {

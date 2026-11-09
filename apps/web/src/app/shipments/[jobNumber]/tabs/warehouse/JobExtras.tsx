@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { Input, Button, Modal, Upload } from "antd";
 import { CheckCircleFilled, InboxOutlined, SendOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
+import type { Messages } from "@/lib/toast";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { SectionCard as Card } from "@/components/SectionCard";
 import { formatDate } from "@/lib/date";
 import { BTN_BAR_PRIMARY, HINT, LABEL_TEXT } from "@/styles/ui";
+import { ImportInstructionsRow } from "./ImportInstructionsRow";
 import { rowLine } from "./warehouseUi";
 
 interface JobSectionData {
@@ -30,7 +31,7 @@ function asJob(data: unknown): JobSectionData {
 const saveFailed = (e: unknown) => (e instanceof SectionChangedError ? e.message : `Failed to save: ${apiErrorMessage(e)}`);
 
 // ─── Job Notes ──────────────────────────────────────────────────
-export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
   const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const savedNotes = section.notes ?? "";
@@ -96,7 +97,7 @@ function parseActionData(val: string | undefined): { timestamp: string; note?: s
   }
 }
 
-export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
   const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const [modalState, setModalState] = useState<ActionModalState | null>(null);
@@ -114,13 +115,13 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
   };
 
   return (
-    <Card title="Push to suppliers" bodyClassName="px-4 py-1">
+    <Card title="Push to customers" bodyClassName="px-4 py-1">
       {/* One row per push: what it is, sent or not (with its note), and Send while it is not */}
       <ul className="m-0 p-0 list-none">
         {ACTIONS.map((action, i) => {
           const parsed = parseActionData(section[action.key]);
           return (
-            <li key={action.key} className={`flex items-center gap-3 min-h-[40px] py-1.5 ${rowLine(i, ACTIONS.length)}`}>
+            <li key={action.key} className={`flex items-center gap-3 min-h-[40px] py-1.5 ${rowLine(i, ACTIONS.length + 1)}`}>
               <span className={`${LABEL_TEXT} w-[120px] shrink-0`}>{action.label}</span>
               <span className="flex-1 min-w-0">
                 {parsed ? (
@@ -146,6 +147,7 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
             </li>
           );
         })}
+        <ImportInstructionsRow shipmentId={ownerId} className={rowLine(ACTIONS.length, ACTIONS.length + 1)} messageApi={messageApi} />
       </ul>
 
       <Modal

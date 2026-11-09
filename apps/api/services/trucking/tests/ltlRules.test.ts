@@ -218,7 +218,7 @@ describe("trip fill and warnings", () => {
     });
     expect(warnings).toEqual([
       "Over capacity: 3.5 of 3 LDM",
-      "Over capacity: 1 300 of 1 200 kg",
+      "Over capacity: 1,300 of 1,200 kg",
       "Over capacity: 7 of 6 pallet places",
       "TCZ2026000001 is ADR goods and Bravo is not ADR-capable",
       "TCZ2026000002 is promised for 15 Oct 2026, before this trip can get it there (16 Oct 2026)",

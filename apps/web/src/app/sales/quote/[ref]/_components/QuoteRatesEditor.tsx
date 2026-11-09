@@ -39,7 +39,7 @@ export function QuoteRatesEditor({ data, exchange }: QuoteRatesEditorProps) {
               ) : !draft && own !== undefined ? (
                 <span className="flex-1 min-w-0 text-xs text-slate-500">Stored on this quote</span>
               ) : today !== undefined ? (
-                <span className="flex-1 min-w-0 text-xs text-slate-500">ČNB · today ({formatDate(exchange.fixingDate)})</span>
+                <span className="flex-1 min-w-0 text-xs text-slate-500">ČNB · {formatDate(exchange.fixingDate)}</span>
               ) : exchange.isError ? (
                 // ČNB may well publish this rate; asking for it to be typed would be wrong.
                 <span className="flex-1 min-w-0 text-xs font-semibold text-red-600">ČNB rates not loaded</span>

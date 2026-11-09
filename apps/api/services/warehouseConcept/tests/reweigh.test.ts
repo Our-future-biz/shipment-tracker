@@ -68,7 +68,7 @@ describe("re-weighing a position", () => {
     expect(res.notice).toMatch(/More than 5 %/);
     expect(res.movement.reweigh).toMatchObject({ weighedKg: 1290, declaredKg: 1200, declaredSource: "shipment", variancePct: 0.075, flagged: true, note: "scale 2" });
     expect(res.movement.checklist.vgm).toBe("g");
-    expect(res.movement.events.at(-1)).toMatchObject({ kind: "reweighed", label: "Re-weighed 1 290 kg (declared 1 200 kg · +7.5 % — variance)" });
+    expect(res.movement.events.at(-1)).toMatchObject({ kind: "reweighed", label: "Re-weighed 1,290 kg (declared 1,200 kg · +7.5 % — variance)" });
     expect((await gateMovementService.stamp(lcl.id, lcl.c, user, "expReceipt")).expReceipt).not.toBeNull();
 
     const fcl = await arrived("FCL stuffing");
@@ -84,7 +84,7 @@ describe("re-weighing a position", () => {
     const again = await reweighService.record(id, c, user, { weighedKg: 1210 });
     expect(again.movement.reweigh).toMatchObject({ weighedKg: 1210, flagged: false });
     expect(again.movement.reweighs.map((r) => r.weighedKg)).toEqual([1210, 1300]);
-    expect(again.movement.events.at(-1)).toMatchObject({ label: expect.stringMatching(/^Re-weighed again 1 210 kg/), detail: "was 1 300 kg" });
+    expect(again.movement.events.at(-1)).toMatchObject({ label: expect.stringMatching(/^Re-weighed again 1,210 kg/), detail: "was 1,300 kg" });
     // An older weighing sent late from a phone is kept in history; the newer one still counts.
     const late = await reweighService.record(id, c, user, { weighedKg: 900, recordedAt: new Date(Date.now() - 60_000).toISOString(), clientRequestId: randomUUID() });
     expect(late.notice).toMatch(/newer re-weigh counts/);
@@ -121,6 +121,6 @@ describe("re-weighing a position", () => {
     const data = row.data as Record<string, unknown>;
     expect(JSON.parse(data.vgm_sent as string)).toMatchObject({ note: "sent to the carrier", weighedKg: "1234.5" });
     expect((data.vgm_sent_history as Record<string, string>[]).at(-1)).toMatchObject({ weighedKg: "1234.5" });
-    expect((await gateMovementService.get(id, c)).events.at(-1)!.label).toBe("Shipment Details: VGM sent (re-weighed 1 234.5 kg)");
+    expect((await gateMovementService.get(id, c)).events.at(-1)!.label).toBe("Shipment Details: VGM sent (re-weighed 1,234.5 kg)");
   });
 });
