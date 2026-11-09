@@ -25,7 +25,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { CopyButton } from "@/components/CopyButton";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { InfoRow } from "@/components/InfoRow";
-import { KpiTile, type KpiTone } from "@/components/KpiTile";
+import { KPI_TONE_CLASS, KpiTile, type KpiTone } from "@/components/KpiTile";
 import { Pill } from "@/components/Pill";
 import { LINK_CLASS } from "@/components/linkClass";
 import { PillTabs } from "@/components/SectionCard";
@@ -1771,7 +1771,7 @@ export function QuoteWorkflow() {
             <KpiTile label="Buying" value={fmtMoney(totals.buying, totals.currency)} />
             <KpiTile label="Selling" value={fmtMoney(totals.selling, totals.currency)} />
             <KpiTile
-              label={totals.margin === null ? "Profit" : `Profit · ${totals.margin}%`}
+              label={<span className={isThinProfit(totals) ? KPI_TONE_CLASS.red : undefined}>{totals.margin === null ? "Profit" : `Profit · ${totals.margin}%`}</span>}
               value={fmtMoney(totals.profit, totals.currency)}
               tone={marginTone(totals)}
             />
@@ -2096,7 +2096,7 @@ export function QuoteWorkflow() {
         hrefOf={hrefOf}
         changingOwner={changingOwner}
         onChangeOwner={changeOwner}
-        price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} />}
+        price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} labelTone={isThinProfit(totals) ? "red" : undefined} />}
       />
 
       {/* ── Form and summary ── */}
@@ -2562,11 +2562,19 @@ function TariffTag({ tag }: { tag: LineTariffTag }) {
   );
 }
 
+// The margin under which a profit is too thin: its label says so in red.
+const THIN_MARGIN = 5;
+
+// A profit, but a thin one: the figure is no loss, so it stays black and its label is red.
+const isThinProfit = ({ profit, margin }: QuoteTotals) => profit > 0 && margin !== null && margin < THIN_MARGIN;
+
 // The colour of the profit: by the margin when there is selling to relate it to, otherwise only a
 // loss stands out.
-function marginTone({ profit, margin }: QuoteTotals): KpiTone | undefined {
+function marginTone(totals: QuoteTotals): KpiTone | undefined {
+  const { profit, margin } = totals;
   if (margin === null) return profit < 0 ? "red" : undefined;
-  return margin >= 15 ? "green" : margin >= 5 ? "amber" : "red";
+  if (isThinProfit(totals)) return undefined;
+  return margin >= 15 ? "green" : margin >= THIN_MARGIN ? "amber" : "red";
 }
 
 // The KG / CONTAINER field by where the cargo weight stands: no colour within the standard limit,
