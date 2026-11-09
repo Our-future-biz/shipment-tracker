@@ -505,6 +505,13 @@
       "when": 1794163553897,
       "tag": "0071_master_job_people",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794216993772,
+      "tag": "0072_master_job_hub",
+      "breakpoints": true
     }
   ]
 }

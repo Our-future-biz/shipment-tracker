@@ -35,6 +35,8 @@ export const masterJobTable = pgTable(
     shippingLine: text("shipping_line").notNull().default(""),
     pol: text("pol").notNull().default(""),
     pod: text("pod").notNull().default(""),
+    // The HUB the cargo goes through after the POD, a place as on a shipment.
+    hub: text("hub").notNull().default(""),
     estimatedDeparture: date("estimated_departure", { mode: "string" }),
     estimatedArrival: date("estimated_arrival", { mode: "string" }),
     actualDeparture: date("actual_departure", { mode: "string" }),

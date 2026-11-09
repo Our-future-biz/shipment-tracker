@@ -25,6 +25,7 @@ interface MasterJobUpdateRequest {
   shippingLine?: string;
   pol?: string;
   pod?: string;
+  hub?: string;
   estimatedDeparture?: string;
   estimatedArrival?: string;
   actualDeparture?: string;

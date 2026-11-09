@@ -253,6 +253,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
           <FieldRow label="Booking Number" fieldKey="bookingNumber" value={mj.bookingNumber} onCommit={handleCommit} styleFor={styleFor} synced />
           <FieldRow label="POL" fieldKey="pol" value={mj.pol} onCommit={handleCommit} styleFor={styleFor} synced />
           <FieldRow label="POD" fieldKey="pod" value={mj.pod} onCommit={handleCommit} styleFor={styleFor} synced />
+          <FieldRow label="HUB" fieldKey="hub" value={mj.hub} onCommit={handleCommit} styleFor={styleFor} synced />
           <FieldRow label="Destination" fieldKey="destination" value={mj.destination} onCommit={handleCommit} styleFor={styleFor} />
         </MasterJobCard>
       </div>

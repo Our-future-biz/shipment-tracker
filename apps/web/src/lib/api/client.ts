@@ -8387,6 +8387,7 @@ export namespace controllers {
         shippingLine?: string
         pol?: string
         pod?: string
+        hub?: string
         estimatedDeparture?: string
         estimatedArrival?: string
         actualDeparture?: string
@@ -16279,6 +16280,11 @@ export namespace interfaces {
         shippingLine: string
         pol: string
         pod: string
+        /**
+         * The HUB after the POD, a place as on a shipment.
+         */
+        hub: string
+
         estimatedDeparture: string | null
         estimatedArrival: string | null
         actualDeparture: string | null

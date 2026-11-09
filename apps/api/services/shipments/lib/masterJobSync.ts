@@ -11,6 +11,7 @@ export const MASTER_JOB_SYNCED_FIELDS = [
   "masterBolType",
   "pol",
   "pod",
+  "hub",
   "serviceName",
   "loadType",
   "shippingLine",

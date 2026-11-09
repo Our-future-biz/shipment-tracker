@@ -114,6 +114,14 @@ describe("a save that writes onto the houses", () => {
     expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
   });
 
+  it("writes the HUB onto every house, open to every user as the warehouse's field", async () => {
+    await save({ hub: "Prague (CZPRG)" }, user);
+    expect(written()).toMatchObject({ hub: "Prague (CZPRG)" });
+    expect(shipmentService.update).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(shipmentService.update).mock.calls) expect(call[2]).toEqual({ hub: "Prague (CZPRG)" });
+    expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
+  });
+
   it("holds a date from a house's Tracking tab to every house too, writing nothing when one isn't the person's", async () => {
     await expect(save({ actualArrival: "2026-11-20" }, user)).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("CZ2") });
     expect(repository.updateForCompany).not.toHaveBeenCalled();

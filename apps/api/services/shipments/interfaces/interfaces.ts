@@ -395,6 +395,8 @@ export interface MasterJobItem {
   shippingLine: string;
   pol: string;
   pod: string;
+  /** The HUB after the POD, a place as on a shipment. */
+  hub: string;
   estimatedDeparture: string | null;
   estimatedArrival: string | null;
   actualDeparture: string | null;

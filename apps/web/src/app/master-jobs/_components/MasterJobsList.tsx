@@ -200,6 +200,7 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
     textColumn("incotermOrigin", (m) => m.incotermOrigin, { hidden: true }),
     textColumn("incotermDestination", (m) => m.incotermDestination, { hidden: true }),
     textColumn("destination", (m) => m.destination, { hidden: true }),
+    textColumn("hub", (m) => m.hub, { hidden: true }),
     textColumn("masterBolType", (m) => m.masterBolType, { hidden: true }),
     textColumn("equipment", (m) => m.equipment, { hidden: true, title: "Equipment" }),
     dateColumn("etaWarehouse", (m) => m.etaWarehouse, { hidden: true }),

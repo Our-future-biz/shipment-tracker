@@ -45,6 +45,12 @@ describe("syncedShipmentData", () => {
     });
   });
 
+  it("copies the HUB onto a linked shipment, and a cleared HUB clears it", () => {
+    expect(syncedShipmentData({ hub: "Prague (CZPRG)" })).toEqual({ hub: "Prague (CZPRG)" });
+    expect(syncedShipmentData({ hub: "" })).toEqual({});
+    expect(syncedShipmentData({}, { hub: "" })).toEqual({ hub: "" });
+  });
+
   it("never copies master-job-only fields", () => {
     expect(syncedShipmentData(masterJob)).not.toHaveProperty("shipper");
     expect(syncedShipmentData(masterJob, { shipper: "X", destination: "Y" })).toEqual({});
