@@ -16,7 +16,7 @@ import {
   ProfileOutlined,
 } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
-import { FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import {
   COLUMN_MAP,
   dateTimeUpdate,
@@ -35,6 +35,8 @@ import { ProgressStages } from "@/app/shipments/[jobNumber]/_components/Shipment
 import { getStageFromFacts } from "@/app/shipments/[jobNumber]/_components/taskDefinitions";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { kgFromTons, tonsFromKg } from "../_lib/mblWeight";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 
 // Load Type is chosen once; the server refuses switching it, so the row stops being editable.
 function LockedLoadType({ value }: { value: string }) {
@@ -104,6 +106,7 @@ export const MJ_ANCHORS = {
 
 export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   const { message } = App.useApp();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -280,10 +283,14 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
       <MasterJobCard icon={<InfoCircleOutlined />} title="Basic Information">
         {/* Its people (a user picked by e-mail) on the left, who created it and when on the right. */}
         <div className={COLS2}>
-          <div className="min-w-0">
-            <FieldRow label="Person In Charge" fieldKey="personInCharge" value={mj.personInCharge} onCommit={handleCommit} />
-            <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={mj.holidayCover} onCommit={handleCommit} />
-          </div>
+          {/* Changed only by them or a manager (anyone while neither is named), as a shipment's
+              people; the server refuses the same (masterJob.service). */}
+          <ShipmentDetailsEditableContext.Provider value={canChangeShipmentDetails(user, mj)}>
+            <div className="min-w-0">
+              <FieldRow label="Person In Charge" fieldKey="personInCharge" value={mj.personInCharge} onCommit={handleCommit} />
+              <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={mj.holidayCover} onCommit={handleCommit} />
+            </div>
+          </ShipmentDetailsEditableContext.Provider>
           <div className="min-w-0">
             <ReadOnlyRow label="Created By" value={mj.createdBy} />
             <ReadOnlyRow label="Created On" value={formatDateTime(mj.createdAt)} />

@@ -26,7 +26,7 @@ import { fileToBase64, formatFileSize } from "@/lib/files";
 import { CANCELLED_STATUS, CURRENCIES, FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
-import { useShipments, getFieldValue } from "@/hooks/useShipments";
+import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
 import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/lib/documentTypes";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
@@ -130,6 +130,15 @@ function recordToFields(record: Record<string, string>): ExtractedField[] {
     hasConflict: false,
     approved: true,
   }));
+}
+
+// What a shipment holds for a field a document is read into, to set beside the value read. The
+// grids show Total Weight in kg (lib/columnConfig), but a document's "Total Weight In Tons" is in
+// tons, so the shipment's weight is given in tons too: tons are compared with tons.
+function existingShipmentValue(shipment: ShipmentItem, apiField: string): string {
+  if (apiField !== "totalWeightTons") return getFieldValue(shipment, apiField);
+  const kg = parseFloat(getFieldValue(shipment, apiField));
+  return kg > 0 ? String(Number((kg / 1000).toFixed(4))) : "";
 }
 
 // The customer a shipper or consignee read off a document is in the Customer Database: the one
@@ -575,7 +584,7 @@ export function DocumentReadingWorkflow() {
               return target ? sealsOnFileThatDiffer(target.containers ?? [], merged.values["Container Number"], merged.values[SEAL_LABEL] ?? "") : "";
             }
             const apiField = SHIPMENT_FIELD_MAP[label];
-            return target && apiField ? getFieldValue(target, apiField) : "";
+            return target && apiField ? existingShipmentValue(target, apiField) : "";
           }).map((f) => {
             const choices = merged.choices[f.column];
             // Where the files disagree, nothing is written until the user picks or ticks a value.
@@ -633,7 +642,7 @@ export function DocumentReadingWorkflow() {
             if (!target) return "";
             if (label === "MRN Number") return target.mrn || "";
             if (label === "Container Number") return targetContainers.join(", ");
-            return getFieldValue(target, SHIPMENT_FIELD_MAP[label] ?? "");
+            return existingShipmentValue(target, SHIPMENT_FIELD_MAP[label] ?? "");
           }).map((f) => {
             // Container numbers are only ever added, so they never clash with the ones on file;
             // a weight differing only in decimals (12.5 vs 12.500) is the same weight.

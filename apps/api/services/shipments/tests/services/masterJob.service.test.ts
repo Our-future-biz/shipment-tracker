@@ -13,12 +13,15 @@ vi.mock("../../repositories/masterJobContainer.repository", () => ({ masterJobCo
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { findByMasterJobId: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: {} }));
 vi.mock("../../services/shipment.service", () => ({ shipmentService: { update: vi.fn(), isInvoiced: vi.fn(), mayChangeDetails: vi.fn() } }));
+// The company's users and the signed-in one's e-mail, which the auth service answers.
+vi.mock("../../../../lib/companyUsers", () => ({ companyUsers: vi.fn(), userEmailOf: vi.fn() }));
 
 import { customers } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
+import { companyUsers, userEmailOf } from "../../../../lib/companyUsers";
 import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
-import { masterJobService } from "../../services/masterJob.service";
+import { MASTER_JOB_PEOPLE_REFUSAL, masterJobService } from "../../services/masterJob.service";
 import { shipmentService } from "../../services/shipment.service";
 
 const repository = vi.mocked(masterJobRepository);
@@ -141,6 +144,100 @@ describe("a save that writes onto the houses", () => {
     expect(shipmentRepository.findByMasterJobId).not.toHaveBeenCalled();
     vi.mocked(shipmentService.mayChangeDetails).mockResolvedValue(true);
     await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, user)).resolves.toBeUndefined();
+  });
+});
+
+describe("the master job's own Person in Charge and Holiday Cover", () => {
+  const JAN = "jan@firma.cz";
+  const EVA = "eva@firma.cz";
+  const users = [
+    { id: USER, email: JAN, displayName: "Jan Novák" },
+    { id: "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a03", email: EVA, displayName: "Eva Svobodová" },
+  ];
+  // The person saving is Jan, at user level unless said otherwise.
+  const user = { userID: USER, role: "user" };
+  const manager = { userID: USER, role: "manager" };
+  const save = (data: Record<string, unknown>, editor?: { userID: string; role: string }) => masterJobService.update(JOB, COMPANY, data as never, USER, editor);
+  const lastWritten = () => repository.updateForCompany.mock.calls.at(-1)![2] as Record<string, unknown>;
+  const named = (personInCharge: string, holidayCover = "") => repository.getByIdForCompany.mockResolvedValue(record({ personInCharge, holidayCover }) as never);
+
+  beforeEach(() => {
+    vi.mocked(companyUsers).mockResolvedValue(users);
+    vi.mocked(userEmailOf).mockResolvedValue(JAN);
+    // Named nobody yet.
+    named("");
+  });
+
+  it("stores a user of the company by e-mail, lower-cased", async () => {
+    await save({ personInCharge: " Eva@Firma.CZ ", holidayCover: JAN }, user);
+    expect(lastWritten()).toMatchObject({ personInCharge: EVA, holidayCover: JAN });
+    // The users are read once for both.
+    expect(companyUsers).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses anyone who is no user of the company, naming the field, before anything is written", async () => {
+    await expect(save({ holidayCover: "petr@jinde.cz" }, user)).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Holiday Cover: pick a user of the company (by e-mail)",
+    });
+    await expect(save({ personInCharge: "Eva Svobodová" }, user)).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Person In Charge: pick a user of the company (by e-mail)",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("clears a person with an empty value, without reading the users", async () => {
+    named(EVA, JAN);
+    await save({ personInCharge: "", holidayCover: "  " }, user);
+    expect(lastWritten()).toMatchObject({ personInCharge: "", holidayCover: "" });
+    expect(companyUsers).not.toHaveBeenCalled();
+  });
+
+  it("lets the value it holds pass as it is, an old one that is no user's e-mail too", async () => {
+    named(`${EVA} — Eva Svobodová`, "Petr");
+    // Jan is neither of them, but nothing changes: no check, no users read.
+    await save({ personInCharge: `${EVA} — Eva Svobodová`, holidayCover: " Petr ", vessel: "MSC Anna" }, user);
+    expect(lastWritten()).toMatchObject({ personInCharge: `${EVA} — Eva Svobodová`, holidayCover: "Petr", vessel: "MSC Anna" });
+    expect(companyUsers).not.toHaveBeenCalled();
+    expect(userEmailOf).not.toHaveBeenCalled();
+  });
+
+  it("are changed at user level only by the master job's Person in Charge or Holiday Cover, as on a shipment", async () => {
+    // Eva is in charge, nobody covers: Jan may not name himself, and nothing is written.
+    named(EVA);
+    await expect(save({ holidayCover: JAN }, user)).rejects.toMatchObject({ code: "permission_denied", message: MASTER_JOB_PEOPLE_REFUSAL });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    // Refused before the users are read.
+    expect(companyUsers).not.toHaveBeenCalled();
+    // Eva herself may, and so may the Holiday Cover (an old value with a name after the e-mail counts).
+    vi.mocked(userEmailOf).mockResolvedValue(EVA);
+    await save({ holidayCover: JAN }, user);
+    expect(lastWritten()).toMatchObject({ holidayCover: JAN });
+    named(EVA, `${JAN} — Jan Novák`);
+    vi.mocked(userEmailOf).mockResolvedValue(JAN);
+    await save({ personInCharge: JAN }, user);
+    expect(lastWritten()).toMatchObject({ personInCharge: JAN });
+  });
+
+  it("are open to a manager always, and to anyone while the master job names neither", async () => {
+    named(EVA);
+    await save({ personInCharge: JAN }, manager);
+    expect(lastWritten()).toMatchObject({ personInCharge: JAN });
+    expect(userEmailOf).not.toHaveBeenCalled();
+    named("");
+    await save({ personInCharge: EVA }, user);
+    expect(lastWritten()).toMatchObject({ personInCharge: EVA });
+    // Nobody to be: whoever saves needn't be looked up.
+    expect(userEmailOf).not.toHaveBeenCalled();
+  });
+
+  it("leave the app's own writes, which name no editor, unchecked but still validated", async () => {
+    named(EVA);
+    await save({ holidayCover: JAN });
+    expect(lastWritten()).toMatchObject({ holidayCover: JAN });
+    expect(userEmailOf).not.toHaveBeenCalled();
+    await expect(save({ holidayCover: "petr@jinde.cz" })).rejects.toMatchObject({ code: "invalid_argument" });
   });
 });
 

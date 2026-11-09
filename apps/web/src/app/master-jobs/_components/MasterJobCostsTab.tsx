@@ -197,11 +197,12 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const saveText = (line: Line, field: "description" | "vendor", text: string) => {
     if (text.trim() !== line[field]) save(line, { [field]: text.trim() });
   };
-  // Received follows the invoice number being filled in; it can't be ticked by hand.
+  // Received follows the invoice number being filled in; it can't be ticked by hand. Only a changed
+  // number is saved, as on a shipment's Costs Breakdown: leaving the field as it was changes nothing.
   const saveInvoiceNumber = (line: Line, text: string) => {
     const invoiceNumber = text.trim();
-    const received = invoiceNumber !== "";
-    if (invoiceNumber !== line.invoiceNumber || received !== line.received) save(line, { invoiceNumber, received });
+    if (invoiceNumber === line.invoiceNumber) return;
+    save(line, { invoiceNumber, received: invoiceNumber !== "" });
   };
   // A currency change on Estimated is mirrored to Real while Real is empty.
   const saveEstCurrency = (line: Line, currency: string) =>
@@ -399,15 +400,19 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     })()}
                   </td>
                   <td className={CELL}>
-                    <Segmented
-                      size="small"
-                      className={control}
-                      value={line.splitMethod}
-                      disabled={!line.inSplit}
-                      options={SPLIT_OPTIONS}
-                      onChange={(v) => save(line, { splitMethod: v as Line["splitMethod"] })}
-                      aria-label="Split"
-                    />
+                    {/* Locked, it is out of reach of the keyboard too (its options take the focus and
+                        the arrow keys); inert also lets the double-click through to the row. */}
+                    <div inert={locked}>
+                      <Segmented
+                        size="small"
+                        className={control}
+                        value={line.splitMethod}
+                        disabled={!line.inSplit}
+                        options={SPLIT_OPTIONS}
+                        onChange={(v) => save(line, { splitMethod: v as Line["splitMethod"] })}
+                        aria-label="Split"
+                      />
+                    </div>
                   </td>
                   {/* Duplicate and Delete work on a locked row too, without opening it. */}
                   <td className={`${CELL} text-center whitespace-nowrap`} onDoubleClick={(e) => e.stopPropagation()}>

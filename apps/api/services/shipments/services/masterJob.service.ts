@@ -18,7 +18,7 @@ import {
   type MasterContainer,
 } from "../lib/masterJobSync";
 import type { MasterJobRecord, NewMasterJobRecord } from "../schemas/masterJob.schema";
-import { isDetailsManager, touchesDetails } from "../lib/shipmentEditRule";
+import { isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import type { MasterJobContainerRecord } from "../schemas/masterJobContainer.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type {
@@ -36,7 +36,7 @@ import { cargoDimensionRepository } from "../repositories/cargoDimension.reposit
 import { freightTons } from "../lib/freightTons";
 import { compareJobNumbers } from "../../../lib/jobNumber";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { companyUsers, userEmailOf } from "../../../lib/companyUsers";
+import { companyUsers, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { requireUserEmail } from "../../../lib/personPick";
 
 /** The person saving a master job, held to who may change each house's details (lib/shipmentEditRule). */
@@ -52,6 +52,11 @@ export type MasterJobUpdate = Partial<
 
 /** The master job's own people: a user of the company, kept by e-mail, or nobody. */
 const MASTER_JOB_PEOPLE = { personInCharge: "Person In Charge", holidayCover: "Holiday Cover" } as const;
+type MasterJobPerson = keyof typeof MASTER_JOB_PEOPLE;
+
+/** Why a person may not change the master job's people (lib/shipmentEditRule, as on a shipment). */
+export const MASTER_JOB_PEOPLE_REFUSAL =
+  "Only this master job's Person in Charge, Holiday Cover or a manager can change its Person in Charge and Holiday Cover";
 
 // Real `date` columns reject "" — the UI sends an empty string when a date is cleared.
 const DATE_FIELDS = new Set([
@@ -201,14 +206,7 @@ class MasterJobService {
     }
     const clean: Record<string, unknown> = { ...data };
     await resolveParties(clean);
-    // Person in Charge / Holiday Cover name a user of the company, or nobody; the value it holds passes as it is.
-    for (const [key, label] of Object.entries(MASTER_JOB_PEOPLE)) {
-      const value = clean[key];
-      if (typeof value !== "string") continue;
-      const current = String(existing[key as keyof MasterJobRecord] ?? "");
-      if (value.trim() === current.trim()) clean[key] = current;
-      else clean[key] = value.trim() ? requireUserEmail(value, label, await companyUsers()) : "";
-    }
+    await this.checkPeople(existing, clean, editor);
     assertTimes(clean);
     for (const key of Object.keys(clean)) {
       if (!DATE_FIELDS.has(key)) continue;
@@ -401,6 +399,42 @@ class MasterJobService {
         `Only the Person in Charge, Holiday Cover or a manager can change ${refused.join(", ")}, so this master job save would change ${refused.length === 1 ? "a shipment" : "shipments"} you can't`,
       );
     }
+  }
+
+  /**
+   * The master job's Person in Charge / Holiday Cover in `data`, as they are stored. Each names a user
+   * of the company (by e-mail) or nobody (""); the value it already holds passes as it is, an old one
+   * too. A change is held to the shipment's rule (lib/shipmentEditRule), with the master job's own
+   * people: a manager, admin or superadmin always, at user level its Person in Charge or Holiday
+   * Cover, or anyone while it names neither. The app's own writes name no editor and aren't held to it.
+   */
+  private async checkPeople(existing: MasterJobRecord, data: Record<string, unknown>, editor?: MasterJobEditor): Promise<void> {
+    const changed: MasterJobPerson[] = [];
+    for (const key of Object.keys(MASTER_JOB_PEOPLE) as MasterJobPerson[]) {
+      const value = data[key];
+      if (typeof value !== "string") continue;
+      const current = existing[key] ?? "";
+      if (value.trim() === current.trim()) data[key] = current;
+      else changed.push(key);
+    }
+    if (changed.length === 0) return;
+    if (editor && !(await this.mayChangePeople(existing, editor))) throw APIError.permissionDenied(MASTER_JOB_PEOPLE_REFUSAL);
+    // The users are read once, and only for a person named (clearing one needs none).
+    let users: CompanyUser[] | null = null;
+    for (const key of changed) {
+      const value = (data[key] as string).trim();
+      if (!value) {
+        data[key] = "";
+        continue;
+      }
+      users ??= await companyUsers();
+      data[key] = requireUserEmail(value, MASTER_JOB_PEOPLE[key], users);
+    }
+  }
+
+  /** Whether this person may change the master job's people: as shipmentService.mayChangeDetails rules a shipment's. */
+  private async mayChangePeople(masterJob: Pick<MasterJobRecord, MasterJobPerson>, editor: MasterJobEditor): Promise<boolean> {
+    return isDetailsManager(editor.role) || isOpenToPerson(masterJob, "") || isOpenToPerson(masterJob, await userEmailOf(editor.userID));
   }
 
   // One shipmentService.update per house, so the audit log and the shipment's
