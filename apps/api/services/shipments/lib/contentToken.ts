@@ -1,8 +1,9 @@
 import { secret } from "encore.dev/config";
 import { signContentToken, verifyContentToken } from "../../../lib/signedUrl";
 
-// Download links for shipment files: the raw content endpoint can't receive the auth
-// header (the browser opens it as a plain link), so each link carries a short-lived token.
+// Download links for stored files (a shipment's, a master job's, a change request's new file): the
+// raw content endpoints can't receive the auth header (the browser opens them as plain links), so
+// each link carries a short-lived token of its own kind.
 
 const jwtSecret = secret("JWT_SECRET");
 const KIND = "shipment-attachment";
@@ -16,6 +17,21 @@ export function attachmentContentUrl(shipmentId: string, id: string, companyId: 
 /** The company a valid token for this file was issued to; null when it is missing, forged or expired. */
 export function companyOfContentToken(token: string | null, id: string): string | null {
   const claim = verifyContentToken(jwtSecret(), token, KIND);
+  return claim && claim.id === id ? claim.companyId : null;
+}
+
+// A master job document's link has a kind of its own, so a shipment file's token never opens one, or the other way round.
+const MASTER_JOB_DOCUMENT_KIND = "master-job-document";
+
+/** The API path that serves one master job document, with a token valid for an hour. */
+export function masterJobDocumentContentUrl(masterJobId: string, id: string, companyId: string): string {
+  const token = signContentToken(jwtSecret(), { kind: MASTER_JOB_DOCUMENT_KIND, id, companyId });
+  return `/master-jobs/${masterJobId}/documents/${id}/content?t=${encodeURIComponent(token)}`;
+}
+
+/** The company a valid token for this master job document was issued to; null when it is missing, forged or expired. */
+export function companyOfMasterJobDocumentToken(token: string | null, id: string): string | null {
+  const claim = verifyContentToken(jwtSecret(), token, MASTER_JOB_DOCUMENT_KIND);
   return claim && claim.id === id ? claim.companyId : null;
 }
 

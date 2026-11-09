@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { useFilePreview } from "./useFilePreview";
 import { gateKeys, invalidateAfterGateEvent, warehouseRecordKeys, sectionKeys } from "./warehouseKeys";
 
 export { gateKeys, invalidateAfterGateEvent } from "./warehouseKeys";
@@ -220,20 +221,22 @@ export const useGateFiles = (movementId: string) => {
   return { files: query.data?.files ?? [], isLoading: query.isLoading, upload, remove };
 };
 
-// One stored file's bytes, cached as a Blob; the object URL is made by the component that shows
-// it and revoked when that component stops showing it (a URL kept in the cache would leak).
+// One stored file's bytes, cached as a Blob (a thumbnail's bytes also serve its preview); the object
+// URL is made by the component that shows it and revoked when that component stops showing it (a
+// URL kept in the cache would leak).
+const gateFileBlobQuery = (movementId: string, fileId: string | undefined) => ({
+  queryKey: gateKeys.fileBlob(movementId, fileId),
+  queryFn: async () => {
+    const res = await api.warehouseConcept.gateFileContent(movementId, fileId!);
+    const bytes = Uint8Array.from(atob(res.contentBase64), (c) => c.charCodeAt(0));
+    return new Blob([bytes], { type: res.fileType || "application/octet-stream" });
+  },
+  staleTime: Infinity,
+  gcTime: 5 * 60 * 1000,
+});
+
 const useGateFileBlob = (movementId: string, file: GateFile | undefined, enabled: boolean) =>
-  useQuery({
-    queryKey: gateKeys.fileBlob(movementId, file?.id),
-    queryFn: async () => {
-      const res = await api.warehouseConcept.gateFileContent(movementId, file!.id);
-      const bytes = Uint8Array.from(atob(res.contentBase64), (c) => c.charCodeAt(0));
-      return new Blob([bytes], { type: res.fileType || "application/octet-stream" });
-    },
-    enabled: enabled && !!file,
-    staleTime: Infinity,
-    gcTime: 5 * 60 * 1000,
-  });
+  useQuery({ ...gateFileBlobQuery(movementId, file?.id), enabled: enabled && !!file });
 
 /** An object URL for one stored file while the calling component shows it. */
 export const useGateFileUrl = (movementId: string, file: GateFile | undefined, enabled: boolean): { data: string | undefined } => {
@@ -249,6 +252,18 @@ export const useGateFileUrl = (movementId: string, file: GateFile | undefined, e
     };
   }, [blob]);
   return { data: url };
+};
+
+/**
+ * The app's preview (hooks/useFilePreview) of a movement's stored files: `open(file)` shows one, from
+ * the bytes its thumbnail already loaded or fetched now; `modal` is rendered once by the caller.
+ */
+export const useGateFilePreview = () => {
+  const queryClient = useQueryClient();
+  const { open, modal } = useFilePreview();
+  const show = (file: GateFile) =>
+    void open({ fileName: file.fileName, fileType: file.fileType, load: () => queryClient.fetchQuery(gateFileBlobQuery(file.movementId, file.id)) });
+  return { open: show, modal };
 };
 
 /** The Gate Log list as query options, for code that reads it outside a component (scanners). */

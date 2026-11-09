@@ -21,12 +21,14 @@
     "antd": "^5.24.0",
     "clsx": "^2.1.0",
     "dayjs": "^1.11.21",
+    "docx-preview": "0.4.1",
     "jspdf": "^4.2.1",
     "libphonenumber-js": "^1.12.10",
     "next": "^15.3.0",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "read-excel-file": "9.3.12",
     "recharts": "^3.10.1"
   },
   "devDependencies": {

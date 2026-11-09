@@ -9,7 +9,6 @@ import { ChangeAfterApprovalModal, ChangeRequestNote } from "./ChangeAfterApprov
 import {
   InboxOutlined,
   FileTextOutlined,
-  EyeOutlined,
   CheckOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
@@ -17,6 +16,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
 import { api, apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
+import { PreviewButton } from "@/components/PreviewButton";
 import { isDangerousShipment } from "@/lib/cargo";
 import { fileToBase64 } from "@/lib/files";
 import { formatFileSize, docPlural, ExtBadge, CustomsPill } from "./docsShared";
@@ -47,7 +47,6 @@ import {
   CARD_ICON,
   CARD_TITLE,
   EMPTY,
-  ICON_BTN_GHOST,
   INPUT,
   LABEL_TEXT,
   LINK,
@@ -214,10 +213,10 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const canManageDocuments = useCanManageDocuments();
   // A regular user changes an approved document by a request for a manager's approval, with the new file.
   const changeRequests = useDocumentChangeRequests(shipment.id, true);
-  const [changing, setChanging] = useState<{ id: string; fileName: string; documentType: string } | null>(null);
+  const [changing, setChanging] = useState<AttachmentFile | null>(null);
   // A document added, removed or classified also changes the shipment itself: its customs
   // status follows the invoice and the packing list, and so do the "received" ticks.
-  const { attachments, isLoading, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
+  const { attachments, isLoading, refresh: refreshDocuments, previewSource } = useShipmentAttachments(shipment.id);
   const [search, setSearch] = useState("");
 
   // Files are classified BEFORE they are uploaded — nothing reaches the list
@@ -340,6 +339,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
       {changing && (
         <ChangeAfterApprovalModal
           document={changing}
+          documentSource={previewSource(changing)}
           saving={changeRequests.ask.isPending}
           onSend={(attachmentId, file, reason) => changeRequests.ask.mutateAsync({ attachmentId, file, reason })}
           onClose={() => setChanging(null)}
@@ -593,7 +593,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                                   href={apiFileUrl(file.contentUrl)}
                                   target="_blank"
                                   rel="noreferrer"
-                                  onClick={filePreview.previewOnClick(file)}
+                                  onClick={filePreview.previewOnClick(previewSource(file))}
                                   title={file.fileName}
                                   className={`block truncate text-[13px] font-medium rounded-sm ${LINK} ${FOCUS}`}
                                 >
@@ -644,7 +644,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                                   Change after approval
                                 </button>
                               )}
-                              {file.customsStatus === "approved" && <ChangeRequestNote request={changeRequests.newestOf.get(file.id)} canAnswer={canManageDocuments} />}
+                              {file.customsStatus === "approved" && <ChangeRequestNote request={changeRequests.newestOf.get(file.id)} canAnswer={canManageDocuments} preview={filePreview} />}
                               {file.customsStatus === "declined" && file.customsNote && (
                                 <span className="text-[12px] italic text-red-700/80 break-words max-w-full">
                                   “{file.customsNote}”
@@ -662,22 +662,12 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                           </td>
                           <td className={TD}>
                             <div className="flex items-center justify-end gap-0.5">
-                              <Tooltip title="Preview">
-                                <a
-                                  href={apiFileUrl(file.contentUrl)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={filePreview.previewOnClick(file)}
-                                  aria-label={`Preview ${file.fileName}`}
-                                  className={`${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`}
-                                >
-                                  <EyeOutlined aria-hidden />
-                                </a>
-                              </Tooltip>
-                              {/* Download and Delete behind "⋯", as the rows of Container and Cargo Details. */}
+                              <PreviewButton fileName={file.fileName} onClick={() => void filePreview.open(previewSource(file))} />
+                              {/* Download and Delete behind "⋯", as the rows of Container and Cargo Details. Download
+                                  stays on the page, and a link that no longer works says so. */}
                               <RowActionsMenu
                                 label={`Actions for ${file.fileName}`}
-                                downloadHref={apiFileUrl(file.contentUrl, true)}
+                                onDownload={() => void filePreview.download(previewSource(file))}
                                 onDelete={canManageDocuments ? () => setConfirmDelete(file) : undefined}
                               />
                             </div>

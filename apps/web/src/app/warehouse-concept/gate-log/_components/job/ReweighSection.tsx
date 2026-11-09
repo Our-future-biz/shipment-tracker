@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Checkbox, Input, InputNumber, Modal } from "antd";
 import { DashboardOutlined } from "@ant-design/icons";
-import { useGateFiles, useGateMovement, type GateFile, type GateMovement } from "@/hooks/useGateLog";
+import { useGateFilePreview, useGateFiles, useGateMovement, type GateFile, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
@@ -53,6 +53,7 @@ export function ReweighSection({ m, informHref }: { m: GateMovement; /** Shipmen
   const [open, setOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const { files } = useGateFiles(m.id);
+  const preview = useGateFilePreview();
   const byId = new Map(files.map((f) => [f.id, f]));
   const r = m.reweigh;
   const left = !!m.impRelease || !!m.leftAt;
@@ -65,6 +66,7 @@ export function ReweighSection({ m, informHref }: { m: GateMovement; /** Shipmen
       icon={<DashboardOutlined />}
       extra={due ? <Badge tone="r">Required before the {m.visit === "výdej" ? "tick-off" : TERMS.receipt.toLowerCase()}</Badge> : r ? <ReweighTag r={r} /> : undefined}
     >
+      {preview.modal}
       {r ? (
         <div className="text-[13px]">
           <div className="font-semibold text-slate-900">{reweighLine(r)}</div>
@@ -75,7 +77,7 @@ export function ReweighSection({ m, informHref }: { m: GateMovement; /** Shipmen
           </div>
           {r.fileIds.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-x-3">
-              {r.fileIds.map((id) => byId.get(id)).map((f, i) => (f ? <FileLink key={f.id} movementId={m.id} file={f} /> : <span key={i} className={HINT}>photo no longer stored</span>))}
+              {r.fileIds.map((id) => byId.get(id)).map((f, i) => (f ? <FileLink key={f.id} file={f} onOpen={() => preview.open(f)} /> : <span key={i} className={HINT}>photo no longer stored</span>))}
             </div>
           )}
           {r.flagged && (

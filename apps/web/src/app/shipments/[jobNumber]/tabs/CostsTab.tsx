@@ -16,7 +16,8 @@ import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
 import { SoldAtCostAmount, SoldAtCostRemove } from "./SoldAtCostAmount";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
-import { openInvoicePdf, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
+import { invoicePdfSource, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { isOpenInvoice, notInvoicedMark } from "@/app/invoicing/_lib/openInvoices";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
@@ -371,6 +372,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     if (!isOpenInvoice(doc)) continue;
     for (const line of doc.lines) if (line.sourceSellingCostId) invoicedBy.set(line.sourceSellingCostId, doc);
   }
+  // The PDF of the invoice a row is on, shown by its mark in the app's preview.
+  const filePreview = useFilePreview();
   // Billed: with an issued invoice what is invoiced stays as it was, and so does the buying, until the
   // invoice is credited (the server refuses it too). Selling rows can still come and change: they go
   // on the next invoice, and each shows it is not on an invoice yet, so the change in profit is seen.
@@ -1055,7 +1058,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             onAsk={(reason) => sellingRequests.askRemoval.mutateAsync({ sellingId: r.id, reason })}
                           />
                         )}
-                        {invoicedOn && <InvoicedMark doc={invoicedOn} shipmentId={shipment.id} />}
+                        {invoicedOn && (
+                          <InvoicedMark doc={invoicedOn} shipmentId={shipment.id} onShow={() => void filePreview.open(invoicePdfSource(invoicedOn))} />
+                        )}
                       </td>
                     </tr>
                   );
@@ -1474,6 +1479,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
           {quoteAgain && " Copy again?"}
         </div>
       </Modal>
+
+      {filePreview.modal}
     </div>
   );
 }
@@ -1596,17 +1603,26 @@ function VendorCell({ row, locked, className, onSave }: VendorCellProps) {
 interface InvoicedMarkProps {
   doc: InvoiceDoc;
   shipmentId: string;
+  /** Shows the invoice's PDF in the app's preview. */
+  onShow: () => void;
 }
 
 /**
  * The mark of a selling row that is on an issued invoice: hovering or focusing it shows the invoice's
- * number (a link to its PDF) and where to find it in Invoicing; a click (or Enter) shows the PDF.
+ * number (a link to its PDF) and where to find it in Invoicing; a click (or Enter) shows the PDF in
+ * the app's preview.
  */
-function InvoicedMark({ doc, shipmentId }: InvoicedMarkProps) {
-  const message = useMessages();
-  const show = () => openInvoicePdf(doc.id).catch(() => message.error(`Could not open the PDF of ${doc.number}`));
+function InvoicedMark({ doc, shipmentId, onShow }: InvoicedMarkProps) {
+  // Closed when the PDF is shown: a popover is drawn above a dialog, so it would stay over the preview.
+  const [open, setOpen] = useState(false);
+  const show = () => {
+    setOpen(false);
+    onShow();
+  };
   return (
     <Popover
+      open={open}
+      onOpenChange={setOpen}
       placement="left"
       trigger={["hover", "focus"]}
       content={

@@ -1,9 +1,10 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { formatFileSize } from "@/lib/files";
 import { Pill } from "@/components/Pill";
-import { HINT } from "@/styles/ui";
+import { HINT, LINK } from "@/styles/ui";
 
 export { formatFileSize };
 
@@ -46,15 +47,39 @@ export function ExtBadge({ fileName, className = "w-[30px] h-9" }: { fileName: s
 /**
  * .file z mockupu - ikona pripony + nazev + velikost.
  * Dva radky s pevnou vyskou (32px + 16px), stejne jako ostatni bunky radku v Customs.
+ * With `href` the name is a link to the file, and `onClick` shows it in the app's preview.
  */
-export function FileCell({ fileName, fileSize }: { fileName: string; fileSize: number }) {
+export function FileCell({
+  fileName,
+  fileSize,
+  href,
+  onClick,
+}: {
+  fileName: string;
+  fileSize: number;
+  href?: string;
+  onClick?: (event: MouseEvent) => void;
+}) {
   return (
     <div className="flex items-center gap-3 min-w-0">
       <ExtBadge fileName={fileName} />
       <span className="min-w-0">
-        <span className="block text-[14px] leading-8 font-semibold text-indigo-600 truncate" title={fileName}>
-          {fileName}
-        </span>
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            onClick={onClick}
+            title={fileName}
+            className={`block text-[14px] leading-8 font-semibold truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${LINK}`}
+          >
+            {fileName}
+          </a>
+        ) : (
+          <span className="block text-[14px] leading-8 font-semibold text-indigo-600 truncate" title={fileName}>
+            {fileName}
+          </span>
+        )}
         <span className={`block ${HINT} leading-4 tabular-nums`}>{formatFileSize(fileSize)}</span>
       </span>
     </div>

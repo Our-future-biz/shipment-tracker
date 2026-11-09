@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Spin, Tooltip } from "antd";
-import { CalendarOutlined, CheckOutlined, DeleteOutlined, DownloadOutlined } from "@ant-design/icons";
+import { CalendarOutlined, CheckOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { LINK_CLASS } from "@/components/linkClass";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -14,7 +14,8 @@ import { apiErrorMessage, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { downloadDataUrl, fileDataUrl } from "@/lib/files";
+import { dataUrlToBlob, downloadDataUrl, fileDataUrl } from "@/lib/files";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { useToast } from "@/lib/toast";
 import { PAGE_TITLE } from "@/styles/ui";
 import { LAYOUT_SOURCE_LABEL, STATUS_CHIP, validityText, versionLabel } from "../_lib/railTariffs";
@@ -88,6 +89,8 @@ export function TariffVersionView<V extends TariffVersionCore>({
   const [confirm, setConfirm] = useState<"approve" | "discard" | null>(null);
   const [datesOpen, setDatesOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // The uploaded tariff sheet (Excel or CSV) in the app's preview.
+  const filePreview = useFilePreview();
 
   if (isLoading) {
     return (
@@ -162,8 +165,11 @@ export function TariffVersionView<V extends TariffVersionCore>({
     LAYOUT_SOURCE_LABEL[version.layoutSource],
   ];
 
+  const sourceFileName = version.sourceFileName;
+
   return (
     <div className="bg-slate-50 min-h-full">
+      {filePreview.modal}
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <BackLink href={backHref}>{version.tariff.supplierName || supplierLabel}</BackLink>
         <div className="flex flex-wrap items-start gap-2 mt-1">
@@ -203,10 +209,27 @@ export function TariffVersionView<V extends TariffVersionCore>({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {version.sourceFileName && (
-              <Button icon={<DownloadOutlined />} loading={downloading} onClick={handleDownload}>
-                Download file
-              </Button>
+            {sourceFileName && (
+              <>
+                {/* The sheet as uploaded, fetched only when it is opened (base64 behind the login header). */}
+                <Button
+                  icon={<EyeOutlined />}
+                  onClick={() =>
+                    void filePreview.open({
+                      fileName: sourceFileName,
+                      load: async () => {
+                        const file = await actions.fetchSource(version.id);
+                        return dataUrlToBlob(fileDataUrl(file), file.contentType || "application/octet-stream");
+                      },
+                    })
+                  }
+                >
+                  Preview file
+                </Button>
+                <Button icon={<DownloadOutlined />} loading={downloading} onClick={handleDownload}>
+                  Download file
+                </Button>
+              </>
             )}
             {canManage && version.status === "active" && (
               <Button icon={<CalendarOutlined />} onClick={() => setDatesOpen(true)}>

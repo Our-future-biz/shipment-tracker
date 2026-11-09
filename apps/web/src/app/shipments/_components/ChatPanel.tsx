@@ -6,7 +6,8 @@ import type { TextAreaRef } from "antd/es/input/TextArea";
 import { SendOutlined, DeleteOutlined, PaperClipOutlined, DownloadOutlined, CloseOutlined, StrikethroughOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiFileUrl } from "@/lib/api";
-import { useFilePreview } from "@/hooks/useFilePreview";
+import { useFilePreview, type PreviewSource } from "@/hooks/useFilePreview";
+import { PreviewButton } from "@/components/PreviewButton";
 import { useAuth, useCanDeleteAnyChatMessage } from "@/lib/auth/AuthContext";
 import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
@@ -342,6 +343,18 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
     sendMessage.mutate({ text: message.trim(), attach: files });
   };
 
+  // A file of the chat for the app's preview. Its link lasts an hour; an expired one is renewed by
+  // reading the messages again.
+  const fileSource = (a: Comment["attachments"][number]): PreviewSource => ({
+    fileName: a.fileName,
+    contentUrl: a.contentUrl,
+    fileType: a.fileType,
+    refreshUrl: async () =>
+      (await queryClient.fetchQuery({ queryKey: source.key, queryFn: source.list, staleTime: 0 }))
+        .flatMap((c) => c.attachments)
+        .find((f) => f.id === a.id)?.contentUrl,
+  });
+
   const fileCard = (a: Comment["attachments"][number]) => (
     <div key={a.id} className="flex items-center gap-3 w-64 max-w-full px-3 py-2 rounded-lg border border-slate-200 bg-white">
       <FileBadge fileName={a.fileName} />
@@ -349,19 +362,27 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
         href={apiFileUrl(a.contentUrl)}
         target="_blank"
         rel="noopener noreferrer"
-        onClick={filePreview.previewOnClick(a)}
+        onClick={filePreview.previewOnClick(fileSource(a))}
+        title={a.fileName}
         className="flex-1 min-w-0 !text-slate-900 hover:!text-indigo-600"
       >
         <span className="block text-[13px] font-semibold truncate">{a.fileName}</span>
         <span className="block text-[11px] font-normal text-slate-500">{formatFileSize(a.fileSize)}</span>
       </a>
-      <a
-        href={apiFileUrl(a.contentUrl, true)}
-        aria-label={`Download ${a.fileName}`}
-        className="shrink-0 !text-slate-500 hover:!text-indigo-600"
-      >
-        <DownloadOutlined className="text-[14px]" />
-      </a>
+      {/* The eye as everywhere; Download stays on the page, and a link that no longer works says so. */}
+      <span className="flex items-center gap-0.5 shrink-0">
+        <PreviewButton fileName={a.fileName} onClick={() => void filePreview.open(fileSource(a))} />
+        <Tooltip title="Download">
+          <button
+            type="button"
+            aria-label={`Download ${a.fileName}`}
+            onClick={() => void filePreview.download(fileSource(a))}
+            className={`${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`}
+          >
+            <DownloadOutlined aria-hidden />
+          </button>
+        </Tooltip>
+      </span>
     </div>
   );
 

@@ -2,6 +2,7 @@
 
 import { Modal, Button } from "antd";
 import { escapeHtml } from "@/lib/html";
+import { useToast } from "@/lib/toast";
 import { type ShipmentItem } from "@/hooks/useShipments";
 
 import { type CustomsInvoiceLine, fmt, totalsByCurrency } from "./_lib/customsInvoice";
@@ -13,8 +14,9 @@ const billTo = (s: ShipmentItem) => s.customer || s.principalParty;
 
 const route = (s: ShipmentItem) => `${s.pol || "—"} → ${s.pod || "—"}`;
 
-// Client-facing PDF via the browser print dialog, the same way as the quotation.
-function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines: CustomsInvoiceLine[]): void {
+// Client-facing PDF via the browser print dialog, the same way as the quotation. Returns why that did
+// not happen, or null once it did.
+function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines: CustomsInvoiceLine[]): string | null {
   const issueDate = new Date().toISOString().slice(0, 10);
   const totals = totalsByCurrency(lines);
   const rows = lines
@@ -89,11 +91,13 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
   </body></html>`;
 
   const w = window.open("", "_blank");
-  if (!w) return;
+  // A blocked pop-up must not look like a button that does nothing.
+  if (!w) return "The browser blocked the print window. Allow pop-ups for this site and try again.";
   w.document.write(html);
   w.document.close();
   w.focus();
   w.print();
+  return null;
 }
 
 // What the customer will get, before it is printed: the same look as the Quotation preview in Sales.
@@ -124,7 +128,12 @@ interface CustomsInvoicePreviewProps {
 }
 
 export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onClose }: CustomsInvoicePreviewProps) {
+  const toast = useToast();
   const totals = totalsByCurrency(lines);
+  const print = () => {
+    const blocked = printCustomsInvoice(shipment, issuedNumber, lines);
+    if (blocked) toast.error(blocked);
+  };
 
   return (
     <Modal
@@ -136,7 +145,7 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
         <Button key="cancel" onClick={onClose}>
           Cancel
         </Button>,
-        <Button key="print" type="primary" onClick={() => printCustomsInvoice(shipment, issuedNumber, lines)}>
+        <Button key="print" type="primary" onClick={print}>
           Download / Print
         </Button>,
       ]}

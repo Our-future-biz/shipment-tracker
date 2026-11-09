@@ -26,7 +26,9 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentMutations } from "@/hooks/useShipments";
 import { useCustomers } from "@/hooks/useCustomers";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
-import { downloadInvoicePdf, useInvoiceDocs, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
+import { downloadInvoicePdf, invoicePdfSource, useInvoiceDocs, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
+import { useFilePreview } from "@/hooks/useFilePreview";
+import { PreviewButton } from "@/components/PreviewButton";
 import { mailtoLink, openMailto } from "@/lib/mailto";
 import { invoiceEmailTo, shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { useToast } from "@/lib/toast";
@@ -145,6 +147,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   const [creditTarget, setCreditTarget] = useState<{ doc: InvoiceDoc; key: string } | null>(null);
   const [creditReason, setCreditReason] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
+  // An issued invoice's or credit note's PDF, shown in the app's preview.
+  const filePreview = useFilePreview();
   const [issuedEmail, setIssuedEmail] = useState<IssuedInvoiceEmail | null>(null);
   const { contacts: picContacts } = useCustomerContacts(shipment.customerId ?? "");
   // display only: the customer picker behind the pencil, and the VAT breakdown table
@@ -886,19 +890,23 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                             </button>
                           </td>
                           <td className={TD}>
-                            <Tooltip title={d.hasPdf ? "Download the PDF" : ""}>
-                              <button
-                                type="button"
-                                disabled={!d.hasPdf || downloading === d.id}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void download(d);
-                                }}
-                                className={`bg-transparent border-0 p-0 ${REF} font-semibold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer disabled:cursor-default disabled:no-underline`}
-                              >
-                                {d.number}
-                              </button>
-                            </Tooltip>
+                            {/* The PDF in the app's preview (Download is in it). Also when issuing could not
+                                store one: the server makes it when it is asked for. */}
+                            <span className="inline-flex items-center gap-1">
+                              <Tooltip title="Preview the PDF">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void filePreview.open(invoicePdfSource(d));
+                                  }}
+                                  className={`bg-transparent border-0 p-0 ${REF} font-semibold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer`}
+                                >
+                                  {d.number}
+                                </button>
+                              </Tooltip>
+                              <PreviewButton fileName={`${d.number}.pdf`} onClick={() => void filePreview.open(invoicePdfSource(d))} />
+                            </span>
                           </td>
                           <td className={`${TD} tabular-nums`}>{czDate(d.issueDate)}</td>
                           <td className={`${TD} text-right tabular-nums`}>{d.lines.length}</td>
@@ -972,14 +980,17 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                       <td className={TD}>{d.customer.companyName}</td>
                       <td className={`${TD} text-right tabular-nums font-medium`}>{money(Number(d.gross))} {d.currency}</td>
                       <td className={`${TD} text-right whitespace-nowrap`}>
-                        <Button size="small" type="text" icon={<FilePdfOutlined />} loading={downloading === d.id} onClick={() => void download(d)}>
-                          PDF
-                        </Button>
-                        {d.kind === "invoice" && d.status === "issued" && (
-                          <Button size="small" type="text" icon={<RollbackOutlined />} onClick={() => setCreditTarget({ doc: d, key: newKey() })}>
-                            Credit note…
+                        <span className="inline-flex items-center">
+                          <PreviewButton fileName={`${d.number}.pdf`} onClick={() => void filePreview.open(invoicePdfSource(d))} />
+                          <Button size="small" type="text" icon={<FilePdfOutlined />} loading={downloading === d.id} onClick={() => void download(d)}>
+                            PDF
                           </Button>
-                        )}
+                          {d.kind === "invoice" && d.status === "issued" && (
+                            <Button size="small" type="text" icon={<RollbackOutlined />} onClick={() => setCreditTarget({ doc: d, key: newKey() })}>
+                              Credit note…
+                            </Button>
+                          )}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -1024,6 +1035,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
           onClose={() => setIssuedEmail(null)}
         />
       )}
+
+      {filePreview.modal}
 
       {/* ── Credit note ── */}
       <Modal

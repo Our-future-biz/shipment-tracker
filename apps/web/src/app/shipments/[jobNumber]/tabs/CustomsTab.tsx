@@ -15,16 +15,16 @@ import {
   SearchOutlined,
   CheckOutlined,
   CloseOutlined,
-  EyeOutlined,
   DownloadOutlined,
 } from "@ant-design/icons";
 import { api, apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
+import { PreviewButton } from "@/components/PreviewButton";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { DetailCard, RoRow, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
 import { fmtNum, isDangerousShipment, shipmentWeightKg } from "@/lib/cargo";
 import { formatDateTime } from "@/lib/date";
-import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
+import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
 import type { interfaces } from "@/lib/api/client";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { CustomerLinkField } from "../_components/CustomerLinkField";
@@ -116,8 +116,9 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
 // FileCell), so names, the status and its buttons share one line across the columns and
 // sizes, dates and the reviewer share the other.
 const DOC_CELL = "py-[13px] border-b border-slate-100";
-/** A row's Preview / Download: an icon button; "!" beats antd's own <a> colour. */
-const DOC_ICON_LINK = `${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`;
+/** A row's Download: an icon button in the look of the eye (PreviewButton) beside it. */
+// The look of PreviewButton (the eye beside it), so a row's two file actions are the same size.
+const DOC_ICON_LINK = `${ICON_BTN_GHOST} text-[14px] !text-slate-500 hover:!text-slate-900`;
 /** The label over a reason for decline: small bold caps (LABEL_TEXT), in red. */
 const DECLINE_LABEL = LABEL_TEXT.replace("text-slate-900", "text-red-600");
 
@@ -323,13 +324,13 @@ export function CustomsTab({
     (f) => f.key !== "customsStatus" && !(civOnLeft && f.key === "commercialInvoiceValue"),
   );
 
-  const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
+  const { attachments, refresh: refreshDocuments, previewSource } = useShipmentAttachments(shipment.id);
 
   const [declining, setDeclining] = useState<string | null>(null);
   // A regular user changes an approved document by a request for a manager's approval, with the new file.
   const canManageDocuments = useCanManageDocuments();
   const changeRequests = useDocumentChangeRequests(shipment.id, !!canReview && section !== "details");
-  const [changing, setChanging] = useState<{ id: string; fileName: string; documentType: string } | null>(null);
+  const [changing, setChanging] = useState<AttachmentItem | null>(null);
   const [note, setNote] = useState("");
 
   // Customs can only approve or decline — the document type itself is set in the
@@ -423,6 +424,7 @@ export function CustomsTab({
       {changing && (
         <ChangeAfterApprovalModal
           document={changing}
+          documentSource={previewSource(changing)}
           saving={changeRequests.ask.isPending}
           onSend={(attachmentId, file, reason) => changeRequests.ask.mutateAsync({ attachmentId, file, reason })}
           onClose={() => setChanging(null)}
@@ -496,7 +498,12 @@ export function CustomsTab({
                       <tr className="group transition-colors hover:bg-slate-50">
                         {/* File */}
                         <td className={`px-4 align-top ${DOC_CELL}`}>
-                          <FileCell fileName={d.fileName} fileSize={d.fileSize} />
+                          <FileCell
+                            fileName={d.fileName}
+                            fileSize={d.fileSize}
+                            href={apiFileUrl(d.contentUrl)}
+                            onClick={filePreview.previewOnClick(previewSource(d))}
+                          />
                         </td>
 
                         {/* Document type - .type-static, v Customs jen ke cteni */}
@@ -569,7 +576,7 @@ export function CustomsTab({
                                     <span className="flex-none">&nbsp;· {formatDateTime(d.customsReviewedAt)}</span>
                                   </small>
                                 )}
-                                {canReview && d.customsStatus === "approved" && <ChangeRequestNote request={changeRequests.newestOf.get(d.id)} canAnswer={canManageDocuments} />}
+                                {canReview && d.customsStatus === "approved" && <ChangeRequestNote request={changeRequests.newestOf.get(d.id)} canAnswer={canManageDocuments} preview={filePreview} />}
                               </>
                             ) : !canReview ? (
                               <span className="col-span-2 flex h-8 items-center">
@@ -604,27 +611,20 @@ export function CustomsTab({
                         </td>
                         )}
 
-                        {/* .acts - nahled a stazeni */}
+                        {/* .acts - nahled a stazeni; Download stays on the page, and a link that no
+                            longer works says so. */}
                         <td className={`pl-0 pr-4 align-middle ${DOC_CELL}`}>
                           <div className="flex gap-0.5 justify-end opacity-60 group-hover:opacity-100 transition-opacity">
-                            <Tooltip title="Preview">
-                              <a
-                                href={apiFileUrl(d.contentUrl)}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={filePreview.previewOnClick(d)}
-                                className={DOC_ICON_LINK}
-                              >
-                                <EyeOutlined className="text-[16px]" />
-                              </a>
-                            </Tooltip>
+                            <PreviewButton fileName={d.fileName} onClick={() => void filePreview.open(previewSource(d))} />
                             <Tooltip title="Download">
-                              <a
-                                href={apiFileUrl(d.contentUrl, true)}
+                              <button
+                                type="button"
+                                aria-label={`Download ${d.fileName}`}
+                                onClick={() => void filePreview.download(previewSource(d))}
                                 className={DOC_ICON_LINK}
                               >
-                                <DownloadOutlined className="text-[16px]" />
-                              </a>
+                                <DownloadOutlined aria-hidden />
+                              </button>
                             </Tooltip>
                           </div>
                         </td>

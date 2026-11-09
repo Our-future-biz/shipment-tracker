@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Tooltip } from "antd";
 import { CameraOutlined, PaperClipOutlined, PlusOutlined } from "@ant-design/icons";
 import type { DeliveryException } from "@/hooks/useTruckingControl";
-import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
+import { fetchTruckingDocument, type ConsignmentDetail } from "@/hooks/useTruckingConsignments";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { businessDateTime } from "@/lib/date";
 import { remeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { btnDefault, btnPrimary } from "@/components/buttons";
@@ -13,10 +14,12 @@ import { SectionCard } from "@/components/SectionCard";
 import { CARD, EMPTY, HINT, LINK, TD, TH } from "@/styles/ui";
 import { CAUSE_LABELS, DECISION_LABELS, EXCEPTION_KIND_LABELS, FAILED_REASON_LABELS, closeState, decideState, exceptionChip } from "../../_lib/exceptions";
 import type { ActionState } from "../../_lib/consignments";
+import { truckingFileSource } from "../../_lib/fileSource";
 import { formatMoney } from "../../_lib/tariffs";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 
 export type ExceptionAction = "decide" | "close" | "photo";
+type Photo = DeliveryException["photos"][number];
 
 // A cell of the Warehouse exceptions table: a note may run onto several lines, so the row keeps to the top.
 const CELL = `${TD} !align-top`;
@@ -37,7 +40,17 @@ const Fact = ({ k, v }: { k: string; v: ReactNode }) => (
   </span>
 );
 
-const ExceptionCard = ({ e, legText, onAction }: { e: DeliveryException; legText: string | null; onAction: (e: DeliveryException, action: ExceptionAction) => void }) => {
+const ExceptionCard = ({
+  e,
+  legText,
+  onAction,
+  onPhoto,
+}: {
+  e: DeliveryException;
+  legText: string | null;
+  onAction: (e: DeliveryException, action: ExceptionAction) => void;
+  onPhoto: (p: Photo) => void;
+}) => {
   const open = !e.closedAt;
   return (
     <article className={`${CARD} p-4`}>
@@ -75,7 +88,10 @@ const ExceptionCard = ({ e, legText, onAction }: { e: DeliveryException; legText
         <ul className="mt-2 mb-0 flex list-none flex-wrap gap-2 p-0">
           {e.photos.map((p) => (
             <li key={p.id} className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-0.5 text-[12px] text-slate-700">
-              <PaperClipOutlined aria-hidden /> {p.fileName}
+              <PaperClipOutlined aria-hidden />
+              <button type="button" className={`${LINK} bg-transparent border-0 p-0 cursor-pointer text-left`} onClick={() => onPhoto(p)}>
+                {p.fileName}
+              </button>
             </li>
           ))}
         </ul>
@@ -93,12 +109,16 @@ interface ConsignmentExceptionsTabProps {
 // What went wrong at delivery and who bears it; the Warehouse's damage / short / over records of
 // the job are shown below, read-only (they are handled in Warehouse).
 export const ConsignmentExceptionsTab = ({ c, onCreate, onAction }: ConsignmentExceptionsTabProps) => {
+  // A photo (or PDF) of an exception is kept with the consignment's documents, under the same id.
+  const preview = useFilePreview();
+  const showPhoto = (p: Photo) => void preview.open(truckingFileSource(p.fileName, () => fetchTruckingDocument(p.id)));
   const legText = (legId: string | null) => {
     const leg = legId ? c.legs.find((l) => l.id === legId) : null;
     return leg ? `${leg.fromText} → ${leg.toText}` : null;
   };
   return (
     <div className="flex flex-col gap-4">
+      {preview.modal}
       <div className="flex flex-wrap items-center gap-3">
         <p className="m-0 flex-1 text-[13px] text-slate-500">
           An open exception keeps {c.ref} from Ready to bill until it is decided and closed. Charging the customer, claiming from the haulier or absorbing a cost above 0 is a
@@ -114,7 +134,7 @@ export const ConsignmentExceptionsTab = ({ c, onCreate, onAction }: ConsignmentE
       {c.exceptions.length === 0 ? (
         <div className={`${CARD} px-6 py-8 text-center text-[13px] text-slate-500`}>No exceptions on this consignment.</div>
       ) : (
-        c.exceptions.map((e) => <ExceptionCard key={e.id} e={e} legText={legText(e.legId)} onAction={onAction} />)
+        c.exceptions.map((e) => <ExceptionCard key={e.id} e={e} legText={legText(e.legId)} onAction={onAction} onPhoto={showPhoto} />)
       )}
 
       <SectionCard

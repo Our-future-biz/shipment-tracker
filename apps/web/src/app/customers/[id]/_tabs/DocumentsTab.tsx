@@ -7,12 +7,14 @@ import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
+import { PreviewButton } from "@/components/PreviewButton";
 import { LINK } from "@/styles/ui";
 import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
+import { PreviewUnavailableError, useFilePreview, type PreviewSource } from "@/hooks/useFilePreview";
 import { api } from "@/lib/api";
 import { businessToday, formatDate } from "@/lib/date";
-import { downloadDataUrl, formatFileSize } from "@/lib/files";
+import { dataUrlToBlob, formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { DOCUMENT_TYPES } from "../../_lib/constants";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
@@ -26,8 +28,22 @@ interface DocumentsTabProps {
 
 const ALL_TYPES = "all";
 
+// A document's file, for the app's preview and its download. The list carries no file content: it is
+// fetched when the document is opened (behind the login header), as a data URL turned into bytes
+// here - a data URL is never put in a frame or a tab.
+const documentFile = (doc: DocumentItem): PreviewSource => ({
+  fileName: doc.fileName || doc.name,
+  fileType: doc.fileType,
+  load: async () => {
+    const content = await api.customers.documentContent(doc.id);
+    if (!content.fileData) throw new PreviewUnavailableError("This document has no file attached.");
+    return dataUrlToBlob(content.fileData, content.fileType || doc.fileType);
+  },
+});
+
 export function DocumentsTab({ customerId }: DocumentsTabProps) {
   const toast = useToast();
+  const filePreview = useFilePreview();
   const { documents, isLoading, createDocument, deleteDocument } = useCustomerDocuments(customerId);
   const [typeFilter, setTypeFilter] = useState(ALL_TYPES);
   const [page, setPage] = useState(1);
@@ -54,19 +70,12 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
     if (typeFilter !== ALL_TYPES && typeFilter !== input.type) handleTypeFilterChange(ALL_TYPES);
   };
 
+  // Saved without leaving the page; a file that could not be fetched says so in a toast.
   const handleDownload = async (doc: DocumentItem) => {
     if (downloadingIds.includes(doc.id)) return;
     setDownloadingIds((ids) => [...ids, doc.id]);
     try {
-      // The list carries no file content; it is fetched only when a document is opened.
-      const content = await api.customers.documentContent(doc.id);
-      if (!content.fileData) {
-        toast.error("This document has no file attached");
-        return;
-      }
-      downloadDataUrl(content.fileData, content.fileName || doc.fileName || doc.name);
-    } catch {
-      toast.error("Failed to download the document");
+      await filePreview.download(documentFile(doc));
     } finally {
       setDownloadingIds((ids) => ids.filter((id) => id !== doc.id));
     }
@@ -90,16 +99,20 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
     {
       title: "Name",
       dataIndex: "name",
-      render: (v: string, r) => (
-        <button
-          type="button"
-          title="Download"
-          onClick={() => handleDownload(r)}
-          className={`p-0 border-none bg-transparent text-left cursor-pointer ${LINK}`}
-        >
-          {v}
-        </button>
-      ),
+      // A record without a file (File "—") has nothing to open: its name is plain text.
+      render: (v: string, r) =>
+        r.fileName ? (
+          <button
+            type="button"
+            title="Preview"
+            onClick={() => void filePreview.open(documentFile(r))}
+            className={`p-0 border-none bg-transparent text-left cursor-pointer ${LINK}`}
+          >
+            {v}
+          </button>
+        ) : (
+          <span>{v}</span>
+        ),
     },
     {
       title: "Type",
@@ -120,14 +133,16 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
     {
       title: "",
       key: "actions",
-      width: 80,
+      width: 112,
       render: (_: unknown, r) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex items-center justify-end gap-1">
+          <PreviewButton fileName={r.name} disabled={!r.fileName} onClick={() => void filePreview.open(documentFile(r))} />
           <Button
             type="text"
             size="small"
             icon={<DownloadOutlined />}
             aria-label={`Download ${r.name}`}
+            disabled={!r.fileName}
             loading={downloadingIds.includes(r.id)}
             onClick={() => handleDownload(r)}
           />
@@ -167,6 +182,8 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
       </SectionCard>
 
       <CustomerDocumentDialog open={addOpen} onClose={() => setAddOpen(false)} onCreate={handleCreate} />
+
+      {filePreview.modal}
 
       <ConfirmModal
         open={!!deleteTarget}

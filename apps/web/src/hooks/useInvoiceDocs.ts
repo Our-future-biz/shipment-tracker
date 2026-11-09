@@ -7,6 +7,7 @@ import { INVOICE_KEYS } from "./useInvoiceQueue";
 import { invoicingKey } from "./useInvoicing";
 import { FX_KEYS } from "./useFx";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
+import { saveBlob, type PreviewSource } from "./useFilePreview";
 
 export type InvoiceDoc = interfaces.InvoiceDocItem;
 export type InvoicePreview = interfaces.InvoicePreviewItem;
@@ -81,37 +82,23 @@ export function useInvoiceDocList(shipmentId: string) {
   });
 }
 
+/** The PDF the server sends as base64, as bytes. */
+const pdfBlob = (contentBase64: string) =>
+  new Blob([Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0))], { type: "application/pdf" });
+
 /**
- * Shows the stored, official PDF of an invoice / credit note in a new browser tab. The tab is
- * opened at the click (so no pop-up blocker stops it) and filled once the PDF has come; where
- * no tab can be opened, the PDF is downloaded instead.
+ * The stored, official PDF of an invoice / credit note, for the app's preview (useFilePreview).
+ * It is sent only with the login header, as base64, so it is loaded, never linked. Named as the
+ * server names it.
  */
-export async function openInvoicePdf(invoiceId: string) {
-  const tab = window.open("", "_blank");
-  if (!tab) return downloadInvoicePdf(invoiceId);
-  try {
-    const { contentBase64 } = await api.invoicing.invoiceDocPdf(invoiceId);
-    const bytes = Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    tab.location.href = url;
-    // the tab has loaded it by then; it keeps the PDF it shows
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  } catch (e) {
-    tab.close();
-    throw e;
-  }
-}
+export const invoicePdfSource = (doc: Pick<InvoiceDoc, "id" | "number">): PreviewSource => ({
+  fileName: `${doc.number}.pdf`,
+  fileType: "application/pdf",
+  load: async () => pdfBlob((await api.invoicing.invoiceDocPdf(doc.id)).contentBase64),
+});
 
 /** Downloads the stored, official PDF of an invoice / credit note. */
 export async function downloadInvoicePdf(invoiceId: string) {
   const { fileName, contentBase64 } = await api.invoicing.invoiceDocPdf(invoiceId);
-  const bytes = Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  saveBlob(pdfBlob(contentBase64), fileName);
 }

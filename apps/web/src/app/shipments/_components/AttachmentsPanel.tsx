@@ -2,16 +2,17 @@
 
 import { useState } from "react";
 import { useCanManageDocuments } from "@/lib/auth/AuthContext";
-import { Button, Upload } from "antd";
-import { CloseOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
+import { Button, Tooltip, Upload } from "antd";
+import { CloseOutlined, DeleteOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 import { api, apiErrorMessage, apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
+import { PreviewButton } from "@/components/PreviewButton";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
-import { HINT, MODAL_TITLE, REF } from "@/styles/ui";
+import { HINT, ICON_BTN_DANGER, ICON_BTN_GHOST, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 
 interface AttachmentsPanelProps {
   shipmentId: string;
@@ -29,7 +30,7 @@ const fileIcon = (type: string, name: string) => {
 };
 
 export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: AttachmentsPanelProps) => {
-  const { attachments: files, refresh } = useShipmentAttachments(shipmentId);
+  const { attachments: files, refresh, previewSource } = useShipmentAttachments(shipmentId);
   // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
   const canManageDocuments = useCanManageDocuments();
 
@@ -105,25 +106,45 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
           <div key={file.id} className="flex items-center gap-2 py-1.5 border-b border-slate-100">
             {fileIcon(file.fileType, file.fileName)}
             <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-medium text-slate-900 truncate">{file.fileName}</div>
+              {/* The name opens the file in the app's preview, as the eye does. */}
+              <a
+                href={apiFileUrl(file.contentUrl)}
+                target="_blank"
+                rel="noreferrer"
+                onClick={filePreview.previewOnClick(previewSource(file))}
+                title={file.fileName}
+                className={`block text-[13px] font-medium truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${LINK}`}
+              >
+                {file.fileName}
+              </a>
               <div className={`${HINT} tabular-nums`}>{formatFileSize(file.fileSize)}</div>
             </div>
-            <a href={apiFileUrl(file.contentUrl)} target="_blank" rel="noreferrer" title="View" onClick={filePreview.previewOnClick(file)}>
-              <Button type="text" size="small" icon={<EyeOutlined className="text-[10px]" />} />
-            </a>
-            <a href={apiFileUrl(file.contentUrl, true)} title="Download">
-              <Button type="text" size="small" icon={<DownloadOutlined className="text-[10px]" />} />
-            </a>
-            {canManageDocuments && (
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined className="text-[10px]" />}
-                aria-label={`Delete ${file.fileName}`}
-                onClick={() => setToDelete({ id: file.id, fileName: file.fileName })}
-              />
-            )}
+            {/* The row's icons in one look; Download stays on the page, and a link that no longer works says so. */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              <PreviewButton fileName={file.fileName} onClick={() => void filePreview.open(previewSource(file))} />
+              <Tooltip title="Download">
+                <button
+                  type="button"
+                  aria-label={`Download ${file.fileName}`}
+                  onClick={() => void filePreview.download(previewSource(file))}
+                  className={`${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`}
+                >
+                  <DownloadOutlined aria-hidden />
+                </button>
+              </Tooltip>
+              {canManageDocuments && (
+                <Tooltip title="Delete">
+                  <button
+                    type="button"
+                    aria-label={`Delete ${file.fileName}`}
+                    onClick={() => setToDelete({ id: file.id, fileName: file.fileName })}
+                    className={ICON_BTN_DANGER}
+                  >
+                    <DeleteOutlined aria-hidden />
+                  </button>
+                </Tooltip>
+              )}
+            </div>
           </div>
         ))}
       </div>

@@ -2565,6 +2565,10 @@ export namespace shipments {
             this.importInstructionsWaiting = this.importInstructionsWaiting.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
+            this.masterJobDocumentContent = this.masterJobDocumentContent.bind(this)
+            this.masterJobDocumentCreate = this.masterJobDocumentCreate.bind(this)
+            this.masterJobDocumentDelete = this.masterJobDocumentDelete.bind(this)
+            this.masterJobDocumentList = this.masterJobDocumentList.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
             this.masterJobList = this.masterJobList.bind(this)
             this.masterJobShipmentUnlink = this.masterJobShipmentUnlink.bind(this)
@@ -3045,6 +3049,32 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/master-jobs`)
             return await resp.json() as controllers.MasterJobCreateResponse
+        }
+
+        /**
+         * Streams the raw file bytes. Inline (viewable) only for allow-listed safe types; otherwise served
+         * as an attachment download. Path: /master-jobs/:masterJobId/documents/:documentId/content?t=<token>[&download=1]
+         */
+        public async masterJobDocumentContent(method: "GET", masterJobId: string, documentId: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
+            return this.baseClient.callAPI(method, `/master-jobs/${encodeURIComponent(masterJobId)}/documents/${encodeURIComponent(documentId)}/content`, body, options)
+        }
+
+        public async masterJobDocumentCreate(masterJobId: string, params: controllers.MasterJobDocumentCreateRequest): Promise<controllers.MasterJobDocumentCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/master-jobs/${encodeURIComponent(masterJobId)}/documents`, JSON.stringify(params))
+            return await resp.json() as controllers.MasterJobDocumentCreateResponse
+        }
+
+        public async masterJobDocumentDelete(masterJobId: string, documentId: string): Promise<controllers.MasterJobDocumentDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/master-jobs/${encodeURIComponent(masterJobId)}/documents/${encodeURIComponent(documentId)}`)
+            return await resp.json() as controllers.MasterJobDocumentDeleteResponse
+        }
+
+        public async masterJobDocumentList(masterJobId: string): Promise<controllers.MasterJobDocumentListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}/documents`)
+            return await resp.json() as controllers.MasterJobDocumentListResponse
         }
 
         public async masterJobGet(masterJobId: string): Promise<interfaces.MasterJobDetail> {
@@ -8591,6 +8621,32 @@ export namespace controllers {
 
     export interface MasterJobCreateResponse {
         masterJob: interfaces.MasterJobItem
+    }
+
+    export interface MasterJobDocumentCreateRequest {
+        fileName: string
+        fileType: string
+        /**
+         * Required; an empty file is refused by the service with a readable message, not by request validation.
+         */
+        contentBase64: string
+
+        /**
+         * The business document type, chosen before the file is added.
+         */
+        documentType: string
+    }
+
+    export interface MasterJobDocumentCreateResponse {
+        document: interfaces.MasterJobDocumentItem
+    }
+
+    export interface MasterJobDocumentDeleteResponse {
+        ok: boolean
+    }
+
+    export interface MasterJobDocumentListResponse {
+        documents: interfaces.MasterJobDocumentItem[]
     }
 
     export interface MasterJobListResponse {
@@ -16701,6 +16757,32 @@ export namespace interfaces {
     }
 
     /**
+     * A file on a master job's Documents tab (a store of its own, apart from the shipments' documents).
+     */
+    export interface MasterJobDocumentItem {
+        id: string
+        masterJobId: string
+        fileName: string
+        fileSize: number
+        fileType: string
+        /**
+         * Where to open the file: an API path with a short-lived token (append "&download=1" to save it).
+         */
+        contentUrl: string
+
+        createdAt: string
+        /**
+         * Business document type (Bill of Lading, Booking confirmation, …).
+         */
+        documentType: string
+
+        /**
+         * The uploader's e-mail; "Unknown" when it cannot be resolved.
+         */
+        uploadedByName: string
+    }
+
+    /**
      * A shipment of the master job as the split sees it.
      */
     export interface MasterJobHouseItem {
@@ -17248,6 +17330,15 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -17265,15 +17356,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**

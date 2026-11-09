@@ -606,6 +606,22 @@ export interface AttachmentItem {
   customsReviewedByName: string;
 }
 
+/** A file on a master job's Documents tab (a store of its own, apart from the shipments' documents). */
+export interface MasterJobDocumentItem {
+  id: string;
+  masterJobId: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  /** Where to open the file: an API path with a short-lived token (append "&download=1" to save it). */
+  contentUrl: string;
+  createdAt: string;
+  /** Business document type (Bill of Lading, Booking confirmation, …). */
+  documentType: string;
+  /** The uploader's e-mail; "Unknown" when it cannot be resolved. */
+  uploadedByName: string;
+}
+
 /** A shipment date on the dashboard's deadline list. */
 export interface DeadlineItem {
   id: string;

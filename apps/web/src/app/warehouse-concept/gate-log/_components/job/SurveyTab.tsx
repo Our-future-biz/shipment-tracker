@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Input, InputNumber, Modal, Segmented, Select, Tag } from "antd";
 import { CameraOutlined, DeleteOutlined, FileSearchOutlined, PlusOutlined, PrinterOutlined } from "@ant-design/icons";
-import { useGateFiles, useGateFileUrl, type GateFile, type GateMovement } from "@/hooks/useGateLog";
+import { useGateFilePreview, useGateFiles, useGateFileUrl, type GateFile, type GateMovement } from "@/hooks/useGateLog";
 import { useWarehouseContainers } from "@/hooks/useWarehouseRecords";
 import { useToast } from "@/lib/toast";
 import { useListKeys } from "@/hooks/useListKeys";
@@ -449,6 +449,7 @@ function PhotosSection({
   const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const [tag, setTag] = useState("");
+  const preview = useGateFilePreview();
   const total = files.reduce((a, f) => a + f.fileSize, 0);
 
   return (
@@ -475,6 +476,8 @@ function PhotosSection({
         </>
       }
     >
+      {/* Outside the drop area, so nothing dragged over the open preview is taken for an upload. */}
+      {preview.modal}
       <div
         className={`grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2.5 p-4 ${drag ? "outline-2 outline-dashed outline-indigo-400 -outline-offset-4 rounded-xl" : ""}`}
         onDragEnter={(e) => {
@@ -492,7 +495,7 @@ function PhotosSection({
         }}
       >
         {files.map((f) => (
-          <FileCard key={f.id} movementId={movementId} file={f} onDelete={() => onDelete(f)} />
+          <FileCard key={f.id} movementId={movementId} file={f} onOpen={() => preview.open(f)} onDelete={() => onDelete(f)} />
         ))}
         <button
           type="button"
@@ -530,56 +533,49 @@ function PhotosSection({
   );
 }
 
-function FileCard({ movementId, file, onDelete }: { movementId: string; file: GateFile; onDelete: () => void }) {
+// A stored file as a card (a picture with its thumbnail); the card is a button that shows the file
+// in the app's preview, and × beside it removes the file.
+function FileCard({ movementId, file, onOpen, onDelete }: { movementId: string; file: GateFile; onOpen: () => void; onDelete: () => void }) {
   const image = isImage(file);
-  const [wantUrl, setWantUrl] = useState(image);
-  const { data: url } = useGateFileUrl(movementId, file, wantUrl);
-  const pendingOpen = useRef(false);
-
-  useEffect(() => {
-    if (url && pendingOpen.current) {
-      pendingOpen.current = false;
-      window.open(url, "_blank", "noopener");
-    }
-  }, [url]);
+  const { data: url } = useGateFileUrl(movementId, file, image);
+  // A picture this browser can't draw (HEIC outside Safari) shows its extension instead.
+  const [broken, setBroken] = useState(false);
 
   const ext = file.fileName.includes(".") ? file.fileName.split(".").pop()!.toUpperCase().slice(0, 4) : "FILE";
-  const open = () => {
-    if (url) window.open(url, "_blank", "noopener");
-    else {
-      pendingOpen.current = true;
-      setWantUrl(true);
-    }
-  };
 
   return (
-    <div
-      onClick={open}
-      title={`Open ${file.fileName}`}
-      className="group relative flex flex-col border border-slate-200 rounded-lg overflow-hidden bg-white cursor-pointer hover:border-indigo-400 transition-colors"
-    >
-      <div
-        className={`relative aspect-[4/3] grid place-items-center text-[11px] font-bold tracking-wider text-slate-400 ${
-          file.tag.startsWith("PC") ? "bg-gradient-to-br from-red-50 to-slate-50" : "bg-gradient-to-br from-slate-50 to-slate-100"
-        }`}
+    <div className="group relative flex flex-col border border-slate-200 rounded-lg overflow-hidden bg-white hover:border-indigo-400 transition-colors">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={`Preview ${file.fileName}`}
+        aria-label={`Preview ${file.fileName}`}
+        // The focus ring is drawn around the card (a ring, not an outline, which the picture inside would cover).
+        className="flex flex-col w-full p-0 border-0 bg-transparent text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 rounded-lg"
       >
-        {file.tag && (
-          <Badge className="absolute top-1.5 left-1.5 z-10">{file.tag}</Badge>
-        )}
-        {image && url ? (
-          // Local object URL of the stored bytes — next/image can't optimise it.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt={file.fileName} className="w-full h-full object-cover" />
-        ) : (
-          ext
-        )}
-      </div>
-      <div className="px-2 py-1.5 text-[12px]">
-        <div className="font-semibold text-slate-900 truncate" title={file.fileName}>
-          {file.fileName.replace(/\.[^.]+$/, "")}
-        </div>
-        <div className="tabular-nums text-slate-400">{fmtSize(file.fileSize)}</div>
-      </div>
+        <span
+          className={`relative w-full aspect-[4/3] grid place-items-center text-[11px] font-bold tracking-wider text-slate-400 ${
+            file.tag.startsWith("PC") ? "bg-gradient-to-br from-red-50 to-slate-50" : "bg-gradient-to-br from-slate-50 to-slate-100"
+          }`}
+        >
+          {file.tag && (
+            <Badge className="absolute top-1.5 left-1.5 z-10">{file.tag}</Badge>
+          )}
+          {image && url && !broken ? (
+            // Local object URL of the stored bytes — next/image can't optimise it.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt={file.fileName} onError={() => setBroken(true)} className="w-full h-full object-cover" />
+          ) : (
+            ext
+          )}
+        </span>
+        <span className="block w-full px-2 py-1.5 text-[12px]">
+          <span className="block font-semibold text-slate-900 truncate" title={file.fileName}>
+            {file.fileName.replace(/\.[^.]+$/, "")}
+          </span>
+          <span className="block tabular-nums text-slate-400">{fmtSize(file.fileSize)}</span>
+        </span>
+      </button>
       <button
         type="button"
         title={`Remove ${file.fileName}`}

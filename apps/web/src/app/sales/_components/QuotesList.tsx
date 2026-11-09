@@ -9,7 +9,6 @@ import {
   CloseOutlined,
   DownOutlined,
   DownloadOutlined,
-  EyeOutlined,
   FilePdfOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -28,6 +27,7 @@ import {
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { DataTable } from "@/components/DataTable";
+import { PreviewButton } from "@/components/PreviewButton";
 import { PillTabs } from "@/components/SectionCard";
 import type { SalesQuoteFilter } from "@/hooks/salesQueryKeys";
 import { useDebounced } from "@/hooks/useDebounced";
@@ -405,14 +405,7 @@ export function QuotesList() {
         <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
           {/* The quote's chat; a revision opens its original's thread. */}
           <QuoteChatButton quoteNumber={record.quoteNumber} unread={unreadByThread.get(quoteThreadOf(record.quoteNumber)) ?? 0} onOpen={() => setChatQuote(record.quoteNumber)} />
-          <Button
-            size="small"
-            type="text"
-            icon={<EyeOutlined />}
-            title="Preview PDF"
-            aria-label={`Preview PDF of ${record.quoteNumber}`}
-            onClick={() => setPreview(record)}
-          />
+          <PreviewButton fileName={record.quoteNumber} title="Preview PDF" onClick={() => setPreview(record)} />
           <ExportPdfButton quote={record} onExport={(quote) => exportQuoteRef.current(quote)} />
         </div>
       ),

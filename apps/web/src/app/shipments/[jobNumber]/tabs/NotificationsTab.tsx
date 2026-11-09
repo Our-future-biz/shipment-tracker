@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageOutlined, PaperClipOutlined, RightOutlined } from "@ant-design/icons";
 import { apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
@@ -11,7 +11,7 @@ import { CountChip, SectionCard } from "@/components/SectionCard";
 import { formatDateTime } from "@/lib/date";
 import { BTN_GHOST, BTN_SM, HINT } from "@/styles/ui";
 import { CustomsPill } from "./docsShared";
-import { ShipmentChatDrawer, initials, shipmentChatQuery, toneFor } from "../../_components/ChatPanel";
+import { ShipmentChatDrawer, initials, shipmentChatQuery, toneFor, type ChatMessage } from "../../_components/ChatPanel";
 
 interface NotificationsTabProps {
   shipment: ShipmentItem;
@@ -74,9 +74,22 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
 // this page (as on the Shipments list), so the shipment stays open.
 function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
   const filePreview = useFilePreview();
+  const queryClient = useQueryClient();
   const [chatOpen, setChatOpen] = useState(false);
   const { data, isLoading, isError } = useQuery({ ...shipmentChatQuery(shipment.id), refetchInterval: 10000 });
   const messages = [...(data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  // A message's file for the app's preview. Its link lasts an hour; an expired one is renewed by
+  // reading the messages again.
+  const fileSource = (f: ChatMessage["attachments"][number]) => ({
+    fileName: f.fileName,
+    contentUrl: f.contentUrl,
+    fileType: f.fileType,
+    refreshUrl: async () =>
+      (await queryClient.fetchQuery({ ...shipmentChatQuery(shipment.id), staleTime: 0 }))
+        .flatMap((m) => m.attachments)
+        .find((x) => x.id === f.id)?.contentUrl,
+  });
 
   let empty = "No messages yet";
   if (isLoading) empty = "Loading messages…";
@@ -135,7 +148,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
                           href={apiFileUrl(f.contentUrl)}
                           target="_blank"
                           rel="noreferrer"
-                          onClick={filePreview.previewOnClick(f)}
+                          onClick={filePreview.previewOnClick(fileSource(f))}
                           title={f.fileName}
                           className="inline-flex items-center gap-1.5 max-w-[260px] rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[12px] text-indigo-600 hover:bg-slate-100"
                         >

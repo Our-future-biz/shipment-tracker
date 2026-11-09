@@ -16,14 +16,16 @@ import { FULL_LOAD } from "@/lib/enums";
 import { MasterJobFacts } from "./MasterJobFacts";
 import { CARD_BODY_PADDED, MasterJobCard, jumpTo } from "./MasterJobFields";
 import { MasterJobCostsTab } from "./MasterJobCostsTab";
+import { MasterJobDocumentsTab } from "./MasterJobDocumentsTab";
 import { MasterJobTrackingTab } from "./MasterJobTrackingTab";
 
-// Tabs of an opened master job; more will follow.
+// Tabs of an opened master job; more will follow. Documents sits where it does on a shipment, after the costs.
 const DETAIL_TABS = [
   { key: "mbl", label: "MBL Details" },
   { key: "containers", label: "Container Details" },
   { key: "shipments", label: "Linked Shipments" },
   { key: "costs", label: "Costs Breakdown" },
+  { key: "documents", label: "Documents" },
   { key: "tracking", label: "Tracking" },
 ] as const;
 type DetailTab = (typeof DETAIL_TABS)[number]["key"];
@@ -181,6 +183,10 @@ export function MasterJobsView() {
               </MasterJobCard>
             ) : detailTab === "costs" ? (
               <MasterJobCostsTab masterJob={mj} />
+            ) : detailTab === "documents" ? (
+              // The master job's own files, apart from its houses' documents. Keyed: files waiting in the
+              // box (and the search) belong to this master job and never carry over to the next one opened.
+              <MasterJobDocumentsTab key={mj.id} masterJob={mj} />
             ) : detailTab === "tracking" ? (
               <MasterJobTrackingTab />
             ) : (

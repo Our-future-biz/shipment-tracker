@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Checkbox, Input, InputNumber, Modal, Select } from "antd";
 import { WarningOutlined } from "@ant-design/icons";
-import { useGateFiles, useGateFileUrl, useGateMovement, type GateException, type GateFile, type GateMovement } from "@/hooks/useGateLog";
+import { useGateFilePreview, useGateFiles, useGateMovement, type GateException, type GateFile, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { Badge, errorMessage, surveyPhaseKey } from "../../_lib/gate";
@@ -24,29 +24,14 @@ export type ExceptionPrefill = { type: string; pieces: number; container: string
 
 const isImage = (f: GateFile) => /^image\//.test(f.fileType) || /\.(jpe?g|png|gif|webp|tiff?)$/i.test(f.fileName);
 
-/** Opens one stored photo / document of the movement in a new tab. */
-export function FileLink({ movementId, file }: { movementId: string; file: GateFile }) {
-  const [want, setWant] = useState(false);
-  const { data: url } = useGateFileUrl(movementId, file, want);
-  const pending = useRef(false);
-  useEffect(() => {
-    if (url && pending.current) {
-      pending.current = false;
-      window.open(url, "_blank", "noopener");
-    }
-  }, [url]);
+/** One stored photo / document of the movement by name; a click shows it in the app's preview (useGateFilePreview). */
+export function FileLink({ file, onOpen }: { file: GateFile; onOpen: () => void }) {
   return (
     <button
       type="button"
-      className={`${LINK} text-[12px] bg-transparent border-none p-0 cursor-pointer max-w-[180px] truncate`}
-      title={`Open ${file.fileName}`}
-      onClick={() => {
-        if (url) window.open(url, "_blank", "noopener");
-        else {
-          pending.current = true;
-          setWant(true);
-        }
-      }}
+      className={`${LINK} text-[12px] bg-transparent border-0 p-0 cursor-pointer text-left max-w-[180px] truncate`}
+      title={`Preview ${file.fileName}`}
+      onClick={onOpen}
     >
       {file.tag ? `${file.tag} · ` : ""}
       {file.fileName}
@@ -57,55 +42,59 @@ export function FileLink({ movementId, file }: { movementId: string; file: GateF
 /** The exceptions, open first; `onResolve` adds the "Resolve…" button (none = read-only). */
 export function ExceptionList({ m, onResolve }: { m: GateMovement; onResolve?: (e: GateException) => void }) {
   const { files } = useGateFiles(m.id);
+  const preview = useGateFilePreview();
   const byId = new Map(files.map((f) => [f.id, f]));
   const list = [...m.exceptions].sort((a, b) => (a.status === b.status ? b.createdAt.localeCompare(a.createdAt) : a.status === "open" ? -1 : 1));
   if (!list.length) return <div className={HINT}>No damage, short or over recorded.</div>;
   return (
-    <ul className="list-none m-0 p-0">
-      {list.map((e) => {
-        const open = e.status === "open";
-        const photos = e.fileIds.map((id) => byId.get(id)).filter((f): f is GateFile => !!f);
-        return (
-          <li key={e.id} className="py-2 border-b border-slate-100 last:border-b-0 text-[13px]">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={TYPE_TONE[e.type as keyof typeof TYPE_TONE] ?? ""}>{e.type}</Badge>
-              <span className="font-semibold text-slate-900 tabular-nums">
-                {e.pieces} pc{e.pieces === 1 ? "" : "s"}
-              </span>
-              {e.container && <span className={`${REF} text-slate-500`}>{e.container}</span>}
-              <Badge tone={open ? "r" : "g"}>{open ? "Open — on hold" : "Resolved"}</Badge>
-              {open && onResolve && (
-                <button type="button" className={`${btnInline} ml-auto`} onClick={() => onResolve(e)}>
-                  Resolve…
-                </button>
+    <>
+      {preview.modal}
+      <ul className="list-none m-0 p-0">
+        {list.map((e) => {
+          const open = e.status === "open";
+          const photos = e.fileIds.map((id) => byId.get(id)).filter((f): f is GateFile => !!f);
+          return (
+            <li key={e.id} className="py-2 border-b border-slate-100 last:border-b-0 text-[13px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={TYPE_TONE[e.type as keyof typeof TYPE_TONE] ?? ""}>{e.type}</Badge>
+                <span className="font-semibold text-slate-900 tabular-nums">
+                  {e.pieces} pc{e.pieces === 1 ? "" : "s"}
+                </span>
+                {e.container && <span className={`${REF} text-slate-500`}>{e.container}</span>}
+                <Badge tone={open ? "r" : "g"}>{open ? "Open — on hold" : "Resolved"}</Badge>
+                {open && onResolve && (
+                  <button type="button" className={`${btnInline} ml-auto`} onClick={() => onResolve(e)}>
+                    Resolve…
+                  </button>
+                )}
+              </div>
+              {e.note && <div className="mt-1 text-slate-700 whitespace-pre-wrap break-words">{e.note}</div>}
+              <div className={`mt-0.5 ${HINT}`}>
+                {e.source === "survey" ? `From the ${e.surveyPhase ? `${surveyPhaseKey(e.surveyPhase)} ` : ""}survey` : e.source === "tally" ? "Found at the stripping tally" : "Recorded by hand"} · {formatDateTime(e.createdAt)}
+                {e.createdBy ? ` · ${e.createdBy}` : ""}
+              </div>
+              {photos.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {photos.map((f) => (
+                    <FileLink key={f.id} file={f} onOpen={() => preview.open(f)} />
+                  ))}
+                </div>
               )}
-            </div>
-            {e.note && <div className="mt-1 text-slate-700 whitespace-pre-wrap break-words">{e.note}</div>}
-            <div className={`mt-0.5 ${HINT}`}>
-              {e.source === "survey" ? `From the ${e.surveyPhase ? `${surveyPhaseKey(e.surveyPhase)} ` : ""}survey` : e.source === "tally" ? "Found at the stripping tally" : "Recorded by hand"} · {formatDateTime(e.createdAt)}
-              {e.createdBy ? ` · ${e.createdBy}` : ""}
-            </div>
-            {photos.length > 0 && (
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                {photos.map((f) => (
-                  <FileLink key={f.id} movementId={m.id} file={f} />
-                ))}
-              </div>
-            )}
-            {e.fileIds.length > photos.length && (
-              <div className={HINT}>{e.fileIds.length - photos.length} photo(s) no longer stored</div>
-            )}
-            {!open && (
-              <div className="mt-1 rounded-lg bg-emerald-50 px-2 py-1 text-[12px] text-emerald-700">
-                Resolved {e.resolvedAt ? formatDateTime(e.resolvedAt) : ""}
-                {e.resolvedBy ? ` by ${e.resolvedBy}` : ""}
-                {e.resolutionNote ? ` — ${e.resolutionNote}` : ""}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+              {e.fileIds.length > photos.length && (
+                <div className={HINT}>{e.fileIds.length - photos.length} photo(s) no longer stored</div>
+              )}
+              {!open && (
+                <div className="mt-1 rounded-lg bg-emerald-50 px-2 py-1 text-[12px] text-emerald-700">
+                  Resolved {e.resolvedAt ? formatDateTime(e.resolvedAt) : ""}
+                  {e.resolvedBy ? ` by ${e.resolvedBy}` : ""}
+                  {e.resolutionNote ? ` — ${e.resolutionNote}` : ""}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

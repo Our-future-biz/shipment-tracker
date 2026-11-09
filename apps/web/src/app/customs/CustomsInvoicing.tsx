@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import { Button, Spin } from "antd";
 import { useToast } from "@/lib/toast";
-import { DeleteOutlined, EyeOutlined, PlusOutlined } from "@ant-design/icons";
+import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { CURRENCIES } from "@/lib/enums";
 import { AppCard } from "@/components/AppCard";
+import { PreviewButton } from "@/components/PreviewButton";
 import { GridHeader, GridInput, GridSelect } from "@/app/invoicing/_components/gridControls";
 import { type ShipmentItem } from "@/hooks/useShipments";
 import { type CustomsInvoiceLineItem, useCustomsInvoicing } from "@/hooks/useCustomsInvoicing";
@@ -139,9 +140,9 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
         title="Customs Invoicing"
         extra={
           <div className="flex items-center gap-2">
-            <Button size="small" icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
-              Preview
-            </Button>
+            {/* The app's eye. The invoice is drawn by the app from the lines here (drafts too), not a
+                stored file, so it opens its own preview (CustomsInvoicePreview), not the file preview. */}
+            <PreviewButton fileName="the customs invoice" onClick={() => setPreviewOpen(true)} />
             <Button size="small" icon={<PlusOutlined />} loading={isAdding} onClick={() => addLine({ currency: "CZK", sortOrder: rows.length })}>
               Add line
             </Button>

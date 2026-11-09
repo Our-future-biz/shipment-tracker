@@ -11,12 +11,15 @@ import { formatDate, businessDateTime, businessToday } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier } from "@/hooks/useTrucking";
 import { fetchHaulierInvoiceFile, useHaulierInvoice, type HaulierInvoiceLine } from "@/hooks/useTruckingMoney";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { btnDefault, btnPrimary } from "@/components/buttons";
+import { PreviewButton } from "@/components/PreviewButton";
 import { SectionCard } from "@/components/SectionCard";
-import { CARD, EMPTY, HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
+import { CARD, EMPTY, HINT, ICON_BTN_GHOST, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { downloadDataUrl } from "@/lib/files";
 import { formatBankAccount } from "../../_lib/bankAccounts";
 import { tripHref } from "../../_lib/consignments";
+import { truckingFileSource } from "../../_lib/fileSource";
 import { TERMS } from "../../_lib/glossary";
 import { INVOICE_STATUS_CHIP, TARGET_KIND_LABELS, differenceText, haulierVatCardHref, invoiceDecisionState, paymentState, vatBlockers } from "../../_lib/haulierInvoices";
 import { isTruckingManager } from "../../_lib/roles";
@@ -61,6 +64,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
   const [paying, setPaying] = useState(false);
   const [dialog, setDialog] = useState<"approve" | "reject" | "pay" | "unpay" | null>(null);
   const [paidOn, setPaidOn] = useState<Dayjs | null>(null);
+  const preview = useFilePreview();
 
   if (isLoading) {
     return (
@@ -100,11 +104,14 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
       toast.error(`Could not download the file: ${apiErrorMessage(e)}`);
     }
   };
+  // The haulier's file (a PDF or a photo) in the app's preview, so a manager reads it before deciding.
+  const showFile = () => void preview.open(truckingFileSource(inv.fileName || `${inv.invoiceNumber}.pdf`, () => fetchHaulierInvoiceFile(inv.id)));
   const lines = inv.lines;
   const sum = (pick: (l: HaulierInvoiceLine) => number) => lines.reduce((acc, l) => acc + pick(l), 0);
 
   return (
     <div className="bg-slate-50 min-h-full">
+      {preview.modal}
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex min-w-[240px] flex-1 items-start gap-2">
@@ -126,9 +133,17 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {inv.fileName && (
-              <button type="button" className={btnDefault} onClick={handleDownload}>
-                <DownloadOutlined /> {inv.fileName}
-              </button>
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <button type="button" className={`${LINK} bg-transparent border-0 p-0 cursor-pointer text-left text-[13px] font-semibold break-all`} onClick={showFile}>
+                  {inv.fileName}
+                </button>
+                <PreviewButton fileName={inv.fileName} onClick={showFile} />
+                <Tooltip title="Download">
+                  <button type="button" className={ICON_BTN_GHOST} aria-label={`Download ${inv.fileName}`} onClick={handleDownload}>
+                    <DownloadOutlined aria-hidden />
+                  </button>
+                </Tooltip>
+              </span>
             )}
             <GuardedButton reason={decision.reject} label="Reject…" onClick={() => setDialog("reject")} />
             <GuardedButton reason={decision.approve} label="Approve…" primary onClick={() => setDialog("approve")} />

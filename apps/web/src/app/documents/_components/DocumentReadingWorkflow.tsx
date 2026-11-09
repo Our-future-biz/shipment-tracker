@@ -7,7 +7,6 @@ import {
   Checkbox,
   Descriptions,
   Input,
-  Modal,
   Radio,
   Result,
   Segmented,
@@ -18,7 +17,7 @@ import {
   Tooltip,
   Upload,
 } from "antd";
-import { BarChartOutlined, DeleteOutlined, EyeOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { BarChartOutlined, DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
@@ -32,8 +31,10 @@ import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/l
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { useNextJobNumber } from "@/hooks/useNextJobNumber";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { AppCard } from "@/components/AppCard";
 import { Pill } from "@/components/Pill";
+import { PreviewButton } from "@/components/PreviewButton";
 import { SectionCard } from "@/components/SectionCard";
 import { BTN, BTN_PRIMARY, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT, REF } from "@/styles/ui";
 import { FieldReviewTable } from "./FieldReviewTable";
@@ -2195,29 +2196,17 @@ interface UploadedFileListProps {
   done?: ReadonlySet<string>;
 }
 
-// The type to show a picked file as; a browser sometimes leaves `type` empty, so the name decides.
-function previewType(f: UploadedFile): string {
-  if (f.type) return f.type;
-  const ext = f.name.toLowerCase().split(".").pop();
-  return ext === "pdf" ? "application/pdf" : ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "";
-}
-
 // The files picked for one read, so it is clear exactly what will be read.
 function UploadedFileList({ files, onRemove, done }: UploadedFileListProps) {
-  // Opened from the bytes already in the page: nothing is uploaded to look at a file.
-  const [preview, setPreview] = useState<{ name: string; url: string; type: string } | null>(null);
-
+  // Shown from the bytes already in the page: nothing is uploaded to look at a file.
+  const filePreview = useFilePreview();
   const openPreview = (f: UploadedFile) => {
-    const type = previewType(f);
-    const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
-    setPreview({ name: f.name, url: URL.createObjectURL(new Blob([bytes], { type })), type });
+    void filePreview.open({
+      fileName: f.name,
+      fileType: f.type,
+      load: async () => new Blob([Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0))], { type: f.type }),
+    });
   };
-  // The file's object URL is let go when the preview closes, or when the list goes while it is open.
-  useEffect(() => {
-    if (!preview) return;
-    return () => URL.revokeObjectURL(preview.url);
-  }, [preview]);
-  const closePreview = () => setPreview(null);
 
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
@@ -2231,9 +2220,7 @@ function UploadedFileList({ files, onRemove, done }: UploadedFileListProps) {
             <span className="flex-1 min-w-0 truncate text-slate-900 font-medium">{f.name}</span>
             {done?.has(f.uid) && <Pill tone="slate">Done</Pill>}
             <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
-            <Tooltip title="Preview">
-              <Button size="small" type="text" icon={<EyeOutlined />} aria-label={`Preview ${f.name}`} onClick={() => openPreview(f)} />
-            </Tooltip>
+            <PreviewButton fileName={f.name} onClick={() => openPreview(f)} />
             <Tooltip title="Remove">
               <Button
                 size="small"
@@ -2247,17 +2234,7 @@ function UploadedFileList({ files, onRemove, done }: UploadedFileListProps) {
         ))}
       </ul>
 
-      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" classNames={{ body: "!p-0 h-[78vh]" }} destroyOnHidden>
-        {preview &&
-          (preview.type.startsWith("image/") ? (
-            <div className="h-full overflow-auto bg-slate-100 flex items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={preview.url} alt={preview.name} className="max-w-full max-h-full object-contain" />
-            </div>
-          ) : (
-            <iframe src={preview.url} title={preview.name} className="w-full h-full border-0" />
-          ))}
-      </Modal>
+      {filePreview.modal}
     </div>
   );
 }
