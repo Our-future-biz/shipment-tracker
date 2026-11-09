@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { PDFParse } from "pdf-parse";
-import { czDate, czIbanFromAccount, docMoney, docRate, renderInvoicePdf, spdPayment, variableSymbol, type InvoiceForPdf } from "../lib/invoicePdf";
+import { czDate, czIbanFromAccount, docMoney, docQty, docRate, renderInvoicePdf, spdPayment, variableSymbol, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 
 async function textOf(bytes: Uint8Array): Promise<string> {
@@ -88,6 +88,14 @@ describe("formatting", () => {
     expect(docMoney("-0.001")).toBe("0.00");
     expect(docRate("25.123400")).toBe("25.123");
     expect(czDate("2026-10-03")).toBe("03.10.2026");
+  });
+
+  it("writes a whole quantity without decimals and any other one as money", () => {
+    expect(docQty("1.00")).toBe("1");
+    expect(docQty("-1.00")).toBe("-1");
+    expect(docQty("1000.00")).toBe("1,000");
+    expect(docQty("2.50")).toBe("2.50");
+    expect(docQty("0.25")).toBe("0.25");
   });
 
   it("builds the variable symbol from the job number", () => {

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Alert, Button, Form, Input, Modal, Popconfirm } from "antd";
 import { CheckCircleFilled, CopyOutlined, EyeOutlined, LinkOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
+import type { Messages } from "@/lib/toast";
 import { ImportInstructionsFields, completeAnswers, type ImportAnswers } from "@/components/ImportInstructionsFields";
 import { useImportInstructions } from "@/hooks/useImportInstructions";
 import { apiErrorMessage } from "@/lib/api";
@@ -21,9 +21,11 @@ const COMPARED: { key: keyof interfaces.ImportInstructionShipmentValues; label: 
 ];
 
 // Import Instructions in Shipments → Warehouse → Push to customers: the link for the customer, and once
-// it is filled in the preview in which the one who created the link or a manager edits, approves or rejects.
-export function ImportInstructionsRow({ shipmentId, className, messageApi }: { shipmentId: string; className: string; messageApi: MessageInstance }) {
-  const { state, askable, createLink, cancelLink, approve, reject } = useImportInstructions(shipmentId);
+// it is filled in the preview in which whoever may change the shipment's details (its Person in Charge,
+// its Holiday Cover or a manager) edits, approves or rejects. An approved form shows what was approved,
+// and what the customer had sent of each answer changed before approving.
+export function ImportInstructionsRow({ shipmentId, className, messageApi }: { shipmentId: string; className: string; messageApi: Messages }) {
+  const { state, askable, canAsk, createLink, cancelLink, approve, reject } = useImportInstructions(shipmentId);
   const [url, setUrl] = useState("");
   const [reviewing, setReviewing] = useState(false);
 
@@ -70,7 +72,7 @@ export function ImportInstructionsRow({ shipmentId, className, messageApi }: { s
           <button type="button" className={BTN_BAR}>Cancel link</button>
         </Popconfirm>
       )}
-      {(!status || status === "rejected") && askable && (
+      {(!status || status === "rejected") && askable && canAsk && (
         <button type="button" className={BTN_BAR_PRIMARY} disabled={createLink.isPending} onClick={create}>
           <LinkOutlined /> Create link
         </button>
@@ -160,6 +162,24 @@ function ReviewModal({ state, readOnly, busy, onClose, onApprove, onReject }: Re
         {state.submittedAt ? `Completed ${formatDateTime(state.submittedAt)}` : ""}
         {state.decidedBy ? ` · approved by ${state.decidedBy}` : ""}
       </div>
+      {state.changes.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          className="!mb-3"
+          message={`Changed on approval${state.decidedBy ? ` by ${state.decidedBy}` : ""}: below is what was approved. The customer had sent:`}
+          description={
+            <dl className="m-0 grid grid-cols-[150px_1fr] gap-y-1 text-[13px]">
+              {state.changes.map((c) => (
+                <div key={c.field} className="contents">
+                  <dt className="text-slate-500">{c.label}</dt>
+                  <dd className="m-0 min-w-0 break-words text-slate-900">{c.sent || <span className="text-slate-400">Empty</span>}</dd>
+                </div>
+              ))}
+            </dl>
+          }
+        />
+      )}
       {rejecting && (
         <label className="block mb-3">
           <span className={`block ${LABEL_TEXT} mb-1`}>Why are they rejected?</span>
@@ -167,7 +187,8 @@ function ReviewModal({ state, readOnly, busy, onClose, onApprove, onReject }: Re
           <span className={`block ${HINT} mt-1`}>Nothing reaches the shipment. You then tell the customer yourself and can create a new link.</span>
         </label>
       )}
-      <Form form={form} layout="vertical" requiredMark={false} initialValues={state.answers ?? undefined} disabled={readOnly || busy}>
+      {/* What was approved once it is; until then the customer's answers, as sent, for the reviewer to edit. */}
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={state.approvedAnswers ?? state.answers ?? undefined} disabled={readOnly || busy}>
         <ImportInstructionsFields form={form} />
       </Form>
       {!readOnly && (

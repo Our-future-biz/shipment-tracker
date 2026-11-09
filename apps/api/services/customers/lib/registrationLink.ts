@@ -9,8 +9,17 @@ export const REGISTRATION_LINK_DAYS = 14;
 /** The one answer to every link that doesn't open: nobody learns which ones existed. */
 export const REGISTRATION_LINK_INVALID = "This registration link is no longer valid";
 
-/** What the terms are called on the form until a manager names them otherwise. */
-export const DEFAULT_TERMS_NAME = "Austromar Terms and Conditions";
+/** What the terms are called on the form until a manager names them otherwise: no company's name, every company has its own. */
+export const DEFAULT_TERMS_NAME = "Terms and Conditions";
+
+/** What the terms' address must be, as termsUrlOf takes it. */
+export const TERMS_URL_RULE = "Enter the full web address of the terms, starting with https:// or http://";
+
+/** The answer to a registration whose terms a manager changed after the form was opened. */
+export const TERMS_CHANGED = "The terms changed — reload the page";
+
+/** The bucket a link's registry searches are counted in: its own, never the company's (ares.service searchAllowed). */
+export const registrationSearchBucket = (linkId: string) => `registration-link:${linkId}`;
 
 export const hashRegistrationToken = (token: string): string => createHash("sha256").update(token, "utf8").digest("hex");
 

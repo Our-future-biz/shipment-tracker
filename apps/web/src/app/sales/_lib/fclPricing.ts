@@ -253,7 +253,8 @@ export function fclProfitBlock(data: SalesQuoteData, sheet: ExchangeRates, live?
   const onEvery = everyType ? priceFclBlock(data, sheet, everyType, live).profit : 0;
   const without = blocks
     .filter((b) => b.perContainer && b.key !== ALL_CONTAINERS && b.units > 0)
-    .filter((b) => priceFclBlock(data, sheet, b, live).profit + onEvery <= 0)
+    // In whole cents, as the server counts it: a cent of profit is a profit.
+    .filter((b) => Math.round((priceFclBlock(data, sheet, b, live).profit + onEvery) * 100) <= 0)
     .map((b) => b.label);
   return without.length ? `No profit on ${without.join(", ")} yet — every container type needs a profit in Pricing before the quote goes out` : null;
 }

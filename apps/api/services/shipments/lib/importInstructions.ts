@@ -1,4 +1,4 @@
-import type { ImportInstructionAnswers, ImportInstructionShipmentValues } from "../interfaces/importInstructions";
+import type { ImportInstructionAnswers, ImportInstructionChange, ImportInstructionShipmentValues } from "../interfaces/importInstructions";
 
 // The Import Instructions a customer fills in through a link. Pure, so it is unit-tested.
 
@@ -74,6 +74,47 @@ export function answersProblem(a: ImportInstructionAnswers, isListedOffice: (off
   if (!a.billingAddress) return "Fill in the billing address";
   if (!a.name || !a.telephone) return "Fill in your name and telephone";
   return null;
+}
+
+/** How each answer is named on the form and in the PDF. */
+export const ANSWER_LABELS: Record<keyof ImportInstructionAnswers, string> = {
+  procedure: "Customs procedure",
+  bank: "Bank",
+  accountNumber: "Account number",
+  t1Office: "Customs office of destination",
+  otherProcedure: "Procedure",
+  tariffCode: "Customs tariff code",
+  description: "Description of the goods",
+  whatIsIt: "What is it?",
+  madeOf: "What is it made of?",
+  usedFor: "What is it used for?",
+  deliveryAddress: "Delivery address",
+  deliveryContact: "Delivery contact person",
+  deliveryPhone: "Delivery telephone",
+  billingAddress: "Billing address",
+  eori: "EORI",
+  companyId: "Company ID",
+  vatId: "VAT ID",
+  name: "Confirmed by",
+  telephone: "Telephone",
+};
+
+const PROCEDURE_TEXT: Record<ImportInstructionAnswers["procedure"], string> = {
+  "": "",
+  free_circulation: "a) Release for free circulation (SAD)",
+  t1: "b) T1 transit",
+  other: "c) Customs warehousing (SAD) or another procedure",
+};
+
+/** An answer as it reads: the procedure in words, every other one as it is. */
+export const answerText = (key: keyof ImportInstructionAnswers, a: ImportInstructionAnswers): string =>
+  key === "procedure" ? PROCEDURE_TEXT[a.procedure] : a[key];
+
+/** What the reviewer changed of what the customer sent, in the form's order; [] when nothing. */
+export function changedAnswers(sent: ImportInstructionAnswers, approved: ImportInstructionAnswers): ImportInstructionChange[] {
+  return (Object.keys(ANSWER_LABELS) as (keyof ImportInstructionAnswers)[])
+    .filter((key) => sent[key] !== approved[key])
+    .map((key) => ({ field: key, label: ANSWER_LABELS[key], sent: answerText(key, sent), approved: answerText(key, approved) }));
 }
 
 /** The shipment's Customs Procedure a form's choice means; "" for one it has no value for. */

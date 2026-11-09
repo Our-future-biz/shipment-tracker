@@ -50,7 +50,8 @@ export function parseMoney(text: string | null | undefined): number | null {
     t = t.split(thousands).join("").replace(decimal, ".");
   } else if (lastComma >= 0) {
     // Figures are written 1,250.50: commas in threes separate thousands; any other single comma is the decimal one.
-    t = /^-?\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, "") : t.replace(",", ".");
+    // A thousands figure never starts with 0, so "0,500" is a decimal comma (and has too many decimals).
+    t = /^-?[1-9]\d{0,2}(,\d{3})+$/.test(t) ? t.replace(/,/g, "") : t.replace(",", ".");
   }
   return /^-?\d{1,12}(\.\d{1,2})?$/.test(t) ? Number(t) : null;
 }

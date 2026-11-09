@@ -31,6 +31,14 @@ export function useFilePreview() {
     return () => URL.revokeObjectURL(preview.url);
   }, [preview]);
 
+  // Leaving the page drops a file still loading: no preview of it is made, so no blob is left over.
+  useEffect(() => {
+    const requests = request;
+    return () => {
+      requests.current++;
+    };
+  }, []);
+
   const open = async ({ fileName, contentUrl }: PreviewFile) => {
     const mine = ++request.current;
     try {
@@ -42,17 +50,25 @@ export function useFilePreview() {
         setPreview({ name: fileName, url: URL.createObjectURL(blob), type: blob.type });
         return;
       }
+      // Not one to show: the bytes already here are saved, rather than fetched a second time.
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = apiFileUrl(contentUrl, true);
+      link.href = url;
       link.download = fileName;
       link.click();
+      // Freed once the browser has taken the download over.
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
     } catch {
       if (mine === request.current) toast.error("Could not open the document — try downloading it instead");
     }
   };
 
-  /** For a link to the file: a click previews it in the app, and the link stays one for a screen reader. */
+  /**
+   * For a link to the file: a click previews it in the app, and the link stays one for a screen reader.
+   * A click with Ctrl, Cmd, Shift or Alt (or another button) does what it does on any link, e.g. a new tab.
+   */
   const previewOnClick = (file: PreviewFile) => (event: MouseEvent) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     void open(file);
   };

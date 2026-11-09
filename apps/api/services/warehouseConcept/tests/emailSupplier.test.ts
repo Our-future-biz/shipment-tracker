@@ -95,14 +95,14 @@ describe("supplier e-mail — VGM", () => {
 
     const preview = await emailSupplierService.preview(taskId, "vgm", "please update", c, user);
     expect(preview.subject).toBe(`VGM — ${ref} · Job no. ${jobNumber}`);
-    expect(preview.text).toContain("Re-weighed gross weight: 1 290 kg");
+    expect(preview.text).toContain("Re-weighed gross weight: 1,290 kg");
     expect(mail.calls).toHaveLength(0);
 
     const res = await emailSupplierService.send(taskId, "vgm", "please update", randomUUID(), c, user);
     expect(mail.calls).toHaveLength(1);
     const sent = mail.calls[0]!;
     expect(sent).toMatchObject({ to: ["ops@supplier.cz", "b@supplier.cz"], cc: ["cc@cto.cz"], replyTo: "jana@wh.cz", subject: `VGM — ${ref} · Job no. ${jobNumber}` });
-    expect(sent.text).toContain("Declared gross weight: 1 200 kg (from the shipment)");
+    expect(sent.text).toContain("Declared gross weight: 1,200 kg (from the shipment)");
     expect(sent.text).toContain("(+7.5 %) — more than 5 %");
     expect(sent.text).toContain(`Warehouse ref.: ${ref}`);
     expect(sent.idempotencyKey).toMatch(/^warehouse-supplier-/);
@@ -112,7 +112,7 @@ describe("supplier e-mail — VGM", () => {
     expect((data.vgm_sent_history as Record<string, string>[]).at(-1)).toMatchObject({ emailedTo: "ops@supplier.cz; b@supplier.cz", attachments: "0" });
     expect(res.email).toMatchObject({ status: "sent", to: ["ops@supplier.cz", "b@supplier.cz"] });
     const last = (await gateMovementService.get(id, c)).events.at(-1)!;
-    expect(last).toMatchObject({ kind: "sectionSent", label: "Shipment Details: VGM e-mailed to ops@supplier.cz, b@supplier.cz (Cc cc@cto.cz) (re-weighed 1 290 kg)" });
+    expect(last).toMatchObject({ kind: "sectionSent", label: "Shipment Details: VGM e-mailed to ops@supplier.cz, b@supplier.cz (Cc cc@cto.cz) (re-weighed 1,290 kg)" });
     expect((await emailSupplierService.list(taskId, c))[0]).toMatchObject({ status: "sent", requestedBy: "Jana Nováková" });
   });
 
@@ -220,8 +220,8 @@ describe("supplier e-mail — Survey and Remeasurement", () => {
     await emailSupplierService.send(taskId, "remeasurement", "", randomUUID(), c, user);
     const text = mail.calls[0]!.text;
     expect(text).toContain("1. Qty 10 · 120 × 80 × 100 cm · 110 kg per piece");
-    expect(text).toContain("Remeasured total: 10 pieces · 1 100 kg · 9.600 cbm");
-    expect(text).toContain("Declared (shipment): 10 pieces · 1 200 kg · 9.500 cbm");
+    expect(text).toContain("Remeasured total: 10 pieces · 1,100 kg · 9.600 cbm");
+    expect(text).toContain("Declared (shipment): 10 pieces · 1,200 kg · 9.500 cbm");
     expect(JSON.parse((await sectionData(taskId, c)).remeasurement_sent as string)).toMatchObject({ emailedTo: "ops@supplier.cz" });
   });
 });

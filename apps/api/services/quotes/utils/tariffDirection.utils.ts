@@ -22,13 +22,18 @@ export function withoutRoadUpdates(data: Record<string, unknown>): { tariffUpdat
   return { tariffUpdates: data.tariffUpdates.filter((u) => !isPlainObject(u) || u.kind !== "road") };
 }
 
-/** Why the quote can't go out for a new tariff rate not approved yet (lib/tariffOvernight); null when none waits. */
+/**
+ * Why the quote can't go out for a new tariff rate not approved yet (lib/tariffOvernight); null when
+ * none waits. A rate waits while a buying line is still priced from the lapsed tariff - a selling line
+ * copied from it may keep its tag - and a road rate while the quote has road lines (twin of the web's
+ * sales/_lib/tariffUpdates.ts waitingTariffUpdates).
+ */
 export function tariffUpdateGateMessage(data: unknown): string | null {
   if (!isPlainObject(data) || !Array.isArray(data.tariffUpdates)) return null;
-  const lines = [data.buyingLines, data.sellingLines].flatMap((side) => (Array.isArray(side) ? side.filter(isPlainObject) : []));
-  const refs = new Set(lines.map((line) => text(line.tariffRef)));
-  const hasRoadLine = [...refs].some((ref) => ref.startsWith("trucking:"));
-  const waiting = data.tariffUpdates.filter(isPlainObject).filter((u) => (u.kind === "road" ? hasRoadLine : refs.has(text(u.oldRef))));
+  const linesOf = (side: unknown) => (Array.isArray(side) ? side.filter(isPlainObject) : []);
+  const buyingRefs = new Set(linesOf(data.buyingLines).map((line) => text(line.tariffRef)));
+  const hasRoadLine = [...linesOf(data.buyingLines), ...linesOf(data.sellingLines)].some((line) => text(line.tariffRef).startsWith("trucking:"));
+  const waiting = data.tariffUpdates.filter(isPlainObject).filter((u) => (u.kind === "road" ? hasRoadLine : buyingRefs.has(text(u.oldRef))));
   if (!waiting.length) return null;
   return `${waiting.length === 1 ? "A tariff has" : `${waiting.length} tariffs have`} a new rate — approve it in Pricing, or pick another tariff, before the quote goes out`;
 }

@@ -1778,6 +1778,7 @@ export function DocumentReadingWorkflow() {
                 : Object.fromEntries((splitPreview ?? []).map((l) => [l.shipmentId, l.amount]))
             }
             existing={creditNote ? undefined : Object.fromEntries((splitPreview ?? []).map((l) => [l.shipmentId, l.existing ?? null]))}
+            billed={creditNote ? undefined : new Set((splitPreview ?? []).filter((l) => l.billed).map((l) => l.shipmentId))}
             overwrite={splitOverwrite}
             onOverwrite={(id, on) =>
               setSplitOverwrite((prev) => {

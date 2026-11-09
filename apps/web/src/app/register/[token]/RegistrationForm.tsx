@@ -184,13 +184,16 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
     try {
       await publicApi.customers.publicRegistrationSubmit(token, {
         termsAccepted: accepted,
+        // The terms as shown: refused when a manager changed them meanwhile.
+        termsUrl: terms.termsUrl,
         country,
         contact,
         ...(fromRegistry && preview ? { ico: preview.ico } : manual),
       });
       onDone();
     } catch (err) {
-      setSubmitError(isNotFound(err) ? "This link is no longer valid. Please ask your contact for a new one." : apiErrorMessage(err));
+      // The server's own sentence: a link no longer valid says so, and so do terms changed meanwhile.
+      setSubmitError(apiErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

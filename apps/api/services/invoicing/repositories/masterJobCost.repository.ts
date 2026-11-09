@@ -4,7 +4,9 @@ import { invoiceCostTable, type InvoiceCostRecord, type NewInvoiceCostRecord } f
 import { invoiceSellingCostTable } from "../schemas/invoiceSellingCost.schema";
 import { masterJobCostTable as t, type MasterJobCostRecord, type NewMasterJobCostRecord } from "../schemas/masterJobCost.schema";
 import {
+  billedOutOfSync,
   masterJobRefPrefix,
+  notBilled,
   planSoldAtCost,
   soldAtCostInSync,
   soldAtCostRows,
@@ -127,15 +129,30 @@ class MasterJobCostRepository {
     return rows.length > 0;
   }
 
-  /** How many share rows the shipments carry, and whether they, and the selling rows the shares call for, are exactly these. */
-  async splitState(companyId: string, masterJobId: string, rows: SplitRowValues[]): Promise<{ written: number; inSync: boolean; sellingOnInvoices: number }> {
+  /**
+   * How many share rows the shipments carry, and whether they, and the selling rows the shares call for,
+   * are exactly these on every shipment the split writes to. A billed shipment is left as it is: those
+   * that differ from the split are named instead (billedKept).
+   */
+  async splitState(
+    companyId: string,
+    masterJobId: string,
+    rows: SplitRowValues[],
+  ): Promise<{ written: number; inSync: boolean; sellingOnInvoices: number; billedKept: string[] }> {
     const written = await db.select().from(invoiceCostTable).where(liveSplitRows(companyId, masterJobId));
     const wanted = soldAtCostRows(rows);
     const current = await currentSoldAtCost(db, companyId, masterJobId);
+    const billed = await invoiceRepository.billedShipmentIds([...written, ...rows, ...current].map((r) => r.shipmentId), companyId);
     const invoiced = await invoicedAmong(db, companyId, new Set(current.map((r) => r.shipmentId)));
     const { copied } = await buyingSharesOf(db, companyId, masterJobId);
-    const plan = planSoldAtCost(current, wanted, invoiced, await sharesWithoutRow(db, companyId, masterJobId, wanted, copied));
-    return { written: written.length, inSync: splitRowsInSync(written, rows) && soldAtCostInSync(plan), sellingOnInvoices: plan.onInvoices };
+    const noRowFor = await sharesWithoutRow(db, companyId, masterJobId, wanted, copied);
+    const plan = planSoldAtCost(notBilled(current, billed), notBilled(wanted, billed), invoiced, noRowFor);
+    return {
+      written: written.length,
+      inSync: splitRowsInSync(notBilled(written, billed), notBilled(rows, billed)) && soldAtCostInSync(plan),
+      sellingOnInvoices: plan.onInvoices,
+      billedKept: billedOutOfSync(billed, written, rows, { current, wanted, invoiced, noRowFor }),
+    };
   }
 
   /**
@@ -166,17 +183,20 @@ class MasterJobCostRepository {
     });
   }
 
-  /** Writes the selling rows the shares call for, under each shipment's invoice lock. Rows on an issued invoice stay. */
-  private async writeSoldAtCost(tx: Tx, companyId: string, masterJobId: string, rows: SplitRowValues[]): Promise<void> {
-    const wanted = soldAtCostRows(rows);
+  /**
+   * Writes the selling rows the shares call for, under each shipment's invoice lock. Rows on an issued
+   * invoice stay, and a billed shipment's rows all do.
+   */
+  private async writeSoldAtCost(tx: Tx, companyId: string, masterJobId: string, rows: SplitRowValues[], billed: ReadonlySet<string>): Promise<void> {
+    const wanted = notBilled(soldAtCostRows(rows), billed);
     // The master job's lock is held, so no selling row of it comes or goes on another shipment
     // meanwhile; a manager's answer still writes one under that shipment's lock alone.
-    const before = await currentSoldAtCost(tx, companyId, masterJobId);
+    const before = notBilled(await currentSoldAtCost(tx, companyId, masterJobId), billed);
     const shipments = [...new Set([...wanted.map((r) => r.shipmentId), ...before.map((r) => r.shipmentId)])].sort();
     if (shipments.length === 0) return;
     for (const shipmentId of shipments) await truckingLinesLock(tx, shipmentId);
     // Read again under the shipments' locks, so an approval answered meanwhile is kept, not overwritten.
-    const current = await currentSoldAtCost(tx, companyId, masterJobId);
+    const current = notBilled(await currentSoldAtCost(tx, companyId, masterJobId), billed);
     const invoiced = await invoicedAmong(tx, companyId, shipments);
     const { idOf, copied } = await buyingSharesOf(tx, companyId, masterJobId);
     const plan: SoldAtCostPlan = planSoldAtCost(current, wanted, invoiced, await sharesWithoutRow(tx, companyId, masterJobId, wanted, copied));
@@ -215,14 +235,19 @@ class MasterJobCostRepository {
    * every other live row of the master job goes (also on a shipment no longer linked). The rows
    * are worked out by `compute` while the master job's lock is held, so two writes can't
    * interleave and the one that writes last has read the lines and shipments as they are then.
+   * A billed shipment (lib/billedLock) is left as it is, buying and selling: splitState names it.
    */
   async replaceSplitRows(companyId: string, masterJobId: string, compute: () => Promise<SplitRowValues[]>): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.execute(lockMasterJobCosts(masterJobId));
-      const rows = await compute();
+      const computed = await compute();
       const c = invoiceCostTable;
       const now = new Date();
-      const existing = await tx.select().from(c).where(liveSplitRows(companyId, masterJobId));
+      const carried = await tx.select().from(c).where(liveSplitRows(companyId, masterJobId));
+      const sold = await currentSoldAtCost(tx, companyId, masterJobId);
+      const billed = await invoiceRepository.billedShipmentIds([...computed, ...carried, ...sold].map((r) => r.shipmentId), companyId, tx);
+      const rows = notBilled(computed, billed);
+      const existing = notBilled(carried, billed);
       const byKey = new Map<string, InvoiceCostRecord>();
       const gone: string[] = [];
       for (const row of existing) {
@@ -247,7 +272,7 @@ class MasterJobCostRepository {
       gone.push(...[...byKey.values()].map((r) => r.id));
       if (gone.length) await tx.update(c).set({ deletedAt: now, updatedAt: now }).where(inArray(c.id, gone));
       if (fresh.length) await tx.insert(c).values(fresh);
-      await this.writeSoldAtCost(tx, companyId, masterJobId, rows);
+      await this.writeSoldAtCost(tx, companyId, masterJobId, rows, billed);
     });
   }
 }

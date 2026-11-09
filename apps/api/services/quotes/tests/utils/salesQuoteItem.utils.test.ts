@@ -284,3 +284,29 @@ describe("shippingTermsGateMessage", () => {
     expect(shippingTermsGateMessage({ shippingTerms: "AIR EXPORT" })).toBeNull();
   });
 });
+
+describe("toItem's sendBlocked: the gates the sending is refused by, said beforehand", () => {
+  const ready = { reference: "QCZ20261010001", quoteStatus: "draft", serviceType: "Air", shippingTerms: "AIR EXPORT" };
+  const CUSTOMER = "946e01e8-a4ed-4aa7-932b-2c5d5e991c30";
+
+  it("holds a quote while a new tariff rate waits for approval", () => {
+    const data = { ...ready, buyingLines: [{ tariffRef: "collection:v1", amount: 100 }], tariffUpdates: [{ oldRef: "collection:v1", kind: "collection" }] };
+    expect(toItem(row({ data }), emails, manager, NOW).sendBlocked).toMatch(/^A tariff has a new rate — approve it in Pricing/);
+    // Approved: the buying line is priced again, whatever a selling line copied from it is tagged.
+    const approved = { ...data, buyingLines: [{ tariffRef: "collection:v2", amount: 110 }], sellingLines: [{ tariffRef: "collection:v1", amount: 150 }] };
+    expect(toItem(row({ data: approved }), emails, manager, NOW).sendBlocked).toBeNull();
+  });
+
+  it("holds a quote for a customer that waits for a manager, or was declined, in the transition's words", () => {
+    const data = { ...ready, customerId: CUSTOMER };
+    const waiting = new Map([[CUSTOMER, { companyName: "ACME s.r.o.", status: "pending" as const, comment: "" }]]);
+    expect(toItem(row({ data }), emails, manager, NOW, undefined, waiting).sendBlocked).toBe(
+      "ACME s.r.o. waits for a manager's approval (Sales → Managers → Company approval) — the quote can be sent once it is approved",
+    );
+    const declined = new Map([[CUSTOMER, { companyName: "ACME s.r.o.", status: "declined" as const, comment: "duplicate" }]]);
+    expect(toItem(row({ data }), emails, manager, NOW, undefined, declined).sendBlocked).toBe("A manager declined ACME s.r.o. (duplicate) — choose another customer");
+    // Not asked, or approved: nothing to say beforehand.
+    expect(toItem(row({ data }), emails, manager, NOW).sendBlocked).toBeNull();
+    expect(toItem(row({ data }), emails, manager, NOW, undefined, new Map([[CUSTOMER, { companyName: "ACME s.r.o.", status: "" as const, comment: "" }]])).sendBlocked).toBeNull();
+  });
+});

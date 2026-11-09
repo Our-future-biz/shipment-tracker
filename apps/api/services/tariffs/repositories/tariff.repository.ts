@@ -706,7 +706,6 @@ class TariffRepository {
     return { rows, total };
   }
 
-  /** The ocean versions that price on the day, of tariffs for the direction, with their tariffs. */
   /** For the overnight check of quotes: the versions and whether each is in force on the day, and which rail rates are. */
   async quoteRefs(companyId: string, date: string, versionIds: string[], railRateIds: string[]): Promise<{ versions: { id: string; tariffId: string; valid: boolean }[]; validRailRateIds: string[] }> {
     const versions = versionIds.length
@@ -739,6 +738,7 @@ class TariffRepository {
     };
   }
 
+  /** The ocean versions that price on the day, of tariffs for the direction, with their tariffs. */
   async oceanCandidates(companyId: string, direction: RailDirection, date: string): Promise<CollectionCandidate[]> {
     return db
       .select({ version: tariffVersionTable, tariff: tariffTable })

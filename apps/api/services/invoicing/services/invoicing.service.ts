@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { customers, quotes, shipments } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
-import { assertNotBilled, leavesBuyingCostAlone, leavesSellingCostAlone } from "../lib/billedLock";
+import { BILLED, assertNotBilled, isBilled, leavesBuyingCostAlone, leavesSellingCostAlone } from "../lib/billedLock";
 import { toChargeCode } from "../../../lib/chargeCodes";
 import { canDecideQuoteInquiry, quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
@@ -441,12 +441,16 @@ class InvoicingService {
   /**
    * A buying cost posted by its charge code (master jobs, document reading). It goes onto the
    * shipment's first line of that code - so a real cost lands on the estimate it belongs to
-   * instead of a second line - and a line is created when the shipment has none.
+   * instead of a second line - and a line is created when the shipment has none. On a billed
+   * shipment (lib/billedLock) an estimate is not changed, and a real cost never replaces one the
+   * line has already: the supplier's invoice comes as a new line.
    */
   async upsertCost(shipmentId: string, companyId: string, category: string, input: CategoryCostInput): Promise<InvoiceCostItem> {
     const code = toChargeCode(category);
     await assertNotKeptByTrucking(companyId, [shipmentId], code);
     const changes = buyingChanges(input);
+    const billed = await isBilled(shipmentId, companyId);
+    if (billed && (changes.estAmount !== undefined || changes.estCurrency !== undefined)) throw APIError.failedPrecondition(BILLED);
     // Checked again under the shipment's trucking-lines lock, so a Trucking push running at the
     // same moment can't slip its line in between the check and this write.
     return truckingLinesRepository.withShipmentLock(shipmentId, async () => {
@@ -455,7 +459,8 @@ class InvoicingService {
       // On a shipment priced from a quote the real cost lands and the estimate stays the quote's.
       const quoted = existing?.sourceQuoteNumber || (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId));
       const kept = quoted ? definedOnly({ ...changes, estAmount: undefined, estCurrency: undefined }) : changes;
-      if (existing) {
+      const posted = !!existing && (existing.realAmount !== null || !!existing.invoiceNumber.trim());
+      if (existing && !(billed && posted)) {
         const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, { ...kept, ...unlinkOnVendorChange(existing, kept) });
         if (!row) throw APIError.notFound("Buying cost not found");
         return toCostItem(row);
@@ -469,8 +474,9 @@ class InvoicingService {
    * One vendor invoice split over shipments by weight (a master job's invoice by freight tons):
    * the parts add up to the total to the cent and are posted as the real cost of each
    * shipment's line of the code. A shipment of weight 0 gets nothing. A shipment that already
-   * has a real cost of the code keeps it unless it is in `overwriteShipmentIds`; its part is
-   * not handed to the others. `dryRun` only answers the split and what each shipment has.
+   * has a real cost of the code keeps it unless it is in `overwriteShipmentIds` - a billed one
+   * keeps it whatever is asked (lib/billedLock), and says so; its part is not handed to the
+   * others. `dryRun` only answers the split and what each shipment has.
    */
   async splitCost(companyId: string, input: CostSplitInput): Promise<CostSplitResultLine[]> {
     const code = toChargeCode(input.category);
@@ -494,7 +500,9 @@ class InvoicingService {
         ? { realAmount: row.realAmount, realCurrency: row.realCurrency, invoiceNumber: row.invoiceNumber }
         : null;
       const amount = line.weight > 0 ? parts[i]! : null;
-      const write = !input.dryRun && amount !== null && (!existing || overwrite.has(line.shipmentId));
+      // A billed shipment's real cost stays: the part is not posted over it.
+      const billed = await isBilled(line.shipmentId, companyId);
+      const write = !input.dryRun && amount !== null && (!existing || (overwrite.has(line.shipmentId) && !billed));
       if (write) {
         await this.upsertCost(line.shipmentId, companyId, code, {
           realAmount: amount,
@@ -503,7 +511,7 @@ class InvoicingService {
           ...(input.vendor?.trim() ? { vendor: input.vendor.trim() } : {}),
         });
       }
-      result.push({ shipmentId: line.shipmentId, amount, existing, written: write });
+      result.push({ shipmentId: line.shipmentId, amount, existing, written: write, billed });
     }
     return result;
   }

@@ -51,6 +51,8 @@ class CompanyRegistrationRepository {
       .limit(200);
   }
 
+  // The public side's two look-ups (this and claim) go by the token's hash alone: the token is the only key
+  // a registering company has, and the link it finds says which company it is for.
   async linkByHash(hash: string) {
     const [row] = await db.select().from(companyRegistrationLinkTable).where(eq(companyRegistrationLinkTable.tokenHash, hash));
     return row ?? null;
@@ -98,9 +100,12 @@ class CompanyRegistrationRepository {
     return row ?? null;
   }
 
-  /** A registration that failed gives the link back. */
-  async release(id: string): Promise<void> {
-    await db.update(companyRegistrationLinkTable).set({ usedAt: null }).where(eq(companyRegistrationLinkTable.id, id));
+  /** A registration that failed before anything was written gives the link back. */
+  async release(companyId: string, id: string): Promise<void> {
+    await db
+      .update(companyRegistrationLinkTable)
+      .set({ usedAt: null })
+      .where(and(eq(companyRegistrationLinkTable.id, id), eq(companyRegistrationLinkTable.companyId, companyId)));
   }
 
   // ─── Registrations ────────────────────────────────────────
@@ -138,7 +143,7 @@ class CompanyRegistrationRepository {
   }
 
   /** The answer to a registration that still waits; null when somebody answered first. */
-  async answer(id: string, answer: RegistrationAnswer, now: Date): Promise<CompanyRegistrationRecord | null> {
+  async answer(companyId: string, id: string, answer: RegistrationAnswer, now: Date): Promise<CompanyRegistrationRecord | null> {
     const [row] = await db
       .update(companyRegistrationTable)
       .set({
@@ -149,17 +154,17 @@ class CompanyRegistrationRepository {
         // A manager answering their own link has seen the answer.
         answerSeenAt: sql`case when ${companyRegistrationTable.requestedByUserId} = ${answer.byUserId} then ${now.toISOString()}::timestamptz else null end`,
       })
-      .where(and(eq(companyRegistrationTable.id, id), eq(companyRegistrationTable.status, "pending")))
+      .where(and(eq(companyRegistrationTable.id, id), eq(companyRegistrationTable.companyId, companyId), eq(companyRegistrationTable.status, "pending")))
       .returning();
     return row ?? null;
   }
 
   /** Back to waiting: an answer that could not be carried out, or a decline taken back. */
-  async reopen(id: string): Promise<CompanyRegistrationRecord | null> {
+  async reopen(companyId: string, id: string): Promise<CompanyRegistrationRecord | null> {
     const [row] = await db
       .update(companyRegistrationTable)
       .set({ status: "pending", decidedBy: "", decidedAt: null, comment: "", answerSeenAt: null })
-      .where(and(eq(companyRegistrationTable.id, id), ne(companyRegistrationTable.status, "pending")))
+      .where(and(eq(companyRegistrationTable.id, id), eq(companyRegistrationTable.companyId, companyId), ne(companyRegistrationTable.status, "pending")))
       .returning();
     return row ?? null;
   }
@@ -214,11 +219,17 @@ class CompanyRegistrationRepository {
       .orderBy(asc(companyApprovalParticipantTable.addedAt));
   }
 
-  async isMember(threadId: string, userId: string): Promise<boolean> {
+  async isMember(companyId: string, threadId: string, userId: string): Promise<boolean> {
     const [row] = await db
       .select({ member: companyApprovalParticipantTable.member })
       .from(companyApprovalParticipantTable)
-      .where(and(eq(companyApprovalParticipantTable.threadId, threadId), eq(companyApprovalParticipantTable.userId, userId)));
+      .where(
+        and(
+          eq(companyApprovalParticipantTable.companyId, companyId),
+          eq(companyApprovalParticipantTable.threadId, threadId),
+          eq(companyApprovalParticipantTable.userId, userId),
+        ),
+      );
     return !!row?.member;
   }
 
@@ -231,6 +242,8 @@ class CompanyRegistrationRepository {
         target: [companyApprovalParticipantTable.threadId, companyApprovalParticipantTable.userId],
         // Brought back by a manager, it is news to them again.
         set: addedByUserId ? { member: true, addedByUserId, addedAt: new Date(), lastReadAt: null } : { member: true },
+        // Only the company's own row.
+        setWhere: eq(companyApprovalParticipantTable.companyId, companyId),
       });
   }
 
@@ -258,6 +271,7 @@ class CompanyRegistrationRepository {
       .onConflictDoUpdate({
         target: [companyApprovalParticipantTable.threadId, companyApprovalParticipantTable.userId],
         set: { lastReadAt: now },
+        setWhere: eq(companyApprovalParticipantTable.companyId, companyId),
       });
   }
 
@@ -268,7 +282,7 @@ class CompanyRegistrationRepository {
     const written = await db
       .select({ threadId: m.threadId, unread: sql<number>`count(*)::int`, latestAt: sql<Date>`max(${m.createdAt})` })
       .from(m)
-      .leftJoin(p, and(eq(p.threadId, m.threadId), eq(p.userId, userId)))
+      .leftJoin(p, and(eq(p.companyId, companyId), eq(p.threadId, m.threadId), eq(p.userId, userId)))
       .where(
         and(
           eq(m.companyId, companyId),

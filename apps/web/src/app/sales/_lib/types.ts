@@ -303,6 +303,9 @@ export interface SalesQuoteData {
   // Pricing
   // New rates of lapsed tariffs waiting for the user's approval (_lib/tariffUpdates.ts).
   tariffUpdates?: TariffUpdate[];
+  // The lapsed tariffs (tariffRef) the overnight check could not ask today's rates for, and has told
+  // the user about once in the chat; their lines are kept. Written by the server's check only.
+  tariffUnchecked?: string[];
   buyingLines?: CostLine[];
   sellingLines?: CostLine[];
   // Quoted as an all-in rate: the customer's document shows the selling total as one price, without

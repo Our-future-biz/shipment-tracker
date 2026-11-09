@@ -10,10 +10,12 @@ export interface EurTotal {
 
 /** Amounts in their own currencies as one sum in EUR, at the ČNB rates given (no ROE %). */
 export function eurTotal(amounts: readonly (readonly [currency: string, amount: number])[], rates: Rates): EurTotal {
+  // Every other currency goes to EUR through CZK: without the EUR rate, that is the one missing.
+  if (!rates.EUR && amounts.some(([currency]) => currency !== "EUR")) return { eur: null, missing: ["EUR"] };
   let sum = 0;
   const missing = new Set<string>();
   for (const [currency, amount] of amounts) {
-    const eur = convert(amount, currency, "EUR", rates);
+    const eur = currency === "EUR" ? amount : convert(amount, currency, "EUR", rates);
     if (eur === null) missing.add(currency);
     else sum += eur;
   }

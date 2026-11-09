@@ -1680,8 +1680,8 @@ export function ShipmentDetailContent() {
                   const validUntil = costsQuote?.validUntil ?? null;
                   const validity = validUntil ? (validUntil >= businessToday() ? "Ok" : "Check") : null;
                   const custom: Record<string, React.ReactNode> = {
-                    // The quote the costs were copied from, else the one the shipment names.
-                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={costsQuoteRef || salesNumber} />,
+                    // The shipment's own Sales Reference; without one, the quote its costs were copied from.
+                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={salesNumber || costsQuoteRef} />,
                     selling: <RoRow key="selling" label="Total Selling Costs" value={amount(costs.totals.sellTotal)} />,
                     buying: <RoRow key="buying" label="Total Buying Costs" value={amount(costs.totals.buyTotal)} />,
                     profit: <RoRow key="profit" label="Profit" value={amount(costs.totals.sellTotal - costs.totals.buyTotal)} />,

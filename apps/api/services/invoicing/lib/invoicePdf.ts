@@ -70,6 +70,11 @@ export function docMoney(v: string | number): string {
   return `${neg && Number(fixed) !== 0 ? "-" : ""}${grouped}.${dec}`;
 }
 
+/** A line's quantity: whole ones without decimals ("1", "1,000"), others as money ("2.50"). */
+export function docQty(v: string | number): string {
+  return docMoney(v).replace(/\.00$/, "");
+}
+
 /** Exchange rate with 3 decimals: 25.12345 -> "25.123" */
 export function docRate(v: string | number): string {
   const n = typeof v === "number" ? v : Number(v);
@@ -383,7 +388,7 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     }
     if (i % 2 === 1) w.rect(M, w.y - rowH, right - M, rowH, ZEBRA);
     descLines.forEach((d, j) => w.text(d, cols.desc, w.y - 13 - j * 12, 9));
-    w.text(docMoney(l.qty).replace(/,00$/, ""), cols.qty, w.y - 13, 9, { align: "right" });
+    w.text(docQty(l.qty), cols.qty, w.y - 13, 9, { align: "right" });
     const price = `${docMoney(l.unitPrice)} ${l.unitCurrency}`;
     w.text(price, cols.unit, w.y - 13, regular.widthOfTextAtSize(price, 9) <= priceMax ? 9 : 7.5, { align: "right" });
     vatLines.forEach((v, j) => w.text(v, cols.vat, w.y - 13 - j * 12, 8, { align: "right", color: MUTED }));

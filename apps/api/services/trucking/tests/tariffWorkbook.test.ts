@@ -151,6 +151,17 @@ describe("cell parsing", () => {
     expect(parseNumber(true)).toBeNaN();
   });
 
+  it("reads commas in threes as thousands, as the app writes figures, and a comma after a leading 0 as a decimal comma", () => {
+    expect(parseNumber("1,250")).toBe(1250);
+    expect(parseNumber("-1,250")).toBe(-1250);
+    expect(parseNumber("12,345,678")).toBe(12345678);
+    expect(parseNumber("1,850 kg")).toBe(1850);
+    expect(parseNumber("0,500")).toBe(0.5);
+    expect(parseNumber("-0,250")).toBe(-0.25);
+    expect(parseNumber("0,125")).toBe(0.125);
+    expect(parseNumber("1,2500")).toBe(1.25);
+  });
+
   it("reads postcodes as text with a space, text or a number", () => {
     expect(parsePostcode("110 00")).toBe("11000");
     expect(parsePostcode("11000")).toBe("11000");

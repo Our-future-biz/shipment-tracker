@@ -1,0 +1,7 @@
+-- Forms whose shipment is gone have nothing left to reach: removed, so the key holds.
+DELETE FROM "shipment_import_instruction" i WHERE NOT EXISTS (SELECT 1 FROM "shipment" s WHERE s."id" = i."shipment_id");--> statement-breakpoint
+-- One live form per shipment: of two, a waiting form wins over a link, else the newer one; the other is cancelled.
+UPDATE "shipment_import_instruction" i SET "status" = 'cancelled' WHERE i."status" IN ('open', 'submitted') AND EXISTS (SELECT 1 FROM "shipment_import_instruction" o WHERE o."shipment_id" = i."shipment_id" AND o."id" <> i."id" AND o."status" IN ('open', 'submitted') AND ((o."status" = 'submitted' AND i."status" = 'open') OR (o."status" = i."status" AND (o."created_at", o."id") > (i."created_at", i."id"))));--> statement-breakpoint
+ALTER TABLE "shipment_import_instruction" ADD COLUMN "approved_answers" jsonb;--> statement-breakpoint
+ALTER TABLE "shipment_import_instruction" ADD CONSTRAINT "shipment_import_instruction_shipment_id_shipment_id_fk" FOREIGN KEY ("shipment_id") REFERENCES "public"."shipment"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "shipment_import_instruction_live_uq" ON "shipment_import_instruction" USING btree ("shipment_id") WHERE status IN ('open', 'submitted');

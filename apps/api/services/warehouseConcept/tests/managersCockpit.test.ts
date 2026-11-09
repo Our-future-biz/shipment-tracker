@@ -192,7 +192,7 @@ describe("attention signals", () => {
 
   it("chargeable storage whose 'Storage settled' line was never ticked by a person", () => {
     const m = item({ storage: running({ state: "Chargeable", chargeableDays: 3, estimatedCzk: 1280, freeDaysLeft: 0 }), releaseGates: [{ g: "Storage settled", s: "OK", note: "" }] });
-    expect(texts(m)).toEqual(['A Storage chargeable (est. CZK 1 280), "Storage settled" OK by default']);
+    expect(texts(m)).toEqual(['A Storage chargeable (est. CZK 1,280), "Storage settled" OK by default']);
     const ticked = { ...m, events: [{ kind: "releaseGate", label: "Storage settled: OK", at: hoursAgo(1), by: "Eva" }] } as GateMovementItem;
     expect(texts(ticked)).toEqual([]);
   });

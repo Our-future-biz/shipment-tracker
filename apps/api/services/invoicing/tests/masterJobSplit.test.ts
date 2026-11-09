@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  billedOutOfSync,
   lineTotalCents,
+  notBilled,
   masterJobRef,
   masterJobRefPrefix,
   planSoldAtCost,
@@ -242,5 +244,38 @@ describe("a selling row a manager approved taking off", () => {
   it("covers only its own shipment and line", () => {
     expect(waivedShares([waived], [wanted({ shipmentId: "b" })]).size).toBe(0);
     expect(waivedShares([waived], [wanted({ sourceMasterJobRef: "master:m:other" })]).size).toBe(0);
+  });
+});
+
+describe("a billed shipment in the split", () => {
+  const share = (over: Partial<SplitRowValues> = {}): SplitRowValues => ({
+    shipmentId: "a", category: "container_demurrage", description: "", vendor: "Cosco", estAmount: null, estCurrency: "EUR", realAmount: "120.00",
+    realCurrency: "EUR", invoiceNumber: "", received: false, sourceMasterJobRef: "master:m:l", lineSort: 0, ...over,
+  });
+  const written = (over: Partial<SplitRowValues> = {}) => splitRowColumns(share(over)) as Parameters<typeof splitRowsInSync>[0][number];
+  const sold = (over: Partial<SplitRowValues> = {}, id = "sell-1") => ({ id, ...soldAtCostRows([share(over)])[0]! });
+  const billed = new Set(["b"]);
+
+  it("is left out of what the split writes", () => {
+    expect(notBilled([share(), share({ shipmentId: "b" })], billed).map((r) => r.shipmentId)).toEqual(["a"]);
+    expect(notBilled([sold(), sold({ shipmentId: "b" })], new Set())).toHaveLength(2);
+  });
+
+  it("is named when its buying share or its selling row differs from the split", () => {
+    const rows = [share(), share({ shipmentId: "b", realAmount: "150.00" })];
+    const wanted = soldAtCostRows(rows);
+    // b carries the earlier 120.00, buying and selling; a carries nothing yet but is not billed.
+    const state = { current: [sold({ shipmentId: "b" })], wanted, invoiced: new Set<string>() };
+    expect(billedOutOfSync(billed, [written({ shipmentId: "b" })], rows, state)).toEqual(["b"]);
+    // Only the selling row differs.
+    expect(billedOutOfSync(billed, [written({ shipmentId: "b", realAmount: "150.00" })], rows, state)).toEqual(["b"]);
+    // Its row is on the invoice: it stays too, and is named.
+    expect(billedOutOfSync(billed, [written({ shipmentId: "b", realAmount: "150.00" })], rows, { ...state, invoiced: new Set(["sell-1"]) })).toEqual(["b"]);
+  });
+
+  it("is not named when it carries the split as it is", () => {
+    const rows = [share({ shipmentId: "b" })];
+    expect(billedOutOfSync(billed, [written({ shipmentId: "b" })], rows, { current: [sold({ shipmentId: "b" })], wanted: soldAtCostRows(rows), invoiced: new Set() })).toEqual([]);
+    expect(billedOutOfSync(new Set(), [], rows, { current: [], wanted: soldAtCostRows(rows), invoiced: new Set() })).toEqual([]);
   });
 });

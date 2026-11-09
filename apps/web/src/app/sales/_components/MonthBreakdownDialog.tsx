@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
-import { LABEL_TEXT, LINK, REF } from "@/styles/ui";
+import { EMPTY, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
 import { periodBasisLabel, provisionalText } from "../_lib/jobPeriod";
 import { monthBreakdown, type BreakdownGroup } from "../_lib/monthBreakdown";
 import { SalesDialog } from "./SalesDialog";
@@ -20,31 +20,31 @@ import { SalesDialog } from "./SalesDialog";
 type Row = interfaces.JobProfitRow;
 
 const czk = (v: number) => fmtMoney(v, "CZK", true);
-const tone = (v: number) => (v >= 0 ? "text-emerald-600" : "text-red-600");
+const tone = (v: number) => (v >= 0 ? "!text-emerald-600" : "!text-red-600");
 
-const CELL = "py-1.5 text-[13px] border-b border-slate-100 tabular-nums";
+const NUM = `${TD} text-right tabular-nums whitespace-nowrap`;
 
 // One way of cutting the month: a line per freight mode or customer.
-function GroupTable({ title, groups }: { title: string; groups: BreakdownGroup[] }) {
+function GroupTable({ title, what, groups }: { title: string; what: string; groups: BreakdownGroup[] }) {
   return (
     <div className="min-w-0">
       <h3 className={`m-0 mb-1.5 ${LABEL_TEXT}`}>{title}</h3>
       <table className="w-full border-collapse">
         <thead>
-          <tr className={`text-left ${LABEL_TEXT}`}>
-            <th scope="col" className="sr-only">{title.replace(/^By /, "")}</th>
-            <th scope="col" className="py-1 text-right font-semibold">Jobs</th>
-            <th scope="col" className="py-1 text-right font-semibold">Revenue</th>
-            <th scope="col" className="py-1 text-right font-semibold">Profit</th>
+          <tr>
+            <th scope="col" className={TH}>{what}</th>
+            <th scope="col" className={`${TH} text-right`}>Jobs</th>
+            <th scope="col" className={`${TH} text-right`}>Revenue</th>
+            <th scope="col" className={`${TH} text-right`}>Profit</th>
           </tr>
         </thead>
         <tbody>
           {groups.map((g) => (
             <tr key={g.label}>
-              <td className={`${CELL} pr-2 max-w-[200px] truncate`} title={g.label}>{g.label}</td>
-              <td className={`${CELL} text-right`}>{g.jobs}</td>
-              <td className={`${CELL} text-right whitespace-nowrap pl-2`}>{czk(g.revenueCzk)}</td>
-              <td className={`${CELL} text-right whitespace-nowrap pl-2 ${tone(g.profitCzk)}`}>{czk(g.profitCzk)}</td>
+              <td className={`${TD} max-w-[200px] truncate`} title={g.label}>{g.label}</td>
+              <td className={NUM}>{g.jobs}</td>
+              <td className={NUM}>{czk(g.revenueCzk)}</td>
+              <td className={`${NUM} ${tone(g.profitCzk)}`}>{czk(g.profitCzk)}</td>
             </tr>
           ))}
         </tbody>
@@ -59,8 +59,8 @@ const columns: ColumnsType<Row> = [
     dataIndex: "jobNumber",
     render: (v: string, r) => <Link href={`/shipments/${r.shipmentId}`} className={`${REF} ${LINK}`}>{v}</Link>,
   },
-  { title: "Customer", dataIndex: "customer", render: (v: string) => v || <span className="text-slate-300">—</span> },
-  { title: "Freight Mode", dataIndex: "freightMode", render: (v: string) => v || <span className="text-slate-300">—</span> },
+  { title: "Customer", dataIndex: "customer", render: (v: string) => v || <span className={EMPTY}>—</span> },
+  { title: "Freight Mode", dataIndex: "freightMode", render: (v: string) => v || <span className={EMPTY}>—</span> },
   { title: "Shipment Status", dataIndex: "status", render: (v: string) => <StatusBadge status={v} /> },
   {
     title: "Dated by",
@@ -126,8 +126,8 @@ export function MonthBreakdownDialog({ month, rows, onClose }: MonthBreakdownDia
             <KpiTile label="Margin" value={`${breakdown.totals.margin}%`} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-            <GroupTable title="By freight mode" groups={breakdown.byFreightMode} />
-            <GroupTable title="By customer" groups={breakdown.byCustomer} />
+            <GroupTable title="By freight mode" what="Freight mode" groups={breakdown.byFreightMode} />
+            <GroupTable title="By customer" what="Customer" groups={breakdown.byCustomer} />
           </div>
           <DataTable<Row> dataSource={breakdown.rows} columns={columns} rowKey="shipmentId" scroll={{ x: "max-content" }} resetKey={month} />
         </>

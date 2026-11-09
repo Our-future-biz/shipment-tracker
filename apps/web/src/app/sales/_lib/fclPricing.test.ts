@@ -261,6 +261,14 @@ describe("a profit on every container type before the quote goes out", () => {
     expect(fclProfitBlock(twoTypes({ "20' DC": twenty, "40' HC": { mode: "sum", value: -1 } }), SHEET)).toMatch(/^No profit on 40' HC yet/);
   });
 
+  it("takes one whole cent for a profit, as the server does, and a profit cancelled by every type's charges for none", () => {
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty, "40' HC": { mode: "sum", value: 0.01 } }), SHEET)).toBeNull();
+    const buyingLines = [perCtr("ocean_freight", "20' DC", 1000, 2), perCtr("ocean_freight", "40' HC", 1800, 1), perCtr("fcl_baf", "", 50, 3, { profitBasis: true })];
+    // 0.1 on 20' DC and -0.1 on every container: no profit on 20' DC.
+    const blocks = { "20' DC": { mode: "sum" as const, value: 0.1 }, "40' HC": twenty, "*": { mode: "sum" as const, value: -0.1 } };
+    expect(fclProfitBlock(twoTypes(blocks, { buyingLines }), SHEET)).toMatch(/^No profit on 20' DC yet/);
+  });
+
   it("counts the charges per container of every type for each", () => {
     const buyingLines = [perCtr("ocean_freight", "20' DC", 1000, 2), perCtr("ocean_freight", "40' HC", 1800, 1), perCtr("fcl_baf", "", 50, 3, { profitBasis: true })];
     expect(fclProfitBlock(twoTypes({ "*": twenty }, { buyingLines }), SHEET)).toBeNull();

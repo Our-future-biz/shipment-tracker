@@ -12,7 +12,9 @@ vi.mock("../../repositories/additionalCharge.repository", () => ({ additionalCha
 vi.mock("../../repositories/billingSettings.repository", () => ({ billingSettingsRepository: {} }));
 vi.mock("../../repositories/billingOverride.repository", () => ({ billingOverrideRepository: {} }));
 vi.mock("../../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: {} }));
-vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: { countOpenInvoices: vi.fn(async () => 0) } }));
+// The shipments with an issued invoice not credited: billed (lib/billedLock).
+const billing = vi.hoisted(() => ({ billed: new Set<string>() }));
+vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: { countOpenInvoices: vi.fn(async (shipmentId: string) => (billing.billed.has(shipmentId) ? 1 : 0)) } }));
 vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostRepository: {} }));
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: {} }));
 const trucking = vi.hoisted(() => ({ kept: new Set<string>() }));
@@ -116,6 +118,7 @@ const counted = (shipmentId: string) =>
 beforeEach(() => {
   rows.length = 0;
   trucking.kept.clear();
+  billing.billed.clear();
 });
 
 describe("guards against counting a Trucking cost twice", () => {
@@ -239,6 +242,72 @@ describe("splitCost", () => {
     await expect(split({ total: "0" })).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(split({ lines: [{ shipmentId: SHIP_A, weight: 1 }, { shipmentId: SHIP_A, weight: 1 }] })).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(split({ lines: [{ shipmentId: "x", weight: 1 }] })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+});
+
+describe("a billed shipment", () => {
+  const BILLED = /billed.*Credit the invoice/;
+
+  it("takes no estimate by charge code", async () => {
+    await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "100.00" });
+    billing.billed.add(SHIP_A);
+    await expect(invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { estAmount: "1" })).rejects.toThrow(BILLED);
+    await expect(invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { estCurrency: "EUR" })).rejects.toThrow(BILLED);
+    expect(rows).toEqual([expect.objectContaining({ estAmount: "100.00", realAmount: null })]);
+  });
+
+  it("still takes a supplier's invoice onto an estimate that has none yet", async () => {
+    await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "100.00" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { realAmount: "95.00", invoiceNumber: "F-1" });
+    expect(rows).toEqual([expect.objectContaining({ estAmount: "100.00", realAmount: "95.00" })]);
+  });
+
+  it("adds a second supplier invoice as a row of its own instead of replacing the first", async () => {
+    await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { realAmount: "95.00", invoiceNumber: "F-1", vendor: "Maersk" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { realAmount: "40.00", invoiceNumber: "F-2", vendor: "Maersk" });
+    expect(rows.map((r) => [r.shipmentId, r.category, r.realAmount])).toEqual([
+      [SHIP_A, "ocean_freight", "95.00"],
+      [SHIP_A, "ocean_freight", "40.00"],
+    ]);
+    // An invoice number alone is a posted invoice too.
+    rows.length = 0;
+    billing.billed.clear();
+    await invoicingService.upsertCost(SHIP_B, COMPANY, "customs", { invoiceNumber: "C-1" });
+    billing.billed.add(SHIP_B);
+    await invoicingService.upsertCost(SHIP_B, COMPANY, "customs", { realAmount: "12.00", invoiceNumber: "C-2" });
+    expect(rows.map((r) => r.realAmount)).toEqual([null, "12.00"]);
+  });
+
+  it("keeps its real cost in a split, Replace or not, and says it is billed", async () => {
+    await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { realAmount: "10.00", invoiceNumber: "OLD" });
+    await invoicingService.upsertCost(SHIP_B, COMPANY, "ocean_freight", { realAmount: "20.00", invoiceNumber: "OLD" });
+    billing.billed.add(SHIP_B);
+    billing.billed.add(SHIP_C);
+    const result = await invoicingService.splitCost(COMPANY, {
+      category: "ocean_freight",
+      total: "100.00",
+      currency: "EUR",
+      invoiceNumber: "F-7",
+      lines: [
+        { shipmentId: SHIP_A, weight: 1 },
+        { shipmentId: SHIP_B, weight: 1 },
+        { shipmentId: SHIP_C, weight: 1 },
+      ],
+      overwriteShipmentIds: [SHIP_A, SHIP_B],
+    });
+    expect(result.map((l) => [l.shipmentId, l.written, l.billed])).toEqual([
+      [SHIP_A, true, false],
+      [SHIP_B, false, true],
+      // Billed without a real cost of the code: the part is posted, as a supplier's invoice is.
+      [SHIP_C, true, true],
+    ]);
+    expect(rows.map((r) => [r.shipmentId, r.realAmount])).toEqual([
+      [SHIP_A, "33.34"],
+      [SHIP_B, "20.00"],
+      [SHIP_C, "33.33"],
+    ]);
   });
 });
 

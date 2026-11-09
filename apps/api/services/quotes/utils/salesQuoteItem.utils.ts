@@ -4,7 +4,8 @@ import { freightModeGateMessage, marginGateMessage, roadMargin, type MarginConte
 import { fclProfitGateMessage } from "./fclProfit.utils";
 import { inquiryGateMessage } from "./warehouseInquiry.utils";
 import { shippingTermsGateMessage } from "./shippingTerms.utils";
-import { tariffDirectionGateMessage } from "./tariffDirection.utils";
+import { tariffDirectionGateMessage, tariffUpdateGateMessage } from "./tariffDirection.utils";
+import { customerGate, type LinkedSupplierState } from "./supplierApproval.utils";
 import type { RoadMargin, SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject, isWonRevision } from "./quoteDocument.utils";
@@ -12,13 +13,24 @@ import { PRICING_CLOSED, allowedTransitions, effectiveStatus, isFollowUpDue, kee
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
 
+// Whether the quote's prices are open as it is shown: not sent or decided, or a Won quote's revision.
+const pricesOpen = (row: SalesQuoteRecord, shown: string) => !PRICING_CLOSED.includes(shown) || isWonRevision(row.status, row.data);
+
+/** Whether the quote's prices are open now, so the gates hold it (and where its customer stands is asked). */
+export function holdsSending(row: SalesQuoteRecord, now: Date): boolean {
+  const state = stateOf(row);
+  return pricesOpen(row, effectiveStatus(state.status, state.validUntil, businessDay(now)));
+}
+
 /**
  * Why the quote cannot go out now - or be Won without going out - or null. Only a quote whose
  * prices are open is held (a draft, ready to send, a revision, a Won quote's revision): one that
- * went out passed the gates when it was sent, and is not held again (Council Outlay 6).
+ * went out passed the gates when it was sent, and is not held again (Council Outlay 6). The gates
+ * the transition holds it by, in its words; `customers` is where the companies the quotes are for
+ * stand (customerGate), left out when it was not asked.
  */
-function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin | null, margins?: MarginContext): string | null {
-  if (PRICING_CLOSED.includes(shown) && !isWonRevision(row.status, row.data)) return null;
+function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin | null, margins?: MarginContext, customers?: ReadonlyMap<string, LinkedSupplierState>): string | null {
+  if (!pricesOpen(row, shown)) return null;
   const mode = freightModeGateMessage(row.data);
   if (mode) return mode;
   const profit = fclProfitGateMessage(row.data, margins);
@@ -27,6 +39,10 @@ function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin 
   if (terms) return terms;
   const direction = tariffDirectionGateMessage(row.data);
   if (direction) return direction;
+  const tariffUpdate = tariffUpdateGateMessage(row.data);
+  if (tariffUpdate) return tariffUpdate;
+  const customer = customers ? customerGate(row.data, customers).message : null;
+  if (customer) return customer;
   return margin?.needsApproval ? marginGateMessage(margin) : inquiryGateMessage(row.data, "ready_to_send");
 }
 
@@ -58,7 +74,7 @@ function ownerPermission(
  * expired, what it may be set to, whether a follow-up is due, its road margin, and what this user
  * may do with it. `userEmails` are the e-mails of the company's users by id - a person is shown
  * by e-mail; `margins` is what a road margin is judged with - left out when the rule applies to
- * none of the quotes read.
+ * none of the quotes read; `customers` where the companies the quotes are for stand, by id.
  */
 export function toItem(
   row: SalesQuoteRecord,
@@ -66,6 +82,7 @@ export function toItem(
   actor: { userID: string; role: string },
   now: Date,
   margins?: MarginContext,
+  customers?: ReadonlyMap<string, LinkedSupplierState>,
 ): SalesQuoteItem {
   const state = stateOf(row);
   const today = businessDay(now);
@@ -101,7 +118,7 @@ export function toItem(
     shipmentId: state.shipmentId,
     shipmentJobNumber: state.shipmentJobNumber,
     roadMargin: margin ? shownMargin(margin, userEmails) : null,
-    sendBlocked: sendBlockedOf(row, shown, margin, margins),
+    sendBlocked: sendBlockedOf(row, shown, margin, margins, customers),
     permissions: {
       ...ownerPermission(actor, state, row.data),
       canDelete: deletion.allowed,

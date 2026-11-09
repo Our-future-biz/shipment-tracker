@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { Input, Button, Modal, Tooltip } from "antd";
-import { useMessages } from "@/lib/toast";
+import { useMessages, type Messages } from "@/lib/toast";
 import { CheckCircleFilled, PlusOutlined, WarningOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
@@ -215,7 +214,7 @@ const FIELD_NAMES: Record<DimField, string> = { pieces: "Qty", lengthCm: "Length
 // A remeasured line counted as a cargo dimension line (lib/cargo): its volume from its sizes.
 const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
 
-function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
+function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: Messages }) {
   const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;

@@ -586,6 +586,15 @@ describe("update", () => {
     expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 
+  it("refuses another Sales Number while an issued invoice stands, whatever the Invoicing Status says", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: REF, invoicingStatus: "Not Invoiced" }));
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 1 });
+    await expect(update({ salesNumber: OTHER_REF })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/invoiced/) });
+    expect(vi.mocked(invoicing.openInvoiceCount)).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+    expect(salesQuoteGet).not.toHaveBeenCalled();
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
   it("lets the same Sales Number through on an invoiced shipment, and a change once it is no longer invoiced", async () => {
     stored.set(SHIPMENT, row({ salesNumber: REF, invoicingStatus: "Invoiced" }));
     await expect(update({ salesNumber: ` ${REF} ` })).resolves.toBeDefined();
@@ -1206,6 +1215,17 @@ describe("moveQuoteReference", () => {
       { id: "s-1", jobNumber: "CZ00000101", invoicingStatus: "Invoiced" },
       { id: "s-2", jobNumber: "CZ00000102", invoicingStatus: "Not Invoiced" },
     ]);
+    await expect(shipmentService.moveQuoteReference(COMPANY, USER, REF, `${REF}-R1`)).resolves.toEqual(["CZ00000102"]);
+    expect(repository.updateForCompany).toHaveBeenCalledTimes(1);
+    expect(repository.updateForCompany).toHaveBeenCalledWith("s-2", COMPANY, { salesNumber: `${REF}-R1` });
+  });
+
+  it("leaves a shipment with an issued invoice with its offer, whatever its Invoicing Status says", async () => {
+    repository.liveBySalesNumber.mockResolvedValue([
+      { id: "s-1", jobNumber: "CZ00000101", invoicingStatus: "Not Invoiced" },
+      { id: "s-2", jobNumber: "CZ00000102", invoicingStatus: "Not Invoiced" },
+    ]);
+    vi.mocked(invoicing.openInvoiceCount).mockImplementation(async ({ shipmentId }) => ({ count: shipmentId === "s-1" ? 1 : 0 }));
     await expect(shipmentService.moveQuoteReference(COMPANY, USER, REF, `${REF}-R1`)).resolves.toEqual(["CZ00000102"]);
     expect(repository.updateForCompany).toHaveBeenCalledTimes(1);
     expect(repository.updateForCompany).toHaveBeenCalledWith("s-2", COMPANY, { salesNumber: `${REF}-R1` });

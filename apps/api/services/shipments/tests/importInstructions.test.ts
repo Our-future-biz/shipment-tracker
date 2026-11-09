@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answersProblem, fieldsToFill, importInstructionsUrl, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
+import { answersProblem, changedAnswers, fieldsToFill, importInstructionsUrl, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
 import { importInstructionsPdf } from "../lib/importInstructionsPdf";
 import type { ImportInstructionAnswers } from "../interfaces/importInstructions";
 
@@ -76,7 +76,25 @@ describe("the link and the PDF", () => {
   it("opens the form's own page", () => expect(importInstructionsUrl("https://a.cz/", "t")).toBe("https://a.cz/import-instructions/t"));
 
   it("makes a PDF, with Czech letters", async () => {
-    const bytes = await importInstructionsPdf(answers({ description: "Žluťoučký kůň ".repeat(40), deliveryAddress: "Dock 1" }), { reference: "CZ00000041", confirmedAt: "2026-11-09 10:00", approvedBy: "boss@firm.cz" });
+    const bytes = await importInstructionsPdf(answers({ description: "Žluťoučký kůň ".repeat(40), deliveryAddress: "Dock 1" }), { reference: "CZ00000041", confirmedAt: "2026-11-09 10:00", approvedBy: "boss@firm.cz", changes: [] });
     expect(Buffer.from(bytes.subarray(0, 5)).toString()).toBe("%PDF-");
+  });
+
+  it("makes a PDF with the answers changed on approval", async () => {
+    const changes = changedAnswers(answers(), answers({ tariffCode: "8432", billingAddress: "Náměstí 2, Brno" }));
+    const bytes = await importInstructionsPdf(answers(), { reference: "CZ00000041", confirmedAt: "2026-11-09 10:00", approvedBy: "boss@firm.cz", changes });
+    expect(Buffer.from(bytes.subarray(0, 5)).toString()).toBe("%PDF-");
+  });
+});
+
+describe("what the reviewer changed", () => {
+  it("is nothing when approved as sent", () => expect(changedAnswers(answers(), answers())).toEqual([]));
+
+  it("is each changed answer in the form's order, the procedure in words", () => {
+    expect(changedAnswers(answers(), answers({ procedure: "t1", t1Office: "CZ590201 Praha", tariffCode: "" }))).toEqual([
+      { field: "procedure", label: "Customs procedure", sent: "a) Release for free circulation (SAD)", approved: "b) T1 transit" },
+      { field: "t1Office", label: "Customs office of destination", sent: "", approved: "CZ590201 Praha" },
+      { field: "tariffCode", label: "Customs tariff code", sent: "8431", approved: "" },
+    ]);
   });
 });

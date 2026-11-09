@@ -12,7 +12,7 @@ export const importInstructionsWaiting = api(
 
 export const importInstructionsGet = api(
   { expose: true, auth: true, method: "GET", path: "/shipments/:shipmentId/import-instructions" },
-  async ({ shipmentId }: { shipmentId: string }): Promise<{ state: ImportInstructionState | null; askable: boolean }> => importInstructionsService.get(shipmentId, getAuthData()!),
+  async ({ shipmentId }: { shipmentId: string }): Promise<{ state: ImportInstructionState | null; askable: boolean; canAsk: boolean }> => importInstructionsService.get(shipmentId, getAuthData()!),
 );
 
 // A new link. The answer is the only time the URL is known.

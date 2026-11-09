@@ -78,7 +78,8 @@ const eurText = ({ eur, missing }: EurTotal) => (eur === null ? `no ČNB rate fo
 // the same part each, as the line says. The split below always shows how that stands; a shipment
 // carries its share, as a read-only row of its own Costs Breakdown, once the split is processed.
 export function MasterJobCostsTab({ masterJob }: Props) {
-  const { rates, fixingLabel } = useLatestRates();
+  // The EUR figures wait for the rates: until they are in, every currency would read as one without a rate.
+  const { rates, fixingLabel, isLoading: ratesLoading } = useLatestRates();
   const message = useMessages();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
@@ -473,7 +474,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       return (
                         <td key={l.id} className={FOOT}>
                           {total != null ? `${money(total)} ${currency}` : EMPTY_CELL}
-                          {total != null && currency !== "EUR" && (
+                          {total != null && currency !== "EUR" && !ratesLoading && (
                             <span className="block text-[11px] font-normal text-slate-500">
                               {eurText(eurTotal([[currency ?? "", total]], rates))}
                             </span>
@@ -507,6 +508,15 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   {split.sellingOnInvoices === 1 ? "s" : ""} as invoiced: credit the invoice to change {split.sellingOnInvoices === 1 ? "it" : "them"}.
                 </span>
               )}
+              {/* A billed shipment keeps what it carries of the split, buying and selling, until its invoice is credited. */}
+              {(split.billedKept ?? []).length > 0 && (
+                <span className="text-[12px] text-amber-700">
+                  {split.billedKept.map((id) => houses.find((h) => h.shipmentId === id)?.jobNumber ?? id).join(", ")}{" "}
+                  {split.billedKept.length === 1 ? "is" : "are"} billed and keep{split.billedKept.length === 1 ? "s" : ""} the costs{" "}
+                  {split.billedKept.length === 1 ? "it carries" : "they carry"}: processing doesn&apos;t change {split.billedKept.length === 1 ? "it" : "them"}. Credit the
+                  invoice to change {split.billedKept.length === 1 ? "it" : "them"}.
+                </span>
+              )}
               {!split.inSync && (
                 <span className="text-[12px] text-amber-700">
                   {split.written > 0
@@ -521,7 +531,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   {[...allIn]
                     .map(([currency, total]) => `${money(total)} ${currency}`)
                     .join(" + ")}
-                  {!(allIn.size === 1 && allIn.has("EUR")) && (
+                  {!(allIn.size === 1 && allIn.has("EUR")) && !ratesLoading && (
                     <Tooltip title={`At the rates of ${fixingLabel || "today's ČNB fixing"}, without the ROE %. The split stays in the currencies as received.`}>
                       <span className="ml-1.5 text-indigo-700"> = {eurText(allInEur)}</span>
                     </Tooltip>

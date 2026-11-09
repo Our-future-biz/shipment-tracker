@@ -18,8 +18,13 @@ describe("amounts as one sum in EUR", () => {
     expect(eurTotal([["CZK", 100], ["PLN", 5], ["AED", 1]], rates)).toEqual({ eur: null, missing: ["AED", "PLN"] });
   });
 
-  it("is nothing for no amounts, and no sum without a EUR rate", () => {
+  it("is nothing for no amounts, and no sum without a EUR rate, which it names", () => {
     expect(eurTotal([], rates)).toEqual({ eur: 0, missing: [] });
-    expect(eurTotal([["CZK", 100]], { CZK: 1 })).toEqual({ eur: null, missing: ["CZK"] });
+    expect(eurTotal([["CZK", 100]], { CZK: 1 })).toEqual({ eur: null, missing: ["EUR"] });
+    expect(eurTotal([["USD", 100], ["PLN", 5]], { CZK: 1, USD: 20 })).toEqual({ eur: null, missing: ["EUR"] });
+  });
+
+  it("keeps EUR as it is without any rate", () => {
+    expect(eurTotal([["EUR", 12.5]], { CZK: 1 })).toEqual({ eur: 12.5, missing: [] });
   });
 });

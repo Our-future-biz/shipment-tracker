@@ -59,6 +59,16 @@ const nextConfig: NextConfig = {
         source: "/track/:path*",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
+      {
+        // The same for the customer's link to its Import Instructions…
+        source: "/import-instructions/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
+      {
+        // …and a company's link to register itself.
+        source: "/register/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

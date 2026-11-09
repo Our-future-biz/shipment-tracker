@@ -25,7 +25,7 @@ beforeEach(() => {
   repository.thread.mockResolvedValue({ companyName: "DANGO s.r.o.", requesterUserId: REP });
   repository.messages.mockResolvedValue([]);
   repository.members.mockResolvedValue([{ userId: REP } as never]);
-  repository.isMember.mockImplementation(async (_t, user) => user === REP);
+  repository.isMember.mockImplementation(async (company, _t, user) => company === COMPANY && user === REP);
   vi.mocked(auth.userLookup).mockResolvedValue({ users: [{ id: REP, email: "Rep@Firm.cz" }] } as never);
   vi.mocked(auth.usersList).mockResolvedValue({ users: [{ id: OTHER }] } as never);
 });
@@ -41,6 +41,8 @@ describe("who is in the chat", () => {
     await expect(service.get(outsider, THREAD)).rejects.toMatchObject({ code: "permission_denied" });
     await expect(service.post(outsider, THREAD, "hello")).rejects.toMatchObject({ code: "permission_denied" });
     expect(repository.addMessage).not.toHaveBeenCalled();
+    // Membership is asked within the user's company only.
+    expect(repository.isMember).toHaveBeenCalledWith(COMPANY, THREAD, OTHER);
   });
 
   it("says nothing of a thread that does not exist", async () => {

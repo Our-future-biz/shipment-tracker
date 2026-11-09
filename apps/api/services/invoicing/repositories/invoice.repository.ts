@@ -97,6 +97,14 @@ class InvoiceRepository extends TenantRepository<typeof t> {
     return new Set(rows.map((r) => r.source).filter((s): s is string => !!s));
   }
 
+  /** Of the shipments, those with an issued invoice not credited: billed (lib/billedLock). */
+  async billedShipmentIds(shipmentIds: Iterable<string>, companyId: string, reader: Reader = db): Promise<Set<string>> {
+    const ids = [...new Set(shipmentIds)];
+    if (!ids.length) return new Set();
+    const rows = await reader.selectDistinct({ shipmentId: t.shipmentId }).from(t).where(and(openInvoice(companyId), inArray(t.shipmentId, ids)));
+    return new Set(rows.map((r) => r.shipmentId));
+  }
+
   /** Of the shipments, those an invoice was ever issued for (a credited one counts too). */
   async shipmentIdsWithInvoices(shipmentIds: string[], companyId: string): Promise<string[]> {
     if (!shipmentIds.length) return [];

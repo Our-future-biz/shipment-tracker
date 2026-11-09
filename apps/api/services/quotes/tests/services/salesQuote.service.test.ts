@@ -2305,4 +2305,25 @@ describe("the suppliers of the buying lines (Customer Database only, a new one a
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "aborted" });
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
+
+  it("says in the list that a quote for a customer waiting for a manager can't be sent yet, asking once for the open quotes", async () => {
+    const forWaiting = priced([], { quoteNumber: `${REF}-2` });
+    (forWaiting.data as Record<string, unknown>).customerId = WAITS;
+    const sent = priced([], { quoteNumber: `${REF}-3`, status: "quoted", sentAt: SENT, firstSentAt: SENT });
+    (sent.data as Record<string, unknown>).customerId = "7a2c3d4e-5f60-4718-8a9b-0c1d2e3f4a5b";
+    repository.list.mockResolvedValue({ rows: [forWaiting, sent], total: 2 });
+    supplierStates.mockResolvedValue({ states: [{ id: WAITS, companyName: "ACME s.r.o.", status: "pending", comment: "" }] });
+    const page = await salesQuoteService.list(martin, {});
+    expect(supplierStates).toHaveBeenCalledTimes(1);
+    expect(supplierStates).toHaveBeenCalledWith({ ids: [WAITS] });
+    expect(page.data[0]!.sendBlocked).toMatch(/^ACME s\.r\.o\. waits for a manager's approval/);
+  });
+
+  it("still lists the quotes when the Customer Database does not answer", async () => {
+    const forWaiting = priced([]);
+    (forWaiting.data as Record<string, unknown>).customerId = WAITS;
+    repository.list.mockResolvedValue({ rows: [forWaiting], total: 1 });
+    supplierStates.mockRejectedValue(new Error("down"));
+    await expect(salesQuoteService.list(martin, {})).resolves.toMatchObject({ pagination: { total: 1 } });
+  });
 });

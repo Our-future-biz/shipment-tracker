@@ -28,6 +28,13 @@ describe("what still goes on a billed shipment", () => {
     expect(leavesBuyingCostAlone({ paidOn: undefined, sortOrder: 1 })).toBe(true);
   });
 
+  it("on a buying row: the supplier it is linked to, so a late supplier invoice counts in what is owed", () => {
+    expect(leavesBuyingCostAlone({ supplierCustomerId: "s1" })).toBe(true);
+    expect(leavesBuyingCostAlone({ haulierId: "" })).toBe(true);
+    // The typed vendor is the row's text: it stays.
+    expect(leavesBuyingCostAlone({ vendor: "Maersk", supplierCustomerId: "s1" })).toBe(false);
+  });
+
   it("on a selling row: its place and how it is billed", () => {
     expect(leavesSellingCostAlone({ sortOrder: 2 })).toBe(true);
     expect(leavesSellingCostAlone({ vatCode: "S" })).toBe(true);

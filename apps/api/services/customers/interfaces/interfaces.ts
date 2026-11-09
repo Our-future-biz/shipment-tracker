@@ -74,6 +74,8 @@ export interface SupplierApprovalItem {
   registered: boolean;
   /** Registered, but the company was already in the Customer Database. */
   alreadyInDatabase: boolean;
+  /** That company's own name in the Customer Database (what was typed on the form may name another); "" otherwise. */
+  matchedCompanyName: string;
   /** What it accepted on the registration form; "" and null when it did not register. */
   termsName: string;
   termsUrl: string;

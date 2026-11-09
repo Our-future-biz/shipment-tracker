@@ -34,6 +34,14 @@ export interface ImportInstructionShipmentValues {
   deliveryAddress: string;
 }
 
+/** One answer the reviewer changed before approving: what the customer sent, and what was approved. */
+export interface ImportInstructionChange {
+  field: keyof ImportInstructionAnswers;
+  label: string;
+  sent: string;
+  approved: string;
+}
+
 /** A shipment's latest Import Instructions as the desk sees them. The link itself can't be told again. */
 export interface ImportInstructionState {
   status: "open" | "submitted" | "approved" | "rejected";
@@ -43,11 +51,16 @@ export interface ImportInstructionState {
   createdAt: string;
   expiresAt: string;
   submittedAt: string | null;
+  /** What the customer confirmed, as sent. */
   answers: ImportInstructionAnswers | null;
+  /** What was approved, as the reviewer left it; null until approved. */
+  approvedAnswers: ImportInstructionAnswers | null;
+  /** What the reviewer changed of the customer's answers; [] when nothing or not approved yet. */
+  changes: ImportInstructionChange[];
   decidedBy: string;
   decidedAt: string | null;
   reason: string;
-  /** The one who created the link, or a manager. */
+  /** Whether this user may answer or cancel it: whoever may change the shipment's details. */
   canAnswer: boolean;
   /** What the shipment holds now, to compare. */
   onShipment: ImportInstructionShipmentValues;

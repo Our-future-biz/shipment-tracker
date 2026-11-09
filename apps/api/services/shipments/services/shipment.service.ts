@@ -22,7 +22,7 @@ import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackin
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
 import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
-import type { ShipmentListFilters } from "../repositories/shipment.repository";
+import type { NamingShipment, ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type { CargoItemRecord } from "../schemas/cargoItem.schema";
@@ -1214,7 +1214,8 @@ class ShipmentService {
     const previousSalesNumber = existing.salesNumber.trim();
     const nextSalesNumber = shipmentData.salesNumber;
     const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
-    if (salesNumberChanged && existing.invoicingStatus === INVOICED_STATUS) throw APIError.failedPrecondition(SALES_REFERENCE_INVOICED);
+    // Invoiced: marked so (by hand too), or with an issued invoice not credited, whatever the status says.
+    if (salesNumberChanged && (existing.invoicingStatus === INVOICED_STATUS || (await this.isInvoiced(id)))) throw APIError.failedPrecondition(SALES_REFERENCE_INVOICED);
     if (salesNumberChanged && nextSalesNumber) {
       const quote = await this.linkableQuoteOwner(nextSalesNumber);
       const owner = quote && !("salesPerson" in shipmentData) ? await this.quoteOwnerEmail(quote, users) : "";
@@ -1342,8 +1343,11 @@ class ShipmentService {
     const previous = from.trim();
     const next = to.trim();
     if (!previous || !next || previous === next) return [];
-    // An invoiced shipment stays with the offer it was invoiced from.
-    const naming = (await shipmentRepository.liveBySalesNumber(companyId, previous)).filter((shipment) => shipment.invoicingStatus !== INVOICED_STATUS);
+    // An invoiced shipment stays with the offer it was invoiced from: marked so, or with an issued invoice not credited.
+    const naming: NamingShipment[] = [];
+    for (const shipment of await shipmentRepository.liveBySalesNumber(companyId, previous)) {
+      if (shipment.invoicingStatus !== INVOICED_STATUS && !(await this.isInvoiced(shipment.id))) naming.push(shipment);
+    }
     for (const shipment of naming) {
       await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next });
       await shipmentRepository.updateForCompany(shipment.id, companyId, { salesNumber: next });

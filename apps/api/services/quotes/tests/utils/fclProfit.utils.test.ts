@@ -51,6 +51,18 @@ describe("fclProfitGateMessage", () => {
     expect(fclProfitGateMessage(quote([line("20' DC", 100.555), line("40' DC", 100)], [line("20' DC", 100.56), line("40' DC", 110)]))).toMatch(/^No profit on 20' DC yet/);
   });
 
+  it("takes one whole cent for a profit, as the web does: selling 1,005.00 on buying 1,004.99", () => {
+    // 1005 - 1004.99 is 0.00999… in floating point.
+    expect(fclProfitGateMessage(quote([line("20' DC", 1004.99), line("40' DC", 100)], [line("20' DC", 1005), line("40' DC", 110)]))).toBeNull();
+  });
+
+  it("adds a charge per container of every type to a type's own in the same currency, without a rate", () => {
+    const all = (unitPrice: number) => ({ basis: "container", unitPrice, amount: unitPrice, currency: "EUR" });
+    // 20' DC: +100 of its own, -40 on every container: a profit of 60, no rate needed.
+    const data = quote([...buying, all(100)], [line("20' DC", 1100), line("40' DC", 1600), all(60)]);
+    expect(fclProfitGateMessage(data)).toBeNull();
+  });
+
   it("works out a profit in one currency against a loss in another at the rates", () => {
     const usd = (type: string, rate: number) => line(type, rate, { currency: "USD" });
     const bought = [usd("20' DC", 100), line("20' DC", 100), usd("40' DC", 100)];

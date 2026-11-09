@@ -100,6 +100,17 @@ describe("formatting", () => {
     expect(parseMoney("12,222,222")).toBe(12222222);
     expect(parseMoney("12,222,222.00")).toBe(12222222);
     expect(parseMoney("25,20")).toBe(25.2);
+    expect(parseMoney("1,250")).toBe(1250);
+    expect(parseMoney("12,345,678")).toBe(12345678);
+  });
+
+  it("never reads a comma after a leading 0 as thousands", () => {
+    // a decimal comma with three decimals: refused, not saved a thousand times too big
+    expect(parseMoney("0,500")).toBeNull();
+    expect(parseMoney("-0,250")).toBeNull();
+    expect(parseMoney("0,125")).toBeNull();
+    expect(parseMoney("0,50")).toBe(0.5);
+    expect(normaliseAmount("0,500")).toBeNull();
   });
 
   it("writes an amount in a box as figures are written, and leaves what is no amount", () => {

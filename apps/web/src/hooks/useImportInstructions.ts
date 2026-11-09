@@ -27,7 +27,7 @@ export const useImportInstructions = (shipmentId: string, { enabled = true }: { 
   const cancelLink = useMutation({ mutationFn: () => api.shipments.importInstructionsCancelLink(shipmentId), onSettled: refresh });
   const approve = useMutation({ mutationFn: (answers: interfaces.ImportInstructionAnswers) => api.shipments.importInstructionsApprove(shipmentId, { answers }), onSettled: refreshShipment });
   const reject = useMutation({ mutationFn: (reason: string) => api.shipments.importInstructionsReject(shipmentId, { reason }), onSettled: refresh });
-  return { state: query.data?.state ?? null, askable: query.data?.askable ?? false, isLoading: query.isLoading, createLink, cancelLink, approve, reject };
+  return { state: query.data?.state ?? null, askable: query.data?.askable ?? false, canAsk: query.data?.canAsk ?? false, isLoading: query.isLoading, createLink, cancelLink, approve, reject };
 };
 
 /** The completed forms waiting for the user: the bell. */

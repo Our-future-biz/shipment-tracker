@@ -28,6 +28,7 @@ export const toApprovalItem = (r: SupplierApprovalRow): SupplierApprovalItem => 
   threadId: r.id,
   registered: false,
   alreadyInDatabase: false,
+  matchedCompanyName: "",
   termsName: "",
   termsUrl: "",
   termsAcceptedAt: null,
@@ -55,11 +56,13 @@ export const toApprovalItem = (r: SupplierApprovalRow): SupplierApprovalItem => 
 });
 
 // A registration of a company already in the Customer Database: it is answered on its own, the company stays as it is.
-const duplicateItem = (r: CompanyRegistrationRecord): SupplierApprovalItem => ({
+// `matchedCompanyName` is that company's own name: what was typed on the form may name another.
+const duplicateItem = (r: CompanyRegistrationRecord, matchedCompanyName: string): SupplierApprovalItem => ({
   customerId: r.customerId ?? "",
   threadId: r.id,
   registered: true,
   alreadyInDatabase: true,
+  matchedCompanyName,
   termsName: r.termsName,
   termsUrl: r.termsUrl,
   termsAcceptedAt: iso(r.termsAcceptedAt),
@@ -103,8 +106,12 @@ class SupplierApprovalService {
       if (!registration) return toApprovalItem(row);
       return { ...toApprovalItem(row), registered: true, termsName: registration.termsName, termsUrl: registration.termsUrl, termsAcceptedAt: iso(registration.termsAcceptedAt) };
     });
-    const duplicates = registrations.filter((r) => r.alreadyInDatabase).map(duplicateItem);
-    return [...items, ...duplicates].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+    const duplicates = registrations.filter((r) => r.alreadyInDatabase);
+    const matchedIds = [...new Set(duplicates.flatMap((r) => (r.customerId ? [r.customerId] : [])))];
+    const matched = matchedIds.length ? await supplierApprovalRepository.states(companyId, matchedIds) : [];
+    const nameOf = new Map(matched.map((m) => [m.id, m.companyName]));
+    const duplicateItems = duplicates.map((r) => duplicateItem(r, nameOf.get(r.customerId ?? "") ?? ""));
+    return [...items, ...duplicateItems].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
   }
 
   /** A manager approves or declines a supplier that waits; a decline says why, and deletes the company. */
@@ -132,28 +139,35 @@ class SupplierApprovalService {
     if (decision === "decline") await customerService.announceDeleted(actor.companyID, row);
     const registration = await companyRegistrationRepository.ofCustomer(actor.companyID, id);
     if (registration) {
-      await companyRegistrationRepository.answer(registration.id, answer, new Date());
+      await companyRegistrationRepository.answer(actor.companyID, registration.id, answer, new Date());
       if (decision === "approve") await noteService.create(actor.companyID, id, actor.userID, { content: termsNote(registration) });
     }
     return this.itemOf(actor.companyID, id);
   }
 
-  /** Approved, the existing company gets the contact person and the record of the terms; declined, it stays as it was. */
+  /**
+   * Approved, the existing company gets the roles the link was made for (added to its own), the record of the
+   * terms and the contact person; declined, it stays as it was. Anything that fails sends the registration
+   * back to waiting, to be answered again: the roles are added only once whatever happens, and the contact -
+   * the one write a second answer must not repeat - is written last.
+   */
   private async decideDuplicate(actor: Actor, duplicate: CompanyRegistrationRecord, answer: RegistrationAnswer): Promise<SupplierApprovalItem> {
-    const answered = await companyRegistrationRepository.answer(duplicate.id, answer, new Date());
+    const answered = await companyRegistrationRepository.answer(actor.companyID, duplicate.id, answer, new Date());
     if (!answered) throw APIError.failedPrecondition("This registration no longer waits for approval: another manager answered it");
     if (answer.status === "approved") {
+      const customerId = duplicate.customerId!;
       try {
-        await contactService.create(actor.companyID, duplicate.customerId!, {
+        await customerService.addRoles(customerId, actor.companyID, actor.role, duplicate.roles, actor.userID);
+        await noteService.create(actor.companyID, customerId, actor.userID, { content: termsNote(duplicate) });
+        await contactService.create(actor.companyID, customerId, {
           firstName: duplicate.contactFirstName,
           lastName: duplicate.contactLastName,
           email: duplicate.contactEmail,
           phone: duplicate.contactPhone,
           role: duplicate.contactRole ?? undefined,
         });
-        await noteService.create(actor.companyID, duplicate.customerId!, actor.userID, { content: termsNote(duplicate) });
       } catch (err) {
-        await companyRegistrationRepository.reopen(duplicate.id);
+        await companyRegistrationRepository.reopen(actor.companyID, duplicate.id);
         throw err;
       }
     }
@@ -170,12 +184,12 @@ class SupplierApprovalService {
     if (!isUuid(id)) throw APIError.invalidArgument("Not a company of the Customer Database");
     const duplicate = await companyRegistrationRepository.duplicateById(actor.companyID, id);
     if (duplicate) {
-      if (duplicate.status !== "declined" || !(await companyRegistrationRepository.reopen(duplicate.id))) throw APIError.failedPrecondition("This registration is no longer declined");
+      if (duplicate.status !== "declined" || !(await companyRegistrationRepository.reopen(actor.companyID, duplicate.id))) throw APIError.failedPrecondition("This registration is no longer declined");
       return this.itemOf(actor.companyID, id);
     }
     await customerService.undoDecline(id, actor.companyID);
     const registration = await companyRegistrationRepository.ofCustomer(actor.companyID, id);
-    if (registration) await companyRegistrationRepository.reopen(registration.id);
+    if (registration) await companyRegistrationRepository.reopen(actor.companyID, registration.id);
     return this.itemOf(actor.companyID, id);
   }
 

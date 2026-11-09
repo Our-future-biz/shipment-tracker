@@ -23,7 +23,8 @@ import { customerRepository } from "../../repositories/customer.repository";
 import { aresService } from "../../services/ares.service";
 import { customerService } from "../../services/customer.service";
 import { companyRegistrationService as service } from "../../services/companyRegistration.service";
-import { newRegistrationToken } from "../../lib/registrationLink";
+import log from "encore.dev/log";
+import { LOOKUPS_PER_LINK_HOUR, lookupAllowed, newRegistrationToken } from "../../lib/registrationLink";
 
 const repository = vi.mocked(companyRegistrationRepository);
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -94,9 +95,36 @@ describe("the public form", () => {
   it("tells nothing but the terms", async () => {
     await expect(service.publicForm(token, NOW)).resolves.toEqual({ termsName: "Austromar Terms and Conditions", termsUrl: "https://a.cz/t" });
   });
+
+  it("names the terms neutrally until a manager names them", async () => {
+    repository.settings.mockResolvedValue({ companyId: COMPANY, termsName: "", termsUrl: "https://a.cz/t", updatedAt: NOW } as never);
+    await expect(service.publicForm(token, NOW)).resolves.toEqual({ termsName: "Terms and Conditions", termsUrl: "https://a.cz/t" });
+  });
+
+  it("counts the link's registry searches on their own, not on the company's", async () => {
+    vi.mocked(aresService.search).mockResolvedValue({ companies: [], tooMany: false });
+    await service.publicAresSearch(token, "Dango", NOW);
+    expect(aresService.search).toHaveBeenCalledWith(`registration-link:${LINK_ID}`, "Dango");
+  });
 });
 
 describe("registering", () => {
+  it("refuses terms a manager changed since the form was opened, and leaves the link usable", async () => {
+    await expect(service.submit(token, { ...czech, termsUrl: "https://a.cz/old" }, NOW)).rejects.toMatchObject({ code: "failed_precondition", message: "The terms changed — reload the page" });
+    expect(repository.claim).not.toHaveBeenCalled();
+    await service.submit(token, { ...czech, termsUrl: "https://a.cz/t" }, NOW);
+    expect(repository.claim).toHaveBeenCalled();
+  });
+
+  it("counts a Czech registration as one of the link's look-ups, and refuses it past the limit before the link is taken", async () => {
+    const busy = "99999999-9999-4999-8999-999999999999";
+    repository.linkByHash.mockResolvedValue(link({ id: busy }));
+    for (let i = 0; i < LOOKUPS_PER_LINK_HOUR; i++) lookupAllowed(busy);
+    await expect(service.submit(token, czech, NOW)).rejects.toMatchObject({ code: "resource_exhausted" });
+    await expect(service.submit(token, foreign, NOW)).resolves.toBeUndefined();
+    expect(repository.claim).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses without the terms accepted, and leaves the link usable", async () => {
     await expect(service.submit(token, { ...czech, termsAccepted: false }, NOW)).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.claim).not.toHaveBeenCalled();
@@ -140,6 +168,37 @@ describe("registering", () => {
     vi.mocked(customerService.createFromAres).mockRejectedValue(new Error("ARES down"));
     repository.release.mockResolvedValue(undefined);
     await expect(service.submit(token, czech, NOW)).rejects.toThrow("ARES down");
-    expect(repository.release).toHaveBeenCalledWith(LINK_ID);
+    expect(repository.release).toHaveBeenCalledWith(COMPANY, LINK_ID);
+  });
+
+  it("keeps the link used once the company was created, even when the registration then fails", async () => {
+    repository.insert.mockRejectedValue(new Error("db down"));
+    await expect(service.submit(token, czech, NOW)).rejects.toThrow("db down");
+    expect(customerService.createFromAres).toHaveBeenCalled();
+    expect(repository.release).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalled();
+  });
+
+  it("keeps the link used once a registration of a company already there is being written", async () => {
+    vi.mocked(customerRepository.findByIco).mockResolvedValue({ id: "88888888-8888-4888-8888-888888888888" } as never);
+    repository.insert.mockRejectedValue(new Error("db down"));
+    await expect(service.submit(token, foreign, NOW)).rejects.toThrow("db down");
+    expect(repository.release).not.toHaveBeenCalled();
+  });
+
+  it("gives a company already there the link back when ARES fails before anything is written", async () => {
+    vi.mocked(customerRepository.findByIco).mockResolvedValue({ id: "88888888-8888-4888-8888-888888888888" } as never);
+    vi.mocked(aresService.lookup).mockRejectedValue(new Error("ARES down"));
+    await expect(service.submit(token, czech, NOW)).rejects.toThrow("ARES down");
+    expect(repository.insert).not.toHaveBeenCalled();
+    expect(repository.release).toHaveBeenCalledWith(COMPANY, LINK_ID);
+  });
+
+  it("registers all the same when the chat can't be started: that is only logged", async () => {
+    repository.addMessage.mockRejectedValueOnce(new Error("db down"));
+    await expect(service.submit(token, czech, NOW)).resolves.toBeUndefined();
+    expect(repository.insert).toHaveBeenCalled();
+    expect(repository.release).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith(expect.any(Error), "the chat of a registration could not be started", expect.anything());
   });
 });

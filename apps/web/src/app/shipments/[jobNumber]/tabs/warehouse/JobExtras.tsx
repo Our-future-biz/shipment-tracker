@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Input, Button, Modal, Upload } from "antd";
 import { CheckCircleFilled, InboxOutlined, SendOutlined } from "@ant-design/icons";
-import type { MessageInstance } from "antd/es/message/interface";
+import type { Messages } from "@/lib/toast";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { SectionCard as Card } from "@/components/SectionCard";
@@ -31,7 +31,7 @@ function asJob(data: unknown): JobSectionData {
 const saveFailed = (e: unknown) => (e instanceof SectionChangedError ? e.message : `Failed to save: ${apiErrorMessage(e)}`);
 
 // ─── Job Notes ──────────────────────────────────────────────────
-export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
   const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const savedNotes = section.notes ?? "";
@@ -97,7 +97,7 @@ function parseActionData(val: string | undefined): { timestamp: string; note?: s
   }
 }
 
-export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
   const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const [modalState, setModalState] = useState<ActionModalState | null>(null);

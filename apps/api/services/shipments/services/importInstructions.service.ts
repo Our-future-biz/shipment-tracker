@@ -7,9 +7,9 @@ import { isUuid } from "../../../lib/uuid";
 import type { ImportInstructionAnswers, ImportInstructionState, ImportInstructionWaiting, PublicImportInstructionForm } from "../interfaces/importInstructions";
 import { hashLinkToken, looksLikeLinkToken, newLinkToken } from "../lib/customerLink";
 import { isListedCustomsOffice } from "../lib/customsOffice";
-import { IMPORT_DOCUMENT_TYPE, IMPORT_LINK_DAYS, IMPORT_LINK_INVALID, answersProblem, fieldsToFill, importInstructionsUrl, mayAskImportInstructions, normalizeAnswers } from "../lib/importInstructions";
+import { IMPORT_DOCUMENT_TYPE, IMPORT_LINK_DAYS, IMPORT_LINK_INVALID, answersProblem, changedAnswers, fieldsToFill, importInstructionsUrl, mayAskImportInstructions, normalizeAnswers } from "../lib/importInstructions";
 import { importInstructionsPdf } from "../lib/importInstructionsPdf";
-import { isDetailsManager } from "../lib/shipmentEditRule";
+import { DETAILS_REFUSAL, isDetailsManager, isOpenToPerson } from "../lib/shipmentEditRule";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentImportInstructionRepository as repository } from "../repositories/shipmentImportInstruction.repository";
 import type { ShipmentImportInstructionRecord } from "../schemas/shipmentImportInstruction.schema";
@@ -17,9 +17,11 @@ import { attachmentService } from "./attachment.service";
 import { shipmentService } from "./shipment.service";
 
 // A customer fills in the Import Instructions through a link created in Shipments → Warehouse: one use,
-// 14 days, sent by the colleague themself. The completed form waits for that colleague or a manager, who
-// may edit it, and approve or reject it. Only an approved form reaches the shipment: it fills fields still
-// empty, and its PDF goes to the shipment's Documents.
+// 14 days, sent by the colleague themself. Approving fills the shipment's details, so the link is created,
+// cancelled and answered by whoever may change them (lib/shipmentEditRule: its Person in Charge, its Holiday
+// Cover or a manager). The completed form waits for them; they may edit it, and approve or reject it. Only
+// an approved form reaches the shipment: it fills fields still empty, and its PDF goes to the shipment's
+// Documents. What the customer sent is kept as sent; what was approved is kept beside it.
 
 interface Actor {
   companyID: string;
@@ -42,18 +44,24 @@ class ImportInstructionsService {
     return shipment;
   }
 
-  private canAnswer(row: ShipmentImportInstructionRecord, actor: Actor) {
-    return row.createdByUserId === actor.userID || isDetailsManager(actor.role);
+  /** Whoever may change the shipment's details; whether they created the link doesn't matter. */
+  private canAnswer(shipment: { personInCharge: string; holidayCover: string }, actor: Actor): Promise<boolean> {
+    return shipmentService.mayChangeDetails(shipment, actor.userID, actor.role);
   }
 
-  /** The shipment's latest form, and whether a new link can be created. */
-  async get(shipmentId: string, actor: Actor, now = new Date()): Promise<{ state: ImportInstructionState | null; askable: boolean }> {
+  /**
+   * The shipment's latest form; whether the shipment is one to ask (an import), and whether this user may
+   * create, cancel and answer its links (whoever may change its details).
+   */
+  async get(shipmentId: string, actor: Actor, now = new Date()): Promise<{ state: ImportInstructionState | null; askable: boolean; canAsk: boolean }> {
     const shipment = await this.requireShipment(shipmentId, actor.companyID);
     const row = await repository.latest(shipmentId, actor.companyID);
     const askable = mayAskImportInstructions(shipment.tradeDirection);
-    if (!row || row.status === "cancelled") return { state: null, askable };
+    const canAsk = await this.canAnswer(shipment, actor);
+    if (!row || row.status === "cancelled") return { state: null, askable, canAsk };
     return {
       askable,
+      canAsk,
       state: {
         status: row.status,
         expired: row.status === "open" && row.expiresAt.getTime() <= now.getTime(),
@@ -62,10 +70,12 @@ class ImportInstructionsService {
         expiresAt: row.expiresAt.toISOString(),
         submittedAt: iso(row.submittedAt),
         answers: row.answers,
+        approvedAnswers: row.approvedAnswers,
+        changes: row.answers && row.approvedAnswers ? changedAnswers(normalizeAnswers(row.answers), normalizeAnswers(row.approvedAnswers)) : [],
         decidedBy: row.decidedBy,
         decidedAt: iso(row.decidedAt),
         reason: row.reason,
-        canAnswer: this.canAnswer(row, actor),
+        canAnswer: canAsk,
         onShipment: { customsProcedure: shipment.customsProcedure, customsOffice: shipment.customsOffice, hsCode: shipment.hsCode, deliveryAddress: shipment.deliveryAddress },
       },
     };
@@ -89,12 +99,13 @@ class ImportInstructionsService {
   /** A new link, in place of one not filled in yet. The answer is the only time the URL is known. */
   async createLink(shipmentId: string, actor: Actor, now = new Date()): Promise<{ url: string }> {
     const shipment = await this.requireShipment(shipmentId, actor.companyID);
+    await shipmentService.requireDetailsEditor(shipmentId, actor);
     if (!mayAskImportInstructions(shipment.tradeDirection)) throw APIError.failedPrecondition("Import Instructions are for import shipments");
     const latest = await repository.latest(shipmentId, actor.companyID);
     if (latest?.status === "submitted") throw APIError.failedPrecondition("The customer's Import Instructions wait for an answer: approve or reject them first");
     if (latest?.status === "approved") throw APIError.failedPrecondition("The Import Instructions of this shipment are already approved");
     const { token, hash } = newLinkToken();
-    await repository.replaceOpen({
+    const created = await repository.replaceOpen({
       companyId: actor.companyID,
       shipmentId,
       tokenHash: hash,
@@ -103,37 +114,46 @@ class ImportInstructionsService {
       createdByUserId: actor.userID,
       expiresAt: new Date(now.getTime() + IMPORT_LINK_DAYS * DAY_MS),
     });
+    if (!created) throw APIError.failedPrecondition("The Import Instructions of this shipment changed meanwhile: reload to see them");
     return { url: importInstructionsUrl(appUrl(), token) };
   }
 
   async cancelLink(shipmentId: string, actor: Actor): Promise<void> {
-    await this.requireShipment(shipmentId, actor.companyID);
-    const latest = await repository.latest(shipmentId, actor.companyID);
-    if (latest && !this.canAnswer(latest, actor)) throw APIError.permissionDenied("Only the one who created the link, or a manager, can cancel it");
+    const shipment = await this.requireShipment(shipmentId, actor.companyID);
+    if (!(await this.canAnswer(shipment, actor))) throw APIError.permissionDenied(DETAILS_REFUSAL);
     if (!(await repository.cancelOpen(shipmentId, actor.companyID))) throw APIError.failedPrecondition("There is no open link to cancel");
   }
 
-  private async waiting(shipmentId: string, actor: Actor): Promise<ShipmentImportInstructionRecord> {
-    await this.requireShipment(shipmentId, actor.companyID);
+  private async waiting(shipmentId: string, actor: Actor) {
+    const shipment = await this.requireShipment(shipmentId, actor.companyID);
     const row = await repository.latest(shipmentId, actor.companyID);
     if (!row || row.status !== "submitted") throw APIError.failedPrecondition("These Import Instructions no longer wait for an answer");
-    if (!this.canAnswer(row, actor)) throw APIError.permissionDenied("Only the one who created the link, or a manager, can answer these Import Instructions");
-    return row;
+    if (!(await this.canAnswer(shipment, actor))) throw APIError.permissionDenied(DETAILS_REFUSAL);
+    return { row, shipment };
   }
 
-  /** The answers as edited here reach the shipment: empty fields are filled, and the PDF goes to Documents. */
+  /**
+   * The answers as edited here reach the shipment: empty fields are filled, and the PDF goes to Documents.
+   * What the customer sent stays as sent; the PDF shows it, and what was changed before approving.
+   */
   async approve(shipmentId: string, actor: Actor, edited: Partial<ImportInstructionAnswers>, now = new Date()): Promise<void> {
-    const row = await this.waiting(shipmentId, actor);
+    const { row, shipment } = await this.waiting(shipmentId, actor);
     const answers = normalizeAnswers(edited);
     const problem = answersProblem(answers, isListedCustomsOffice);
     if (problem) throw APIError.invalidArgument(problem);
-    const shipment = await this.requireShipment(shipmentId, actor.companyID);
+    const sent = normalizeAnswers(row.answers ?? answers);
     const by = await userEmailOf(actor.userID);
-    const pdf = await importInstructionsPdf(answers, { reference: shipment.jobNumber, confirmedAt: (row.submittedAt ?? now).toISOString().slice(0, 16).replace("T", " "), approvedBy: by });
-    if (!(await repository.decide(row.id, { status: "approved", by, reason: "", answers }, now))) throw APIError.failedPrecondition("These Import Instructions no longer wait for an answer");
+    const pdf = await importInstructionsPdf(sent, {
+      reference: shipment.jobNumber,
+      confirmedAt: (row.submittedAt ?? now).toISOString().slice(0, 16).replace("T", " "),
+      approvedBy: by,
+      changes: changedAnswers(sent, answers),
+    });
+    if (!(await repository.decide(row.id, { status: "approved", by, reason: "", approvedAnswers: answers }, now))) throw APIError.failedPrecondition("These Import Instructions no longer wait for an answer");
     try {
-      const fill = fieldsToFill(shipment, answers);
-      if (Object.keys(fill).length) await shipmentService.update(shipmentId, actor.companyID, fill, actor.userID);
+      // Read again just before the write: a field filled in meanwhile stays as it was filled.
+      const fill = fieldsToFill(await this.requireShipment(shipmentId, actor.companyID), answers);
+      if (Object.keys(fill).length) await shipmentService.update(shipmentId, actor.companyID, fill, actor.userID, actor.role);
       await attachmentService.addFromModule(
         shipmentId,
         actor.companyID,
@@ -150,13 +170,20 @@ class ImportInstructionsService {
   async reject(shipmentId: string, actor: Actor, reason: string, now = new Date()): Promise<void> {
     const why = reason.trim();
     if (why.length < MIN_REASON) throw APIError.invalidArgument("Say why they are rejected");
-    const row = await this.waiting(shipmentId, actor);
+    const { row } = await this.waiting(shipmentId, actor);
     if (!(await repository.decide(row.id, { status: "rejected", by: await userEmailOf(actor.userID), reason: why }, now))) throw APIError.failedPrecondition("These Import Instructions no longer wait for an answer");
   }
 
+  /**
+   * The bell: completed forms the user created, or whose shipment names them as Person in Charge or
+   * Holiday Cover; only those they may answer (a creator who is no longer named doesn't get theirs).
+   */
   async waitingFor(actor: Actor): Promise<ImportInstructionWaiting[]> {
-    const rows = await repository.waitingFor(actor.companyID, actor.userID);
-    return rows.map((r) => ({ shipmentId: r.shipmentId, jobNumber: r.jobNumber, submittedAt: iso(r.submittedAt) ?? "", filledBy: r.answers?.name ?? "" }));
+    const email = await userEmailOf(actor.userID);
+    const rows = await repository.waitingFor(actor.companyID, actor.userID, email);
+    return rows
+      .filter((r) => isDetailsManager(actor.role) || isOpenToPerson(r, email))
+      .map((r) => ({ shipmentId: r.shipmentId, jobNumber: r.jobNumber, submittedAt: iso(r.submittedAt) ?? "", filledBy: r.answers?.name ?? "" }));
   }
 
   // ─── The public side: the token is the only key, and every link that doesn't open answers alike ───
@@ -178,6 +205,8 @@ class ImportInstructionsService {
   async submit(token: string, input: { confirmed: boolean; answers: Partial<ImportInstructionAnswers> }, now = new Date()): Promise<void> {
     if (input.confirmed !== true) throw APIError.invalidArgument("Confirm that the instructions are correct");
     const row = await this.openRow(token, now);
+    // A shipment deleted meanwhile has nobody to read it.
+    if (!(await shipmentRepository.getByIdForCompany(row.shipmentId, row.companyId))) throw invalid();
     const answers = normalizeAnswers(input.answers);
     const problem = answersProblem(answers, isListedCustomsOffice);
     if (problem) throw APIError.invalidArgument(problem);

@@ -2,10 +2,11 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import type { ImportInstructionAnswers } from "../interfaces/importInstructions";
+import type { ImportInstructionAnswers, ImportInstructionChange } from "../interfaces/importInstructions";
 
-// The approved Import Instructions as a page like the paper form, for the shipment's Documents. DejaVu
-// Sans covers the Czech letters the built-in PDF fonts can't print.
+// The approved Import Instructions as a page like the paper form, for the shipment's Documents: what the
+// customer confirmed, as sent, and after it every answer the reviewer changed before approving, with who
+// changed it. DejaVu Sans covers the Czech letters the built-in PDF fonts can't print.
 
 const W = 595.28;
 const H = 841.89;
@@ -19,6 +20,8 @@ interface Meta {
   /** YYYY-MM-DD HH:mm, UTC. */
   confirmedAt: string;
   approvedBy: string;
+  /** What the reviewer changed of the customer's answers; [] when nothing. */
+  changes: ImportInstructionChange[];
 }
 
 function wrap(text: string, size: number, width: number, font: PDFFont): string[] {
@@ -124,5 +127,16 @@ export async function importInstructionsPdf(a: ImportInstructionAnswers, meta: M
   field("Telephone", a.telephone);
   field("Confirmed online on (UTC)", meta.confirmedAt);
   field("Approved by", meta.approvedBy);
+  if (meta.changes.length) {
+    heading(`Changed on approval by ${meta.approvedBy || "the reviewer"}`);
+    text("Approved with these answers in place of the customer's:", 8, regular, MUTED, M + 10);
+    gap(3);
+    for (const change of meta.changes) {
+      text(change.label, 8, regular, MUTED, M + 10);
+      text(`Customer: ${change.sent || "(empty)"}`, 10, regular, MUTED, M + 10);
+      text(`Approved: ${change.approved || "(empty)"}`, 10, regular, DARK, M + 10);
+      gap(3);
+    }
+  }
   return doc.save();
 }

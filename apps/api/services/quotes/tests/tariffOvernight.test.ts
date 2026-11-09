@@ -1,10 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { actionForLapsed, applyTariffActions, offersRequestOf, roadActionFor, roadPricingOf, roadRatingDay, tariffRefsOf, type OfferSummary, type TariffAction } from "../lib/tariffOvernight";
+import {
+  actionForLapsed,
+  applyTariffActions,
+  offersRequestOf,
+  roadActionFor,
+  roadPricingOf,
+  roadRatingDay,
+  sameLines,
+  tariffRefsOf,
+  type OfferSummary,
+  type TariffAction,
+  type TariffUpdate,
+} from "../lib/tariffOvernight";
 import { tariffUpdateGateMessage, withoutRoadUpdates } from "../utils/tariffDirection.utils";
 
 const OLD = "ocean:v1:r1";
-const freight = { type: "Ocean freight", description: "Ocean freight Hamburg → Newark (OOCL)", currency: "USD", amount: 1200, tariffRef: OLD, pairId: "p1", supplier: "OOCL" };
-const baf = { type: "BAF", description: "BAF", currency: "EUR", amount: 100, tariffRef: OLD };
+const freight = { type: "Ocean freight", description: "Ocean freight Hamburg → Newark (OOCL)", currency: "USD", basis: "container", containerType: "40' DC", qty: 2, unitPrice: 600, amount: 1200, tariffRef: OLD, pairId: "p1", supplier: "OOCL" };
+const baf = { type: "BAF", description: "BAF", currency: "EUR", basis: "lumpsum", amount: 100, tariffRef: OLD };
 const quote = {
   serviceType: "Sea FCL",
   direction: "Export",
@@ -21,9 +33,11 @@ const offer = (over: Partial<OfferSummary> = {}): OfferSummary => ({
   supplierName: "OOCL",
   via: "",
   totals: [{ currency: "USD", amount: 1200 }, { currency: "EUR", amount: 100 }],
+  lines: [{ containerType: "40' DC", currency: "USD", amount: 1200 }, { containerType: null, currency: "EUR", amount: 100 }],
   ...over,
 });
-const lapsed = (offers: OfferSummary[], tariffId: string | null = "t1") => actionForLapsed(OLD, quote, tariffId, offers);
+const asked = (offers: OfferSummary[]) => ({ offers, refused: null });
+const lapsed = (offers: OfferSummary[], tariffId: string | null = "t1") => actionForLapsed(OLD, quote, tariffId, asked(offers));
 
 describe("the tariffs behind a quote", () => {
   it("are listed once, tariff lines only", () => {
@@ -32,7 +46,7 @@ describe("the tariffs behind a quote", () => {
 });
 
 describe("a tariff that has lapsed", () => {
-  it("moves quietly to the current rate of the same tariff when the money is the same", () => {
+  it("moves quietly to the current rate of the same tariff when every line costs the same", () => {
     expect(lapsed([offer()])).toEqual({ ref: OLD, do: "swap", newRef: "ocean:v2:r9" });
   });
 
@@ -41,16 +55,85 @@ describe("a tariff that has lapsed", () => {
     expect(action).toMatchObject({ do: "update", update: { oldRef: OLD, newVersionId: "v2", newRateId: "r9", was: [{ currency: "EUR", amount: 100 }, { currency: "USD", amount: 1200 }] } });
   });
 
+  it("waits for approval when the same total is split differently between the sizes", () => {
+    // 20' 1,000 + 40' 1,800 then, 20' 1,100 + 40' 1,700 now: 2,800 USD either way.
+    const twoSizes = {
+      ...quote,
+      containers: [{ type: "20' DC", qty: 1 }, { type: "40' DC", qty: 1 }],
+      buyingLines: [
+        { ...freight, containerType: "20' DC", qty: 1, unitPrice: 1000, amount: 1000 },
+        { ...freight, containerType: "40' DC", qty: 1, unitPrice: 1800, amount: 1800, pairId: undefined },
+      ],
+    };
+    const now = offer({
+      totals: [{ currency: "USD", amount: 2800 }],
+      lines: [{ containerType: "20' DC", currency: "USD", amount: 1100 }, { containerType: "40' DC", currency: "USD", amount: 1700 }],
+    });
+    const action = actionForLapsed(OLD, twoSizes, "t1", asked([now]));
+    expect(action.do).toBe("update");
+    const { messages } = applyTariffActions(twoSizes, [action]);
+    expect(messages[0]).toContain("the same USD 2800.00 in all, split differently between its lines");
+    // The same rates per size, in another order of the lines, are the same rate.
+    const same = offer({ totals: [{ currency: "USD", amount: 2800 }], lines: [{ containerType: "40' DC", currency: "USD", amount: 1800 }, { containerType: "20' DC", currency: "USD", amount: 1000 }] });
+    expect(actionForLapsed(OLD, twoSizes, "t1", asked([same])).do).toBe("swap");
+  });
+
+  it("compares a line priced for all the quote's containers with the rates of all its sizes", () => {
+    const allBoxes = [{ ...freight, containerType: undefined, amount: 2800 }];
+    expect(sameLines(allBoxes, [{ containerType: "20' DC", currency: "USD", amount: 1000 }, { containerType: "40' DC", currency: "USD", amount: 1800 }])).toBe(true);
+    expect(sameLines(allBoxes, [{ containerType: "20' DC", currency: "USD", amount: 1100 }, { containerType: "40' DC", currency: "USD", amount: 1800 }])).toBe(false);
+  });
+
+  it("waits for approval when a surcharge costs another amount at the same total", () => {
+    const twoCharges = { ...quote, buyingLines: [freight, baf, { ...baf, description: "THC", amount: 50 }] };
+    const now = offer({
+      totals: [{ currency: "USD", amount: 1200 }, { currency: "EUR", amount: 150 }],
+      lines: [{ containerType: "40' DC", currency: "USD", amount: 1200 }, { containerType: null, currency: "EUR", amount: 50 }, { containerType: null, currency: "EUR", amount: 100 }],
+    });
+    expect(actionForLapsed(OLD, twoCharges, "t1", asked([now])).do).toBe("update");
+  });
+
   it("is removed when only other tariffs price the route, or its version is gone", () => {
     expect(lapsed([offer({ tariffId: "t2" })])).toEqual({ ref: OLD, do: "remove" });
     expect(lapsed([])).toEqual({ ref: OLD, do: "remove" });
     expect(lapsed([offer()], null)).toEqual({ ref: OLD, do: "remove" });
   });
 
+  it("is kept, and only told, when the route can't be asked or the tariffs refuse it", () => {
+    expect(actionForLapsed(OLD, quote, "t1", null, "the quote needs its ports")).toEqual({ ref: OLD, do: "unchecked", reason: "the quote needs its ports" });
+    expect(actionForLapsed(OLD, quote, "t1", { offers: [], refused: "No rail tariffs for this port" })).toEqual({ ref: OLD, do: "unchecked", reason: "No rail tariffs for this port" });
+    // A version that is gone has nothing to ask about.
+    expect(actionForLapsed(OLD, quote, null, null, "x")).toEqual({ ref: OLD, do: "remove" });
+  });
+
   it("prefers the offer via the same terminal", () => {
     const line = { ...quote, buyingLines: [{ ...freight, description: "Ocean freight via Kaohsiung" }] };
-    const action = actionForLapsed(OLD, line, "t1", [offer({ rateId: "a", via: "Singapore" }), offer({ rateId: "b", via: "Kaohsiung" })]);
+    const action = actionForLapsed(OLD, line, "t1", asked([offer({ rateId: "a", via: "Singapore" }), offer({ rateId: "b", via: "Kaohsiung" })]));
     expect(action).toMatchObject({ update: { newRateId: "b" } });
+  });
+});
+
+describe("a lapsed tariff that could not be checked", () => {
+  const action: TariffAction = { ref: OLD, do: "unchecked", reason: "the quote needs its ports" };
+
+  it("keeps its lines and tells it once", () => {
+    const first = applyTariffActions(quote, [action]);
+    expect(first.changed).toBe(true);
+    expect(first.data.buyingLines).toEqual(quote.buyingLines);
+    expect(first.data.sellingLines).toEqual(quote.sellingLines);
+    expect(first.data.tariffUnchecked).toEqual([OLD]);
+    expect(first.messages).toHaveLength(1);
+    expect(first.messages[0]).toContain("could not be asked for it: the quote needs its ports. Its lines were kept");
+    const again = applyTariffActions(first.data, [action]);
+    expect(again).toMatchObject({ messages: [], changed: false });
+  });
+
+  it("is forgotten once it is valid again or replaced", () => {
+    const told = applyTariffActions(quote, [action]).data;
+    const { data, changed, messages } = applyTariffActions(told, [{ ref: OLD, do: "keep" }]);
+    expect(changed).toBe(true);
+    expect(messages).toEqual([]);
+    expect(data).not.toHaveProperty("tariffUnchecked");
   });
 });
 
@@ -96,6 +179,38 @@ describe("the night's actions on a quote", () => {
     expect(tariffUpdateGateMessage(waiting)).toMatch(/approve it in Pricing/);
     expect(tariffUpdateGateMessage({ ...waiting, buyingLines: [{ tariffRef: "ocean:v2:r9" }] })).toBeNull();
     expect(tariffUpdateGateMessage(quote)).toBeNull();
+  });
+
+  it("no longer hold it once its buying lines are priced again, whatever a selling line copied from them is tagged", () => {
+    const waiting = applyTariffActions(quote, [update]).data;
+    const approved = { ...waiting, buyingLines: [{ tariffRef: "ocean:v2:r9" }], sellingLines: [{ tariffRef: OLD, amount: 1500 }] };
+    expect(tariffUpdateGateMessage(approved)).toBeNull();
+  });
+
+  // jsonb keeps an object's keys shorter first, then by their bytes: not as they were written.
+  const asJsonb = (value: unknown): unknown =>
+    Array.isArray(value)
+      ? value.map(asJsonb)
+      : value && typeof value === "object"
+        ? Object.fromEntries(
+            Object.entries(value)
+              .sort(([a], [b]) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0))
+              .map(([k, v]) => [k, asJsonb(v)]),
+          )
+        : value;
+
+  it("change nothing on a night that finds the same rate waiting, as the database gives it back", () => {
+    const stored = asJsonb(applyTariffActions(quote, [update]).data) as Record<string, unknown>;
+    expect(Object.keys((stored.tariffUpdates as TariffUpdate[])[0]!)[0]).toBe("now");
+    expect(applyTariffActions(stored, [update])).toMatchObject({ messages: [], changed: false });
+    const road = { ...update, update: { ...update.update, kind: "road" as const, buyWas: [{ currency: "CZK", amount: 3000 }], buyNow: [{ currency: "CZK", amount: 3100 }] } } as TariffAction;
+    const storedRoad = asJsonb(applyTariffActions(quote, [road]).data) as Record<string, unknown>;
+    expect(applyTariffActions(storedRoad, [road]).changed).toBe(false);
+  });
+
+  it("say what approving does to the selling price of a Sea FCL quote", () => {
+    expect(applyTariffActions(quote, [update]).messages[0]).toContain("approving moves it with the new buying, each charge keeping its profit");
+    expect(applyTariffActions({ ...quote, serviceType: "Sea LCL" }, [update]).messages[0]).toContain("The selling price has not changed.");
   });
 });
 

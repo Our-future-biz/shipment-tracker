@@ -128,6 +128,24 @@ describe("roles", () => {
     expect(written).toEqual({ roles: ["haulier"] });
   });
 
+  it("can be added to those the company has, with the row locked, by a manager only (a registration approved)", async () => {
+    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["customer"] }));
+    // The lock reads a role given meanwhile: it is kept beside the ones added.
+    lockedOn({ roles: ["customer", "co_loader"] });
+    await customerService.addRoles("customer-1", COMPANY, "manager", ["shipping_line", "customer"], "user-1");
+    expect(repository.getByIdForCompany).toHaveBeenCalledWith("customer-1", COMPANY);
+    expect(repository.updateLocked).toHaveBeenCalledWith("customer-1", COMPANY, expect.any(Function));
+    expect(written).toEqual({ roles: ["customer", "co_loader", "shipping_line"] });
+    await expect(customerService.addRoles("customer-1", COMPANY, "user", ["shipping_line"], "user-1")).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("are left as they are when the company has every role added already", async () => {
+    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["customer", "shipping_line"] }));
+    await customerService.addRoles("customer-1", COMPANY, "manager", ["shipping_line"], "user-1");
+    expect(repository.updateLocked).not.toHaveBeenCalled();
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
   it("are checked whole before anything is written: a bad registration date refuses the change of roles", async () => {
     lockedOn({ roles: ["customer"] });
     await expect(customerService.update("customer-1", COMPANY, "manager", { roles: ["customer", "haulier"], registrationDate: "31.2.2020" })).rejects.toMatchObject({ code: "invalid_argument" });

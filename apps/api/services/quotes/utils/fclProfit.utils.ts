@@ -9,10 +9,12 @@ import { isPlainObject } from "./quoteDocument.utils";
 // charges per shipment and the trucking lines are not on a container, and the ROE % is no profit.
 
 const ALL_CONTAINERS = "*";
-// Less than a cent is what rounding a selling rate to cents leaves, not a profit.
-const CENT = 0.01;
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+// A profit is counted in whole cents: 1,005.00 less 1,004.99 is one cent (the float says
+// 0.0099…), while the half cent a selling rate rounded to cents leaves over a buying rate with more
+// decimals is none. Worked out to the millionth first, so the float's last digits drop away.
+const wholeCents = (amount: number) => Math.trunc(Math.round(amount * 1_000_000) / 10_000);
 
 // The types of its container lines, in their order.
 function quoteTypes(data: Record<string, unknown>): string[] {
@@ -42,14 +44,21 @@ function profitsByBlock(data: Record<string, unknown>, types: readonly string[])
   return blocks;
 }
 
+// The whole cents of a type's block and of the block of every type, currency by currency.
+function merged(...blocks: (Map<string, number> | undefined)[]): [string, number][] {
+  const sums = new Map<string, number>();
+  for (const block of blocks) for (const [currency, value] of block ?? []) sums.set(currency, (sums.get(currency) ?? 0) + value);
+  return [...sums].map(([currency, value]) => [currency, wholeCents(value)]);
+}
+
 // In one currency, or all with the same sign, it needs no rate. Only a profit in one currency
 // against a loss in another is worked out; a currency without a rate counts for nothing then.
 function hasProfit(parts: [string, number][], data: Record<string, unknown>, rates: QuoteRates | undefined): boolean {
-  const real = parts.filter(([, value]) => Math.abs(value) >= CENT);
-  if (!real.length || real.every(([, value]) => value < 0)) return false;
-  if (real.every(([, value]) => value > 0)) return true;
+  const real = parts.filter(([, cents]) => cents !== 0);
+  if (!real.length || real.every(([, cents]) => cents < 0)) return false;
+  if (real.every(([, cents]) => cents > 0)) return true;
   if (!rates) return false;
-  return real.reduce((sum, [currency, value]) => sum + value * (rateOf(currency, data, rates) ?? 0), 0) > 0;
+  return real.reduce((sum, [currency, cents]) => sum + cents * (rateOf(currency, data, rates) ?? 0), 0) > 0;
 }
 
 /** Why the quote can't go out for a container type without a profit; null when it may, or is no Sea FCL quote. */
@@ -57,7 +66,7 @@ export function fclProfitGateMessage(data: unknown, rates?: QuoteRates): string 
   if (!isPlainObject(data) || data.serviceType !== "Sea FCL") return null;
   const types = quoteTypes(data);
   const blocks = profitsByBlock(data, types);
-  const without = types.filter((type) => !hasProfit([...(blocks.get(type) ?? []), ...(blocks.get(ALL_CONTAINERS) ?? [])], data, rates));
+  const without = types.filter((type) => !hasProfit(merged(blocks.get(type), blocks.get(ALL_CONTAINERS)), data, rates));
   return without.length ? noProfitMessage(without) : null;
 }
 

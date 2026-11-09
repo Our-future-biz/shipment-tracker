@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Input, Button, Space, Modal } from "antd";
-import type { MessageInstance } from "antd/es/message/interface";
+import type { Messages } from "@/lib/toast";
 import { SECTION_CONFLICT_TEXT, SectionConflictError, useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
 import { APIError } from "@/lib/api/client";
 import { SectionCard as Card } from "@/components/SectionCard";
@@ -68,7 +68,7 @@ export function SavedMeanwhile({ theirs, onUseTheirs, onKeepMine }: { theirs: Re
 }
 
 // ─── Job Notes ──────────────────────────────────────────────────
-export function JobNotes({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
+export function JobNotes({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: Messages; readOnly?: boolean }) {
   const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const savedNotes = section.notes ?? "";
@@ -160,7 +160,7 @@ function parseActionData(val: string | undefined): { timestamp: string; note?: s
   }
 }
 
-export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
   const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const [modalState, setModalState] = useState<ActionModalState | null>(null);

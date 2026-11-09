@@ -10,12 +10,15 @@ import {
   DEFAULT_TERMS_NAME,
   REGISTRATION_LINK_DAYS,
   REGISTRATION_LINK_INVALID,
+  TERMS_CHANGED,
+  TERMS_URL_RULE,
   hashRegistrationToken,
   linkIsOpen,
   lookupAllowed,
   looksLikeRegistrationToken,
   newRegistrationToken,
   registrationLinkUrl,
+  registrationSearchBucket,
   termsUrlOf,
 } from "../lib/registrationLink";
 import { customerRepository } from "../repositories/customer.repository";
@@ -48,6 +51,8 @@ export interface RegistrationInput {
   city?: string;
   postalCode?: string;
   contact: NewCustomerContact;
+  /** The terms' address the form showed: refused when a manager changed it since. */
+  termsUrl?: string;
 }
 
 const MAX_LABEL = 200;
@@ -74,7 +79,7 @@ class CompanyRegistrationService {
   async saveSettings(actor: Actor, input: RegistrationSettings): Promise<RegistrationSettings> {
     if (!canManageSales(actor.role)) throw APIError.permissionDenied("Only a manager can change the registration terms");
     const termsUrl = termsUrlOf(input.termsUrl);
-    if (!termsUrl) throw APIError.invalidArgument("Enter the full web address of the terms, starting with https://");
+    if (!termsUrl) throw APIError.invalidArgument(TERMS_URL_RULE);
     const termsName = input.termsName.trim() || DEFAULT_TERMS_NAME;
     await repository.saveSettings(actor.companyID, { termsName, termsUrl });
     return { termsName, termsUrl };
@@ -140,15 +145,22 @@ class CompanyRegistrationService {
   async publicAresSearch(token: string, name: string, now = new Date()): Promise<{ companies: AresSearchHit[]; tooMany: boolean }> {
     const link = await this.openLink(token, now);
     this.assertLookup(link);
-    return aresService.search(link.companyId, name);
+    // Counted for the link alone: a public link can't use up the searches of the company's own users.
+    return aresService.search(registrationSearchBucket(link.id), name);
   }
 
-  /** The company's registration. The link is taken first, so it registers once; a registration that fails gives it back. */
+  /**
+   * The company's registration. The link is taken first, so it registers once; a registration that fails
+   * before anything is written gives it back. Once something is written the link stays used: a retry would
+   * register the company a second time.
+   */
   async submit(token: string, input: RegistrationInput, now = new Date()): Promise<void> {
     if (input.termsAccepted !== true) throw APIError.invalidArgument("The terms must be accepted to register");
     const open = await this.openLink(token, now);
     const settings = await this.settings(open.companyId);
     if (!settings.termsUrl) throw invalid();
+    // What was accepted is what the form showed: terms changed since are read first.
+    if (input.termsUrl !== undefined && input.termsUrl !== settings.termsUrl) throw APIError.failedPrecondition(TERMS_CHANGED);
     // Before the link is taken: a mistake in the form leaves it usable.
     const contact = firstContact(input.contact);
     const country = input.country.trim().toUpperCase();
@@ -157,12 +169,20 @@ class CompanyRegistrationService {
     if (!czech && (!input.companyName?.trim() || !input.street?.trim() || !input.city?.trim() || !input.postalCode?.trim())) {
       throw APIError.invalidArgument("Fill in the company's name and address");
     }
+    // A Czech company is read from ARES on the way: it counts as the link's look-up, so a registration
+    // tried again and again can't call the registry without end.
+    if (czech) this.assertLookup(open);
     const link = await repository.claim(open.tokenHash, now);
     if (!link) throw invalid();
+    const progress = { written: false };
     try {
-      await this.register(link, settings, input, country, czech, contact, now);
+      await this.register(link, settings, input, country, czech, contact, now, progress);
     } catch (err) {
-      await repository.release(link.id).catch((e: unknown) => log.error(e, "a registration link could not be given back"));
+      if (progress.written) {
+        log.error(err, "a registration failed after it was written: its link stays used", { companyId: link.companyId, linkId: link.id });
+      } else {
+        await repository.release(link.companyId, link.id).catch((e: unknown) => log.error(e, "a registration link could not be given back"));
+      }
       throw err;
     }
   }
@@ -175,6 +195,7 @@ class CompanyRegistrationService {
     czech: boolean,
     contact: ReturnType<typeof firstContact>,
     now: Date,
+    progress: { written: boolean },
   ): Promise<void> {
     const { companyId } = link;
     const number = czech ? input.ico! : (input.registrationNumber ?? "").trim();
@@ -213,10 +234,14 @@ class CompanyRegistrationService {
             },
             viaLink,
           );
+      // The company is in the Customer Database now: the link is spent.
+      progress.written = true;
       customerId = customer.id;
       company = { companyName: customer.companyName, ico: customer.ico, dic: customer.dic, registeredAddress: customer.registeredAddress, city: customer.city, country: customer.country, dataSource: czech ? "ARES" : "Manual" };
     }
 
+    // For a company already there the registration is the first write: from here on the link is spent either way.
+    progress.written = true;
     const registration = await repository.insert({
       companyId,
       linkId: link.id,
@@ -236,16 +261,22 @@ class CompanyRegistrationService {
       requestedByUserId: link.createdByUserId,
     });
 
-    // The one who created the link is in the chat from the start, and told by it.
+    // The one who created the link is in the chat from the start, and told by it. The registration is
+    // made by now: a chat that can't be started is only logged (the creator is made a member again when
+    // the chat is opened, and the registration waits on Company approval all the same).
     const threadId = existing ? registration.id : customerId;
-    await repository.addMember(companyId, threadId, link.createdByUserId, null);
-    await repository.addMessage({
-      companyId,
-      threadId,
-      authorUserId: null,
-      author: "",
-      text: `${company.companyName} registered through the link${link.label ? ` for ${link.label}` : ""}${existing ? ". It is already in the Customer Database" : ""}.`,
-    });
+    try {
+      await repository.addMember(companyId, threadId, link.createdByUserId, null);
+      await repository.addMessage({
+        companyId,
+        threadId,
+        authorUserId: null,
+        author: "",
+        text: `${company.companyName} registered through the link${link.label ? ` for ${link.label}` : ""}${existing ? ". It is already in the Customer Database" : ""}.`,
+      });
+    } catch (err) {
+      log.error(err, "the chat of a registration could not be started", { companyId, registrationId: registration.id });
+    }
   }
 }
 

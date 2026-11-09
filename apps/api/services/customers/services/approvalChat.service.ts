@@ -27,7 +27,7 @@ class ApprovalChatService {
     const thread = await repository.thread(actor.companyID, threadId);
     if (!thread) throw notFound();
     if (thread.requesterUserId) await repository.addMember(actor.companyID, threadId, thread.requesterUserId, null);
-    if (!canManageSales(actor.role) && !(await repository.isMember(threadId, actor.userID))) throw APIError.permissionDenied("You are not in this chat");
+    if (!canManageSales(actor.role) && !(await repository.isMember(actor.companyID, threadId, actor.userID))) throw APIError.permissionDenied("You are not in this chat");
     return thread;
   }
 

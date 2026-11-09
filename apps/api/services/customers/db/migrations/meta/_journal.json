@@ -246,6 +246,13 @@
       "when": 1794215650668,
       "tag": "0034_company_registration",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794227156888,
+      "tag": "0035_company_registration_keys",
+      "breakpoints": true
     }
   ]
 }

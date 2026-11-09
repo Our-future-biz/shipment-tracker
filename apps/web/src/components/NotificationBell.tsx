@@ -339,7 +339,8 @@ export function NotificationBell() {
     const before = seenSuppliers.current;
     const keys = [
       ...supplierApprovals.filter((a) => a.status === "pending").map((a) => `w:${a.threadId}`),
-      ...supplierAnswers.map((a) => `a:${a.customerId}`),
+      // By thread, as asked below: a registration of a company already in the database is not its company.
+      ...supplierAnswers.map((a) => `a:${a.threadId}`),
     ];
     if (before) {
       for (const a of supplierWaiting) if (!before.has(`w:${a.threadId}`)) toast.notify({ title: supplierWaitingTitle(a), description: supplierWaitingText(a), type: "warning" });

@@ -49,7 +49,7 @@ import { useRouteWhere } from "@/hooks/usePlaceSearch";
 import { NewSupplierFromQuote } from "@/components/SupplierPicker";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
 import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
-import { supplierSendBlock } from "../../_lib/supplierApproval";
+import { customerSendBlock, supplierSendBlock } from "../../_lib/supplierApproval";
 import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine, TariffUpdate } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
@@ -95,7 +95,18 @@ import { FclTruckingBlock } from "./_components/FclTruckingBlock";
 import { fclChanges, fclProfitBlock, usesFclPricing, withContainerTypes, withFclPricing } from "../../_lib/fclPricing";
 import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
 import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
-import { isOfferOfUpdate, linesWaitingForRate, roadForToday, tariffUpdateChange, tariffUpdateSelling, waitingTariffUpdates } from "../../_lib/tariffUpdates";
+import {
+  approvalLineOf,
+  isOfferOfUpdate,
+  linesWaitingForRate,
+  roadForToday,
+  tariffUpdateBlock,
+  tariffUpdateChange,
+  tariffUpdateSelling,
+  waitingTariffUpdates,
+  withApprovedRate,
+  withoutTariffUpdate,
+} from "../../_lib/tariffUpdates";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
@@ -793,13 +804,16 @@ export function QuoteWorkflow() {
   // And a buying line linked to a new supplier that waits for a manager's approval, or was declined, or
   // with a supplier only typed: the server refuses the sending too, this says it beforehand.
   // So does a line priced from a tariff in the other Trade Direction (a tariff prices only the directions it is for).
-  // And a Sea FCL quote with a container type that has no profit yet.
+  // And a Sea FCL quote with a container type that has no profit yet, a new tariff rate that waits for
+  // approval, or a customer that registered through a link and waits for a manager (or was declined).
   const sendBlocked =
     quote.sendBlocked ??
     (quoteClosed
       ? null
       : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.byId) ??
         otherDirectionBlock(draft) ??
+        tariffUpdateBlock(draft) ??
+        customerSendBlock(draft.customerId, supplierApprovals.byId) ??
         (exchange.isLoading ? null : fclProfitBlock(fclView ?? draft, exchange.rates, exchange))));
   // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
   // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
@@ -881,12 +895,13 @@ export function QuoteWorkflow() {
   const toQuoteCurrency = (amount: number, currency: string) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange });
   // The buying lines after a pick, with the rows' React keys following them: the keys of the lines
   // an earlier pick made go, and the offer's further lines get new ones.
-  const putPick = (pick: TariffPick) => {
+  // `also`: what else changes with the lines, in the same change.
+  const putPick = (pick: TariffPick, also: Partial<SalesQuoteData> = {}) => {
     for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
     for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
     // The offer's lines are priced for the cargo weight and in the Trade Direction the quote has now.
     const picked = Array.from({ length: pick.count }, (_, k) => pick.at + k);
-    updateLines("buyingLines", stampDirection(stampPricedFor(pick.lines, picked, draft), picked, draft));
+    set({ ...also, buyingLines: stampDirection(stampPricedFor(pick.lines, picked, draft), picked, draft) });
   };
   // An offer picked under "Tariffs available" goes on the line it was opened from (see
   // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
@@ -928,7 +943,10 @@ export function QuoteWorkflow() {
   };
 
   // The new rate of a lapsed tariff, approved: the offer is asked for again as of today and put in the
-  // place of the old lines. Selling is left as it is; the user sees the new margin.
+  // place of the old lines, each charge keeping the profit, "All in" tick and pairing it had
+  // (withApprovedRate), and the rate leaves the quote's waiting ones in the same change. Typed
+  // selling lines are left as they are and the user sees the new margin; a quote in the FCL layout
+  // sells each charge at its new buying plus the same profit.
   const approveTariffUpdate = async (update: TariffUpdate) => {
     const today = businessToday();
     if (update.kind === "road") {
@@ -942,8 +960,14 @@ export function QuoteWorkflow() {
       if (refused) toast.error(refused);
       return;
     }
-    const at = buyingLines.findIndex((l) => l.tariffRef === update.oldRef);
-    if (quoteClosed || at < 0) return;
+    const freightOf = update.kind === "ocean" ? isOceanFreightLine : update.kind === "rail" ? isInlandHaulageLine : () => true;
+    const at = approvalLineOf(buyingLines, update, freightOf);
+    if (quoteClosed || at < 0) {
+      if (!quoteClosed) toast.error(`No buying line is priced from the old ${update.supplierName} rate any more`);
+      return;
+    }
+    const old = buyingLines.filter((l) => l.tariffRef === update.oldRef);
+    const settled = { tariffUpdates: withoutTariffUpdate(draft, update) };
     const gone = () => toast.error(`The new ${update.supplierName} rate is no longer offered for this route: pick a tariff under Tariffs available`);
     setApprovingRate(update.oldRef);
     try {
@@ -952,19 +976,19 @@ export function QuoteWorkflow() {
         const request = oceanOffersRequest(route);
         const offer = request && (await api.tariffs.oceanOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
         if (!offer) return gone();
-        putPick(withOceanOffer(buyingLines, at, offer, route, draft));
+        putPick(withApprovedRate(withOceanOffer(buyingLines, at, offer, route, draft), old), settled);
       } else if (update.kind === "rail") {
         const route = railRouteOf(draft, today);
         const request = railOffersRequest(route);
         const offer = request && (await api.tariffs.railOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
         if (!offer || !route.port) return gone();
-        putPick(withRailOffer(buyingLines, at, offer, route.port, route.direction, draft));
+        putPick(withApprovedRate(withRailOffer(buyingLines, at, offer, route.port, route.direction, draft), old), settled);
       } else {
         const route = collectionRouteOf(draft, collectionHubs, today);
         const request = collectionOffersRequest(route);
         const offer = request && (await api.tariffs.collectionOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
         if (!offer) return gone();
-        updateLines("buyingLines", stampPricedFor(withCollectionOffer(buyingLines, at, offer, route), [at], draft));
+        set({ ...settled, buyingLines: stampPricedFor(withCollectionOffer(buyingLines, at, offer, route), [at], draft) });
       }
       toast.success(`New ${update.supplierName} rate approved`);
     } catch (err) {
@@ -1632,7 +1656,7 @@ export function QuoteWorkflow() {
               type="warning"
               showIcon
               message={update.kind === "road" ? `The road tariff "${update.supplierName}" has a new rate` : `The ${update.supplierName} tariff has a new rate`}
-              description={`${tariffUpdateChange(update)} ${update.kind === "road" ? "" : "The old tariff is no longer valid. "}${tariffUpdateSelling(update)} The quote can't be sent until you approve this or pick another tariff.`}
+              description={`${tariffUpdateChange(update)} ${update.kind === "road" ? "" : "The old tariff is no longer valid. "}${tariffUpdateSelling(update, fclLayout)} The quote can't be sent until you approve this or pick another tariff.`}
               action={
                 <Button size="small" type="primary" loading={approvingRate === update.oldRef} onClick={() => void approveTariffUpdate(update)}>
                   Approve new rate

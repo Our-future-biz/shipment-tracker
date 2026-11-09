@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { boolean, check, index, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { CustomerRole, ContactRole } from "../interfaces/interfaces";
+import { customerTable } from "./customer.schema";
 
 // A company registers itself through a link a colleague created: one use, 14 days. What it filled in is
 // kept here with the terms it accepted, and a manager answers it on Sales → Managers → Company approval.
@@ -37,9 +38,14 @@ export const companyRegistrationTable = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: uuid("company_id").notNull(),
-    linkId: uuid("link_id").notNull(),
-    // The new company waiting in the Customer Database, or the one already there.
-    customerId: uuid("customer_id"),
+    // One registration per link: a link is used once.
+    linkId: uuid("link_id")
+      .notNull()
+      .references(() => companyRegistrationLinkTable.id),
+    // The new company waiting in the Customer Database, or the one already there. A decline only marks a
+    // company deleted, so nothing removes the row; were it ever removed, the registration stays as the record
+    // of the terms accepted.
+    customerId: uuid("customer_id").references(() => customerTable.id, { onDelete: "set null" }),
     alreadyInDatabase: boolean("already_in_database").notNull().default(false),
     companyName: text("company_name").notNull(),
     ico: text("ico").notNull().default(""),
@@ -71,6 +77,7 @@ export const companyRegistrationTable = pgTable(
     check("company_registration_status_check", sql`${table.status} IN ('pending', 'approved', 'declined')`),
     index("company_registration_company_idx").on(table.companyId, table.createdAt),
     index("company_registration_customer_idx").on(table.customerId),
+    uniqueIndex("company_registration_link_id_idx").on(table.linkId),
   ],
 );
 

@@ -128,8 +128,10 @@ export function SalesCompanyApprovals() {
                         )}
                         <div className="text-[12px] text-slate-700">{rolesText(a.roles)}</div>
                         {a.alreadyInDatabase && (
-                          <div className="mt-0.5">
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                             <Pill tone="amber">Already in the database</Pill>
+                            {/* Its own name there: what the form says may name another company. */}
+                            {a.matchedCompanyName && <span className="text-[12px] text-slate-700">as {a.matchedCompanyName}</span>}
                           </div>
                         )}
                         <div className="text-[11px] text-slate-500">
@@ -201,7 +203,11 @@ export function SalesCompanyApprovals() {
                                 <span className="text-[11px] text-slate-400">{a.alreadyInDatabase ? "The company stays in the Customer Database" : "Deleted from the Customer Database"}</span>
                                 <Popconfirm
                                   title={`Undo the decline of ${a.companyName}?`}
-                                  description="It comes back to the Customer Database and waits for approval again; its quote stays held until it is answered."
+                                  description={
+                                    a.alreadyInDatabase
+                                      ? "The registration waits for approval again; the company stays in the Customer Database as it is."
+                                      : "It comes back to the Customer Database and waits for approval again; its quote stays held until it is answered."
+                                  }
                                   okText="Undo decline"
                                   cancelText="Cancel"
                                   onConfirm={() => takeBack(a)}

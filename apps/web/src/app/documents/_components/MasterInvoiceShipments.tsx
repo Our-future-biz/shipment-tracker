@@ -30,6 +30,8 @@ interface MasterInvoiceShipmentsProps {
   /** After reading: each ticked shipment's part as the server splits it, and the cost it already has. */
   parts?: Record<string, string | null>;
   existing?: Record<string, interfaces.CostSplitExisting | null>;
+  /** The billed shipments (an issued invoice not credited): a real cost they have stays, Replace or not. */
+  billed?: ReadonlySet<string>;
   overwrite?: ReadonlySet<string>;
   onOverwrite?: (shipmentId: string, overwrite: boolean) => void;
   currency?: string;
@@ -47,6 +49,7 @@ export function MasterInvoiceShipments({
   onMethod,
   parts,
   existing,
+  billed,
   overwrite,
   onOverwrite,
   currency,
@@ -148,12 +151,16 @@ export function MasterInvoiceShipments({
                                 {had.realAmount} {had.realCurrency}
                                 {had.invoiceNumber ? ` · ${had.invoiceNumber}` : ""}
                               </span>
-                              <Checkbox
-                                checked={!!overwrite?.has(r.shipmentId)}
-                                onChange={(e) => onOverwrite?.(r.shipmentId, e.target.checked)}
-                              >
-                                <span className="text-xs">Replace</span>
-                              </Checkbox>
+                              {billed?.has(r.shipmentId) ? (
+                                <span className={HINT}>Billed: it stays</span>
+                              ) : (
+                                <Checkbox
+                                  checked={!!overwrite?.has(r.shipmentId)}
+                                  onChange={(e) => onOverwrite?.(r.shipmentId, e.target.checked)}
+                                >
+                                  <span className="text-xs">Replace</span>
+                                </Checkbox>
+                              )}
                             </span>
                           ) : (
                             on && <span className="text-slate-400">none</span>
@@ -203,7 +210,7 @@ export function MasterInvoiceShipments({
         ) && (
           <p className={`mt-2 mb-0 ${HINT}`}>
             A shipment that already has a real cost under this charge keeps it and is skipped,
-            unless Replace is ticked.
+            unless Replace is ticked. A billed shipment keeps it whatever is ticked.
           </p>
         )}
     </div>

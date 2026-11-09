@@ -94,8 +94,11 @@ export const DOCUMENT_GROUPS = [
   { title: "Suppliers Invoice(s)", types: SUPPLIER_INVOICE_TYPES },
 ] as const;
 
-/** The tables the Customs tab shows: all but the suppliers' invoices, which customs doesn't work with. */
-export const CUSTOMS_TAB_GROUPS = DOCUMENT_GROUPS.slice(0, 3);
+/**
+ * The tables the Customs tab shows: all but the suppliers' invoices, which customs doesn't work with,
+ * and the safety paperwork of dangerous goods, kept on the Documents tab.
+ */
+export const CUSTOMS_TAB_GROUPS = DOCUMENT_GROUPS.filter((g) => g.title !== "Suppliers Invoice(s)" && g.title !== "Safety Paperwork");
 
 const FALLBACK_DOCUMENT_GROUP = DOCUMENT_GROUPS[1];
 

@@ -3003,12 +3003,14 @@ export namespace shipments {
         public async importInstructionsGet(shipmentId: string): Promise<{
     state: interfaces.ImportInstructionState | null
     askable: boolean
+    canAsk: boolean
 }> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/import-instructions`)
             return await resp.json() as {
     state: interfaces.ImportInstructionState | null
     askable: boolean
+    canAsk: boolean
 }
         }
 
@@ -9081,6 +9083,14 @@ export namespace controllers {
          */
         termsAccepted: boolean
 
+        /**
+         * The web address of the terms the form showed; refused when a manager changed them since.
+         */
+        termsUrl?: string
+
+        /**
+         * ISO 3166-1 alpha-2; CZ is read from ARES by its IČO.
+         */
         country: string
         ico?: string
         companyName?: string
@@ -13696,6 +13706,11 @@ export namespace interfaces {
          * the part was posted to the shipment
          */
         written: boolean
+
+        /**
+         * the shipment is billed: a real cost it has stays, Replace or not (lib/billedLock)
+         */
+        billed: boolean
     }
 
     /**
@@ -15795,6 +15810,16 @@ export namespace interfaces {
         telephone: string
     }
 
+    /**
+     * One answer the reviewer changed before approving: what the customer sent, and what was approved.
+     */
+    export interface ImportInstructionChange {
+        field: "procedure" | "bank" | "accountNumber" | "t1Office" | "otherProcedure" | "tariffCode" | "description" | "whatIsIt" | "madeOf" | "usedFor" | "deliveryAddress" | "deliveryContact" | "deliveryPhone" | "billingAddress" | "eori" | "companyId" | "vatId" | "name" | "telephone"
+        label: string
+        sent: string
+        approved: string
+    }
+
     export interface ImportInstructionShipmentValues {
         customsProcedure: string
         customsOffice: string
@@ -15816,12 +15841,26 @@ export namespace interfaces {
         createdAt: string
         expiresAt: string
         submittedAt: string | null
+        /**
+         * What the customer confirmed, as sent.
+         */
         answers: ImportInstructionAnswers | null
+
+        /**
+         * What was approved, as the reviewer left it; null until approved.
+         */
+        approvedAnswers: ImportInstructionAnswers | null
+
+        /**
+         * What the reviewer changed of the customer's answers; [] when nothing or not approved yet.
+         */
+        changes: ImportInstructionChange[]
+
         decidedBy: string
         decidedAt: string | null
         reason: string
         /**
-         * The one who created the link, or a manager.
+         * Whether this user may answer or cancel it: whoever may change the shipment's details.
          */
         canAnswer: boolean
 
@@ -16800,6 +16839,12 @@ export namespace interfaces {
          * Selling rows of the split that differ from it but stay as they are, being on an issued invoice
          */
         sellingOnInvoices: number
+
+        /**
+         * The billed shipments (an issued invoice not credited) whose rows differ from the split: processing
+         * leaves them as they are, buying and selling, until the invoice is credited
+         */
+        billedKept: string[]
     }
 
     /**
@@ -20064,6 +20109,11 @@ export namespace interfaces {
          * Registered, but the company was already in the Customer Database.
          */
         alreadyInDatabase: boolean
+
+        /**
+         * That company's own name in the Customer Database (what was typed on the form may name another); "" otherwise.
+         */
+        matchedCompanyName: string
 
         /**
          * What it accepted on the registration form; "" and null when it did not register.

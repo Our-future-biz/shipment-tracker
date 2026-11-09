@@ -422,8 +422,14 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async update(id: string, companyId: string, role: string, patch: CustomerPatch, actorUserId = ""): Promise<CustomerItem> {
+  /**
+   * `options.addRoles`: roles added to those the company has when the row is locked (a manager's approval of a
+   * registration of a company already in the database) - a change of roles like any other, a manager's.
+   */
+  async update(id: string, companyId: string, role: string, patch: CustomerPatch, actorUserId = "", options: { addRoles?: CustomerRole[] } = {}): Promise<CustomerItem> {
+    const addRoles = options.addRoles ?? [];
     const restricted = managerFieldsIn(patch);
+    if (addRoles.length && !restricted.includes("roles")) restricted.push("roles");
     if (restricted.length && !canManageSales(role)) {
       throw APIError.permissionDenied(`Only a manager can change: ${restricted.join(", ")}`);
     }
@@ -444,10 +450,15 @@ class CustomerService {
     if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
     // What depends on the row as it is now is worked out with the row locked, after every check above: a change
     // of roles may write to Trucking first (K3), and it then runs one after the other with a save of the terms.
-    const fromCurrent = values.roles !== undefined || values.currency !== undefined || values.secondaryCurrencies !== undefined;
+    const fromCurrent = values.roles !== undefined || addRoles.length > 0 || values.currency !== undefined || values.secondaryCurrencies !== undefined;
     const row = fromCurrent
       ? await customerRepository.updateLocked(id, companyId, async (current) => {
           const locked = { ...values };
+          if (addRoles.length) {
+            // Each role kept once, the company's own first; unchanged when it has them all.
+            const union = requireRoles([...(locked.roles ?? current.roles), ...addRoles]);
+            if (locked.roles || union.length > current.roles.length) locked.roles = union;
+          }
           if (locked.currency !== undefined || locked.secondaryCurrencies !== undefined) {
             Object.assign(locked, billingCurrencies(locked.currency ?? current.currency, locked.secondaryCurrencies ?? current.secondaryCurrencies));
           }
@@ -469,6 +480,16 @@ class CustomerService {
     if (!row) throw APIError.notFound("Customer not found");
     await announce(companyId, row, false);
     return toCustomerItem(row);
+  }
+
+  /**
+   * The roles added to those the company has: a manager approving a registration of a company already in
+   * the Customer Database, through a link made for these roles. Nothing is written when it has them all.
+   */
+  async addRoles(id: string, companyId: string, actorRole: string, roles: CustomerRole[], actorUserId: string): Promise<void> {
+    const current = await this.requireLive(id, companyId);
+    if (roles.every((r) => current.roles.includes(r))) return;
+    await this.update(id, companyId, actorRole, {}, actorUserId, { addRoles: roles });
   }
 
   // Written only by the shipments service, which owns the shipments these are computed from.

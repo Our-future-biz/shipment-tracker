@@ -1,5 +1,5 @@
 import { api } from "encore.dev/api";
-import type { MaxLen } from "encore.dev/validate";
+import type { MatchesRegexp, MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import type { AresResult, AresSearchHit, CustomerRole } from "../interfaces/interfaces";
 import type { CustomerContactRequest } from "../interfaces/requests";
@@ -76,7 +76,10 @@ interface PublicRegistrationSubmitRequest {
   token: string;
   /** Must be true: the form's tick box. */
   termsAccepted: boolean;
-  country: string & MaxLen<2>;
+  /** The web address of the terms the form showed; refused when a manager changed them since. */
+  termsUrl?: string & MaxLen<1000>;
+  /** ISO 3166-1 alpha-2; CZ is read from ARES by its IČO. */
+  country: string & MatchesRegexp<"^[A-Za-z]{2}$">;
   ico?: string & MaxLen<8>;
   companyName?: string & MaxLen<300>;
   registrationNumber?: string & MaxLen<50>;

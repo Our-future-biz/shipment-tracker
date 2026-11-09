@@ -1,11 +1,15 @@
 // The overnight check of the tariffs behind the buying lines of quotes not yet sent. A line whose
 // tariff is still valid stays. One whose tariff has lapsed is moved to the rate now in force of the
-// same tariff: quietly when the money is the same, and only after the user's approval when it is
-// not (tariffUpdates, the Approve button in Pricing). With no such rate the lines go, with the
-// selling lines made from them.
+// same tariff: quietly when every line of it costs the same, and only after the user's approval when
+// one does not (tariffUpdates, the Approve button in Pricing). With no such rate the lines go, with
+// the selling lines made from them. A quote whose route can't be asked for today's rates keeps its
+// lines, and the user is told once (tariffUnchecked).
 
 export const TARIFF_CHECK_AUTHOR_ID = "00000000-0000-0000-0000-000000000000";
 export const TARIFF_CHECK_AUTHOR_NAME = "Tariff check";
+
+/** The statuses of a quote not yet sent, whose prices the check may still move. */
+export const TARIFF_CHECK_STATUSES: readonly string[] = ["draft", "ready_to_send", "revised"];
 
 export type TariffKind = "ocean" | "rail" | "collection";
 export const ROAD_REF_PREFIX = "trucking:";
@@ -37,6 +41,13 @@ export interface RoadSide {
   total: number;
 }
 
+/** One line an offer makes on a quote: a rate per container of its type, or (null) any other line. */
+export interface OfferLine {
+  containerType: string | null;
+  currency: string;
+  amount: number;
+}
+
 export interface OfferSummary {
   versionId: string;
   rateId: string | null;
@@ -44,6 +55,14 @@ export interface OfferSummary {
   supplierName: string;
   via: string;
   totals: Money[];
+  /** The buying lines the web makes of the offer, in its order (tariffs lib/quoteOfferSummary) */
+  lines: OfferLine[];
+}
+
+/** What the tariffs answer for a route: their offers, or why they refused to price it (null when they did not). */
+export interface OffersAsked {
+  offers: OfferSummary[];
+  refused: string | null;
 }
 
 export type TariffAction =
@@ -51,6 +70,7 @@ export type TariffAction =
   | { ref: string; do: "swap"; newRef: string }
   | { ref: string; do: "update"; update: TariffUpdate }
   | { ref: string; do: "remove" }
+  | { ref: string; do: "unchecked"; reason: string }
   | { ref: string; do: "roadRemove" }
   | { ref: string; do: "roadSwap"; sell: RoadSide; buy: RoadSide | null };
 
@@ -146,20 +166,64 @@ function totalsOf(lines: Line[]): Money[] {
 }
 
 const sorted = (totals: Money[]) => totals.map((t) => ({ currency: t.currency, amount: cents(t.amount) })).sort((a, b) => a.currency.localeCompare(b.currency));
-const sameMoney = (a: Money[], b: Money[]) => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
+// Money compared in whole cents, currency by currency.
+const inCents = (totals: Money[]) => sorted(totals).map((t) => `${t.currency} ${Math.round(t.amount * 100)}`);
+const sameMoney = (a: Money[], b: Money[]) => {
+  const [x, y] = [inCents(a), inCents(b)];
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+};
 
-/** The action for a tariff that is no longer valid: the current rate of the same tariff, or removal. */
-export function actionForLapsed(ref: string, data: Doc, tariffId: string | null, offers: OfferSummary[]): TariffAction {
+// Whole cents per key, added up.
+function centsBy(rows: { key: string; amount: number }[]): Map<string, number> {
+  const sums = new Map<string, number>();
+  for (const r of rows) sums.set(r.key, (sums.get(r.key) ?? 0) + Math.round(r.amount * 100));
+  return sums;
+}
+
+const sameSums = (a: Map<string, number>, b: Map<string, number>) => a.size === b.size && [...a].every(([key, value]) => b.get(key) === value);
+
+/**
+ * Whether the quote's lines of a tariff are what the offer prices, line by line: the rates per
+ * container by their container type (all types as one when a line was priced for all the quote's
+ * containers), the other lines in the order the offer gives them. Totals that agree are not enough:
+ * a dearer 20' and a cheaper 40' can add up to the same.
+ */
+export function sameLines(lines: Line[], offered: readonly OfferLine[]): boolean {
+  const boxes = lines.filter((l) => l.basis === "container");
+  const allTypes = boxes.some((l) => !containerType(l.containerType));
+  const boxKey = (type: unknown, currency: string) => `${allTypes ? "*" : containerType(type)}|${currency}`;
+  const ours = centsBy(boxes.map((l) => ({ key: boxKey(l.containerType, text(l.currency)), amount: num(l.amount) })));
+  const theirs = centsBy(offered.filter((o) => o.containerType !== null).map((o) => ({ key: boxKey(o.containerType, o.currency), amount: o.amount })));
+  if (!sameSums(ours, theirs)) return false;
+  const rest = lines.filter((l) => l.basis !== "container").map((l) => `${text(l.currency)} ${Math.round(num(l.amount) * 100)}`);
+  const others = offered.filter((o) => o.containerType === null).map((o) => `${o.currency} ${Math.round(o.amount * 100)}`);
+  return rest.length === others.length && rest.every((r, i) => r === others[i]);
+}
+
+/**
+ * The action for a tariff that is no longer valid: the current rate of the same tariff, removal when
+ * there is none, or - when the route could not be asked at all (`asked` null) or the tariffs refused
+ * it - nothing but telling the user (`reason`).
+ */
+export function actionForLapsed(ref: string, data: Doc, tariffId: string | null, asked: OffersAsked | null, reason = ""): TariffAction {
   const kind = tariffKindOf(ref)!;
+  if (tariffId && (!asked || asked.refused !== null)) return { ref, do: "unchecked", reason: asked?.refused || reason };
   const lines = linesOf(data, "buyingLines").filter((l) => text(l.tariffRef) === ref);
-  const same = tariffId ? offers.filter((o) => o.tariffId === tariffId) : [];
+  const same = tariffId && asked ? asked.offers.filter((o) => o.tariffId === tariffId) : [];
   const description = lines.map((l) => text(l.description)).join(" ");
   const offer = same.find((o) => o.via && description.includes(o.via)) ?? same[0];
   if (!offer) return { ref, do: "remove" };
   const newRef = offer.rateId ? `${kind}:${offer.versionId}:${offer.rateId}` : `${kind}:${offer.versionId}`;
   const was = totalsOf(lines);
-  if (sameMoney(was, offer.totals)) return { ref, do: "swap", newRef };
+  if (sameMoney(was, offer.totals) && sameLines(lines, offer.lines)) return { ref, do: "swap", newRef };
   return { ref, do: "update", update: { oldRef: ref, kind, newVersionId: offer.versionId, newRateId: offer.rateId, supplierName: offer.supplierName, was, now: sorted(offer.totals) } };
+}
+
+/** Why a quote's route can't be asked for today's rates of a kind of tariff, in words. */
+export function unaskableReason(kind: TariffKind): string {
+  if (kind === "ocean") return "the quote needs its Trade Direction, ports of loading and discharge with their UN/LOCODE, and its containers";
+  if (kind === "rail") return "the quote needs its Trade Direction, the port, the inland place and its containers";
+  return "the quote needs to be Sea LCL or Air, with the pickup or delivery postcode and the weight or volume";
 }
 
 const money = (totals: Money[]) => totals.map((t) => `${t.currency} ${t.amount.toFixed(2)}`).join(" + ");
@@ -218,12 +282,49 @@ function roadUpdateMessage(update: TariffUpdate): string {
   return `The road tariff "${update.supplierName}" has a new rate. Selling was ${money(update.was)}, now ${money(update.now)}.${buying} Approve it in Pricing: the quote can't be sent until then. Approving changes the selling price too.`;
 }
 
+// Two waiting rates the same, field by field: the stored one comes back from jsonb with its keys in
+// an order of its own, so their JSON text can differ when nothing does.
+function sameUpdate(a: TariffUpdate, b: TariffUpdate | undefined): boolean {
+  if (!b) return false;
+  return (
+    a.oldRef === b.oldRef &&
+    a.kind === b.kind &&
+    a.newVersionId === b.newVersionId &&
+    a.newRateId === b.newRateId &&
+    a.supplierName === b.supplierName &&
+    sameMoney(a.was, b.was ?? []) &&
+    sameMoney(a.now, b.now ?? []) &&
+    sameMoney(a.buyWas ?? [], b.buyWas ?? []) &&
+    sameMoney(a.buyNow ?? [], b.buyNow ?? [])
+  );
+}
+
+// What approving a new rate does to the selling price. A Sea FCL quote sells each charge at its
+// buying plus its own profit (web fclPricing.ts), so its selling follows the new buying.
+const sellingAfterApproval = (data: Doc) =>
+  data.serviceType === "Sea FCL"
+    ? "The selling price has not changed yet: approving moves it with the new buying, each charge keeping its profit."
+    : "The selling price has not changed.";
+
+function updateMessage(update: TariffUpdate, name: string, data: Doc): string {
+  const change = sameMoney(update.was, update.now)
+    ? `the same ${money(update.now)} in all, split differently between its lines`
+    : `was ${money(update.was)}, now ${money(update.now)}`;
+  return `The ${update.supplierName} tariff behind "${name}" has a new rate: ${change}. Approve it in Pricing: the quote can't be sent until then. ${sellingAfterApproval(data)}`;
+}
+
+const textList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
+
 /** The quote after the night's actions, what to tell the user, and whether anything changed. */
 export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: Doc; messages: string[]; changed: boolean } {
   let buying = linesOf(data, "buyingLines");
   let selling = linesOf(data, "sellingLines");
-  const before = Array.isArray(data.tariffUpdates) ? (data.tariffUpdates as TariffUpdate[]) : [];
+  const before = Array.isArray(data.tariffUpdates) ? (data.tariffUpdates.filter(isObject) as unknown as TariffUpdate[]) : [];
   const updates: TariffUpdate[] = [];
+  // The lapsed tariffs the route could not be checked for: told once, while they stay so.
+  const toldUnchecked = textList(data.tariffUnchecked);
+  const unchecked: string[] = [];
   const messages: string[] = [];
   let linesChanged = false;
   let road: Doc | null | undefined;
@@ -260,16 +361,17 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
       selling = selling.filter((l) => !pairs.has(text(l.pairId)));
       linesChanged = true;
       messages.push(`The tariff behind "${name}" is no longer valid and no current rate replaces it, so its buying and selling lines were removed from this quote. Pick a new tariff under Tariffs available.`);
+    } else if (action.do === "unchecked") {
+      unchecked.push(action.ref);
+      if (!toldUnchecked.includes(action.ref)) {
+        messages.push(`The tariff behind "${name}" is no longer valid, and today's rates could not be asked for it: ${action.reason}. Its lines were kept - check them under Tariffs available.`);
+      }
     } else if (action.do === "update") {
       updates.push(action.update);
       const known = before.find((u) => u.oldRef === action.update.oldRef);
       const buyMoved = !sameMoney(known?.buyNow ?? [], action.update.buyNow ?? []);
-      if (!known || known.newVersionId !== action.update.newVersionId || known.newRateId !== action.update.newRateId || !sameMoney(known.now, action.update.now) || buyMoved) {
-        messages.push(
-          action.update.kind === "road"
-            ? roadUpdateMessage(action.update)
-            : `The ${action.update.supplierName} tariff behind "${name}" has a new rate: was ${money(action.update.was)}, now ${money(action.update.now)}. Approve it in Pricing: the quote can't be sent until then. The selling price has not changed.`,
-        );
+      if (!known || known.newVersionId !== action.update.newVersionId || known.newRateId !== action.update.newRateId || !sameMoney(known.now ?? [], action.update.now) || buyMoved) {
+        messages.push(action.update.kind === "road" ? roadUpdateMessage(action.update) : updateMessage(action.update, name, data));
       }
     }
   }
@@ -287,5 +389,8 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
   }
   if (updates.length) next.tariffUpdates = updates;
   else delete next.tariffUpdates;
-  return { data: next, messages, changed: linesChanged || JSON.stringify(before) !== JSON.stringify(updates) };
+  if (unchecked.length) next.tariffUnchecked = unchecked;
+  else delete next.tariffUnchecked;
+  const updatesChanged = updates.length !== before.length || updates.some((u, i) => !sameUpdate(u, before[i]));
+  return { data: next, messages, changed: linesChanged || road !== undefined || updatesChanged || !sameSet(unchecked, toldUnchecked) };
 }

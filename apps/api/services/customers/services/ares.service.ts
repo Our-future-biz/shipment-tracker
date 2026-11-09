@@ -153,29 +153,31 @@ export function isTooManyAnswer(body: string): boolean {
 }
 
 /**
- * Registry searches per company per minute. Kept in this process only: with several instances
- * each allows this many - a brake on runaway typing loops, not an exact quota.
+ * Registry searches per bucket per minute: a company's users share one, a registration link has its
+ * own (so a public link can't use up the company's). Kept in this process only: with several
+ * instances each allows this many - a brake on runaway typing loops, not an exact quota.
  */
 export const SEARCHES_PER_MINUTE = 30;
 const searchLog = new Map<string, number[]>();
 
-export function searchAllowed(companyId: string, now = Date.now()): boolean {
-  const recent = (searchLog.get(companyId) ?? []).filter((t) => now - t < 60_000);
+export function searchAllowed(bucket: string, now = Date.now()): boolean {
+  const recent = (searchLog.get(bucket) ?? []).filter((t) => now - t < 60_000);
   if (recent.length >= SEARCHES_PER_MINUTE) {
-    searchLog.set(companyId, recent);
+    searchLog.set(bucket, recent);
     return false;
   }
   recent.push(now);
-  searchLog.set(companyId, recent);
+  searchLog.set(bucket, recent);
   return true;
 }
 
 class AresService {
-  // Companies whose name contains the text, to pick one before its record is read by IČO.
-  async search(companyId: string, name: string): Promise<{ companies: AresSearchHit[]; tooMany: boolean }> {
+  // Companies whose name contains the text, to pick one before its record is read by IČO. `bucket` is
+  // what the searches are counted in: the company id, or a registration link's (registrationSearchBucket).
+  async search(bucket: string, name: string): Promise<{ companies: AresSearchHit[]; tooMany: boolean }> {
     const text = name.trim();
     if (text.length < 3) throw APIError.invalidArgument("Type at least 3 characters of the company name");
-    if (!searchAllowed(companyId)) throw APIError.resourceExhausted("Too many registry searches — wait a minute and try again");
+    if (!searchAllowed(bucket)) throw APIError.resourceExhausted("Too many registry searches — wait a minute and try again");
     let res: Response;
     try {
       res = await fetchJson(`${ARES_BASE}/vyhledat`, 8000, { obchodniJmeno: text, pocet: ARES_SEARCH_LIMIT, start: 0 });

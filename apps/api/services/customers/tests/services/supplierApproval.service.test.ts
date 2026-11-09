@@ -8,7 +8,7 @@ vi.mock("../../repositories/supplierApproval.repository", () => ({
 vi.mock("../../repositories/companyRegistration.repository", () => ({
   companyRegistrationRepository: { forApprovals: vi.fn(), duplicateById: vi.fn(), ofCustomer: vi.fn(), answer: vi.fn(), reopen: vi.fn(), markSeen: vi.fn() },
 }));
-vi.mock("../../services/customer.service", () => ({ customerService: { announceDeleted: vi.fn(), undoDecline: vi.fn() } }));
+vi.mock("../../services/customer.service", () => ({ customerService: { announceDeleted: vi.fn(), undoDecline: vi.fn(), addRoles: vi.fn() } }));
 vi.mock("../../services/contact.service", () => ({ contactService: { create: vi.fn() } }));
 vi.mock("../../services/note.service", () => ({ noteService: { create: vi.fn() } }));
 
@@ -39,6 +39,7 @@ beforeEach(() => {
   registrations.forApprovals.mockResolvedValue([]);
   registrations.duplicateById.mockResolvedValue(null);
   registrations.ofCustomer.mockResolvedValue(null);
+  repository.states.mockResolvedValue([]);
 });
 
 const REG = "7a2d3c4e-5f60-4a1b-9c2d-3e4f5a6b7c8d";
@@ -66,24 +67,51 @@ describe("a company registered through a link", () => {
     expect(item).toMatchObject({ customerId: EXISTING, threadId: REG, alreadyInDatabase: true, status: "pending", contactName: "Jan Novák" });
   });
 
+  it("names the company it matched by that company's own name, whatever the form said", async () => {
+    repository.list.mockResolvedValue([]);
+    registrations.forApprovals.mockResolvedValue([registration({ companyName: "Typed GmbH" })]);
+    repository.states.mockResolvedValue([{ id: EXISTING, companyName: "DANGO s.r.o.", approvalStatus: "", approvalComment: "", deletedAt: null }]);
+    const [item] = await supplierApprovalService.list(COMPANY);
+    expect(repository.states).toHaveBeenCalledWith(COMPANY, [EXISTING]);
+    expect(item).toMatchObject({ companyName: "Typed GmbH", matchedCompanyName: "DANGO s.r.o." });
+  });
+
   it("files the terms under a new company once it is approved", async () => {
     repository.decide.mockResolvedValue(row({ approvalStatus: "", approvalDecision: "approved" }));
     repository.list.mockResolvedValue([row({ approvalStatus: "", approvalDecision: "approved" })]);
     registrations.ofCustomer.mockResolvedValue(registration({ customerId: ID, alreadyInDatabase: false }));
     await supplierApprovalService.decide(MANAGER, ID, "approve");
-    expect(registrations.answer).toHaveBeenCalledWith(REG, expect.objectContaining({ status: "approved" }), expect.any(Date));
+    expect(registrations.answer).toHaveBeenCalledWith(COMPANY, REG, expect.objectContaining({ status: "approved" }), expect.any(Date));
     expect(noteService.create).toHaveBeenCalledWith(COMPANY, ID, MANAGER.userID, { content: expect.stringContaining("Austromar Terms and Conditions") });
   });
 
-  it("adds the contact and the terms to the existing company when approved, and creates no second one", async () => {
-    registrations.duplicateById.mockResolvedValue(registration());
+  it("adds the link's roles, the terms and the contact to the existing company when approved, and creates no second one", async () => {
+    registrations.duplicateById.mockResolvedValue(registration({ roles: ["haulier"] }));
     registrations.answer.mockResolvedValue(registration({ status: "approved" }));
     registrations.forApprovals.mockResolvedValue([registration({ status: "approved" })]);
     repository.list.mockResolvedValue([]);
     await supplierApprovalService.decide(MANAGER, REG, "approve");
     expect(repository.decide).not.toHaveBeenCalled();
+    expect(registrations.answer).toHaveBeenCalledWith(COMPANY, REG, expect.objectContaining({ status: "approved" }), expect.any(Date));
+    expect(customerService.addRoles).toHaveBeenCalledWith(EXISTING, COMPANY, "manager", ["haulier"], MANAGER.userID);
     expect(contactService.create).toHaveBeenCalledWith(COMPANY, EXISTING, expect.objectContaining({ firstName: "Jan", email: "jan@dango.cz" }));
     expect(noteService.create).toHaveBeenCalledWith(COMPANY, EXISTING, MANAGER.userID, expect.anything());
+    // The contact last: an answer given again after a failure never adds it twice.
+    const order = (fn: unknown) => vi.mocked(fn as () => void).mock.invocationCallOrder[0]!;
+    expect(order(customerService.addRoles)).toBeLessThan(order(noteService.create));
+    expect(order(noteService.create)).toBeLessThan(order(contactService.create));
+  });
+
+  it("adds no contact and goes back to waiting when the roles or the note can't be written", async () => {
+    registrations.duplicateById.mockResolvedValue(registration());
+    registrations.answer.mockResolvedValue(registration({ status: "approved" }));
+    vi.mocked(customerService.addRoles).mockRejectedValueOnce(new Error("haulier terms first"));
+    await expect(supplierApprovalService.decide(MANAGER, REG, "approve")).rejects.toThrow("haulier terms first");
+    vi.mocked(noteService.create).mockRejectedValueOnce(new Error("deleted"));
+    await expect(supplierApprovalService.decide(MANAGER, REG, "approve")).rejects.toThrow("deleted");
+    expect(contactService.create).not.toHaveBeenCalled();
+    expect(registrations.reopen).toHaveBeenCalledTimes(2);
+    expect(registrations.reopen).toHaveBeenCalledWith(COMPANY, REG);
   });
 
   it("leaves the existing company alone when declined", async () => {
@@ -93,6 +121,7 @@ describe("a company registered through a link", () => {
     repository.list.mockResolvedValue([]);
     await supplierApprovalService.decide(MANAGER, REG, "decline", "not ours");
     expect(contactService.create).not.toHaveBeenCalled();
+    expect(customerService.addRoles).not.toHaveBeenCalled();
     expect(customerService.announceDeleted).not.toHaveBeenCalled();
   });
 
@@ -101,7 +130,7 @@ describe("a company registered through a link", () => {
     registrations.answer.mockResolvedValueOnce(registration({ status: "approved" }));
     vi.mocked(contactService.create).mockRejectedValueOnce(new Error("deleted"));
     await expect(supplierApprovalService.decide(MANAGER, REG, "approve")).rejects.toThrow("deleted");
-    expect(registrations.reopen).toHaveBeenCalledWith(REG);
+    expect(registrations.reopen).toHaveBeenCalledWith(COMPANY, REG);
     registrations.answer.mockResolvedValueOnce(null);
     await expect(supplierApprovalService.decide(MANAGER, REG, "approve")).rejects.toMatchObject({ code: "failed_precondition" });
   });
@@ -149,6 +178,17 @@ describe("undoDecline", () => {
     repository.list.mockResolvedValue([row()]);
     await expect(supplierApprovalService.undoDecline(MANAGER, ID)).resolves.toMatchObject({ customerId: ID, status: "pending", decision: "" });
     expect(customerService.undoDecline).toHaveBeenCalledWith(ID, COMPANY);
+  });
+
+  it("sends a declined registration of a company already in the database back to waiting, in the manager's company", async () => {
+    registrations.duplicateById.mockResolvedValue(registration({ status: "declined" }));
+    registrations.reopen.mockResolvedValue(registration());
+    registrations.forApprovals.mockResolvedValue([registration()]);
+    repository.list.mockResolvedValue([]);
+    await expect(supplierApprovalService.undoDecline(MANAGER, REG)).resolves.toMatchObject({ threadId: REG, status: "pending" });
+    expect(registrations.duplicateById).toHaveBeenCalledWith(COMPANY, REG);
+    expect(registrations.reopen).toHaveBeenCalledWith(COMPANY, REG);
+    expect(customerService.undoDecline).not.toHaveBeenCalled();
   });
 });
 

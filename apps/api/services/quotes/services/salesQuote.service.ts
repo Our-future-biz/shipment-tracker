@@ -66,7 +66,7 @@ import {
   type StatusChange,
 } from "../utils/quoteLifecycle.utils";
 import { searchTokens } from "../utils/quoteSearch.utils";
-import { toItem } from "../utils/salesQuoteItem.utils";
+import { holdsSending, toItem } from "../utils/salesQuoteItem.utils";
 import { ownerBackfillService } from "./ownerBackfill.service";
 import { companyUsers } from "../../../lib/companyUsers";
 import { companyPeople, peopleOf, type People } from "../lib/people";
@@ -396,6 +396,20 @@ async function linkedSupplierStates(ids: string[]): Promise<Map<string, LinkedSu
   return new Map(states.map((s) => [s.id, { companyName: s.companyName, status: s.status, comment: s.comment }]));
 }
 
+// Where the companies the quotes are for stand, for what the quotes are handed out with (sendBlocked
+// says beforehand what customerGate refuses): asked once, for the quotes whose prices are open.
+// Unknown when the Customer Database does not answer - the transition still asks it.
+async function customerStatesOf(rows: readonly SalesQuoteRecord[], at: Date): Promise<Map<string, LinkedSupplierState> | undefined> {
+  const ids = [...new Set(rows.filter((row) => holdsSending(row, at)).flatMap((row) => linkedCustomerIds(row.data)))];
+  if (!ids.length) return undefined;
+  try {
+    return await linkedSupplierStates(ids);
+  } catch (err) {
+    log.warn("where the quotes' customers stand could not be read", { error: err instanceof Error ? err.message : String(err) });
+    return undefined;
+  }
+}
+
 // The rules refuse in words meant for the user; the API adds what kind of refusal it is.
 function ruled<T>(run: () => T): T {
   try {
@@ -464,7 +478,8 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    return toItem(stored, people.emails, actor, at, await marginsFor(actor.companyID, [stored], at));
+    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, [stored], at), customerStatesOf([stored], at)]);
+    return toItem(stored, people.emails, actor, at, margins, customerStates);
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -486,10 +501,10 @@ class SalesQuoteService {
       { today: businessDay(at), dueBefore: followUpDueBefore(at) },
       people.users,
     );
-    const margins = await marginsFor(actor.companyID, rows, at);
+    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, rows, at), customerStatesOf(rows, at)]);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
-      data: rows.map((row) => toItem(row, people.emails, actor, at, margins)),
+      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, customerStates)),
     };
   }
 
