@@ -18,6 +18,7 @@ import {
   DownloadOutlined,
 } from "@ant-design/icons";
 import { api, apiFileUrl } from "@/lib/api";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { DetailCard, RoRow, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
 import { fmtNum, shipmentWeightKg } from "@/lib/cargo";
@@ -286,6 +287,7 @@ export function CustomsTab({
   section?: "details" | "documents";
 }) {
   const toast = useToast();
+  const filePreview = useFilePreview();
   const [search, setSearch] = useState("");
   const { updateShipment } = useShipmentMutations();
   // Commercial Invoice(s) Value is the total of the cargo lines per currency whenever they
@@ -344,6 +346,7 @@ export function CustomsTab({
 
   return (
     <div className="flex flex-col gap-3">
+      {filePreview.modal}
       {section !== "documents" && (
       <DetailCard
         icon={<SafetyCertificateOutlined />}
@@ -599,6 +602,7 @@ export function CustomsTab({
                                 href={apiFileUrl(d.contentUrl)}
                                 target="_blank"
                                 rel="noreferrer"
+                                onClick={filePreview.previewOnClick(d)}
                                 className={DOC_ICON_LINK}
                               >
                                 <EyeOutlined className="text-[16px]" />

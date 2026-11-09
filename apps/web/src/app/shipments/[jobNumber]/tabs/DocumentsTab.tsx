@@ -16,6 +16,7 @@ import {
 import { useMutation } from "@tanstack/react-query";
 import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
 import { api, apiFileUrl } from "@/lib/api";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { fileToBase64 } from "@/lib/files";
 import { formatFileSize, docPlural, ExtBadge, CustomsPill } from "./docsShared";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -188,6 +189,7 @@ const clearedWhenDone = (list: PendingFile[]) => (list.every((p) => p.status ===
 
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const toast = useToast();
+  const filePreview = useFilePreview();
   // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
   const canManageDocuments = useCanManageDocuments();
   // A regular user changes an approved document by a request for a manager's approval, with the new file.
@@ -315,6 +317,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     // Adding files (with the required documents as milestones under it) and the list of files,
     // each in its own card.
     <div className="flex flex-col gap-3 min-w-0">
+      {filePreview.modal}
       {changing && (
         <ChangeAfterApprovalModal
           document={changing}
@@ -571,6 +574,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                                   href={apiFileUrl(file.contentUrl)}
                                   target="_blank"
                                   rel="noreferrer"
+                                  onClick={filePreview.previewOnClick(file)}
                                   title={file.fileName}
                                   className={`block truncate text-[13px] font-medium rounded-sm ${LINK} ${FOCUS}`}
                                 >
@@ -644,6 +648,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                                   href={apiFileUrl(file.contentUrl)}
                                   target="_blank"
                                   rel="noreferrer"
+                                  onClick={filePreview.previewOnClick(file)}
                                   aria-label={`Preview ${file.fileName}`}
                                   className={`${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`}
                                 >

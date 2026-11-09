@@ -6,6 +6,7 @@ import type { TextAreaRef } from "antd/es/input/TextArea";
 import { SendOutlined, DeleteOutlined, PaperClipOutlined, DownloadOutlined, CloseOutlined, StrikethroughOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiFileUrl } from "@/lib/api";
+import { useFilePreview } from "@/hooks/useFilePreview";
 import { useAuth, useCanDeleteAnyChatMessage } from "@/lib/auth/AuthContext";
 import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
@@ -202,6 +203,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
   const { user } = useAuth();
   const canDeleteAny = useCanDeleteAnyChatMessage();
   const toast = useToast();
+  const filePreview = useFilePreview();
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
   const [message, setMessage] = useState("");
@@ -347,6 +349,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
         href={apiFileUrl(a.contentUrl)}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={filePreview.previewOnClick(a)}
         className="flex-1 min-w-0 !text-slate-900 hover:!text-indigo-600"
       >
         <span className="block text-[13px] font-semibold truncate">{a.fileName}</span>
@@ -456,6 +459,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
 
   return (
     <div className="flex flex-col h-full bg-white">
+      {filePreview.modal}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1.5">
         {isLoading && <p className={`${HINT} text-center py-4`}>Loading…</p>}
         {!isLoading && comments.length === 0 && (
