@@ -371,7 +371,7 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
   const [editing, setEditing] = useState(false);
   return (
     <div className={ROW_TOP}>
-      <span className={LABEL_TOP}>Stackability</span>
+      <span className={LABEL_TOP}>Cargo Stackability</span>
       {editing ? (
         <Select
           size="small"

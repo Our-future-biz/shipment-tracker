@@ -1437,7 +1437,7 @@ export function QuoteWorkflow() {
             {packages.length === 0 ? (
               <LineBlockEmpty>No packages yet.</LineBlockEmpty>
             ) : (
-              <LineTable minWidthClass="min-w-[620px]">
+              <LineTable minWidthClass="min-w-[700px]">
                 <colgroup>
                   <col className="w-[76px]" />
                   <col />
@@ -1445,7 +1445,7 @@ export function QuoteWorkflow() {
                   <col className="w-[84px]" />
                   <col className="w-[84px]" />
                   <col className="w-[92px]" />
-                  <col className="w-16" />
+                  <col className="w-[144px]" />
                   <col className="w-10" />
                 </colgroup>
                 <thead>
@@ -1456,7 +1456,7 @@ export function QuoteWorkflow() {
                     <th scope="col" className={LINE_TH_CLASS}>W (cm)</th>
                     <th scope="col" className={LINE_TH_CLASS}>H (cm)</th>
                     <th scope="col" className={LINE_TH_CLASS}>Kg/each</th>
-                    <th scope="col" className={LINE_TH_CLASS}>Stack</th>
+                    <th scope="col" className={LINE_TH_CLASS}>Cargo Stackability</th>
                     <th scope="col" aria-label="Remove package" className={LINE_TH_CLASS} />
                   </tr>
                 </thead>
