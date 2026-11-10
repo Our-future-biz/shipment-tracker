@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Alert, Button, Checkbox, Table, Tag } from "antd";
-import { PlusOutlined, DeleteOutlined, EditOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
+import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import type { ColumnsType } from "antd/es/table";
 import { noteTypeColor } from "@/app/customers/_lib/constants";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -60,8 +61,8 @@ function changesOf(task: FollowupTask, fields: TaskFields): controllers.Followup
 // follows from its due day, nobody sets it. A list that could not be read is said to be so and
 // is never shown as an empty one.
 export function FollowUpTasksCard() {
-  // Everyone's by default: the tasks carried over from the old shared list belong to nobody yet.
-  const [assignee, setAssignee] = useState<TaskAssignee>("all");
+  // The signed-in user's own tasks first; Everyone and Unassigned are one click away.
+  const [assignee, setAssignee] = useState<TaskAssignee>("me");
   const [state, setState] = useState<TaskState>("open");
   // The open tasks are all here and are cut into pages on screen; the done ones are the server's page.
   const [page, setPage] = useState(1);
@@ -225,13 +226,10 @@ export function FollowUpTasksCard() {
     {
       title: <span className="sr-only">Actions</span>,
       key: "actions",
-      width: 84,
-      render: (_: unknown, r) => (
-        <div className="flex justify-end gap-1">
-          <Button type="text" size="small" aria-label="Edit task" icon={<EditOutlined />} onClick={() => setEditing(r)} />
-          <Button type="text" size="small" danger aria-label="Delete task" icon={<DeleteOutlined />} onClick={() => setDeleteTarget(r)} />
-        </div>
-      ),
+      width: 56,
+      align: "right",
+      // Edit and Delete behind "⋯", as in the other tables.
+      render: (_: unknown, r) => <RowActionsMenu label="Task actions" onEdit={() => setEditing(r)} onDelete={() => setDeleteTarget(r)} />,
     },
   ];
 

@@ -13,13 +13,12 @@ import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { quoteHref, type QuoteOrigin } from "../_lib/quoteHref";
 import { quoteProblem } from "../_lib/quoteProblem";
-import { needsFollowUp, daysOpen, followUpLines, lastContactAgo, type SalesQuote } from "../_lib/salesQuote";
+import { businessDay, needsFollowUp, daysOpen, followUpLines, type SalesQuote } from "../_lib/salesQuote";
 import { AWAITING_QUOTE_STATUSES } from "../_lib/types";
 import { CustomerLink } from "./CustomerLink";
 import { FollowUpDialog } from "./FollowUpDialog";
 import { FollowUpTasksCard } from "./FollowUpTasksCard";
 import { QuoteRefLink } from "./QuoteRefLink";
-import { QuoteRoute } from "./QuoteRoute";
 import { QuoteStatusPill } from "./QuoteStatusPill";
 import { QuotesLoadError } from "./QuotesLoadError";
 
@@ -38,8 +37,8 @@ const OWNER_TABS = [
 // follow-up tasks.
 export function FollowUpTab() {
   const router = useRouter();
-  // Whose quotes are listed: everybody's, or only those of whoever is signed in.
-  const [mineOnly, setMineOnly] = useState(false);
+  // Whose quotes are listed: only those of whoever is signed in (where the tab starts), or everybody's.
+  const [mineOnly, setMineOnly] = useState(true);
   const [page, setPage] = useState(1);
   const withCustomer = { statuses: AWAITING_QUOTE_STATUSES.join(","), owner: mineOnly ? "me" : undefined };
   // Every quote that is with the customer - Quoted or in Feedback, and not expired - the one whose
@@ -91,39 +90,30 @@ export function FollowUpTab() {
     {
       title: "Customer",
       key: "cust",
-      render: (_: unknown, r) => {
-        const { origin, destination, serviceType } = r.data;
-        const hasRoute = Boolean(origin || destination);
-        return (
-          <>
-            {/* A name too long for the column is cut; hovering it shows all of it. */}
-            <div className="truncate" title={r.data.customerName}>
-              <CustomerLink customerId={r.data.customerId} name={r.data.customerName} />
-            </div>
-            {/* Where the cargo goes and how, as far as the quote says. */}
-            {(hasRoute || serviceType) && (
-              <div className="truncate text-xs text-slate-500">
-                {hasRoute && <QuoteRoute origin={origin} destination={destination} />}
-                {hasRoute && serviceType && " · "}
-                {serviceType}
-              </div>
-            )}
-          </>
-        );
-      },
+      // Every column has a width: the table spreads what is left over all of them, so the gaps
+      // between the columns come out even instead of one wide Customer column.
+      width: 220,
+      // Only the name: a name too long for the column is cut; hovering it shows all of it.
+      render: (_: unknown, r) => (
+        <div className="truncate" title={r.data.customerName}>
+          <CustomerLink customerId={r.data.customerId} name={r.data.customerName} />
+        </div>
+      ),
     },
     { title: "Status", key: "status", width: 100, render: (_: unknown, r) => <QuoteStatusPill status={r.status} /> },
     { title: "Sales Owner", key: "owner", width: 150, ellipsis: true, render: (_: unknown, r) => r.ownerName || EMPTY_CELL },
     {
       title: "Last contact",
       key: "contact",
-      width: 196,
+      width: 170,
       render: (_: unknown, r) => {
         const overdue = needsFollowUp(r);
         return (
           <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-            {/* Without a sent date nobody knows when the customer got the quote; it is counted from its creation. */}
-            <span className={overdue ? "font-bold text-red-600" : "text-slate-700"}>{lastContactAgo(r.lastContactAt) ?? "no contact recorded"}</span>
+            {/* The day of the last contact. Without a sent date nobody knows when the customer got the quote. */}
+            <span className={`tabular-nums ${overdue ? "font-bold text-red-600" : "text-slate-700"}`}>
+              {r.lastContactAt ? formatDate(businessDay(new Date(r.lastContactAt))) : "no contact recorded"}
+            </span>
             {overdue && <Pill tone="red">Follow up</Pill>}
           </span>
         );
@@ -133,10 +123,8 @@ export function FollowUpTab() {
       title: "Days open",
       key: "days",
       width: 96,
-      align: "right",
-      // Set off from the date beside it, which starts at the left of its cell. antd's own cell
-      // padding is not in a cascade layer, hence the important flag.
-      className: "tabular-nums !pr-5",
+      // At the left like every other column, so the heads and values line up.
+      className: "tabular-nums",
       render: (_: unknown, r) => {
         const days = daysOpen(r);
         return days === null ? EMPTY_CELL : <span className="text-slate-700">{days}</span>;

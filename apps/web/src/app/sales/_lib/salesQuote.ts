@@ -697,16 +697,6 @@ export function needsFollowUp(quote: SalesQuote): boolean {
   return quote.followUpDue;
 }
 
-// How long ago the customer last heard from us, in days of 24 hours - the way the three days
-// until a follow-up is due are counted, so "3 days ago" is when the flag comes on. Null when no
-// contact is recorded: the quote never got a sent date.
-export function lastContactAgo(lastContactAt: string | null): string | null {
-  if (!lastContactAt) return null;
-  const days = Math.floor((Date.now() - new Date(lastContactAt).getTime()) / DAY_MS);
-  if (days < 1) return "less than a day ago";
-  return days === 1 ? "1 day ago" : `${days} days ago`;
-}
-
 export interface CsvColumn {
   title: string;
   accessor: (q: SalesQuote) => string;
