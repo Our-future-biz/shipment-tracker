@@ -42,17 +42,22 @@ export function addressValues(input: Partial<AddressInput>): Partial<Omit<NewCus
   return values;
 }
 
+// What a second Billing address is answered with, by the write that met it.
+const SECOND_BILLING: Record<"create" | "update" | "makeBilling", string> = {
+  create: "The customer already has a billing address — add this one without Billing, then use “Use for invoices” on it",
+  update: "The customer already has a billing address — use “Use for invoices” on this one to move it here",
+  makeBilling: "The billing address was changed by someone else at the same moment — reload and try again",
+};
+
 // A customer has one seat and one billing address: a second live Registered or Billing address is
 // refused by a unique index. So is a second site of one address, given by another save at the same
 // moment (lib/addressSite).
-async function oneRegistered<T>(write: () => Promise<T>): Promise<T> {
+async function oneRegistered<T>(write: () => Promise<T>, as: keyof typeof SECOND_BILLING): Promise<T> {
   try {
     return await write();
   } catch (err) {
     if (isSiteRace(err)) throw APIError.aborted(SITE_RACE);
-    if (isUniqueViolation(err) && constraintOf(err) === "customer_address_one_billing") {
-      throw APIError.alreadyExists("The customer already has a billing address — use “Use for invoices” on this one to move it here");
-    }
+    if (isUniqueViolation(err) && constraintOf(err) === "customer_address_one_billing") throw APIError.alreadyExists(SECOND_BILLING[as]);
     if (isUniqueViolation(err)) throw APIError.alreadyExists("The customer already has a registered address — edit that one");
     throw err;
   }
@@ -74,12 +79,13 @@ class CustomerAddressService {
         ...addressValues(input),
         types: addressTypes(input.types),
       }),
+      "create",
     );
     return toAddressItem(row);
   }
 
   async update(id: string, companyId: string, input: Partial<AddressInput>): Promise<AddressItem> {
-    const row = await oneRegistered(() => customerAddressRepository.updateWithSeat(id, companyId, addressValues(input)));
+    const row = await oneRegistered(() => customerAddressRepository.updateWithSeat(id, companyId, addressValues(input)), "update");
     if (!row) throw APIError.notFound("Address not found");
     return toAddressItem(row);
   }
@@ -87,7 +93,7 @@ class CustomerAddressService {
   // The address made the customer's billing address: Billing moves here from the one that had it
   // (which keeps its other types, or becomes Paperwork when Billing was all it was).
   async makeBilling(id: string, companyId: string): Promise<AddressItem> {
-    const row = await oneRegistered(() => customerAddressRepository.moveBilling(id, companyId));
+    const row = await oneRegistered(() => customerAddressRepository.moveBilling(id, companyId), "makeBilling");
     if (!row) throw APIError.notFound("Address not found");
     return toAddressItem(row);
   }

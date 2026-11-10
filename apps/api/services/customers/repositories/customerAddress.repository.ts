@@ -127,11 +127,13 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
 
   // Billing moved to this address in one transaction: first taken off the customer's other live
   // addresses (one that was only Billing becomes Paperwork), then added here, so the one-billing
-  // index never sees two. Billing touches neither the seat nor a site.
+  // index never sees two. Billing touches neither the seat nor a site. The rows are locked before
+  // their types are read, so an edit or a delete at the same moment waits instead of being
+  // overwritten from what was read.
   async moveBilling(id: string, companyId: string): Promise<CustomerAddressRecord | null> {
     return this.db.transaction(async (tx) => {
       const live = and(eq(customerAddressTable.id, id), eq(customerAddressTable.companyId, companyId), isNull(customerAddressTable.deletedAt));
-      const [row] = await tx.select().from(customerAddressTable).where(live).limit(1);
+      const [row] = await tx.select().from(customerAddressTable).where(live).limit(1).for("update");
       if (!row) return null;
       if (row.types.includes("Billing")) return row;
       const now = new Date();
@@ -144,7 +146,8 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
           arrayContains(customerAddressTable.types, ["Billing"]),
           isNull(customerAddressTable.deletedAt),
           ne(customerAddressTable.id, id),
-        ));
+        ))
+        .for("update");
       for (const other of others) {
         const rest = other.types.filter((t) => t !== "Billing");
         await tx
@@ -154,7 +157,9 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
       }
       const types: AddressType[] = ADDRESS_TYPES.filter((t) => t === "Billing" || row.types.includes(t));
       const [moved] = await tx.update(customerAddressTable).set({ types, updatedAt: now }).where(live).returning();
-      return moved ?? null;
+      // Locked above, so it is still live; were it not, nothing of the move may stay.
+      if (!moved) throw new Error("The address changed while Billing was moved to it");
+      return moved;
     });
   }
 

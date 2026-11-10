@@ -263,6 +263,24 @@ describe("issue", () => {
     });
   });
 
+  it("takes the VAT default from the seat's country, not the billing address's", async () => {
+    // A Japanese company billed through a Czech office: still outside the scope of Czech VAT.
+    clients.customerGet.mockResolvedValue({ customer: { ...customer, country: "JP", dic: "" } });
+    clients.addressList.mockResolvedValue({ data: [{ id: "addr-bill", types: ["Billing"], label: "", street: "Václavské nám. 1", city: "Praha", postalCode: "110 00", country: "CZ" }] });
+    const preview = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(preview.customer).toMatchObject({ country: "CZ" });
+    expect(preview.lines.map((l) => l.vatCode)).toEqual(["OUT", "OUT"]);
+  });
+
+  it("names the quote the billed rows were copied from, ahead of the one copied last", async () => {
+    selling.listByShipmentId.mockResolvedValue([
+      sellRow({ sourceQuoteNumber: "QCZ20261011004-2" }),
+      sellRow({ id: "s2", category: "THC Destination", amount: "4999.50", currency: "CZK", sourceQuoteNumber: "" }),
+    ]);
+    settings.getByShipmentId.mockResolvedValue({ billingCurrency: "CZK", quoteRef: "QCZ20261110003" });
+    expect((await invoiceDocumentService.preview(SHIPMENT, COMPANY, {})).quoteNumber).toBe("QCZ20261011004-2");
+  });
+
   it("refuses to issue when the customer's addresses cannot be read, rather than send the invoice to the seat", async () => {
     clients.addressList.mockRejectedValue(new Error("customers is down"));
     const preview = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});

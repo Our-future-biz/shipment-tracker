@@ -56,6 +56,8 @@ export function quoteVsJob(
     return null;
   };
   const billingRate = rate(job.billingCurrency);
+  // Only the quote's own currencies are reported missing (the caller checks the billing currency).
+  missing.delete(job.billingCurrency);
   const quoteCurrency = quote.currency || "EUR";
   // A line's value in the billing currency at the job's rates (no ROE); a line without a rate counts 0.
   const valued = (lines: CostLine[] | undefined) =>

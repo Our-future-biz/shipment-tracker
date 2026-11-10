@@ -100,7 +100,10 @@ describe("customer addresses", () => {
     addresses.createWithSeat.mockRejectedValueOnce(second);
     await expect(
       customerAddressService.create(COMPANY, "c1", { types: ["Billing"], street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
-    ).rejects.toThrow("already has a billing address");
+    ).rejects.toThrow("add this one without Billing");
+    // Moving Billing at the same moment as somebody else: reload, not "use Use for invoices".
+    addresses.moveBilling.mockRejectedValueOnce(second);
+    await expect(customerAddressService.makeBilling("a1", COMPANY)).rejects.toThrow("changed by someone else at the same moment");
   });
 
   it("makes an address the billing address through the write that moves Billing, and reports one that is gone", async () => {

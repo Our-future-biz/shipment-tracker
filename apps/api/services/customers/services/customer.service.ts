@@ -24,7 +24,7 @@ import { isSupplier, SUPPLIER_ROLES } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
 import { canManageSales, canManageSupplierTerms, canRateSupplier } from "../../../lib/salesPolicy";
-import { isUniqueViolation } from "../../../lib/db/errors";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { isSalesReference } from "../../../lib/salesReference";
 import { storedEmail } from "../../../lib/personPick";
@@ -195,7 +195,11 @@ async function bringBack(id: string, deleted: CustomerRecord, companyId: string,
     return await customerRepository.restoreWithChildren(id, companyId, as);
   } catch (err) {
     // Another customer with the same registration number was added in the meantime.
-    if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
+    if (isUniqueViolation(err) && constraintOf(err) === "customer_company_ico_unique") {
+      throw APIError.alreadyExists("A customer with this registration number already exists");
+    }
+    // Another one-per-customer rule its addresses or sites would break (one seat, one billing address, …).
+    if (isUniqueViolation(err)) throw APIError.alreadyExists(`${deleted.companyName} can't be restored: its addresses clash (${constraintOf(err) ?? "a unique rule"})`);
     throw err;
   }
 }

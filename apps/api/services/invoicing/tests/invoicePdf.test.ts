@@ -170,6 +170,21 @@ describe("renderInvoicePdf", () => {
       expect(text).toContain(squash(expected));
     }
     expect(text).not.toContain(squash("Jankovcova 1522/53"));
+    // A street named after its city still gets its postcode and city line.
+    const plzen = squash(await textOf(await renderInvoicePdf({ ...base, customer: { ...base.customer, billingAddress: { label: "", street: "Plzeňská 12", postalCode: "301 00", city: "Plzeň", country: "CZ" } } }, await loadPdfFonts())));
+    expect(plzen).toContain(squash("Plzeňská 12"));
+    expect(plzen).toContain(squash("301 00 Plzeň"));
+  });
+
+  it("words OUT for a customer outside the EU as a supply abroad, and as a disbursement for anyone else", async () => {
+    const fonts = await loadPdfFonts();
+    const outLines = [{ description: "Duty", qty: "1.00", unitPrice: "100.00", unitCurrency: "EUR", net: "100.00", vatCode: "OUT", vatRate: "0.00" }];
+    const vatSummary = [{ vatCode: "OUT" as const, vatRate: 0, base: 100, vat: 0, baseCzk: 2512.3, vatCzk: 0 }];
+    const japan = squash(await textOf(await renderInvoicePdf({ ...base, lines: outLines, vatSummary, customer: { ...base.customer, country: "JP" } }, fonts)));
+    expect(japan).toContain(squash("Místo plnění mimo tuzemsko"));
+    expect(japan).not.toContain("přefakturace");
+    const czech = squash(await textOf(await renderInvoicePdf({ ...base, lines: outLines, vatSummary }, fonts)));
+    expect(czech).toContain(squash("Mimo předmět daně – přefakturace"));
   });
 
   it("names the quote and the route when the invoice carries them, and leaves them out on older ones", async () => {

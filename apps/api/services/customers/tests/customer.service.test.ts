@@ -434,7 +434,7 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
     vi.clearAllMocks();
     customers.getDeletedForCompany.mockResolvedValue(saved({ ico: "12345678", deletedAt: now }));
     customers.findByIco.mockResolvedValue(null);
-    customers.restoreWithChildren.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
+    customers.restoreWithChildren.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_company_ico_unique" } }));
     await expect(customerService.restore("c1", COMPANY)).rejects.toThrow("A customer with this registration number already exists");
     expect(topics.customerChanged.publish).not.toHaveBeenCalled();
   });

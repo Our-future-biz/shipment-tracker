@@ -9,6 +9,8 @@ import {
   defaultVatCode,
   dueDays,
   effectiveVatCode,
+  legalTextOf,
+  outsideEuVat,
   isIsoDate,
   parseShipmentDate,
   round2,
@@ -69,6 +71,16 @@ describe("VAT codes", () => {
     expect(defaultVatCode("Domestic", { country: "CZ", dic: "CZ27082440" })).toBe("S21");
     expect(defaultVatCode("Import", { country: "", dic: "" })).toBe("Z69");
     expect(defaultVatCode("Domestic", null)).toBe("S21");
+  });
+
+  it("counts Monaco as the EU (France), and words OUT by the customer's seat", () => {
+    expect(defaultVatCode("Export", { country: "MC", dic: "FR12345678901" })).toBe("RC");
+    expect(outsideEuVat("MC")).toBe(false);
+    expect(outsideEuVat("JP")).toBe(true);
+    expect(outsideEuVat("")).toBe(false);
+    expect(legalTextOf("OUT", "JP")).toMatch(/§9 odst. 1 ZDPH/);
+    expect(legalTextOf("OUT", "CZ")).toMatch(/přefakturace/);
+    expect(legalTextOf("Z69", "JP")).toMatch(/§69/);
   });
 
   it("lets a code picked on the line win over the customer's default", () => {

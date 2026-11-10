@@ -239,9 +239,12 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
   // When each row the lines are built from was last changed: issuing checks them again under its lock.
   const versions = new Map(rows.map((r) => [r.id, r.updatedAt.getTime()]));
-  // What the invoice names besides the job: the quote its prices come from (the one copied into
-  // the costs, else the job's Sales Number) and from where to where the cargo goes.
-  const quoteNumber = settings?.quoteRef?.trim() || shipment.salesNumber?.trim() || "";
+  // What the invoice names besides the job: the quote its prices come from - the quote(s) the
+  // billed rows were copied from, else the one last copied into the costs, else the job's Sales
+  // Number - and from where to where the cargo goes.
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  const billedQuotes = [...new Set(calc.lines.map((l) => rowById.get(l.sourceSellingCostId)?.sourceQuoteNumber?.trim() ?? "").filter(Boolean))];
+  const quoteNumber = billedQuotes.join(", ") || settings?.quoteRef?.trim() || shipment.salesNumber?.trim() || "";
   const routeFrom = shipment.pol?.trim() || shipment.origin?.trim() || "";
   const routeTo = shipment.pod?.trim() || shipment.destination?.trim() || "";
   return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions, quoteNumber, routeFrom, routeTo };

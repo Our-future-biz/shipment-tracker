@@ -40,7 +40,7 @@ const MAX_SECONDARY_CURRENCIES = 2;
 export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardProps) {
   const { shown, save } = useCustomerEdits(customer);
   // Where invoices are addressed: the Billing address, else the seat (chosen on the Addresses tab).
-  const { addresses } = useCustomerAddresses(customer.id);
+  const { addresses, isLoading: addressesLoading, isError: addressesError } = useCustomerAddresses(customer.id);
   const billing = addresses.find((a) => a.types.includes("Billing"));
   const billingText = billing ? [billing.label, billing.street, [billing.postalCode, billing.city].filter(Boolean).join(" "), billing.country].filter(Boolean).join(", ") : "";
   // Currency and payment terms are a manager's decision; the server refuses anyone else.
@@ -58,12 +58,18 @@ export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardP
   return (
     <SectionCard title="Payment terms">
       <CustomerInfoRow label="Invoice address">
-        <span className="min-w-0">
-          {billingText || <span className="text-slate-500">Registered address</span>}{" "}
-          <Link href={`/customers/${customer.id}?tab=addresses`} className={`whitespace-nowrap ${LINK_CLASS}`}>
-            {billing ? "Change" : "Set a billing address"}
-          </Link>
-        </span>
+        {addressesLoading ? (
+          <span className="text-slate-500">…</span>
+        ) : addressesError ? (
+          <span className="text-slate-500">The addresses could not be loaded</span>
+        ) : (
+          <span className="min-w-0">
+            {billingText || <span className="text-slate-500">Registered address</span>}{" "}
+            <Link href={`/customers/${customer.id}?tab=addresses`} className={`whitespace-nowrap ${LINK_CLASS}`}>
+              {billing ? "Change" : "Set a billing address"}
+            </Link>
+          </span>
+        )}
       </CustomerInfoRow>
       <CustomerInfoRow label="Default currency">
         <div className={`${SELECT_WRAPPER_CLASS} max-w-[240px]`}>

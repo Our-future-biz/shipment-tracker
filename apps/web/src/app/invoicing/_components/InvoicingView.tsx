@@ -183,7 +183,7 @@ function QuoteDifference({ cmp, jobProfit, quoteRef, currency }: { cmp: QuoteVsJ
  * Report compares the same quote).
  */
 function QuoteProfitFacts({ shipment }: ShipmentProps) {
-  const { data, billingCur, rates, totals: t } = useCostsData(shipment);
+  const { data, billingCur, rates, ratesLoading, ratesError, totals: t } = useCostsData(shipment);
   const ref = profitQuoteRef(
     data?.billingSettings?.quoteRef,
     (data?.costs ?? []).map((c) => c.sourceQuoteNumber ?? ""),
@@ -194,8 +194,12 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
   const jobProfit = t.sellTotal - t.buyTotal;
   const cmp = quoteData ? quoteVsJob(quoteData, { profit: jobProfit, rxeTotal: t.rxeTotal, billingCurrency: billingCur, rates }) : null;
 
+  // The job's side needs its rates in the billing currency: without them its profit reads 0.
+  const jobRatesReady = !ratesError && (billingCur === "CZK" || !!rates[billingCur]);
+
   let profit: React.ReactNode = EMPTY_CELL;
-  if (ref && quote.isLoading) profit = <span className="text-slate-500">…</span>;
+  if (ref && (quote.isLoading || !data || ratesLoading)) profit = <span className="text-slate-500">…</span>;
+  else if (ref && !jobRatesReady) profit = <span className="text-slate-500">No exchange rates for the job yet</span>;
   else if (ref && !quoteData) profit = <span className="text-slate-500">The quote could not be read</span>;
   else if (ref && !cmp) profit = <span className="text-slate-500">No rate for its currency</span>;
   else if (ref && cmp) {

@@ -70,12 +70,12 @@ export const VAT_CODE_INFO: Record<VatCode, VatCodeInfo> = {
     label: "Reverse charge",
     legalText: "Daň odvede zákazník / Reverse charge – VAT to be accounted for by the customer",
   },
-  // Both a disbursement and a service for a customer outside the EU (its place of supply is abroad).
+  // A disbursement; for a customer outside the EU the invoice prints legalTextOf's wording instead.
   OUT: {
     code: "OUT",
     rate: 0,
     label: "Outside VAT",
-    legalText: "Plnění mimo předmět daně v tuzemsku / Outside the scope of Czech VAT",
+    legalText: "Mimo předmět daně – přefakturace / Outside the scope of VAT – disbursement",
   },
   NP: { code: "NP", rate: 0, label: "Not VAT payer", legalText: "Nejsme plátci DPH / Not registered for VAT" },
 };
@@ -89,6 +89,24 @@ export const EU_COUNTRIES: ReadonlySet<string> = new Set([
   "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
   "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
 ]);
+
+/**
+ * Whether a customer's seat is outside the EU's VAT territory (an ISO-2 country; Monaco counts
+ * as France there, its companies have French VAT numbers). An unknown country is not outside.
+ */
+export function outsideEuVat(country: string | null | undefined): boolean {
+  const c = (country ?? "").trim().toUpperCase();
+  return !!c && c !== "MC" && !EU_COUNTRIES.has(c);
+}
+
+/** What OUT says on an invoice for a customer outside the EU: a service supplied abroad, not a disbursement. */
+const OUT_ABROAD_LEGAL_TEXT =
+  "Místo plnění mimo tuzemsko, plnění mimo předmět daně v ČR (§9 odst. 1 ZDPH) / Place of supply outside the Czech Republic – outside the scope of Czech VAT";
+
+/** The legal wording printed for the lines of a VAT code on an invoice for a customer with its seat in `customerCountry`. */
+export function legalTextOf(code: VatCode, customerCountry: string | null | undefined): string {
+  return code === "OUT" && outsideEuVat(customerCountry) ? OUT_ABROAD_LEGAL_TEXT : VAT_CODE_INFO[code].legalText;
+}
 
 /** The invoiced customer, as far as the VAT default goes: its country (ISO-2) and VAT number. */
 export interface VatCustomer {
@@ -108,7 +126,7 @@ export interface VatCustomer {
 export function defaultVatCode(tradeDirection: string, customer?: VatCustomer | null): VatCode {
   const country = (customer?.country ?? "").trim().toUpperCase();
   if (country && country !== "CZ") {
-    if (!EU_COUNTRIES.has(country)) return "OUT";
+    if (outsideEuVat(country)) return "OUT";
     if ((customer?.dic ?? "").trim()) return "RC";
   }
   const d = (tradeDirection ?? "").trim().toLowerCase();

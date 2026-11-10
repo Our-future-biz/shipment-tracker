@@ -2,7 +2,7 @@ import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf
 import fontkit from "@pdf-lib/fontkit";
 import QRCode from "qrcode";
 import type { CustomerSnapshot, ShipmentSnapshot, SupplierSnapshot, VatSummarySnapshot } from "../schemas/invoice.schema";
-import { VAT_CODE_INFO, isVatCode } from "./invoiceCalc";
+import { VAT_CODE_INFO, isVatCode, legalTextOf } from "./invoiceCalc";
 
 /**
  * The customer-facing PDF of an issued invoice or credit note: bilingual (Czech / English),
@@ -225,13 +225,17 @@ async function embedLogo(doc: PDFDocument, dataUrl: string): Promise<PDFImage | 
   }
 }
 
-/** Address block lines of a party (empty parts left out). */
-function partyLines(p: { address: string; city: string; postalCode?: string; country: string; ico: string; dic: string }) {
+/**
+ * Address block lines of a party (empty parts left out). `seatText`: the address is the customer's
+ * seat in one line ("street, postcode city"), which often already holds the city; a street kept
+ * apart from its city (the issuer's, a billing address) always gets its city line, even when the
+ * street is named after the city (Plzeňská 12, Plzeň).
+ */
+function partyLines(p: { address: string; city: string; postalCode?: string; country: string; ico: string; dic: string }, seatText = false) {
   const lines: string[] = [];
   if (p.address) lines.push(p.address);
   const cityLine = [p.postalCode, p.city].filter(Boolean).join(" ");
-  // the customer's registry address often already contains the city
-  if (cityLine && !p.address.includes(p.city)) lines.push(cityLine);
+  if (cityLine && !(seatText && p.address.includes(p.city))) lines.push(cityLine);
   if (p.country && p.country !== "CZ") lines.push(p.country);
   if (p.ico) lines.push(`IČO: ${p.ico}`);
   if (p.dic) lines.push(`DIČ: ${p.dic}`);
@@ -295,7 +299,7 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
         ...(billTo.label ? [billTo.label] : []),
         ...partyLines({ address: billTo.street, city: billTo.city, postalCode: billTo.postalCode, country: billTo.country, ico: inv.customer.ico, dic: inv.customer.dic }),
       ]
-    : [inv.customer.companyName, ...partyLines({ ...inv.customer })];
+    : [inv.customer.companyName, ...partyLines({ ...inv.customer }, true)];
   const partyTop = w.y;
   const drawParty = (x: number, label: string, lines: string[]) => {
     w.text(label, x + 10, partyTop - 14, 7.5, { bold: true, color: MUTED });
@@ -517,7 +521,7 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   w.y = Math.min(recapBottom, ty) - 14;
 
   // ── Legal wording of the VAT codes used ──
-  const texts = [...new Set(inv.vatSummary.map((v) => (isVatCode(v.vatCode) ? VAT_CODE_INFO[v.vatCode].legalText : "")).filter(Boolean))];
+  const texts = [...new Set(inv.vatSummary.map((v) => (isVatCode(v.vatCode) ? legalTextOf(v.vatCode, inv.customer.country) : "")).filter(Boolean))];
   for (const t of texts) {
     for (const l of w.wrap(t, 8, right - M)) {
       w.ensure(12);

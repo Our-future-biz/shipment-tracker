@@ -389,12 +389,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
       return next;
     });
   const activeFilters = linesView === "to_invoice" ? activeCurrencies : statusFilter;
-  // the address on one line - its billing address when it has one, else its seat - IČO and DIČ
-  // together on the next (no separator left hanging)
+  // the address on one line - its billing address when it has one, else its seat (whose one-line
+  // text often holds the city already) - IČO and DIČ together on the next (no separator left hanging)
   const customerAddress = p?.customer
     ? [
         p.customer.address,
-        p.customer.address.includes(p.customer.city) ? "" : [p.customer.postalCode, p.customer.city].filter(Boolean).join(" "),
+        !p.billingAddress && p.customer.address.includes(p.customer.city) ? "" : [p.customer.postalCode, p.customer.city].filter(Boolean).join(" "),
         p.customer.country && p.customer.country !== "CZ" ? p.customer.country : "",
       ]
         .filter(Boolean)
