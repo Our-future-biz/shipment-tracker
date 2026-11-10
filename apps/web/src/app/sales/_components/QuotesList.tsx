@@ -360,9 +360,12 @@ export function QuotesList() {
   };
 
   const columns: ColumnsType<SalesQuote> = useMemo(() => {
-    const cols = visibleKeys.flatMap((key): ColumnsType<SalesQuote> => {
+    // The reference stays first and in sight when the list is scrolled sideways, so it is not dragged.
+    const ordered = visibleKeys.includes("reference") ? ["reference", ...visibleKeys.filter((key) => key !== "reference")] : visibleKeys;
+    const cols = ordered.flatMap((key): ColumnsType<SalesQuote> => {
       const c = QUOTE_COLUMNS.find((column) => column.key === key);
       if (!c) return [];
+      const pinned = c.key === "reference";
       return [
         {
           // A heading that can be sorted by has the arrows at its right end; as much room at its
@@ -371,6 +374,7 @@ export function QuotesList() {
           title: c.sortBy ? <span className="pl-4 whitespace-nowrap">{c.header ?? c.title}</span> : (c.header ?? c.title),
           key: c.key,
           width: c.width,
+          ...(pinned ? { fixed: "left" as const } : {}),
           // Every value sits in the middle of its column, under a heading that does the same.
           align: "center",
           ...(c.sortBy
@@ -381,7 +385,7 @@ export function QuotesList() {
               }
             : {}),
           // A heading can be dragged once the stored columns are known: only a cell with an id is draggable.
-          onHeaderCell: () => (columnsKnown ? { id: c.key } : {}) as React.HTMLAttributes<HTMLTableCellElement>,
+          onHeaderCell: () => (columnsKnown && !pinned ? { id: c.key } : {}) as React.HTMLAttributes<HTMLTableCellElement>,
           render: (_: unknown, record: SalesQuote) => c.render(record, exchange),
         },
       ];
@@ -391,6 +395,7 @@ export function QuotesList() {
       title: <span role="img" aria-label="Validity" title="Validity" className="inline-block w-2.5 h-2.5 rounded-full bg-slate-300" />,
       key: "validityDot",
       width: 36,
+      fixed: "left",
       align: "center",
       render: (_: unknown, record: SalesQuote) => <ValidityDot quote={record} />,
     });
@@ -399,10 +404,13 @@ export function QuotesList() {
     cols.push({
       title: <span className="sr-only">Actions</span>,
       key: "action",
-      width: 112,
+      // Just the three icons, with little room around them.
+      width: 74,
+      className: "!px-1",
       fixed: "right",
       render: (_: unknown, record: SalesQuote) => (
-        <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+        // The icon buttons are narrower here than elsewhere, so the column takes little of the row.
+        <div className="flex items-center justify-end [&_button]:!w-[22px] [&_button]:!min-w-[22px]" onClick={(e) => e.stopPropagation()}>
           {/* The quote's chat; a revision opens its original's thread. */}
           <QuoteChatButton quoteNumber={record.quoteNumber} unread={unreadByThread.get(quoteThreadOf(record.quoteNumber)) ?? 0} onOpen={() => setChatQuote(record.quoteNumber)} />
           <PreviewButton fileName={record.quoteNumber} title="Preview PDF" onClick={() => setPreview(record)} />
@@ -761,6 +769,9 @@ export function QuotesList() {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
             <SortableContext items={visibleKeys} strategy={horizontalListSortingStrategy}>
               <DataTable<SalesQuote>
+                // Heads and cells stay on one line, as in Customers: a column is always as wide as its
+                // widest head or cell.
+                className="[&_.ant-table-cell]:!whitespace-nowrap"
                 resizeKey="sales:quotes"
                 dataSource={quotes}
                 columns={columns}
@@ -772,7 +783,7 @@ export function QuotesList() {
                 server={{ total, page, pageSize, onChange: (nextPage, nextPageSize) => show({ page: nextPage, pageSize: nextPageSize }) }}
                 onChange={handleTableChange}
                 locale={{ emptyText }}
-                rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys, columnWidth: 40 }}
+                rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys, columnWidth: 40, fixed: true }}
                 onRow={(record) => ({
                   onClick: () => router.push(quoteHref(record.quoteNumber)),
                   className: "cursor-pointer",

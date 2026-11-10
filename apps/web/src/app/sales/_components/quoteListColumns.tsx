@@ -17,7 +17,6 @@ import {
 import { QUOTE_STATUS_MAP } from "../_lib/types";
 import { CustomerLink } from "./CustomerLink";
 import { QuoteRefLink } from "./QuoteRefLink";
-import { QuoteRoute } from "./QuoteRoute";
 import { QuoteSelling } from "./QuoteSelling";
 import { QuoteShipmentsCell } from "./QuoteShipmentsCell";
 import { QuoteStatusPill } from "./QuoteStatusPill";
@@ -90,25 +89,6 @@ const dayOf = (at: string | null) => formatDate(isoDayOf(at)) || EMPTY_CELL;
 // stated "0 kg".
 const withUnit = (figure: number, unit: string) => (figure ? `${figure} ${unit}` : EMPTY_CELL);
 
-interface CutProps {
-  full?: string;
-  maxWidthClass: string;
-  children: React.ReactNode;
-}
-
-// A name or a route of any length takes no more of a row than its column's width: what the
-// column gets less the cell's padding (16px), which `maxWidthClass` names. A longer one would
-// widen the column and push the last columns of the starting set out of view. The rest is cut
-// with "…", and pointing at the cell shows it in full. It stays in the middle of a column that
-// something else made wider.
-function Cut({ full, maxWidthClass, children }: CutProps) {
-  return (
-    <span className={`block mx-auto truncate ${maxWidthClass}`} title={full || undefined}>
-      {children}
-    </span>
-  );
-}
-
 // Every column the list can show, in the order of the Columns panel. A width is the least a
 // column gets: the table gives a longer value its room.
 export const QUOTE_COLUMNS: QuoteColumn[] = [
@@ -124,22 +104,11 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
     title: "Customer",
     width: 144,
     sortBy: "customer",
-    render: (q) => (
-      <Cut full={q.data.customerName} maxWidthClass="max-w-32">
-        <CustomerLink customerId={q.data.customerId} name={q.data.customerName} />
-      </Cut>
-    ),
+    // The name is shown whole: the column is as wide as the longest name on the page.
+    render: (q) => <CustomerLink customerId={q.data.customerId} name={q.data.customerName} />,
   },
-  {
-    key: "route",
-    title: "Route",
-    width: 140,
-    render: (q) => (
-      <Cut full={[q.data.origin, q.data.destination].filter(Boolean).join(" → ")} maxWidthClass="max-w-[124px]">
-        <QuoteRoute origin={q.data.origin} destination={q.data.destination} />
-      </Cut>
-    ),
-  },
+  { key: "pol", title: "Port of Loading", width: 140, render: (q) => q.data.pol || EMPTY_CELL },
+  { key: "pod", title: "Port of Discharge", width: 150, render: (q) => q.data.pod || EMPTY_CELL },
   { key: "status", title: "Status", width: 110, sortBy: "status", render: (q) => <QuoteStatusPill status={q.status} /> },
   { key: "validity", title: "Valid until", width: 104, sortBy: "validUntil", render: (q) => <ValidUntil quote={q} /> },
   { key: "owner", title: "Sales Owner", width: 110, sortBy: "owner", render: (q) => q.ownerName || EMPTY_CELL },
@@ -189,7 +158,8 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
 export const DEFAULT_QUOTE_COLUMNS = [
   "reference",
   "customer",
-  "route",
+  "pol",
+  "pod",
   "status",
   "validity",
   "owner",
@@ -204,14 +174,14 @@ export const DEFAULT_QUOTE_COLUMNS = [
 const isKnown = (key: string) => QUOTE_COLUMNS.some((column) => column.key === key);
 
 // The columns to show, out of the set that is stored. That set is the whole company's and may
-// have been stored before Origin and Destination became Route, when every row also had its
-// validity dot whatever the columns: such a set gets Route where the first of the two stood, and
-// Valid until - which carries that dot now - if it lacks it. A key this version does not know is
-// left out.
+// have been stored when the list had one Route column (or, before that, Origin and Destination,
+// when every row also had its validity dot whatever the columns): such a set gets Port of Loading
+// and Port of Discharge where the first of those stood, and Valid until - which carries that dot
+// now - if it lacks it. A key this version does not know is left out.
 export function shownColumns(stored: string[]): string[] {
-  const isOldPlace = (key: string) => key === "origin" || key === "destination";
-  const keys = stored.map((key) => (isOldPlace(key) ? "route" : key));
-  if (stored.some(isOldPlace) && !keys.includes("validity")) keys.splice(keys.indexOf("status") + 1 || keys.length, 0, "validity");
+  const isOrigins = (key: string) => key === "origin" || key === "destination";
+  const keys = stored.flatMap((key) => (isOrigins(key) || key === "route" ? ["pol", "pod"] : [key]));
+  if (stored.some(isOrigins) && !keys.includes("validity")) keys.splice(keys.indexOf("status") + 1 || keys.length, 0, "validity");
   return [...new Set(keys)].filter(isKnown);
 }
 
@@ -219,6 +189,8 @@ export function shownColumns(stored: string[]): string[] {
 const CSV_TEXT: Record<string, (q: SalesQuote, pricing: QuotePricing) => string> = {
   reference: (q) => q.quoteNumber,
   customer: (q) => q.data.customerName ?? "",
+  pol: (q) => q.data.pol ?? "",
+  pod: (q) => q.data.pod ?? "",
   status: (q) => QUOTE_STATUS_MAP[q.status]?.label ?? q.status,
   validity: (q) => q.validUntil ?? "",
   owner: (q) => q.ownerName,
@@ -245,16 +217,9 @@ const CSV_TEXT: Record<string, (q: SalesQuote, pricing: QuotePricing) => string>
   daysOpen: (q) => String(daysOpen(q) ?? ""),
 };
 
-// The CSV of the given columns, in their order. A file is sorted, filtered and added up by
-// column, so what the screen draws as one piece is two columns where it is two facts.
+// The CSV of the given columns, in their order.
 export function quoteCsvColumns(keys: string[], pricing: QuotePricing): CsvColumn[] {
   return keys.flatMap((key): CsvColumn[] => {
-    if (key === "route") {
-      return [
-        { title: "Origin", accessor: (q) => q.data.origin ?? "" },
-        { title: "Destination", accessor: (q) => q.data.destination ?? "" },
-      ];
-    }
     const text = CSV_TEXT[key];
     const title = QUOTE_COLUMNS.find((column) => column.key === key)?.title;
     if (!text || !title) return [];
