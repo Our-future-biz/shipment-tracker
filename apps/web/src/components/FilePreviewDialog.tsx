@@ -1,16 +1,18 @@
 "use client";
 
-import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Modal, Spin } from "antd";
 import { DownloadOutlined, ExportOutlined, FileOutlined, ReloadOutlined } from "@ant-design/icons";
 import { decodeText, extensionOf, formatSheetCell, parseDelimited, type PreviewType, type SheetCell } from "@/lib/filePreview";
 import { formatFileSize } from "@/lib/files";
-import { BTN, BTN_PRIMARY, EMPTY_STATE, HINT, MODAL_TITLE } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, BTN_SM, EMPTY_STATE, HINT } from "@/styles/ui";
+import { PdfView } from "./PdfView";
 
-// The app's one file preview (opened through hooks/useFilePreview): a PDF in a frame, a picture,
-// text, a CSV or Excel table, a Word page - each from the file's own bytes - and for anything else a
-// card with Download. Word pages are drawn into a sandboxed frame and an SVG is shown from a data:
-// URL, so nothing in a file ever runs in the app's page.
+// The app's one file preview (opened through hooks/useFilePreview): a PDF's pages, a picture, text,
+// a CSV or Excel table, a Word page - each from the file's own bytes - and for anything else a card
+// with Download. The dialog is the file and one bar under it (its name, and Open in new tab /
+// Download / Close): nothing else is drawn around a file. Word pages are drawn into a sandboxed
+// frame and an SVG is shown from a data: URL, so nothing in a file ever runs in the app's page.
 
 /** What the dialog shows: a file on its way, one loaded, or one that could not be loaded. */
 export type FilePreviewState =
@@ -40,14 +42,25 @@ interface FilePreviewDialogProps {
 }
 
 export function FilePreviewDialog({ state, onClose, onDownload, onRetry }: FilePreviewDialogProps) {
-  // A picture this browser can't draw (HEIC or TIFF outside Safari) falls back to the Download card.
-  const [brokenImage, setBrokenImage] = useState<string | null>(null);
+  // A file that turned out not to be showable - a picture this browser can't draw (HEIC or TIFF
+  // outside Safari), a ".pdf" that is no PDF inside - falls back to the Download card.
+  const [unshowable, setUnshowable] = useState<string | null>(null);
   const ready = state?.status === "ready" ? state : null;
-  const pictureFailed = !!ready && brokenImage === ready.url;
-  const kind = ready ? (pictureFailed ? "none" : ready.type.kind) : null;
+  const url = ready?.url ?? "";
+  const cantShow = !!url && unshowable === url;
+  const giveUp = useCallback(() => setUnshowable(url), [url]);
+  const kind = ready ? (cantShow ? "none" : ready.type.kind) : null;
   // Opened in a tab of its own only where the browser shows it safely there: a PDF, a raster picture,
   // text (re-encoded as UTF-8). Never an SVG (it could run a script), never Word or Excel.
   const canOpenInTab = !!ready?.url && (kind === "pdf" || kind === "text" || (kind === "image" && ready.type.mime !== "image/svg+xml"));
+
+  // What had the focus can be taken away with it: "Try again" by its own press, a PDF's pages by the
+  // Download card. The focus then stays in the dialog, where Esc is listened for.
+  const area = useRef<HTMLDivElement>(null);
+  const status = state?.status;
+  useLayoutEffect(() => {
+    if (status && document.activeElement === document.body) area.current?.focus({ preventScroll: true });
+  }, [status, kind]);
 
   return (
     <Modal
@@ -55,80 +68,100 @@ export function FilePreviewDialog({ state, onClose, onDownload, onRetry }: FileP
       onCancel={onClose}
       // 80% of a wide screen; nearly all of a phone's.
       width="max(80vw, min(calc(100vw - 24px), 560px))"
-      // High on the page, and no taller than the window, so Download and Close are always in sight.
-      style={{ top: 12 }}
+      // As tall as the window, less 12px above and below: the bar with Download and Close is always in
+      // sight, and the file gets all the height the bar leaves (one row of it, or two on a phone).
+      style={{ top: 12, margin: "0 auto", paddingBottom: 0 }}
       destroyOnHidden
-      title={
-        <div className="min-w-0 pr-6">
-          <div className={`${MODAL_TITLE} truncate`} title={state?.fileName}>
-            {state?.fileName}
-          </div>
-          {ready && <div className={`${HINT} font-normal mt-0.5`}>{formatFileSize(ready.blob.size)}</div>}
-        </div>
-      }
-      classNames={{ body: "!h-[max(240px,calc(100dvh-200px))] !overflow-hidden", footer: "!border-t !border-slate-200 !pt-3" }}
+      // No bar above the file: its name is in the bar below (this title only names the dialog for
+      // screen readers), and Close, Esc or a click beside the dialog closes it.
+      title={state?.fileName}
+      closable={false}
+      classNames={{
+        header: "!hidden",
+        content: "!flex !h-[calc(100dvh-24px)] !flex-col !p-3",
+        body: "!min-h-0 !flex-1 !overflow-hidden",
+        footer: "!mt-2 !border-t !border-slate-200 !pt-2",
+      }}
       footer={
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {canOpenInTab && (
-            <button type="button" className={BTN} onClick={() => window.open(ready.url, "_blank", "noopener")}>
-              <ExportOutlined aria-hidden />
-              Open in new tab
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+          <div className="flex min-w-[120px] flex-1 items-baseline gap-2 text-left">
+            <span className="truncate text-[13px] font-medium text-slate-700" title={state?.fileName}>
+              {state?.fileName}
+            </span>
+            {ready && <span className={`${HINT} shrink-0`}>{formatFileSize(ready.blob.size)}</span>}
+          </div>
+          {/* On the narrowest phones the buttons take a second row among themselves. */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {canOpenInTab && (
+              <button type="button" className={`${BTN} ${BTN_SM}`} onClick={() => window.open(ready.url, "_blank", "noopener")}>
+                <ExportOutlined aria-hidden />
+                Open in new tab
+              </button>
+            )}
+            {state?.status !== "loading" && (
+              <button type="button" className={`${BTN} ${BTN_SM}`} onClick={onDownload}>
+                <DownloadOutlined aria-hidden />
+                Download
+              </button>
+            )}
+            <button type="button" className={`${BTN_PRIMARY} ${BTN_SM}`} onClick={onClose}>
+              Close
             </button>
-          )}
-          {state?.status !== "loading" && (
-            <button type="button" className={BTN} onClick={onDownload}>
-              <DownloadOutlined aria-hidden />
-              Download
-            </button>
-          )}
-          <button type="button" className={BTN_PRIMARY} onClick={onClose}>
-            Close
-          </button>
+          </div>
         </div>
       }
     >
-      {!state ? null : state.status === "loading" ? (
-        <Centered>
-          <Spin />
-          <span className="text-[13px] text-slate-500">Loading {state.fileName}…</span>
-        </Centered>
-      ) : state.status === "error" ? (
-        <Centered>
-          <span role="alert" className="text-[13px] text-red-600 text-center max-w-[520px]">
-            {state.message}
-          </span>
-          <button type="button" className={BTN} onClick={onRetry}>
-            <ReloadOutlined aria-hidden />
-            Try again
-          </button>
-        </Centered>
-      ) : (
-        // A file that breaks a viewer (a sheet it can't read, say) gives the Download card, never a broken page.
-        <PreviewBoundary key={state.url || state.fileName} fallback={<NoPreview fileName={state.fileName} onDownload={onDownload} reason="This file could not be shown" />}>
-          {kind === "pdf" ? (
-            <iframe src={state.url} title={state.fileName} className="w-full h-full border-0 rounded" />
-          ) : kind === "image" ? (
-            <div className="h-full overflow-auto bg-slate-100 rounded flex items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={state.url} alt={state.fileName} onError={() => setBrokenImage(state.url)} className="max-w-full max-h-full object-contain" />
-            </div>
-          ) : kind === "text" ? (
-            <TextView blob={state.blob} />
-          ) : kind === "csv" ? (
-            <CsvView blob={state.blob} />
-          ) : kind === "xlsx" ? (
-            <XlsxView blob={state.blob} />
-          ) : kind === "docx" ? (
-            <DocxView blob={state.blob} title={state.fileName} />
-          ) : (
-            <NoPreview
-              fileName={state.fileName}
-              onDownload={onDownload}
-              reason={pictureFailed ? "This browser can't show this picture" : undefined}
-            />
-          )}
-        </PreviewBoundary>
-      )}
+      <div ref={area} tabIndex={-1} className="h-full outline-none">
+        {!state ? null : state.status === "loading" ? (
+          <Centered>
+            <Spin />
+            <span className="text-[13px] text-slate-500">Loading {state.fileName}…</span>
+          </Centered>
+        ) : state.status === "error" ? (
+          <Centered>
+            <span role="alert" className="text-[13px] text-red-600 text-center max-w-[520px]">
+              {state.message}
+            </span>
+            <button type="button" className={BTN} onClick={onRetry}>
+              <ReloadOutlined aria-hidden />
+              Try again
+            </button>
+          </Centered>
+        ) : (
+          // A file that breaks a viewer (a sheet it can't read, say) gives the Download card, never a broken page.
+          <PreviewBoundary key={state.url || state.fileName} fallback={<NoPreview fileName={state.fileName} onDownload={onDownload} reason="This file could not be shown" />}>
+            {kind === "pdf" ? (
+              // Drawn by the app: only the pages. The browser's own viewer (with its toolbar) is what is
+              // left for a file the app can't draw, such as one that asks for a password.
+              <PdfView
+                blob={state.blob}
+                title={state.fileName}
+                fallback={<iframe src={state.url} title={state.fileName} className="w-full h-full border-0 rounded" />}
+                onBroken={giveUp}
+              />
+            ) : kind === "image" ? (
+              <div className="h-full overflow-auto rounded flex items-center justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={state.url} alt={state.fileName} onError={giveUp} className="max-w-full max-h-full object-contain" />
+              </div>
+            ) : kind === "text" ? (
+              <TextView blob={state.blob} />
+            ) : kind === "csv" ? (
+              <CsvView blob={state.blob} />
+            ) : kind === "xlsx" ? (
+              <XlsxView blob={state.blob} />
+            ) : kind === "docx" ? (
+              <DocxView blob={state.blob} title={state.fileName} />
+            ) : (
+              <NoPreview
+                fileName={state.fileName}
+                onDownload={onDownload}
+                reason={!cantShow ? undefined : state.type.kind === "image" ? "This browser can't show this picture" : "This file could not be shown"}
+              />
+            )}
+          </PreviewBoundary>
+        )}
+      </div>
     </Modal>
   );
 }
@@ -325,7 +358,12 @@ function DocxView({ blob, title }: { blob: Blob; title: string }) {
       if (live) {
         setHtml(
           `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${styles.innerHTML}` +
-            `<style>html,body{margin:0;background:#e2e8f0}.docx-wrapper{background:#e2e8f0 !important}</style></head><body>${body.innerHTML}</body></html>`,
+            // The pages on white with a hairline round each, like a PDF's: no grey backdrop, no shadow.
+            // In the middle of a frame wider than a page; from the left edge of a narrower one, so
+            // scrolling sideways reaches all of the page.
+            `<style>html,body{margin:0;background:#fff}.docx-wrapper{background:#fff !important;padding:0 !important;align-items:flex-start !important}` +
+            `.docx-wrapper>section.docx{box-shadow:none !important;border:1px solid #e2e8f0;margin:0 auto 12px !important}</style>` +
+            `</head><body>${body.innerHTML}</body></html>`,
         );
       }
     })().catch(() => live && setFailed(true));
@@ -335,7 +373,7 @@ function DocxView({ blob, title }: { blob: Blob; title: string }) {
   }, [blob]);
   if (failed) return <Centered><span className="text-[13px] text-slate-600">This Word file could not be read. Download it to open it in Word.</span></Centered>;
   if (!html) return <Loading />;
-  return <iframe sandbox="" srcDoc={html} title={title} className="w-full h-full border-0 rounded bg-slate-200" />;
+  return <iframe sandbox="" srcDoc={html} title={title} className="w-full h-full border-0 rounded bg-white" />;
 }
 
 function Loading() {

@@ -136,3 +136,95 @@
 .app-grid .ant-table-tbody > tr > td.ant-table-cell {
   height: 42px;
 }
+
+/* A PDF drawn in the app's file preview (components/PdfView.tsx). Over each page lies its text,
+   invisible, so it can be selected and copied. pdf.js places every piece of text itself and expects
+   these rules (they are its own, from pdfjs-dist/web/pdf_viewer.css, under the app's class names). */
+.pdf-page {
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+}
+
+.pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-text[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+
+.pdf-text[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+
+.pdf-text[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
+}
+
+.pdf-text :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.pdf-text > :not(.markedContent),
+.pdf-text .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text .markedContent {
+  display: contents;
+}
+
+.pdf-text span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+
+.pdf-text ::selection {
+  background: rgb(0 0 255 / 0.25);
+  background: color-mix(in srgb, AccentColor, transparent 75%);
+  color: transparent;
+}
+
+.pdf-text br::selection {
+  background: transparent;
+}
+
+/* While text is being selected a sheet covers every page's empty spots, so the selection does not
+   jump to the far end of a page when the pointer leaves a line. */
+.pdf-text .pdf-text-end {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.selecting .pdf-text .pdf-text-end {
+  top: 0;
+}
