@@ -22,14 +22,11 @@ export function ReleasedMark({ stamp }: { stamp: string }) {
     <HoverCard
       delay={0.3}
       content={
-        <div className="w-[240px]">
-          <div className="text-[13px] font-semibold text-slate-900">Bill of Lading released</div>
-          <div className="mt-0.5 text-[11px] text-slate-500">House BoL</div>
-          <div className="mt-2.5 flex flex-col gap-1.5 border-t border-slate-100 pt-2.5 text-xs">
-            <Line icon={<MailOutlined />} value={person} />
-            <Line icon={<CalendarOutlined />} value={date} />
-            <Line icon={<ClockCircleOutlined />} value={time} />
-          </div>
+        // Who and when only: the row's label already says what was released.
+        <div className="w-[220px] flex flex-col gap-1.5 text-xs">
+          <Line icon={<MailOutlined />} value={person} />
+          <Line icon={<CalendarOutlined />} value={date} />
+          <Line icon={<ClockCircleOutlined />} value={time} />
         </div>
       }
     >

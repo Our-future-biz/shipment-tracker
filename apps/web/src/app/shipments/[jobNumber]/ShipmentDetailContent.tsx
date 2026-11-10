@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Alert, Badge, ConfigProvider, Spin, Dropdown, Modal, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
+import { Alert, Badge, ConfigProvider, Spin, Dropdown, Modal, Tooltip, Select, TimePicker, Button } from "antd";
 import { useToast } from "@/lib/toast";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -16,8 +16,6 @@ import {
   CalendarOutlined,
   ContainerOutlined,
   SplitCellsOutlined,
-  PaperClipOutlined,
-  FileTextOutlined,
   ControlOutlined,
   WarningOutlined,
   ProfileOutlined,
@@ -80,7 +78,7 @@ import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { ShipmentFacts, ShipmentProgress } from "./_components/ShipmentSummary";
-import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, HEADER_ICON_BTN_ON, LABEL, LABEL_TOP, LABEL_W, REF_KEYS, REF_VALUE, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
+import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, LABEL, LABEL_TOP, LABEL_W, REF_KEYS, REF_VALUE, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
 import {
   BTN,
   BTN_GHOST,
@@ -98,8 +96,8 @@ import {
   REF,
 } from "@/styles/ui";
 import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
-import { AttachmentsPanel } from "../_components/AttachmentsPanel";
-import { NotesDrawer } from "../_components/NotesDrawer";
+import { NotesTab } from "./tabs/NotesTab";
+import { useShipmentNotes } from "@/hooks/useShipmentNotes";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
 
 /** `links` go with a value that names a record: a picked contact's id. */
@@ -117,6 +115,7 @@ const TABS = [
   { key: "tracking", label: "Tracking" },
   { key: "claim", label: "Claim" },
   { key: "alerts", label: "Alerts" },
+  { key: "notes", label: "Notes To-Do" },
 ];
 
 /* ── Shared UI pieces ── */
@@ -877,6 +876,7 @@ function OpeningHoursRow({
 
 /* ── Field arrangement for the redesigned details tab ── */
 const CARRIER_BOL: FieldDef[] = [
+  { key: "bookingNumber", label: "Booking Number" },
   { key: "vessel", label: "Vessel" },
   { key: "voyage", label: "Voyage" },
   { key: "containerNumber", label: "Container Number", ro: true },
@@ -922,7 +922,6 @@ const EQUIP_DEPOT_R: FieldDef[] = [
 
 const REFS_ROUTING: FieldDef[] = [
   { key: "personalReference", label: "Personal Reference" },
-  { key: "bookingNumber", label: "Booking Number" },
   { key: "pol", label: "Port of Loading" },
   { key: "pod", label: "Port of Discharge" },
   { key: "origin", label: "Origin" },
@@ -1107,8 +1106,6 @@ export function ShipmentDetailContent() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
-  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
   const canDelete = useCanDeleteShipments();
   const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -1146,6 +1143,8 @@ export function ShipmentDetailContent() {
   // New alerts are counted on the Alerts tab; they are seen once the tab is open - also those
   // that come while it is.
   const { newCount: newAlerts, markRead: markAlertsRead } = useShipmentAlerts(shipment?.id ?? "");
+  // The notepad's open to-dos: their count shows on the Notes tab.
+  const { openCount: openNotes } = useShipmentNotes(shipment?.id ?? "");
   useEffect(() => {
     if (activeTab === "alerts" && newAlerts > 0) markAlertsRead();
   }, [activeTab, newAlerts, markAlertsRead]);
@@ -1342,8 +1341,6 @@ export function ShipmentDetailContent() {
   };
 
   // Shipment Status cells on this page offer only the shipment's Trade Direction statuses.
-  // Spaces alone are no note.
-  const hasNote = !!shipment.freeComments?.trim();
   const page = (
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
@@ -1376,24 +1373,6 @@ export function ShipmentDetailContent() {
               // Anything else is a reference of the old quotes module: it has no page to lead to.
               costsQuoteRef && <span className="text-[13px] text-slate-500 whitespace-nowrap">Costs copied from {costsQuoteRef}</span>
             )}
-
-            {/* Notes */}
-            <Tooltip title={hasNote ? "Notes - there is a note" : "Notes"}>
-              <button
-                onClick={() => setNotesOpen(true)}
-                aria-label={hasNote ? "Notes - there is a note" : "Notes"}
-                className={hasNote ? HEADER_ICON_BTN_ON : HEADER_ICON_BTN}
-              >
-                <FileTextOutlined />
-              </button>
-            </Tooltip>
-
-            {/* Attachments */}
-            <Tooltip title="Attachments">
-              <button onClick={() => setAttachmentsOpen(true)} className={HEADER_ICON_BTN}>
-                <PaperClipOutlined />
-              </button>
-            </Tooltip>
 
             {/* Actions dropdown: its one action is delete, which is for managers and up */}
             {canDelete && (
@@ -1432,6 +1411,11 @@ export function ShipmentDetailContent() {
             >
               {tab.key === "alerts" && newAlerts > 0 ? (
                 <Badge count={newAlerts} size="small" color="#ef4444" offset={[8, -2]} title={`${newAlerts} new`}>
+                  <span className="text-inherit">{tab.label}</span>
+                </Badge>
+              ) : tab.key === "notes" && openNotes > 0 ? (
+                // The open to-dos, as the Alerts tab shows its new alerts.
+                <Badge count={openNotes} size="small" color="#ef4444" offset={[8, -2]} title={`${openNotes} open`}>
                   <span className="text-inherit">{tab.label}</span>
                 </Badge>
               ) : (
@@ -1486,7 +1470,8 @@ export function ShipmentDetailContent() {
                     { key: "salesPerson", label: "Sales Person", ro: true },
                     { key: "incotermOrigin", label: "Incoterms Origin", ro: true },
                     { key: "incotermDestination", label: "Incoterms Destination", ro: true },
-                    { key: "freeComments", label: "Free Comments" },
+                    // Free Comments are kept in the Notes To-Do tab.
+                    { key: "houseBolRelease", label: "House BoL Release" },
                   ];
                   const right: FieldDef[] = [
                     { key: "status", label: "Shipment Status" },
@@ -1508,6 +1493,9 @@ export function ShipmentDetailContent() {
 
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
+                    houseBolRelease: (
+                      <HouseBolReleaseRow releasedAt={shipment.houseBolRelease} onRelease={() => setReleaseOpen(true)} />
+                    ),
                     masterJob: (
                       <div className={ROW}>
                         <span className={LABEL}>Master Job</span>
@@ -1732,11 +1720,6 @@ export function ShipmentDetailContent() {
                     carrierCode: <RoRow label="Carrier code" value={shipment.carrierCode} />,
                     containerNumber: (
                       <ContainerNumberLinkRow value={shipment.containerNumber} onOpen={openContainerTab} />
-                    ),
-                  }}
-                  renderAfter={{
-                    houseBolType: (
-                      <HouseBolReleaseRow releasedAt={shipment.houseBolRelease} onRelease={() => setReleaseOpen(true)} />
                     ),
                   }}
                 />
@@ -1994,6 +1977,8 @@ export function ShipmentDetailContent() {
         {activeTab === "claim" && <ClaimsTab shipment={shipment} />}
 
         {activeTab === "alerts" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
+
+        {activeTab === "notes" && <NotesTab shipment={shipment} onSaveFreeComments={(value) => handleCommit("freeComments", value)} />}
       </div>
 
       <MasterJobDialog
@@ -2019,28 +2004,6 @@ export function ShipmentDetailContent() {
           <b className={REF}>{shipment.masterJobMczNumber}</b>?
         </p>
       </Modal>
-
-      <Drawer
-        open={attachmentsOpen}
-        onClose={() => setAttachmentsOpen(false)}
-        width={301}
-        closable={false}
-        classNames={{ body: "!p-0" }}
-      >
-        <AttachmentsPanel
-          shipmentId={shipment.id}
-          jobNumber={shipment.jobNumber ?? shipment.id}
-          context={[shipment.shipper, shipment.consignee].filter(Boolean).join(" → ") || undefined}
-          onClose={() => setAttachmentsOpen(false)}
-        />
-      </Drawer>
-
-      <NotesDrawer
-        shipment={shipment}
-        open={notesOpen}
-        onClose={() => setNotesOpen(false)}
-        onSave={(value) => handleCommit("freeComments", value)}
-      />
 
 
       {/* The app's confirmation: the question once, in the title, and what the release does.

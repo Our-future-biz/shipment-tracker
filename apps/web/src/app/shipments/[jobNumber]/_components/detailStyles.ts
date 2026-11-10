@@ -1,4 +1,4 @@
-import { BTN, CARD as APP_CARD, EMPTY as APP_EMPTY, ICON_BTN, LABEL_TEXT, REF } from "@/styles/ui";
+import { BTN, CARD as APP_CARD, EMPTY as APP_EMPTY, LABEL_TEXT, REF } from "@/styles/ui";
 
 // One look for every field card of a shipment (Shipment Details, Customs), built on the app's
 // own (styles/ui.ts): a white card, its indigo title bar, rows of small bold caps label + value.
@@ -44,7 +44,3 @@ export const REF_VALUE = `${REF} text-[13px] text-slate-900`;
 
 /** A button of the shipment's header row (Invoice, Quote, Actions): all one height and look. */
 export const HEADER_BTN = BTN;
-/** An icon-only button of the header row (Notes, Attachments). */
-export const HEADER_ICON_BTN = ICON_BTN;
-// The same button when what it opens has something in it: the app's primary blue.
-export const HEADER_ICON_BTN_ON = `${ICON_BTN} !bg-indigo-600 !border-indigo-600 !text-white hover:!bg-indigo-700 hover:!border-indigo-700 hover:!text-white`;

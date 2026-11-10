@@ -2591,6 +2591,10 @@ export namespace shipments {
             this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
             this.masterJobTracking = this.masterJobTracking.bind(this)
             this.masterJobUpdate = this.masterJobUpdate.bind(this)
+            this.noteCreate = this.noteCreate.bind(this)
+            this.noteDelete = this.noteDelete.bind(this)
+            this.noteList = this.noteList.bind(this)
+            this.noteUpdate = this.noteUpdate.bind(this)
             this.publicImportInstructionsForm = this.publicImportInstructionsForm.bind(this)
             this.publicImportInstructionsSubmit = this.publicImportInstructionsSubmit.bind(this)
             this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
@@ -3146,6 +3150,46 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/master-jobs/${encodeURIComponent(masterJobId)}`, JSON.stringify(params))
             return await resp.json() as controllers.MasterJobUpdateResponse
+        }
+
+        public async noteCreate(shipmentId: string, params: controllers.ShipmentNoteCreateRequest): Promise<{
+    note: interfaces.ShipmentNoteItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/notes`, JSON.stringify(params))
+            return await resp.json() as {
+    note: interfaces.ShipmentNoteItem
+}
+        }
+
+        public async noteDelete(shipmentId: string, noteId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/notes/${encodeURIComponent(noteId)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async noteList(shipmentId: string): Promise<{
+    notes: interfaces.ShipmentNoteItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/notes`)
+            return await resp.json() as {
+    notes: interfaces.ShipmentNoteItem[]
+}
+        }
+
+        public async noteUpdate(shipmentId: string, noteId: string, params: controllers.ShipmentNoteUpdateRequest): Promise<{
+    note: interfaces.ShipmentNoteItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}/notes/${encodeURIComponent(noteId)}`, JSON.stringify(params))
+            return await resp.json() as {
+    note: interfaces.ShipmentNoteItem
+}
         }
 
         public async publicImportInstructionsForm(token: string): Promise<{
@@ -10215,6 +10259,35 @@ export namespace controllers {
         within48h: interfaces.ShipmentDueItem[]
     }
 
+    export interface ShipmentNoteCreateRequest {
+        /**
+         * The title.
+         */
+        text: string
+
+        details?: string
+        /**
+         * YYYY-MM-DD; left out for no deadline.
+         */
+        dueDate?: string
+    }
+
+    export interface ShipmentNoteUpdateRequest {
+        /**
+         * The title.
+         */
+        text?: string
+
+        details?: string
+        /**
+         * YYYY-MM-DD; "" takes the deadline away.
+         */
+        dueDate?: string
+
+        done?: boolean
+        pinned?: boolean
+    }
+
     export interface ShipmentQuoteLinkRequest {
         /**
          * The shipment was created from the quote: an open quote becomes Won, as it would have at the
@@ -11741,7 +11814,7 @@ export namespace controllers {
         sortOrder?: number
 
         /**
-         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = the default by the customer's country and the trade direction (defaultVatCode)
+         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = the default by the customer's country and the trade direction
          */
         vatCode?: interfaces.SellingVatCode | ""
     }
@@ -17425,15 +17498,6 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -17451,6 +17515,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -20090,6 +20163,55 @@ export namespace interfaces {
 
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * One note of a shipment's notepad.
+     */
+    export interface ShipmentNoteItem {
+        id: string
+        shipmentId: string
+        /**
+         * The title: one short line.
+         */
+        text: string
+
+        /**
+         * More about it; empty when the title says it all.
+         */
+        details: string
+
+        /**
+         * The day it has to be done by (YYYY-MM-DD); null for no deadline.
+         */
+        dueDate: string | null
+
+        /**
+         * Who wrote it, by e-mail; empty when unknown.
+         */
+        authorName: string
+
+        createdAt: string
+        done: boolean
+        /**
+         * When it was ticked off; null while open.
+         */
+        doneAt: string | null
+
+        /**
+         * Who ticked it off, by e-mail; empty while open.
+         */
+        doneByName: string
+
+        /**
+         * Starred: kept at the top of the list.
+         */
+        pinned: boolean
+
+        /**
+         * When it was starred; the latest starred is the top one. Null when not starred.
+         */
+        pinnedAt: string | null
     }
 
     /**

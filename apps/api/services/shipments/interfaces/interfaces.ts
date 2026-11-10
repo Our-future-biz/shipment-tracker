@@ -538,6 +538,41 @@ export interface CommentItem {
 /** cargo = claim on the shipment · cost = claim on a supplier's invoice */
 export type ClaimKind = "cargo" | "cost";
 
+/** One note of a shipment's notepad. */
+export interface ShipmentNoteItem {
+  id: string;
+  shipmentId: string;
+  /** The title: one short line. */
+  text: string;
+  /** More about it; empty when the title says it all. */
+  details: string;
+  /** The day it has to be done by (YYYY-MM-DD); null for no deadline. */
+  dueDate: string | null;
+  /** Who wrote it, by e-mail; empty when unknown. */
+  authorName: string;
+  createdAt: string;
+  done: boolean;
+  /** When it was ticked off; null while open. */
+  doneAt: string | null;
+  /** Who ticked it off, by e-mail; empty while open. */
+  doneByName: string;
+  /** Starred: kept at the top of the list. */
+  pinned: boolean;
+  /** When it was starred; the latest starred is the top one. Null when not starred. */
+  pinnedAt: string | null;
+}
+
+/** A change of a note: its text, ticked off (true) / back to open (false), starred or not. */
+export interface ShipmentNoteChangeInput {
+  /** The title. */
+  text?: string;
+  details?: string;
+  /** YYYY-MM-DD; "" takes the deadline away. */
+  dueDate?: string;
+  done?: boolean;
+  pinned?: boolean;
+}
+
 /** One claim of a shipment. */
 export interface ClaimItem {
   id: string;

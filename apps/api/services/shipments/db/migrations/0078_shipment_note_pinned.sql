@@ -1,0 +1,1 @@
+ALTER TABLE "shipment_note" ADD COLUMN "pinned" boolean DEFAULT false NOT NULL;
