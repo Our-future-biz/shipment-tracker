@@ -2466,13 +2466,17 @@ export namespace sales {
          * it on - Prospect (interested, no quote sent yet), Proposal (a quote was sent), Won (a shipment
          * was ordered) - with its open quotes and last activity. `totals` count whole columns; `cards`
          * are cut to the limit; `notes` count what cannot be placed. Read-only: nothing is written, the
-         * status on a customer record is neither read as a stage nor changed.
+         * status on a customer record is neither read as a stage nor changed. `search`, `label` and
+         * `owner` narrow the board; its totals then count the customers they keep.
          */
         public async salesPipeline(params: controllers.SalesPipelineRequest): Promise<interfaces.PipelineBoard> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
+                label:    params.label,
                 limit:    params.limit === undefined ? undefined : String(params.limit),
                 offset:   params.offset === undefined ? undefined : String(params.offset),
+                owner:    params.owner,
+                search:   params.search,
                 stage:    params.stage === undefined ? undefined : String(params.stage),
                 wonSince: params.wonSince,
             })
@@ -9444,6 +9448,21 @@ export namespace controllers {
          * With `stage`: how many cards of that column to skip.
          */
         offset?: number
+
+        /**
+         * Only customers whose name holds this text (diacritics and case do not matter).
+         */
+        search?: string
+
+        /**
+         * Only customers of this account type; "none" = those without one.
+         */
+        label?: string
+
+        /**
+         * Only customers of this sales owner (e-mail); "none" = those without one.
+         */
+        owner?: string
     }
 
     export interface SalesQuoteCreateRequest {

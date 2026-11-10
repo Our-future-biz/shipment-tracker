@@ -1,8 +1,9 @@
 import { APIError } from "encore.dev/api";
 import { customers, quotes, shipments } from "~encore/clients";
 import { isRealYmd } from "../../../lib/businessDate";
+import { foldDiacritics } from "../../../lib/db/textSearch";
 import type { PipelineBoard, PipelineStage } from "../interfaces/interfaces";
-import { PIPELINE_STAGES, buildBoard } from "../utils/pipelineStage.utils";
+import { PIPELINE_STAGES, buildBoard, type PipelineCustomer } from "../utils/pipelineStage.utils";
 
 /** The pipeline as the API takes it: the period of the Won column, and which part of the cards. */
 export interface PipelineRequest {
@@ -13,6 +14,24 @@ export interface PipelineRequest {
   /** Cards per column. */
   limit?: number;
   offset?: number;
+  /** Part of the company's name, with or without diacritics, in any case. */
+  search?: string;
+  /** One account type (KEY ACCOUNT, …), or "none" for the customers without one. */
+  label?: string;
+  /** The sales owner's e-mail, or "none" for the customers that have no owner. */
+  owner?: string;
+}
+
+// Which customers the search and filters keep; undefined when nothing narrows the board.
+function matcher(request: PipelineRequest): ((customer: PipelineCustomer) => boolean) | undefined {
+  const search = foldDiacritics(request.search?.trim() ?? "");
+  const label = request.label?.trim() ?? "";
+  const owner = request.owner?.trim().toLowerCase() ?? "";
+  if (!search && !label && !owner) return undefined;
+  return (customer) =>
+    (!search || foldDiacritics(customer.companyName).includes(search)) &&
+    (!label || (label === "none" ? !customer.label : customer.label === label)) &&
+    (!owner || (owner === "none" ? !customer.salesOwner.trim() : customer.salesOwner.trim().toLowerCase() === owner));
 }
 
 const DEFAULT_LIMIT = 100;
@@ -40,6 +59,7 @@ class PipelineService {
       limit: Math.min(Math.max(Math.trunc(request.limit ?? DEFAULT_LIMIT), 1), MAX_LIMIT),
       stage: request.stage,
       offset: Math.max(Math.trunc(request.offset ?? 0), 0),
+      match: matcher(request),
     });
   }
 }

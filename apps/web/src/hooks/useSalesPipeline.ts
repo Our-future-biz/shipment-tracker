@@ -8,29 +8,37 @@ export type PipelineBoard = interfaces.PipelineBoard;
 export type PipelineCard = interfaces.PipelineCard;
 export type PipelineStage = interfaces.PipelineStage;
 
-// Which cards a "Show more" asks for: the ones of `stage` after the `offset` already on the board
-// of the period that starts with `wonSince`.
-interface MoreCards {
-  wonSince: string | undefined;
-  stage: PipelineStage;
-  offset: number;
+// What the board is narrowed to: part of a company name, an account type, a sales owner's e-mail
+// ("none" for the customers without one); "" = no narrowing.
+export interface PipelineFilters {
+  search: string;
+  label: string;
+  owner: string;
 }
 
-const boardKey = (wonSince: string | undefined) => ["sales-pipeline", wonSince ?? null];
+// What a board is asked for with: the period of the Won column and the filters.
+type BoardAsk = { wonSince: string | undefined } & Partial<PipelineFilters>;
+
+// Which cards a "Show more" asks for: the ones of `stage` after the `offset` already on the board.
+type MoreCards = BoardAsk & { stage: PipelineStage; offset: number };
+
+const boardKey = ({ wonSince, search, label, owner }: BoardAsk) => ["sales-pipeline", wonSince ?? null, search ?? "", label ?? "", owner ?? ""];
 
 // The customer pipeline: every customer of the company under Prospect, Proposal or Won. The
 // server works the stages out on every read from the customers' quotes and shipments - nothing of
 // it is stored, and nothing here decides where a customer stands. `wonSince` (YYYY-MM-DD, the day
 // in Prague; undefined = all time) is the first day of the period of the Won column, the only
-// column it changes. Each column comes with the number of customers it holds in all and with its
+// column it changes. `filters` narrow the whole board; each column comes with the number of customers it holds in all and with its
 // first cards; `showMore` fetches the next ones of one column.
-export const useSalesPipeline = (wonSince: string | undefined) => {
+export const useSalesPipeline = (wonSince: string | undefined, filters: PipelineFilters) => {
   const queryClient = useQueryClient();
+  // An empty filter is not sent.
+  const ask: BoardAsk = { wonSince, search: filters.search || undefined, label: filters.label || undefined, owner: filters.owner || undefined };
 
   const query = useQuery({
-    queryKey: boardKey(wonSince),
-    queryFn: () => api.sales.salesPipeline({ wonSince }),
-    // The board of the period before stays on screen until the one asked for is there.
+    queryKey: boardKey(ask),
+    queryFn: () => api.sales.salesPipeline(ask),
+    // The board asked for before stays on screen until the one asked for now is there.
     placeholderData: (prev) => prev,
     // A customer moves when a quote is sent or a shipment is created - on other screens, which
     // know nothing of this board. Whoever opens it gets it read again, however fresh the copy.
@@ -43,7 +51,7 @@ export const useSalesPipeline = (wonSince: string | undefined) => {
   const moreMutation = useMutation({
     mutationFn: (asked: MoreCards) => api.sales.salesPipeline(asked),
     onSuccess: (more, { stage, offset, ...asked }) => {
-      const key = boardKey(asked.wonSince);
+      const key = boardKey(asked);
       const shown = queryClient.getQueryData<PipelineBoard>(key);
       // The board was read again meanwhile: the cards would not follow the ones it shows now.
       if (!shown || shown.cards[stage].length !== offset) return;
@@ -66,13 +74,13 @@ export const useSalesPipeline = (wonSince: string | undefined) => {
     // No board to show: the first read, or another try after one that failed - what an earlier
     // read brought is not passed off as the board meanwhile.
     isLoading: query.isPending || (query.isError && query.isFetching),
-    // Another period was asked for; the Won column on screen is still the one of the period before.
-    isChangingPeriod: query.isPlaceholderData,
+    // Another period or other filters were asked for; the board on screen is still the one before.
+    isChangingView: query.isPlaceholderData,
     // The last request failed. The board read earlier may be out of date, or of another period.
     isError: query.isError && !query.isFetching,
     reload: query.refetch,
     /** Adds the next cards of a column to the board; rejects when they could not be fetched. */
-    showMore: (stage: PipelineStage) => moreMutation.mutateAsync({ wonSince, stage, offset: board?.cards[stage].length ?? 0 }),
+    showMore: (stage: PipelineStage) => moreMutation.mutateAsync({ ...ask, stage, offset: board?.cards[stage].length ?? 0 }),
     /** The column whose next cards are on their way. */
     loadingMore: moreMutation.isPending ? moreMutation.variables.stage : null,
   };

@@ -14,6 +14,12 @@ interface SalesPipelineRequest {
   limit?: number;
   /** With `stage`: how many cards of that column to skip. */
   offset?: number;
+  /** Only customers whose name holds this text (diacritics and case do not matter). */
+  search?: string;
+  /** Only customers of this account type; "none" = those without one. */
+  label?: string;
+  /** Only customers of this sales owner (e-mail); "none" = those without one. */
+  owner?: string;
 }
 
 /**
@@ -21,7 +27,8 @@ interface SalesPipelineRequest {
  * it on - Prospect (interested, no quote sent yet), Proposal (a quote was sent), Won (a shipment
  * was ordered) - with its open quotes and last activity. `totals` count whole columns; `cards`
  * are cut to the limit; `notes` count what cannot be placed. Read-only: nothing is written, the
- * status on a customer record is neither read as a stage nor changed.
+ * status on a customer record is neither read as a stage nor changed. `search`, `label` and
+ * `owner` narrow the board; its totals then count the customers they keep.
  */
 export const salesPipeline = api(
   { expose: true, auth: true, method: "GET", path: "/sales/pipeline" },

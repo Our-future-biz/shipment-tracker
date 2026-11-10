@@ -113,4 +113,24 @@ describe("board", () => {
     quoteFacts.mockRejectedValue(new Error("quotes is unreachable"));
     await expect(pipelineService.board({})).rejects.toThrow("quotes is unreachable");
   });
+
+  it("narrows the board to the search, account type and sales owner asked for, and counts only those", async () => {
+    customerList.mockResolvedValue({
+      data: [
+        { ...customer("vp", "Prospect", "2026-09-20T08:00:00.000Z"), companyName: "Doosan Škoda Power a.s.", label: "TARGET CUSTOMER" as never, salesOwner: "Jana@Example.com" },
+        { ...customer("ittec", "Prospect", "2026-09-01T08:00:00.000Z"), label: "" as never, salesOwner: " " },
+        customer("ravak", "Active", "2026-08-01T08:00:00.000Z"),
+      ],
+    });
+    const names = (board: Awaited<ReturnType<typeof pipelineService.board>>) =>
+      [...board.cards.prospect, ...board.cards.proposal, ...board.cards.won].map((card) => card.customerId);
+    // Without diacritics and in any case.
+    expect(names(await pipelineService.board({ search: "skoda" }))).toEqual(["vp"]);
+    expect(names(await pipelineService.board({ owner: "jana@example.com" }))).toEqual(["vp"]);
+    expect(names(await pipelineService.board({ owner: "none" }))).toEqual(["ittec"]);
+    expect(names(await pipelineService.board({ label: "none" }))).toEqual(["ittec"]);
+    const standard = await pipelineService.board({ label: "STANDARD" });
+    expect(names(standard)).toEqual(["ravak"]);
+    expect(standard.totals).toEqual({ prospect: 0, proposal: 0, won: 1 });
+  });
 });

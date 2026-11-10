@@ -72,6 +72,8 @@ export interface BoardView {
   /** Only this column's cards, from `offset` on: the way to fetch more of a column. */
   stage?: PipelineStage;
   offset?: number;
+  /** Only the customers this says yes to - the search and filters of the page. Totals count them alone. */
+  match?: (customer: PipelineCustomer) => boolean;
 }
 
 /**
@@ -140,6 +142,7 @@ export function buildBoard(
       shipmentsOfNonCustomers += shipmentsOf.get(customer.id)?.shipmentCount ?? 0;
       continue;
     }
+    if (view.match && !view.match(customer)) continue;
     const quotes = quotesOf.get(customer.id);
     const shipments = shipmentsOf.get(customer.id);
     const stage = pipelineStage({
