@@ -10,6 +10,8 @@ import { api, apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useMasterJobTracking, type MasterJobTrackingHouse } from "@/hooks/useShipmentTracking";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useColumnWidths } from "@/hooks/useColumnWidths";
+import { ResizableTh } from "@/components/ResizableTh";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { LINK_REFUSED_HINT, linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
@@ -36,6 +38,9 @@ const VIEWS: readonly { key: View; label: string; title: string }[] = [
   { key: "status", label: "Status", title: "ATD, ATA, customs status, warehouse received, delivered and the last event" },
 ];
 
+// A header cell that clips its title once its column is dragged narrower than it (ResizableTh).
+const RTH = `${TH} overflow-hidden text-ellipsis`;
+
 const Day = ({ day }: { day: string | null | undefined }) => (day ? <span className="tabular-nums whitespace-nowrap">{formatDate(day)}</span> : EMPTY_CELL);
 
 // A house's customs: Cleared as a green pill, else its status as a hint.
@@ -60,6 +65,9 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
   const tracking = useMasterJobTracking(masterJob.id, view === "status");
   const standing = new Map((tracking.data ?? []).map((h) => [h.shipmentId, h]));
   const status = view === "status";
+  // A shipment the user may not change cannot be taken off by them either (the server refuses it).
+  const { user } = useAuth();
+  const sizing = useColumnWidths(user?.id, "master-job-shipments");
 
   const handleUnlink = async (s: MasterJobShipmentItem) => {
     try {
@@ -75,8 +83,6 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
   const [confirmUnlinkId, setConfirmUnlinkId] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState(false);
   const toUnlink = shipments.find((s) => s.id === confirmUnlinkId);
-  // A shipment the user may not change cannot be taken off by them either (the server refuses it).
-  const { user } = useAuth();
 
   return (
     <>
@@ -101,28 +107,29 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
         </Tooltip>
         <div className="overflow-x-auto">
           {/* Fixed columns, as the shipment's tables have them: Internal Reference and Customer keep their
-              width when the view changes, and the "⋯" column is last in both. A long name is cut short (in
-              full on hover); in Status a long customs status or last event wraps. */}
+              width when the view changes, and the "⋯" column is last in both. Each column can be dragged
+              to a width of its own (ResizableTh); a table wider than the card scrolls. A long value is cut
+              short (a name in full on hover); in Status a long customs status or last event wraps. */}
           <table className={`w-full table-fixed border-separate border-spacing-0 ${status ? "min-w-[1080px]" : "min-w-[900px]"}`}>
             <thead>
               <tr>
-                <th className={`${TH} w-[172px]`}>Internal Reference</th>
-                <th className={`${TH} w-[190px]`}>Customer</th>
+                <ResizableTh sizing={sizing} k="jobNumber" className={`${RTH} w-[172px]`}>Internal Reference</ResizableTh>
+                <ResizableTh sizing={sizing} k="customer" className={`${RTH} w-[190px]`}>Customer</ResizableTh>
                 {status ? (
                   <>
-                    <th className={`${TH} w-[96px]`}>ATD Actual</th>
-                    <th className={`${TH} w-[96px]`}>ATA Actual</th>
-                    <th className={`${TH} w-[132px]`}>Customs Status</th>
-                    <th className={`${TH} w-[156px]`}>Warehouse Received</th>
-                    <th className={`${TH} w-[96px]`}>Delivered</th>
-                    <th className={TH}>Last event</th>
+                    <ResizableTh sizing={sizing} k="departed" className={`${RTH} w-[96px]`}>ATD Actual</ResizableTh>
+                    <ResizableTh sizing={sizing} k="arrived" className={`${RTH} w-[96px]`}>ATA Actual</ResizableTh>
+                    <ResizableTh sizing={sizing} k="customs" className={`${RTH} w-[132px]`}>Customs Status</ResizableTh>
+                    <ResizableTh sizing={sizing} k="gateIn" className={`${RTH} w-[156px]`}>Warehouse Received</ResizableTh>
+                    <ResizableTh sizing={sizing} k="delivered" className={`${RTH} w-[96px]`}>Delivered</ResizableTh>
+                    <ResizableTh sizing={sizing} k="lastEvent" className={RTH}>Last event</ResizableTh>
                   </>
                 ) : (
                   <>
-                    <th className={TH}>Shipper</th>
-                    <th className={TH}>Consignee</th>
-                    <th className={`${TH} w-[136px]`}>Trade Direction</th>
-                    <th className={`${TH} w-[160px]`}>Container Number</th>
+                    <ResizableTh sizing={sizing} k="shipper" className={RTH}>Shipper</ResizableTh>
+                    <ResizableTh sizing={sizing} k="consignee" className={RTH}>Consignee</ResizableTh>
+                    <ResizableTh sizing={sizing} k="tradeDirection" className={`${RTH} w-[136px]`}>Trade Direction</ResizableTh>
+                    <ResizableTh sizing={sizing} k="containerNumber" className={`${RTH} w-[160px]`}>Container Number</ResizableTh>
                   </>
                 )}
                 {/* The actions column: the "+" above lies over it. */}
@@ -134,7 +141,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                 const house = standing.get(s.id);
                 return (
                   <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                    <td className={`${TD} whitespace-nowrap`}>
+                    <td className={`${TD} truncate`}>
                       {/* From Status, the shipment opens on its own Tracking. */}
                       <Link href={status ? `/shipments/${s.id}?tab=tracking` : `/shipments/${s.id}`} className={`${REF} font-semibold ${LINK}`}>
                         {s.jobNumber}
@@ -143,19 +150,19 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                     <td className={`${TD} truncate`} title={s.customer || undefined}>{s.customer || EMPTY_CELL}</td>
                     {status ? (
                       <>
-                        <td className={TD}><Day day={house?.departed} /></td>
-                        <td className={TD}><Day day={house?.arrived} /></td>
-                        <td className={TD}><Customs house={house} /></td>
-                        <td className={TD}><Day day={house?.gateIn} /></td>
-                        <td className={TD}><Day day={house?.delivered} /></td>
-                        <td className={TD}>{house?.lastEvent || EMPTY_CELL}</td>
+                        <td className={`${TD} truncate`}><Day day={house?.departed} /></td>
+                        <td className={`${TD} truncate`}><Day day={house?.arrived} /></td>
+                        <td className={`${TD} overflow-hidden`}><Customs house={house} /></td>
+                        <td className={`${TD} truncate`}><Day day={house?.gateIn} /></td>
+                        <td className={`${TD} truncate`}><Day day={house?.delivered} /></td>
+                        <td className={`${TD} overflow-hidden break-words`}>{house?.lastEvent || EMPTY_CELL}</td>
                       </>
                     ) : (
                       <>
                         <td className={`${TD} truncate`} title={s.shipper || undefined}>{s.shipper || EMPTY_CELL}</td>
                         <td className={`${TD} truncate`} title={s.consignee || undefined}>{s.consignee || EMPTY_CELL}</td>
-                        <td className={TD}>{s.tradeDirection || EMPTY_CELL}</td>
-                        <td className={TD}>
+                        <td className={`${TD} truncate`}>{s.tradeDirection || EMPTY_CELL}</td>
+                        <td className={`${TD} truncate`}>
                           {/* As in the Shipments grid: the numbers open the shipment's Container Details. */}
                           {s.containerNumber ? (
                             <Link href={`/shipments/${s.id}?tab=container`} className={`${REF} ${LINK} font-medium`}>
