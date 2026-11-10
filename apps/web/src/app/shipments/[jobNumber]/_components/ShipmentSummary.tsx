@@ -27,12 +27,14 @@ interface FactProps {
   children: React.ReactNode;
 }
 
-// One fact of the summary: a small caps label over its value.
+// One fact of the summary: a small caps label over its value. Nothing in the summary ever wraps
+// (Martin's rule): label and value keep to one line each and are cut with "…" if a column is too
+// narrow; the label's full text shows on hover.
 function Fact({ label, className = "", children }: FactProps) {
   return (
     <div className={`min-w-0 ${className}`}>
-      <div className={`${LABEL_TEXT} break-words`}>{label}</div>
-      <div className="mt-0.5 min-h-[22px] flex items-center text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
+      <div className={`${LABEL_TEXT} whitespace-nowrap truncate`} title={label}>{label}</div>
+      <div className="mt-0.5 min-h-[22px] flex items-center whitespace-nowrap overflow-hidden text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
     </div>
   );
 }
@@ -49,18 +51,17 @@ const text = (v: string) => (v ? <span className="truncate" title={v}>{v}</span>
  */
 export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
   const status = shipment.status ?? "";
-  const container = getFieldValue(shipment, "containerNumber");
   const job = shipment.jobNumber ?? shipment.id;
   const pod = getFieldValue(shipment, "pod");
-  const destination = getFieldValue(shipment, "destination");
 
   return (
-    // Two rows of six on a wide screen; the columns line up across both rows. The second row
-    // always reads Port of Loading, ETD, Port of Discharge, ETA. The status gets the widest column, so it stays on one line.
-    // The first column is never narrower than the job number (they run up to CZPROJECT00000023),
-    // and only the job number sizes it: a long Port of Loading below stays cut. Below xl six columns would
-    // leave the others too narrow for a date, so the job number has a row of its own there.
-    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
+    // Two rows of six on a wide screen, lined up across both rows: Job, Trade Direction, Freight
+    // Mode, Load Type, Customer, Shipment Status; then Port of Loading, ETD, Port of Discharge, ETA,
+    // CFS, ETA Warehouse/HUB. Each column is at least as wide as its longest label (the last one as
+    // the status badge), so nothing wraps at 1280px. The first column is never narrower than the job
+    // number (they run up to CZPROJECT00000023). Below xl six columns would leave the others too
+    // narrow for a date, so the job number has a row of its own there.
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1fr)_minmax(108px,1fr)_minmax(122px,1fr)_minmax(94px,1fr)_minmax(80px,1.4fr)_minmax(184px,1.2fr)] gap-x-6 xl:gap-x-4 2xl:gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
       <Fact label="Job" className="col-span-full xl:col-span-1">
         {/* The job number is the page's title. */}
         <div className="flex items-center gap-1 min-w-0">
@@ -70,6 +71,10 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
           <CopyButton text={job} what="job number" />
         </div>
       </Fact>
+      <Fact label="Trade Direction">{text(getFieldValue(shipment, "tradeDirection"))}</Fact>
+      <Fact label="Freight Mode">{text(getFieldValue(shipment, "freightMode"))}</Fact>
+      {/* As the Overview and the grid show it: an air Full Load reads "Single Shipment". */}
+      <Fact label="Load Type">{text(loadTypeLabel(shipment.loadType, shipment.freightMode))}</Fact>
       <Fact label="Customer">
         {shipment.customer ? (
           shipment.customerId ? (
@@ -83,10 +88,6 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
           dash
         )}
       </Fact>
-      <Fact label="Trade Direction">{text(getFieldValue(shipment, "tradeDirection"))}</Fact>
-      <Fact label="Freight Mode">{text(getFieldValue(shipment, "freightMode"))}</Fact>
-      {/* As the Overview and the grid show it: an air Full Load reads "Single Shipment". */}
-      <Fact label="Load Type">{text(loadTypeLabel(shipment.loadType, shipment.freightMode))}</Fact>
       <Fact label="Shipment Status">
         {status ? (
           <StatusBadge status={status} className="max-w-full truncate" />
@@ -102,29 +103,15 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
         <span className="min-w-0">
           {/* A block, so a long port is cut short rather than running into the ETA column. */}
           {pod ? <span className="block truncate" title={pod}>{pod}</span> : dash}
-          {/* the final destination, which the header's route line also showed */}
-          {destination && destination !== pod && (
-            <span className="block truncate text-[12px] font-normal text-slate-500" title={destination}>
-              Destination: {destination}
-            </span>
-          )}
         </span>
       </Fact>
       <Fact label="ETA Estimated">
         <span className="tabular-nums text-[14px] font-semibold">{formatDate(shipment.estimatedArrival) || dash}</span>
       </Fact>
+      {/* The container freight station the cargo goes through. */}
+      <Fact label="CFS">{text(getFieldValue(shipment, "cfs"))}</Fact>
       <Fact label="ETA Warehouse/HUB">
         <span className="tabular-nums">{formatDate(getFieldValue(shipment, "etaWarehouse")) || dash}</span>
-      </Fact>
-      <Fact label="Container Number">
-        {container ? (
-          // The same chip the Container Details tab gives a container number.
-          <span className={`${REF} truncate text-[12px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600`} title={container}>
-            {container}
-          </span>
-        ) : (
-          dash
-        )}
       </Fact>
     </div>
   );

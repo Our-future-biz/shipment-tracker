@@ -465,6 +465,9 @@ function MemberRow({
 }: MemberRowProps) {
   const { person, when } = splitPersonStamp(value);
   const approvedByLocked = React.useContext(ApprovedByLockedContext);
+  const editable = React.useContext(ShipmentDetailsEditableContext);
+  // Like every field of the page: read as text, picked after a double click, closed by a click elsewhere.
+  const [editing, setEditing] = useState(false);
   return (
     <div className={ROW}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
@@ -472,20 +475,41 @@ function MemberRow({
         <span className="flex-1 min-w-0 truncate text-[13px] text-slate-900" title="The credit check is approved: only a manager can change or delete this">
           {person || "—"}
         </span>
-      ) : (
-        <UserPicker
-          variant="borderless"
-          size="small"
-          placeholder="—"
-          className="flex-1 min-w-0 -ml-2 text-[13px]"
-          popupMatchSelectWidth={false}
-          aria-label={label}
-          value={person}
-          onChange={(email) => {
-            const next = personChange(value, email);
-            if (next !== null) onCommit(fieldKey, next);
+      ) : editing ? (
+        <div
+          className="flex-1 min-w-0"
+          onKeyDownCapture={(e) => {
+            if (e.key === "Escape") setEditing(false);
           }}
-        />
+        >
+          <UserPicker
+            size="small"
+            autoFocus
+            defaultOpen
+            placeholder="—"
+            className="w-full text-[13px]"
+            popupMatchSelectWidth={false}
+            aria-label={label}
+            value={person}
+            onChange={(email) => {
+              setEditing(false);
+              const next = personChange(value, email);
+              if (next !== null) onCommit(fieldKey, next);
+            }}
+            onBlur={() => setEditing(false)}
+          />
+        </div>
+      ) : (
+        <span
+          className={`flex-1 min-w-0 flex items-center rounded px-1 -mx-1 transition-colors text-[13px] ${
+            editable ? "cursor-pointer hover:bg-slate-100" : ""
+          }`}
+          title={editable ? "Double-click to edit" : undefined}
+          onDoubleClick={editable ? () => setEditing(true) : undefined}
+        >
+          {person ? <FadeText className="text-slate-900">{person}</FadeText> : <span className={EMPTY}>—</span>}
+          <UnlinkedPersonMark value={person} hint={editable ? "double-click to pick one" : "only a user can be picked"} />
+        </span>
       )}
       {when && <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">{when}</span>}
     </div>
@@ -524,16 +548,22 @@ function InvoiceRow({
     <ConfigProvider componentDisabled={false}>
     <div className={ROW}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={`flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer hover:underline ${
+      {/* Opened by a double click, like every other field of the page. */}
+      <span
+        role="button"
+        tabIndex={0}
+        title="Double-click to edit"
+        onDoubleClick={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") setOpen(true);
+        }}
+        className={`flex-1 min-w-0 truncate rounded px-1 -mx-1 cursor-pointer hover:bg-slate-100 transition-colors ${
           value ? "text-slate-900" : EMPTY
         }`}
         style={value ? styleFor?.(fieldKey, value) ?? undefined : undefined}
       >
         {value || "—"}
-      </button>
+      </span>
       <CommercialInvoicesModal
         shipment={open ? shipment : null}
         onClose={() => setOpen(false)}
@@ -850,6 +880,7 @@ const CARRIER_BOL: FieldDef[] = [
   { key: "vessel", label: "Vessel" },
   { key: "voyage", label: "Voyage" },
   { key: "containerNumber", label: "Container Number", ro: true },
+  { key: "carrierCode", label: "Carrier code", ro: true },
   { key: "houseBolNumber", label: "House BoL Number" },
   { key: "houseBolType", label: "House BoL Type" },
   { key: "masterBolNumber", label: "Master BoL Number" },
@@ -885,6 +916,7 @@ const EQUIP_DEPOT_L: FieldDef[] = [
 const EQUIP_DEPOT_R: FieldDef[] = [
   { key: "redeliveryReference", label: "Redelivery Reference" },
   { key: "redeliveryDepot", label: "Redelivery Depot" },
+  { key: "equipmentDelivery", label: "Equipment Delivery/Pick-Up Address" },
   { key: "equipmentDeliveryDate", label: "Equipment Delivery/Pick-Up Date" },
 ];
 
@@ -902,8 +934,6 @@ const PARTIES_AGENTS: FieldDef[] = [
   { key: "agent", label: "Agent" },
   { key: "agentPic", label: "Agent's PIC" },
   { key: "supplierPic", label: "Supplier's PIC" },
-  { key: "equipmentDelivery", label: "Equipment Delivery/Pick-Up Address" },
-  { key: "equipmentDeliveryDate", label: "Equipment Delivery/Pick-Up Date" },
   { key: "customsProcedure", label: "Customs Procedure" },
 ];
 // The Quote card shows the quote uploaded in the Costs Breakdown tab, and its selling, buying and
@@ -1419,7 +1449,7 @@ export function ShipmentDetailContent() {
             type="info"
             showIcon
             className="mb-4"
-            message="View only: only this shipment's Person in Charge, Holiday Cover or a manager can change its details."
+            message="View only: only the user in Handled By or Holiday Cover, or a manager, can change its details."
           />
         )}
         {activeTab === "details" && (
@@ -1429,10 +1459,11 @@ export function ShipmentDetailContent() {
             <ShipmentProgress shipment={shipment} />
 
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_296px] 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
-            {/* ── MAIN COLUMN ── the cards in the order a shipment is worked: overview, dates,
+            {/* ── MAIN COLUMN ── the cards in the order a shipment is worked: overview, commercial parties, dates,
                 parties, transport documents, equipment, quote, cargo, admin. Cards side by side
                 stretch to one height, so the page has no holes. */}
-            <div className="@container flex flex-col gap-4 min-w-0">
+            {/* Labels 160px wide from lg up, so "Shipping line / Coloader" or "Incoterms Destination" keep to one line. */}
+            <div className="@container flex flex-col gap-4 min-w-0 lg:[--lw:160px]">
               {/* SHIPMENT OVERVIEW */}
               <div className={CARD}>
                 {/* Column order mirrors the agreed overview mockup 1:1 — left is
@@ -1440,25 +1471,22 @@ export function ShipmentDetailContent() {
                     Fields are declared as a list so the field chooser can filter them. */}
                 {(() => {
                   const left: FieldDef[] = [
-                    { key: "jobNumber", label: "Internal Reference", ro: true },
+                    // Internal Reference is in Basic Information.
                     { key: "masterJob", label: "Master Job", ro: true },
-                    { key: "tradeDirection", label: "Trade Direction" },
                     { key: "freightMode", label: "Freight Mode" },
+                    { key: "tradeDirection", label: "Trade Direction" },
                     { key: "loadType", label: "Load Type" },
                     { key: "serviceType", label: "Service Type" },
-                    { key: "customerReference", label: "Customer Reference" },
-                    { key: "serviceName", label: "Service Name" },
                     { key: "customer", label: "Customer", ro: true },
                     // Picked from the customer's contacts (the contact cell), with its card on hover.
                     { key: "customerPic", label: "Customer's PIC" },
-                    { key: "shipper", label: "Shipper", ro: true },
-                    { key: "consignee", label: "Consignee", ro: true },
+                    { key: "customerReference", label: "Customer Reference" },
+                    { key: "serviceName", label: "Service Name" },
                     { key: "personInCharge", label: "Handled By" },
                     { key: "salesPerson", label: "Sales Person", ro: true },
                     { key: "incotermOrigin", label: "Incoterms Origin", ro: true },
                     { key: "incotermDestination", label: "Incoterms Destination", ro: true },
                     { key: "freeComments", label: "Free Comments" },
-                    { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
                   const right: FieldDef[] = [
                     { key: "status", label: "Shipment Status" },
@@ -1467,18 +1495,15 @@ export function ShipmentDetailContent() {
                     { key: "invoicingStatus", label: "Invoicing Status" },
                     { key: "pol", label: "Port of Loading" },
                     { key: "estimatedDeparture", label: "ETD Estimated" },
-                    { key: "estimatedDepartureWeek", label: "Est. Departure Week", ro: true },
                     { key: "pod", label: "Port of Discharge" },
                     { key: "estimatedArrival", label: "ETA Estimated" },
-                    { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
                     { key: "shipmentsDate", label: "Shipments Month", ro: true },
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
-                    { key: "carrierCode", label: "Carrier code", ro: true },
                     { key: "containerNumber", label: "Container Number", ro: true },
-                    { key: "sealNumber", label: "Seal Number", ro: true },
                     { key: "masterBolNumber", label: "Master BoL Number" },
                     { key: "houseBolNumber", label: "House BoL Number" },
+                    { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
 
                   // Radky, ktere nejsou obycejny FieldRow
@@ -1540,7 +1565,6 @@ export function ShipmentDetailContent() {
                       <ContainerNumberLinkRow value={shipment.containerNumber} onOpen={openContainerTab} />
                     ),
                     // Worked out by the server from the shipping line, and no column of the grid either.
-                    carrierCode: <RoRow label="Carrier code" value={shipment.carrierCode} />,
                   };
 
                   const allKeys = [...left, ...right].map((f) => f.key);
@@ -1577,25 +1601,8 @@ export function ShipmentDetailContent() {
                 })()}
               </div>
 
-              {/* KEY DATES */}
-              <DetailCard
-                icon={<CalendarOutlined />}
-                title="Key Dates"
-                cardId="dates"
-                columns={[KEY_DATES_L, KEY_DATES_R]}
-                paired
-                shipment={shipment}
-                onCommit={handleCommit}
-                styleFor={styleFor}
-                renderAfter={{
-                  actualDeparture: <TaxDateLockNote shipmentId={shipment.id} />,
-                  actualArrival: <TaxDateLockNote shipmentId={shipment.id} />,
-                  plannedDeliveryDate: <TaxDateLockNote shipmentId={shipment.id} whenDeliveryDated />,
-                }}
-              />
-
-              {/* COMMERCIAL PARTIES */}
-              <div className={CARD}>
+              {/* COMMERCIAL PARTIES — narrow labels (the longest is "Postcode / Country"), so long addresses fit */}
+              <div className={`${CARD} [--lw:136px]`}>
                 {(() => {
                   const left: FieldDef[] = [
                     { key: "shipper", label: "Shipper", ro: true },
@@ -1690,7 +1697,26 @@ export function ShipmentDetailContent() {
                 })()}
               </div>
 
-              {/* CARRIER & BILL OF LADING  |  PARTIES & AGENTS */}
+              {/* KEY DATES */}
+              <DetailCard
+                icon={<CalendarOutlined />}
+                title="Key Dates"
+                cardId="dates"
+                columns={[KEY_DATES_L, KEY_DATES_R]}
+                paired
+                // Wider labels so "Closing Date (Cargo Closing)" and "Actual Departure Week" keep to one line.
+                className="lg:[--lw:196px]"
+                shipment={shipment}
+                onCommit={handleCommit}
+                styleFor={styleFor}
+                renderAfter={{
+                  actualDeparture: <TaxDateLockNote shipmentId={shipment.id} />,
+                  actualArrival: <TaxDateLockNote shipmentId={shipment.id} />,
+                  plannedDeliveryDate: <TaxDateLockNote shipmentId={shipment.id} whenDeliveryDated />,
+                }}
+              />
+
+              {/* CARRIER & BILL OF LADING  |  EQUIPMENT & DEPOT */}
               <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
                 <DetailCard
                   icon={<FileProtectOutlined />}
@@ -1702,6 +1728,8 @@ export function ShipmentDetailContent() {
                   onCommit={handleCommit}
                   styleFor={styleFor}
                   renderField={{
+                    // Not a column of the Shipments table, so read straight from the shipment.
+                    carrierCode: <RoRow label="Carrier code" value={shipment.carrierCode} />,
                     containerNumber: (
                       <ContainerNumberLinkRow value={shipment.containerNumber} onOpen={openContainerTab} />
                     ),
@@ -1713,18 +1741,19 @@ export function ShipmentDetailContent() {
                   }}
                 />
                 <DetailCard
-                  icon={<TeamOutlined />}
-                  title="Parties & Agents"
-                  cardId="partiesAgents"
+                  icon={<ContainerOutlined />}
+                  title="Equipment & Depot"
+                  cardId="equip"
+                  layout="stack"
                   className="h-full"
-                  columns={[PARTIES_AGENTS]}
+                  columns={[EQUIP_DEPOT_L, EQUIP_DEPOT_R]}
                   shipment={shipment}
                   onCommit={handleCommit}
                   styleFor={styleFor}
                 />
               </div>
 
-              {/* REFERENCES & ROUTING  |  EQUIPMENT & DEPOT */}
+              {/* REFERENCES & ROUTING  |  PARTIES & AGENTS */}
               <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
                 <DetailCard
                   icon={<NodeIndexOutlined />}
@@ -1737,12 +1766,11 @@ export function ShipmentDetailContent() {
                   styleFor={styleFor}
                 />
                 <DetailCard
-                  icon={<ContainerOutlined />}
-                  title="Equipment & Depot"
-                  cardId="equip"
-                  layout="stack"
+                  icon={<TeamOutlined />}
+                  title="Parties & Agents"
+                  cardId="partiesAgents"
                   className="h-full"
-                  columns={[EQUIP_DEPOT_L, EQUIP_DEPOT_R]}
+                  columns={[PARTIES_AGENTS]}
                   shipment={shipment}
                   onCommit={handleCommit}
                   styleFor={styleFor}
@@ -1805,7 +1833,7 @@ export function ShipmentDetailContent() {
                     { key: "createdOn", label: "Created On", ro: true },
                   ];
                   const right: FieldDef[] = [
-                    { key: "personInCharge", label: "Person In Charge" },
+                    { key: "personInCharge", label: "Handled By" },
                     { key: "holidayCover", label: "Holiday Cover" },
                     { key: "createdBy", label: "Created By", ro: true },
                   ];
@@ -1844,6 +1872,8 @@ export function ShipmentDetailContent() {
               <DetailCard
                 icon={<WarningOutlined />}
                 title="Cargo Handling"
+                // "Temperature Controlled" on one line.
+                className="[--lw:170px]"
                 columns={[CARGO_HANDLING_FIELDS]}
                 shipment={shipment}
                 onCommit={handleCommit}
@@ -1880,7 +1910,7 @@ export function ShipmentDetailContent() {
                 </div>
               </div>
 
-              <DetailCard icon={<SafetyCertificateOutlined />} title="Compliance" cardId="compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard icon={<SafetyCertificateOutlined />} title="Compliance" cardId="compliance" className="[--lw:150px]" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
               <DetailCard icon={<HomeOutlined />} title="Destination Warehouse Routing" cardId="destinationRouting" columns={[DESTINATION_ROUTING_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
             </div>
           </div>
