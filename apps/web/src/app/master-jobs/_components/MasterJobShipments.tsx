@@ -22,7 +22,8 @@ import { Pill } from "@/components/Pill";
 import { PillTabs } from "@/components/SectionCard";
 import { formatDate } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
-import { EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TH } from "@/styles/ui";
+import { NOT_STACKABLE } from "@/lib/cargo";
+import { EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 
 // The picker's head stays put while its rows scroll, as the Master Job dialog's does; z-10 keeps
 // it over antd's checkbox inputs, so a row scrolled under it can't be ticked through it.
@@ -31,12 +32,37 @@ const PICK_TH = `${TH} sticky top-0 z-10 bg-white`;
 /** Why a shipment the user may not change offers no Remove (the server refuses it: lib/shipmentEditRule). */
 const UNLINK_REFUSED_HINT = "Only its Person in Charge, Holiday Cover or a manager can remove it from the master job";
 
-// Two views of the same houses: who they are, and where each one stands.
-type View = "details" | "status";
+// Three views of the same houses: who they are, where each one stands, and what each one carries.
+type View = "details" | "status" | "cargo";
 const VIEWS: readonly { key: View; label: string; title: string }[] = [
   { key: "details", label: "Details", title: "Customer, shipper, consignee, trade direction and container numbers" },
   { key: "status", label: "Status", title: "ATD, ATA, customs status, warehouse received, delivered and the last event" },
+  { key: "cargo", label: "Shipment Details", title: "Pieces, packages, weight, volume and cargo stackability" },
 ];
+
+// A figure the API sends formatted ("1,234.5") as a number; 0 for none or for text that is no number.
+const amount = (value: string) => {
+  const n = Number(value.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+const fmtAmount = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+
+// A total of the houses' figures, "—" when none has one; when only some have one, it says how many.
+function CargoTotal({ values }: { values: string[] }) {
+  const given = values.filter((v) => amount(v) !== 0);
+  if (given.length === 0) return EMPTY_CELL;
+  const total = fmtAmount(given.reduce((sum, v) => sum + amount(v), 0));
+  if (given.length === values.length) return <>{total}</>;
+  return (
+    <span title={`Only ${given.length} of the ${values.length} shipments have it`}>
+      {total} <span className={`${HINT} font-normal`}>· {given.length} of {values.length}</span>
+    </span>
+  );
+}
+
+// Not stackable is the one to notice: amber, as on the shipment's own page.
+const Stackability = ({ value }: { value: string }) =>
+  !value ? EMPTY_CELL : value === NOT_STACKABLE ? <Pill tone="amber">{value}</Pill> : <span>{value}</span>;
 
 // A header cell that clips its title once its column is dragged narrower than it (ResizableTh).
 const RTH = `${TH} overflow-hidden text-ellipsis`;
@@ -55,7 +81,8 @@ interface MasterJobShipmentsProps {
 }
 
 // The house shipments under the master job, with linking and unlinking right here. A switch shows
-// either who they are (Details) or where each one stands (Status, what the Tracking tab listed).
+// who they are (Details), where each one stands (Status, what the Tracking tab listed) or what each
+// one carries (Shipment Details: pieces, packages, weight, volume and stackability, with totals).
 export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: MasterJobShipmentsProps) {
   const message = useMessages();
   const [picking, setPicking] = useState(false);
@@ -65,6 +92,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
   const tracking = useMasterJobTracking(masterJob.id, view === "status");
   const standing = new Map((tracking.data ?? []).map((h) => [h.shipmentId, h]));
   const status = view === "status";
+  const cargo = view === "cargo";
   // A shipment the user may not change cannot be taken off by them either (the server refuses it).
   const { user } = useAuth();
   const sizing = useColumnWidths(user?.id, "master-job-shipments");
@@ -110,7 +138,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
               width when the view changes, and the "⋯" column is last in both. Each column can be dragged
               to a width of its own (ResizableTh); a table wider than the card scrolls. A long value is cut
               short (a name in full on hover); in Status a long customs status or last event wraps. */}
-          <table className={`w-full table-fixed border-separate border-spacing-0 ${status ? "min-w-[1080px]" : "min-w-[900px]"}`}>
+          <table className={`w-full table-fixed border-separate border-spacing-0 ${status ? "min-w-[1080px]" : cargo ? "min-w-[1000px]" : "min-w-[900px]"}`}>
             <thead>
               <tr>
                 <ResizableTh sizing={sizing} k="jobNumber" className={`${RTH} w-[172px]`}>Internal Reference</ResizableTh>
@@ -123,6 +151,14 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                     <ResizableTh sizing={sizing} k="gateIn" className={`${RTH} w-[156px]`}>Warehouse Received</ResizableTh>
                     <ResizableTh sizing={sizing} k="delivered" className={`${RTH} w-[96px]`}>Delivered</ResizableTh>
                     <ResizableTh sizing={sizing} k="lastEvent" className={RTH}>Last event</ResizableTh>
+                  </>
+                ) : cargo ? (
+                  <>
+                    <ResizableTh sizing={sizing} k="pieces" className={`${RTH} w-[80px] !text-right`}>Pieces</ResizableTh>
+                    <ResizableTh sizing={sizing} k="packages" className={RTH}>Packages</ResizableTh>
+                    <ResizableTh sizing={sizing} k="weightKg" className={`${RTH} w-[110px] !text-right`}>Weight (kg)</ResizableTh>
+                    <ResizableTh sizing={sizing} k="volumeM3" className={`${RTH} w-[110px] !text-right`}>Volume (m³)</ResizableTh>
+                    <ResizableTh sizing={sizing} k="cargoStackability" className={`${RTH} w-[215px]`}>Cargo Stackability</ResizableTh>
                   </>
                 ) : (
                   <>
@@ -142,8 +178,11 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                 return (
                   <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                     <td className={`${TD} truncate`}>
-                      {/* From Status, the shipment opens on its own Tracking. */}
-                      <Link href={status ? `/shipments/${s.id}?tab=tracking` : `/shipments/${s.id}`} className={`${REF} font-semibold ${LINK}`}>
+                      {/* From Status the shipment opens on its own Tracking, from Shipment Details on its Cargo Details. */}
+                      <Link
+                        href={status ? `/shipments/${s.id}?tab=tracking` : cargo ? `/shipments/${s.id}?tab=cargo` : `/shipments/${s.id}`}
+                        className={`${REF} font-semibold ${LINK}`}
+                      >
                         {s.jobNumber}
                       </Link>
                     </td>
@@ -156,6 +195,14 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                         <td className={`${TD} truncate`}><Day day={house?.gateIn} /></td>
                         <td className={`${TD} truncate`}><Day day={house?.delivered} /></td>
                         <td className={`${TD} overflow-hidden break-words`}>{house?.lastEvent || EMPTY_CELL}</td>
+                      </>
+                    ) : cargo ? (
+                      <>
+                        <td className={`${TD} truncate text-right tabular-nums`}>{s.pieces || EMPTY_CELL}</td>
+                        <td className={`${TD} truncate`} title={s.packages || undefined}>{s.packages || EMPTY_CELL}</td>
+                        <td className={`${TD} truncate text-right tabular-nums`}>{s.weightKg || EMPTY_CELL}</td>
+                        <td className={`${TD} truncate text-right tabular-nums`}>{s.volumeM3 || EMPTY_CELL}</td>
+                        <td className={`${TD} truncate`}><Stackability value={s.cargoStackability} /></td>
                       </>
                     ) : (
                       <>
@@ -204,6 +251,18 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                 );
               })}
             </tbody>
+            {cargo && shipments.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td className={TD_TOTAL} colSpan={2}>Total</td>
+                  <td className={`${TD_TOTAL} text-right tabular-nums whitespace-nowrap`}><CargoTotal values={shipments.map((s) => s.pieces)} /></td>
+                  <td className={TD_TOTAL} />
+                  <td className={`${TD_TOTAL} text-right tabular-nums whitespace-nowrap`}><CargoTotal values={shipments.map((s) => s.weightKg)} /></td>
+                  <td className={`${TD_TOTAL} text-right tabular-nums whitespace-nowrap`}><CargoTotal values={shipments.map((s) => s.volumeM3)} /></td>
+                  <td className={TD_TOTAL} colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
           </table>
           {shipments.length === 0 && <div className={EMPTY_STATE}>No shipments linked yet.</div>}
         </div>

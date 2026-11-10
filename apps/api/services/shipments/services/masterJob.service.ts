@@ -6,7 +6,8 @@ import { masterJobContainerRepository } from "../repositories/masterJobContainer
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { containerRepository } from "../repositories/container.repository";
 import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
-import { isValidContainerNumber, normalizeContainerNumber } from "../lib/cargoProjection";
+import { houseCargo, isValidContainerNumber, normalizeContainerNumber } from "../lib/cargoProjection";
+import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { changesTaxDate } from "../lib/taxDate";
 import {
@@ -141,6 +142,9 @@ async function resolveParties(data: Record<string, unknown>): Promise<void> {
   );
 }
 
+// A house's cargo under the names the linked-shipments list gives it.
+const cargoItemOf = ({ stackability, ...cargo }: ReturnType<typeof houseCargo>) => ({ ...cargo, cargoStackability: stackability });
+
 class MasterJobService {
   async list(companyId: string): Promise<MasterJobItem[]> {
     const rows = await masterJobRepository.listForCompany(companyId);
@@ -154,15 +158,21 @@ class MasterJobService {
       shipmentRepository.findByMasterJobId(id, companyId),
       masterJobContainerRepository.listByMasterJobId(id, companyId),
     ]);
-    const houseContainers = await containerRepository.listByShipmentIds(houses.map((h) => h.id), companyId);
+    const houseIds = houses.map((h) => h.id);
+    const [houseContainers, houseItems, houseDimensions] = await Promise.all([
+      containerRepository.listByShipmentIds(houseIds, companyId),
+      cargoItemRepository.listByShipmentIds(houseIds, companyId),
+      cargoDimensionRepository.listByShipmentIds(houseIds, companyId),
+    ]);
+    const of = <T extends { shipmentId: string }>(rows: T[], shipmentId: string) => rows.filter((r) => r.shipmentId === shipmentId);
     // A Full Load master job shows its houses' containers live; any other load
     // type keeps its own list, assigned out to the houses. An assignment to a
     // shipment that has since left the master job or was archived is not shown.
-    const houseIds = new Set(houses.map((h) => h.id));
+    const onMasterJob = new Set(houseIds);
     const masterContainers =
       row.loadType === FULL_LOAD
         ? containersFromHouses(houseContainers)
-        : containers.map((c) => ({ ...toMasterContainerLine(c), shipmentIds: c.shipmentIds.filter((s) => houseIds.has(s)) }));
+        : containers.map((c) => ({ ...toMasterContainerLine(c), shipmentIds: c.shipmentIds.filter((s) => onMasterJob.has(s)) }));
     const shipments: MasterJobShipmentItem[] = houses
       .sort((a, b) => compareJobNumbers(a.jobNumber, b.jobNumber))
       .map((h) => ({
@@ -179,6 +189,7 @@ class MasterJobService {
           .join(", "),
         personInCharge: h.personInCharge,
         holidayCover: h.holidayCover,
+        ...cargoItemOf(houseCargo(h, of(houseContainers, h.id), of(houseItems, h.id), of(houseDimensions, h.id))),
       }));
     return {
       masterJob: toItem(row, houses.length),
