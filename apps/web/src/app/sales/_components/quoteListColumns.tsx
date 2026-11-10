@@ -21,6 +21,10 @@ import { QuoteSelling } from "./QuoteSelling";
 import { QuoteShipmentsCell } from "./QuoteShipmentsCell";
 import { QuoteStatusPill } from "./QuoteStatusPill";
 
+// Where a quote loads and discharges: its ports, else its Origin and Destination (a quote without ports).
+const loadingPlace = (q: SalesQuote): string => (q.data.pol || q.data.origin || "").trim();
+const dischargePlace = (q: SalesQuote): string => (q.data.pod || q.data.destination || "").trim();
+
 export type SortDirection = "ascend" | "descend";
 
 export interface QuoteColumn {
@@ -107,8 +111,10 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
     // The name is shown whole: the column is as wide as the longest name on the page.
     render: (q) => <CustomerLink customerId={q.data.customerId} name={q.data.customerName} />,
   },
-  { key: "pol", title: "Port of Loading", width: 140, render: (q) => q.data.pol || EMPTY_CELL },
-  { key: "pod", title: "Port of Discharge", width: 150, render: (q) => q.data.pod || EMPTY_CELL },
+  // A quote without ports (Road, door to door) shows its Origin and Destination here, as its preview
+  // and its invoice do, so a row never loses where the cargo goes.
+  { key: "pol", title: "Port of Loading", width: 140, render: (q) => loadingPlace(q) || EMPTY_CELL },
+  { key: "pod", title: "Port of Discharge", width: 150, render: (q) => dischargePlace(q) || EMPTY_CELL },
   { key: "status", title: "Status", width: 110, sortBy: "status", render: (q) => <QuoteStatusPill status={q.status} /> },
   { key: "validity", title: "Valid until", width: 104, sortBy: "validUntil", render: (q) => <ValidUntil quote={q} /> },
   { key: "owner", title: "Sales Owner", width: 110, sortBy: "owner", render: (q) => q.ownerName || EMPTY_CELL },
@@ -189,8 +195,8 @@ export function shownColumns(stored: string[]): string[] {
 const CSV_TEXT: Record<string, (q: SalesQuote, pricing: QuotePricing) => string> = {
   reference: (q) => q.quoteNumber,
   customer: (q) => q.data.customerName ?? "",
-  pol: (q) => q.data.pol ?? "",
-  pod: (q) => q.data.pod ?? "",
+  pol: loadingPlace,
+  pod: dischargePlace,
   status: (q) => QUOTE_STATUS_MAP[q.status]?.label ?? q.status,
   validity: (q) => q.validUntil ?? "",
   owner: (q) => q.ownerName,
@@ -218,6 +224,10 @@ const CSV_TEXT: Record<string, (q: SalesQuote, pricing: QuotePricing) => string>
 };
 
 // The CSV of the given columns, in their order.
+/** The columns in the order the list draws them: Sales Reference pinned first, the rest as chosen. */
+export const inDrawnOrder = (keys: string[]): string[] =>
+  keys.includes("reference") ? ["reference", ...keys.filter((key) => key !== "reference")] : keys;
+
 export function quoteCsvColumns(keys: string[], pricing: QuotePricing): CsvColumn[] {
   return keys.flatMap((key): CsvColumn[] => {
     const text = CSV_TEXT[key];

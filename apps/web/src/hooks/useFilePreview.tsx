@@ -113,6 +113,19 @@ export function useFilePreview() {
   const request = useRef(0);
   // Downloads on their way, so a second click on the same file doesn't save it twice.
   const downloading = useRef(new Set<string>());
+  // A loaded file (no link) is told apart by its loader, not its name: two attachments can both be
+  // "image001.png", and the second must not be taken for the first one already on its way.
+  const loaderKeys = useRef(new WeakMap<() => Promise<Blob>, string>());
+  const loaderCount = useRef(0);
+  const downloadKeyOf = (source: PreviewSource): string => {
+    if ("contentUrl" in source) return source.contentUrl;
+    let key = loaderKeys.current.get(source.load);
+    if (!key) {
+      key = `load:${++loaderCount.current}`;
+      loaderKeys.current.set(source.load, key);
+    }
+    return key;
+  };
 
   useEffect(() => {
     if (state?.status !== "ready" || !state.url.startsWith("blob:")) return;
@@ -153,7 +166,7 @@ export function useFilePreview() {
 
   /** Saves the file without leaving the page; a link that no longer works says so instead. */
   const download = async (source: PreviewSource) => {
-    const key = "contentUrl" in source ? source.contentUrl : `load:${source.fileName}`;
+    const key = downloadKeyOf(source);
     if (downloading.current.has(key)) return;
     downloading.current.add(key);
     // A big file takes a while to come: the user sees that it is on its way.

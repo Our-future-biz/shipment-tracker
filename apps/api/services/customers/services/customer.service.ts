@@ -24,7 +24,7 @@ import { isSupplier, SUPPLIER_ROLES } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
 import { canManageSales, canManageSupplierTerms, canRateSupplier } from "../../../lib/salesPolicy";
-import { isUniqueViolation } from "../../../lib/db/errors";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { isSalesReference } from "../../../lib/salesReference";
 import { storedEmail } from "../../../lib/personPick";
@@ -194,6 +194,10 @@ async function bringBack(id: string, deleted: CustomerRecord, companyId: string,
   try {
     return await customerRepository.restoreWithChildren(id, companyId, as);
   } catch (err) {
+    // Its addresses would come back with two Billing ones (one billing address per customer).
+    if (isUniqueViolation(err) && constraintOf(err) === "customer_address_one_billing") {
+      throw APIError.failedPrecondition(`${deleted.companyName} can't be restored: two of its addresses are its billing address`);
+    }
     // Another customer with the same registration number was added in the meantime.
     if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
     throw err;

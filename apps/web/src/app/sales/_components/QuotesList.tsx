@@ -76,7 +76,7 @@ import { QuotesLoadError } from "./QuotesLoadError";
 import { SalesDialog } from "./SalesDialog";
 import { SalesPage } from "./SalesPage";
 import { ToolbarButton, toolbarButtonClass } from "./ToolbarButton";
-import { DEFAULT_QUOTE_COLUMNS, QUOTE_COLUMNS, ValidityDot, quoteCsvColumns, shownColumns, type SortDirection } from "./quoteListColumns";
+import { DEFAULT_QUOTE_COLUMNS, QUOTE_COLUMNS, ValidityDot, inDrawnOrder, quoteCsvColumns, shownColumns, type SortDirection } from "./quoteListColumns";
 import { QuoteChatButton, QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "./QuoteChat";
 import { CARD, ICON_BTN_GHOST } from "@/styles/ui";
 
@@ -360,7 +360,7 @@ export function QuotesList() {
 
   const columns: ColumnsType<SalesQuote> = useMemo(() => {
     // The reference stays first and in sight when the list is scrolled sideways, so it is not dragged.
-    const ordered = visibleKeys.includes("reference") ? ["reference", ...visibleKeys.filter((key) => key !== "reference")] : visibleKeys;
+    const ordered = inDrawnOrder(visibleKeys);
     const cols = ordered.flatMap((key): ColumnsType<SalesQuote> => {
       const c = QUOTE_COLUMNS.find((column) => column.key === key);
       if (!c) return [];
@@ -421,7 +421,8 @@ export function QuotesList() {
   }, [visibleKeys, columnsKnown, sortedBy, sortDirection, exchange, unreadByThread]);
 
   // CSV respects the visible columns and their order.
-  const csvColumns = () => quoteCsvColumns(visibleKeys, exchange);
+  // In the order the list draws its columns (Sales Reference first).
+  const csvColumns = () => quoteCsvColumns(inDrawnOrder(visibleKeys), exchange);
 
   // Drag-to-reorder columns (same interaction as the shipments table).
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));

@@ -439,6 +439,16 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
     expect(topics.customerChanged.publish).not.toHaveBeenCalled();
   });
 
+  it("a restore its addresses refuse - two of them the billing address - says so, not that the registration number clashes", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(saved({ ico: "12345678", deletedAt: now }));
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockRejectedValue(
+      Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_address_one_billing" } }),
+    );
+    await expect(customerService.restore("c1", COMPANY)).rejects.toThrow("two of its addresses are its billing address");
+    expect(topics.customerChanged.publish).not.toHaveBeenCalled();
+  });
+
   it("an edit whose publish fails fails the request, so the user can save it again", async () => {
     customers.updateForCompany.mockResolvedValue(saved());
     topics.customerChanged.publish.mockRejectedValueOnce(new Error("pubsub down"));

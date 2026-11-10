@@ -30,7 +30,7 @@ interface UpdateSellingRequest {
   invoice?: boolean;
   /** position in the list (undo / re-insert keeps a line where it was) */
   sortOrder?: number;
-  /** VAT code on the invoice: S21 | Z69 | RC | OUT; "" = default by trade direction */
+  /** VAT code on the invoice: S21 | Z69 | RC | OUT; "" = the default by the customer's country and the trade direction */
   vatCode?: SellingVatCode | "";
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCanManageDocuments } from "@/lib/auth/AuthContext";
-import { useRef, useState } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { Button, Input, Tooltip } from "antd";
 import { useMessages } from "@/lib/toast";
 import { DeleteOutlined, DownloadOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
@@ -18,6 +18,9 @@ import { HINT, ICON_BTN_GHOST, LINK } from "@/styles/ui";
 
 // The shipment's documents, as a side panel: just the list, with drag & drop and "+".
 // The full page with the required-document checklist lives in the Documents tab.
+
+// A drag that carries files (not selected text or a link).
+const isFileDrag = (e: DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
 
 export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
   // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
@@ -68,116 +71,123 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
   };
 
   return (
-    <div
-      className={`flex flex-col h-full ${dragOver ? "bg-indigo-50" : "bg-white"}`}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        void upload(e.dataTransfer.files);
-      }}
-    >
-      <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => void upload(e.target.files).finally(() => (e.target.value = ""))} />
-
-      <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-200">
-        <Input
-          size="small"
-          allowClear
-          prefix={<SearchOutlined className="text-slate-400" />}
-          placeholder="Search by file name…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <Tooltip title="Add documents">
-          <Button
-            type="primary"
-            aria-label="Add documents"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-            icon={<PlusOutlined />}
-            className="shrink-0"
-          />
-        </Tooltip>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {isLoading && <p className={`${HINT} text-center py-6`}>Loading…</p>}
-        {!isLoading && files.length === 0 && (
-          <p className={`${HINT} text-center py-10 px-6`}>
-            {search ? "No file matches the search." : "No documents yet — drop files here or add them with +."}
-          </p>
-        )}
-        {files.map((f) => (
-          <div key={f.id} className="group flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 hover:bg-slate-50">
-            <ExtBadge fileName={f.fileName} />
-            <div className="min-w-0 flex-1">
-              {/* The name opens the file in the app's preview, as the eye does. */}
-              <a
-                href={apiFileUrl(f.contentUrl)}
-                target="_blank"
-                rel="noreferrer"
-                onClick={filePreview.previewOnClick(previewSource(f))}
-                title={f.fileName}
-                className={`block text-[13px] font-medium truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${LINK}`}
-              >
-                {f.fileName}
-              </a>
-              <div className={`${HINT} truncate`}>
-                {formatFileSize(f.fileSize)}
-                {f.documentType ? ` · ${f.documentType}` : ""}
-                {f.uploadedByName ? ` · ${f.uploadedByName}` : ""}
-              </div>
-            </div>
-            <PreviewButton fileName={f.fileName} onClick={() => void filePreview.open(previewSource(f))} />
-            {/* Download stays on the page, and a link that no longer works says so. */}
-            <Tooltip title="Download">
-              <button
-                type="button"
-                aria-label={`Download ${f.fileName}`}
-                onClick={() => void filePreview.download(previewSource(f))}
-                className={`${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`}
-              >
-                <DownloadOutlined aria-hidden />
-              </button>
-            </Tooltip>
-            {canManageDocuments && (
-            <Tooltip title="Delete">
-              <button
-                type="button"
-                aria-label={`Delete ${f.fileName}`}
-                onClick={() => setConfirmDelete(f)}
-                // Shown on hover, and also when reached with the keyboard.
-                className={`${ICON_BTN_GHOST} opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:!text-red-600`}
-              >
-                <DeleteOutlined />
-              </button>
-            </Tooltip>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {filePreview.modal}
-      <ConfirmModal
-        open={!!confirmDelete}
-        danger
-        title="Delete document?"
-        description={confirmDelete ? `"${confirmDelete.fileName}" will be deleted, the file with it. It cannot be brought back.` : ""}
-        confirmLabel="Delete"
-        onClose={() => setConfirmDelete(null)}
-        onConfirm={() => {
-          if (confirmDelete) remove.mutate(confirmDelete.id);
-          setConfirmDelete(null);
+    // The preview and the delete dialog sit outside the drop area: a dialog's events bubble through
+    // React to its parent, so a file dropped on an open preview would otherwise be attached.
+    <>
+      <div
+        className={`flex flex-col h-full ${dragOver ? "bg-indigo-50" : "bg-white"}`}
+        onDragOver={(e) => {
+          // Only files: dragging selected text is no upload.
+          if (!isFileDrag(e)) return;
+          e.preventDefault();
+          setDragOver(true);
         }}
-      />
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          if (!isFileDrag(e)) return;
+          e.preventDefault();
+          setDragOver(false);
+          void upload(e.dataTransfer.files);
+        }}
+      >
+        <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => void upload(e.target.files).finally(() => (e.target.value = ""))} />
 
-      <div className={`${HINT} shrink-0 px-4 py-2 border-t border-slate-200`}>
-        {uploading ? "Uploading…" : dragOver ? "Drop the files to attach them" : `${files.length} file${files.length === 1 ? "" : "s"} · drop files anywhere in this panel`}
+        <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-200">
+          <Input
+            size="small"
+            allowClear
+            prefix={<SearchOutlined className="text-slate-400" />}
+            placeholder="Search by file name…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Tooltip title="Add documents">
+            <Button
+              type="primary"
+              aria-label="Add documents"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+              icon={<PlusOutlined />}
+              className="shrink-0"
+            />
+          </Tooltip>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {isLoading && <p className={`${HINT} text-center py-6`}>Loading…</p>}
+          {!isLoading && files.length === 0 && (
+            <p className={`${HINT} text-center py-10 px-6`}>
+              {search ? "No file matches the search." : "No documents yet — drop files here or add them with +."}
+            </p>
+          )}
+          {files.map((f) => (
+            <div key={f.id} className="group flex items-center gap-3 px-4 py-2.5 border-b border-slate-100 hover:bg-slate-50">
+              <ExtBadge fileName={f.fileName} />
+              <div className="min-w-0 flex-1">
+                {/* The name opens the file in the app's preview, as the eye does. */}
+                <a
+                  href={apiFileUrl(f.contentUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={filePreview.previewOnClick(previewSource(f))}
+                  title={f.fileName}
+                  className={`block text-[13px] font-medium truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${LINK}`}
+                >
+                  {f.fileName}
+                </a>
+                <div className={`${HINT} truncate`}>
+                  {formatFileSize(f.fileSize)}
+                  {f.documentType ? ` · ${f.documentType}` : ""}
+                  {f.uploadedByName ? ` · ${f.uploadedByName}` : ""}
+                </div>
+              </div>
+              <PreviewButton fileName={f.fileName} onClick={() => void filePreview.open(previewSource(f))} />
+              {/* Download stays on the page, and a link that no longer works says so. */}
+              <Tooltip title="Download">
+                <button
+                  type="button"
+                  aria-label={`Download ${f.fileName}`}
+                  onClick={() => void filePreview.download(previewSource(f))}
+                  className={`${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`}
+                >
+                  <DownloadOutlined aria-hidden />
+                </button>
+              </Tooltip>
+              {canManageDocuments && (
+              <Tooltip title="Delete">
+                <button
+                  type="button"
+                  aria-label={`Delete ${f.fileName}`}
+                  onClick={() => setConfirmDelete(f)}
+                  // Shown on hover, and also when reached with the keyboard.
+                  className={`${ICON_BTN_GHOST} opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:!text-red-600`}
+                >
+                  <DeleteOutlined />
+                </button>
+              </Tooltip>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className={`${HINT} shrink-0 px-4 py-2 border-t border-slate-200`}>
+          {uploading ? "Uploading…" : dragOver ? "Drop the files to attach them" : `${files.length} file${files.length === 1 ? "" : "s"} · drop files anywhere in this panel`}
+        </div>
       </div>
-    </div>
+
+        {filePreview.modal}
+        <ConfirmModal
+          open={!!confirmDelete}
+          danger
+          title="Delete document?"
+          description={confirmDelete ? `"${confirmDelete.fileName}" will be deleted, the file with it. It cannot be brought back.` : ""}
+          confirmLabel="Delete"
+          onClose={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            if (confirmDelete) remove.mutate(confirmDelete.id);
+            setConfirmDelete(null);
+          }}
+        />
+    </>
   );
 }

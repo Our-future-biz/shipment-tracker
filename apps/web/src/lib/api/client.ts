@@ -6457,7 +6457,7 @@ export namespace controllers {
         sourceBuyId?: string
         sortOrder?: number
         /**
-         * VAT code on the invoice; "" = default by trade direction
+         * VAT code on the invoice; "" = the default by the customer's country and the trade direction (defaultVatCode)
          */
         vatCode?: interfaces.SellingVatCode | ""
     }
@@ -11741,7 +11741,7 @@ export namespace controllers {
         sortOrder?: number
 
         /**
-         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = default by trade direction
+         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = the default by the customer's country and the trade direction (defaultVatCode)
          */
         vatCode?: interfaces.SellingVatCode | ""
     }
@@ -19608,7 +19608,7 @@ export namespace interfaces {
         invoice: boolean
         sourceBuyId: string | null
         /**
-         * VAT code on the invoice; null = default by trade direction
+         * VAT code on the invoice; null = the default by the customer's country and the trade direction (defaultVatCode)
          */
         vatCode: SellingVatCode | null
 

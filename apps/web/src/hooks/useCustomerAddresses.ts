@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { customerAddressesKey, customerSitesKey } from "./customerKeys";
+import { invalidateInvoicingDerived } from "./useInvoiceQueue";
 
 export type AddressItem = interfaces.AddressItem;
 
@@ -18,8 +19,10 @@ export const useCustomerAddresses = (customerId: string) => {
   });
 
   // The Registered address is also the customer's registered address (header, Registry card), so
-  // the customer and the list are refreshed with it; a Pickup / Delivery address is also a site.
+  // the customer and the list are refreshed with it; a Pickup / Delivery address is also a site. The
+  // invoice previews are read again too: an invoice is addressed to the Billing address.
   const invalidate = () => {
+    invalidateInvoicingDerived(queryClient);
     void queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
     void queryClient.invalidateQueries({ queryKey: customerSitesKey(customerId) });
     void queryClient.invalidateQueries({ queryKey: ["customers"] });

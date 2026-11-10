@@ -191,6 +191,8 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
   );
   const quote = useSalesQuoteByRef(ref);
   const quoteData = quote.data?.quote ? asData(quote.data.quote.data) : null;
+  // The quote's reference as it is now: the job's copy can be from before its Freight Mode letters changed.
+  const shownRef = quote.data?.quote.quoteNumber ?? ref;
   const jobProfit = t.sellTotal - t.buyTotal;
   const cmp = quoteData ? quoteVsJob(quoteData, { profit: jobProfit, rxeTotal: t.rxeTotal, billingCurrency: billingCur, rates }) : null;
 
@@ -200,7 +202,7 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
   else if (ref && !cmp) profit = <span className="text-slate-500">No rate for its currency</span>;
   else if (ref && cmp) {
     profit = (
-      <Popover content={<QuoteDifference cmp={cmp} jobProfit={jobProfit} quoteRef={ref} currency={billingCur} />} trigger={["hover", "focus"]} placement="bottom">
+      <Popover content={<QuoteDifference cmp={cmp} jobProfit={jobProfit} quoteRef={shownRef ?? ref} currency={billingCur} />} trigger={["hover", "focus"]} placement="bottom">
         <button type="button" className="inline-flex items-baseline gap-2 bg-transparent border-0 p-0 cursor-help text-[13px] tabular-nums whitespace-nowrap">
           <strong className="text-slate-900">{money(cmp.quoteProfit)}</strong>
           <span className={`font-semibold ${diffTone(cmp.difference)}`} aria-label={`The job is ${signed(cmp.difference)} ${billingCur} against the quote`}>
@@ -214,9 +216,9 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
   return (
     <>
       <SummaryItem label="Quote">
-        {ref ? (
-          <Link href={`/sales/quote/${ref}`} className={`${REF} font-semibold ${LINK}`}>
-            {ref}
+        {shownRef ? (
+          <Link href={`/sales/quote/${shownRef}`} className={`${REF} font-semibold ${LINK}`}>
+            {shownRef}
           </Link>
         ) : (
           EMPTY_CELL

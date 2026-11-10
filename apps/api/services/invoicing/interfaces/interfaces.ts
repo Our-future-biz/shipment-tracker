@@ -48,7 +48,7 @@ export interface SellingCostItem {
   currency: string;
   invoice: boolean;
   sourceBuyId: string | null;
-  /** VAT code on the invoice; null = default by trade direction */
+  /** VAT code on the invoice; null = the default by the customer's country and the trade direction (defaultVatCode) */
   vatCode: SellingVatCode | null;
   sortOrder: number;
   /** The Trucking consignment the row was pushed from ("trucking:consignment:<id>"); null otherwise. Read-only then. */
@@ -329,7 +329,7 @@ export interface SellingCostInput {
   invoice?: boolean;
   sourceBuyId?: string;
   sortOrder?: number;
-  /** VAT code on the invoice; "" = default by trade direction */
+  /** VAT code on the invoice; "" = the default by the customer's country and the trade direction (defaultVatCode) */
   vatCode?: SellingVatCode | "";
 }
 
