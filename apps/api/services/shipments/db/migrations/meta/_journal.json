@@ -533,6 +533,13 @@
       "when": 1794334673186,
       "tag": "0075_master_job_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1794343441289,
+      "tag": "0076_compliance_defaults",
+      "breakpoints": true
     }
   ]
 }

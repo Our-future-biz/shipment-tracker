@@ -8,6 +8,12 @@ export const APPROVED_CREDIT_CHECK = "Green";
 export const DEFAULT_VGM = "Pending (Red)";
 export const DEFAULT_BOOKING_CONFIRMATION = "Pending";
 export const DEFAULT_INVOICING_STATUS = "Not Invoiced";
+// The Compliance card of a new shipment (Martin, 2026-11-10): nothing sent, checked or insured yet.
+export const DEFAULT_SHIPPING_INSTRUCTIONS = "Not Queried";
+export const DEFAULT_INSURANCE = "No";
+export const DEFAULT_AMS = "Not Applicable";
+export const DEFAULT_ISF = "Not Applicable";
+export const DEFAULT_BOL_DRAFT = "Not Processed";
 
 const isBlank = (v: string | null | undefined): boolean => !(v ?? "").trim();
 const eq = (v: string | null | undefined, expected: string): boolean =>
@@ -34,6 +40,11 @@ export interface StartingStates {
   vgm?: string;
   bookingConfirmation?: string;
   invoicingStatus?: string;
+  shippingInstructions?: string;
+  insurance?: string;
+  ams?: string;
+  isf?: string;
+  bolDraft?: string;
 }
 
 export function startingStateDefaults(current: {
@@ -41,12 +52,22 @@ export function startingStateDefaults(current: {
   vgm?: string | null;
   bookingConfirmation?: string | null;
   invoicingStatus?: string | null;
+  shippingInstructions?: string | null;
+  insurance?: string | null;
+  ams?: string | null;
+  isf?: string | null;
+  bolDraft?: string | null;
 }): StartingStates {
   const defaults: StartingStates = {};
   if (isBlank(current.creditCheck)) defaults.creditCheck = DEFAULT_CREDIT_CHECK;
   if (isBlank(current.vgm)) defaults.vgm = DEFAULT_VGM;
   if (isBlank(current.bookingConfirmation)) defaults.bookingConfirmation = DEFAULT_BOOKING_CONFIRMATION;
   if (isBlank(current.invoicingStatus)) defaults.invoicingStatus = DEFAULT_INVOICING_STATUS;
+  if (isBlank(current.shippingInstructions)) defaults.shippingInstructions = DEFAULT_SHIPPING_INSTRUCTIONS;
+  if (isBlank(current.insurance)) defaults.insurance = DEFAULT_INSURANCE;
+  if (isBlank(current.ams)) defaults.ams = DEFAULT_AMS;
+  if (isBlank(current.isf)) defaults.isf = DEFAULT_ISF;
+  if (isBlank(current.bolDraft)) defaults.bolDraft = DEFAULT_BOL_DRAFT;
   return defaults;
 }
 

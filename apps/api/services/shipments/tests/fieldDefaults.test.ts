@@ -35,12 +35,34 @@ describe("startingStateDefaults", () => {
     vgm: "Pending (Red)",
     bookingConfirmation: "Pending",
     invoicingStatus: "Not Invoiced",
+    shippingInstructions: "Not Queried",
+    insurance: "No",
+    ams: "Not Applicable",
+    isf: "Not Applicable",
+    bolDraft: "Not Processed",
+  };
+  const compliance = {
+    shippingInstructions: "Confirmed",
+    insurance: "Yes",
+    ams: "Pending (Red)",
+    isf: "Confirmed (Green)",
+    bolDraft: "Approved",
   };
 
   it("starts a shipment with nothing approved, confirmed, received or invoiced", () => {
     expect(startingStateDefaults({})).toEqual(fresh);
     expect(
-      startingStateDefaults({ creditCheck: "", vgm: null, bookingConfirmation: "  ", invoicingStatus: "" }),
+      startingStateDefaults({
+        creditCheck: "",
+        vgm: null,
+        bookingConfirmation: "  ",
+        invoicingStatus: "",
+        shippingInstructions: "",
+        insurance: null,
+        ams: " ",
+        isf: "",
+        bolDraft: "",
+      }),
     ).toEqual(fresh);
   });
 
@@ -51,12 +73,13 @@ describe("startingStateDefaults", () => {
         vgm: "Customer",
         bookingConfirmation: "Received",
         invoicingStatus: "Invoiced",
+        ...compliance,
       }),
     ).toEqual({});
     // Only the blank ones are seeded.
     expect(
-      startingStateDefaults({ creditCheck: "Yellow", bookingConfirmation: "Received", invoicingStatus: "Invoiced" }),
-    ).toEqual({ vgm: "Pending (Red)" });
+      startingStateDefaults({ creditCheck: "Yellow", bookingConfirmation: "Received", invoicingStatus: "Invoiced", ...compliance, insurance: "" }),
+    ).toEqual({ vgm: "Pending (Red)", insurance: "No" });
   });
 });
 
