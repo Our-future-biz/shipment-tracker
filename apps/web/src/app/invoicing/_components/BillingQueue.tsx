@@ -37,6 +37,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { DocumentsPanel } from "@/app/shipments/_components/DocumentsPanel";
 import { ChatPanel } from "@/app/shipments/_components/ChatPanel";
+import { SectionBackLink } from "@/components/SectionBackLink";
 
 type View = BillingQueueView;
 const VIEWS = ["all", "to_bill", "invoiced", "unbilled_arrivals"] as const satisfies readonly View[];
@@ -251,6 +252,8 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
+        {/* Back to the Finance tiles, just above the bar. */}
+        <SectionBackLink className="-mb-3 self-start" />
         {/* One bar: the title, the stage tabs with their counts, then search, the table tools and the action. */}
         <div className={`flex flex-wrap items-center gap-x-6 gap-y-3 ${CARD} px-4 py-3`}>
           <h1 className={PAGE_TITLE}>Invoicing</h1>
