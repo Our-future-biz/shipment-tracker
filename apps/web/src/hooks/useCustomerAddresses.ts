@@ -41,6 +41,12 @@ export const useCustomerAddresses = (customerId: string) => {
     onSuccess: invalidate,
   });
 
+  // Billing moves to this address from the one that had it (invoices are addressed to it).
+  const makeBillingMutation = useMutation({
+    mutationFn: (id: string) => api.customers.addressMakeBilling(id),
+    onSuccess: invalidate,
+  });
+
   return {
     addresses: query.data?.data ?? [],
     isLoading: query.isLoading,
@@ -48,5 +54,6 @@ export const useCustomerAddresses = (customerId: string) => {
     createAddress: createMutation.mutateAsync,
     updateAddress: updateMutation.mutateAsync,
     deleteAddress: deleteMutation.mutateAsync,
+    makeBilling: makeBillingMutation.mutateAsync,
   };
 };

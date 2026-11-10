@@ -1,4 +1,5 @@
 import { and, arrayContains, eq, asc, isNull, ne, or } from "drizzle-orm";
+import { ADDRESS_TYPES, type AddressType } from "../interfaces/interfaces";
 import { TenantRepository, type InsertForCompany } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { customerAddressTable, type CustomerAddressRecord } from "../schemas/customerAddress.schema";
@@ -121,6 +122,39 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
       if (isSeat(before.types) || isSeat(row.types)) await copySeat(tx, companyId, row.customerId);
       await syncSite(tx, companyId, row, site);
       return row;
+    });
+  }
+
+  // Billing moved to this address in one transaction: first taken off the customer's other live
+  // addresses (one that was only Billing becomes Paperwork), then added here, so the one-billing
+  // index never sees two. Billing touches neither the seat nor a site.
+  async moveBilling(id: string, companyId: string): Promise<CustomerAddressRecord | null> {
+    return this.db.transaction(async (tx) => {
+      const live = and(eq(customerAddressTable.id, id), eq(customerAddressTable.companyId, companyId), isNull(customerAddressTable.deletedAt));
+      const [row] = await tx.select().from(customerAddressTable).where(live).limit(1);
+      if (!row) return null;
+      if (row.types.includes("Billing")) return row;
+      const now = new Date();
+      const others = await tx
+        .select({ id: customerAddressTable.id, types: customerAddressTable.types })
+        .from(customerAddressTable)
+        .where(and(
+          eq(customerAddressTable.companyId, companyId),
+          eq(customerAddressTable.customerId, row.customerId),
+          arrayContains(customerAddressTable.types, ["Billing"]),
+          isNull(customerAddressTable.deletedAt),
+          ne(customerAddressTable.id, id),
+        ));
+      for (const other of others) {
+        const rest = other.types.filter((t) => t !== "Billing");
+        await tx
+          .update(customerAddressTable)
+          .set({ types: rest.length ? rest : ["Paperwork"], updatedAt: now })
+          .where(eq(customerAddressTable.id, other.id));
+      }
+      const types: AddressType[] = ADDRESS_TYPES.filter((t) => t === "Billing" || row.types.includes(t));
+      const [moved] = await tx.update(customerAddressTable).set({ types, updatedAt: now }).where(live).returning();
+      return moved ?? null;
     });
   }
 

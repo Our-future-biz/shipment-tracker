@@ -53,6 +53,29 @@ describe("VAT codes", () => {
     // NP is only for non-payers
     expect(effectiveVatCode("NP", "Domestic", true)).toBe("S21");
   });
+
+  it("defaults by the customer's country: outside the EU no Czech VAT, the EU with a VAT number reverse charge", () => {
+    // A Japanese customer of an export job: outside the scope of Czech VAT, not §69 and never 21 %.
+    expect(defaultVatCode("Export", { country: "JP", dic: "" })).toBe("OUT");
+    expect(defaultVatCode("", { country: "jp", dic: "" })).toBe("OUT");
+    expect(defaultVatCode("Domestic", { country: "US", dic: "12-3456789" })).toBe("OUT");
+    // Elsewhere in the EU: reverse charge with a VAT number; without one, as a Czech customer.
+    expect(defaultVatCode("Import", { country: "DE", dic: "DE123456789" })).toBe("RC");
+    expect(defaultVatCode("Domestic", { country: "SK", dic: "SK2020123456" })).toBe("RC");
+    expect(defaultVatCode("Export", { country: "DE", dic: "" })).toBe("Z69");
+    expect(defaultVatCode("Domestic", { country: "DE", dic: " " })).toBe("S21");
+    // A Czech customer, or one whose country is not known: by the job, as before.
+    expect(defaultVatCode("Export", { country: "CZ", dic: "CZ27082440" })).toBe("Z69");
+    expect(defaultVatCode("Domestic", { country: "CZ", dic: "CZ27082440" })).toBe("S21");
+    expect(defaultVatCode("Import", { country: "", dic: "" })).toBe("Z69");
+    expect(defaultVatCode("Domestic", null)).toBe("S21");
+  });
+
+  it("lets a code picked on the line win over the customer's default", () => {
+    expect(effectiveVatCode("S21", "Export", true, { country: "JP", dic: "" })).toBe("S21");
+    expect(effectiveVatCode(null, "Export", true, { country: "JP", dic: "" })).toBe("OUT");
+    expect(effectiveVatCode(null, "Export", false, { country: "JP", dic: "" })).toBe("NP");
+  });
 });
 
 describe("dates", () => {

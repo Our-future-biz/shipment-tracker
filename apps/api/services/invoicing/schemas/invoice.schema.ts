@@ -27,12 +27,16 @@ export interface SupplierSnapshot {
 export interface CustomerSnapshot {
   customerId: string;
   companyName: string;
+  /** The seat (registered address); its country also decides the VAT default. */
   address: string;
   city: string;
   country: string;
   ico: string;
   dic: string;
   paymentTerms: string;
+  /** Where the invoice is addressed: the customer's Billing address, printed instead of the seat
+   * (owner decision of 10 Nov 2026). Absent when the customer has none, and on invoices issued before. */
+  billingAddress?: { label: string; street: string; postalCode: string; city: string; country: string };
 }
 
 /** Shipment references printed on the invoice. */
@@ -46,6 +50,13 @@ export interface ShipmentSnapshot {
   bookingNumber: string;
   containerNumber: string;
   personalReference: string;
+  /** From where to where: the port of loading (else the origin) and the port of discharge (else the
+   * destination). Absent on invoices issued before 10 Nov 2026. */
+  routeFrom?: string;
+  routeTo?: string;
+  /** The sales quote the invoiced prices come from: the one copied into the job's costs, else the
+   * job's Sales Number. Absent on invoices issued before 10 Nov 2026. */
+  quoteNumber?: string;
 }
 
 export interface VatSummarySnapshot {

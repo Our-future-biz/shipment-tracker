@@ -163,6 +163,31 @@ describe("renderInvoicePdf", () => {
     }
   });
 
+  it("addresses the customer at its billing address instead of its seat when it has one", async () => {
+    const customer = { ...base.customer, billingAddress: { label: "Účtárna", street: "Na Příkopě 10", postalCode: "110 00", city: "Praha 1", country: "CZ" } };
+    const text = squash(await textOf(await renderInvoicePdf({ ...base, customer }, await loadPdfFonts())));
+    for (const expected of ["Zákazník a.s.", "Účtárna", "Na Příkopě 10", "110 00 Praha 1", "DIČ: CZ27082440"]) {
+      expect(text).toContain(squash(expected));
+    }
+    expect(text).not.toContain(squash("Jankovcova 1522/53"));
+  });
+
+  it("names the quote and the route when the invoice carries them, and leaves them out on older ones", async () => {
+    const fonts = await loadPdfFonts();
+    const shipment = { ...base.shipment, quoteNumber: "QCZ20261110003", routeFrom: "Hamburg (DEHAM)", routeTo: "Shanghai (CNSGH)" };
+    const text = squash(await textOf(await renderInvoicePdf({ ...base, shipment }, fonts)));
+    for (const expected of ["Nabídka / Quote", "QCZ20261110003", "Trasa / Routing", "Hamburg (DEHAM) → Shanghai (CNSGH)"]) {
+      expect(text).toContain(squash(expected));
+    }
+    // one side unknown: a dash in its place
+    const half = squash(await textOf(await renderInvoicePdf({ ...base, shipment: { ...base.shipment, routeFrom: "", routeTo: "Praha" } }, fonts)));
+    expect(half).toContain(squash("— → Praha"));
+    // an invoice issued before these were kept
+    const older = squash(await textOf(await renderInvoicePdf(base, fonts)));
+    expect(older).not.toContain("Nabídka");
+    expect(older).not.toContain("Trasa");
+  });
+
   it("prints the ČNB rate at DUZP with its fixing date, and the ROE note for converted lines", async () => {
     const cnbRated: InvoiceForPdf = {
       ...base,

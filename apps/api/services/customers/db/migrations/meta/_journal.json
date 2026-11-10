@@ -253,6 +253,13 @@
       "when": 1794227156888,
       "tag": "0035_company_registration_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794311417217,
+      "tag": "0036_one_billing_address",
+      "breakpoints": true
     }
   ]
 }

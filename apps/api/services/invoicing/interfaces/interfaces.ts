@@ -494,7 +494,19 @@ export interface InvoiceDocItem {
 /** What issuing would produce right now - no number yet, nothing stored */
 export interface InvoicePreviewItem {
   customerId: string | null;
+  /** The customer as the invoice addresses it: at its Billing address when it has one, else at its seat. */
   customer: InvoicePartyItem | null;
+  /** The address above is the customer's Billing address, not its seat. */
+  billingAddress: boolean;
+  /** Who issues the invoice (Settings → Organization); null until it is filled in. */
+  issuer: InvoicePartyItem | null;
+  /** The issuer's account in the invoice currency, printed for the payment; null when there is none. */
+  bankAccount: { currency: string; bankName: string; accountNumber: string; iban: string; swift: string } | null;
+  /** The sales quote the invoice names; "" when the job has none. */
+  quoteNumber: string;
+  /** From where to where, as the invoice prints it: port of loading (else origin) → port of discharge (else destination). */
+  routeFrom: string;
+  routeTo: string;
   issueDate: string;
   duzp: string;
   dueDate: string;

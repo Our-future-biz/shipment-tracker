@@ -389,10 +389,24 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
       return next;
     });
   const activeFilters = linesView === "to_invoice" ? activeCurrencies : statusFilter;
-  // the address on one line, IČO and DIČ together on the next (no separator left hanging)
-  const customerAddress = p?.customer?.address ?? "";
+  // the address on one line - its billing address when it has one, else its seat - IČO and DIČ
+  // together on the next (no separator left hanging)
+  const customerAddress = p?.customer
+    ? [
+        p.customer.address,
+        p.customer.address.includes(p.customer.city) ? "" : [p.customer.postalCode, p.customer.city].filter(Boolean).join(" "),
+        p.customer.country && p.customer.country !== "CZ" ? p.customer.country : "",
+      ]
+        .filter(Boolean)
+        .join(", ")
+    : "";
   const customerIds = p?.customer
     ? [p.customer.ico && `IČO ${p.customer.ico}`, p.customer.dic && `DIČ ${p.customer.dic}`].filter(Boolean).join(" · ")
+    : "";
+  // Who issues the invoice and where it is paid, as it will be printed (Settings → Organization).
+  const issuerIds = p?.issuer ? [p.issuer.ico && `IČO ${p.issuer.ico}`, p.issuer.dic && `DIČ ${p.issuer.dic}`].filter(Boolean).join(" · ") : "";
+  const issuerBank = p?.bankAccount
+    ? [p.bankAccount.bankName, p.bankAccount.iban || p.bankAccount.accountNumber].filter(Boolean).join(" · ")
     : "";
 
   // Closing the picker unmounts it: give keyboard focus back to the pencil, unless the user already moved on.
@@ -438,11 +452,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
         <div className="flex flex-col gap-4">
         {/* ── Customer and terms, in the job card's style ── */}
         <div className={CARD}>
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-x-4 gap-y-3 px-4 py-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[repeat(2,minmax(0,1.6fr))_repeat(4,minmax(0,1fr))] gap-x-4 gap-y-3 px-4 py-4">
             {p && !p.customer ? (
               <Fact
                 label="Bill to"
-                className="col-span-2 md:col-span-4 xl:col-span-1"
+                className="col-span-2 xl:col-span-1"
                 sub={
                   mayLinkCustomer
                     ? "Pick one from the Customer Database — it is also linked to the shipment."
@@ -456,11 +470,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
               // also while the preview loads or failed: a neutral dash, the picker still behind the pencil
               <Fact
                 label="Bill to"
-                className="col-span-2 md:col-span-4 xl:col-span-1"
+                className="col-span-2 xl:col-span-1"
                 sub={
                   p?.customer && (
                     <>
-                      {customerAddress && <div>{customerAddress}</div>}
+                      {customerAddress && <div>{p.billingAddress ? `Billing address: ${customerAddress}` : customerAddress}</div>}
                       {customerIds && <div className="whitespace-nowrap">{customerIds}</div>}
                       {!shipment.customerId && customerId && (
                         <div className="mt-0.5">{mayLinkCustomer ? "Linked to the shipment as its customer." : `Used for this invoice only. ${NOT_LINKED_HINT}`}</div>
@@ -494,6 +508,21 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                 )}
               </Fact>
             )}
+            {/* The issuer as the invoice will print it: a wrong one is seen here, before issuing. */}
+            <Fact
+              label="Issued by"
+              className="col-span-2 xl:col-span-1"
+              sub={
+                p?.issuer && (
+                  <>
+                    {issuerIds && <div className="whitespace-nowrap">{issuerIds}</div>}
+                    <div>{issuerBank || `No bank account in ${p.currency}`}</div>
+                  </>
+                )
+              }
+            >
+              {p?.issuer ? <span className="font-semibold min-w-0">{p.issuer.companyName}</span> : p ? <span className="font-medium text-warn">Not filled in (Settings → Organization)</span> : EMPTY_CELL}
+            </Fact>
             <Fact label="Issue date">{p ? czDate(p.issueDate) : EMPTY_CELL}</Fact>
             <Fact label="DUZP">
               <DatePicker

@@ -26,7 +26,7 @@ const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const clients = vi.hoisted(() => ({
   shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
-  invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(),
+  invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(), addressList: vi.fn(),
 }));
 
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: "user" }) }));
@@ -46,7 +46,12 @@ vi.mock("~encore/clients", () => ({
     shipmentList: clients.shipmentList,
     _internalShipmentReferenceFinal: clients.shipmentReferenceFinal,
   },
-  customers: { customerGet: clients.customerGet, invoiceCreate: clients.invoiceCreate, invoiceMarkCredited: clients.invoiceMarkCredited },
+  customers: {
+    customerGet: clients.customerGet,
+    addressList: clients.addressList,
+    invoiceCreate: clients.invoiceCreate,
+    invoiceMarkCredited: clients.invoiceMarkCredited,
+  },
   fx: fxClient,
 }));
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn() } }));
@@ -99,6 +104,8 @@ beforeEach(() => {
   clients.shipmentGet.mockResolvedValue({ shipment });
   clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: shipment.jobNumber });
   clients.customerGet.mockResolvedValue({ customer });
+  // The customer's addresses: only its seat, so the invoice is addressed there.
+  clients.addressList.mockResolvedValue({ data: [{ id: "addr-seat", types: ["Registered"], label: "", street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00", country: "CZ" }] });
   clients.invoiceCreate.mockResolvedValue({});
   clients.invoiceMarkCredited.mockResolvedValue({ updated: 1 });
   repo.invoicedSellingRowIds.mockResolvedValue(new Set());
@@ -233,6 +240,46 @@ describe("issue", () => {
     expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({
       customerId: CUSTOMER, invoiceNumber: "INV2026CZ00000028-001", amount: 29999.5, currency: "CZK", status: "Open",
     }));
+  });
+
+  it("addresses the invoice to the customer's billing address instead of its seat, and keeps the seat's country for VAT", async () => {
+    clients.customerGet.mockResolvedValue({ customer: { ...customer, country: "JP", dic: "", registeredAddress: "Studio Ghibli, 184-0002 Tokyo", city: "Tokyo" } });
+    clients.addressList.mockResolvedValue({
+      data: [
+        { id: "addr-seat", types: ["Registered"], label: "", street: "Studio Ghibli", city: "Tokyo", postalCode: "184-0002", country: "JP" },
+        { id: "addr-bill", types: ["Billing", "Paperwork"], label: "Accounts payable", street: "Shinjuku 3-1", city: "Tokyo", postalCode: "160-0022", country: "JP" },
+      ],
+    });
+    const preview = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(preview.billingAddress).toBe(true);
+    expect(preview.customer).toMatchObject({ address: "Shinjuku 3-1", postalCode: "160-0022", city: "Tokyo", country: "JP" });
+    // A Japanese customer: outside the scope of Czech VAT, whatever the job's direction.
+    expect(preview.lines.map((l) => l.vatCode)).toEqual(["OUT", "OUT"]);
+    expect(preview.vat).toBe(0);
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
+    const [, header] = repo.issue.mock.calls[0]!;
+    expect(header).toMatchObject({
+      customer: { address: "Studio Ghibli, 184-0002 Tokyo", country: "JP", billingAddress: { label: "Accounts payable", street: "Shinjuku 3-1", postalCode: "160-0022" } },
+    });
+  });
+
+  it("refuses to issue when the customer's addresses cannot be read, rather than send the invoice to the seat", async () => {
+    clients.addressList.mockRejectedValue(new Error("customers is down"));
+    const preview = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(preview.problems).toContain("The customer's billing address could not be read — try again");
+  });
+
+  it("names the quote the prices come from and the route on the issued invoice, and shows the issuer before issuing", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, pol: "Shanghai (CNSHA)", pod: "", destination: "Praha", salesNumber: "QCZ20261011004" } });
+    settings.getByShipmentId.mockResolvedValue({ billingCurrency: "CZK", quoteRef: "QCZ20261011004-2" });
+    const preview = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(preview).toMatchObject({
+      quoteNumber: "QCZ20261011004-2", routeFrom: "Shanghai (CNSHA)", routeTo: "Praha",
+      issuer: { companyName: "TEST Logistika s.r.o.", ico: "12345679" }, bankAccount: { currency: "CZK", accountNumber: "1/0800" },
+    });
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
+    const [, header] = repo.issue.mock.calls[0]!;
+    expect(header).toMatchObject({ shipment: { quoteNumber: "QCZ20261011004-2", routeFrom: "Shanghai (CNSHA)", routeTo: "Praha" } });
   });
 
   it("numbers the invoice by the reference Shipments marks final under the shipment's write turn - with the letters an edit gave it meanwhile", async () => {

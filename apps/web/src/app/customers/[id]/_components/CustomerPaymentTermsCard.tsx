@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { Select } from "antd";
 import { SectionCard } from "@/components/SectionCard";
+import { LINK_CLASS } from "@/components/linkClass";
+import { useCustomerAddresses } from "@/hooks/useCustomerAddresses";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { CURRENCIES } from "@/lib/enums";
 import { PAYMENT_TERMS } from "../../_lib/constants";
@@ -36,6 +39,10 @@ const MAX_SECONDARY_CURRENCIES = 2;
 // How the customer is billed: its currencies and its payment terms. Every change saves itself.
 export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardProps) {
   const { shown, save } = useCustomerEdits(customer);
+  // Where invoices are addressed: the Billing address, else the seat (chosen on the Addresses tab).
+  const { addresses } = useCustomerAddresses(customer.id);
+  const billing = addresses.find((a) => a.types.includes("Billing"));
+  const billingText = billing ? [billing.label, billing.street, [billing.postalCode, billing.city].filter(Boolean).join(" "), billing.country].filter(Boolean).join(", ") : "";
   // Currency and payment terms are a manager's decision; the server refuses anyone else.
   const canManage = useCanManageCustomers();
   const lockedTitle = canManage ? undefined : "Only a manager can change this";
@@ -50,6 +57,14 @@ export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardP
 
   return (
     <SectionCard title="Payment terms">
+      <CustomerInfoRow label="Invoice address">
+        <span className="min-w-0">
+          {billingText || <span className="text-slate-500">Registered address</span>}{" "}
+          <Link href={`/customers/${customer.id}?tab=addresses`} className={`whitespace-nowrap ${LINK_CLASS}`}>
+            {billing ? "Change" : "Set a billing address"}
+          </Link>
+        </span>
+      </CustomerInfoRow>
       <CustomerInfoRow label="Default currency">
         <div className={`${SELECT_WRAPPER_CLASS} max-w-[240px]`}>
           <Select

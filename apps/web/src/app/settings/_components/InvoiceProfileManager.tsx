@@ -148,7 +148,7 @@ function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
             <div className="flex gap-2 max-w-md">
               <Form.Item name="ico" noStyle>
                 <Input
-                  placeholder="e.g. 27082440"
+                  placeholder="8 digits"
                   inputMode="numeric"
                   onPressEnter={() => void lookUpAres()}
                   // a lookup error belongs to the IČO it was about: typing clears it

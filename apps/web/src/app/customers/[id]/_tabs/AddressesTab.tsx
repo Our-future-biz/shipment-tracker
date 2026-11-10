@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Dropdown, Table } from "antd";
-import { DeleteOutlined, EditOutlined, EllipsisOutlined, PlusOutlined } from "@ant-design/icons";
+import { Button, Dropdown, Table, Tooltip } from "antd";
+import { DeleteOutlined, EditOutlined, EllipsisOutlined, FileTextOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
@@ -40,8 +40,9 @@ interface AddressesTabProps {
 }
 
 export function AddressesTab({ customerId }: AddressesTabProps) {
-  const { addresses, isLoading, isError, createAddress, updateAddress, deleteAddress } = useCustomerAddresses(customerId);
+  const { addresses, isLoading, isError, createAddress, updateAddress, deleteAddress, makeBilling } = useCustomerAddresses(customerId);
   const hasRegistered = addresses.some((a) => a.types.includes("Registered"));
+  const hasBilling = addresses.some((a) => a.types.includes("Billing"));
   const { customer } = useCustomer(customerId);
   const toast = useToast();
   const canDelete = canDeleteCustomerRecords(useAuth().user);
@@ -72,6 +73,15 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
     }
   };
 
+  const handleMakeBilling = async (address: AddressItem) => {
+    try {
+      await makeBilling(address.id);
+      toast.success("Invoices are addressed here now");
+    } catch (err) {
+      toast.error(`Failed to make it the billing address: ${apiErrorMessage(err)}`);
+    }
+  };
+
   const handleCloseDelete = () => setDeleteTarget(null);
 
   const handleDelete = async () => {
@@ -95,11 +105,20 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
       width: 200,
       render: (types: string[]) => (
         <div className="flex flex-wrap gap-1">
-          {types.map((t) => (
-            <Pill key={t} tone="slate">
-              {t}
-            </Pill>
-          ))}
+          {types.map((t) =>
+            // The billing address stands out: the customer's invoices are addressed to it, not to the seat.
+            t === "Billing" ? (
+              <Tooltip key={t} title="Invoices are addressed here">
+                <span>
+                  <Pill tone="indigo">{t}</Pill>
+                </span>
+              </Tooltip>
+            ) : (
+              <Pill key={t} tone="slate">
+                {t}
+              </Pill>
+            ),
+          )}
         </div>
       ),
     },
@@ -132,6 +151,10 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
             menu={{
               items: [
                 { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => handleOpenDialog(r) },
+                // One billing address per customer: this moves it here from the one that has it.
+                ...(r.types.includes("Billing")
+                  ? []
+                  : [{ key: "billing", label: "Use for invoices", icon: <FileTextOutlined />, onClick: () => void handleMakeBilling(r) }]),
                 // Superadmins only (the API refuses everyone else). The Registered address is the
                 // company's seat: it is corrected, not removed.
                 ...(!canDelete || r.types.includes("Registered")
@@ -185,6 +208,7 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
         address={dialog.address}
         defaultCountry={customer?.country || "CZ"}
         hasRegistered={hasRegistered}
+        hasBilling={hasBilling}
         saving={saving}
         onCancel={handleCloseDialog}
         onSubmit={handleSubmit}

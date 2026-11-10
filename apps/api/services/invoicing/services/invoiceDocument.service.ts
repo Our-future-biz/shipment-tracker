@@ -92,9 +92,13 @@ const supplierParty = (s: SupplierSnapshot): InvoicePartyItem => ({
   companyName: s.companyName, address: s.street, city: s.city, postalCode: s.postalCode, country: s.country, ico: s.ico, dic: s.dic,
 });
 
-const customerParty = (c: CustomerSnapshot): InvoicePartyItem => ({
-  companyName: c.companyName, address: c.address, city: c.city, postalCode: "", country: c.country, ico: c.ico, dic: c.dic,
-});
+// The customer as the invoice addresses it: at its Billing address when it has one, else at its seat.
+const customerParty = (c: CustomerSnapshot): InvoicePartyItem => {
+  const b = c.billingAddress;
+  return b
+    ? { companyName: c.companyName, address: b.street, city: b.city, postalCode: b.postalCode, country: b.country, ico: c.ico, dic: c.dic }
+    : { companyName: c.companyName, address: c.address, city: c.city, postalCode: "", country: c.country, ico: c.ico, dic: c.dic };
+};
 
 export function toDocItem(inv: InvoiceRecord, lines: InvoiceLineRecord[]): InvoiceDocItem {
   return {
@@ -179,6 +183,20 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
       log.warn("invoice customer lookup failed", { customerId, error: err instanceof Error ? err.message : String(err) });
       problems.push("The chosen customer was not found");
     }
+    // The customer's Billing address (one at most), printed instead of the seat. Not knowing it
+    // blocks issuing: the invoice would go to the seat without anybody noticing.
+    if (customer) {
+      try {
+        const { data: addresses } = await customers.addressList({ customerId });
+        const billing = addresses.find((a) => a.types.includes("Billing"));
+        if (billing) {
+          customer.billingAddress = { label: billing.label, street: billing.street, postalCode: billing.postalCode, city: billing.city, country: billing.country };
+        }
+      } catch (err) {
+        log.warn("invoice customer addresses lookup failed", { customerId, error: err instanceof Error ? err.message : String(err) });
+        problems.push("The customer's billing address could not be read — try again");
+      }
+    }
   }
 
   if (!profile) problems.push("Fill in the invoicing details under Settings → Organization");
@@ -205,6 +223,7 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
     roePct: picked.roePct,
     tradeDirection: shipment.tradeDirection,
     vatPayer: profile?.vatPayer ?? true,
+    customer: customer ? { country: customer.country, dic: customer.dic } : null,
   });
   for (const c of calc.missingCurrencies) {
     const last = picked.retired.get(c);
@@ -220,7 +239,12 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
   // When each row the lines are built from was last changed: issuing checks them again under its lock.
   const versions = new Map(rows.map((r) => [r.id, r.updatedAt.getTime()]));
-  return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions };
+  // What the invoice names besides the job: the quote its prices come from (the one copied into
+  // the costs, else the job's Sales Number) and from where to where the cargo goes.
+  const quoteNumber = settings?.quoteRef?.trim() || shipment.salesNumber?.trim() || "";
+  const routeFrom = shipment.pol?.trim() || shipment.origin?.trim() || "";
+  const routeTo = shipment.pod?.trim() || shipment.destination?.trim() || "";
+  return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions, quoteNumber, routeFrom, routeTo };
 }
 
 function supplierSnapshot(profile: NonNullable<Awaited<ReturnType<typeof loadContext>>["profile"]>, currency: string): SupplierSnapshot {
@@ -422,6 +446,13 @@ class InvoiceDocumentService {
     return {
       customerId: ctx.customerId,
       customer: ctx.customer ? customerParty(ctx.customer) : null,
+      billingAddress: !!ctx.customer?.billingAddress,
+      // The issuer and the account the invoice is paid to, so a wrong one is seen before issuing.
+      issuer: ctx.profile ? supplierParty(supplierSnapshot(ctx.profile, ctx.calc.currency)) : null,
+      bankAccount: ctx.profile ? supplierSnapshot(ctx.profile, ctx.calc.currency).bankAccount : null,
+      quoteNumber: ctx.quoteNumber,
+      routeFrom: ctx.routeFrom,
+      routeTo: ctx.routeTo,
       issueDate: ctx.issueDate,
       duzp: ctx.duzp,
       dueDate: ctx.dueDate,
@@ -462,6 +493,9 @@ class InvoiceDocumentService {
         bookingNumber: ctx.shipment.bookingNumber,
         containerNumber: ctx.shipment.containerNumber,
         personalReference: ctx.shipment.personalReference,
+        routeFrom: ctx.routeFrom,
+        routeTo: ctx.routeTo,
+        quoteNumber: ctx.quoteNumber,
       };
       const billed = ctx.calc.lines.map((l) => l.sourceSellingCostId);
       const { invoice, lines } = await invoiceRepository.issue(

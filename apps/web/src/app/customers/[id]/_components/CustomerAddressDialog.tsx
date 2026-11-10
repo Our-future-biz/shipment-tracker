@@ -26,21 +26,29 @@ interface CustomerAddressDialogProps {
   onCancel: () => void;
   onSubmit: (values: CustomerAddressFormValues) => void;
   // A customer has one Registered address; with one on file, the type is not offered for another address.
-  // The other types can be combined freely: one address is often all of them.
+  // The same goes for its one Billing address, which its invoices are addressed to. The other types
+  // can be combined freely: one address is often all of them.
   hasRegistered: boolean;
+  hasBilling: boolean;
 }
 
 const required = (message: string) => [{ required: true, whitespace: true, message }];
 
 // Add / edit dialog of a customer address. Like the contact dialog, it is mounted anew (a new React key) for
 // every opening, so the form starts from `address`.
-export function CustomerAddressDialog({ open, address, defaultCountry, saving, onCancel, onSubmit, hasRegistered }: CustomerAddressDialogProps) {
+export function CustomerAddressDialog({ open, address, defaultCountry, saving, onCancel, onSubmit, hasRegistered, hasBilling }: CustomerAddressDialogProps) {
   const [form] = Form.useForm<CustomerAddressFormValues>();
   const registeredTaken = hasRegistered && !address?.types.includes("Registered");
+  const billingTaken = hasBilling && !address?.types.includes("Billing");
   const typeOptions = ADDRESS_TYPES.map((type) => ({
     value: type,
-    label: type === "Registered" && registeredTaken ? "Registered (already on file)" : type,
-    disabled: type === "Registered" && registeredTaken,
+    label:
+      type === "Registered" && registeredTaken
+        ? "Registered (already on file)"
+        : type === "Billing" && billingTaken
+          ? "Billing (on another address - use “Use for invoices”)"
+          : type,
+    disabled: (type === "Registered" && registeredTaken) || (type === "Billing" && billingTaken),
   }));
 
   const initialValues: CustomerAddressFormValues = address
@@ -101,7 +109,7 @@ export function CustomerAddressDialog({ open, address, defaultCountry, saving, o
         <Form.Item
           name="types"
           label="Types"
-          extra="One address can be several types, e.g. Registered, Billing, Pickup and Delivery. A Pickup or Delivery address is also a site (Sites tab), where its opening hours, avizace and tail lift are kept."
+          extra="One address can be several types, e.g. Registered, Billing, Pickup and Delivery. Billing is where invoices are addressed, instead of the Registered address; a customer has one. A Pickup or Delivery address is also a site (Sites tab), where its opening hours, avizace and tail lift are kept."
           rules={[{ required: true, type: "array", min: 1, message: "Choose at least one type" }]}
         >
           <Select mode="multiple" aria-label="Types" placeholder="Choose the types" options={typeOptions} />

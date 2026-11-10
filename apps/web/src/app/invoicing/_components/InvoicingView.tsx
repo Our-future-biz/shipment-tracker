@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Select } from "antd";
+import { Popover, Select } from "antd";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
@@ -17,11 +17,15 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { money } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
+import { signed } from "@/app/shipments/[jobNumber]/tabs/costsCalc";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
+import { asData } from "@/app/sales/_lib/salesQuote";
+import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { InvoicePanel } from "./InvoicePanel";
 import { BillingQueue } from "./BillingQueue";
 import { invoicedLineCount } from "../_lib/lineCounts";
 import { jobDuzp } from "../_lib/openInvoices";
+import { profitQuoteRef, quoteVsJob, type QuoteVsJob } from "../_lib/quoteVsJob";
 
 /** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
 const TABS = [
@@ -41,14 +45,15 @@ function InvoicingStatusTag({ value }: { value: string }) {
 
 interface SummaryItemProps {
   label: string;
+  className?: string;
   /** The label may take two lines in a narrow column (the ports' long names) instead of running into the next fact. */
   wrapLabel?: boolean;
   children: React.ReactNode;
 }
 
-function SummaryItem({ label, wrapLabel = false, children }: SummaryItemProps) {
+function SummaryItem({ label, className = "", wrapLabel = false, children }: SummaryItemProps) {
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 ${className}`}>
       <div className={`${LABEL_TEXT} ${wrapLabel ? "" : "whitespace-nowrap"}`}>{label}</div>
       <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
     </div>
@@ -88,7 +93,7 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
   };
 
   return (
-    // 9 facts in one row on a wide screen: the text facts share the width, the last three take
+    // 11 facts on a wide screen, in columns of 9: the text facts share the width, the last three take
     // the width of their label (labels do not wrap, but the ports' may); a long Shipment Status is cut, not widened
     <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_fit-content(120px)_max-content_max-content] gap-x-4 gap-y-3">
       <SummaryItem label="Job">
@@ -137,7 +142,90 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
           EMPTY_CELL
         )}
       </SummaryItem>
+      {/* The quote the job was priced from, and its profit against the job's: a second row on a wide screen. */}
+      <QuoteProfitFacts shipment={shipment} />
     </div>
+  );
+}
+
+// What a difference reads as: green above the quote, red below it.
+const diffTone = (v: number) => (v > 0.004 ? "text-ok" : v < -0.004 ? "text-danger" : "text-slate-500");
+
+/** Why the job's profit is not the quote's: the parts of the difference, each in the billing currency. */
+function QuoteDifference({ cmp, jobProfit, quoteRef, currency }: { cmp: QuoteVsJob; jobProfit: number; quoteRef: string; currency: string }) {
+  const row = (label: string, value: string, className = "") => (
+    <div className={`flex items-baseline justify-between gap-6 ${className}`}>
+      <span>{label}</span>
+      <span className="tabular-nums">{value}</span>
+    </div>
+  );
+  return (
+    <div className="text-[13px] text-slate-700 min-w-[300px] flex flex-col gap-1">
+      {row(`Quote ${quoteRef}, at its own rates`, money(cmp.quoteProfit))}
+      {row("This job now, at its rates", money(jobProfit))}
+      {row("Difference", signed(cmp.difference), `font-semibold border-t border-slate-200 pt-1 ${diffTone(cmp.difference)}`)}
+      <div className="pl-3 flex flex-col gap-0.5 text-slate-500">
+        {row("Exchange rates and ROE", signed(cmp.ratesAndRoe))}
+        {row("Real costs against the estimates", signed(cmp.realVsEstimate))}
+        {row("Rows added, changed or removed", signed(cmp.otherRows))}
+      </div>
+      {cmp.missingRates.length > 0 && (
+        <div className="text-[12px] text-amber-700">Quote lines in {cmp.missingRates.join(", ")} have no rate on the job and are left out of the rates part.</div>
+      )}
+      <div className="text-[12px] text-slate-500">All in {currency}. Nothing is recalculated: the quote keeps its own figure.</div>
+    </div>
+  );
+}
+
+/**
+ * The quote the job was priced from, and how its profit compares with the job's: the quote's own
+ * figure at its own rates, the difference, and on hover what makes it up (Costs Breakdown's
+ * Report compares the same quote).
+ */
+function QuoteProfitFacts({ shipment }: ShipmentProps) {
+  const { data, billingCur, rates, totals: t } = useCostsData(shipment);
+  const ref = profitQuoteRef(
+    data?.billingSettings?.quoteRef,
+    (data?.costs ?? []).map((c) => c.sourceQuoteNumber ?? ""),
+    shipment.salesNumber,
+  );
+  const quote = useSalesQuoteByRef(ref);
+  const quoteData = quote.data?.quote ? asData(quote.data.quote.data) : null;
+  const jobProfit = t.sellTotal - t.buyTotal;
+  const cmp = quoteData ? quoteVsJob(quoteData, { profit: jobProfit, rxeTotal: t.rxeTotal, billingCurrency: billingCur, rates }) : null;
+
+  let profit: React.ReactNode = EMPTY_CELL;
+  if (ref && quote.isLoading) profit = <span className="text-slate-500">…</span>;
+  else if (ref && !quoteData) profit = <span className="text-slate-500">The quote could not be read</span>;
+  else if (ref && !cmp) profit = <span className="text-slate-500">No rate for its currency</span>;
+  else if (ref && cmp) {
+    profit = (
+      <Popover content={<QuoteDifference cmp={cmp} jobProfit={jobProfit} quoteRef={ref} currency={billingCur} />} trigger={["hover", "focus"]} placement="bottom">
+        <button type="button" className="inline-flex items-baseline gap-2 bg-transparent border-0 p-0 cursor-help text-[13px] tabular-nums whitespace-nowrap">
+          <strong className="text-slate-900">{money(cmp.quoteProfit)}</strong>
+          <span className={`font-semibold ${diffTone(cmp.difference)}`} aria-label={`The job is ${signed(cmp.difference)} ${billingCur} against the quote`}>
+            {signed(cmp.difference)} now
+          </span>
+        </button>
+      </Popover>
+    );
+  }
+
+  return (
+    <>
+      <SummaryItem label="Quote">
+        {ref ? (
+          <Link href={`/sales/quote/${ref}`} className={`${REF} font-semibold ${LINK}`}>
+            {ref}
+          </Link>
+        ) : (
+          EMPTY_CELL
+        )}
+      </SummaryItem>
+      <SummaryItem label={`Quote profit (${billingCur})`} className="xl:col-span-2">
+        {profit}
+      </SummaryItem>
+    </>
   );
 }
 

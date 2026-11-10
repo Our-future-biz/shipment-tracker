@@ -287,7 +287,15 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   // ── Parties ──
   const colW = (right - M - 16) / 2;
   const supplierBlock = [s.companyName, ...partyLines({ ...s, address: s.street })];
-  const customerBlock = [inv.customer.companyName, ...partyLines({ ...inv.customer })];
+  // The customer at its Billing address when it has one (with that address's name), else at its seat.
+  const billTo = inv.customer.billingAddress;
+  const customerBlock = billTo
+    ? [
+        inv.customer.companyName,
+        ...(billTo.label ? [billTo.label] : []),
+        ...partyLines({ address: billTo.street, city: billTo.city, postalCode: billTo.postalCode, country: billTo.country, ico: inv.customer.ico, dic: inv.customer.dic }),
+      ]
+    : [inv.customer.companyName, ...partyLines({ ...inv.customer })];
   const partyTop = w.y;
   const drawParty = (x: number, label: string, lines: string[]) => {
     w.text(label, x + 10, partyTop - 14, 7.5, { bold: true, color: MUTED });
@@ -329,6 +337,11 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   if (bank?.iban) rightCol.push(["IBAN", bank.iban.replace(/(.{4})/g, "$1 ").trim()]);
   if (bank?.swift) rightCol.push(["SWIFT / BIC", bank.swift]);
   rightCol.push(["Zakázka / Job", inv.shipment.jobNumber]);
+  // The quote the prices come from and the route: on invoices issued from 10 Nov 2026.
+  if (inv.shipment.quoteNumber) rightCol.push(["Nabídka / Quote", inv.shipment.quoteNumber]);
+  if (inv.shipment.routeFrom || inv.shipment.routeTo) {
+    rightCol.push(["Trasa / Routing", `${inv.shipment.routeFrom || "—"} → ${inv.shipment.routeTo || "—"}`]);
+  }
   if (inv.shipment.containerNumber) rightCol.push(["Kontejner / Container", inv.shipment.containerNumber]);
   if (inv.shipment.bookingNumber) rightCol.push(["Booking", inv.shipment.bookingNumber]);
   if (inv.shipment.personalReference) rightCol.push(["Vaše ref. / Your ref.", inv.shipment.personalReference]);

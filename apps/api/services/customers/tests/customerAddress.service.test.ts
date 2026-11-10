@@ -4,6 +4,7 @@ const addresses = vi.hoisted(() => ({
   createWithSeat: vi.fn(),
   updateWithSeat: vi.fn(),
   softDeleteWithSeat: vi.fn(),
+  moveBilling: vi.fn(),
 }));
 const requireLive = vi.hoisted(() => vi.fn());
 // Logo links are signed with a secret, which needs the Encore runtime.
@@ -91,6 +92,24 @@ describe("customer addresses", () => {
     await expect(
       customerAddressService.create(COMPANY, "c1", { types: ["Registered"], street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
     ).rejects.toThrow("already has a registered address");
+  });
+
+  it("tells a second billing address apart from a second registered address", async () => {
+    requireLive.mockResolvedValue({ id: "c1" });
+    const second = Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_address_one_billing" } });
+    addresses.createWithSeat.mockRejectedValueOnce(second);
+    await expect(
+      customerAddressService.create(COMPANY, "c1", { types: ["Billing"], street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
+    ).rejects.toThrow("already has a billing address");
+  });
+
+  it("makes an address the billing address through the write that moves Billing, and reports one that is gone", async () => {
+    addresses.moveBilling.mockResolvedValueOnce(row({ types: ["Billing", "Pickup"] }));
+    const item = await customerAddressService.makeBilling("a1", COMPANY);
+    expect(addresses.moveBilling).toHaveBeenCalledWith("a1", COMPANY);
+    expect(item.types).toEqual(["Billing", "Pickup"]);
+    addresses.moveBilling.mockResolvedValueOnce(null);
+    await expect(customerAddressService.makeBilling("gone", COMPANY)).rejects.toThrow("Address not found");
   });
 
   it("tells a site given to the address by another save at the same moment apart from a second registered address", async () => {

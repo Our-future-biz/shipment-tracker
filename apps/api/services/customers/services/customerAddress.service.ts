@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { isUniqueViolation } from "../../../lib/db/errors";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { customerAddressRepository } from "../repositories/customerAddress.repository";
 import type { NewCustomerAddressRecord } from "../schemas/customerAddress.schema";
 import { ADDRESS_TYPES, type AddressItem, type AddressType } from "../interfaces/interfaces";
@@ -42,13 +42,17 @@ export function addressValues(input: Partial<AddressInput>): Partial<Omit<NewCus
   return values;
 }
 
-// A customer has one seat: a second live Registered address is refused by a unique index. So is
-// a second site of one address, given by another save at the same moment (lib/addressSite).
+// A customer has one seat and one billing address: a second live Registered or Billing address is
+// refused by a unique index. So is a second site of one address, given by another save at the same
+// moment (lib/addressSite).
 async function oneRegistered<T>(write: () => Promise<T>): Promise<T> {
   try {
     return await write();
   } catch (err) {
     if (isSiteRace(err)) throw APIError.aborted(SITE_RACE);
+    if (isUniqueViolation(err) && constraintOf(err) === "customer_address_one_billing") {
+      throw APIError.alreadyExists("The customer already has a billing address — use “Use for invoices” on this one to move it here");
+    }
     if (isUniqueViolation(err)) throw APIError.alreadyExists("The customer already has a registered address — edit that one");
     throw err;
   }
@@ -76,6 +80,14 @@ class CustomerAddressService {
 
   async update(id: string, companyId: string, input: Partial<AddressInput>): Promise<AddressItem> {
     const row = await oneRegistered(() => customerAddressRepository.updateWithSeat(id, companyId, addressValues(input)));
+    if (!row) throw APIError.notFound("Address not found");
+    return toAddressItem(row);
+  }
+
+  // The address made the customer's billing address: Billing moves here from the one that had it
+  // (which keeps its other types, or becomes Paperwork when Billing was all it was).
+  async makeBilling(id: string, companyId: string): Promise<AddressItem> {
+    const row = await oneRegistered(() => customerAddressRepository.moveBilling(id, companyId));
     if (!row) throw APIError.notFound("Address not found");
     return toAddressItem(row);
   }

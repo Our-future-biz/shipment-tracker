@@ -533,6 +533,7 @@ export namespace customers {
             this.addressCreate = this.addressCreate.bind(this)
             this.addressDelete = this.addressDelete.bind(this)
             this.addressList = this.addressList.bind(this)
+            this.addressMakeBilling = this.addressMakeBilling.bind(this)
             this.addressUpdate = this.addressUpdate.bind(this)
             this.approvalChatAddPerson = this.approvalChatAddPerson.bind(this)
             this.approvalChatGet = this.approvalChatGet.bind(this)
@@ -615,6 +616,17 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/addresses`)
             return await resp.json() as controllers.AddressListResponse
+        }
+
+        /**
+         * Makes the address the customer's billing address, the one its invoices are addressed to:
+         * Billing moves here from the address that had it, which keeps its other types (or becomes
+         * Paperwork when Billing was all it was).
+         */
+        public async addressMakeBilling(id: string): Promise<controllers.AddressMakeBillingResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customer-addresses/${encodeURIComponent(id)}/billing`)
+            return await resp.json() as controllers.AddressMakeBillingResponse
         }
 
         public async addressUpdate(id: string, params: controllers.AddressUpdateRequest): Promise<controllers.AddressUpdateResponse> {
@@ -6476,6 +6488,10 @@ export namespace controllers {
 
     export interface AddressListResponse {
         data: interfaces.AddressItem[]
+    }
+
+    export interface AddressMakeBillingResponse {
+        address: interfaces.AddressItem
     }
 
     export interface AddressUpdateRequest {
@@ -16346,7 +16362,43 @@ export namespace interfaces {
      */
     export interface InvoicePreviewItem {
         customerId: string | null
+        /**
+         * The customer as the invoice addresses it: at its Billing address when it has one, else at its seat.
+         */
         customer: InvoicePartyItem | null
+
+        /**
+         * The address above is the customer's Billing address, not its seat.
+         */
+        billingAddress: boolean
+
+        /**
+         * Who issues the invoice (Settings → Organization); null until it is filled in.
+         */
+        issuer: InvoicePartyItem | null
+
+        /**
+         * The issuer's account in the invoice currency, printed for the payment; null when there is none.
+         */
+        bankAccount: {
+            currency: string
+            bankName: string
+            accountNumber: string
+            iban: string
+            swift: string
+        } | null
+
+        /**
+         * The sales quote the invoice names; "" when the job has none.
+         */
+        quoteNumber: string
+
+        /**
+         * From where to where, as the invoice prints it: port of loading (else origin) → port of discharge (else destination).
+         */
+        routeFrom: string
+
+        routeTo: string
         issueDate: string
         duzp: string
         dueDate: string

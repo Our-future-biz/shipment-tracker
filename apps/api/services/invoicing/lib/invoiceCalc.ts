@@ -70,11 +70,12 @@ export const VAT_CODE_INFO: Record<VatCode, VatCodeInfo> = {
     label: "Reverse charge",
     legalText: "Daň odvede zákazník / Reverse charge – VAT to be accounted for by the customer",
   },
+  // Both a disbursement and a service for a customer outside the EU (its place of supply is abroad).
   OUT: {
     code: "OUT",
     rate: 0,
     label: "Outside VAT",
-    legalText: "Mimo předmět daně – přefakturace / Outside the scope of VAT – disbursement",
+    legalText: "Plnění mimo předmět daně v tuzemsku / Outside the scope of Czech VAT",
   },
   NP: { code: "NP", rate: 0, label: "Not VAT payer", legalText: "Nejsme plátci DPH / Not registered for VAT" },
 };
@@ -83,20 +84,50 @@ export function isVatCode(v: unknown): v is VatCode {
   return typeof v === "string" && (VAT_CODES as readonly string[]).includes(v);
 }
 
-/** Default before the user picks one: international shipments §69, domestic 21 %. */
-export function defaultVatCode(tradeDirection: string): VatCode {
+/** The EU member states (ISO 3166-1 alpha-2, Greece as GR). */
+export const EU_COUNTRIES: ReadonlySet<string> = new Set([
+  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE",
+  "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
+]);
+
+/** The invoiced customer, as far as the VAT default goes: its country (ISO-2) and VAT number. */
+export interface VatCustomer {
+  country: string;
+  dic: string;
+}
+
+/**
+ * The VAT code of a line nobody picked one for, by the invoiced customer's country (owner
+ * decision of 10 Nov 2026; the accountant is to confirm it):
+ * - a customer outside the EU: outside the scope of Czech VAT - a service for a business is
+ *   supplied where the customer has its seat (§9(1) ZDPH);
+ * - a customer elsewhere in the EU with a VAT number: reverse charge;
+ * - a Czech customer, or one whose country is not known (or an EU one without a VAT number): by
+ *   the job - import and export transport §69 (0 %), anything else 21 %.
+ */
+export function defaultVatCode(tradeDirection: string, customer?: VatCustomer | null): VatCode {
+  const country = (customer?.country ?? "").trim().toUpperCase();
+  if (country && country !== "CZ") {
+    if (!EU_COUNTRIES.has(country)) return "OUT";
+    if ((customer?.dic ?? "").trim()) return "RC";
+  }
   const d = (tradeDirection ?? "").trim().toLowerCase();
   return d.includes("import") || d.includes("export") ? "Z69" : "S21";
 }
 
 /**
  * The VAT code a line is invoiced with: an issuer who is not a VAT payer never charges
- * VAT; otherwise the code chosen on the line, or the default.
+ * VAT; otherwise the code chosen on the line, or the default for the customer and the job.
  */
-export function effectiveVatCode(chosen: string | null | undefined, tradeDirection: string, vatPayer: boolean): VatCode {
+export function effectiveVatCode(
+  chosen: string | null | undefined,
+  tradeDirection: string,
+  vatPayer: boolean,
+  customer?: VatCustomer | null,
+): VatCode {
   if (!vatPayer) return "NP";
   if (isVatCode(chosen) && chosen !== "NP") return chosen;
-  return defaultVatCode(tradeDirection);
+  return defaultVatCode(tradeDirection, customer);
 }
 
 // ── Exchange rates ────────────────────────────────────────────────────────────
@@ -241,8 +272,10 @@ export function calculateInvoice(input: {
   roePct?: number;
   tradeDirection: string;
   vatPayer: boolean;
+  /** The invoiced customer: its country and VAT number decide the default VAT code. */
+  customer?: VatCustomer | null;
 }): InvoiceCalc {
-  const { rows, currency, rates, tradeDirection, vatPayer } = input;
+  const { rows, currency, rates, tradeDirection, vatPayer, customer } = input;
   const roe = (input.roePct ?? 100) / 100;
   const missing = new Set<string>();
   const billingRate = rateOf(currency, rates);
@@ -263,7 +296,7 @@ export function calculateInvoice(input: {
     const lineFx = (r.currency || "CZK") === currency ? 1 : (from / billingRate) * roe;
     const net = round2(unitPrice * qty * lineFx);
     if (net === 0) continue;
-    const vatCode = effectiveVatCode(r.vatCode, tradeDirection, vatPayer);
+    const vatCode = effectiveVatCode(r.vatCode, tradeDirection, vatPayer, customer);
     lines.push({
       sourceSellingCostId: r.id,
       // the category is a charge code: the customer reads its label ("road_freight" -> "Road freight")

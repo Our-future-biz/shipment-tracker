@@ -5,7 +5,8 @@ import { customerTable } from "./customer.schema";
 import type { AddressType } from "../interfaces/interfaces";
 
 // The places of a customer: its seat (Registered, from ARES or typed in when the customer was created),
-// where invoices and paperwork go, and where goods are picked up or delivered. One address can be
+// where invoices (Billing - printed on them instead of the seat) and paperwork go, and where goods
+// are picked up or delivered. One address can be
 // several of these at once (often all of them): its types.
 export const customerAddressTable = pgTable(
   "customer_address",
@@ -32,6 +33,10 @@ export const customerAddressTable = pgTable(
     uniqueIndex("customer_address_one_registered")
       .on(table.customerId)
       .where(sql`'Registered' = ANY(${table.types}) AND ${table.deletedAt} IS NULL`),
+    // One billing address per customer: the one its invoices are addressed to.
+    uniqueIndex("customer_address_one_billing")
+      .on(table.customerId)
+      .where(sql`'Billing' = ANY(${table.types}) AND ${table.deletedAt} IS NULL`),
     // At least one type, and only known ones.
     check(
       "customer_address_types_check",
