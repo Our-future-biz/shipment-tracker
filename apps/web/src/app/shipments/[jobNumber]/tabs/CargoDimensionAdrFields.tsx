@@ -14,7 +14,8 @@ interface CargoDimensionAdrFieldsProps {
 }
 
 // What the server takes as a UN number: four digits, "UN" in front allowed.
-const UN_NUMBER = /^(UN\s*)?\d{4}$/i;
+// A UN number is four digits (1203); nothing else can be typed in.
+const UN_NUMBER = /^\d{4}$/;
 
 // Every label in the strip reads like "Limited quantity": plain 13px, dark amber (a warning).
 const LABEL = "text-[13px] text-amber-800";
@@ -35,10 +36,11 @@ export function CargoDimensionAdrFields({ line, onPatch, onCommit }: CargoDimens
           className="!w-24"
           placeholder="1203"
           aria-label="UN number"
-          maxLength={7}
+          maxLength={4}
+          inputMode="numeric"
           status={unNumber && !UN_NUMBER.test(unNumber.trim()) ? "error" : undefined}
           value={unNumber}
-          onChange={(e) => onPatch({ adrUn: e.target.value })}
+          onChange={(e) => onPatch({ adrUn: e.target.value.replace(/\D/g, "").slice(0, 4) })}
           onBlur={onCommit}
         />
       </label>
