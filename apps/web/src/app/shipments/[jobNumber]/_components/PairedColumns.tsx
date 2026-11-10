@@ -41,13 +41,16 @@ const rowSpan = (rows: number) => ROW_SPAN[Math.min(Math.max(rows, 1), ROW_SPAN.
 // subgrid), so a row beside a taller one (a user picker, a two-line label) is as tall as it and
 // the lines between rows meet. Each item is one row (or one PAIRED_FIELD cell). On a narrow screen
 // the right column goes under the left one. `className` replaces the card body's padding.
+// grid-cols-1 (one track of minmax(0, 1fr)): a column is exactly as wide as its half. Its own track
+// would otherwise grow to the longest one-line value (a cargo description), which then ran over the
+// other column instead of fading out at the field's edge.
 export function PairedColumns({ left, right, className = CARD_BODY }: { left: ReactNode[]; right: ReactNode[]; className?: string }) {
   const span = rowSpan(Math.max(left.length, right.length));
   return (
     // content-start: a card stretched beside a taller one keeps its rows at their own height.
     <div className={`${className} ${COLS2} content-start`}>
-      <div className={`grid grid-rows-subgrid min-w-0 ${span}`}>{left}</div>
-      <div className={`grid grid-rows-subgrid min-w-0 ${span}`}>{right}</div>
+      <div className={`grid grid-cols-1 grid-rows-subgrid min-w-0 ${span}`}>{left}</div>
+      <div className={`grid grid-cols-1 grid-rows-subgrid min-w-0 ${span}`}>{right}</div>
     </div>
   );
 }
