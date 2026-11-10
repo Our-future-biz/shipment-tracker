@@ -16,11 +16,11 @@ export const PLACEHOLDERS = [
   { key: "contact", label: "contact person (Sir/Madam without one)" },
   { key: "customer", label: "customer" },
   { key: "reference", label: "quote reference" },
-  { key: "route", label: "origin → destination" },
-  { key: "origin", label: "origin" },
-  { key: "destination", label: "destination" },
+  { key: "route", label: "place of loading → place of delivery" },
+  { key: "origin", label: "place of loading" },
+  { key: "destination", label: "place of delivery" },
   { key: "validUntil", label: "valid until" },
-  { key: "sender", label: "sales owner" },
+  { key: "sender", label: "quoted by" },
 ] as const;
 
 export type PlaceholderKey = (typeof PLACEHOLDERS)[number]["key"];

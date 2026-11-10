@@ -93,7 +93,7 @@ describe("quoteSignals", () => {
     expect(texts(fact({ validUntil: "2026-11-05" }))).toEqual(["A: Valid until in 2 days"]);
     expect(texts(fact({ warehouseInquiry: { status: "pending", requestedAt: "2026-11-02T08:00:00.000Z" } }))).toEqual(["A: Warehouse asked 25 h ago"]);
     expect(texts(fact({ warehouseInquiry: { status: "pending", requestedAt: "2026-11-02T12:00:00.000Z" } }))).toEqual([]);
-    expect(texts(fact({ ownerUserId: null, ownerName: "" }))).toEqual(["A: No Sales Owner"]);
+    expect(texts(fact({ ownerUserId: null, ownerName: "" }))).toEqual(["A: Quoted by nobody"]);
   });
 
   it("counts working days for Won with no shipment and for drafts, one day for Air", () => {
@@ -192,7 +192,7 @@ describe("buildSalesCockpit", () => {
     expect(cockpit.attention.total).toBe(0);
     expect(cockpit.urgent.rows[0]!.tags).toEqual([
       { text: "Expires today · last contact 1 day ago", urgent: true },
-      { text: "No Sales Owner", urgent: false },
+      { text: "Quoted by nobody", urgent: false },
     ]);
   });
 

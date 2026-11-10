@@ -192,7 +192,7 @@ const SEARCH_TIPS = (
     <div>• Accents and capitals do not matter — “skoda” finds Škoda.</div>
     <div>• Combine up to five keywords — “air export fca” matches quotes containing all of them.</div>
     <div className="text-slate-400">
-      Searches reference, customer, status, freight mode, direction, origin, destination, commodity, incoterm, sales owner and job number - in all quotes, not
+      Searches reference, customer, status, freight mode, direction, places of loading and delivery, commodity, incoterm, who quoted it and job number - in all quotes, not
       only the ones on this page.
     </div>
   </div>
@@ -839,12 +839,12 @@ export function QuotesList() {
         }
       >
         <Form layout="vertical">
-          <Form.Item label="Sales owner" className="!mb-0">
+          <Form.Item label="Quoted by" className="!mb-0">
             <Select
               showSearch
               className="w-full"
               placeholder="Select a user"
-              aria-label="Sales owner"
+              aria-label="Quoted by"
               filterOption={matchesUserOption}
               optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
               value={assignee}

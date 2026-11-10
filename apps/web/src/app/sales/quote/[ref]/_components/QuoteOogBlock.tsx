@@ -78,7 +78,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
   const checks = measured ? types.map((t) => checkOog(t, { length: o.length!, width: o.width!, height: o.height! })).filter((c): c is OogCheck => !!c) : [];
   return (
     <LineBlock title="Out-of-gauge requirements">
-      <div className="p-3 space-y-3">
+      <div className="p-4 space-y-3">
         <Row label="In gauge (required)">
           <Radio.Group
             size="small"
@@ -120,7 +120,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 {/* The headings are long for their figures: the columns are wide enough for them, and a
                     heading that still does not fit wraps instead of running into the next one. */}
-                <LineTable minWidthClass="min-w-[760px] [&_th]:!whitespace-normal">
+                <LineTable flush minWidthClass="min-w-[760px] [&_th]:!whitespace-normal">
                   <colgroup>
                     <col className="w-[110px]" />
                     <col className="w-[160px]" />

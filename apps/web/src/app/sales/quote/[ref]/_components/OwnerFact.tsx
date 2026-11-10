@@ -1,6 +1,8 @@
 "use client";
 
+import { useState, type KeyboardEvent } from "react";
 import { Button, Select } from "antd";
+import { LoadingOutlined } from "@ant-design/icons";
 import { useUsers } from "@/hooks/useUsers";
 import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -22,7 +24,8 @@ interface OwnerFactProps {
 // keeps its owner (the server's reason, ownerChangeBlockedReason, is not shown). A change is
 // asked of the server at once; the fact shows what the server stored. It is the last fact of the
 // summary at the top of the quote (QuoteFacts); only an owner no user was matched to gets small
-// print under it.
+// print under it. Like the customer's Sales Owner, it is locked against a stray click: it reads as
+// text, a double click (or Enter) opens the list, and picking or leaving it locks it again.
 export function OwnerFact({
   quote,
   changing,
@@ -30,6 +33,7 @@ export function OwnerFact({
 }: OwnerFactProps) {
   const { users } = useUsers();
   const { user } = useAuth();
+  const [editing, setEditing] = useState(false);
   const right = quote.permissions.canChangeOwner;
   // A name from before owners were users, which fitted none of them.
   const unlinked = !quote.ownerUserId && quote.ownerLabel ? `${quote.ownerLabel} (not linked to a user)` : "";
@@ -41,24 +45,50 @@ export function OwnerFact({
     if (quote.ownerUserId && !users.some((u) => u.id === quote.ownerUserId)) {
       options.unshift({ value: quote.ownerUserId, label: quote.ownerName });
     }
+    const ownerEmail = options.find((o) => o.value === quote.ownerUserId)?.label ?? "";
+    const unlock = () => !changing && setEditing(true);
+    const handleUnlockKey = (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      unlock();
+    };
     return (
-      <Fact label="Sales owner" note={unlinked && <span title={unlinked}>{unlinked}</span>}>
-        <Select
-          showSearch
-          allowClear
-          size="small"
-          className="flex-1 min-w-0"
-          aria-label="Sales owner"
-          placeholder="Select a user"
-          filterOption={matchesUserOption}
-          optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
-          popupMatchSelectWidth={260}
-          loading={changing}
-          disabled={changing}
-          value={quote.ownerUserId ?? undefined}
-          onChange={(id?: string) => onChange(id ?? null)}
-          options={options}
-        />
+      <Fact label="Quoted by" note={unlinked && <span title={unlinked}>{unlinked}</span>}>
+        {editing ? (
+          <Select
+            autoFocus
+            defaultOpen
+            onBlur={() => setEditing(false)}
+            showSearch
+            allowClear
+            size="small"
+            className="flex-1 min-w-0"
+            aria-label="Quoted by"
+            placeholder="Select a user"
+            filterOption={matchesUserOption}
+            optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
+            popupMatchSelectWidth={260}
+            value={quote.ownerUserId ?? undefined}
+            onChange={(id?: string) => {
+              setEditing(false);
+              onChange(id ?? null);
+            }}
+            options={options}
+          />
+        ) : (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label={`Quoted by: ${ownerEmail || "nobody"}. Double-click or press Enter to change.`}
+            title="Double-click to change"
+            onDoubleClick={unlock}
+            onKeyDown={handleUnlockKey}
+            className="flex items-center gap-1.5 min-w-0 rounded cursor-default select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          >
+            {ownerEmail ? <span className="truncate">{ownerEmail}</span> : <span className="font-normal text-slate-400">Nobody</span>}
+            {changing && <LoadingOutlined className="text-[11px] text-slate-400" aria-label="Saving" />}
+          </div>
+        )}
       </Fact>
     );
   }
@@ -74,7 +104,7 @@ export function OwnerFact({
 
   if (right === "claim") {
     return (
-      <Fact label="Sales owner">
+      <Fact label="Quoted by">
         <span className="flex items-center gap-2 min-w-0 w-full">
           {name}
           <Button size="small" className="ml-auto shrink-0" loading={changing} disabled={!user} onClick={() => user && onChange(user.id)}>
@@ -85,5 +115,5 @@ export function OwnerFact({
     );
   }
 
-  return <Fact label="Sales owner">{name}</Fact>;
+  return <Fact label="Quoted by">{name}</Fact>;
 }

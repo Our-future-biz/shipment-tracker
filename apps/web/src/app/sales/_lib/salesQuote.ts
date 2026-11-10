@@ -244,10 +244,10 @@ export function routingNeeds(data: Pick<SalesQuoteData, "direction" | "incoterm"
   };
 }
 
-/** The Routing places a quote still needs, "Origin" and / or "Destination". */
+/** The Routing places a quote still needs, by their labels: "Place of Loading" (origin) and / or "Place of Delivery" (destination). */
 export function routingMissing(data: Pick<SalesQuoteData, "direction" | "incoterm" | "origin" | "destination">): string[] {
   const needs = routingNeeds(data);
-  return [needs.origin && !data.origin?.trim() && "Origin", needs.destination && !data.destination?.trim() && "Destination"].filter(
+  return [needs.origin && !data.origin?.trim() && "Place of Loading", needs.destination && !data.destination?.trim() && "Place of Delivery"].filter(
     (x): x is string => !!x,
   );
 }

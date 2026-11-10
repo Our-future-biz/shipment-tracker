@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Badge, Button, Checkbox, ConfigProvider, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
@@ -202,18 +202,16 @@ const AIR_ONLY = <span title="Air freight only">{EMPTY_CELL}</span>;
 // take from it.
 const FIELD_COLUMNS_CLASS = "grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))] gap-x-6";
 
-// The label of a field that stands in a line of its own rather than in a label / value row.
-const FIELD_LABEL_CLASS = `shrink-0 ${LABEL_TEXT}`;
-
 // A small link out of the form, as on the customer page's cards.
 const SMALL_LINK_CLASS = `shrink-0 text-xs font-semibold whitespace-nowrap ${LINK_CLASS}`;
 // The tooltip of the e-mail and phone of a contact picked from the Customer Database.
 const CONTACT_FOLLOWS_TITLE = "From the contact in the Customer Database - change it there, or unlink the contact to type another";
 
-// What the question before Routing is saved without its Origin or Destination asks.
+// What the question before Routing is saved without its Place of Loading (origin) or Place of
+// Delivery (destination) asks.
 function blankRoutingTitle(data: SalesQuoteData): string {
   const blank = routingMissing(data);
-  return blank.length === 2 ? "Keep Origin and Destination blank?" : `Keep ${blank[0] ?? "Origin"} blank?`;
+  return blank.length === 2 ? "Keep Place of Loading and Place of Delivery blank?" : `Keep ${blank[0] ?? "Place of Loading"} blank?`;
 }
 
 export function QuoteWorkflow() {
@@ -1176,7 +1174,9 @@ export function QuoteWorkflow() {
 
   // `note` stands at the foot of a step, left of its "Save & continue".
   // A step's `content` is locked whole on a closed quote.
-  const sections: { key: SectionKey; title: string; subtitle: string; content: ReactNode; note?: ReactNode }[] = [
+  // A step with `cards` is a stack of cards of its own, as a shipment's Cargo Details tab, rather
+  // than one card under the step's title.
+  const sections: { key: SectionKey; title: string; subtitle: string; content: ReactNode; note?: ReactNode; cards?: boolean }[] = [
     {
       key: "customer",
       title: "Customer details",
@@ -1307,11 +1307,11 @@ export function QuoteWorkflow() {
     {
       key: "routing",
       title: "Routing",
-      subtitle: "Origin, destination, ports and addresses",
+      subtitle: "Places of loading and delivery, ports and addresses",
       content: (
         <div className={FIELD_COLUMNS_CLASS}>
           <div className="min-w-0">
-            <InfoRow label="Origin">
+            <InfoRow label="Place of Loading">
               <span className="flex items-center">
                 <GeoSelect kind="place" airports={airFreight} terminals={originTerminals} showWhere size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
                 <GeoFlag kind="place" value={draft.origin} />
@@ -1329,7 +1329,7 @@ export function QuoteWorkflow() {
             </InfoRow>
           </div>
           <div className="min-w-0">
-            <InfoRow label="Destination">
+            <InfoRow label="Place of Delivery">
               <span className="flex items-center">
                 <GeoSelect kind="place" airports={airFreight} terminals={destinationTerminals} showWhere size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
                 <GeoFlag kind="place" value={draft.destination} />
@@ -1353,43 +1353,50 @@ export function QuoteWorkflow() {
       key: "cargo",
       title: "Cargo details",
       subtitle: containerQuote ? "Commodity, containers and weight" : "Commodity, packages and dimensions",
+      cards: true,
       content: (
         <div className="flex flex-col gap-3">
-          <div className={FIELD_COLUMNS_CLASS}>
-            <div className="min-w-0">
-              <InfoRow label="Cargo Description">
-                <Input size="small" aria-label="Cargo Description" value={draft.commodity ?? ""} onChange={(e) => set({ commodity: e.target.value })} />
-              </InfoRow>
-            </div>
-            <div className="flex items-center gap-4 min-h-[34px]">
-              {/* Whether cargo may be stacked is a question of loose cargo; a full container is the box. */}
-              {!containerQuote && (
-                <Checkbox checked={!!draft.stackable} onChange={(e) => set({ stackable: e.target.checked })}>
-                  Stackable
-                </Checkbox>
+          <LineBlock title="Cargo description">
+            <div className="flex flex-col gap-3 p-4">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <Input
+                  size="small"
+                  className="flex-1 !min-w-[240px] !max-w-[560px]"
+                  aria-label="Cargo Description"
+                  placeholder="Commodity"
+                  value={draft.commodity ?? ""}
+                  onChange={(e) => set({ commodity: e.target.value })}
+                />
+                <div className="flex items-center gap-4">
+                  {/* Whether cargo may be stacked is a question of loose cargo; a full container is the box. */}
+                  {!containerQuote && (
+                    <Checkbox checked={!!draft.stackable} onChange={(e) => set({ stackable: e.target.checked })}>
+                      Stackable
+                    </Checkbox>
+                  )}
+                  {/* Unticked, the ADR details go with it: they describe dangerous goods. */}
+                  <Checkbox
+                    checked={!!draft.dangerous}
+                    onChange={(e) => set(e.target.checked ? { dangerous: true } : { dangerous: false, adr: undefined })}
+                  >
+                    Dangerous goods
+                  </Checkbox>
+                </div>
+              </div>
+              {draft.dangerous && (
+                <>
+                  {/* The same fields as a shipment's cargo line, where they go when a shipment is made from the quote. */}
+                  <CargoDimensionAdrFields line={draft.adr ?? {}} onPatch={(patch) => set({ adr: { ...draft.adr, ...patch } })} onCommit={() => {}} />
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="Dangerous goods declared"
+                    description="An SDS is needed before booking. DG surcharges may apply."
+                  />
+                </>
               )}
-              {/* Unticked, the ADR details go with it: they describe dangerous goods. */}
-              <Checkbox
-                checked={!!draft.dangerous}
-                onChange={(e) => set(e.target.checked ? { dangerous: true } : { dangerous: false, adr: undefined })}
-              >
-                Dangerous goods
-              </Checkbox>
             </div>
-          </div>
-
-          {draft.dangerous && (
-            <>
-              {/* The same fields as a shipment's cargo line, where they go when a shipment is made from the quote. */}
-              <CargoDimensionAdrFields line={draft.adr ?? {}} onPatch={(patch) => set({ adr: { ...draft.adr, ...patch } })} onCommit={() => {}} />
-              <Alert
-                type="warning"
-                showIcon
-                message="Dangerous goods declared"
-                description="An SDS is needed before booking. DG surcharges may apply."
-              />
-            </>
-          )}
+          </LineBlock>
 
           {/* A full-container quote lists its boxes; container lines a quote still has after its
               service type changed stay in view too - they count in its weight and go with a shipment
@@ -1406,12 +1413,13 @@ export function QuoteWorkflow() {
               {containers.length === 0 ? (
                 <LineBlockEmpty>No containers yet.</LineBlockEmpty>
               ) : (
-                <LineTable minWidthClass="min-w-[520px]">
+                <LineTable minWidthClass="min-w-[760px]">
                   <colgroup>
                     <col className="w-[76px]" />
+                    <col className="w-[200px]" />
+                    <col className="w-16" />
+                    <col className="w-[140px]" />
                     <col />
-                    <col className="w-[72px]" />
-                    <col className="w-[132px]" />
                     <col className="w-10" />
                   </colgroup>
                   <thead>
@@ -1420,6 +1428,7 @@ export function QuoteWorkflow() {
                       <th scope="col" className={LINE_TH_CLASS}>Container type</th>
                       <th scope="col" className={LINE_TH_RIGHT_CLASS}>TEU</th>
                       <th scope="col" className={LINE_TH_CLASS}>Kg / container</th>
+                      <th scope="col" className={LINE_TH_CLASS}>Weight limit</th>
                       <th scope="col" aria-label="Remove container" className={LINE_TH_CLASS} />
                     </tr>
                   </thead>
@@ -1427,8 +1436,7 @@ export function QuoteWorkflow() {
                     {containers.map((c, i) => {
                       const weightCheck = checkContainerWeight(c.type, c.weight);
                       return (
-                      <Fragment key={containerKeys.keys[i]}>
-                      <tr>
+                      <tr key={containerKeys.keys[i]}>
                         <td className={LINE_TD_CLASS}>
                           <InputNumber size="small" className="!w-full" aria-label="Number of containers" min={1} precision={0} parser={moneyInputParser} value={c.qty} onChange={(v) => patchContainer(i, { qty: v ?? 1 })} />
                         </td>
@@ -1456,6 +1464,7 @@ export function QuoteWorkflow() {
                             onChange={(v) => patchContainer(i, { weight: v ?? undefined })}
                           />
                         </td>
+                        <td className={LINE_TD_CLASS}>{weightCheck ? <ContainerWeightNote check={weightCheck} /> : EMPTY_CELL}</td>
                         <td className={`${LINE_TD_CLASS} !pl-0`}>
                           <RemoveLineButton label={`Remove container ${i + 1}`} onClick={() => {
                               containerKeys.remove(i);
@@ -1464,14 +1473,6 @@ export function QuoteWorkflow() {
                           />
                         </td>
                       </tr>
-                      {weightCheck && (
-                        <tr>
-                          <td colSpan={5} className="px-2 pb-2 pt-0">
-                            <ContainerWeightNote check={weightCheck} />
-                          </td>
-                        </tr>
-                      )}
-                      </Fragment>
                       );
                     })}
                   </tbody>
@@ -1585,7 +1586,7 @@ export function QuoteWorkflow() {
             {containerQuote ? (
               <>
                 <KpiTile size="text" label="Containers" value={fmtQuantity(cargo.totalContainers)} />
-                <KpiTile size="text" label="TEU" value={fmtQuantity(cargo.teu)} hint="20' = 1, 40' and 45' = 2" />
+                <KpiTile size="text" label={<span title="20' = 1, 40' and 45' = 2">TEU</span>} value={fmtQuantity(cargo.teu)} />
               </>
             ) : (
               <KpiTile size="text" label="Packages" value={fmtQuantity(cargo.totalPackages)} />
@@ -1610,7 +1611,6 @@ export function QuoteWorkflow() {
                   />
                 )
               }
-              hint={cargo.weightFromContainers ? "From containers" : cargo.weightFromLines ? "From packages" : "Total for the shipment"}
             />
             <KpiTile
               size="text"
@@ -1632,10 +1632,9 @@ export function QuoteWorkflow() {
                   />
                 )
               }
-              hint={cargo.cbmFromLines ? "From package dimensions" : "Total for the shipment"}
             />
             {containerQuote ? (
-              <KpiTile size="text" label="Equipment" value={cargo.equipment || EMPTY_CELL} hint="As the shipment names its containers" />
+              <KpiTile size="text" label="Equipment" value={cargo.equipment || EMPTY_CELL} />
             ) : (
               <>
                 {airFreight ? (
@@ -1643,17 +1642,15 @@ export function QuoteWorkflow() {
                 ) : (
                   <KpiTile
                     size="text"
-                    label="Weight / measure"
+                    label={<span title="1 t or 1 cbm, the greater">Weight / measure</span>}
                     value={cargo.weightMeasure ? `${fmtQuantity(cargo.weightMeasure)} W/M` : EMPTY_CELL}
-                    hint="1 t or 1 cbm, the greater"
                   />
                 )}
                 <KpiTile size="text" wrapLabel label={<>Chargeable weight <span className="normal-case whitespace-nowrap">(ChW)</span></>} value={airFreight ? `${fmtQuantity(cargo.chargeableWeight)} kg` : AIR_ONLY} />
                 <KpiTile
                   size="text"
-                  label="Weight ratio"
+                  label={<span title="Volume ÷ weight in tons">Weight ratio</span>}
                   value={cargo.weightRatio !== null ? `${fmtQuantity(cargo.weightRatio)} cbm/t` : EMPTY_CELL}
-                  hint="Volume ÷ weight in tons"
                 />
               </>
             )}
@@ -1665,12 +1662,13 @@ export function QuoteWorkflow() {
       key: "pricing",
       title: "Pricing",
       subtitle: "Buying & selling breakdown with margin",
+      cards: true,
       content: (
         // A supplier is taken from the Customer Database only; one that is not there is added (and waits for a manager).
         <NewSupplierFromQuote.Provider value={quoteClosed ? null : ref}>
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2.5 min-h-6">
-            <span className={FIELD_LABEL_CLASS}>Currency</span>
+          <div className={`${CARD} flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5`}>
+            <span className={LABEL_TEXT}>Currency</span>
             <Select
               size="small"
               className="w-[84px] shrink-0"
@@ -1987,6 +1985,43 @@ export function QuoteWorkflow() {
   const shown = sections[shownIndex];
   const nextSection = sections[shownIndex + 1];
 
+  // Around a step's content: on a closed quote why nothing can be changed, and at its foot the
+  // step's note and the way on. A step in cards has them above and under its cards.
+  const closedAlert = (className?: string) =>
+    quoteClosed && (
+      <Alert
+        className={className}
+        type="info"
+        showIcon
+        message={
+          quote.status === "replaced"
+            ? "This quote was replaced by its revision: its details and prices stay as they were sent."
+            : "This quote is closed: its details and prices are what the customer was given. To change anything, click Revise at the top - the revision is a new quote."
+        }
+      />
+    );
+  // Locked as a whole while closed: every control of every step, antd's and plain buttons alike,
+  // the validity too.
+  const shownContent = shown && (
+    <ConfigProvider componentDisabled={quoteClosed}>
+      <fieldset disabled={quoteClosed} className="contents">
+        {shown.content}
+      </fieldset>
+    </ConfigProvider>
+  );
+  const stepFooter = (className?: string) =>
+    (shown?.note || nextSection) && (
+      <div className={`${className ?? ""} flex flex-wrap items-center justify-between gap-x-3 gap-y-2`}>
+        <div className="min-w-0">{shown?.note}</div>
+        {nextSection &&
+          (quoteClosed ? (
+            <ToolbarButton onClick={() => setActiveSection(nextSection.key)}>Continue</ToolbarButton>
+          ) : (
+            <ToolbarButton onClick={() => saveAndContinue(nextSection.key)}>Save &amp; continue</ToolbarButton>
+          ))}
+      </div>
+    );
+
   return (
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
@@ -2158,40 +2193,20 @@ export function QuoteWorkflow() {
 
         <div className="min-w-0">
           <div className="flex flex-col gap-3 min-w-0">
-            {shown && (
-              <QuoteSection key={shown.key} title={shown.title} subtitle={shown.subtitle}>
-                {quoteClosed && (
-                  <Alert
-                    className="!mb-3"
-                    type="info"
-                    showIcon
-                    message={
-                      quote.status === "replaced"
-                        ? "This quote was replaced by its revision: its details and prices stay as they were sent."
-                        : "This quote is closed: its details and prices are what the customer was given. To change anything, click Revise at the top - the revision is a new quote."
-                    }
-                  />
-                )}
-                {/* Locked as a whole while closed: every control of every step, antd's and plain buttons
-                    alike, the validity too. */}
-                <ConfigProvider componentDisabled={quoteClosed}>
-                  <fieldset disabled={quoteClosed} className="contents">
-                    {shown.content}
-                  </fieldset>
-                </ConfigProvider>
-                {(shown.note || nextSection) && (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                    <div className="min-w-0">{shown.note}</div>
-                    {nextSection &&
-                      (quoteClosed ? (
-                        <ToolbarButton onClick={() => setActiveSection(nextSection.key)}>Continue</ToolbarButton>
-                      ) : (
-                        <ToolbarButton onClick={() => saveAndContinue(nextSection.key)}>Save &amp; continue</ToolbarButton>
-                      ))}
-                  </div>
-                )}
-              </QuoteSection>
-            )}
+            {shown &&
+              (shown.cards ? (
+                <div key={shown.key} className="flex flex-col gap-3 min-w-0">
+                  {closedAlert()}
+                  {shownContent}
+                  {stepFooter()}
+                </div>
+              ) : (
+                <QuoteSection key={shown.key} title={shown.title} subtitle={shown.subtitle}>
+                  {closedAlert("!mb-3")}
+                  {shownContent}
+                  {stepFooter("mt-3")}
+                </QuoteSection>
+              ))}
           </div>
         </div>
       </div>
@@ -2631,20 +2646,20 @@ const WEIGHT_FIELD_CLASS: Record<WeightCheck["level"], string> = {
   tooHeavy: "!bg-red-100 !border-red-400",
 };
 
-// Under a container line: the type's weight limits, and what the cargo weight on it needs.
+// Beside a container line: the type's weight limits, and what the cargo weight on it needs.
 function ContainerWeightNote({ check }: { check: WeightCheck }) {
   const kg = (n: number) => `${n.toLocaleString("en-US")} kg`;
   return (
-    <div className="text-[11px] text-slate-500">
+    <div className="text-[12px] leading-4 text-slate-500">
       Standard up to {kg(check.standard)} · {check.heavyTested ? "Heavy tested up to" : "Max"} {kg(check.max)}
-      {check.level === "heavyTested" && <span className="ml-2 text-amber-700">Heavy-tested box needed</span>}
+      {check.level === "heavyTested" && <span className="block text-amber-700">Heavy-tested box needed</span>}
       {check.level === "confirm" && (
-        <span className="ml-2 text-amber-700">
+        <span className="block text-amber-700">
           {check.heavyTested && "Heavy-tested box needed. "}
           <strong>You need to have it confirmed by shipping line</strong>
         </span>
       )}
-      {check.level === "tooHeavy" && <span className="ml-2 font-semibold text-red-600">Too heavy for this box</span>}
+      {check.level === "tooHeavy" && <span className="block font-semibold text-red-600">Too heavy for this box</span>}
     </div>
   );
 }

@@ -85,7 +85,7 @@ export function approvalEnded(approval: QuoteMarginApproval, data: unknown): str
   if (now.customerId !== b.customerId) return "the customer changed";
   if (now.serviceType !== b.serviceType) return "the freight mode changed";
   if (now.containers !== b.containers) return "the number of containers changed";
-  if (now.salesOwner !== b.salesOwner) return "the Sales Owner changed";
+  if (now.salesOwner !== b.salesOwner) return "who quoted it changed";
   // No validity at all is a validity without end: as much an extension as a later date.
   if (b.validUntil && (!now.validUntil || now.validUntil > b.validUntil)) return `the validity was extended past ${b.validUntil}`;
   return null;

@@ -215,7 +215,7 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
     const ago = daysBetween(q.validUntil, today);
     if (ago <= EXPIRED_DAYS) out.push(attention(16, `Expired ${plural(ago, "day")} ago, no answer recorded`));
   }
-  if (open && !q.ownerUserId) out.push(attention(17, "No Sales Owner"));
+  if (open && !q.ownerUserId) out.push(attention(17, "Quoted by nobody"));
   if (q.shownStatus === "ready_to_send" && q.marginProblem && !q.belowFloor) out.push(attention(18, "Margin unknown: a ČNB rate is missing"));
   return out;
 }

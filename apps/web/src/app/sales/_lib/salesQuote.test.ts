@@ -281,9 +281,9 @@ describe("routingNeeds", () => {
 describe("routingMissing", () => {
   it("lists only the places the terms need", () => {
     expect(routingMissing({ direction: "Import", incoterm: "FOB", destination: "Prague (CZPRG)" })).toEqual([]);
-    expect(routingMissing({ direction: "Import", incoterm: "FOB" })).toEqual(["Destination"]);
+    expect(routingMissing({ direction: "Import", incoterm: "FOB" })).toEqual(["Place of Delivery"]);
     expect(routingMissing({ direction: "Export", incoterm: "CFR", origin: "Prague (CZPRG)" })).toEqual([]);
-    expect(routingMissing({ direction: "Export", incoterm: "FOB", origin: "Prague (CZPRG)" })).toEqual(["Destination"]);
-    expect(routingMissing({ direction: "Export", incoterm: "FOB", origin: " " })).toEqual(["Origin", "Destination"]);
+    expect(routingMissing({ direction: "Export", incoterm: "FOB", origin: "Prague (CZPRG)" })).toEqual(["Place of Delivery"]);
+    expect(routingMissing({ direction: "Export", incoterm: "FOB", origin: " " })).toEqual(["Place of Loading", "Place of Delivery"]);
   });
 });

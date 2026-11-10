@@ -101,7 +101,7 @@ export function FollowUpTab() {
       ),
     },
     { title: "Status", key: "status", width: 100, render: (_: unknown, r) => <QuoteStatusPill status={r.status} /> },
-    { title: "Sales Owner", key: "owner", width: 150, ellipsis: true, render: (_: unknown, r) => r.ownerName || EMPTY_CELL },
+    { title: "Quoted By", key: "owner", width: 150, ellipsis: true, render: (_: unknown, r) => r.ownerName || EMPTY_CELL },
     {
       title: "Last contact",
       key: "contact",

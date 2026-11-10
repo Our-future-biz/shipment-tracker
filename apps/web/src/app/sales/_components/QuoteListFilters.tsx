@@ -137,11 +137,11 @@ export function QuoteListFilters({ filters, onChange, onClear, userOptions }: Qu
             options={QUOTE_STATUSES.map((s) => ({ value: s.key, label: s.label }))}
           />
         </Field>
-        <Field label="Sales owner">
+        <Field label="Quoted by">
           <Select
             showSearch
             allowClear
-            placeholder="All sales owners"
+            placeholder="Anyone"
             filterOption={matchesUserOption}
             optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
             value={filters.mineOnly ? "me" : filters.owner}

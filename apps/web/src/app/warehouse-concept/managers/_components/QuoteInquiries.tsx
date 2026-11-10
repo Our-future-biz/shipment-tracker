@@ -104,7 +104,7 @@ export function QuoteInquiries() {
                         {x.quoteNumber}
                       </Link>
                       <div className={HINT}>{x.customerName || "—"}</div>
-                      {x.ownerName && <div className={HINT}>Sales owner: {x.ownerName}</div>}
+                      {x.ownerName && <div className={HINT}>Quoted by {x.ownerName}</div>}
                     </td>
                     <td className={CELL}>
                       {x.serviceType || "—"}

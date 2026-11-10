@@ -3,17 +3,24 @@ import { CARD, CARD_BAR, CARD_TITLE, TD, TH } from "@/styles/ui";
 
 interface LineBlockProps {
   title: string;
+  // A quiet line beside the title (the cargo weight of a block's containers). It gives way first
+  // when the header runs out of room.
+  note?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
 }
 
-// A block of lines inside a section card - packages, cost lines, exchange rates: a nested card
-// whose header bar (CARD_BAR) names the block and holds its actions.
-export function LineBlock({ title, actions, children }: LineBlockProps) {
+// A block of the quote's Cargo details or Pricing step - the cargo description, packages, cost
+// lines, exchange rates: a card of its own, as the cards of a shipment's Cargo Details, whose
+// header bar (CARD_BAR) names the block and holds its actions.
+export function LineBlock({ title, note, actions, children }: LineBlockProps) {
   return (
     <div className={`${CARD} overflow-hidden`}>
       <div className={`${CARD_BAR} justify-between`}>
-        <h3 className={`${CARD_TITLE} min-w-0 truncate`}>{title}</h3>
+        <div className="flex items-baseline gap-2.5 min-w-0">
+          <h3 className={`${CARD_TITLE} min-w-0 truncate`}>{title}</h3>
+          {note && <span className="min-w-0 shrink-[9999] truncate text-[12px] text-slate-500">{note}</span>}
+        </div>
         {actions && <div className="shrink-0 flex items-center gap-2">{actions}</div>}
       </div>
       {children}
@@ -23,17 +30,21 @@ export function LineBlock({ title, actions, children }: LineBlockProps) {
 
 interface LineTableProps {
   minWidthClass: string;
+  // Edge to edge: a table that is not a block's own (in a window, in a box with its own frame).
+  flush?: boolean;
   children: ReactNode;
 }
 
 // The table of such a block, in the app's plain-table look (TH / TD). Its cells hold 24px inputs.
-// Wider than a narrow card allows, it scrolls inside the block.
-export function LineTable({ minWidthClass, children }: LineTableProps) {
-  return (
+// It stands in from the block's frame: its first column starts under the block's title and its
+// row lines stop short of the frame. Wider than a narrow card allows, it scrolls inside the block.
+export function LineTable({ minWidthClass, flush = false, children }: LineTableProps) {
+  const table = (
     <div className="overflow-x-auto">
       <table className={`w-full table-fixed border-collapse text-[13px] [&_tbody>tr:last-child>td]:border-b-0 ${minWidthClass}`}>{children}</table>
     </div>
   );
+  return flush ? table : <div className="px-2 pb-1">{table}</div>;
 }
 
 // The app's table head and body cells (styles/ui.ts). A cell's own colour beside TD's slate-700
@@ -51,5 +62,5 @@ interface LineBlockEmptyProps {
 
 // What a block says while it has no line.
 export function LineBlockEmpty({ children }: LineBlockEmptyProps) {
-  return <div className="px-3 py-3 text-xs text-slate-400">{children}</div>;
+  return <div className="px-4 py-3 text-xs text-slate-400">{children}</div>;
 }

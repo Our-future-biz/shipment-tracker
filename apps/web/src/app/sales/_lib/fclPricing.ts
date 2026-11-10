@@ -9,7 +9,7 @@ import type { CostLine, FclBlockProfit, FclPricing, FclProfit, SalesQuoteData } 
 
 // FCL pricing: how a Sea FCL quote is priced (the Pricing step's FCL layout). The buying lines are
 // the charges, in blocks: one per container type, priced per container, and one for the charges per
-// shipment (B/L fee and the like). Each charge has its own profit ("Edit per charge") - a % of its
+// shipment (B/L fee and the like). Each charge has its own profit ("Profit per charge") - a % of its
 // selling price or a sum in the quote's currency, per container in a container block. The charges
 // ticked "All in" add up to the all-in price the customer is offered; the others stay on their own
 // lines.

@@ -22,14 +22,14 @@ export function QuoteRatesEditor({ data, exchange }: QuoteRatesEditorProps) {
 
   return (
     <LineBlock title="Exchange rates · CZK per 1 unit">
-      <ul className="m-0 p-0 list-none">
+      <ul className="m-0 px-2 py-0 list-none">
         {needed.map((currency) => {
           const stamped = data.fx?.rates?.[currency];
           const own = data.rates?.[currency]?.rate;
           const today = exchange.rates[currency];
           const shown = stamped ?? (draft ? (today ?? own) : (own ?? today));
           return (
-            <li key={currency} className="flex items-center gap-3 px-3 py-1.5 border-b border-slate-100 last:border-b-0">
+            <li key={currency} className="flex items-center gap-3 px-2 py-1.5 border-b border-slate-100 last:border-b-0">
               <span className="w-11 shrink-0 text-[13px] font-semibold text-slate-900">{currency}</span>
               <span className="w-[120px] shrink-0 text-[13px] tabular-nums text-slate-700">{shown ?? "—"}</span>
               {stamped !== undefined ? (
@@ -53,7 +53,7 @@ export function QuoteRatesEditor({ data, exchange }: QuoteRatesEditorProps) {
         })}
       </ul>
       {draft && (
-        <div className="px-3 py-2 border-t border-slate-100 text-xs text-slate-500">
+        <div className="mx-2 px-2 py-2 border-t border-slate-100 text-xs text-slate-500">
           A draft follows today&apos;s ČNB rates; they are stored on the quote when it is sent.
         </div>
       )}

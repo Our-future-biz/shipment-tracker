@@ -204,7 +204,7 @@ export function SalesReportTab() {
 
   const ownerColumns: ColumnsType<OwnerRow> = [
     {
-      title: "Sales Owner",
+      title: "Quoted By",
       dataIndex: "owner",
       // Opens the quotes counted in the row.
       render: (v: string) => <GroupLink onClick={() => setGroup({ by: "owner", value: v })}>{v}</GroupLink>,
@@ -293,7 +293,7 @@ export function SalesReportTab() {
         ))}
       </div>
 
-      <SectionCard title="By sales owner" bodyClassName="p-0">
+      <SectionCard title="By who quoted" bodyClassName="p-0">
         <Table<OwnerRow>
           size="small"
           rowKey="owner"
@@ -349,7 +349,7 @@ function GroupQuotesDialog({ group, quotes, onClose }: { group: QuoteGroup; quot
   const columns: ColumnsType<PricedQuote> = [
     { title: "Sales Reference", dataIndex: "quoteNumber", width: 170, render: (v: string) => <QuoteRefLink quoteNumber={v} /> },
     { title: "Customer", key: "customer", ellipsis: true, render: (_: unknown, q) => q.data.customerName || "—" },
-    ...(group.by === "owner" ? [] : [{ title: "Sales Owner", key: "owner", width: 140, ellipsis: true, render: (_: unknown, q: PricedQuote) => ownerOf(q) }]),
+    ...(group.by === "owner" ? [] : [{ title: "Quoted By", key: "owner", width: 140, ellipsis: true, render: (_: unknown, q: PricedQuote) => ownerOf(q) }]),
     ...(group.by === "service" ? [] : [{ title: "Freight Mode", key: "service", width: 120, ellipsis: true, render: (_: unknown, q: PricedQuote) => serviceOf(q) }]),
     ...(group.by === "status" ? [] : [{ title: "Status", key: "status", width: 110, render: (_: unknown, q: PricedQuote) => <QuoteStatusPill status={q.status} /> }]),
     { title: "Created", key: "created", width: 100, render: (_: unknown, q) => <span className="tabular-nums">{formatDate(q.createdAt)}</span> },

@@ -122,7 +122,7 @@ export interface CostLine {
   containerType?: string;
   // FCL pricing (fclPricing.ts), on a buying line: whether the charge is part of the all-in price
   // (true when absent), whether profit was put on it in a breakdown offer sent before each charge
-  // had its own profit (absent: by its charge), and the profit set for it alone in "Edit per charge". A selling line made from it keeps inAllIn,
+  // had its own profit (absent: by its charge), and the profit set for it alone in "Profit per charge". A selling line made from it keeps inAllIn,
   // which the printed quotation goes by.
   inAllIn?: boolean;
   profitBasis?: boolean;
@@ -135,7 +135,7 @@ export interface FclProfit {
   value: number;
 }
 
-/** The profit of one block of FCL pricing: one figure for the block, or one per charge ("Edit per charge"). */
+/** The profit of one block of FCL pricing: one figure for the block, or one per charge ("Profit per charge"). */
 export interface FclBlockProfit extends FclProfit {
   perCharge?: boolean;
 }

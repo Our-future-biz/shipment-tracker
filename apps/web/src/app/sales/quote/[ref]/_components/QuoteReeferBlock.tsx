@@ -59,7 +59,7 @@ export function QuoteReeferBlock({ value, onChange, missing }: QuoteReeferBlockP
   const ventOpen = r.ventMode === "m3h" || r.ventMode === "percent";
   return (
     <LineBlock title="Reefer requirements">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5 p-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-5 p-4">
         <Group n={1} title="Cargo and set-point">
           <Field label="Set-point (required)" hint={missing ?? undefined}>
             <InputNumber

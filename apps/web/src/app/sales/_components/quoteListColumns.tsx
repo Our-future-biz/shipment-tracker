@@ -117,7 +117,7 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
   { key: "pod", title: "Port of Discharge", width: 150, render: (q) => dischargePlace(q) || EMPTY_CELL },
   { key: "status", title: "Status", width: 110, sortBy: "status", render: (q) => <QuoteStatusPill status={q.status} /> },
   { key: "validity", title: "Valid until", width: 104, sortBy: "validUntil", render: (q) => <ValidUntil quote={q} /> },
-  { key: "owner", title: "Sales Owner", width: 110, sortBy: "owner", render: (q) => q.ownerName || EMPTY_CELL },
+  { key: "owner", title: "Quoted By", width: 110, sortBy: "owner", render: (q) => q.ownerName || EMPTY_CELL },
   {
     key: "selling",
     title: "Selling total",

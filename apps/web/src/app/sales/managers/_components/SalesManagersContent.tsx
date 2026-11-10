@@ -77,7 +77,7 @@ const TILES: TileDef[] = [
   { key: "followUpDue", label: "Follow-up due", href: (s) => quotesHref({ followup: "due" }, s), danger: true },
   { key: "draftsToFinish", label: "Drafts to finish", href: (s) => quotesHref({ status: "draft" }, s) },
   { key: "validSoon", label: "Valid until ≤ 7 days", href: (s) => quotesHref({ status: OPEN, valid: "7", sort: "validUntil" }, s) },
-  { key: "noOwner", label: "No Sales Owner", href: (s) => quotesHref({ status: OPEN, owner: "none" }, s), danger: true },
+  { key: "noOwner", label: "Quoted by nobody", href: (s) => quotesHref({ status: OPEN, owner: "none" }, s), danger: true },
   { key: "wonThisMonth", label: "Won this month", href: (s) => quotesHref({ status: "won", month: "1" }, s) },
   { key: "lostThisMonth", label: "Lost this month", href: (s) => quotesHref({ status: "lost", month: "1" }, s) },
 ];
@@ -130,7 +130,7 @@ const signalsColumn = {
     <div className="flex flex-col gap-1 min-w-0">
       {tagList(r)}
       <div className="text-[12px] text-slate-500 truncate">
-        {[r.customer, r.ownerName || (r.kind === "quote" ? "no Sales Owner" : "nobody assigned"), r.sellingCzk ? czk(r.sellingCzk) : ""].filter(Boolean).join(" · ")}
+        {[r.customer, r.ownerName || (r.kind === "quote" ? "quoted by nobody" : "nobody assigned"), r.sellingCzk ? czk(r.sellingCzk) : ""].filter(Boolean).join(" · ")}
       </div>
     </div>
   ),
@@ -141,7 +141,7 @@ const CARD_COLUMNS: ColumnsType<SalesCockpitRow> = [refColumn, signalsColumn];
 const DIALOG_COLUMNS: ColumnsType<SalesCockpitRow> = [
   { ...refColumn, width: 200 },
   { title: "Customer", dataIndex: "customer", width: 200, render: (v: string) => v || dash },
-  { title: "Sales Owner", dataIndex: "ownerName", width: 190, render: (v: string) => v || dash },
+  { title: "Quoted By", dataIndex: "ownerName", width: 190, render: (v: string) => v || dash },
   { title: "Selling", dataIndex: "sellingCzk", width: 130, align: "right", render: (v: number | null) => (v ? <span className="tabular-nums">{czk(v)}</span> : dash) },
   { ...signalsColumn, render: (_: unknown, r: SalesCockpitRow) => tagList(r) },
 ];

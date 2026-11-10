@@ -79,7 +79,7 @@ export function FclTruckingBlock({ buyingLines, sellingLines, currency, amountOf
           })}
         </tbody>
       </LineTable>
-      {notes && <div className="flex flex-col gap-1 px-3 py-2 border-t border-slate-200">{notes}</div>}
+      {notes && <div className="mx-2 flex flex-col gap-1 px-2 py-2 border-t border-slate-200">{notes}</div>}
     </LineBlock>
   );
 }

@@ -172,7 +172,7 @@ describe("roadMargin", () => {
     const quote = (over: Record<string, unknown>) => roadMargin(road([line(10000)], [line(9600)], { customerId: "c1", salesOwner: "jan@forwarder.cz", validUntil: "2026-11-20", marginApproval: approval, ...over }), ctx())!;
     expect(quote({})).toMatchObject({ approvalValid: true, approvalEnded: null });
     expect(quote({ customerId: "c2" })).toMatchObject({ approvalValid: false, approvalEnded: "the customer changed" });
-    expect(quote({ salesOwner: "eva@forwarder.cz" })).toMatchObject({ approvalEnded: "the Sales Owner changed" });
+    expect(quote({ salesOwner: "eva@forwarder.cz" })).toMatchObject({ approvalEnded: "who quoted it changed" });
     expect(quote({ validUntil: "2026-11-25" })).toMatchObject({ approvalEnded: "the validity was extended past 2026-11-20" });
     expect(quote({ validUntil: "2026-11-18" })).toMatchObject({ approvalValid: true });
     // No validity at all is no end to it: as much a longer validity as a later date.

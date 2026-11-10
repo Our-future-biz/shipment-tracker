@@ -13,7 +13,7 @@ import { FclPerChargeModal } from "./FclPerChargeModal";
 
 // The Pricing step of a Sea FCL quote (fclPricing.ts): a block per container type and one for the
 // charges per shipment. In a block the user enters the charges' buying - per container - and ticks
-// those in the all-in price; "Edit per charge" sets each charge's profit, and the selling follows.
+// those in the all-in price; "Profit per charge" sets each charge's profit, and the selling follows.
 
 /** What the FCL layout changes on the quote: always its buying lines and blocks together, so they never part. */
 export type FclChange = Pick<SalesQuoteData, "buyingLines" | "fclPricing">;

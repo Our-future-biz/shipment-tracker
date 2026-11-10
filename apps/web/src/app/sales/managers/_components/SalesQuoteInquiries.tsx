@@ -159,7 +159,7 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                         </Link>
                         <div className="text-[12px] text-slate-700">{r.customer || "—"}</div>
                         <div className="text-[11px] text-slate-400">
-                          {[serviceTypeLabel(r.serviceType), r.ownerName ? `Sales Owner: ${r.ownerName}` : "no Sales Owner"].filter(Boolean).join(" · ")}
+                          {[serviceTypeLabel(r.serviceType), r.ownerName ? `Quoted by ${r.ownerName}` : "quoted by nobody"].filter(Boolean).join(" · ")}
                         </div>
                       </td>
                       <td className={`${CELL} tabular-nums`}>

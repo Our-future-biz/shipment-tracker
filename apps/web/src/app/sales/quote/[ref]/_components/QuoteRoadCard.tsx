@@ -86,7 +86,7 @@ export const QuoteRoadCard = ({ road, customerId, pricing, problems, onChange, o
         </MiniButton>
       }
     >
-      <div className="flex flex-col gap-4 p-3">
+      <div className="flex flex-col gap-4 p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <TruckingField label="Pick-up site">{siteSelect("from")}</TruckingField>
           <TruckingField label="Delivery site">{siteSelect("to")}</TruckingField>

@@ -23,7 +23,7 @@ interface FclPerChargeModalProps {
   onSave: (profits: Map<number, FclProfit>) => void;
 }
 
-// "Edit per charge": the profit of every charge of a block, in the all-in price or not, as a % of
+// "Profit per charge": the profit of every charge of a block, in the all-in price or not, as a % of
 // its selling price or a sum.
 export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose, onSave }: FclPerChargeModalProps) {
   const lines = quote.buyingLines ?? [];
@@ -60,7 +60,7 @@ export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose
         </div>
       }
     >
-      <LineTable minWidthClass="min-w-[640px]">
+      <LineTable flush minWidthClass="min-w-[640px]">
         <colgroup>
           <col className="w-[150px]" />
           <col />

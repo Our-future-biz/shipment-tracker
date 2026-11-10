@@ -43,8 +43,8 @@ export interface ColumnFilter {
 export const QUOTE_FILTER_COLUMNS: { key: string; title: string; options?: readonly string[] }[] = [
   { key: "reference", title: "Reference" },
   { key: "customer", title: "Customer" },
-  { key: "origin", title: "Origin" },
-  { key: "destination", title: "Destination" },
+  { key: "origin", title: "Place of Loading" },
+  { key: "destination", title: "Place of Delivery" },
   { key: "validity", title: "Valid until" },
   { key: "shipment", title: "Shipment (job no.)" },
   { key: "incoterm", title: "Incoterms", options: INCOTERMS },
