@@ -1,15 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  SALES_REFERENCE_PATTERN,
-  baseReference,
-  formatReference,
-  isSalesReference,
-  nextSequence,
-  nextRevision,
-  nextVariant,
-  revisionRoot,
-  salesPrefix,
-} from "../salesReference";
+import { SALES_REFERENCE_PATTERN, baseReference, formatReference, isSalesReference, nextRevision, nextSequence, nextVariant, plainSalesReference, quoteThreadOf, revisionRoot, salesPrefix, salesReferenceFor, salesReferenceLetters, sameSalesReference } from "../salesReference";
 
 describe("isSalesReference", () => {
   it("accepts a quote reference and its variants", () => {
@@ -200,5 +190,40 @@ describe("nextVariant", () => {
 
   it("gives references the pattern accepts", () => {
     expect(isSalesReference(nextVariant(base, [`${base}-2`]))).toBe(true);
+  });
+});
+
+describe("a quote's letters (its Freight Mode)", () => {
+  it("are the Freight Mode's, as a shipment's are", () => {
+    expect(["Air", "Sea FCL", "Sea LCL", "Sea Break Bulk", "Rail", "Road", "", undefined].map(salesReferenceLetters)).toEqual([
+      "AIR", "FCL", "LCL", "BB", "RAIL", "ROAD", "", "",
+    ]);
+  });
+
+  it("go in after QCZ, the date and number kept, and change or go with the Freight Mode", () => {
+    expect(salesReferenceFor("QCZ20261109001", "Sea LCL")).toBe("QCZLCL20261109001");
+    expect(salesReferenceFor("QCZLCL20261109001-2-R1", "Air")).toBe("QCZAIR20261109001-2-R1");
+    expect(salesReferenceFor("QCZBB20261109001", "")).toBe("QCZ20261109001");
+    expect(salesReferenceFor("OLD-12", "Air")).toBe("OLD-12");
+  });
+
+  it("are read as a reference and left out when references are compared", () => {
+    expect(isSalesReference("QCZRAIL20261109001-R2")).toBe(true);
+    expect(isSalesReference("QCZXX20261109001")).toBe(false);
+    expect(plainSalesReference("QCZROAD20261109012-3")).toBe("QCZ20261109012-3");
+    expect(sameSalesReference("QCZ20261109001", "QCZFCL20261109001")).toBe(true);
+    expect(sameSalesReference("QCZ20261109001", "QCZFCL20261109002")).toBe(false);
+  });
+
+  it("count no number of their own: the day, variants and revisions are counted across them", () => {
+    const prefix = salesPrefix("2026-11-09");
+    expect(nextSequence(prefix, ["QCZAIR20261109001", "QCZLCL20261109002", "QCZ20261109003-2"])).toBe(3n);
+    expect(nextVariant("QCZLCL20261109001", ["QCZLCL20261109001", "QCZAIR20261109001-2"])).toBe("QCZLCL20261109001-3");
+    expect(nextRevision("QCZAIR20261109001", ["QCZ20261109001-R1"])).toBe("QCZAIR20261109001-R2");
+  });
+
+  it("keep one chat thread for a quote, its revisions and its renames", () => {
+    expect(quoteThreadOf("QCZLCL20261109001-R2")).toBe("QCZ20261109001");
+    expect(quoteThreadOf(" QCZ20261109001 ")).toBe("QCZ20261109001");
   });
 });

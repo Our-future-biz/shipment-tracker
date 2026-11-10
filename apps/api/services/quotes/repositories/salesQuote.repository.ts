@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, like, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { BUSINESS_TZ } from "../../../lib/businessDate";
 import { isUniqueViolation } from "../../../lib/db/errors";
@@ -22,6 +22,12 @@ import {
 } from "../utils/quoteLifecycle.utils";
 import { COMBINING_MARKS, FINAL_SIGMA, FOLD_FROM, FOLD_TO, SIGMA, escapeLike } from "../utils/quoteSearch.utils";
 import { foldSql } from "../../../lib/db/textSearch";
+import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, plainSalesReference } from "../../../lib/salesReference";
+
+// A quote's reference without the letters of its Freight Mode (lib/salesReference): what a reference
+// is looked up, counted and grouped by, so QCZ20261109001 and QCZLCL20261109001 name one quote.
+const plainNumber = (column: PgColumn | SQL) => sql<string>`regexp_replace(${column}, ${LETTERED_SALES_REFERENCE}, ${PLAIN_SALES_REFERENCE_REPLACEMENT})`;
+const PLAIN_NUMBER = plainNumber(quoteTable.quoteNumber);
 import type { QuoteColumnFilter, QuoteFilterColumn } from "../utils/quoteColumnFilters.utils";
 
 // What a sales quote is: a row whose status column is filled. Rows of the old quotes module
@@ -145,7 +151,7 @@ const searchedText = (today: string, owners: ListOwner[]) => {
     ? sql`, ${byOwnerUser(owners, (owner) => `${owner.displayName} ${owner.email}`)} ->> quote.owner_user_id::text`
     : sql``;
   return sql<string>`(SELECT replace(lower(translate(regexp_replace(normalize(concat_ws(' ',
-      quote.quote_number, d."customerName", d."serviceType", d.direction, d.origin, d.destination, d.commodity, d.incoterm,
+      quote.quote_number, ${plainNumber(sql`quote.quote_number`)}, d."customerName", d."serviceType", d.direction, d.origin, d.destination, d.commodity, d.incoterm,
       quote.owner_label${ownerUser}, quote.shipment_job_number, ${shownStatus(today)}), NFD), ${COMBINING_MARKS}, '', 'g'), ${FOLD_FROM}, ${FOLD_TO})), ${FINAL_SIGMA}, ${SIGMA})
     FROM jsonb_to_record(CASE WHEN jsonb_typeof(quote.data) = 'object' THEN quote.data ELSE '{}'::jsonb END)
       AS d("customerName" text, "serviceType" text, direction text, origin text, destination text, commodity text, incoterm text))`;
@@ -174,7 +180,8 @@ const COLUMN_TEXT: Record<QuoteFilterColumn, SQL> = {
 const columnMatches = (f: QuoteColumnFilter): SQL => {
   const text = foldSql(sql`coalesce(${COLUMN_TEXT[f.key]}, '')`);
   const matches = f.exact ? sql`btrim(${text}) = ${f.value}` : sql`${text} LIKE ${`%${f.value}%`}`;
-  return f.references?.length ? or(matches, inArray(quoteTable.quoteNumber, f.references))! : matches;
+  // The shipments' copies of a reference may be from before its letters changed: compared without them.
+  return f.references?.length ? or(matches, inArray(PLAIN_NUMBER, f.references.map(plainSalesReference)))! : matches;
 };
 
 // What a list can be sorted by, and what each sort orders by: the whole of it - nothing a caller
@@ -356,7 +363,14 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       const query = run
         .select({ row: quoteTable, needsAdoption })
         .from(quoteTable)
-        .where(and(eq(quoteTable.companyId, companyId), eq(quoteTable.quoteNumber, quoteNumber), isNull(quoteTable.deletedAt)))
+        // By its reference as given, or the same number with other letters (a page or a copy that
+        // still holds the reference from before a change of Freight Mode); the exact one first.
+        .where(and(
+          eq(quoteTable.companyId, companyId),
+          or(eq(quoteTable.quoteNumber, quoteNumber), sql`${PLAIN_NUMBER} = ${plainSalesReference(quoteNumber)}`),
+          isNull(quoteTable.deletedAt),
+        ))
+        .orderBy(sql`${quoteTable.quoteNumber} = ${quoteNumber} DESC`)
         .limit(1);
       const [found] = await (options.lock ? query.for("update") : query);
       return found ?? null;
@@ -804,7 +818,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
           const used = await tx
             .select({ quoteNumber: quoteTable.quoteNumber })
             .from(quoteTable)
-            .where(and(eq(quoteTable.companyId, companyId), like(quoteTable.quoteNumber, `${escapeLike(prefix)}%`)));
+            // Without letters: a day's numbers, a quote's variants and revisions are counted across them.
+            .where(and(eq(quoteTable.companyId, companyId), sql`${PLAIN_NUMBER} LIKE ${`${escapeLike(plainSalesReference(prefix))}%`}`));
           return body(tx, used.map((r) => r.quoteNumber));
         });
       } catch (err) {
@@ -895,7 +910,10 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       filter.customerId ? eq(quoteTable.customerId, filter.customerId) : undefined,
       filter.followUpDue ? followUpIsDue(moment) : undefined,
       filter.family
-        ? or(eq(quoteTable.quoteNumber, filter.family), like(quoteTable.quoteNumber, `${escapeLike(filter.family)}-%`))
+        ? or(
+            eq(PLAIN_NUMBER, plainSalesReference(filter.family)),
+            sql`${PLAIN_NUMBER} LIKE ${`${escapeLike(plainSalesReference(filter.family))}-%`}`,
+          )
         : undefined,
       filter.hasShipment === undefined ? undefined : filter.hasShipment ? isNotNull(quoteTable.shipmentId) : isNull(quoteTable.shipmentId),
       // LIKE ALL: the searched text of a row is built once, then every word is looked for in it.
@@ -904,6 +922,19 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
         : undefined,
       ...(filter.columns ?? []).map(columnMatches),
     );
+  }
+
+  /**
+   * The company's live sales quotes whose stored status is an open one (Draft, Ready to Send,
+   * Quoted, Feedback, Revised): those whose reference may still take the letters of their Freight
+   * Mode. An Expired one among them is told apart by its validity (effectiveStatus).
+   */
+  async openQuotes(companyId: string): Promise<SalesQuoteRecord[]> {
+    const rows = await db
+      .select()
+      .from(quoteTable)
+      .where(and(eq(quoteTable.companyId, companyId), isNull(quoteTable.deletedAt), isSalesQuote, inArray(quoteTable.status, [...OPEN])));
+    return salesRows(rows);
   }
 
   private liveSalesQuote(companyId: string, quoteNumber: string, expected: SavedVersion) {

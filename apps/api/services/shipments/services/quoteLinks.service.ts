@@ -2,7 +2,7 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { canManageSales } from "../../../lib/salesPolicy";
 import { quotes } from "~encore/clients";
-import { SALES_REFERENCE_PATTERN, isSalesReference } from "../../../lib/salesReference";
+import { SALES_REFERENCE_PATTERN, isSalesReference, plainSalesReference } from "../../../lib/salesReference";
 import type { QuoteLinksSyncResult, QuoteSyncResult } from "../interfaces/interfaces";
 import { shipmentRepository } from "../repositories/shipment.repository";
 
@@ -105,17 +105,20 @@ class QuoteLinksService {
     if (!todo.length) company.dirty = false;
 
     const { links } = await quotes._internalSalesQuoteShipmentLinks({ companyId });
-    const current = new Map(links.map((link) => [link.quoteNumber, link.shipmentId]));
+    // Compared without the letters of a quote's Freight Mode (lib/salesReference): a shipment that
+    // still names a quote by its number from before its letters changed names the same quote.
+    const current = new Map(links.map((link) => [plainSalesReference(link.quoteNumber), link]));
 
     if (!todo.length) {
       // The oldest live shipment of every reference: the one its quote should be linked to.
-      const desired = new Map<string, string>();
+      const desired = new Map<string, { reference: string; id: string }>();
       for (const { reference, id } of await shipmentRepository.salesReferenceShipments(companyId, SALES_REFERENCE_PATTERN)) {
-        if (!desired.has(reference)) desired.set(reference, id);
+        const key = plainSalesReference(reference);
+        if (!desired.has(key)) desired.set(key, { reference, id });
       }
       todo = [
-        ...[...desired].filter(([reference, oldest]) => oldest !== current.get(reference)).map(([reference]) => reference),
-        ...[...current.keys()].filter((reference) => !desired.has(reference)),
+        ...[...desired].filter(([key, oldest]) => oldest.id !== current.get(key)?.shipmentId).map(([, oldest]) => oldest.reference),
+        ...[...current].filter(([key]) => !desired.has(key)).map(([, link]) => link.quoteNumber),
       ];
     }
 
@@ -125,7 +128,7 @@ class QuoteLinksService {
       // Nothing is told for a linked quote whose own number is not a sales reference.
       if (!synced) result.unchanged++;
       else if (!synced.found) result.quoteNotFound++;
-      else if (synced.shipmentId === (current.get(reference) ?? null)) result.unchanged++;
+      else if (synced.shipmentId === (current.get(plainSalesReference(reference))?.shipmentId ?? null)) result.unchanged++;
       else if (synced.shipmentId) result.linked++;
       else result.unlinked++;
     }

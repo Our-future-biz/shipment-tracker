@@ -2,7 +2,7 @@ import { APIError, ErrCode } from "encore.dev/api";
 import { businessDay } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
-import { isSalesReference } from "../../../lib/salesReference";
+import { isSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -471,7 +471,9 @@ function usersOnce(): UsersOnce {
 }
 
 // What a sales quote says about its owner.
-type QuoteOwner = { ownerUserId?: string | null; ownerName: string };
+// The quote a Sales Number names, as far as a shipment write needs it; `quoteNumber` is its reference
+// as it is now (with the letters of its Freight Mode, lib/salesReference).
+type QuoteOwner = { ownerUserId?: string | null; ownerName: string; quoteNumber?: string };
 
 /**
  * A person a write names is a user of the company, stored by their lower-cased e-mail, or nobody
@@ -1057,6 +1059,8 @@ class ShipmentService {
     // A shipment created against a quote inherits that quote's sales owner.
     if (salesNumber) {
       const quote = await this.linkableQuoteOwner(salesNumber, allowUnfinishedQuote);
+      // A quote's number typed from before its letters changed is kept as the quote's number now.
+      if (quote?.quoteNumber && sameSalesReference(quote.quoteNumber, salesNumber)) shipmentData.salesNumber = quote.quoteNumber;
       const owner = quote && !(shipmentData.salesPerson ?? "").trim() ? await this.quoteOwnerEmail(quote, users) : "";
       if (owner) shipmentData.salesPerson = owner;
     }
@@ -1212,12 +1216,23 @@ class ShipmentService {
     // The Sales Number is stored trimmed: it is what a quote finds its shipments by.
     if (typeof shipmentData.salesNumber === "string") shipmentData.salesNumber = shipmentData.salesNumber.trim();
     const previousSalesNumber = existing.salesNumber.trim();
+    // The quote it already names, written with other letters (from before a change of its Freight
+    // Mode, lib/salesReference), is no change.
+    if (
+      typeof shipmentData.salesNumber === "string" &&
+      isSalesReference(shipmentData.salesNumber) &&
+      sameSalesReference(shipmentData.salesNumber, previousSalesNumber)
+    ) {
+      shipmentData.salesNumber = previousSalesNumber;
+    }
     const nextSalesNumber = shipmentData.salesNumber;
     const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
     // Invoiced: marked so (by hand too), or with an issued invoice not credited, whatever the status says.
     if (salesNumberChanged && (existing.invoicingStatus === INVOICED_STATUS || (await this.isInvoiced(id)))) throw APIError.failedPrecondition(SALES_REFERENCE_INVOICED);
     if (salesNumberChanged && nextSalesNumber) {
       const quote = await this.linkableQuoteOwner(nextSalesNumber);
+      // Kept as the quote's number now, whatever letters it was typed with.
+      if (quote?.quoteNumber && sameSalesReference(quote.quoteNumber, nextSalesNumber)) shipmentData.salesNumber = quote.quoteNumber;
       const owner = quote && !("salesPerson" in shipmentData) ? await this.quoteOwnerEmail(quote, users) : "";
       if (owner) shipmentData.salesPerson = owner;
     }

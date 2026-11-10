@@ -2,7 +2,7 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import type { Actor } from "../../../lib/rbac";
 import { businessDay } from "../../../lib/businessDate";
-import { revisionRoot } from "../../../lib/salesReference";
+import { quoteThreadOf } from "../../../lib/salesReference";
 import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
 import { isUuid } from "../../../lib/uuid";
 import type { QuoteMarginApproval, QuoteMarginInquiryItem, QuoteMarginInquiryRow } from "../interfaces/interfaces";
@@ -58,7 +58,7 @@ const nameOf = (people: People, id: string | null, recorded = "") => (id ? peopl
 // written is logged.
 async function postToChat(actor: Actor, ctx: LifecycleContext, quoteNumber: string, message: string): Promise<void> {
   try {
-    await quoteCommentRepository.createForCompany(actor.companyID, { threadRef: revisionRoot(quoteNumber), quoteNumber, authorId: actor.userID, authorName: ctx.userEmail, message, mentionedUserIds: [] });
+    await quoteCommentRepository.createForCompany(actor.companyID, { threadRef: quoteThreadOf(quoteNumber), quoteNumber, authorId: actor.userID, authorName: ctx.userEmail, message, mentionedUserIds: [] });
   } catch (err) {
     log.warn("the margin inquiry could not be posted to the quote's chat", { quoteNumber, error: String(err) });
   }

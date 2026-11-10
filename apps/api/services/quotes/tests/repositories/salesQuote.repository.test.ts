@@ -138,12 +138,14 @@ const fake = vi.hoisted(() => {
             const next = state.found.shift();
             return Promise.resolve(next ? [next] : []);
           };
-          return {
+          const limited = {
             limit: () => ({
               then: (resolve: (rows: unknown[]) => unknown, reject: (reason: unknown) => unknown) => read("read quote").then(resolve, reject),
               for: (strength: string) => read(`read quote for ${strength}`),
             }),
           };
+          // The exact reference first, then one with other letters (lib/salesReference).
+          return { ...limited, orderBy: () => limited };
         },
       }),
     }),
@@ -849,26 +851,30 @@ describe("list", () => {
     expect(await added({ hasShipment: false })).toEqual({ sql: '"quote"."shipment_id" is null', params: [] });
   });
 
-  it("finds a family: the base and whatever continues it with a dash - the reference taken literally", async () => {
-    expect(await added({ family: "QCZ20261010001" })).toEqual({
-      sql: '("quote"."quote_number" = $2 or "quote"."quote_number" like $3)',
-      params: ["QCZ20261010001", "QCZ20261010001-%"],
+  it("finds a family: the base and whatever continues it with a dash - the reference taken literally, without its letters", async () => {
+    // Compared without the letters of the Freight Mode (lib/salesReference): an AIR and a LCL variant are one family.
+    expect(await added({ family: "QCZLCL20261010001" })).toEqual({
+      sql: '(regexp_replace("quote"."quote_number", $2, $3) = $4 or regexp_replace("quote"."quote_number", $5, $6) LIKE $7)',
+      params: ["^QCZ(RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})", "QCZ\\2", "QCZ20261010001", "^QCZ(RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})", "QCZ\\2", "QCZ20261010001-%"],
     });
-    expect((await added({ family: "Q_1%" })).params).toEqual(["Q_1%", "Q\\_1\\%-%"]);
+    expect((await added({ family: "Q_1%" })).params.filter((p) => !String(p).startsWith("^QCZ") && p !== "QCZ\\2")).toEqual(["Q_1%", "Q\\_1\\%-%"]);
   });
 
   it("searches one folded text per quote for every word: the document unpacked once, the constants of foldDiacritics as parameters", async () => {
     const { sql, params } = await added({ search: ["praha", "ittec\\%"] });
-    expect(params).toEqual(["quoted", "feedback", "2026-10-10", COMBINING_MARKS, FOLD_FROM, FOLD_TO, FINAL_SIGMA, SIGMA, JSON.stringify(["%praha%", "%ittec\\%%"])]);
+    // First the reference without its letters (lib/salesReference): an old number finds the quote under its new one.
+    expect(params).toEqual(["^QCZ(RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})", "QCZ\\2", "quoted", "feedback", "2026-10-10", COMBINING_MARKS, FOLD_FROM, FOLD_TO, FINAL_SIGMA, SIGMA, JSON.stringify(["%praha%", "%ittec\\%%"])]);
     // The same steps in the same order as foldDiacritics: decompose, drop the marks, translate, lower case, one sigma.
     expect(sql).toMatch(/^\(SELECT replace\(lower\(translate\(regexp_replace\(normalize\(concat_ws\(' ',/);
-    expect(sql).toContain(`${SHOWN}), NFD), $5, '', 'g'), $6, $7)), $8, $9)`);
+    expect(sql).toContain('quote.quote_number, regexp_replace(quote.quote_number, $2, $3), d."customerName"');
+    const shown = SHOWN.replace("$4::date", "$6::date").replace("$3)", "$5)").replace("($2,", "($4,");
+    expect(sql).toContain(`${shown}), NFD), $7, '', 'g'), $8, $9)), $10, $11)`);
     for (const field of ["quote.quote_number", 'd."customerName"', 'd."serviceType"', "d.direction", "d.origin", "d.destination", "d.commodity", "d.incoterm", "quote.owner_label", "quote.shipment_job_number"]) {
       expect(sql, field).toContain(field);
     }
     // A document that is no object has no fields - it must not fail the list of the whole company.
     expect(sql).toContain("FROM jsonb_to_record(CASE WHEN jsonb_typeof(quote.data) = 'object' THEN quote.data ELSE '{}'::jsonb END)");
-    expect(sql.endsWith("LIKE ALL (ARRAY(SELECT jsonb_array_elements_text($10::jsonb)))")).toBe(true);
+    expect(sql.endsWith("LIKE ALL (ARRAY(SELECT jsonb_array_elements_text($12::jsonb)))")).toBe(true);
   });
 
   describe("the owner, as the list shows it", () => {
@@ -890,8 +896,8 @@ describe("list", () => {
       fake.state.pages = [];
       await salesQuoteRepository.list(COMPANY, { search: ["novakova"] }, PAGE, MOMENT, OWNERS);
       const { sql, params } = sent(fake.state.pages[0]!.where);
-      expect(sql).toContain("quote.owner_label, $2::jsonb ->> quote.owner_user_id::text, quote.shipment_job_number");
-      expect(params[1]).toBe(JSON.stringify({ "user-1": "Martin Koubek martin@forwarder.cz", "user-2": "Jana Nováková jana@forwarder.cz" }));
+      expect(sql).toContain("quote.owner_label, $4::jsonb ->> quote.owner_user_id::text, quote.shipment_job_number");
+      expect(params[3]).toBe(JSON.stringify({ "user-1": "Martin Koubek martin@forwarder.cz", "user-2": "Jana Nováková jana@forwarder.cz" }));
       // The count is of the same condition.
       expect(sent(fake.state.counts[0])).toEqual({ sql, params });
     });
