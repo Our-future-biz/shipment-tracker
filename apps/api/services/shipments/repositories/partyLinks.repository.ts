@@ -37,6 +37,7 @@ const SHIPMENT_NAMES = [
   { id: shipmentTable.customerId, text: shipmentTable.customer, key: "customer" },
   { id: shipmentTable.shipperId, text: shipmentTable.shipper, key: "shipper" },
   { id: shipmentTable.consigneeId, text: shipmentTable.consignee, key: "consignee" },
+  { id: shipmentTable.agentId, text: shipmentTable.agent, key: "agent" },
   { id: shipmentTable.principalPartyId, text: shipmentTable.principalParty, key: "principalParty" },
 ] as const;
 const MASTER_JOB_NAMES = [
@@ -48,6 +49,7 @@ const SHIPMENT_CONTACTS = [
   { id: shipmentTable.customerPicContactId, party: shipmentTable.customerId, text: shipmentTable.customerPic, key: "customerPic" },
   { id: shipmentTable.shipperContactId, party: shipmentTable.shipperId, text: shipmentTable.shipperContact, key: "shipperContact" },
   { id: shipmentTable.consigneeContactId, party: shipmentTable.consigneeId, text: shipmentTable.consigneeContact, key: "consigneeContact" },
+  { id: shipmentTable.agentPicContactId, party: shipmentTable.agentId, text: shipmentTable.agentPic, key: "agentPic" },
 ] as const;
 
 const liveShipment = (companyId: string) => and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
@@ -152,6 +154,8 @@ class PartyLinksRepository {
           shipper: shipmentTable.shipper,
           consigneeId: shipmentTable.consigneeId,
           consignee: shipmentTable.consignee,
+          agentId: shipmentTable.agentId,
+          agent: shipmentTable.agent,
           principalPartyId: shipmentTable.principalPartyId,
           principalParty: shipmentTable.principalParty,
           customerPic: shipmentTable.customerPic,
@@ -160,6 +164,8 @@ class PartyLinksRepository {
           shipperContactId: shipmentTable.shipperContactId,
           consigneeContact: shipmentTable.consigneeContact,
           consigneeContactId: shipmentTable.consigneeContactId,
+          agentPic: shipmentTable.agentPic,
+          agentPicContactId: shipmentTable.agentPicContactId,
         })
         .from(shipmentTable)
         .where(liveShipment(companyId)),

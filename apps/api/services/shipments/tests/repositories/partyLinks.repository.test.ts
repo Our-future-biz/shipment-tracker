@@ -92,15 +92,16 @@ describe("renameCustomer", () => {
     await expect(partyLinksRepository.renameCustomer(COMPANY, ALFA, current("Alfa s.r.o."))).resolves.toEqual({ changed: 3, parties: [renamed] });
 
     // The name is read once this customer's renames have given it its turn, inside the transaction.
-    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx update", "tx update", "tx update", "tx update", "tx update", "tx update", "commit"]);
+    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx update", "tx update", "tx update", "tx update", "tx update", "tx update", "tx update", "commit"]);
     expect(sent(fake.state.executed[0])).toEqual({ sql: "select pg_advisory_xact_lock(hashtext($1))", params: [`shipments-customer-rename:${COMPANY}:${ALFA}`] });
-    const [customer, shipper, consignee, principal, mjShipper, mjConsignee] = fake.state.updates;
+    const [customer, shipper, consignee, agent, principal, mjShipper, mjConsignee] = fake.state.updates;
     expect(customer!.values).toEqual({ customer: "Alfa s.r.o." });
     expect(sent(customer!.where)).toEqual({
       sql: '(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and "shipment"."customer_id" = $2 and "shipment"."customer" <> $3)',
       params: [COMPANY, ALFA, "Alfa s.r.o."],
     });
-    expect([shipper, consignee, principal].map((u) => u!.values)).toEqual([{ shipper: "Alfa s.r.o." }, { consignee: "Alfa s.r.o." }, { principalParty: "Alfa s.r.o." }]);
+    expect([shipper, consignee, agent, principal].map((u) => u!.values)).toEqual([{ shipper: "Alfa s.r.o." }, { consignee: "Alfa s.r.o." }, { agent: "Alfa s.r.o." }, { principalParty: "Alfa s.r.o." }]);
+    expect(sent(agent!.where).sql).toContain('"shipment"."agent_id" = $2 and "shipment"."agent" <> $3');
     expect(sent(principal!.where).sql).toContain('"shipment"."principal_party_id" = $2 and "shipment"."principal_party" <> $3');
     expect([mjShipper!.table, mjConsignee!.table]).toEqual([masterJobTable, masterJobTable]);
     expect(sent(mjConsignee!.where)).toEqual({
@@ -129,9 +130,9 @@ describe("renameContact", () => {
     fake.state.returned = [[renamed], [], [{ id: "s-3" }]];
     await expect(partyLinksRepository.renameContact(COMPANY, ALFA, PETR, current("Petr Masák"))).resolves.toEqual({ changed: 2, parties: [renamed] });
 
-    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx update", "tx update", "tx update", "commit"]);
+    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx update", "tx update", "tx update", "tx update", "commit"]);
     expect(sent(fake.state.executed[0]).params).toEqual([`shipments-contact-rename:${COMPANY}:${PETR}`]);
-    const [pic, shipperContact, consigneeContact] = fake.state.updates;
+    const [pic, shipperContact, consigneeContact, agentContact] = fake.state.updates;
     expect(pic!.values).toEqual({ customerPic: "Petr Masák" });
     expect(sent(pic!.where)).toEqual({
       sql: '(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and "shipment"."customer_pic_contact_id" = $2 and "shipment"."customer_id" = $3 and "shipment"."customer_pic" <> $4)',
@@ -141,6 +142,8 @@ describe("renameContact", () => {
     expect(sent(shipperContact!.where).sql).toContain('"shipment"."shipper_contact_id" = $2 and "shipment"."shipper_id" = $3');
     expect(consigneeContact!.values).toEqual({ consigneeContact: "Petr Masák" });
     expect(sent(consigneeContact!.where).sql).toContain('"shipment"."consignee_contact_id" = $2 and "shipment"."consignee_id" = $3');
+    expect(agentContact!.values).toEqual({ agentPic: "Petr Masák" });
+    expect(sent(agentContact!.where).sql).toContain('"shipment"."agent_pic_contact_id" = $2 and "shipment"."agent_id" = $3');
   });
 
   it("writes nothing when the contact is gone", async () => {

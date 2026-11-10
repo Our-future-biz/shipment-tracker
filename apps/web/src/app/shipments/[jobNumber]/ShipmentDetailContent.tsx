@@ -928,11 +928,11 @@ const REFS_ROUTING: FieldDef[] = [
   { key: "destination", label: "Destination" },
 ];
 const PARTIES_AGENTS: FieldDef[] = [
-  { key: "customerPic", label: "Customer's PIC" },
+  { key: "customerPic", label: "Customer's Contact" },
   { key: "customerReference", label: "Customer Reference" },
   { key: "agent", label: "Agent" },
-  { key: "agentPic", label: "Agent's PIC" },
-  { key: "supplierPic", label: "Supplier's PIC" },
+  { key: "agentPic", label: "Agent's Contact" },
+  { key: "supplierPic", label: "Supplier's Contact" },
   { key: "customsProcedure", label: "Customs Procedure" },
 ];
 // The Quote card shows the quote uploaded in the Costs Breakdown tab, and its selling, buying and
@@ -1463,7 +1463,7 @@ export function ShipmentDetailContent() {
                     { key: "serviceType", label: "Service Type" },
                     { key: "customer", label: "Customer", ro: true },
                     // Picked from the customer's contacts (the contact cell), with its card on hover.
-                    { key: "customerPic", label: "Customer's PIC" },
+                    { key: "customerPic", label: "Customer's Contact" },
                     { key: "customerReference", label: "Customer Reference" },
                     { key: "serviceName", label: "Service Name" },
                     { key: "personInCharge", label: "Handled By" },
@@ -1757,6 +1757,13 @@ export function ShipmentDetailContent() {
                   shipment={shipment}
                   onCommit={handleCommit}
                   styleFor={styleFor}
+                  renderField={{
+                    // Any company of the Customer Database, and one of its saved contacts (or a typed name).
+                    agent: <CustomerLinkField label="Agent" name={shipment.agent} customerId={shipment.agentId} onChange={(n, id) => linkParty("agent", n, id)} />,
+                    agentPic: (
+                      <PartyContactField label="Agent's Contact" value={shipment.agentPic} contactId={shipment.agentPicContactId} customerId={shipment.agentId} onChange={(n, id) => commitContact("agentPic", n, id)} />
+                    ),
+                  }}
                 />
 
               </div>

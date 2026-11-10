@@ -101,6 +101,7 @@ const PARTY_ID_FIELD = {
   customer: "customerId",
   shipper: "shipperId",
   consignee: "consigneeId",
+  agent: "agentId",
 } as const;
 type PartyColumn = keyof typeof PARTY_ID_FIELD;
 const isPartyColumn = (key: string): key is PartyColumn => key in PARTY_ID_FIELD;

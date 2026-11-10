@@ -62,6 +62,8 @@ interface ShipmentUpdateRequest {
   customerId?: string | null;
   shipperId?: string | null;
   consigneeId?: string | null;
+  /** The Agent picked from the Customer Database (any company); null unlinks it. */
+  agentId?: string | null;
   principalPartyId?: string | null;
   principalParty?: string;
   customer?: string;
@@ -94,6 +96,8 @@ interface ShipmentUpdateRequest {
    */
   shipperContactId?: string | null;
   consigneeContactId?: string | null;
+  /** The Agent's Contact as a contact of the Agent; null for a typed name. */
+  agentPicContactId?: string | null;
   shipperOpeningFrom?: string;
   shipperOpeningTo?: string;
   consigneeOpeningFrom?: string;

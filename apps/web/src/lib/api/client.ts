@@ -9989,6 +9989,11 @@ export namespace controllers {
 
         shipperId?: string
         consigneeId?: string
+        /**
+         * The Agent picked from the Customer Database (any company).
+         */
+        agentId?: string
+
         principalPartyId?: string
         principalParty?: string
         customer?: string
@@ -10027,6 +10032,11 @@ export namespace controllers {
         shipperContactId?: string | null
 
         consigneeContactId?: string | null
+        /**
+         * The Agent's Contact as a contact of the Agent; null for a typed name.
+         */
+        agentPicContactId?: string | null
+
         shipperOpeningFrom?: string
         shipperOpeningTo?: string
         consigneeOpeningFrom?: string
@@ -10388,6 +10398,11 @@ export namespace controllers {
 
         shipperId?: string | null
         consigneeId?: string | null
+        /**
+         * The Agent picked from the Customer Database (any company); null unlinks it.
+         */
+        agentId?: string | null
+
         principalPartyId?: string | null
         principalParty?: string
         customer?: string
@@ -10427,6 +10442,11 @@ export namespace controllers {
         shipperContactId?: string | null
 
         consigneeContactId?: string | null
+        /**
+         * The Agent's Contact as a contact of the Agent; null for a typed name.
+         */
+        agentPicContactId?: string | null
+
         shipperOpeningFrom?: string
         shipperOpeningTo?: string
         consigneeOpeningFrom?: string
@@ -19922,6 +19942,11 @@ export namespace interfaces {
         shipperId: string | null
         consigneeId: string | null
         /**
+         * The Agent as picked from the Customer Database; null for a typed name.
+         */
+        agentId: string | null
+
+        /**
          * The party customs clears the shipment for.
          */
         principalPartyId: string | null
@@ -19974,6 +19999,11 @@ export namespace interfaces {
          * The contact of the consignee's customer the Contact is; null for a typed name of somebody else.
          */
         consigneeContactId: string | null
+
+        /**
+         * The contact of the Agent the Agent's Contact is; null for a typed name of somebody else.
+         */
+        agentPicContactId: string | null
 
         shipperOpeningFrom: string
         shipperOpeningTo: string

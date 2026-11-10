@@ -64,6 +64,8 @@ interface ShipmentCreateRequest {
   customerId?: string;
   shipperId?: string;
   consigneeId?: string;
+  /** The Agent picked from the Customer Database (any company). */
+  agentId?: string;
   principalPartyId?: string;
   principalParty?: string;
   customer?: string;
@@ -95,6 +97,8 @@ interface ShipmentCreateRequest {
    */
   shipperContactId?: string | null;
   consigneeContactId?: string | null;
+  /** The Agent's Contact as a contact of the Agent; null for a typed name. */
+  agentPicContactId?: string | null;
   shipperOpeningFrom?: string;
   shipperOpeningTo?: string;
   consigneeOpeningFrom?: string;

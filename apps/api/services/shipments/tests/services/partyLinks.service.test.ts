@@ -229,6 +229,8 @@ describe("normalizeLinks", () => {
     shipper: "",
     consigneeId: null,
     consignee: "",
+    agentId: null,
+    agent: "",
     principalPartyId: null,
     principalParty: "",
     customerPic: "",
@@ -237,6 +239,8 @@ describe("normalizeLinks", () => {
     shipperContactId: null,
     consigneeContact: "",
     consigneeContactId: null,
+    agentPic: "",
+    agentPicContactId: null,
     ...over,
   });
 

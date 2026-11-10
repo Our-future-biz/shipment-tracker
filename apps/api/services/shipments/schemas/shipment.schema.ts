@@ -69,6 +69,8 @@ export const shipmentTable = pgTable(
     customerId: uuid("customer_id"),
     shipperId: uuid("shipper_id"),
     consigneeId: uuid("consignee_id"),
+    // The Agent as picked from the Customer Database (any company); null for a typed name.
+    agentId: uuid("agent_id"),
     /** The party customs clears the shipment for; linked to a CRM customer like the others. */
     principalPartyId: uuid("principal_party_id"),
     principalParty: text("principal_party").notNull().default(""),
@@ -98,6 +100,8 @@ export const shipmentTable = pgTable(
     // typed name of somebody not in the Customer Database has none). No FK: customers database.
     shipperContactId: uuid("shipper_contact_id"),
     consigneeContactId: uuid("consignee_contact_id"),
+    // The Agent's Contact as a contact of the Agent in the Customer Database; null for a typed name.
+    agentPicContactId: uuid("agent_pic_contact_id"),
     shipperOpeningFrom: text("shipper_opening_from").notNull().default(""),
     shipperOpeningTo: text("shipper_opening_to").notNull().default(""),
     consigneeOpeningFrom: text("consignee_opening_from").notNull().default(""),
@@ -244,10 +248,12 @@ export const shipmentTable = pgTable(
     // The Customer Database's change events find the copies of a customer or contact by its id.
     index("shipment_shipper_id_idx").on(table.companyId, table.shipperId),
     index("shipment_consignee_id_idx").on(table.companyId, table.consigneeId),
+    index("shipment_agent_id_idx").on(table.companyId, table.agentId),
     index("shipment_principal_party_id_idx").on(table.companyId, table.principalPartyId),
     index("shipment_customer_pic_contact_id_idx").on(table.companyId, table.customerPicContactId),
     index("shipment_shipper_contact_id_idx").on(table.companyId, table.shipperContactId),
     index("shipment_consignee_contact_id_idx").on(table.companyId, table.consigneeContactId),
+    index("shipment_agent_pic_contact_id_idx").on(table.companyId, table.agentPicContactId),
     index("shipment_status_idx").on(table.status),
     index("shipment_master_job_id_idx").on(table.masterJobId),
     check("shipment_customs_priority_check", sql`${table.customsPriority} IN ('Standard', 'Urgent')`),

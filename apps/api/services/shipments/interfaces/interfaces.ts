@@ -203,6 +203,8 @@ export interface ShipmentItem {
   customerId: string | null;
   shipperId: string | null;
   consigneeId: string | null;
+  /** The Agent as picked from the Customer Database; null for a typed name. */
+  agentId: string | null;
   /** The party customs clears the shipment for. */
   principalPartyId: string | null;
   principalParty: string;
@@ -231,6 +233,8 @@ export interface ShipmentItem {
   shipperContactId: string | null;
   /** The contact of the consignee's customer the Contact is; null for a typed name of somebody else. */
   consigneeContactId: string | null;
+  /** The contact of the Agent the Agent's Contact is; null for a typed name of somebody else. */
+  agentPicContactId: string | null;
   shipperOpeningFrom: string;
   shipperOpeningTo: string;
   consigneeOpeningFrom: string;

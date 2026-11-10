@@ -156,7 +156,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "customer", title: "Customer", width: 180, type: "text", apiField: "customer" },
   // Chosen in the Customs detail (a company from the customer database).
   { key: "principalParty", title: "Principal Party", width: 180, type: "text", readonly: true, apiField: "principalParty" },
-  { key: "customerPic", title: "Customer's PIC", width: 170, type: "contact", apiField: "customerPic" },
+  { key: "customerPic", title: "Customer's Contact", width: 170, type: "contact", apiField: "customerPic" },
   { key: "customerReference", title: "Customer Reference", width: 170, type: "text", apiField: "customerReference" },
 
   // Pickup + Port of Loading
@@ -198,7 +198,7 @@ export const COLUMNS: ColumnDef[] = [
 
   // Agents
   { key: "agent", title: "Agent", width: 130, type: "text", apiField: "agent" },
-  { key: "agentPic", title: "Agent's PIC", width: 170, type: "text", apiField: "agentPic" },
+  { key: "agentPic", title: "Agent's Contact", width: 170, type: "text", apiField: "agentPic" },
   { key: "shippingLine", title: "Shipping line / Coloader", width: 180, type: "text", apiField: "shippingLine" },
   { key: "serviceType", title: "Service Type", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Service Type"], apiField: "serviceType" },
   // Wide enough for their full titles in caps beside a sort arrow (112px and 150px of text).
@@ -265,7 +265,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "releaseDepot", title: "Release Depot", width: 170, type: "text", apiField: "releaseDepot" },
   { key: "redeliveryReference", title: "Redelivery Reference", width: 150, type: "text", apiField: "redeliveryReference" },
   { key: "redeliveryDepot", title: "Redelivery Depot", width: 170, type: "text", apiField: "redeliveryDepot" },
-  { key: "supplierPic", title: "Supplier's PIC", width: 170, type: "text", apiField: "supplierPic" },
+  { key: "supplierPic", title: "Supplier's Contact", width: 170, type: "text", apiField: "supplierPic" },
   { key: "vgm", title: "VGM", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["VGM"], apiField: "vgm" },
   { key: "shippingInstructions", title: "Shipping Instructions", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Shipping Instructions"], apiField: "shippingInstructions" },
   { key: "ams", title: "AMS (if any)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["AMS (if any)"], apiField: "ams" },

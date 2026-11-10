@@ -10,7 +10,11 @@ describe("contactLinks", () => {
   });
 
   it("has nothing for a field that names no contact", () => {
-    expect(contactLinks("agentPic", "c1")).toBeUndefined();
+    expect(contactLinks("supplierPic", "c1")).toBeUndefined();
+  });
+
+  it("links the Agent's Contact like the other contacts", () => {
+    expect(contactLinks("agentPic", "c1")).toEqual({ agentPicContactId: "c1" });
   });
 });
 

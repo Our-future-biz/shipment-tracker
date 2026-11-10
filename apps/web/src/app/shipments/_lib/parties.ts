@@ -1,13 +1,14 @@
 import type { controllers, interfaces } from "@/lib/api/client";
 
 /** Shipment fields holding a party name, each with the CRM customer id it links to. */
-export type PartyField = "customer" | "shipper" | "consignee" | "principalParty";
+export type PartyField = "customer" | "shipper" | "consignee" | "agent" | "principalParty";
 
 /** The field that keeps the Customer Database id of each party name. */
 export const PARTY_ID_FIELD = {
   customer: "customerId",
   shipper: "shipperId",
   consignee: "consigneeId",
+  agent: "agentId",
   principalParty: "principalPartyId",
 } as const satisfies Record<PartyField, keyof interfaces.ShipmentItem>;
 
@@ -16,6 +17,7 @@ export const CONTACT_ID_FIELD = {
   customerPic: "customerPicContactId",
   shipperContact: "shipperContactId",
   consigneeContact: "consigneeContactId",
+  agentPic: "agentPicContactId",
 } as const satisfies Record<string, keyof interfaces.ShipmentItem>;
 export type ContactField = keyof typeof CONTACT_ID_FIELD;
 
@@ -31,6 +33,8 @@ export function partyUpdate(party: PartyField, name: string, customerId: string 
       return { shipper: name, shipperId: customerId };
     case "consignee":
       return { consignee: name, consigneeId: customerId };
+    case "agent":
+      return { agent: name, agentId: customerId };
     case "principalParty":
       return { principalParty: name, principalPartyId: customerId };
   }

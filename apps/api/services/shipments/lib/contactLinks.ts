@@ -20,15 +20,16 @@ export type ContactsOf = (customerId: string) => Promise<LinkContact[]>;
 
 /** Where a shipment keeps a contact: its name, its id, and the party whose contact it is. */
 export interface ContactSlot {
-  text: "customerPic" | "shipperContact" | "consigneeContact";
-  id: "customerPicContactId" | "shipperContactId" | "consigneeContactId";
-  party: "customerId" | "shipperId" | "consigneeId";
+  text: "customerPic" | "shipperContact" | "consigneeContact" | "agentPic";
+  id: "customerPicContactId" | "shipperContactId" | "consigneeContactId" | "agentPicContactId";
+  party: "customerId" | "shipperId" | "consigneeId" | "agentId";
 }
 
 export const CUSTOMER_PIC: ContactSlot = { text: "customerPic", id: "customerPicContactId", party: "customerId" };
 export const SHIPPER_CONTACT: ContactSlot = { text: "shipperContact", id: "shipperContactId", party: "shipperId" };
 export const CONSIGNEE_CONTACT: ContactSlot = { text: "consigneeContact", id: "consigneeContactId", party: "consigneeId" };
-export const CONTACT_SLOTS = [CUSTOMER_PIC, SHIPPER_CONTACT, CONSIGNEE_CONTACT] as const;
+export const AGENT_CONTACT: ContactSlot = { text: "agentPic", id: "agentPicContactId", party: "agentId" };
+export const CONTACT_SLOTS = [CUSTOMER_PIC, SHIPPER_CONTACT, CONSIGNEE_CONTACT, AGENT_CONTACT] as const;
 
 /**
  * What a name that is no contact of the party does:
@@ -67,8 +68,8 @@ const startingWith = <T extends LinkContact>(wanted: string, contacts: readonly 
 function refusal(slot: ContactSlot, partyId: string | null): APIError {
   if (slot !== CUSTOMER_PIC) return APIError.invalidArgument("Contact: pick a contact saved for this party in the Customer Database");
   return partyId
-    ? APIError.invalidArgument("Customer's PIC: pick a contact saved for this customer in the Customer Database")
-    : APIError.invalidArgument("Customer's PIC: link the shipment to a customer first, then pick one of its contacts");
+    ? APIError.invalidArgument("Customer's Contact: pick a contact saved for this customer in the Customer Database")
+    : APIError.invalidArgument("Customer's Contact: link the shipment to a customer first, then pick one of its contacts");
 }
 
 const write = (data: Record<string, unknown>, slot: ContactSlot, contact: LinkContact | null) => {
@@ -160,6 +161,8 @@ export interface ShipmentLinks {
   shipper: string;
   consigneeId: string | null;
   consignee: string;
+  agentId: string | null;
+  agent: string;
   principalPartyId: string | null;
   principalParty: string;
   customerPic: string;
@@ -168,6 +171,8 @@ export interface ShipmentLinks {
   shipperContactId: string | null;
   consigneeContact: string;
   consigneeContactId: string | null;
+  agentPic: string;
+  agentPicContactId: string | null;
 }
 
 /** What the backfill reads of a live master job. */
@@ -205,6 +210,7 @@ const SHIPMENT_PARTIES = [
   ["customerId", "customer"],
   ["shipperId", "shipper"],
   ["consigneeId", "consignee"],
+  ["agentId", "agent"],
   ["principalPartyId", "principalParty"],
 ] as const;
 const MASTER_JOB_PARTIES = [

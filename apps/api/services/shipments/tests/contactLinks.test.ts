@@ -73,7 +73,7 @@ describe("linkContact", () => {
     it("refuses an id that is no contact of the customer - another customer's contact too", async () => {
       await expect(link({ customerPicContactId: EVA.id }, { customerId: ALFA, customerPic: "", customerPicContactId: null })).rejects.toMatchObject({
         code: "invalid_argument",
-        message: "Customer's PIC: pick a contact saved for this customer in the Customer Database",
+        message: "Customer's Contact: pick a contact saved for this customer in the Customer Database",
       });
       await expect(link({ customerPicContactId: EVA.id }, { customerId: null, customerPic: "", customerPicContactId: null })).rejects.toMatchObject({
         message: expect.stringContaining("link the shipment to a customer first"),
@@ -202,6 +202,8 @@ describe("planLinksNormalize", () => {
     shipper: "",
     consigneeId: null,
     consignee: "",
+    agentId: null,
+    agent: "",
     principalPartyId: null,
     principalParty: "",
     customerPic: "",
@@ -210,6 +212,8 @@ describe("planLinksNormalize", () => {
     shipperContactId: null,
     consigneeContact: "",
     consigneeContactId: null,
+    agentPic: "",
+    agentPicContactId: null,
     ...over,
   });
   const masterJob = (over: Partial<MasterJobLinks> = {}): MasterJobLinks => ({ id: "m-1", shipperId: null, shipper: "", consigneeId: null, consignee: "", ...over });

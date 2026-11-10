@@ -1345,7 +1345,7 @@ describe("Customer's PIC is a contact of the shipment's customer", () => {
     contacts("Petr Pádlo");
     await expect(update({ customerPic: "Petr" })).rejects.toMatchObject({
       code: "invalid_argument",
-      message: "Customer's PIC: pick a contact saved for this customer in the Customer Database",
+      message: "Customer's Contact: pick a contact saved for this customer in the Customer Database",
     });
     stored.set(SHIPMENT, row({ customerId: null, customerPic: "" }));
     await expect(update({ customerPic: "Petr Pádlo" })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("link the shipment to a customer first") });
@@ -1493,6 +1493,50 @@ describe("a shipper's or consignee's Contact", () => {
     stored.set(SHIPMENT, row({ consigneeId: PARTY, consigneeContact: "Driver Karel", consigneeContactId: null }));
     await update({ consigneeId: OTHER });
     expect(repository.updateForCompany.mock.calls[1]![2]).not.toHaveProperty("consigneeContact");
+  });
+});
+
+describe("the Agent and the Agent's Contact", () => {
+  const AGENT = "5a1e2f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5d";
+  const NO_MAIN = "6b2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5e";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "EPT Global India", registeredAddress: "", country: "IN" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockImplementation(async ({ customerId }) =>
+      ({
+        data:
+          customerId === AGENT
+            ? [
+                { id: "c-ops", name: "Ravi Ops", role: "Customer Service", isMain: false },
+                { id: "c-sunil", name: "Sunil Nablil", role: "Sales", isMain: true },
+              ]
+            : [{ id: "c-x", name: "Somebody", role: "", isMain: false }],
+      }) as never,
+    );
+  });
+
+  it("brings the agent's main contact when the agent is picked", async () => {
+    stored.set(SHIPMENT, row({ agentId: null, agent: "", agentPic: "", agentPicContactId: null }));
+    await update({ agent: "ept", agentId: AGENT });
+    expect(written()).toMatchObject({ agent: "EPT Global India", agentId: AGENT, agentPic: "Sunil Nablil", agentPicContactId: "c-sunil" });
+  });
+
+  it("takes the previous agent's contact away when the new agent has no main contact", async () => {
+    stored.set(SHIPMENT, row({ agentId: AGENT, agent: "EPT Global India", agentPic: "Sunil Nablil", agentPicContactId: "c-sunil" }));
+    await update({ agentId: NO_MAIN });
+    expect(written()).toMatchObject({ agentId: NO_MAIN, agentPic: "", agentPicContactId: null });
+  });
+
+  it("keeps a contact the write sends itself, and leaves the contact alone when the agent stays", async () => {
+    stored.set(SHIPMENT, row({ agentId: null, agent: "", agentPic: "", agentPicContactId: null }));
+    await update({ agentId: AGENT, agentPic: "Ravi Ops", agentPicContactId: "c-ops" });
+    expect(written()).toMatchObject({ agentPic: "Ravi Ops", agentPicContactId: "c-ops" });
+
+    stored.set(SHIPMENT, row({ agentId: AGENT, agent: "EPT Global India", agentPic: "Ravi Ops", agentPicContactId: "c-ops" }));
+    await update({ agentId: AGENT });
+    expect(repository.updateForCompany.mock.calls[1]![2]).not.toHaveProperty("agentPic");
   });
 });
 

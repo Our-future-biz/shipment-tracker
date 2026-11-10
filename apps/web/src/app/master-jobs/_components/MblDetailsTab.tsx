@@ -211,7 +211,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
               customerId={mj.consigneeId}
               onChange={(name, id) => save({ consignee: name, consigneeId: id })}
             />
-            <FieldRow label="Supplier's PIC" fieldKey="supplierPic" value={mj.supplierPic} onCommit={handleCommit} styleFor={styleFor} synced />
+            <FieldRow label="Supplier's Contact" fieldKey="supplierPic" value={mj.supplierPic} onCommit={handleCommit} styleFor={styleFor} synced />
           </div>
         </div>
       </MasterJobCard>

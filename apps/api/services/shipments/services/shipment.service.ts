@@ -57,7 +57,7 @@ import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, SALES_R
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
-import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
+import { AGENT_CONTACT, CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
 import { INVOICED_STATUS, jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
 import { jobNumberDigits } from "../../../lib/jobNumber";
@@ -70,7 +70,7 @@ import { startShipmentBilling } from "../lib/shipmentBilling";
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
 type LinkedCustomer = Awaited<ReturnType<typeof customers.customerGet>>["customer"];
-type LinkedCustomers = Partial<Record<"customerId" | "shipperId" | "consigneeId" | "principalPartyId", LinkedCustomer>>;
+type LinkedCustomers = Partial<Record<"customerId" | "shipperId" | "consigneeId" | "agentId" | "principalPartyId", LinkedCustomer>>;
 
 // The contacts of the customers a write names, read at most once each per request: the party
 // fill and the contact links share them.
@@ -101,6 +101,7 @@ async function linkContacts(
 ): Promise<void> {
   await linkContact(data, existing, SHIPPER_CONTACT, contactsOf, "free");
   await linkContact(data, existing, CONSIGNEE_CONTACT, contactsOf, "free");
+  await linkContact(data, existing, AGENT_CONTACT, contactsOf, "free");
   if (pic) await linkContact(data, existing, CUSTOMER_PIC, contactsOf, picMode);
 }
 
@@ -820,6 +821,7 @@ class ShipmentService {
       ["customerId", "customer", "customer"],
       ["shipperId", "shipper", "shipper"],
       ["consigneeId", "consignee", "consignee"],
+      ["agentId", "agent", "agent"],
       ["principalPartyId", "principalParty", "principal party"],
     ] as const;
     const linked: LinkedCustomers = {};
@@ -882,6 +884,21 @@ class ShipmentService {
         }
       }),
     );
+    await this.fillAgentContact(written, linked, contactsOf, existing);
+  }
+
+  /**
+   * An Agent newly picked from the Customer Database brings its main contact as the Agent's
+   * Contact (Martin, 2026-11-10). With no main contact, the previous agent's contact is taken away:
+   * it belongs to another company. A write that sends the Agent's Contact itself keeps it.
+   */
+  private async fillAgentContact(written: Record<string, unknown>, linked: LinkedCustomers, contactsOf: ContactsOnce, existing?: ShipmentRecord): Promise<void> {
+    const id = written.agentId as string | null | undefined;
+    if (!id || !linked.agentId || id === existing?.agentId) return;
+    if (String(written.agentPic ?? "").trim() || String(written.agentPicContactId ?? "").trim()) return;
+    const main = (await contactsOf(id)).find((c) => c.isMain);
+    written.agentPic = main ? main.name.trim() : "";
+    written.agentPicContactId = main ? main.id : null;
   }
 
   // Tells the services that copied the shipment's Customer / Customer's PIC (the warehouse gate
