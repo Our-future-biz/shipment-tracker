@@ -1474,7 +1474,8 @@ export function ShipmentDetailContent() {
                     masterJob: (
                       <div className={ROW}>
                         <span className={LABEL}>Master Job</span>
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
+                        {/* Wraps, so a long reference (MCZCONSOL00000007) puts "remove" under it rather than over it. */}
+                        <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                           {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>
