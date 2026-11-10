@@ -2,7 +2,7 @@ import { APIError, ErrCode } from "encore.dev/api";
 import { businessDay } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
-import { isSalesReference } from "../../../lib/salesReference";
+import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -51,6 +51,7 @@ import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
+import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
 import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, SALES_REFERENCE_INVOICED, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
@@ -471,7 +472,9 @@ function usersOnce(): UsersOnce {
 }
 
 // What a sales quote says about its owner.
-type QuoteOwner = { ownerUserId?: string | null; ownerName: string };
+// The quote a Sales Number names, as far as a shipment write needs it; `quoteNumber` is its reference
+// as it is now (with the letters of its Freight Mode, lib/salesReference).
+type QuoteOwner = { ownerUserId?: string | null; ownerName: string; quoteNumber?: string };
 
 /**
  * A person a write names is a user of the company, stored by their lower-cased e-mail, or nobody
@@ -1057,6 +1060,8 @@ class ShipmentService {
     // A shipment created against a quote inherits that quote's sales owner.
     if (salesNumber) {
       const quote = await this.linkableQuoteOwner(salesNumber, allowUnfinishedQuote);
+      // A quote's number typed from before its letters changed is kept as the quote's number now.
+      if (quote?.quoteNumber && sameSalesReference(quote.quoteNumber, salesNumber)) shipmentData.salesNumber = quote.quoteNumber;
       const owner = quote && !(shipmentData.salesPerson ?? "").trim() ? await this.quoteOwnerEmail(quote, users) : "";
       if (owner) shipmentData.salesPerson = owner;
     }
@@ -1212,12 +1217,23 @@ class ShipmentService {
     // The Sales Number is stored trimmed: it is what a quote finds its shipments by.
     if (typeof shipmentData.salesNumber === "string") shipmentData.salesNumber = shipmentData.salesNumber.trim();
     const previousSalesNumber = existing.salesNumber.trim();
+    // The quote it already names, written with other letters (from before a change of its Freight
+    // Mode, lib/salesReference), is no change.
+    if (
+      typeof shipmentData.salesNumber === "string" &&
+      isSalesReference(shipmentData.salesNumber) &&
+      sameSalesReference(shipmentData.salesNumber, previousSalesNumber)
+    ) {
+      shipmentData.salesNumber = previousSalesNumber;
+    }
     const nextSalesNumber = shipmentData.salesNumber;
     const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
     // Invoiced: marked so (by hand too), or with an issued invoice not credited, whatever the status says.
     if (salesNumberChanged && (existing.invoicingStatus === INVOICED_STATUS || (await this.isInvoiced(id)))) throw APIError.failedPrecondition(SALES_REFERENCE_INVOICED);
     if (salesNumberChanged && nextSalesNumber) {
       const quote = await this.linkableQuoteOwner(nextSalesNumber);
+      // Kept as the quote's number now, whatever letters it was typed with.
+      if (quote?.quoteNumber && sameSalesReference(quote.quoteNumber, nextSalesNumber)) shipmentData.salesNumber = quote.quoteNumber;
       const owner = quote && !("salesPerson" in shipmentData) ? await this.quoteOwnerEmail(quote, users) : "";
       if (owner) shipmentData.salesPerson = owner;
     }
@@ -1368,11 +1384,13 @@ class ShipmentService {
     // Counted as sent, before any of them is looked at.
     if (references.length > MAX_QUOTE_REFERENCES) throw APIError.invalidArgument(`At most ${MAX_QUOTE_REFERENCES} quotes at once`);
     const wanted = [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
-    const byReference = new Map(wanted.map((reference): [string, QuoteShipments["shipments"]] => [reference, []]));
+    // Grouped without the letters of a quote's Freight Mode (lib/salesReference): a shipment whose copy
+    // is from before the quote's letters changed is still one of that quote's.
+    const byQuote = new Map(wanted.map((reference): [string, QuoteShipments["shipments"]] => [plainSalesReference(reference), []]));
     for (const { reference, ...shipment } of await shipmentRepository.liveBySalesNumbers(companyId, wanted)) {
-      byReference.get(reference)?.push(shipment);
+      byQuote.get(plainSalesReference(reference))?.push(shipment);
     }
-    return [...byReference].map(([reference, shipments]) => ({ reference, shipments }));
+    return wanted.map((reference) => ({ reference, shipments: byQuote.get(plainSalesReference(reference)) ?? [] }));
   }
 
   async customerFacts(companyId: string): Promise<{ customers: CustomerShipmentFacts[]; shipmentsWithoutCustomer: number }> {
@@ -1535,9 +1553,10 @@ class ShipmentService {
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string, userId?: string): Promise<ShipmentRecord | null> {
     let masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
     if (!masterJob) {
-      // A master job made by linking (Create new in the Master Job dialog) records who made it.
+      // A master job made by linking (Create new in the Master Job dialog) records who made it. It
+      // has no Load Type yet, so its reference has no letters (lib/masterJobNumber), whatever was typed.
       const createdBy = userId ? await this.actorOf(userId) : "";
-      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber, createdBy });
+      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber: masterJobNumberFor(mczNumber, null), createdBy });
     }
     return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id });
   }

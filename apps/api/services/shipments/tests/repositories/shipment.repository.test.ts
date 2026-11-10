@@ -105,7 +105,7 @@ const fake = vi.hoisted(() => {
 vi.mock("../../db/db", () => ({ db: fake.db }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
-import { SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
+import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
 import { searchMatch, searchedColumns, shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentTable } from "../../schemas/shipment.schema";
 
@@ -168,9 +168,19 @@ describe("withLiveBySalesNumber", () => {
   it("reads the company's live shipments whose trimmed Sales Number is the reference, the oldest first", async () => {
     await shipmentRepository.withLiveBySalesNumber(COMPANY, REF, async () => undefined);
     const [read] = fake.state.reads;
-    expect(sent(read!.where)).toEqual({ sql: `(${LIVE} and btrim("shipment"."sales_number") = $2)`, params: [COMPANY, REF] });
+    // Without the letters of the quote's Freight Mode: a copy from before they changed names the same quote.
+    expect(sent(read!.where)).toEqual({
+      sql: `(${LIVE} and regexp_replace(btrim("shipment"."sales_number"), $2, $3) = $4)`,
+      params: [COMPANY, LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, REF],
+    });
     expect(read!.orderBy.map((order) => sent(order).sql)).toEqual(OLDEST_FIRST);
     expect(Object.keys(read!.fields)).toEqual(["id", "jobNumber"]);
+  });
+
+  it("takes one lock for the quote and looks it up without letters, whichever letters the reference has", async () => {
+    await shipmentRepository.withLiveBySalesNumber(COMPANY, `QCZLCL${REF.slice(3)}`, async () => undefined);
+    expect(sent(fake.state.locks[0])).toEqual(REFERENCE_LOCK);
+    expect(sent(fake.state.reads[0]!.where).params.at(-1)).toBe(REF);
   });
 
   it("passes on what goes wrong while the shipments are handed over", async () => {
@@ -189,7 +199,7 @@ describe("createFromQuote", () => {
     expect(fake.state.allocations).toEqual([[COMPANY, "CZ"]]);
     // A lock that ends with the transaction, on this quote of this company alone.
     expect(sent(fake.state.locks[0])).toEqual(REFERENCE_LOCK);
-    expect(sent(fake.state.reads[0]!.where).params).toEqual([COMPANY, REF]);
+    expect(sent(fake.state.reads[0]!.where).params).toEqual([COMPANY, LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, REF]);
   });
 
   it("inserts nothing and takes no job number when the quote has a shipment and a second is not allowed - returning the oldest", async () => {

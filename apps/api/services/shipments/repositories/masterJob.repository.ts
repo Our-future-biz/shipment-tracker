@@ -3,6 +3,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { masterJobTable, type MasterJobRecord } from "../schemas/masterJob.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
+import { masterJobNumberForms } from "../lib/masterJobNumber";
 import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
 
 class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
@@ -10,8 +11,14 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
     super(db, masterJobTable, "master_job");
   }
 
-  async findByMczNumber(mczNumber: string, companyId: string) {
-    return this.getByColumnForCompany(masterJobTable.mczNumber, mczNumber, companyId);
+  /** The live master job with this number, whatever letters it or the reference asked for carry. */
+  async findByMczNumber(mczNumber: string, companyId: string): Promise<MasterJobRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(masterJobTable)
+      .where(and(eq(masterJobTable.companyId, companyId), inArray(masterJobTable.mczNumber, masterJobNumberForms(mczNumber)), isNull(masterJobTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
   }
 
   // Inserts a master job under the company's next MCZ number, taken in the same transaction

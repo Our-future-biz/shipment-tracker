@@ -220,7 +220,9 @@ export function QuoteWorkflow() {
   const canSeeConcepts = useCanSeeConcepts();
   const truckingOn = canSeeConcepts;
   const { user } = useAuth();
-  const { ref } = useParams<{ ref: string }>();
+  // The reference in the address: what the quote is loaded and saved by. The page names the quote by
+  // its reference as stored (`ref` below), which takes the letters of its Freight Mode while it is open.
+  const { ref: routeRef } = useParams<{ ref: string }>();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -228,7 +230,7 @@ export function QuoteWorkflow() {
   // bell) opens it.
   const [chatOpen, setChatOpen] = useState(false);
   const [approvingRate, setApprovingRate] = useState<string | null>(null);
-  const chatUnread = useQuoteChatUnread().get(quoteThreadOf(ref)) ?? 0;
+  const chatUnread = useQuoteChatUnread().get(quoteThreadOf(routeRef)) ?? 0;
   useEffect(() => {
     if (searchParams.get("chat") !== "1") return;
     setChatOpen(true);
@@ -242,7 +244,11 @@ export function QuoteWorkflow() {
   // Loading, autosave and everything about not losing or overwriting data live in the hook.
   // `draft` is the document being edited; `quote` is the quote as the server last returned it,
   // with everything the server owns - status, validity, owner - and what may be done with them.
-  const { draft, quote, change, follow, act, load, reload, discard, save, syncedAt, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(ref);
+  const { draft, quote, change, follow, act, load, reload, discard, save, syncedAt, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(routeRef);
+  // The quote's reference as stored: QCZ20261109001 becomes QCZLCL20261109001 when its Freight Mode is
+  // set (lib/salesReference). The address follows it in place - no navigation, so the page and what
+  // is being typed stay - and a reload or a copied link opens it under its reference as it is now.
+  const ref = quote?.quoteNumber ?? routeRef;
   // The newest question to a manager about the margin, while the quote has a road margin to ask about.
   const marginAsk = useQuoteMarginInquiry(ref, !!quote?.roadMargin);
   // The newest question changed while the quote is open - asked, withdrawn, or answered by a
@@ -269,6 +275,18 @@ export function QuoteWorkflow() {
   // Where the quote was opened from: what the back link is called and leads to, and the address
   // of another quote opened from here, which keeps that way back.
   const { back, hrefOf } = useQuoteOrigin();
+  // The address follows the quote's reference as stored (see `ref` above).
+  const addressRef = useRef(routeRef);
+  useEffect(() => {
+    if (ref === addressRef.current) return;
+    const before = addressRef.current;
+    addressRef.current = ref;
+    // The app's addresses end in a slash (trailingSlash): kept, so a reload needs no redirect.
+    const slash = window.location.pathname.endsWith("/") ? "/" : "";
+    window.history.replaceState(window.history.state, "", `${hrefOf(ref).split("?")[0]}${slash}${window.location.search}`);
+    // The browser tab's name too (the page's title names the quote).
+    document.title = document.title.replace(before, ref);
+  }, [ref, hrefOf]);
   // The one customer the quote is linked to, as the Customer Database has it now. The page never
   // loads the list of all customers: the Customer box asks the server for what is typed.
   const linkedCustomer = useCustomer(draft.customerId ?? null);

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { cameFromLabel, nextCameFrom } from "./customerCameFrom";
+import { cameFromLabel, nextCameFrom as next, openMasterJobOf } from "@/lib/cameFrom";
+
+// The way back from a record's page (lib/cameFrom), as a customer's and a shipment's page use it.
+const nextCameFrom = (stored: Parameters<typeof next>[1], previous: string | null, current: string) => next("customers", stored, previous, current);
 
 const ALZA = "/customers/alza-id/";
-const noted = { customerId: "alza-id", href: "/shipments/ship-id/?tab=costs" };
+const noted = { id: "alza-id", href: "/shipments/ship-id/?tab=costs" };
 
 describe("where a customer's page was opened from", () => {
   it("notes the page left, with its tab, when a customer's page opens", () => {
@@ -10,7 +13,7 @@ describe("where a customer's page was opened from", () => {
   });
 
   it("replaces an earlier note when the customer is opened from somewhere else", () => {
-    expect(nextCameFrom(noted, "/invoicing/", ALZA)).toEqual({ customerId: "alza-id", href: "/invoicing/" });
+    expect(nextCameFrom(noted, "/invoicing/", ALZA)).toEqual({ id: "alza-id", href: "/invoicing/" });
   });
 
   it("keeps the note while moving between the customer's own tabs", () => {
@@ -52,5 +55,26 @@ describe("what the way back is called", () => {
 
   it("falls back to a plain name for a page outside the menu", () => {
     expect(cameFromLabel("/somewhere/else/", superadmin)).toBe("Previous page");
+  });
+});
+
+describe("where a shipment's page was opened from", () => {
+  const SHIPMENT = "/shipments/ship-id/";
+  const fromMasterJob = "/master-jobs/?open=mj-id&tab=shipments";
+
+  it("notes the master job, on its Linked Shipments tab, when a shipment is opened from it", () => {
+    expect(next("shipments", null, fromMasterJob, SHIPMENT)).toEqual({ id: "ship-id", href: fromMasterJob });
+  });
+
+  it("keeps it while moving between the shipment's own tabs, and drops it when opened from the Shipments list", () => {
+    const noted = { id: "ship-id", href: fromMasterJob };
+    expect(next("shipments", noted, SHIPMENT, `${SHIPMENT}?tab=cargo`)).toBe(noted);
+    expect(next("shipments", noted, "/shipments/?q=CZ", SHIPMENT)).toBeNull();
+  });
+
+  it("knows which master job the page had open", () => {
+    expect(openMasterJobOf(fromMasterJob)).toBe("mj-id");
+    expect(openMasterJobOf("/master-jobs/")).toBeNull();
+    expect(openMasterJobOf("/shipments/?open=mj-id")).toBeNull();
   });
 });

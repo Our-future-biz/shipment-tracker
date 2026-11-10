@@ -4,6 +4,7 @@ import { db } from "../db/db";
 import { quoteCommentReadTable, quoteCommentTable, type QuoteCommentRecord } from "../schemas/quoteComment.schema";
 import { quoteAttachmentTable } from "../schemas/quoteAttachment.schema";
 import { quoteTable } from "../schemas/quote.schema";
+import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
 
 const c = quoteCommentTable;
 const r = quoteCommentReadTable;
@@ -13,9 +14,11 @@ const f = quoteAttachmentTable;
  * The thread still has a live sales quote: its original reference, or one of its revisions
  * (QCZ…001-R2). A thread whose quotes were all deleted opens nowhere, so its messages count as
  * neither unread nor mentions - they would stay in the bell for good, with no chat to open and
- * mark them read in.
+ * mark them read in. The thread has no letters (quoteThreadOf), so the quotes are compared
+ * without the letters of their Freight Mode: QCZLCL…001 keeps the thread QCZ…001 alive.
  */
-export const threadAliveSql = sql`exists (select 1 from ${quoteTable} where ${quoteTable.companyId} = ${c.companyId} and ${quoteTable.deletedAt} is null and (${quoteTable.quoteNumber} = ${c.threadRef} or ${quoteTable.quoteNumber} like ${c.threadRef} || '-R%'))`;
+const PLAIN_QUOTE_NUMBER = plainSalesReferenceSql(quoteTable.quoteNumber);
+export const threadAliveSql = sql`exists (select 1 from ${quoteTable} where ${quoteTable.companyId} = ${c.companyId} and ${quoteTable.deletedAt} is null and (${PLAIN_QUOTE_NUMBER} = ${c.threadRef} or ${PLAIN_QUOTE_NUMBER} like ${c.threadRef} || '-R%'))`;
 
 // The quotes' chat (one thread per original Sales Reference, see quoteComment.schema): its
 // messages, how far each user has read a thread, and the files sent in it (quote_attachment rows

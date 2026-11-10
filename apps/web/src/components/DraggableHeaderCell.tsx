@@ -45,8 +45,9 @@ export function DraggableHeaderCell({ id, style, className, onResizeWidth, onRes
 }
 
 // The right edge of a header cell, which drags the column's width. Its pointer-down stops there,
-// so the header's own drag (moving the column) does not start.
-function ResizeHandle({ onResize, onReset }: { onResize: (width: number, done: boolean) => void; onReset?: () => void }) {
+// so the header's own drag (moving the column) does not start. A plain table's header can take it
+// too: its cell must be `relative`.
+export function ResizeHandle({ onResize, onReset }: { onResize: (width: number, done: boolean) => void; onReset?: () => void }) {
   const start = (e: ReactPointerEvent<HTMLSpanElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();

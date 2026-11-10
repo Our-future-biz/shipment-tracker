@@ -5,7 +5,7 @@ import { Button, InputNumber, Select } from "antd";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 import { AppModal } from "@/components/AppModal";
-import { MAX_PROFIT_PERCENT, blockProfitOf, priceFclBlock, type FclBlock } from "@/app/sales/_lib/fclPricing";
+import { MAX_PROFIT_PERCENT, SELLING_ROUNDS_TO, blockProfitOf, priceFclBlock, type FclBlock } from "@/app/sales/_lib/fclPricing";
 import type { LivePricing } from "@/app/sales/_lib/salesQuote";
 import type { FclProfit, SalesQuoteData } from "@/app/sales/_lib/types";
 import { FCL_PROFIT_MODES } from "../_lib/fclPricingUi";
@@ -134,6 +134,12 @@ export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose
           </tr>
         </tfoot>
       </LineTable>
+      {preview.roundedUpBy > 0 && preview.roundedOn !== null && (
+        <p className="mt-2 text-xs text-slate-500">
+          Selling is rounded up to the next full {SELLING_ROUNDS_TO}: {fmtMoney(preview.selling, currency)}. That adds {fmtMoney(preview.roundedUpBy, currency)} of profit on{" "}
+          {lines[preview.roundedOn]!.description || lines[preview.roundedOn]!.type}.
+        </p>
+      )}
     </AppModal>
   );
 }

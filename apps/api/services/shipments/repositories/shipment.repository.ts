@@ -11,11 +11,14 @@ import { shipmentCustomerNoticeTable } from "../schemas/shipmentCustomerNotice.s
 import { shipmentTrackingEventTable } from "../schemas/shipmentTrackingEvent.schema";
 import { shipmentRefCounterRepository, type Tx as CounterTx } from "./shipmentRefCounter.repository";
 import { jobNumberFor } from "../lib/jobNumber";
+import { masterJobNumberForms } from "../lib/masterJobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { containerTable } from "../schemas/container.schema";
 import { containsAllWords, escapeLike, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
 import { JOB_NUMBER_PATTERN, referenceSearchDigits } from "../../../lib/jobNumber";
 import type { PeopleRewrite, ShipmentPeople } from "../lib/people";
+import { plainSalesReference } from "../../../lib/salesReference";
+import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
 
 /** A new shipment's own fields; the repository sets the company and the job number. */
 export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">;
@@ -341,6 +344,10 @@ export interface CustomerShipmentFactsRow {
 // The Sales Number as it is compared: rows written before it was stored trimmed may carry
 // spaces around it.
 const SALES_NUMBER = sql<string>`btrim(${shipmentTable.salesNumber})`;
+// ...and as a quote is found by it: without the letters of the quote's Freight Mode
+// (lib/salesReference), so a shipment whose copy is from before the quote's letters changed still
+// names that quote, also before the quote-renamed event has moved the copy.
+const PLAIN_SALES_NUMBER = plainSalesReferenceSql(SALES_NUMBER);
 
 // The columns of a ShipmentReference.
 const REFERENCE_FIELDS = {
@@ -393,33 +400,36 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   // until it ends: whoever acts on the list does so alone. A statement sees what was committed
   // before it began, so the read sees everything whoever held the lock before has written.
   private async lockLiveBySalesNumber(tx: Pick<typeof this.db, "execute" | "select">, companyId: string, reference: string): Promise<NamingShipment[]> {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`shipment-from-quote:${companyId}:${reference}`}))`);
+    // One lock for the quote, whichever letters the reference is written with.
+    const plain = plainSalesReference(reference);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`shipment-from-quote:${companyId}:${plain}`}))`);
     return tx
       .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber })
       .from(shipmentTable)
-      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${SALES_NUMBER} = ${reference}`))
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${PLAIN_SALES_NUMBER} = ${plain}`))
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
   }
 
-  /** The live shipments of the company whose Sales Number is `reference`, the oldest first (no lock). */
+  /** The live shipments of the company whose Sales Number is `reference` (whatever its letters), the oldest first (no lock). */
   async liveBySalesNumber(companyId: string, reference: string): Promise<NamingShipment[]> {
     return this.db
       .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, invoicingStatus: shipmentTable.invoicingStatus })
       .from(shipmentTable)
-      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${SALES_NUMBER} = ${reference}`))
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${PLAIN_SALES_NUMBER} = ${plainSalesReference(reference)}`))
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
   }
 
   /**
-   * The live shipments of the company whose Sales Number is one of `references`, with that
-   * reference and the shipment's status, the oldest first.
+   * The live shipments of the company whose Sales Number is one of `references` (compared without
+   * the letters of a quote's Freight Mode), with their Sales Number as stored and the shipment's
+   * status, the oldest first.
    */
   async liveBySalesNumbers(companyId: string, references: string[]): Promise<(NamingShipment & { reference: string; status: string })[]> {
     if (!references.length) return [];
     return this.db
       .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, reference: SALES_NUMBER, status: shipmentTable.status })
       .from(shipmentTable)
-      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), inArray(SALES_NUMBER, references)))
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), inArray(PLAIN_SALES_NUMBER, references.map(plainSalesReference))))
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
   }
 
@@ -643,7 +653,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
           this.db
             .select({ id: masterJobTable.id })
             .from(masterJobTable)
-            .where(and(eq(masterJobTable.companyId, companyId), eq(masterJobTable.mczNumber, f.masterJobMcz), isNull(masterJobTable.deletedAt))),
+            .where(and(eq(masterJobTable.companyId, companyId), inArray(masterJobTable.mczNumber, masterJobNumberForms(f.masterJobMcz)), isNull(masterJobTable.deletedAt))),
         ),
       );
     }

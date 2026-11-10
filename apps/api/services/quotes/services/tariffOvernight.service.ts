@@ -3,7 +3,7 @@ import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
 import { tariffs, trucking } from "~encore/clients";
 import { businessDay, businessMinutes } from "../../../lib/businessDate";
-import { revisionRoot } from "../../../lib/salesReference";
+import { quoteThreadOf } from "../../../lib/salesReference";
 import { quoteCommentRepository } from "../repositories/quoteComment.repository";
 import { salesQuoteRepository } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
@@ -124,7 +124,7 @@ export async function checkQuote(found: { companyId: string; quoteNumber: string
   if (!saved) return false;
   if (messages.length) {
     await quoteCommentRepository.createForCompany(quote.companyId, {
-      threadRef: revisionRoot(quote.quoteNumber.trim()),
+      threadRef: quoteThreadOf(quote.quoteNumber),
       quoteNumber: quote.quoteNumber,
       authorId: TARIFF_CHECK_AUTHOR_ID,
       message: messages.join("\n"),

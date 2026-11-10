@@ -1,5 +1,5 @@
 {
-  "id": "09564789-92d0-4b47-888c-064b381a6a04",
+  "id": "127b7c19-4149-4a04-bc88-23a2743a339b",
   "prevId": "2301cc0a-c331-482d-b997-11cafc8bdccb",
   "version": "7",
   "dialect": "postgresql",
@@ -173,9 +173,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "cargo_dimension_shipment_id_idx": {
           "name": "cargo_dimension_shipment_id_idx",
@@ -188,9 +188,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "cargo_dimension_container_id_idx": {
           "name": "cargo_dimension_container_id_idx",
@@ -203,37 +203,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "cargo_dimension_shipment_id_shipment_id_fk": {
           "name": "cargo_dimension_shipment_id_shipment_id_fk",
           "tableFrom": "cargo_dimension",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "cargo_dimension_container_id_container_id_fk": {
           "name": "cargo_dimension_container_id_container_id_fk",
           "tableFrom": "cargo_dimension",
-          "tableTo": "container",
           "columnsFrom": [
             "container_id"
           ],
+          "tableTo": "container",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -383,9 +383,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "cargo_item_shipment_id_idx": {
           "name": "cargo_item_shipment_id_idx",
@@ -398,9 +398,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "cargo_item_container_id_idx": {
           "name": "cargo_item_container_id_idx",
@@ -413,37 +413,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "cargo_item_shipment_id_shipment_id_fk": {
           "name": "cargo_item_shipment_id_shipment_id_fk",
           "tableFrom": "cargo_item",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "cargo_item_container_id_container_id_fk": {
           "name": "cargo_item_container_id_container_id_fk",
           "tableFrom": "cargo_item",
-          "tableTo": "container",
           "columnsFrom": [
             "container_id"
           ],
+          "tableTo": "container",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -542,9 +542,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "commercial_invoice_shipment_id_idx": {
           "name": "commercial_invoice_shipment_id_idx",
@@ -557,24 +557,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "commercial_invoice_shipment_id_shipment_id_fk": {
           "name": "commercial_invoice_shipment_id_shipment_id_fk",
           "tableFrom": "commercial_invoice",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -727,9 +727,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "container_shipment_id_idx": {
           "name": "container_shipment_id_idx",
@@ -742,9 +742,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "container_company_number_idx": {
           "name": "container_company_number_idx",
@@ -763,24 +763,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "container_shipment_id_shipment_id_fk": {
           "name": "container_shipment_id_shipment_id_fk",
           "tableFrom": "container",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -928,9 +928,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "customs_office_request_shipment_id_idx": {
           "name": "customs_office_request_shipment_id_idx",
@@ -943,9 +943,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "customs_office_request_requested_by_idx": {
           "name": "customs_office_request_requested_by_idx",
@@ -964,9 +964,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "customs_office_request_one_pending_unique": {
           "name": "customs_office_request_one_pending_unique",
@@ -985,25 +985,25 @@
             }
           ],
           "isUnique": true,
-          "where": "status = 'pending' AND deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "status = 'pending' AND deleted_at IS NULL",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "customs_office_request_shipment_id_shipment_id_fk": {
           "name": "customs_office_request_shipment_id_shipment_id_fk",
           "tableFrom": "customs_office_request",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1189,9 +1189,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "document_change_request_shipment_id_idx": {
           "name": "document_change_request_shipment_id_idx",
@@ -1204,9 +1204,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "document_change_request_requested_by_idx": {
           "name": "document_change_request_requested_by_idx",
@@ -1225,9 +1225,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "document_change_request_one_pending_unique": {
           "name": "document_change_request_one_pending_unique",
@@ -1246,38 +1246,38 @@
             }
           ],
           "isUnique": true,
-          "where": "status = 'pending' AND deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "status = 'pending' AND deleted_at IS NULL",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "document_change_request_shipment_id_shipment_id_fk": {
           "name": "document_change_request_shipment_id_shipment_id_fk",
           "tableFrom": "document_change_request",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "document_change_request_attachment_id_shipment_attachment_id_fk": {
           "name": "document_change_request_attachment_id_shipment_attachment_id_fk",
           "tableFrom": "document_change_request",
-          "tableTo": "shipment_attachment",
           "columnsFrom": [
             "attachment_id"
           ],
+          "tableTo": "shipment_attachment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1683,9 +1683,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "master_job_company_mcz_unique": {
           "name": "master_job_company_mcz_unique",
@@ -1704,10 +1704,10 @@
             }
           ],
           "isUnique": true,
-          "where": "deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "deleted_at IS NULL",
+          "concurrently": false
         },
         "master_job_shipper_id_idx": {
           "name": "master_job_shipper_id_idx",
@@ -1726,9 +1726,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "master_job_consignee_id_idx": {
           "name": "master_job_consignee_id_idx",
@@ -1747,9 +1747,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -1856,9 +1856,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "master_job_container_master_job_id_idx": {
           "name": "master_job_container_master_job_id_idx",
@@ -1871,167 +1871,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "master_job_container_master_job_id_master_job_id_fk": {
           "name": "master_job_container_master_job_id_master_job_id_fk",
           "tableFrom": "master_job_container",
-          "tableTo": "master_job",
           "columnsFrom": [
             "master_job_id"
           ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.master_job_document": {
-      "name": "master_job_document",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "company_id": {
-          "name": "company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "master_job_id": {
-          "name": "master_job_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_name": {
-          "name": "file_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_size": {
-          "name": "file_size",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "file_type": {
-          "name": "file_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "storage_key": {
-          "name": "storage_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "document_type": {
-          "name": "document_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "uploaded_by_id": {
-          "name": "uploaded_by_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "master_job_document_company_id_idx": {
-          "name": "master_job_document_company_id_idx",
-          "columns": [
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "master_job_document_master_job_id_idx": {
-          "name": "master_job_document_master_job_id_idx",
-          "columns": [
-            {
-              "expression": "master_job_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "master_job_document_master_job_id_master_job_id_fk": {
-          "name": "master_job_document_master_job_id_master_job_id_fk",
-          "tableFrom": "master_job_document",
           "tableTo": "master_job",
-          "columnsFrom": [
-            "master_job_id"
-          ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3124,9 +2981,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_company_job_number_unique": {
           "name": "shipment_company_job_number_unique",
@@ -3145,10 +3002,10 @@
             }
           ],
           "isUnique": true,
-          "where": "deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "deleted_at IS NULL",
+          "concurrently": false
         },
         "shipment_customer_id_idx": {
           "name": "shipment_customer_id_idx",
@@ -3161,9 +3018,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_shipper_id_idx": {
           "name": "shipment_shipper_id_idx",
@@ -3182,9 +3039,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_consignee_id_idx": {
           "name": "shipment_consignee_id_idx",
@@ -3203,9 +3060,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_principal_party_id_idx": {
           "name": "shipment_principal_party_id_idx",
@@ -3224,9 +3081,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_customer_pic_contact_id_idx": {
           "name": "shipment_customer_pic_contact_id_idx",
@@ -3245,9 +3102,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_shipper_contact_id_idx": {
           "name": "shipment_shipper_contact_id_idx",
@@ -3266,9 +3123,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_consignee_contact_id_idx": {
           "name": "shipment_consignee_contact_id_idx",
@@ -3287,9 +3144,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_status_idx": {
           "name": "shipment_status_idx",
@@ -3302,9 +3159,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_master_job_id_idx": {
           "name": "shipment_master_job_id_idx",
@@ -3317,24 +3174,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_master_job_id_master_job_id_fk": {
           "name": "shipment_master_job_id_master_job_id_fk",
           "tableFrom": "shipment",
-          "tableTo": "master_job",
           "columnsFrom": [
             "master_job_id"
           ],
+          "tableTo": "master_job",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -3431,9 +3288,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_alert_read_user_idx": {
           "name": "shipment_alert_read_user_idx",
@@ -3446,35 +3303,35 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_alert_read_shipment_id_shipment_id_fk": {
           "name": "shipment_alert_read_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_alert_read",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "shipment_alert_read_user_shipment_uq": {
           "name": "shipment_alert_read_user_shipment_uq",
-          "nullsNotDistinct": false,
           "columns": [
             "user_id",
             "shipment_id"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -3622,9 +3479,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_attachment_shipment_id_idx": {
           "name": "shipment_attachment_shipment_id_idx",
@@ -3637,9 +3494,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_attachment_comment_id_idx": {
           "name": "shipment_attachment_comment_id_idx",
@@ -3652,9 +3509,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_attachment_source_ref_uq": {
           "name": "shipment_attachment_source_ref_uq",
@@ -3679,38 +3536,38 @@
             }
           ],
           "isUnique": true,
-          "where": "source_ref <> '' AND deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "source_ref <> '' AND deleted_at IS NULL",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_attachment_shipment_id_shipment_id_fk": {
           "name": "shipment_attachment_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_attachment",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "shipment_attachment_comment_id_shipment_comment_id_fk": {
           "name": "shipment_attachment_comment_id_shipment_comment_id_fk",
           "tableFrom": "shipment_attachment",
-          "tableTo": "shipment_comment",
           "columnsFrom": [
             "comment_id"
           ],
+          "tableTo": "shipment_comment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -3791,9 +3648,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_audit_shipment_id_idx": {
           "name": "shipment_audit_shipment_id_idx",
@@ -3806,9 +3663,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_audit_changed_at_idx": {
           "name": "shipment_audit_changed_at_idx",
@@ -3821,24 +3678,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_audit_shipment_id_shipment_id_fk": {
           "name": "shipment_audit_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_audit",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -3963,9 +3820,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_claim_shipment_id_idx": {
           "name": "shipment_claim_shipment_id_idx",
@@ -3978,24 +3835,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_claim_shipment_id_shipment_id_fk": {
           "name": "shipment_claim_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_claim",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4096,9 +3953,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_comment_shipment_id_idx": {
           "name": "shipment_comment_shipment_id_idx",
@@ -4111,9 +3968,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_comment_mentioned_user_ids_idx": {
           "name": "shipment_comment_mentioned_user_ids_idx",
@@ -4126,24 +3983,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "gin",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_comment_shipment_id_shipment_id_fk": {
           "name": "shipment_comment_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_comment",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4227,9 +4084,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_comment_read_user_idx": {
           "name": "shipment_comment_read_user_idx",
@@ -4242,35 +4099,35 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_comment_read_shipment_id_shipment_id_fk": {
           "name": "shipment_comment_read_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_comment_read",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "shipment_comment_read_user_shipment_uq": {
           "name": "shipment_comment_read_user_shipment_uq",
-          "nullsNotDistinct": false,
           "columns": [
             "user_id",
             "shipment_id"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4369,9 +4226,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_customer_link_shipment_idx": {
           "name": "shipment_customer_link_shipment_idx",
@@ -4384,9 +4241,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_customer_link_token_uq": {
           "name": "shipment_customer_link_token_uq",
@@ -4399,9 +4256,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_customer_link_live_uq": {
           "name": "shipment_customer_link_live_uq",
@@ -4414,25 +4271,25 @@
             }
           ],
           "isUnique": true,
-          "where": "revoked_at IS NULL AND deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "revoked_at IS NULL AND deleted_at IS NULL",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_customer_link_shipment_id_shipment_id_fk": {
           "name": "shipment_customer_link_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_customer_link",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4561,9 +4418,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_customer_notice_shipment_idx": {
           "name": "shipment_customer_notice_shipment_idx",
@@ -4582,24 +4439,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_customer_notice_shipment_fk": {
           "name": "shipment_customer_notice_shipment_fk",
           "tableFrom": "shipment_customer_notice",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4736,9 +4593,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_import_instruction_shipment_idx": {
           "name": "shipment_import_instruction_shipment_idx",
@@ -4757,9 +4614,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_import_instruction_waiting_idx": {
           "name": "shipment_import_instruction_waiting_idx",
@@ -4784,9 +4641,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_import_instruction_live_uq": {
           "name": "shipment_import_instruction_live_uq",
@@ -4799,25 +4656,25 @@
             }
           ],
           "isUnique": true,
-          "where": "status IN ('open', 'submitted')",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "status IN ('open', 'submitted')",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_import_instruction_shipment_id_shipment_id_fk": {
           "name": "shipment_import_instruction_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_import_instruction",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -4970,9 +4827,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_task_shipment_id_idx": {
           "name": "shipment_task_shipment_id_idx",
@@ -4985,9 +4842,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_task_company_shipment_key_uq": {
           "name": "shipment_task_company_shipment_key_uq",
@@ -5012,25 +4869,25 @@
             }
           ],
           "isUnique": true,
-          "where": "deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "deleted_at IS NULL",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_task_shipment_id_shipment_id_fk": {
           "name": "shipment_task_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_task",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5231,9 +5088,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_tracking_event_shipment_idx": {
           "name": "shipment_tracking_event_shipment_idx",
@@ -5252,9 +5109,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_tracking_event_proposed_idx": {
           "name": "shipment_tracking_event_proposed_idx",
@@ -5273,10 +5130,10 @@
             }
           ],
           "isUnique": false,
-          "where": "effect = 'proposed'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "effect = 'proposed'",
+          "concurrently": false
         },
         "shipment_tracking_event_external_uq": {
           "name": "shipment_tracking_event_external_uq",
@@ -5307,25 +5164,25 @@
             }
           ],
           "isUnique": true,
-          "where": "external_id <> '' AND deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "external_id <> '' AND deleted_at IS NULL",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_tracking_event_shipment_fk": {
           "name": "shipment_tracking_event_shipment_fk",
           "tableFrom": "shipment_tracking_event",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5418,9 +5275,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "shipment_tracking_read_user_idx": {
           "name": "shipment_tracking_read_user_idx",
@@ -5433,35 +5290,35 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "shipment_tracking_read_shipment_id_shipment_id_fk": {
           "name": "shipment_tracking_read_shipment_id_shipment_id_fk",
           "tableFrom": "shipment_tracking_read",
-          "tableTo": "shipment",
           "columnsFrom": [
             "shipment_id"
           ],
+          "tableTo": "shipment",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "shipment_tracking_read_user_shipment_uq": {
           "name": "shipment_tracking_read_user_shipment_uq",
-          "nullsNotDistinct": false,
           "columns": [
             "user_id",
             "shipment_id"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -5543,9 +5400,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "user_preference_user_key_unique": {
           "name": "user_preference_user_key_unique",
@@ -5570,10 +5427,10 @@
             }
           ],
           "isUnique": true,
-          "where": "deleted_at IS NULL",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "deleted_at IS NULL",
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -5586,10 +5443,10 @@
   },
   "enums": {},
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

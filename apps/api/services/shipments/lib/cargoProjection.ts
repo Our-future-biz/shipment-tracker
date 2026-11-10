@@ -1,5 +1,5 @@
 import { isUuid } from "../../../lib/uuid";
-import { cargoNum, dimensionVolumePerPiece } from "../../../lib/cargoVolume";
+import { cargoNum, dimensionVolumePerPiece, type PieceSizes } from "../../../lib/cargoVolume";
 import type { ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
 
 // Numeric fields on container/cargo lines are free-text; parse them the same way
@@ -60,10 +60,15 @@ export interface CargoProjection {
   totalVolumeM3: string;
 }
 
+// What the projection reads of each line: a line as the API serves it, or its row as stored.
+type ContainerCargo = Pick<ContainerLine, "packages" | "grossWeight" | "volume" | "teu" | "type" | "packageType">;
+type ItemCargo = Pick<CargoItemLine, "pieces" | "grossWeight" | "packageType" | "hsCode" | "cargoDescription">;
+type DimensionCargo = Pick<CargoDimensionLine, "pieces" | "weightPerPcKg"> & PieceSizes;
+
 export function projectCargo(
-  containers: ContainerLine[],
-  items: CargoItemLine[],
-  dimensions: CargoDimensionLine[],
+  containers: ContainerCargo[],
+  items: ItemCargo[],
+  dimensions: DimensionCargo[],
 ): CargoProjection {
   const dimPcs = sum(dimensions, (d) => num(d.pieces));
   const dimKg = sum(dimensions, (d) => num(d.pieces) * num(d.weightPerPcKg));
@@ -150,4 +155,54 @@ export function matchContainerRows(existingIds: string[], lines: ContainerLine[]
     }
   });
   return matches;
+}
+
+// A dimension row is either both stackable and overstowable, or neither (migration 0051).
+export const STACKABLE = "Stackable / Overstowable";
+export const NOT_STACKABLE = "Not stackable / Not overstowable";
+
+/**
+ * A shipment's Cargo Stackability, read from its dimension rows as the shipment page reads it: one
+ * row not stackable makes the whole shipment not stackable; else one stackable row makes it
+ * stackable; "" when no row says either.
+ */
+export function cargoStackability(dimensions: { stackable: string }[]): string {
+  if (dimensions.some((d) => d.stackable === NOT_STACKABLE)) return NOT_STACKABLE;
+  if (dimensions.some((d) => d.stackable === STACKABLE)) return STACKABLE;
+  return "";
+}
+
+/** A house's cargo as its master job lists it; "" is no data (shown as —). */
+export interface HouseCargo {
+  /** COLLI: the number of pieces. */
+  pieces: string;
+  /** Type of packages: "Pallets, Cartons". */
+  packages: string;
+  weightKg: string;
+  volumeM3: string;
+  stackability: string;
+}
+
+/**
+ * A house's pieces, packages, weight, volume and stackability, as its own page shows them: worked
+ * out from its Container and Cargo Details rows, the stored fields only for a shipment that has
+ * none (as the Shipments grid, weight and volume also when the rows give none).
+ */
+export function houseCargo(
+  stored: { pcs: string; typeOfPackages: string; totalWeightTons: string | null; totalVolumeCbm: string | null },
+  containers: ContainerCargo[],
+  items: ItemCargo[],
+  dimensions: (DimensionCargo & { stackable: string })[],
+): HouseCargo {
+  const hasRows = containers.length > 0 || items.length > 0 || dimensions.length > 0;
+  const p = projectCargo(containers, items, dimensions);
+  const tons = num(stored.totalWeightTons);
+  const cbm = num(stored.totalVolumeCbm);
+  return {
+    pieces: hasRows ? p.pcs : stored.pcs,
+    packages: hasRows ? p.typeOfPackages : stored.typeOfPackages,
+    weightKg: p.totalGrossWeightKg || (tons ? fmtNum(tons * 1000) : ""),
+    volumeM3: p.totalVolumeM3 || (cbm ? fmtNum(cbm) : ""),
+    stackability: cargoStackability(dimensions),
+  };
 }

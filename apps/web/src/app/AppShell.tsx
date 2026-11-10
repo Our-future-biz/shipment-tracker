@@ -5,7 +5,7 @@ import { Spin } from "antd";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { TopNav } from "@/components/TopNav";
 import { AppSidebar } from "@/components/AppSidebar";
-import { CustomerCameFromTracker } from "@/app/customers/_lib/customerCameFrom";
+import { CameFromTracker } from "@/lib/cameFrom";
 import { Suspense, useEffect, useState } from "react";
 
 const PUBLIC_PATHS = ["/login"];
@@ -98,7 +98,7 @@ export const AppShell = ({ children }: AppShellProps) => {
   return (
     <div className="flex min-h-screen">
       <Suspense fallback={null}>
-        <CustomerCameFromTracker />
+        <CameFromTracker />
       </Suspense>
       <AppSidebar />
       <div className="flex flex-col flex-1 min-w-0">

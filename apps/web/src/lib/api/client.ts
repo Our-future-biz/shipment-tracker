@@ -16994,6 +16994,30 @@ export namespace interfaces {
         personInCharge: string
 
         holidayCover: string
+        /**
+         * Its cargo as its own page shows it (lib/cargoProjection houseCargo); "" is no data. COLLI.
+         */
+        pieces: string
+
+        /**
+         * Type of packages.
+         */
+        packages: string
+
+        /**
+         * Gross weight in kg, formatted ("1,234.5").
+         */
+        weightKg: string
+
+        /**
+         * Volume in m³, formatted.
+         */
+        volumeM3: string
+
+        /**
+         * "Stackable / Overstowable", "Not stackable / Not overstowable" or "".
+         */
+        cargoStackability: string
     }
 
     export type MasterJobSplitMethod = "wm" | "shipment"

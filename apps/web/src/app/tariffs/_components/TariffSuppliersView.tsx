@@ -20,6 +20,7 @@ import { PAGE_TITLE } from "@/styles/ui";
 import { muted } from "./TariffText";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 import { ratingRank } from "@/app/trucking/_lib/haulierRating";
+import { SectionBackLink } from "@/components/SectionBackLink";
 
 /** A supplier as a Tariffs section lists it: the Customer Database company and its tariffs at a glance. */
 interface TariffSupplierRow {
@@ -170,7 +171,11 @@ export function TariffSuppliersView<T extends TariffSupplierRow>({
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5 min-w-0">
-        <h1 className={PAGE_TITLE}>{title}</h1>
+        {/* Back to the Tariffs tiles, above the title. */}
+        <div className="min-w-0">
+          <SectionBackLink className="mb-1" />
+          <h1 className={PAGE_TITLE}>{title}</h1>
+        </div>
         {above}
         <AppGrid<T>
           searchPlaceholder={searchPlaceholder}

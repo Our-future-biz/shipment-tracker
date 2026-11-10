@@ -20,6 +20,9 @@ import { CATEGORY_SELECT, FIELD, WARNING_BANNER, WARNING_ICON, WARNING_TEXT, not
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { BTN_PRIMARY, BTN_SM, CARD, EMPTY_STATE, HINT, ICON_BTN_DANGER, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD_TOTAL, TH } from "@/styles/ui";
 import { LOCKED_CONTROL, LOCKED_INPUT, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } from "../_lib/rowLock";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { useColumnWidths } from "@/hooks/useColumnWidths";
+import { ResizableTh } from "@/components/ResizableTh";
 
 type View = interfaces.MasterJobCostsView;
 type Line = interfaces.MasterJobCostItem;
@@ -30,8 +33,9 @@ const costsKey = (masterJobId: string) => ["master-jobs", masterJobId, "costs"] 
 
 /* The shipment Costs Breakdown's table look: 6px cells, the app's column heads at that padding,
    a thick line between the estimate and the real cost, and a grey totals row. */
-const CELL = "px-[6px] py-[6px] border-b border-slate-100 align-middle text-[13px] text-slate-700";
-const HEAD = `${TH} !px-[6px]`;
+// overflow-hidden: a column dragged narrow (ResizableTh) clips its field instead of running into the next one.
+const CELL = "px-[6px] py-[6px] border-b border-slate-100 align-middle text-[13px] text-slate-700 overflow-hidden";
+const HEAD = `${TH} !px-[6px] overflow-hidden text-ellipsis`;
 const SPLIT_LINE = "border-l-[3px] border-l-slate-900";
 const FOOT_LINE = "border-t-2 border-slate-200";
 const FOOT_LABEL = `px-[6px] py-2 ${FOOT_LINE} ${LABEL_TEXT}`;
@@ -92,6 +96,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const { rates, fixingLabel, isLoading: ratesLoading } = useLatestRates();
   const message = useMessages();
   const queryClient = useQueryClient();
+  // Column widths the user dragged, kept per user in this browser, as on the Shipments grid: the
+  // buying costs and the split each have their own.
+  const { user } = useAuth();
+  const costSizing = useColumnWidths(user?.id, "master-job-costs");
+  const splitSizing = useColumnWidths(user?.id, "master-job-split");
   const { data, isLoading, isError, error } = useQuery({
     queryKey: costsKey(masterJob.id),
     queryFn: () => api.invoicing.invoicingMasterJobCosts(masterJob.id),
@@ -292,29 +301,31 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 <th colSpan={3} className="border-b border-slate-200" />
               </tr>
               <tr>
-                <th
+                <ResizableTh
+                  sizing={costSizing}
+                  k="inSplit"
                   className={`${HEAD} !text-center whitespace-nowrap`}
                   title="Share this cost out over the shipments. Untick it to keep the line on the master job only: no shipment carries it."
                 >
                   In split
-                </th>
+                </ResizableTh>
                 {/* The shipment's column widths. The master job's own columns (In split, Vs estimate, Split)
                     leave less room, so each keeps at least its width in the shipment's narrowest table (1240px). */}
-                <th className={`${HEAD} w-[13%] min-w-[160px]`}>Category</th>
-                <th className={`${HEAD} w-[12%] min-w-[150px]`}>Description</th>
-                <th className={`${HEAD} w-[8%] min-w-[100px]`}>Vendor</th>
-                <th className={`${HEAD} !text-center w-[4%] min-w-[50px]`}>Qty</th>
-                <th className={`${HEAD} text-right w-[8%] min-w-[100px]`}>Est. Amount</th>
-                <th className={`${HEAD} w-[6%] min-w-[75px]`}>Cur</th>
-                <th className={`${HEAD} ${SPLIT_LINE} !text-center w-[4%] min-w-[50px]`}>Qty</th>
-                <th className={`${HEAD} text-right w-[8%] min-w-[100px]`}>Real Cost</th>
-                <th className={`${HEAD} w-[6%] min-w-[75px]`}>Cur</th>
-                <th className={`${HEAD} w-[8%] min-w-[100px]`}>Invoice number</th>
-                <th className={`${HEAD} !text-center w-[5%]`} title="Supplier invoice received">Received</th>
-                <th className={`${HEAD} text-right`} title="The real cost against the estimate">Vs estimate</th>
-                <th className={HEAD} title="How the line is shared out: by W/M (freight tons), or the same part for each shipment.">
+                <ResizableTh sizing={costSizing} k="category" className={`${HEAD} w-[13%] min-w-[160px]`}>Category</ResizableTh>
+                <ResizableTh sizing={costSizing} k="description" className={`${HEAD} w-[12%] min-w-[150px]`}>Description</ResizableTh>
+                <ResizableTh sizing={costSizing} k="vendor" className={`${HEAD} w-[8%] min-w-[100px]`}>Vendor</ResizableTh>
+                <ResizableTh sizing={costSizing} k="estQty" className={`${HEAD} !text-center w-[4%] min-w-[50px]`}>Qty</ResizableTh>
+                <ResizableTh sizing={costSizing} k="estAmount" className={`${HEAD} text-right w-[8%] min-w-[100px]`}>Est. Amount</ResizableTh>
+                <ResizableTh sizing={costSizing} k="estCurrency" className={`${HEAD} w-[6%] min-w-[75px]`}>Cur</ResizableTh>
+                <ResizableTh sizing={costSizing} k="realQty" className={`${HEAD} ${SPLIT_LINE} !text-center w-[4%] min-w-[50px]`}>Qty</ResizableTh>
+                <ResizableTh sizing={costSizing} k="realCost" className={`${HEAD} text-right w-[8%] min-w-[100px]`}>Real Cost</ResizableTh>
+                <ResizableTh sizing={costSizing} k="realCurrency" className={`${HEAD} w-[6%] min-w-[75px]`}>Cur</ResizableTh>
+                <ResizableTh sizing={costSizing} k="invoiceNumber" className={`${HEAD} w-[8%] min-w-[100px]`}>Invoice number</ResizableTh>
+                <ResizableTh sizing={costSizing} k="received" className={`${HEAD} !text-center w-[5%]`} title="Supplier invoice received">Received</ResizableTh>
+                <ResizableTh sizing={costSizing} k="vsEstimate" className={`${HEAD} text-right`} title="The real cost against the estimate">Vs estimate</ResizableTh>
+                <ResizableTh sizing={costSizing} k="split" className={HEAD} title="How the line is shared out: by W/M (freight tons), or the same part for each shipment.">
                   Split
-                </th>
+                </ResizableTh>
                 <th className={`${HEAD} w-[70px]`} />
               </tr>
             </thead>
@@ -515,13 +526,13 @@ export function MasterJobCostsTab({ masterJob }: Props) {
               <table className="w-full border-separate border-spacing-0 [&_td:first-child]:!pl-4 [&_th:first-child]:!pl-4 [&_td:last-child]:!pr-4 [&_th:last-child]:!pr-4">
                 <thead>
                   <tr>
-                    <th className={HEAD}>Shipment</th>
-                    <th className={`${HEAD} !text-right`}>W/M</th>
+                    <ResizableTh sizing={splitSizing} k="shipment" className={HEAD}>Shipment</ResizableTh>
+                    <ResizableTh sizing={splitSizing} k="wm" className={`${HEAD} !text-right`}>W/M</ResizableTh>
                     {splitLines.map((l) => (
-                      <th key={l.id} className={`${HEAD} !text-right`} title={l.description}>
+                      <ResizableTh key={l.id} sizing={splitSizing} k={`line:${l.id}`} className={`${HEAD} !text-right`} title={l.description}>
                         {l.category ? chargeLabel(l.category) : "Cost"}
                         <span className="block font-normal normal-case text-slate-400">{l.splitMethod === "wm" ? "by W/M" : "per shipment"}</span>
-                      </th>
+                      </ResizableTh>
                     ))}
                   </tr>
                 </thead>

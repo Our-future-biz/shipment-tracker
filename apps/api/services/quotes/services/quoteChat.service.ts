@@ -4,7 +4,7 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import type { Actor } from "../../../lib/rbac";
 import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
-import { revisionRoot } from "../../../lib/salesReference";
+import { quoteThreadOf } from "../../../lib/salesReference";
 import type { FileContent } from "../../../lib/fileContent";
 import { quoteCommentRepository } from "../repositories/quoteComment.repository";
 import { salesQuoteRepository } from "../repositories/salesQuote.repository";
@@ -42,7 +42,8 @@ export interface NewQuoteChatFile {
 type ChatFile = Awaited<ReturnType<typeof quoteCommentRepository.listChatFiles>>[number];
 
 /** The thread a Sales Reference belongs to: its original reference (revisions share it). */
-export const threadOf = (quoteNumber: string) => revisionRoot(quoteNumber.trim());
+// Without the letters of the Freight Mode: a renamed quote keeps its conversation (lib/salesReference).
+export const threadOf = (quoteNumber: string) => quoteThreadOf(quoteNumber);
 
 class QuoteChatService {
   // The thread of a live sales quote of the company; not found otherwise.

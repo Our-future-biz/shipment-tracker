@@ -52,6 +52,7 @@ import { CostsTab } from "./tabs/CostsTab";
 import { InvoicePanel } from "@/app/invoicing/_components/InvoicePanel";
 import { AppModal } from "@/components/AppModal";
 import { BackLink } from "@/components/BackLink";
+import { useShipmentCameFrom } from "../_lib/shipmentCameFrom";
 import { useCostsData } from "./tabs/useCostsData";
 import { money } from "./tabs/costsCalc";
 import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
@@ -1093,6 +1094,8 @@ export function ShipmentDetailContent() {
 
   // Read on its own: the page loads no list (a shipment opened by link need not be one of the newest).
   const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber);
+  // Where the page was opened from, by the id in its address: the way back beside Shipments.
+  const cameFrom = useShipmentCameFrom(jobNumber);
 
   // The invoicing data loads with the shipment, so the Costs Breakdown tab has it at once.
   const { data: invoicingData } = useInvoicing(shipment?.id ?? null);
@@ -1317,7 +1320,16 @@ export function ShipmentDetailContent() {
       <div className="bg-white border-b border-slate-200 px-4 md:px-6 pt-3.5 pb-0">
         {/* Top row: the way back to the grid on the left, the actions, all one height and look, on the right. */}
         <div className="flex items-center justify-between gap-x-6 gap-y-2 flex-wrap">
-          <BackLink href="/shipments">Shipments</BackLink>
+          {/* The page it was opened from (a master job, the Cockpit...), then the Shipments list, as on a customer's page. */}
+          <div className="flex flex-wrap items-center gap-x-2">
+            {cameFrom && (
+              <>
+                <BackLink href={cameFrom.href}>{cameFrom.label}</BackLink>
+                <span aria-hidden className="text-[13px] text-slate-300">·</span>
+              </>
+            )}
+            <BackLink href="/shipments" arrow={!cameFrom}>Shipments</BackLink>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
                 to its page. A shipment without one may still carry the reference its costs were
@@ -1474,7 +1486,8 @@ export function ShipmentDetailContent() {
                     masterJob: (
                       <div className={ROW}>
                         <span className={LABEL}>Master Job</span>
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
+                        {/* Wraps, so a long reference (MCZCONSOL00000007) puts "remove" under it rather than over it. */}
+                        <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                           {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>

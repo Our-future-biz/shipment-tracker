@@ -111,9 +111,12 @@ describe("the menu", () => {
     const none = { open: null, selected: null };
     // From outside: its page.
     expect(sectionClickOpensPage(none, null, false)).toBe(true);
-    // Inside it, nothing on its way: only folds or unfolds.
+    // On its own page (the tiles), nothing on its way: only folds or unfolds.
     expect(sectionClickOpensPage({ open: "/sales", selected: null }, "/sales", true)).toBe(false);
     expect(sectionClickOpensPage({ open: null, selected: "/sales" }, "/sales", true)).toBe(false);
+    // On one of its pages (Quotes): back to its tiles, folded or not.
+    expect(sectionClickOpensPage({ open: "/sales", selected: null }, "/sales", false)).toBe(true);
+    expect(sectionClickOpensPage({ open: null, selected: "/sales" }, "/sales", false)).toBe(true);
     // On a Sales page, Tariffs clicked and not here yet: a click on Sales is a new choice, its page.
     expect(sectionClickOpensPage({ open: "/tariffs", selected: "/tariffs" }, "/sales", true)).toBe(true);
     // The same after a click on Dashboard that hasn't arrived.

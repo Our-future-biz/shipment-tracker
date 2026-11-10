@@ -6,7 +6,10 @@ import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
 import { canApproveMargin, canDecideQuoteInquiry, canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
-import { baseReference, formatReference, nextRevision, nextSequence, nextVariant, revisionRoot, salesPrefix } from "../../../lib/salesReference";
+import { baseReference, formatReference, nextRevision, nextSequence, nextVariant, quoteThreadOf, revisionRoot, salesPrefix, salesReferenceFor } from "../../../lib/salesReference";
+import { isUniqueViolation } from "../../../lib/db/errors";
+import { quoteRenameRepository } from "../repositories/quoteRename.repository";
+import { quoteRenamed } from "../topics";
 import { isUuid } from "../../../lib/uuid";
 import type { RateLevelResult, ServiceLevelCode } from "../../trucking/interfaces/interfaces";
 import type {
@@ -43,6 +46,7 @@ import type { NewQuoteInquiryRecord } from "../schemas/quoteInquiry.schema";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
+  OPEN,
   PRICING_CLOSED,
   isShownStatus,
   applyFollowUp,
@@ -271,7 +275,7 @@ function warehouseItem(r: WarehouseInquiryWithQuote, emails: Map<string, string>
 async function postInquiryToChat(actor: Actor, ctx: LifecycleContext, quoteNumber: string, message: string): Promise<void> {
   try {
     await quoteCommentRepository.createForCompany(actor.companyID, {
-      threadRef: revisionRoot(quoteNumber),
+      threadRef: quoteThreadOf(quoteNumber),
       quoteNumber,
       authorId: actor.userID,
       authorName: ctx.userEmail,
@@ -461,6 +465,52 @@ async function todaysFx(): Promise<StoredFx> {
 }
 
 
+// A quote's reference carries the letters of its Freight Mode while the quote is open: Draft, Ready
+// to Send, Quoted, Feedback or Revised, not Expired by its validity (lib/salesReference). Won, Lost,
+// Expired and Replaced quotes keep the reference they closed with.
+function lettersFollow(quote: SalesQuoteRecord, today: string): boolean {
+  return OPEN.includes(effectiveStatus(quote.status, quote.validUntil, today));
+}
+
+/**
+ * The quote under the reference its Freight Mode gives it: renamed (with what this service keeps
+ * under it) when the letters differ and it is open, and the other services told (quote-renamed).
+ * The quote as it is then; as it was when it is closed, already right, or no longer under its
+ * reference (renamed or deleted in this very moment).
+ */
+async function followLetters(companyId: string, quote: SalesQuoteRecord, at: Date): Promise<SalesQuoteRecord> {
+  if (!lettersFollow(quote, businessDay(at))) return quote;
+  const to = salesReferenceFor(quote.quoteNumber, isPlainObject(quote.data) ? quote.data.serviceType : undefined);
+  if (to === quote.quoteNumber) return quote;
+  let renamed: SalesQuoteRecord | null;
+  try {
+    renamed = await quoteRenameRepository.rename(companyId, quote.quoteNumber, to);
+  } catch (err) {
+    // Another quote holds that reference (none should: numbers are counted without letters).
+    if (!isUniqueViolation(err)) throw err;
+    log.warn("quote reference not renamed: the new one is taken", { companyId, from: quote.quoteNumber, to });
+    return quote;
+  }
+  if (!renamed) return quote;
+  await quoteRenamed.publish({ companyId, from: quote.quoteNumber, to });
+  return renamed;
+}
+
+// Open quotes from before the letters - and any whose rename did not get through - take them on
+// the company's first read of quotes after the server starts. Once per company and process: a read
+// never waits on it again, and a failure is logged and tried at the next start.
+const lettersChecked = new Set<string>();
+async function lettersCaughtUp(companyId: string): Promise<void> {
+  if (lettersChecked.has(companyId)) return;
+  lettersChecked.add(companyId);
+  try {
+    const at = new Date();
+    for (const quote of await salesQuoteRepository.openQuotes(companyId)) await followLetters(companyId, quote, at);
+  } catch (err) {
+    log.error(err, "open quotes did not all take the letters of their Freight Mode", { companyId });
+  }
+}
+
 class SalesQuoteService {
   // What every read of sales quotes starts with: quotes written by code from before the server
   // owned the lifecycle get their columns, and owner texts nobody compared with the users yet
@@ -468,6 +518,7 @@ class SalesQuoteService {
   async catchUp(companyId: string): Promise<void> {
     await salesQuoteRepository.adoptPending(companyId);
     await ownerBackfillService.ensureOwnersMatched(companyId);
+    await lettersCaughtUp(companyId);
   }
 
   // A stored quote as the API hands it out. One whose owner is still a text nobody compared with
@@ -527,7 +578,8 @@ class SalesQuoteService {
     const quote = await salesQuoteRepository.createWithReference(
       actor.companyID,
       prefix,
-      (existing) => formatReference(prefix, nextSequence(prefix, existing)),
+      // With the letters of its Freight Mode when it comes with one (lib/salesReference).
+      (existing) => salesReferenceFor(formatReference(prefix, nextSequence(prefix, existing)), document.serviceType),
       newRow(contextOf(actor, at, people), document),
     );
     return toItem(quote, people.emails, actor, at, await marginsFor(actor.companyID, [quote], at));
@@ -548,7 +600,7 @@ class SalesQuoteService {
     const quote = await salesQuoteRepository.createWithReference(
       actor.companyID,
       `${base}-`,
-      (existing) => nextVariant(base, existing),
+      (existing) => salesReferenceFor(nextVariant(base, existing), document.serviceType),
       newRow(contextOf(actor, at, people), document),
     );
     return toItem(quote, people.emails, actor, at, await marginsFor(actor.companyID, [quote], at));
@@ -572,15 +624,17 @@ class SalesQuoteService {
     // An open quote names its customer and contact as the Customer Database has them now, so an
     // editor's older copy cannot bring back a name that changed since it was loaded.
     const document = closed ? data : await linkedDocument(data, storedData);
+    // Under the reference as stored: the page may still hold one from before a change of letters.
     const saved = await salesQuoteRepository.saveDocument(
       companyID,
-      quoteNumber,
+      stored.quoteNumber,
       { data: document, carry },
       { dataVersion: expectedDataVersion },
     );
     // Nothing was written: somebody saved, or deleted, the quote in this very moment.
     if (!saved) throw (await salesQuoteRepository.loadSales(companyID, quoteNumber)) ? conflict() : notFound();
-    return this.item(saved, await companyPeople(actor), actor, new Date());
+    const at = new Date();
+    return this.item(await followLetters(companyID, saved, at), await companyPeople(actor), actor, at);
   }
 
   // A change of status, with everything it stamps and its history line. Setting the status the
@@ -690,7 +744,10 @@ class SalesQuoteService {
     let won = false;
     const result = await salesQuoteRepository.revise(actor.companyID, quoteNumber, `${root}-R`, (quote, existing) => {
       if (expectedDataVersion !== undefined && expectedDataVersion !== quote.dataVersion) throw conflict();
-      const reference = nextRevision(revisionRoot(quote.quoteNumber), existing);
+      const reference = salesReferenceFor(
+        nextRevision(revisionRoot(quote.quoteNumber), existing),
+        isPlainObject(quote.data) ? quote.data.serviceType : undefined,
+      );
       const state = stateOf(quote);
       const replaced = ruled(() => applyRevision(state, reference, ctx));
       const fresh = revisionOf(state, quote.quoteNumber, ctx);

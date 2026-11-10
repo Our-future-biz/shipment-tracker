@@ -13,6 +13,8 @@ vi.mock("~encore/clients", () => ({
   shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
+vi.mock("../../topics", () => ({ quoteRenamed: { publish: vi.fn() } }));
+vi.mock("../../repositories/quoteRename.repository", () => ({ quoteRenameRepository: { rename: vi.fn() } }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
 // The floors Sales sets: none stored, so the council's defaults (and Trucking's for Road).
@@ -37,6 +39,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     shipmentLinks: vi.fn(),
     customerFacts: vi.fn(),
     openCustomerQuotes: vi.fn(),
+    openQuotes: vi.fn(async () => []),
   },
 }));
 
@@ -46,6 +49,8 @@ import type { Actor } from "../../../../lib/rbac";
 import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.repository";
 import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
+import { quoteRenameRepository } from "../../repositories/quoteRename.repository";
+import { quoteRenamed } from "../../topics";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
 import type { QuoteRoadInput } from "../../interfaces/interfaces";
@@ -478,6 +483,57 @@ describe("create and duplicate", () => {
     stored = null;
     await expect(salesQuoteService.duplicate(martin, REF, {})).rejects.toMatchObject({ code: "not_found" });
     expect(repository.createWithReference).not.toHaveBeenCalled();
+  });
+});
+
+describe("the reference takes the letters of the Freight Mode", () => {
+  const rename = vi.mocked(quoteRenameRepository.rename);
+  const publish = vi.mocked(quoteRenamed.publish);
+  const LCL = "QCZLCL20261010001";
+  // The fixture's document with a Freight Mode.
+  const withMode = (serviceType: string) => ({ ...(quote().data as Record<string, unknown>), serviceType });
+
+  it("on a save that sets it, while the quote is open: renamed, and the other services told", async () => {
+    repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, data: withMode("Sea LCL") }));
+    rename.mockResolvedValue(quote({ quoteNumber: LCL, dataVersion: 4 }));
+    const item = await salesQuoteService.save(martin, REF, { serviceType: "Sea LCL" }, 3);
+    expect(rename).toHaveBeenCalledWith(martin.companyID, REF, LCL);
+    expect(publish).toHaveBeenCalledWith({ companyId: martin.companyID, from: REF, to: LCL });
+    expect(item.quoteNumber).toBe(LCL);
+  });
+
+  it("saves under the reference as stored, also when the page still names it with its letters from before", async () => {
+    repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4 }));
+    await salesQuoteService.save(martin, LCL, {}, 3);
+    expect(repository.saveDocument.mock.calls[0]![1]).toBe(REF);
+  });
+
+  it("not on a quote that is closed: Won, Lost, Replaced, or Expired by its validity", async () => {
+    for (const closed of [{ status: "won" }, { status: "lost" }, { status: "replaced" }, { status: "quoted", validUntil: "2026-10-01" }]) {
+      repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, ...closed, data: withMode("Air") }));
+      await salesQuoteService.save(martin, REF, {}, 3);
+    }
+    expect(rename).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("not when it already has them, nor when the quote went away in the same moment", async () => {
+    repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, quoteNumber: LCL, data: withMode("Sea LCL") }));
+    await salesQuoteService.save(martin, REF, {}, 3);
+    expect(rename).not.toHaveBeenCalled();
+    repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, data: withMode("Rail") }));
+    rename.mockResolvedValue(null);
+    await expect(salesQuoteService.save(martin, REF, {}, 3)).resolves.toMatchObject({ quoteNumber: REF });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("from the start, for a new quote or a variant that comes with a Freight Mode", async () => {
+    repository.createWithReference.mockImplementation(async (companyId, _prefix, pick, build) => {
+      const quoteNumber = pick([`${REF}-2`]);
+      return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
+    });
+    await expect(salesQuoteService.create(martin, { serviceType: "Air" })).resolves.toMatchObject({ quoteNumber: "QCZAIR20261010001" });
+    await expect(salesQuoteService.duplicate(martin, REF, { serviceType: "Rail" })).resolves.toMatchObject({ quoteNumber: `QCZRAIL${REF.slice(3)}-3` });
   });
 });
 
