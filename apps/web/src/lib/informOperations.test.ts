@@ -7,7 +7,7 @@ describe("informedText", () => {
   });
 
   it("warns when nobody is set to notify - the notice is in the chat all the same", () => {
-    expect(informedText([])).toEqual({ level: "warning", text: "Posted in the shipment's chat, but no Person in Charge or Holiday Cover is set to notify" });
+    expect(informedText([])).toEqual({ level: "warning", text: "Posted in the shipment's chat, but nobody is set in Handled By or Holiday Cover to notify" });
   });
 
   it("says a stand-alone position is only logged", () => {

@@ -288,7 +288,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
               people; the server refuses the same (masterJob.service). */}
           <ShipmentDetailsEditableContext.Provider value={canChangeShipmentDetails(user, mj)}>
             <div className="min-w-0">
-              <FieldRow label="Person In Charge" fieldKey="personInCharge" value={mj.personInCharge} onCommit={handleCommit} />
+              <FieldRow label="Handled By" fieldKey="personInCharge" value={mj.personInCharge} onCommit={handleCommit} />
               <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={mj.holidayCover} onCommit={handleCommit} />
             </div>
           </ShipmentDetailsEditableContext.Provider>

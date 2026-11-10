@@ -149,7 +149,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "shipmentsDate", title: "Shipments Month", width: 120, type: "computed", readonly: true },
   { key: "shipmentsYear", title: "Year", width: 80, type: "computed", readonly: true },
   { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], apiField: "department" },
-  { key: "personInCharge", title: "Person In Charge", width: 180, type: "user", apiField: "personInCharge" },
+  { key: "personInCharge", title: "Handled By", width: 180, type: "user", apiField: "personInCharge" },
   { key: "holidayCover", title: "Holiday Cover", width: 140, type: "user", apiField: "holidayCover" },
 
   // Customer block

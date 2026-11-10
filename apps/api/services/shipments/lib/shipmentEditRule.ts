@@ -40,7 +40,7 @@ export const DEPARTMENT_FIELDS: ReadonlySet<string> = new Set([
 /** An invoiced shipment keeps the offer it was invoiced from, until the invoice is credited. */
 export const SALES_REFERENCE_INVOICED = "This shipment is invoiced: its Sales Reference can't be changed. Credit the invoice first";
 
-export const DETAILS_REFUSAL = "Only this shipment's Person in Charge, Holiday Cover or a manager can change its details";
+export const DETAILS_REFUSAL = "Only the user in this shipment's Handled By or Holiday Cover, or a manager, can change its details";
 
 // A person is kept by e-mail; an old value may carry a name after it ("a@b.cz — Name").
 const personEmail = (value: string | null | undefined) => (value ?? "").split(" — ")[0]!.trim().toLowerCase();

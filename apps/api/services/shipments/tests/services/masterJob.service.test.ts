@@ -204,7 +204,7 @@ describe("the master job's own Person in Charge and Holiday Cover", () => {
     });
     await expect(save({ personInCharge: "Eva Svobodová" }, user)).rejects.toMatchObject({
       code: "invalid_argument",
-      message: "Person In Charge: pick a user of the company (by e-mail)",
+      message: "Handled By: pick a user of the company (by e-mail)",
     });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
   });

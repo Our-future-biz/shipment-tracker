@@ -30,7 +30,7 @@ import { EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/s
 const PICK_TH = `${TH} sticky top-0 z-10 bg-white`;
 
 /** Why a shipment the user may not change offers no Remove (the server refuses it: lib/shipmentEditRule). */
-const UNLINK_REFUSED_HINT = "Only its Person in Charge, Holiday Cover or a manager can remove it from the master job";
+const UNLINK_REFUSED_HINT = "Only the user in its Handled By or Holiday Cover, or a manager, can remove it from the master job";
 
 // Three views of the same houses: who they are, where each one stands, and what each one carries.
 type View = "details" | "status" | "cargo";

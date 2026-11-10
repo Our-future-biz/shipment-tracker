@@ -53,12 +53,12 @@ export type MasterJobUpdate = Partial<
 >;
 
 /** The master job's own people: a user of the company, kept by e-mail, or nobody. */
-const MASTER_JOB_PEOPLE = { personInCharge: "Person In Charge", holidayCover: "Holiday Cover" } as const;
+const MASTER_JOB_PEOPLE = { personInCharge: "Handled By", holidayCover: "Holiday Cover" } as const;
 type MasterJobPerson = keyof typeof MASTER_JOB_PEOPLE;
 
 /** Why a person may not change the master job's people (lib/shipmentEditRule, as on a shipment). */
 export const MASTER_JOB_PEOPLE_REFUSAL =
-  "Only this master job's Person in Charge, Holiday Cover or a manager can change its Person in Charge and Holiday Cover";
+  "Only the user in this master job's Handled By or Holiday Cover, or a manager, can change its Handled By and Holiday Cover";
 
 // Real `date` columns reject "" — the UI sends an empty string when a date is cleared.
 const DATE_FIELDS = new Set([
@@ -411,7 +411,7 @@ class MasterJobService {
     }
     if (refused.length > 0) {
       throw APIError.permissionDenied(
-        `Only the Person in Charge, Holiday Cover or a manager can change ${refused.join(", ")}, so this master job save would change ${refused.length === 1 ? "a shipment" : "shipments"} you can't`,
+        `Only the user in Handled By or Holiday Cover, or a manager, can change ${refused.join(", ")}, so this master job save would change ${refused.length === 1 ? "a shipment" : "shipments"} you can't`,
       );
     }
   }

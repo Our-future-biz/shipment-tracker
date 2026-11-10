@@ -287,7 +287,7 @@ function EditableCellBody({
           )
         )}
         {geoKind && <GeoFlag kind={geoKind} value={original} />}
-        {isUser && hasValue && <UnlinkedPersonMark value={original} hint={locked ? "only its Person in Charge, Holiday Cover or a manager can pick one" : "double-click to pick one"} />}
+        {isUser && hasValue && <UnlinkedPersonMark value={original} hint={locked ? "only the user in Handled By or Holiday Cover, or a manager, can pick one" : "double-click to pick one"} />}
       </span>
     );
   }

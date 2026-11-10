@@ -70,7 +70,7 @@ const fieldWidth = (key: string) =>
 const isEmpty = dimensionLineIsEmpty;
 
 // Why a read-only dialog has no Save.
-export const DIMENSIONS_READ_ONLY_HINT = "Only this shipment's Person in Charge, Holiday Cover or a manager can change its dimensions.";
+export const DIMENSIONS_READ_ONLY_HINT = "Only the user in Handled By or Holiday Cover, or a manager, can change its dimensions.";
 
 export function DimensionsModal({
   shipment,

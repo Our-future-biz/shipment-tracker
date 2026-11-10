@@ -7,7 +7,7 @@ import { matchUser, userByEmail, type CompanyUser } from "../../../lib/personPic
 
 /** The fields a person is picked in, with the label the form shows them under. */
 export const PERSON_FIELDS = {
-  personInCharge: "Person In Charge",
+  personInCharge: "Handled By",
   holidayCover: "Holiday Cover",
   salesPerson: "Sales Person",
   switchBolApprovedBy: "Switch BoL Approved By",

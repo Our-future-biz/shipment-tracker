@@ -10,7 +10,7 @@ export interface InformedText {
 /** `tagged`: the e-mails tagged; null for a stand-alone warehouse position (no shipment, no chat). */
 export function informedText(tagged: readonly string[] | null): InformedText {
   if (tagged === null) return { level: "success", text: "Operations informed — logged (a stand-alone position has no shipment chat to post to)" };
-  if (!tagged.length) return { level: "warning", text: "Posted in the shipment's chat, but no Person in Charge or Holiday Cover is set to notify" };
+  if (!tagged.length) return { level: "warning", text: "Posted in the shipment's chat, but nobody is set in Handled By or Holiday Cover to notify" };
   return { level: "success", text: `Operations informed in the shipment's chat — tagged ${tagged.join(", ")}` };
 }
 

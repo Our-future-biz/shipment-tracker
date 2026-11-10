@@ -253,7 +253,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     render: (_, r) => numCell(r.m?.measureCbm ? nf(r.m.measureCbm, 2) : ""),
   },
   textCol("commodity", "Commodity", 200),
-  textCol("shipmentOwner", "Person In Charge", 180, {
+  textCol("shipmentOwner", "Handled By", 180, {
     text: (r) => shipmentOwnerOf(r.m?.shipmentOwner),
     render: (_, r) => <OwnerCell value={r.m?.shipmentOwner} />,
   }),

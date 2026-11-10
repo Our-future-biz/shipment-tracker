@@ -22,7 +22,7 @@ import { EMPTY_STATE, HINT, LABEL_TEXT, MODAL_TITLE, REF, TD } from "@/styles/ui
 const TH = `sticky top-0 z-10 bg-white px-2 py-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
 
 /** What a shipment the user may not link says (the server refuses it: lib/shipmentEditRule). */
-export const LINK_REFUSED_HINT = "Only its Person in Charge, Holiday Cover or a manager can link it to a master job";
+export const LINK_REFUSED_HINT = "Only the user in its Handled By or Holiday Cover, or a manager, can link it to a master job";
 
 /**
  * Links each shipment by a request of its own, so one the server refuses does not stop the others.

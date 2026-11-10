@@ -197,7 +197,7 @@ describe("recording an event", () => {
 
   it("refuses who may not change the details, before anything is written", async () => {
     service.mayChangeDetails.mockResolvedValue(false);
-    await expect(record()).rejects.toThrow("Only this shipment's Person in Charge");
+    await expect(record()).rejects.toThrow("Only the user in this shipment's Handled By");
     expect(service.update).not.toHaveBeenCalled();
     expect(events.add).not.toHaveBeenCalled();
   });
@@ -260,8 +260,8 @@ describe("a proposed date", () => {
   it("takes the details rule to confirm or dismiss", async () => {
     events.getLive.mockResolvedValue(proposal);
     service.mayChangeDetails.mockResolvedValue(false);
-    await expect(trackingService.confirm("s1", "e1", ACTOR)).rejects.toThrow("Only this shipment's Person in Charge");
-    await expect(trackingService.dismiss("s1", "e1", ACTOR)).rejects.toThrow("Only this shipment's Person in Charge");
+    await expect(trackingService.confirm("s1", "e1", ACTOR)).rejects.toThrow("Only the user in this shipment's Handled By");
+    await expect(trackingService.dismiss("s1", "e1", ACTOR)).rejects.toThrow("Only the user in this shipment's Handled By");
   });
 
   it("leaves the shipment alone when dismissed", async () => {

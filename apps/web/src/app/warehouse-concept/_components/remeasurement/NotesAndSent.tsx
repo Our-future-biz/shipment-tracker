@@ -312,7 +312,7 @@ export function MarkSentModal({
     >
       <p className={`${HINT} mt-0 mb-3`}>
         {inform
-          ? "Records that Operations were told about the difference (who and when are logged) and posts it to the shipment's chat — the saved remeasured figures and your note — tagging its Person in Charge and Holiday Cover. Nothing is e-mailed."
+          ? "Records that Operations were told about the difference (who and when are logged) and posts it to the shipment's chat — the saved remeasured figures and your note — tagging the users in Handled By and Holiday Cover. Nothing is e-mailed."
           : "Nothing is e-mailed — this records that it was sent outside the app (recorded only — set recipients in Warehouse settings to e-mail it). Sending again is allowed; every send is kept in the history."}
       </p>
       {what === "vgm" && m?.reweigh && (

@@ -126,7 +126,7 @@ interface InvoicePanelProps {
 }
 
 // Why a customer picked here is not linked to the shipment.
-const NOT_LINKED_HINT = "Only the shipment's Person in Charge, Holiday Cover or a manager can link it to the shipment.";
+const NOT_LINKED_HINT = "Only the user in the shipment's Handled By or Holiday Cover, or a manager, can link it to the shipment.";
 
 export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, billingStatusWarning = true, onBusyChange }: InvoicePanelProps) {
   const toast = useToast();

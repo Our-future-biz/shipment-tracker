@@ -861,7 +861,7 @@ describe("people are users of the company, stored by e-mail", () => {
 
   it("refuses a name or an e-mail of nobody in the company, naming the field, before anything is written", async () => {
     for (const [field, label] of [
-      ["personInCharge", "Person In Charge"],
+      ["personInCharge", "Handled By"],
       ["holidayCover", "Holiday Cover"],
       ["salesPerson", "Sales Person"],
       ["switchBolApprovedBy", "Switch BoL Approved By"],
@@ -892,7 +892,7 @@ describe("people are users of the company, stored by e-mail", () => {
 
   it("refuses a new name in place of an old one, and lets the old one be replaced by a user or cleared", async () => {
     stored.set(SHIPMENT, row({ personInCharge: "Lukáš" }));
-    await expect(update({ personInCharge: "Petr" })).rejects.toMatchObject(PICK("Person In Charge"));
+    await expect(update({ personInCharge: "Petr" })).rejects.toMatchObject(PICK("Handled By"));
     expect(repository.updateForCompany).not.toHaveBeenCalled();
     await update({ personInCharge: "Jana@firma.cz" });
     expect(written(0)).toMatchObject({ personInCharge: "jana@firma.cz" });
@@ -1808,7 +1808,7 @@ describe("the Pick-up tab's License Plate", () => {
 describe("who may change a shipment's details", () => {
   const asRole = (data: Record<string, unknown>, role?: string) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role);
   const named = (personInCharge: string, holidayCover = "") => stored.set(SHIPMENT, row({ personInCharge, holidayCover }));
-  const REFUSAL = "Only this shipment's Person in Charge, Holiday Cover or a manager can change its details";
+  const REFUSAL = "Only the user in this shipment's Handled By or Holiday Cover, or a manager, can change its details";
 
   it("refuses a user who is neither its Person in Charge nor its Holiday Cover, and writes nothing", async () => {
     named(MARTIN.email, JANA.email);

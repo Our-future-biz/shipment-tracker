@@ -50,7 +50,7 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
     if (kind && !truckingJob) {
       if (!tracking) return "Loading…";
       if (tracking.recordable.some((r) => r.kind === kind)) return null;
-      return "Only this shipment's Person in Charge, Holiday Cover or a manager can record this, with its date";
+      return "Only the user in Handled By or Holiday Cover, or a manager, can record this, with its date";
     }
     return Object.hasOwn(SELF_TICKS, taskKey) ? SELF_TICKS[taskKey]! : null;
   };
