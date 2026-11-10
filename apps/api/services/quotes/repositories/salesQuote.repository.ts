@@ -22,13 +22,13 @@ import {
 } from "../utils/quoteLifecycle.utils";
 import { COMBINING_MARKS, FINAL_SIGMA, FOLD_FROM, FOLD_TO, SIGMA, escapeLike } from "../utils/quoteSearch.utils";
 import { foldSql } from "../../../lib/db/textSearch";
-import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, plainSalesReference } from "../../../lib/salesReference";
+import { plainSalesReference } from "../../../lib/salesReference";
+import { plainSalesReferenceSql as plainNumber } from "../../../lib/db/salesReferenceSql";
+import type { QuoteColumnFilter, QuoteFilterColumn } from "../utils/quoteColumnFilters.utils";
 
 // A quote's reference without the letters of its Freight Mode (lib/salesReference): what a reference
-// is looked up, counted and grouped by, so QCZ20261109001 and QCZLCL20261109001 name one quote.
-const plainNumber = (column: PgColumn | SQL) => sql<string>`regexp_replace(${column}, ${LETTERED_SALES_REFERENCE}, ${PLAIN_SALES_REFERENCE_REPLACEMENT})`;
+// is looked up, counted, grouped and sorted by, so QCZ20261109001 and QCZLCL20261109001 name one quote.
 const PLAIN_NUMBER = plainNumber(quoteTable.quoteNumber);
-import type { QuoteColumnFilter, QuoteFilterColumn } from "../utils/quoteColumnFilters.utils";
 
 // What a sales quote is: a row whose status column is filled. Rows of the old quotes module
 // share the table and have none. This is the one place the rule is written; a sales quote
@@ -192,7 +192,8 @@ const sortKey = (sortBy: string, today: string, owners: ListOwner[]): SQL | PgCo
   const keys: Record<string, SQL | PgColumn> = {
     createdAt: quoteTable.createdAt,
     updatedAt: quoteTable.updatedAt,
-    quoteNumber: quoteTable.quoteNumber,
+    // By number, not by the letters of the Freight Mode: QCZAIR20261109002 after QCZLCL20261109001.
+    quoteNumber: PLAIN_NUMBER,
     customer: sql`nullif(btrim(${quoteTable.data}->>'customerName'), '')`,
     status: shownStatus(today),
     owner: shownOwner(owners),

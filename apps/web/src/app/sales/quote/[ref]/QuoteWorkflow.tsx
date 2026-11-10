@@ -281,7 +281,9 @@ export function QuoteWorkflow() {
     if (ref === addressRef.current) return;
     const before = addressRef.current;
     addressRef.current = ref;
-    window.history.replaceState(window.history.state, "", `${hrefOf(ref).split("?")[0]}${window.location.search}`);
+    // The app's addresses end in a slash (trailingSlash): kept, so a reload needs no redirect.
+    const slash = window.location.pathname.endsWith("/") ? "/" : "";
+    window.history.replaceState(window.history.state, "", `${hrefOf(ref).split("?")[0]}${slash}${window.location.search}`);
     // The browser tab's name too (the page's title names the quote).
     document.title = document.title.replace(before, ref);
   }, [ref, hrefOf]);

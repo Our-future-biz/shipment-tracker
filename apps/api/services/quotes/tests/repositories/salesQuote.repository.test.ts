@@ -914,7 +914,8 @@ describe("list", () => {
     const keys: Record<string, string> = {
       createdAt: '"quote"."created_at"',
       updatedAt: '"quote"."updated_at"',
-      quoteNumber: '"quote"."quote_number"',
+      // By number, the letters of the Freight Mode left out (lib/salesReference).
+      quoteNumber: 'regexp_replace("quote"."quote_number", $1, $2)',
       customer: `nullif(btrim("quote"."data"->>'customerName'), '')`,
       status: `CASE WHEN "quote"."status" in ($1, $2) AND "quote"."valid_until" < $3::date THEN 'expired' ELSE "quote"."status" END`,
       owner: `nullif("quote"."owner_label", '')`,

@@ -62,6 +62,7 @@ import { cargoDimensionRepository } from "../../repositories/cargoDimension.repo
 import { cargoItemRepository } from "../../repositories/cargoItem.repository";
 import { commercialInvoiceRepository } from "../../repositories/commercialInvoice.repository";
 import { containerRepository } from "../../repositories/container.repository";
+import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachment.repository";
 import type { ShipmentRecord } from "../../schemas/shipment.schema";
@@ -1268,6 +1269,23 @@ describe("shipmentsNamingQuotes", () => {
     expect(repository.liveBySalesNumbers).toHaveBeenCalledWith(COMPANY, [REF, OTHER_REF]);
   });
 
+  it("counts a shipment whose copy of the reference is from before the quote's letters changed", async () => {
+    const LCL = `QCZLCL${REF.slice(3)}`;
+    repository.liveBySalesNumbers.mockResolvedValue([
+      { reference: REF, id: "s-1", jobNumber: "CZ00000101", status: "Booked" },
+      { reference: LCL, id: "s-2", jobNumber: "CZ00000102", status: "Booked" },
+    ]);
+    await expect(shipmentService.shipmentsNamingQuotes(COMPANY, [LCL])).resolves.toEqual([
+      {
+        reference: LCL,
+        shipments: [
+          { id: "s-1", jobNumber: "CZ00000101", status: "Booked" },
+          { id: "s-2", jobNumber: "CZ00000102", status: "Booked" },
+        ],
+      },
+    ]);
+  });
+
   it("refuses more than a page of quotes at once, before reading anything", async () => {
     const references = Array.from({ length: 201 }, (_, i) => `QCZ20261010${String(i).padStart(3, "0")}`);
     await expect(shipmentService.shipmentsNamingQuotes(COMPANY, references)).rejects.toMatchObject({ code: "invalid_argument" });
@@ -1277,6 +1295,28 @@ describe("shipmentsNamingQuotes", () => {
   it("counts the references as sent: 201 copies of one quote are over the limit as well", async () => {
     await expect(shipmentService.shipmentsNamingQuotes(COMPANY, Array.from({ length: 201 }, () => REF))).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.liveBySalesNumbers).not.toHaveBeenCalled();
+  });
+});
+
+describe("linkMasterJob", () => {
+  const masterJobs = masterJobRepository as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  beforeEach(() => {
+    masterJobs.findByMczNumber = vi.fn(async () => null);
+    masterJobs.createForCompany = vi.fn(async (_companyId: string, values: { mczNumber: string }) => ({ id: "mj-new", ...values }));
+    repository.updateForCompany.mockResolvedValue({ id: "s-1" } as never);
+  });
+
+  it("makes a master job that has no Load Type yet under its plain number, whatever letters were typed", async () => {
+    await shipmentService.linkMasterJob("s-1", COMPANY, "MCZFULL00000020");
+    expect(masterJobs.createForCompany).toHaveBeenCalledWith(COMPANY, { mczNumber: "MCZ00000020", createdBy: "" });
+    expect(repository.updateForCompany).toHaveBeenCalledWith("s-1", COMPANY, { masterJobId: "mj-new" });
+  });
+
+  it("links to the master job the number names, letters or not, without making another", async () => {
+    masterJobs.findByMczNumber = vi.fn(async () => ({ id: "mj-7", mczNumber: "MCZCONSOL00000007" }));
+    await shipmentService.linkMasterJob("s-1", COMPANY, "MCZ00000007");
+    expect(masterJobs.createForCompany).not.toHaveBeenCalled();
+    expect(repository.updateForCompany).toHaveBeenCalledWith("s-1", COMPANY, { masterJobId: "mj-7" });
   });
 });
 

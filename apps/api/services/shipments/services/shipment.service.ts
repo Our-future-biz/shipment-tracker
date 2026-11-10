@@ -2,7 +2,7 @@ import { APIError, ErrCode } from "encore.dev/api";
 import { businessDay } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
-import { isSalesReference, sameSalesReference } from "../../../lib/salesReference";
+import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -51,6 +51,7 @@ import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
+import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
 import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, SALES_REFERENCE_INVOICED, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
@@ -1383,11 +1384,13 @@ class ShipmentService {
     // Counted as sent, before any of them is looked at.
     if (references.length > MAX_QUOTE_REFERENCES) throw APIError.invalidArgument(`At most ${MAX_QUOTE_REFERENCES} quotes at once`);
     const wanted = [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
-    const byReference = new Map(wanted.map((reference): [string, QuoteShipments["shipments"]] => [reference, []]));
+    // Grouped without the letters of a quote's Freight Mode (lib/salesReference): a shipment whose copy
+    // is from before the quote's letters changed is still one of that quote's.
+    const byQuote = new Map(wanted.map((reference): [string, QuoteShipments["shipments"]] => [plainSalesReference(reference), []]));
     for (const { reference, ...shipment } of await shipmentRepository.liveBySalesNumbers(companyId, wanted)) {
-      byReference.get(reference)?.push(shipment);
+      byQuote.get(plainSalesReference(reference))?.push(shipment);
     }
-    return [...byReference].map(([reference, shipments]) => ({ reference, shipments }));
+    return wanted.map((reference) => ({ reference, shipments: byQuote.get(plainSalesReference(reference)) ?? [] }));
   }
 
   async customerFacts(companyId: string): Promise<{ customers: CustomerShipmentFacts[]; shipmentsWithoutCustomer: number }> {
@@ -1550,9 +1553,10 @@ class ShipmentService {
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string, userId?: string): Promise<ShipmentRecord | null> {
     let masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
     if (!masterJob) {
-      // A master job made by linking (Create new in the Master Job dialog) records who made it.
+      // A master job made by linking (Create new in the Master Job dialog) records who made it. It
+      // has no Load Type yet, so its reference has no letters (lib/masterJobNumber), whatever was typed.
       const createdBy = userId ? await this.actorOf(userId) : "";
-      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber, createdBy });
+      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber: masterJobNumberFor(mczNumber, null), createdBy });
     }
     return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id });
   }

@@ -10,7 +10,7 @@ import { companyRegistrationRepository as repository } from "../repositories/com
 // The internal chat on a company in Sales → Managers → Company approval. Every manager is in it; so is the
 // one who asked (who added the supplier, or created the registration link), and whoever a manager adds -
 // a sales representative to get in touch with the company, for example. Everyone in it can read it, but
-// the bell calls only those directly involved: the people named in it and whoever has written in it.
+// the bell calls only those directly involved: the people named in it and a manager who has written in it.
 
 interface Actor {
   companyID: string;
@@ -79,7 +79,7 @@ class ApprovalChatService {
 
   async unread(actor: Actor): Promise<ApprovalChatUnread[]> {
     // Only the chats the user takes part in (repository.unread): a manager is not called by every chat.
-    const rows = await repository.unread(actor.companyID, actor.userID);
+    const rows = await repository.unread(actor.companyID, actor.userID, canManageSales(actor.role));
     const named = await Promise.all(rows.map(async (r) => ({ ...r, thread: await repository.thread(actor.companyID, r.threadId) })));
     return named.flatMap((r) => (r.thread ? [{ threadId: r.threadId, companyName: r.thread.companyName, unread: r.unread, latestAt: r.latestAt.toISOString() }] : []));
   }

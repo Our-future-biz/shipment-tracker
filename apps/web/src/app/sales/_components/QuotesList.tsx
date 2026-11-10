@@ -37,13 +37,12 @@ import { useQuoteShipments } from "@/hooks/useQuoteShipments";
 import { QuoteShipmentsContext } from "./QuoteShipmentsCell";
 import { useSalesQuotes, type QuoteCall } from "@/hooks/useSalesQuotes";
 import { useSalesPref, useCompanyDetails } from "@/hooks/useSalesPrefs";
-import { useCurrentExchangeRates, type CurrentExchangeRates } from "@/hooks/useExchangeRates";
+import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useUsers } from "@/hooks/useUsers";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { asData, exportQuotesCsv, type SalesQuote } from "../_lib/salesQuote";
 import type { SettableQuoteStatus } from "../_lib/types";
-import type { StoredCompanyDetails } from "../_lib/companyDetails";
 import { QUOTE_STATUS_MAP, SETTABLE_QUOTE_STATUSES } from "../_lib/types";
 import { printQuote } from "../_lib/printQuote";
 import { useFetchRouteWhere } from "@/hooks/usePlaceSearch";
@@ -418,7 +417,7 @@ export function QuotesList() {
       ),
     });
     return cols;
-  }, [visibleKeys, columnsKnown, sortedBy, sortDirection, exchange, company, unreadByThread]);
+  }, [visibleKeys, columnsKnown, sortedBy, sortDirection, exchange, unreadByThread]);
 
   // CSV respects the visible columns and their order.
   const csvColumns = () => quoteCsvColumns(visibleKeys, exchange);

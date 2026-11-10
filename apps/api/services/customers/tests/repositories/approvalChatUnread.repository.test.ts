@@ -35,8 +35,8 @@ beforeEach(() => {
 });
 
 describe("the approval chats on a user's bell", () => {
-  it("are only those the user takes part in: named in the chat, or having written in it", async () => {
-    await companyRegistrationRepository.unread(COMPANY, USER);
+  it("are only those a manager takes part in: named in the chat, or having written in it", async () => {
+    await companyRegistrationRepository.unread(COMPANY, USER, true);
     const { sql, params } = messagesWhere();
     expect(sql).toContain(
       `("company_approval_participant"."member" is true or ("company_approval_message"."author_user_id" is not null and exists (select 1 from "company_approval_message" as own where own.company_id = $`,
@@ -46,12 +46,19 @@ describe("the approval chats on a user's bell", () => {
   });
 
   it("are not every chat colleagues wrote in, for a manager either: nothing calls a manager who is not in it", async () => {
-    await companyRegistrationRepository.unread(COMPANY, USER);
+    await companyRegistrationRepository.unread(COMPANY, USER, true);
     expect(messagesWhere().sql).not.toMatch(/"member" is true or "company_approval_message"\."author_user_id" is not null\)/);
   });
 
+  it("are, for anyone else, only those they are named in: one taken out of a chat is not called by what they once wrote there", async () => {
+    await companyRegistrationRepository.unread(COMPANY, USER, false);
+    const { sql } = messagesWhere();
+    expect(sql).toContain('"company_approval_participant"."member" is true');
+    expect(sql).not.toContain("own.author_user_id");
+  });
+
   it("leave out the user's own messages and what they have read", async () => {
-    await companyRegistrationRepository.unread(COMPANY, USER);
+    await companyRegistrationRepository.unread(COMPANY, USER, true);
     const { sql } = messagesWhere();
     expect(sql).toContain('"company_approval_message"."author_user_id" is distinct from $');
     expect(sql).toContain('("company_approval_participant"."last_read_at" is null or "company_approval_message"."created_at" > "company_approval_participant"."last_read_at")');
