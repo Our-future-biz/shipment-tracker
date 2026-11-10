@@ -18,7 +18,7 @@ export PATH
 
 # Jmena z new SQLDatabase("...") v apps/api/services/*/db/db.ts. "warehouse" je Warehouse Concept,
 # "warehouse_basic" je normalni Warehouse. Pri nove databazi ji sem pridej.
-DBS="auth automation customers fx holidays invoicing quotes sales shipments trucking warehouse warehouse_basic"
+DBS="auth automation customers fx holidays invoicing quotes sales shipments tariffs trucking warehouse warehouse_basic"
 POCET=$(echo $DBS | wc -w | tr -d ' ')
 KAM="$HOME/Documents/Shipment Tracker/zalohy"
 cmd="${1:-zaloha}"
