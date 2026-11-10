@@ -4,9 +4,6 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Alert, Button, Dropdown, Form, Input, Select, Tooltip } from "antd";
 import { CheckOutlined, DownOutlined, LockOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
-import { EMPTY_CELL } from "@/components/EmptyCell";
-import { KpiTile } from "@/components/KpiTile";
 import { LINK_CLASS } from "@/components/linkClass";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
@@ -14,7 +11,6 @@ import type { QuoteStatus, SettableQuoteStatus } from "../../../_lib/types";
 import {
   QUOTE_STATUS_MAP,
   SETTABLE_QUOTE_STATUSES,
-  OPEN_QUOTE_STATUSES,
   LOST_REASONS,
   winProbClass,
 } from "../../../_lib/types";
@@ -23,11 +19,12 @@ import { DEFAULT_VALIDITY_DAYS, asksValidity, type StatusChange } from "../../..
 import { SalesDialog } from "../../../_components/SalesDialog";
 import { ValidUntilField } from "../../../_components/ValidUntilField";
 import { toolbarButtonClass } from "../../../_components/ToolbarButton";
-import { OwnerTile } from "./OwnerTile";
+import { CARD } from "@/styles/ui";
+import { QuoteFigure } from "./QuotePriceTile";
 
 interface Props {
-  // The quote as the server returned it. Its status, what it may be set to, its validity, its
-  // owner and its last contact are the server's - nothing here works them out again.
+  // The quote as the server returned it. Its status and what it may be set to are the server's -
+  // nothing here works them out again.
   quote: interfaces.SalesQuoteItem;
   // Why the quote may not be sent or marked Ready to send now (its margin waits for a manager's
   // approval); null when nothing stops it. The server refuses those moves with the same words.
@@ -37,43 +34,22 @@ interface Props {
   onChange: (change: StatusChange) => Promise<string | null>;
   // Where a quote is opened: the revision a Replaced quote names is a link.
   hrefOf: (quoteNumber: string) => string;
-  // Asks the server to record that the customer was contacted, with the note if one was left.
-  // Resolves like onChange.
-  // The owner is being changed: its control waits for the server's answer.
-  changingOwner: boolean;
-  // Asks the server for another owner, or for none.
-  onChangeOwner: (ownerUserId: string | null) => void;
-  // The quote's price tile, shown first in the row of tiles.
+  // The quote's price - buying, selling, profit (QuotePriceTile) - first in the strip of figures.
   price: ReactNode;
 }
-
-// The date and the probability, in the size of a KPI figure, as the price tile beside them.
-const FIGURE_CLASS = "text-[20px] leading-7 font-bold tabular-nums";
 
 // The main forward flow shown as a chain of steps.
 const FLOW: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
 
 const anyOf = new Intl.ListFormat("en", { type: "disjunction" });
 
-// What stands under the validity date of a quote that is still in play: how long the date holds,
-// counted by the company's calendar day as the server judges expiry. The date of a quote that
-// was won or lost is a fact about it, not a deadline, and gets no note.
-function validityNote(validUntil: string | null, today: string): string {
-  if (validUntil === null) return "Set under Shipping terms";
-  const days = dayjs(validUntil).diff(dayjs(today), "day");
-  if (days < 0) return "Passed";
-  if (days === 0) return "Last day";
-  return days === 1 ? "1 day left" : `${days} days left`;
-}
-
 // The band under the quote's header: where the quote stands in its lifecycle and the way to move
-// it on, and under that the four facts the server keeps beside the document - validity, win
-// probability, owner and last contact. Each of them is changed at once by its own request, not
-// with the form below.
+// it on, and under that the price and the win probability. The validity and the owner are in the
+// summary at the top of the page (QuoteFacts).
 // The moves the margin floor stops until a manager approves the margin.
 const SENDING_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 
-export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwner, onChangeOwner, price }: Props) {
+export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, price }: Props) {
   const data = asData(quote.data);
   // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
   const current = quote.effectiveStatus;
@@ -243,28 +219,20 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
         </Dropdown>
       </div>
 
-      {/* The price first, then the three facts about the quote. */}
-      <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,0.5fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3">
+      {/* The figures are set off from the lifecycle by a line across the whole band. */}
+      <div aria-hidden className="-mx-6 mt-3.5 border-t border-slate-200" />
+
+      {/* The price, then the win probability: one white strip of figures, a line between them,
+          from the left as the facts of the summary above. */}
+      <div className={`mt-3.5 ${CARD} grid grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-slate-200`}>
         {price}
-        {/* Red only on a quote that is Expired: the date of a quote that was won, lost or is
-            being reworked is a fact about it, not an alarm. */}
-        <KpiTile
-          label="Valid until"
-          size="text"
-          centered
-          tone={expired ? "red" : undefined}
-          value={quote.validUntil ? <span className={FIGURE_CLASS}>{formatDate(quote.validUntil)}</span> : EMPTY_CELL}
-          hint={expired ? "Expired" : OPEN_QUOTE_STATUSES.includes(current) ? validityNote(quote.validUntil, today) : undefined}
-          hintTone={expired ? "red" : undefined}
-        />
-        <KpiTile
+        <QuoteFigure
           label="Win probability"
-          size="text"
-          centered
-          value={<span className={FIGURE_CLASS}>{winProb}%</span>}
-          hint={
-            <div className="h-4 flex items-center">
-              <div
+          value={
+            // The bar beside the figure, so every figure of the strip is one line high.
+            <span className="flex items-center gap-3">
+              {winProb}%
+              <span
                 role="progressbar"
                 aria-label="Win probability"
                 aria-valuenow={winProb}
@@ -272,12 +240,11 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
                 aria-valuemax={100}
                 className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"
               >
-                <div className={`h-full rounded-full transition-all ${winProbClass(winProb)}`} style={{ width: `${winProb}%` }} />
-              </div>
-            </div>
+                <span className={`block h-full rounded-full transition-all ${winProbClass(winProb)}`} style={{ width: `${winProb}%` }} />
+              </span>
+            </span>
           }
         />
-        <OwnerTile quote={quote} changing={changingOwner} onChange={onChangeOwner} />
       </div>
 
       {/* The dialog of a status change, in the frame of every Sales dialog. While the request is on

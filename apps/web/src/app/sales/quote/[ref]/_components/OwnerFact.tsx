@@ -1,13 +1,13 @@
 "use client";
 
 import { Button, Select } from "antd";
-import { KpiTile } from "@/components/KpiTile";
 import { useUsers } from "@/hooks/useUsers";
 import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { matchesUserOption, userIdOptions, UserOptionLabel, type UserIdOption } from "../../../_lib/userOptions";
+import { Fact } from "./QuoteFacts";
 
-interface OwnerTileProps {
+interface OwnerFactProps {
   quote: interfaces.SalesQuoteItem;
   // The change is on its way: the control waits for the server's answer.
   changing: boolean;
@@ -19,13 +19,15 @@ interface OwnerTileProps {
 // the server's answer (permissions.canChangeOwner) - a manager reassigns freely, the owner may
 // hand the quote over or give it up, anybody may take a quote that belongs to no user, and a
 // colleague's quote can only be looked at. A closed quote's owner can only be looked at too: it
-// keeps its owner, and the server says why (ownerChangeBlockedReason). A change is asked of the
-// server at once; the tile shows what the server stored.
-export function OwnerTile({
+// keeps its owner (the server's reason, ownerChangeBlockedReason, is not shown). A change is
+// asked of the server at once; the fact shows what the server stored. It is the last fact of the
+// summary at the top of the quote (QuoteFacts); only an owner no user was matched to gets small
+// print under it.
+export function OwnerFact({
   quote,
   changing,
   onChange,
-}: OwnerTileProps) {
+}: OwnerFactProps) {
   const { users } = useUsers();
   const { user } = useAuth();
   const right = quote.permissions.canChangeOwner;
@@ -40,29 +42,24 @@ export function OwnerTile({
       options.unshift({ value: quote.ownerUserId, label: quote.ownerName });
     }
     return (
-      <KpiTile
-        label="Sales owner"
-        size="text"
-        value={
-          <Select
-            showSearch
-            allowClear
-            size="small"
-            className="flex-1 min-w-0"
-            aria-label="Sales owner"
-            placeholder="Select a user"
-            filterOption={matchesUserOption}
-            optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
-            popupMatchSelectWidth={260}
-            loading={changing}
-            disabled={changing}
-            value={quote.ownerUserId ?? undefined}
-            onChange={(id?: string) => onChange(id ?? null)}
-            options={options}
-          />
-        }
-        hint={unlinked ? <span title={unlinked}>{unlinked}</span> : "Saved at once"}
-      />
+      <Fact label="Sales owner" note={unlinked && <span title={unlinked}>{unlinked}</span>}>
+        <Select
+          showSearch
+          allowClear
+          size="small"
+          className="flex-1 min-w-0"
+          aria-label="Sales owner"
+          placeholder="Select a user"
+          filterOption={matchesUserOption}
+          optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
+          popupMatchSelectWidth={260}
+          loading={changing}
+          disabled={changing}
+          value={quote.ownerUserId ?? undefined}
+          onChange={(id?: string) => onChange(id ?? null)}
+          options={options}
+        />
+      </Fact>
     );
   }
 
@@ -77,19 +74,16 @@ export function OwnerTile({
 
   if (right === "claim") {
     return (
-      <KpiTile
-        label="Sales owner"
-        size="text"
-        value={name}
-        action={
-          <Button size="small" loading={changing} disabled={!user} onClick={() => user && onChange(user.id)}>
+      <Fact label="Sales owner">
+        <span className="flex items-center gap-2 min-w-0 w-full">
+          {name}
+          <Button size="small" className="ml-auto shrink-0" loading={changing} disabled={!user} onClick={() => user && onChange(user.id)}>
             Assign to me
           </Button>
-        }
-      />
+        </span>
+      </Fact>
     );
   }
 
-  const why = quote.permissions.ownerChangeBlockedReason;
-  return <KpiTile label="Sales owner" size="text" value={name} hint={why && <span title={why}>{why}</span>} />;
+  return <Fact label="Sales owner">{name}</Fact>;
 }

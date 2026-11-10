@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Badge, Button, Checkbox, ConfigProvider, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
+import type { MenuProps } from "antd";
 import dayjs from "dayjs";
 import {
   ContainerOutlined,
@@ -16,13 +17,11 @@ import {
   ImportOutlined,
   MailOutlined,
   MessageOutlined,
-  MoreOutlined,
   PlusOutlined,
   TagsOutlined,
 } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { CopyButton } from "@/components/CopyButton";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { InfoRow } from "@/components/InfoRow";
 import { KPI_TONE_CLASS, KpiTile, type KpiTone } from "@/components/KpiTile";
@@ -76,8 +75,6 @@ import { formatAmount as formatMoney } from "@/lib/money";
 import { CustomerLink } from "../../_components/CustomerLink";
 import { DeleteQuoteModal } from "../../_components/DeleteQuoteModal";
 import { ExchangeRatesError } from "../../_components/ExchangeRatesError";
-import { QuoteRoute } from "../../_components/QuoteRoute";
-import { QuoteStatusPill } from "../../_components/QuoteStatusPill";
 import { ToolbarButton, toolbarButtonClass } from "../../_components/ToolbarButton";
 import { fmtQuantity } from "./_lib/fmtQuantity";
 import { LifecycleBar } from "./_components/LifecycleBar";
@@ -166,7 +163,10 @@ import { useQuoteShipments } from "@/hooks/useQuoteShipments";
 import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { limitCzechPhone } from "@/lib/phone";
 import { CargoDimensionAdrFields } from "@/app/shipments/[jobNumber]/tabs/CargoDimensionAdrFields";
-import { LABEL_TEXT, PAGE_TITLE } from "@/styles/ui";
+import { CARD, LABEL_TEXT } from "@/styles/ui";
+import { MenuLabel } from "@/app/trucking/_components/MenuLabel";
+import { QuoteFacts } from "./_components/QuoteFacts";
+import { OwnerFact } from "./_components/OwnerFact";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
 // the chargeable weight.
@@ -771,7 +771,7 @@ export function QuoteWorkflow() {
   // document apply (cargoReadyDay), so the date picker, the Summary and the document agree.
   const readyDate = cargoReadyDay(draft) || null;
 
-  // The owner is not counted: it is the server's, and its picker stands in the lifecycle band.
+  // The owner is not counted: it is the server's, and its picker stands in the summary at the top.
   const partial: Record<SectionKey, boolean> = {
     customer: !!(draft.customerName || draft.customerContact || draft.customerEmail || draft.customerPhone),
     shipment: !!(draft.direction || draft.serviceType || draft.incoterm || readyDate),
@@ -1038,9 +1038,36 @@ export function QuoteWorkflow() {
   const termsOutdated = !quoteClosed && termsDifferFromTemplate(draft, terms);
 
   // While a shipment carries the quote nobody may delete it, and the way there is not obvious:
-  // the server's sentence stands under the actions. A user who may not delete the quote for want
-  // of a role is shown neither the button nor a reason.
+  // the server's sentence stands under Delete quote in the Actions menu. A user who may not
+  // delete the quote for want of a role is shown neither the item nor a reason.
   const deleteBlockedByShipment = quote.shipmentId !== null ? quote.permissions.deleteBlockedReason : undefined;
+
+  // What waits behind Actions in the header: what is done now and then - a copy of the quote,
+  // filling it in from something that exists, deleting it. What cannot be done now stays in the
+  // menu, disabled, with the reason under it.
+  const actionItems: MenuProps["items"] = [
+    { key: "duplicate", icon: <CopyOutlined />, label: "Duplicate", onClick: () => setModal("duplicate") },
+    { type: "divider" },
+    {
+      // The three ways to fill the quote in from something that exists.
+      key: "importData",
+      type: "group",
+      label: <MenuLabel label="Import data" reason={quoteClosed ? "A closed quote is not changed - revise it" : ""} />,
+      children: [
+        { key: "import", icon: <ImportOutlined />, label: "Import inquiry data", disabled: quoteClosed, onClick: () => setModal("import") },
+        { key: "copyQuote", icon: <CopyOutlined />, label: "Copy from quote", disabled: quoteClosed, onClick: () => setModal("copyQuote") },
+        { key: "copyShipment", icon: <ContainerOutlined />, label: "Copy from shipment", disabled: quoteClosed, onClick: () => setModal("copyShipment") },
+      ],
+    },
+    ...(quote.permissions.canDelete
+      ? [{ type: "divider" as const }, { key: "delete", danger: true, icon: <DeleteOutlined />, label: "Delete quote", onClick: () => setModal("delete") }]
+      : deleteBlockedByShipment
+        ? [
+            { type: "divider" as const },
+            { key: "delete", danger: true, disabled: true, icon: <DeleteOutlined />, label: <MenuLabel label="Delete quote" reason={`Cannot be deleted: ${deleteBlockedByShipment}.`} /> },
+          ]
+        : []),
+  ];
 
   // The record the quote is linked to no longer exists: the server answered "not found", which
   // a read that is still on its way or one that failed does not say. The quote keeps the name
@@ -1055,17 +1082,15 @@ export function QuoteWorkflow() {
   }));
   const customerPageId = customerDeleted ? undefined : draft.customerId;
 
-  // What the header says under the reference: who the quote is for and what it moves where.
-  const headline = [
-    draft.customerName ? (
-      <CustomerLink customerId={customerPageId} deleted={customerDeleted} name={draft.customerName} className="text-base font-bold" />
-    ) : (
-      <span className="text-slate-400">No customer yet</span>
-    ),
-    draft.serviceType,
-    draft.direction,
-    (draft.origin || draft.destination) && <QuoteRoute origin={draft.origin} destination={draft.destination} />,
-  ].filter(Boolean);
+  // Who the quote is for, as the card at the top shows it: a name too long for its column is cut,
+  // and hovering it shows all of it.
+  const customerFact = draft.customerName ? (
+    <span className="block truncate" title={draft.customerName}>
+      <CustomerLink customerId={customerPageId} deleted={customerDeleted} name={draft.customerName} />
+    </span>
+  ) : (
+    <span className="text-slate-400">No customer yet</span>
+  );
 
   // What stands under the Customer step: where a linked customer comes from, or that the name
   // the quote carries is only text - which the Customer box cannot show as its value, so the way
@@ -1947,34 +1972,18 @@ export function QuoteWorkflow() {
   return (
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4">
-        <BackLink href={back.href} className="mb-2">
-          {back.label}
-        </BackLink>
-
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-          <div className="flex-[1_1_300px] min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-              <h1 className={`${PAGE_TITLE} tabular-nums`}>{ref}</h1>
-              <CopyButton text={ref} what="reference" />
-              <QuoteStatusPill status={quote.effectiveStatus} />
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[14px] font-bold text-slate-500">
-              {headline.map((part, i) => (
-                <Fragment key={i}>
-                  {i > 0 && <span aria-hidden>·</span>}
-                  {part}
-                </Fragment>
-              ))}
-            </div>
+      {/* In the shipment detail's shape: the way back and the actions in the top row, the quote at
+          a glance in a card under them. */}
+      <div className="bg-white border-b border-slate-200 px-6 pt-3.5 pb-3.5">
+        {/* Top row: the way back on the left; the actions, all one height and look, on the right. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+          <div className="min-h-8 flex items-center">
+            <BackLink href={back.href}>{back.label}</BackLink>
           </div>
 
-          <div className="flex flex-col items-end gap-1.5 max-w-full">
+          <div className="flex flex-col items-end gap-1 max-w-full">
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <ToolbarButton icon={<CopyOutlined />} onClick={() => setModal("duplicate")}>
-                Duplicate
-              </ToolbarButton>
-              {/* Only when the user asks: a sent quote the server lets be revised (Quoted, Feedback, Expired). */}
+              {/* Only when the user asks: a sent quote the server lets be revised (Quoted, Feedback, Expired, Won). */}
               {quote.allowedTransitions.includes("revised") && (
                 <ToolbarButton icon={<HistoryOutlined />} onClick={() => setModal("revise")}>
                   Revise
@@ -1998,14 +2007,25 @@ export function QuoteWorkflow() {
                 </ToolbarButton>
               )}
               <span aria-hidden className="w-px h-6 bg-slate-200" />
+              {/* The chat and the preview open over the page, so they are icons, as Notes and
+                  Attachments are on a shipment; the chat keeps its count of unread messages. */}
               <Badge count={chatUnread} size="small" offset={[-4, 2]}>
-                <ToolbarButton icon={<MessageOutlined />} onClick={() => setChatOpen(true)} aria-label={chatUnread ? `Chat — ${chatUnread} unread` : "Chat"}>
-                  Chat
-                </ToolbarButton>
+                <Tooltip title="Chat">
+                  <button
+                    type="button"
+                    onClick={() => setChatOpen(true)}
+                    aria-label={chatUnread ? `Chat — ${chatUnread} unread` : "Chat"}
+                    className={toolbarButtonClass("secondary", "square")}
+                  >
+                    <MessageOutlined />
+                  </button>
+                </Tooltip>
               </Badge>
-              <ToolbarButton icon={<EyeOutlined />} onClick={() => setModal("preview")}>
-                Preview
-              </ToolbarButton>
+              <Tooltip title="Preview">
+                <button type="button" onClick={() => setModal("preview")} aria-label="Preview" className={toolbarButtonClass("secondary", "square")}>
+                  <EyeOutlined />
+                </button>
+              </Tooltip>
               <Tooltip title={emailBlocked}>
                 <span>
                   <ToolbarButton icon={<MailOutlined />} onClick={openEmail}>
@@ -2016,46 +2036,31 @@ export function QuoteWorkflow() {
               <ToolbarButton variant="primary" icon={<FilePdfOutlined />} onClick={exportPdf}>
                 Export PDF
               </ToolbarButton>
-              {/* The three ways to fill the quote in from something that exists, behind one button. */}
-              <Dropdown
-                disabled={quoteClosed}
-                trigger={["click"]}
-                placement="bottomRight"
-                menu={{
-                  items: [
-                    { key: "import", icon: <ImportOutlined />, label: "Import inquiry data", onClick: () => setModal("import") },
-                    { key: "copyQuote", icon: <CopyOutlined />, label: "Copy from quote", onClick: () => setModal("copyQuote") },
-                    { key: "copyShipment", icon: <ContainerOutlined />, label: "Copy from shipment", onClick: () => setModal("copyShipment") },
-                  ],
-                }}
-              >
-                <button
-                  type="button"
-                  className={toolbarButtonClass()}
-                  disabled={quoteClosed}
-                  title={quoteClosed ? "A closed quote is not changed - revise it" : undefined}
-                >
-                  <ImportOutlined />
-                  Import data
-                  <DownOutlined className="text-[10px] !text-slate-500" />
+              {/* Last in the row, as on every record page: Duplicate, Import data and Delete quote. */}
+              <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: actionItems }}>
+                <button type="button" className={toolbarButtonClass()}>
+                  Actions <DownOutlined className="text-[10px]" />
                 </button>
               </Dropdown>
-              {/* Behind the three dots at the far end, so it is not pressed for one of the others. */}
-              {quote.permissions.canDelete && (
-                <Dropdown
-                  trigger={["click"]}
-                  placement="bottomRight"
-                  menu={{ items: [{ key: "delete", danger: true, icon: <DeleteOutlined />, label: "Delete quote", onClick: () => setModal("delete") }] }}
-                >
-                  <button type="button" aria-label="More actions" title="More actions" className={toolbarButtonClass("secondary", "square")}>
-                    <MoreOutlined />
-                  </button>
-                </Dropdown>
-              )}
             </div>
             {saveLabel && <div className="text-xs text-right text-red-600">{saveLabel}</div>}
-            {deleteBlockedByShipment && <div className="text-xs text-slate-500 text-right">Cannot be deleted: {deleteBlockedByShipment}.</div>}
           </div>
+        </div>
+
+        {/* The quote at a glance; its reference is the page's title. */}
+        <div className={`${CARD} mt-3 px-5 pt-3 pb-2.5`}>
+          <QuoteFacts
+            quoteNumber={ref}
+            status={quote.effectiveStatus}
+            customer={customerFact}
+            direction={draft.direction}
+            serviceType={draft.serviceType}
+            incoterm={draft.incoterm}
+            pol={draft.pol}
+            pod={draft.pod}
+            validUntil={quote.validUntil}
+            owner={<OwnerFact quote={quote} changing={changingOwner} onChange={changeOwner} />}
+          />
         </div>
 
         {save.problem && (
@@ -2118,8 +2123,6 @@ export function QuoteWorkflow() {
         sendBlocked={sendBlocked}
         onChange={changeStatus}
         hrefOf={hrefOf}
-        changingOwner={changingOwner}
-        onChangeOwner={changeOwner}
         price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} labelTone={isThinProfit(totals) ? "red" : undefined} />}
       />
 
