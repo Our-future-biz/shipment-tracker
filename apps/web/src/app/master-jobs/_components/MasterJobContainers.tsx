@@ -10,6 +10,9 @@ import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { CHECK_DIGIT_HINT, CONTAINER_NUMBER_HINT, containerType, containerTypeOptions } from "@/lib/cargo";
 import { containerCheckDigitOk, containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import type { MasterJobContainerLine, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { useColumnWidths } from "@/hooks/useColumnWidths";
+import { ResizableTh } from "@/components/ResizableTh";
 import { EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
 import { CARD_BODY_PADDED, MasterJobCard } from "./MasterJobFields";
 import { LOCKED_CONTROL, LOCKED_INPUT, LOCKED_ROW, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } from "../_lib/rowLock";
@@ -27,7 +30,8 @@ interface MasterJobContainersProps {
 // The Container Details table look: column titles over a slate-200 rule, rows split by thin
 // slate-100 lines (none under the last row), centred short codes.
 const TH = `px-2 pb-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
-const TD = "px-2 py-1.5 align-middle text-[13px] text-slate-700";
+// overflow-hidden: a column dragged narrow clips its field instead of running into the next one.
+const TD = "px-2 py-1.5 align-middle text-[13px] text-slate-700 overflow-hidden";
 
 const emptyLine = (): MasterJobContainerLine => ({ containerNumber: "", sealNumber: "", type: "", shipmentIds: [] });
 const lineKey = (c: MasterJobContainerLine) => c.id ?? rowKey(c);
@@ -40,6 +44,9 @@ const isBlankLine = (c: MasterJobContainerLine) =>
 // assigned containers onto that house.
 export function MasterJobContainers({ id, fromShipments, containers, shipments, onSave }: MasterJobContainersProps) {
   const message = useMessages();
+  // Column widths the user dragged, kept per user in this browser, as on the Shipments grid.
+  const { user } = useAuth();
+  const sizing = useColumnWidths(user?.id, "master-job-containers");
   // The draft belongs to the server copy it was edited from: a fresh copy (after any save)
   // replaces it.
   const [edit, setEdit] = useState({ base: containers, rows: containers });
@@ -150,13 +157,14 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
           />
         </Tooltip>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse">
+          {/* Fixed columns, so a column dragged to a width of its own (ResizableTh) keeps exactly that width. */}
+          <table className="w-full min-w-[760px] table-fixed border-collapse">
             <thead>
               <tr>
-                <th className={`${TH} w-[190px]`}>Container Number</th>
-                <th className={`${TH} w-[160px] !text-center`}>Seal Number</th>
-                <th className={`${TH} w-[150px] !text-center`}>Container Type</th>
-                <th className={TH}>Assigned Shipments</th>
+                <ResizableTh sizing={sizing} k="containerNumber" className={`${TH} overflow-hidden text-ellipsis w-[190px]`}>Container Number</ResizableTh>
+                <ResizableTh sizing={sizing} k="sealNumber" className={`${TH} overflow-hidden text-ellipsis w-[160px] !text-center`}>Seal Number</ResizableTh>
+                <ResizableTh sizing={sizing} k="type" className={`${TH} overflow-hidden text-ellipsis w-[150px] !text-center`}>Container Type</ResizableTh>
+                <ResizableTh sizing={sizing} k="shipments" className={`${TH} overflow-hidden text-ellipsis`}>Assigned Shipments</ResizableTh>
                 {/* The actions column: the "+" above lies over it. */}
                 <th className={`${TH} w-9`} />
               </tr>

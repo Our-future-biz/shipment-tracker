@@ -4,6 +4,7 @@ import { shipmentTable } from "../schemas/shipment.schema";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { shipmentRefCounterTable, type ShipmentRefSequence } from "../schemas/shipmentRefCounter.schema";
 import { LETTERS_PATTERN } from "../../../lib/jobNumber";
+import { MASTER_JOB_LETTERS_PATTERN } from "../lib/masterJobNumber";
 
 /** A transaction, or the database itself when no transaction is open. */
 export type Tx = Pick<typeof db, "execute">;
@@ -15,8 +16,9 @@ export function formatRef(sequence: ShipmentRefSequence, n: number): string {
 
 // The highest number of the sequence already stored for the company, live or archived (0 when
 // there is none). Only the digits right after the prefix count - for CZ also after the letters of
-// the job's freight mode (CZAIR00000023, lib/jobNumber) - so CZQ… references and other free text
-// are no CZ number. MCZ numbers can also be typed in by hand when a shipment is linked
+// the job's freight mode (CZAIR00000023, lib/jobNumber), for MCZ after those of its Load Type
+// (MCZCONSOL00000007, lib/masterJobNumber) - so CZQ… references and other free text are no CZ
+// number. MCZ numbers can also be typed in by hand when a shipment is linked
 // to a master job, so the stored rows always have the last word, not the counter alone. At most
 // twelve digits count (followed by no further digit): a longer number typed by hand would not fit
 // bigint and break every create, so it counts as none.
@@ -24,7 +26,7 @@ const DIGITS = "([0-9]{1,12})([^0-9]|$)";
 
 export function storedMaxSql(companyId: string, sequence: ShipmentRefSequence): SQL {
   if (sequence === "MCZ") {
-    return sql`(SELECT coalesce(max(substring(${masterJobTable.mczNumber} from ${sql.raw(`'^MCZ${DIGITS}'`)})::bigint), 0)
+    return sql`(SELECT coalesce(max(substring(${masterJobTable.mczNumber} from ${sql.raw(`'^MCZ${MASTER_JOB_LETTERS_PATTERN}${DIGITS}'`)})::bigint), 0)
       FROM ${masterJobTable} WHERE ${masterJobTable.companyId} = ${companyId} AND ${masterJobTable.mczNumber} LIKE 'MCZ%')`;
   }
   return sql`(SELECT coalesce(max(substring(${shipmentTable.jobNumber} from ${sql.raw(`'^CZ${LETTERS_PATTERN}${DIGITS}'`)})::bigint), 0)

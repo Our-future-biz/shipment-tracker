@@ -23,7 +23,7 @@ import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { CANCELLED_STATUS, CURRENCIES, FULL_LOAD } from "@/lib/enums";
-import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
+import { existingMczNumbers, nextMczNumber, sameMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
@@ -299,7 +299,7 @@ export function DocumentReadingWorkflow() {
   const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
   const activeMcz = masterMode === "existing" ? masterMczExisting : batchMcz || newMcz;
   // The master job the batch goes to, once it exists ("Add to existing", or after the first shipment).
-  const currentMasterJob = masterJobs.find((m) => m.mczNumber === activeMcz);
+  const currentMasterJob = masterJobs.find((m) => sameMczNumber(m.mczNumber, activeMcz));
   // Load Type is chosen once per master job; a different one on the MBL can't be filed.
   const mblLoadTypeLocked =
     !!currentMasterJob?.loadType && !!mblInfo?.["Load Type"] && currentMasterJob.loadType !== mblInfo["Load Type"];
@@ -456,7 +456,7 @@ export function DocumentReadingWorkflow() {
 
   const successTitle = (() => {
     if (destination === "masterjob") {
-      if (masterCreatedJobs.length === 0 && mblFiled) return `Master B/L filed to ${activeMcz}`;
+      if (masterCreatedJobs.length === 0 && mblFiled) return `Master B/L filed to ${currentMasterJob?.mczNumber ?? activeMcz}`;
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
     }
     if (creditNote && splitDone) return `Credit note deducted from ${splitDone.written.join(", ")}`;
@@ -951,8 +951,9 @@ export function DocumentReadingWorkflow() {
       if (!bookingMasterJob) setBookingCreated({ id: target.id, mczNumber: target.mczNumber });
       // The master job saves its details onto its shipments too (masterJobSync).
       const data = bookingToMasterJobUpdate(approved);
-      if (Object.keys(data).length > 0) await updateMasterJob.mutateAsync({ id: target.id, data });
-      setCommittedJobNumber(target.mczNumber);
+      // A Load Type read off the booking gives the reference its letters: the saved one is the one to show.
+      const saved = Object.keys(data).length > 0 ? await updateMasterJob.mutateAsync({ id: target.id, data }) : null;
+      setCommittedJobNumber(saved?.masterJob.mczNumber ?? target.mczNumber);
       setStep("committed");
     } catch (err) {
       toast.error(`Failed to save the booking: ${err instanceof Error ? err.message : "unknown error"}`);

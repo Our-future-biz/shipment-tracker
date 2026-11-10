@@ -6457,7 +6457,7 @@ export namespace controllers {
         sourceBuyId?: string
         sortOrder?: number
         /**
-         * VAT code on the invoice; "" = default by trade direction
+         * VAT code on the invoice; "" = the default by the customer's country and the trade direction (defaultVatCode)
          */
         vatCode?: interfaces.SellingVatCode | ""
     }
@@ -11741,7 +11741,7 @@ export namespace controllers {
         sortOrder?: number
 
         /**
-         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = default by trade direction
+         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = the default by the customer's country and the trade direction (defaultVatCode)
          */
         vatCode?: interfaces.SellingVatCode | ""
     }
@@ -16994,6 +16994,30 @@ export namespace interfaces {
         personInCharge: string
 
         holidayCover: string
+        /**
+         * Its cargo as its own page shows it (lib/cargoProjection houseCargo); "" is no data. COLLI.
+         */
+        pieces: string
+
+        /**
+         * Type of packages.
+         */
+        packages: string
+
+        /**
+         * Gross weight in kg, formatted ("1,234.5").
+         */
+        weightKg: string
+
+        /**
+         * Volume in m³, formatted.
+         */
+        volumeM3: string
+
+        /**
+         * "Stackable / Overstowable", "Not stackable / Not overstowable" or "".
+         */
+        cargoStackability: string
     }
 
     export type MasterJobSplitMethod = "wm" | "shipment"
@@ -19584,7 +19608,7 @@ export namespace interfaces {
         invoice: boolean
         sourceBuyId: string | null
         /**
-         * VAT code on the invoice; null = default by trade direction
+         * VAT code on the invoice; null = the default by the customer's country and the trade direction (defaultVatCode)
          */
         vatCode: SellingVatCode | null
 

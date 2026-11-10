@@ -275,10 +275,19 @@ class CompanyRegistrationRepository {
       });
   }
 
-  /** The chats with something the user has not read: for a manager every chat colleagues wrote in, for others those they are in. */
+  /**
+   * The chats with something the user has not read, for their bell: only those they take part in -
+   * named in it (the one who asked, a colleague a manager added) or, for a manager, having written in
+   * it themselves. Every manager can open every chat, but one they never wrote in does not call them
+   * (owner, 10 Nov 2026: "the notifications go only to the people directly involved", no spam for the
+   * rest). Anyone else is called only while named in it: one taken out of a chat cannot open it any
+   * more, so what they once wrote there calls them no longer.
+   */
   async unread(companyId: string, userId: string, isManager: boolean): Promise<{ threadId: string; unread: number; latestAt: Date }[]> {
     const m = companyApprovalMessageTable;
     const p = companyApprovalParticipantTable;
+    // A message of the user's own in the same chat.
+    const own = sql`exists (select 1 from ${m} as own where own.company_id = ${companyId}::uuid and own.thread_id = ${m.threadId} and own.author_user_id = ${userId}::uuid)`;
     const written = await db
       .select({ threadId: m.threadId, unread: sql<number>`count(*)::int`, latestAt: sql<Date>`max(${m.createdAt})` })
       .from(m)
@@ -288,7 +297,8 @@ class CompanyRegistrationRepository {
           eq(m.companyId, companyId),
           sql`${m.authorUserId} is distinct from ${userId}::uuid`,
           sql`(${p.lastReadAt} is null or ${m.createdAt} > ${p.lastReadAt})`,
-          isManager ? sql`(${p.member} is true or ${m.authorUserId} is not null)` : sql`${p.member} is true`,
+          // Named in the chat, or a manager who wrote in it; a system line alone (its author is nobody) calls no one new.
+          isManager ? sql`(${p.member} is true or (${m.authorUserId} is not null and ${own}))` : sql`${p.member} is true`,
         ),
       )
       .groupBy(m.threadId);

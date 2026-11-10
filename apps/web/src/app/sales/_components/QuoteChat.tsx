@@ -8,13 +8,16 @@ import { api } from "@/lib/api";
 import { fileToBase64 } from "@/lib/files";
 import { ChatThread, type ChatSource } from "@/app/shipments/_components/ChatPanel";
 import { HINT } from "@/styles/ui";
+import { plainQuoteRef } from "../_lib/salesQuote";
 
 // A quote's chat: the same panel as a shipment's, filed under the original Sales Reference. A
 // revision (QCZ…001-R1) opens the thread of the quote it revises (QCZ…001), so every revision
 // shows the whole conversation; each message says which reference it was written on.
 
 /** The thread of a Sales Reference: the original reference its revisions share (server: revisionRoot). */
-export const quoteThreadOf = (quoteNumber: string) => quoteNumber.trim().replace(/-R[0-9]+$/, "");
+// The thread of a quote: its revision root without the letters of its Freight Mode, as the server keys it
+// (quoteThreadOf in apps/api/lib/salesReference.ts), so a quote keeps its chat when its letters change.
+export const quoteThreadOf = (quoteNumber: string) => plainQuoteRef(quoteNumber.trim()).replace(/-R[0-9]+$/, "");
 
 export const quoteChatKeys = {
   all: ["sales-quote-comments"] as const,

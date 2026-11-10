@@ -6,6 +6,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ customers: { customerGet: vi.fn() }, invoicing: { _internalMasterJobShipmentLeft: vi.fn() } }));
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { listByShipmentIds: vi.fn(async () => []) } }));
+vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/masterJob.repository", () => ({
   masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn() },
 }));
@@ -56,6 +57,27 @@ beforeEach(() => {
   // No houses on the master job.
   vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([]);
   customerGet.mockResolvedValue({ customer: { id: ALFA, companyName: "Alfa s.r.o." } } as never);
+});
+
+describe("the reference", () => {
+  it("takes the letters of the Load Type when one is set, keeping its number", async () => {
+    const saved = await update({ loadType: "Consolidation" });
+    expect(written()).toMatchObject({ loadType: "Consolidation", mczNumber: "MCZCONSOL00000001" });
+    expect(saved.mczNumber).toBe("MCZCONSOL00000001");
+  });
+
+  it("stays as it is on a save without a Load Type", async () => {
+    await update({ vessel: "ONE RELIABILITY" });
+    expect(written()).not.toHaveProperty("mczNumber");
+    await update({ loadType: "" });
+    expect(repository.updateForCompany.mock.calls[1]![2]).not.toHaveProperty("mczNumber");
+  });
+
+  it("is not doubled when the same Load Type is saved again", async () => {
+    repository.getByIdForCompany.mockResolvedValue(record({ loadType: "Full Load", mczNumber: "MCZFULL00000001" }) as never);
+    await update({ loadType: "Full Load" });
+    expect(written()).toMatchObject({ mczNumber: "MCZFULL00000001" });
+  });
 });
 
 describe("the MBL Shipper and Consignee", () => {

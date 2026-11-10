@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  NOT_STACKABLE,
+  STACKABLE,
+  cargoStackability,
+  houseCargo,
   dimensionVolumePerPiece,
   fmtNum,
   invoiceValueByCurrency,
@@ -199,5 +203,27 @@ describe("which container row a line updates", () => {
   it("lets a row or a client-made id be claimed once: a repeated id counts as no id", () => {
     expect(ids([container({ id: A }), container({ id: A }), container({ id: A })])).toEqual([{ id: A }, { id: B }, { id: null }]);
     expect(matchContainerRows([], [container({ id: N }), container({ id: N })]).map((m) => m.insertId)).toEqual([N, undefined]);
+  });
+});
+
+describe("a house's cargo on its master job", () => {
+  const stored = { pcs: "", typeOfPackages: "", totalWeightTons: null, totalVolumeCbm: null };
+  const dim = (over: Partial<Record<"pieces" | "weightPerPcKg" | "lengthCm" | "widthCm" | "heightCm" | "stackable", string>> = {}) => ({
+    pieces: "2", weightPerPcKg: "100", lengthCm: "100", widthCm: "100", heightCm: "50", volumePerPcM3: "", stackable: "", ...over,
+  });
+
+  it("is worked out from the dimension rows: pieces, weight, volume and stackability", () => {
+    const cargo = houseCargo(stored, [], [], [dim({ stackable: STACKABLE }), dim({ pieces: "1", stackable: NOT_STACKABLE })]);
+    expect(cargo).toMatchObject({ pieces: "3", weightKg: "300", volumeM3: "1.5", stackability: NOT_STACKABLE });
+  });
+
+  it("is stackable only when a row says so, and empty when none says either", () => {
+    expect(cargoStackability([dim({ stackable: STACKABLE }), dim()])).toBe(STACKABLE);
+    expect(cargoStackability([dim()])).toBe("");
+  });
+
+  it("falls back to the stored fields on a shipment without rows, weight from tons to kg", () => {
+    const cargo = houseCargo({ pcs: "12", typeOfPackages: "Pallets", totalWeightTons: "1.25", totalVolumeCbm: "3.5" }, [], [], []);
+    expect(cargo).toEqual({ pieces: "12", packages: "Pallets", weightKg: "1,250", volumeM3: "3.5", stackability: "" });
   });
 });

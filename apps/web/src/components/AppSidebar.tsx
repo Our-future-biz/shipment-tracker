@@ -223,12 +223,13 @@ export function nextNavGroups(groups: NavGroups, event: NavGroupEvent): NavGroup
 }
 
 /**
- * Whether a click on a section opens its page: from outside the section, and also while another
- * click's page is on its way, the address still showing the page you are leaving. Inside the
- * section, with nothing on its way, it only folds or unfolds.
+ * Whether a click on a section opens its own page (its tiles): from anywhere but that page - outside
+ * the section, or on one of its pages, so the tiles are always one click away - and also while
+ * another click's page is on its way, the address still showing the page you are leaving. On the
+ * section's own page, with nothing on its way, it only folds or unfolds.
  */
-export const sectionClickOpensPage = (groups: NavGroups, holding: string | null, holdsPage: boolean): boolean =>
-  !holdsPage || (groups.selected !== null && groups.selected !== holding);
+export const sectionClickOpensPage = (groups: NavGroups, holding: string | null, onSectionPage: boolean): boolean =>
+  !onSectionPage || (groups.selected !== null && groups.selected !== holding);
 
 /** The folded menu's flyout once a page is reached: kept when it is the section holding the page. */
 export const flyoutAfterArrival = (flyout: string | null, holding: string | null): string | null =>
@@ -342,10 +343,10 @@ export function AppSidebar() {
     const current = navActiveChild(children, pathname);
     // The section's own page, or one of its pages its menu doesn't list (the concept's Gate Log).
     const ownPage = holdsPage && !current;
-    // From outside the section, a click opens the section's own page, its menu unfolding; inside
-    // it, the click only folds or unfolds the menu, and you stay on your page. The second click of
-    // a double click is no new choice (it would fold the section just opened).
-    const opensPage = sectionClickOpensPage(groups, holding, holdsPage);
+    // A click opens the section's own page (its tiles), its menu unfolding, from anywhere but that
+    // page; on it, the click only folds or unfolds the menu. The second click of a double click is
+    // no new choice (it would fold the section just opened).
+    const opensPage = sectionClickOpensPage(groups, holding, pathname === item.path);
     const openSection = (e: React.MouseEvent) => {
       if (e.detail > 1) return;
       if (opensPage) {

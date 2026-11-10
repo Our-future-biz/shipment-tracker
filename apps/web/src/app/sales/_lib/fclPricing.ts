@@ -186,6 +186,8 @@ export interface FclBlockPrice {
   percent: number | null;
   /** The buying line that took the rounding up to full fives; null when the block is not rounded. */
   roundedOn: number | null;
+  /** What that rounding added to its selling, as more profit; 0 when it added nothing. */
+  roundedUpBy: number;
 }
 
 const zeroProfit: FclProfit = { mode: "sum", value: 0 };
@@ -222,10 +224,11 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     allocate(profit, taking, lines);
   }
   for (const c of charges) if (c.buying !== null) sell(c, lines[c.index]!, data, live);
+  const sum = (pick: (c: FclChargePrice) => number | null) => roundCents(charges.reduce((s, c) => s + (pick(c) ?? 0), 0));
+  const sellingAsEntered = sum((c) => c.selling);
   // No profit yet is no reason to round: a block goes to the full five only once it has one.
   const blockSetsProfit = byCharge ? taking.some((c) => c.profit !== 0) : setting.perCharge || (Number(setting.value) || 0) !== 0;
   const roundedOn = data.fclPricing?.roundUp && blockSetsProfit ? roundSellingUp(charges, taking, lines, data, live) : null;
-  const sum = (pick: (c: FclChargePrice) => number | null) => roundCents(charges.reduce((s, c) => s + (pick(c) ?? 0), 0));
   const profit = sum((c) => c.profit);
   const roe = sum((c) => c.roe);
   const selling = sum((c) => c.selling);
@@ -237,6 +240,7 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     selling,
     percent: wholePercent(profit, roundCents(selling - roe)),
     roundedOn,
+    roundedUpBy: roundCents(selling - sellingAsEntered),
   };
 }
 

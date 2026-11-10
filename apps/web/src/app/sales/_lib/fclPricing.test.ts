@@ -305,6 +305,15 @@ describe("a block's selling, rounded up to full fives", () => {
     expect(at(6278.74 - 1800)).toBe(6280);
   });
 
+  it("says what the rounding added, and nothing when it added nothing", () => {
+    const by = (value: number) => rounded({ fclPricing: { blocks: { "20' DC": { mode: "sum", value } } } }).roundedUpBy;
+    // 1,800 bought + 101 profit: 1,901 → 1,905.
+    expect(by(101)).toBe(4);
+    expect(by(100)).toBe(0);
+    const notRounded = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 101 } } } });
+    expect(priceFclBlock(notRounded, SHEET, block(notRounded, "20' DC")).roundedUpBy).toBe(0);
+  });
+
   it("puts the difference on a charge in the quote's currency first, so the ROE does not move it", () => {
     // The quote in EUR: the ocean freight in USD, the IHI in EUR.
     const lines = quote().buyingLines!.map((l, i) => (i === 3 ? { ...l, currency: "EUR" } : l));

@@ -194,6 +194,10 @@ async function bringBack(id: string, deleted: CustomerRecord, companyId: string,
   try {
     return await customerRepository.restoreWithChildren(id, companyId, as);
   } catch (err) {
+    // Its addresses would come back with two Billing ones (one billing address per customer).
+    if (isUniqueViolation(err) && constraintOf(err) === "customer_address_one_billing") {
+      throw APIError.failedPrecondition(`${deleted.companyName} can't be restored: two of its addresses are its billing address`);
+    }
     // Another customer with the same registration number was added in the meantime.
     if (isUniqueViolation(err) && constraintOf(err) === "customer_company_ico_unique") {
       throw APIError.alreadyExists("A customer with this registration number already exists");

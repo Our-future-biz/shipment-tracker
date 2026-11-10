@@ -7,6 +7,7 @@ import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
 import { customerAddressesKey } from "@/hooks/customerKeys";
 import { refreshShipmentCopies } from "@/hooks/useShipments";
 import { refreshQuoteCopies } from "@/hooks/useSalesQuotes";
+import { invalidateInvoicingDerived } from "@/hooks/useInvoiceQueue";
 import { railTariffKeys } from "@/hooks/useRailTariffs";
 import { collectionTariffKeys } from "@/hooks/useCollectionTariffs";
 import { oceanTariffKeys } from "@/hooks/useOceanTariffs";
@@ -157,6 +158,8 @@ export const useCustomer = (id: string | null) => {
       refreshShipmentCopies(queryClient);
       refreshQuoteCopies(queryClient);
       refreshTariffSuppliers(queryClient);
+      // The customer's country and VAT number set an invoice's default VAT code; its name and seat are on the invoice.
+      invalidateInvoicingDerived(queryClient);
     },
   });
 

@@ -15,7 +15,7 @@ import { Pill } from "@/components/Pill";
 import { CountChip, PillTabs, SectionCard } from "@/components/SectionCard";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
-import { useSalesPipeline, type PipelineCard, type PipelineStage } from "@/hooks/useSalesPipeline";
+import { useSalesPipeline, type PipelineBoard, type PipelineCard, type PipelineStage } from "@/hooks/useSalesPipeline";
 import { useUsers } from "@/hooks/useUsers";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -67,6 +67,34 @@ const dayOf = (at: string) => formatDate(businessDay(new Date(at)));
 
 // "1 shipment", "14 shipments".
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+
+// What the board cannot place, as the sentence under it; empty when there is nothing to say. Such
+// quotes and shipments name no customer record, so no customer can be counted for them - they are
+// reported, never guessed from a name.
+function notesLine(notes: PipelineBoard["notes"]): string {
+  const unlinkedQuotes = notes.quotesWithoutCustomer + notes.quotesOfMissingCustomers;
+  const unlinked = [
+    notes.shipmentsWithoutCustomer > 0 && plural(notes.shipmentsWithoutCustomer, "shipment", "shipments"),
+    unlinkedQuotes > 0 && plural(unlinkedQuotes, "sent quote", "sent quotes"),
+  ].filter((part) => part !== false);
+  const one = notes.shipmentsWithoutCustomer + unlinkedQuotes === 1;
+  const undated = notes.sentQuotesWithoutDate;
+  // A company with no Customer role (a supplier only) is not on the board (K13).
+  const ofSuppliers = [
+    notes.shipmentsOfNonCustomers > 0 && plural(notes.shipmentsOfNonCustomers, "shipment", "shipments"),
+    notes.quotesOfNonCustomers > 0 && plural(notes.quotesOfNonCustomers, "sent quote", "sent quotes"),
+  ].filter((part) => part !== false);
+  const oneOfSuppliers = notes.shipmentsOfNonCustomers + notes.quotesOfNonCustomers === 1;
+  return [
+    unlinked.length > 0 && `${unlinked.join(" and ")} ${one ? "has no linked customer and is not counted" : "have no linked customer and are not counted"}`,
+    ofSuppliers.length > 0 &&
+      `${ofSuppliers.join(" and ")} ${oneOfSuppliers ? "names a company with no Customer role and is not counted" : "name a company with no Customer role and are not counted"}`,
+    undated > 0 &&
+      `${plural(undated, "sent quote", "sent quotes")} ${undated === 1 ? "has no sent date and is shown by its creation date" : "have no sent date and are shown by their creation date"}`,
+  ]
+    .filter((part) => part !== false)
+    .join(" - ");
+}
 
 // The colour of a customer's mark and name says its account type, in the tone the type's badge
 // has everywhere (labelTone); the Account type filter offers those badges.
@@ -373,6 +401,8 @@ export function PipelineTab() {
       </div>
     );
   } else {
+    // What the board cannot place - work with no linked customer, or for a supplier only - is said under it.
+    const notes = notesLine(board.notes);
     content = (
       <>
         <ExchangeRatesError exchange={exchange} />
@@ -412,6 +442,7 @@ export function PipelineTab() {
             );
           })}
         </div>
+        {notes && <p className="m-0 text-xs text-slate-500 tabular-nums">{notes}.</p>}
       </>
     );
   }

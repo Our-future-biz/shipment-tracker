@@ -98,10 +98,15 @@ export function isFeedbackLine(entry: TimelineEntry): boolean {
   return (!entry.kind || entry.kind === "status") && entry.status === "feedback";
 }
 
-// The reference of a sales quote - QCZ, the day, that day's number, for a variant -2, -3, ... and
-// for a revision -R1, -R2, ... - as the server gives them out (SALES_REFERENCE_PATTERN in
-// apps/api/lib/salesReference.ts).
-const SALES_QUOTE_REF = /^QCZ[0-9]{8}[0-9]{3,}(-[0-9]+)?(-R[0-9]+)?$/;
+// The reference of a sales quote - QCZ, the letters of its Freight Mode (AIR, LCL, FCL, BB, RAIL,
+// ROAD; none without one), the day, that day's number, for a variant -2, -3, ... and for a revision
+// -R1, -R2, ... - as the server gives them out (SALES_REFERENCE_PATTERN in apps/api/lib/salesReference.ts).
+// The letters follow the Freight Mode while the quote is open, so references are compared without them.
+const SALES_QUOTE_REF = /^QCZ(?:RAIL|ROAD|AIR|FCL|LCL|BB)?[0-9]{8}[0-9]{3,}(-[0-9]+)?(-R[0-9]+)?$/;
+const LETTERED_REF = /^QCZ(?:RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})/;
+
+/** A reference without the letters of its Freight Mode: QCZLCL20261109001-2 → QCZ20261109001-2. */
+export const plainQuoteRef = (ref: string): string => ref.replace(LETTERED_REF, "QCZ$1");
 
 /** Whether a text is the reference of a sales quote, and not a number of the old quotes module or anything else. */
 export function isSalesQuoteRef(ref: string): boolean {
@@ -133,10 +138,11 @@ function familyOrder(ref: string, base: string): [variant: number, revision: num
 
 /** The family of `ref`, in order: each variant followed by its revisions. */
 export function quoteFamily(quotes: SalesQuote[], ref: string): SalesQuote[] {
-  const base = baseRef(ref);
-  const order = (q: SalesQuote) => familyOrder(q.quoteNumber, base);
+  // Without letters: the variants of one enquiry can be of different freight modes (an AIR and a SEA option).
+  const base = plainQuoteRef(baseRef(ref));
+  const order = (q: SalesQuote) => familyOrder(plainQuoteRef(q.quoteNumber), base);
   return quotes
-    .filter((q) => baseRef(q.quoteNumber) === base)
+    .filter((q) => plainQuoteRef(baseRef(q.quoteNumber)) === base)
     .sort((a, b) => {
       const [variantA, revisionA] = order(a);
       const [variantB, revisionB] = order(b);

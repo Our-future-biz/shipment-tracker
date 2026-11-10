@@ -276,7 +276,7 @@ export function sellingChanges(input: SellingCostInput): Partial<NewInvoiceSelli
     category: chargeCodeOf(input.category),
     qty: toDecimal(input.qty, "qty"),
     amount: toDecimal(input.amount, "amount"),
-    // "" goes back to the default by trade direction
+    // "" goes back to the default by the customer's country and the trade direction
     vatCode: input.vatCode === undefined ? undefined : input.vatCode || null,
   });
 }

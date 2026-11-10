@@ -5,7 +5,7 @@ import { Modal, Spin } from "antd";
 import { DownloadOutlined, ExportOutlined, FileOutlined, ReloadOutlined } from "@ant-design/icons";
 import { decodeText, extensionOf, formatSheetCell, parseDelimited, type PreviewType, type SheetCell } from "@/lib/filePreview";
 import { formatFileSize } from "@/lib/files";
-import { BTN, BTN_PRIMARY, BTN_SM, EMPTY_STATE, HINT } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, BTN_SM, CHIP, CHIP_ON, EMPTY_STATE, HINT } from "@/styles/ui";
 import { PdfView } from "./PdfView";
 
 // The app's one file preview (opened through hooks/useFilePreview): a PDF's pages, a picture, text,
@@ -70,7 +70,7 @@ export function FilePreviewDialog({ state, onClose, onDownload, onRetry }: FileP
       width="max(80vw, min(calc(100vw - 24px), 560px))"
       // As tall as the window, less 12px above and below: the bar with Download and Close is always in
       // sight, and the file gets all the height the bar leaves (one row of it, or two on a phone).
-      style={{ top: 12, margin: "0 auto", paddingBottom: 0 }}
+      className="!top-3 !mx-auto !pb-0"
       destroyOnHidden
       // No bar above the file: its name is in the bar below (this title only names the dialog for
       // screen readers), and Close, Esc or a click beside the dialog closes it.
@@ -268,9 +268,7 @@ function XlsxView({ blob }: { blob: Blob }) {
               role="tab"
               aria-selected={i === active}
               onClick={() => setActive(i)}
-              className={`h-8 px-3 rounded-lg border text-[13px] font-medium cursor-pointer transition-colors ${
-                i === active ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-              }`}
+              className={`${CHIP} ${i === active ? CHIP_ON : ""}`}
             >
               {s.name}
             </button>

@@ -1,9 +1,9 @@
 -- One billing address per customer: the one its invoices are addressed to (printed instead of
--- the seat). Customers that have several Billing addresses from before the rule keep the oldest -
--- the one Import Instructions already read first. The others lose the type; one that was nothing
--- but Billing becomes Paperwork, so it is kept and shown, never deleted. Live addresses are
--- compared with each other, and so are the addresses deleted together with their customer (one
--- deletion stamp), which a restore brings back together.
+-- the seat). Customers that have several live Billing addresses from before the rule keep the
+-- oldest - the one Import Instructions already read first. The others lose the type; one that was
+-- nothing but Billing becomes Paperwork, so it is kept and shown, never deleted. The addresses of a
+-- deleted customer are put right the same way, by the deletion they share: restoring the customer
+-- brings them back together, and two Billing addresses among them would be refused by the index.
 UPDATE "customer_address" AS a
 SET "types" = CASE
     WHEN a."types" = ARRAY['Billing']::text[] THEN ARRAY['Paperwork']::text[]
