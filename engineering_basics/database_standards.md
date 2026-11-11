@@ -1,306 +1,260 @@
 # Database Standards
 
-Standards for database schemas, migrations, and configuration in Encore TypeScript services using **Drizzle ORM** with PostgreSQL.
+How tables, schemas and migrations are made in `apps/api` (Encore.ts + Drizzle ORM + Postgres).
 
-> **Related docs:**
-> - [Repository Patterns](./repository_patterns.md) - BaseRepository usage
-> - [API Pagination](./api_pagination_standards.md) - Pagination implementation
-
----
-
-## Core Principles
-
-1. **UUID primary keys** for distributed systems
-2. **Timestamps**: created_at, updated_at, deleted_at
-3. **snake_case** for database columns/tables
-4. **Soft deletes** by default
-5. **Proper indexing** for performance
-6. **Immutable migrations** after deployment
+> Related:
+> - [Repository Patterns](./repository_patterns.md) - reading and writing rows
+> - [API Pagination](./api_pagination_standards.md) - list endpoints
+> - [Event Processing](./event_processing_patterns.md) - events, outboxes and cron jobs
+> - [Local Drizzle Helpers](../LOCAL_DRIZZLE_HELPERS.md) - what `apps/api/lib/db` and `apps/api/lib/outbox` hold
 
 ---
 
-## Project Structure
+## One database per service
+
+Every service that stores data has its own Postgres database, declared in `services/<service>/db/db.ts`:
+
+| Service folder | Database name |
+|---|---|
+| `auth` | `auth` |
+| `automation` | `automation` |
+| `customers` | `customers` |
+| `fx` | `fx` |
+| `holidays` | `holidays` |
+| `invoicing` | `invoicing` |
+| `quotes` | `quotes` |
+| `sales` | `sales` |
+| `shipments` | `shipments` |
+| `tariffs` | `tariffs` |
+| `trucking` | `trucking` |
+| `warehouse` | `warehouse_basic` |
+| `warehouseConcept` | `warehouse` |
+
+(`extraction` has no database.)
+
+Consequences:
+
+- **No foreign keys across services.** A column that points at another service's row (a customer id on a shipment, `company_id` everywhere) is a bare `uuid`. When a row in one service goes away, the others hear of it by an event (for example `shipment-deleted`, see [Event Processing](./event_processing_patterns.md)).
+- Foreign keys are fine **inside** one service's database (for example `shipment_event_outbox.shipment_id` → `shipment.id` with `onDelete("cascade")`).
+- One service never reads another service's tables. It calls that service's endpoint through `~encore/clients`.
+
+---
+
+## Folder layout
 
 ```
-/services/{service-name}/
+apps/api/services/<service>/
 ├── db/
-│   ├── db.ts                 # Database connection
-│   ├── drizzle.config.ts     # Drizzle Kit config
-│   └── migrations/           # SQL migrations
+│   ├── db.ts                 # SQLDatabase + drizzle instance (+ the Tx type)
+│   ├── drizzle.config.ts     # drizzle-kit config for this service
+│   └── migrations/           # generated SQL + meta/ snapshots
 ├── schemas/
-│   └── schema.ts             # Table schemas
+│   └── <model>.schema.ts     # one or a few related pgTable definitions
 └── repositories/
-    └── user.repository.ts    # Data access layer
+    └── <model>.repository.ts
 ```
+
+Shared helpers live in `apps/api/lib/db/` (columns, indexes, base repositories, text search, error checks, the pool) and `apps/api/lib/outbox/`.
 
 ---
 
-## Database Setup
+## `db/db.ts`
 
-### db.ts
+Real example, shortened from `services/shipments/db/db.ts`:
 
 ```typescript
-import { drizzle } from "drizzle-orm/node-postgres";
 import { SQLDatabase } from "encore.dev/storage/sqldb";
-import * as schema from "../schemas/schema";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { servicePool } from "../../../lib/db/pool";
+import * as shipmentSchema from "../schemas/shipment.schema";
+import * as masterJobSchema from "../schemas/masterJob.schema";
+// ... every schema file of the service
 
-const database = new SQLDatabase("service_name", {
-  migrations: "./db/migrations",
+export const DB = new SQLDatabase("shipments", {
+  migrations: { path: "migrations", source: "drizzle" },
 });
 
-export const db = drizzle(database.connectionString, { schema });
+const pool = servicePool(DB.connectionString);
+
+export const db = drizzle(pool, {
+  schema: { ...shipmentSchema, ...masterJobSchema /* , ... */ },
+});
+
+/** A transaction open on the shipments database (what db.transaction hands its callback). */
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 ```
 
-### drizzle.config.ts
+- `source: "drizzle"` makes Encore apply the files drizzle-kit generates.
+- Always open the pool with `servicePool()` (`lib/db/pool.ts`). It sets at most 10 connections, a 10 s wait for a free connection, a 60 s `statement_timeout` (a lock wait counts), a 60 s `idle_in_transaction_session_timeout`, and it logs a dropped idle connection instead of letting it crash the process.
+- Import every schema file of the service and pass it as `schema`. A new schema file that is not added here works for plain queries but not for `db.query.*`.
+
+## `db/drizzle.config.ts`
 
 ```typescript
-import type { Config } from "drizzle-kit";
+import { defineConfig } from "drizzle-kit";
 
-export default {
-  schema: "./schemas/schema.ts",
-  out: "./db/migrations",
+export default defineConfig({
+  out: "./services/shipments/db/migrations",
+  schema: "./services/shipments/schemas/*.schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL || "",
+    url: "postgresql://wvs8e:local@127.0.0.1:9500/shipments?sslmode=disable",
   },
-} satisfies Config;
+});
 ```
+
+The paths are relative to `apps/api`, so drizzle-kit is run from there. Every schema file must end in `.schema.ts` or drizzle-kit will not see it.
 
 ---
 
-## Schema Design
+## Table design
 
-### Standard Table
-
-```typescript
-import { pgTable, uuid, text, timestamp, boolean, jsonb, index } from "drizzle-orm/pg-core";
-
-export const userTable = pgTable(
-  "user",
-  {
-    // Primary key
-    id: uuid("id").primaryKey().defaultRandom(),
-
-    // Data
-    name: text("name").notNull(),
-    email: text("email").notNull().unique(),
-    roles: jsonb("roles").$type<string[]>().default([]),
-    isActive: boolean("is_active").default(true).notNull(),
-
-    // Timestamps
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
-  },
-  (table) => ({
-    // Indexes
-    emailIdx: index("user_email_idx").on(table.email),
-    deletedAtIdx: index("user_deleted_at_idx").on(table.deletedAt),
-  })
-);
-
-// Type inference
-export type User = typeof userTable.$inferSelect;
-export type NewUser = typeof userTable.$inferInsert;
-```
-
-### Foreign Keys
+Every table spreads the shared columns from `lib/db/defaults.ts`. A table that belongs to a company (nearly all of them) also spreads `tenantColumns`:
 
 ```typescript
-export const postTable = pgTable(
-  "post",
+import { sql } from "drizzle-orm";
+import { index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+
+export const masterJobTable = pgTable(
+  "master_job",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    title: text("title").notNull(),
-
-    // Foreign key
-    authorId: uuid("author_id")
-      .notNull()
-      .references(() => userTable.id, { onDelete: "cascade" }),
-
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    ...defaultTableColumns,   // id, created_at, updated_at, deleted_at
+    ...tenantColumns,         // company_id uuid NOT NULL
+    mczNumber: text("mcz_number").notNull(),
+    shipper: text("shipper").notNull().default(""),
+    // CRM customer ids (customers database), so no FK
+    shipperId: uuid("shipper_id"),
+    // ...
   },
-  (table) => ({
-    authorIdIdx: index("post_author_id_idx").on(table.authorId),
-  })
+  (table) => [
+    ...defaultTableIndexes("master_job", table),
+    tenantIndex("master_job", table),
+    // MCZ numbers are unique per company among live rows.
+    uniqueIndex("master_job_company_mcz_unique")
+      .on(table.companyId, table.mczNumber)
+      .where(sql`deleted_at IS NULL`),
+    index("master_job_shipper_id_idx").on(table.companyId, table.shipperId),
+  ],
 );
+
+export type MasterJobRecord = typeof masterJobTable.$inferSelect;
+export type NewMasterJobRecord = typeof masterJobTable.$inferInsert;
 ```
+
+### The shared columns
+
+- `defaultTableColumns`: `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`, `created_at`, `updated_at` (both `timestamptz NOT NULL DEFAULT now()`), `deleted_at timestamptz` (null = live).
+- `tenantColumns`: `company_id uuid NOT NULL`. It points at `auth.company.id` but has no foreign key (another database). The company always comes from the signed-in request, see [Repository Patterns](./repository_patterns.md#tenant-scoping).
+
+### The shared indexes
+
+- `tenantIndex(name, table)` makes `<table>_company_id_idx` on `(company_id, created_at)`. `company_id` leads every tenant query and lists are read newest first.
+- `defaultTableIndexes(name, table)` makes `<table>_created_at_idx` **only for a table without `company_id`**. On a tenant table it adds nothing, because `tenantIndex` already covers it. Spread it anyway, so the table stays right if it changes.
+- No table indexes `deleted_at` on its own: nearly every row has none, and every query also filters on something better.
+- Add indexes for the lookups the repository really does, `company_id` first (for example `(company_id, shipper_id)` above).
+
+### Soft delete
+
+Rows are deleted by setting `deleted_at`, and every read filters on `deleted_at IS NULL`. The base repositories do this for you, see [Repository Patterns](./repository_patterns.md#soft-delete). A uniqueness rule that should hold among live rows only is a **partial unique index** with `.where(sql\`deleted_at IS NULL\`)`, as `master_job_company_mcz_unique` above. A few rows are really deleted, for example the line lists a shipment save replaces (containers, cargo lines) and expired login throttle rows.
+
+### Column types we use
+
+| Data | Column |
+|---|---|
+| Free text the user types | `text("x").notNull().default("")`. Empty string, not null, means "not filled". |
+| A day | `date("x", { mode: "string" })`, nullable. The API sees `YYYY-MM-DD`. |
+| An instant | `timestamp("x", { withTimezone: true })` |
+| Money / amounts | `numeric("x", { precision: 14, scale: 2, mode: "number" })`, or without `mode` to keep it a decimal string in the API |
+| A rate | `numeric("rate", { precision: 12, scale: 4 })` |
+| A fixed set of values | `text` plus a `check(...)` constraint, for example `check("customer_status_check", sql\`${table.status} IN ('Active', 'Prospect', 'Inactive')\`)` |
+| Structured payload | `jsonb("x").$type<SomeType>()` |
+| Id of another service's row | `uuid("x")`, no FK |
+
+The codebase uses `text` + `CHECK` for enumerations, not `pgEnum`.
+
+### Things drizzle-kit cannot model
+
+Some rules are written by hand into the generated migration and do not appear in the schema or the snapshot, so later `generate` runs leave them alone. Examples:
+
+- `warehouse_dock_slot_no_overlap`, an `EXCLUDE USING gist` constraint, so that one dock door cannot have two overlapping live slots (warehouseConcept migration `0016`, with the `btree_gist` extension).
+- The trucking tariff version overlap rule (trucking migration `0001`).
+
+Write a comment next to the schema that names the constraint and its migration, as `warehouseRecords.schema.ts` does.
+
+### Config callback
+
+The third argument of `pgTable` returns an **array** (`(table) => [...]`), not an object.
+
+### Exported types
+
+Each schema exports `XRecord = typeof xTable.$inferSelect` and `NewXRecord = typeof xTable.$inferInsert`. These types stay in schemas, repositories and services. **Controllers never import them:** Encore's parser cannot resolve drizzle's generic types, so a controller declares its own plain request and response interfaces, and the service maps rows to them (`lib/db/serialize.ts` has `iso()` / `isoOrNull()` for dates).
+
+---
+
+## Naming
+
+- Tables: singular, `snake_case`: `shipment`, `master_job`, `invoice_followup_outbox`, `warehouse_dock_slot`.
+- Columns: `snake_case` in SQL, `camelCase` in TypeScript: `jobNumber: text("job_number")`.
+- Indexes: `<table>_<columns>_idx`. Unique indexes: `<table>_<what>_unique`. Checks: `<table>_<what>_check`. Foreign keys: `<table>_<target>_fk`. Code matches unique violations by these names (see `constraintOf` in [Repository Patterns](./repository_patterns.md#database-errors)), so do not rename them casually.
 
 ---
 
 ## Migrations
 
-### Creating Migrations
+### Making one
 
-```bash
-# 1. Update schema.ts
-# 2. Generate migration
-npx drizzle-kit generate
+1. Change the schema file(s) under `services/<service>/schemas/`.
+2. From `apps/api`, generate the migration:
 
-# 3. Migration runs automatically on service start
-```
+   ```bash
+   cd apps/api
+   npx drizzle-kit generate --config=services/<service>/db/drizzle.config.ts --name=<what_changed>
+   # or the package script, e.g.
+   pnpm db:generate:shipments
+   ```
 
-### Migration Example
+   `--name` gives the file a readable name (`0082_shipment_event_outbox.sql`). Without it drizzle-kit picks a random one (`0015_nifty_polaris.sql`).
+3. Read the generated SQL. Fix it by hand where drizzle-kit cannot know what to do (see below).
+4. Restart the backend. Encore applies new migrations when the service starts, locally and on deploy. Never run `drizzle-kit migrate` or `push`.
 
-```sql
--- 0003_add_phone.sql
-ALTER TABLE "user" ADD COLUMN "phone_number" text;
-```
+Encore remembers applied migrations by **number** in `schema_migrations`. Editing a migration that already ran does not run it again. Make a new one.
+
+### Editing a generated migration
+
+It is fine to edit the generated file when drizzle-kit's SQL would not apply or cannot express the rule. Mark what you added with a `-- Hand-added:` comment that says why. Real cases:
+
+- A type change that needs a conversion. drizzle-kit writes `ALTER COLUMN ... SET DATA TYPE date` with no `USING`, and Postgres refuses that for `text` → `date`/`numeric`. Drop the default, convert with `USING NULLIF(trim(col), '')::date` (or set the column to `NULL`), then add the default back.
+- Constraints drizzle-kit cannot model (`EXCLUDE`, extensions).
+- Backfills, for example giving existing dock slots their start and end instants in warehouseConcept `0016`.
+
+Keep the end state equal to what the schema (and the snapshot in `meta/`) says, so the next `generate` stays clean.
+
+### Dev data is disposable
+
+The app is not in production use, so a migration may clear or rewrite data when that is the simple way to apply a change. For example, when `company_id NOT NULL` was added, the rows without a company were deleted (`auth` `0002` deletes `app_user`, `shipments` `0015` clears the shipment tables). Say so in a comment at the top of the migration. Reseed afterwards if needed: `pnpm db:seed` in `apps/api`, with `AUTH_DB_URL` and `SHIPMENTS_DB_URL` taken from `encore db conn-uri <db>` (see `scripts/seed.ts`).
+
+### Drift check
+
+Run the same generate command with no schema change. It must answer **"No schema changes, nothing to migrate"**. If it writes a new file instead, the schema and the migrations have drifted: either a schema change was not generated, or a migration was edited so that it no longer matches its snapshot.
 
 ### Rules
 
-✅ **DO:**
-- Generate with `drizzle-kit generate`
-- Test in staging before production
-- Keep migrations small and focused
-- Never edit after deployment
-
-❌ **DON'T:**
-- Delete deployed migrations
-- Mix schema and data changes
+- Generate migrations with drizzle-kit. Never write a whole migration by hand, and never create tables from code.
+- One migration per change, generated for the service whose schema changed.
+- Never delete or renumber a migration that has been applied anywhere.
+- Commit the SQL file and the `meta/` snapshot and journal together.
 
 ---
 
-## Common Data Types
+## Checklist for a new table
 
-```typescript
-// Text
-text("name")
-varchar("code", { length: 50 })
-
-// Numbers
-integer("count")
-decimal("price", { precision: 10, scale: 2 })
-
-// Timestamps
-timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
-
-// Boolean
-boolean("is_active").default(true).notNull()
-
-// JSON
-jsonb("metadata").$type<Record<string, unknown>>()
-jsonb("roles").$type<string[]>().default([])
-
-// UUID
-uuid("id").primaryKey().defaultRandom()
-```
-
----
-
-## Indexing
-
-### When to Add Indexes
-
-```typescript
-(table) => ({
-  // Index frequently queried columns
-  emailIdx: index("user_email_idx").on(table.email),
-
-  // Index foreign keys
-  authorIdIdx: index("post_author_id_idx").on(table.authorId),
-
-  // Index sort columns
-  createdAtIdx: index("user_created_at_idx").on(table.createdAt),
-
-  // Index soft delete column
-  deletedAtIdx: index("user_deleted_at_idx").on(table.deletedAt),
-
-  // Composite index for common filters
-  statusCreatedIdx: index("user_status_created_idx").on(
-    table.status,
-    table.createdAt
-  ),
-})
-```
-
----
-
-## Soft Delete Pattern
-
-All tables should support soft deletes:
-
-```typescript
-// In schema
-deletedAt: timestamp("deleted_at", { withTimezone: true })
-
-// Index for performance
-deletedAtIdx: index("table_deleted_at_idx").on(table.deletedAt)
-
-// In repository - see Repository Patterns doc
-```
-
----
-
-## Naming Conventions
-
-```typescript
-// Tables: snake_case
-export const userTable = pgTable("user", { ... });
-
-// Columns: snake_case
-createdAt: timestamp("created_at")  // ✅
-createdAt: timestamp("createdAt")   // ❌
-
-// Indexes: {table}_{column(s)}_idx
-index("user_email_idx")
-index("post_author_id_idx")
-```
-
----
-
-## Common Mistakes
-
-### ❌ Missing Index on Foreign Key
-
-```typescript
-// Bad
-authorId: uuid("author_id").references(() => userTable.id)
-```
-
-```typescript
-// Good
-authorId: uuid("author_id").references(() => userTable.id),
-// ...
-(table) => ({
-  authorIdIdx: index("post_author_id_idx").on(table.authorId),
-})
-```
-
-### ❌ Missing deleted_at Index
-
-```typescript
-// Bad
-deletedAt: timestamp("deleted_at")
-```
-
-```typescript
-// Good
-deletedAt: timestamp("deleted_at"),
-// ...
-(table) => ({
-  deletedAtIdx: index("user_deleted_at_idx").on(table.deletedAt),
-})
-```
-
----
-
-## Checklist
-
-Before deploying:
-
-- [ ] UUID primary key
-- [ ] Standard timestamps (created_at, updated_at, deleted_at)
-- [ ] snake_case for columns and tables
-- [ ] Indexes on queried columns
-- [ ] Foreign keys have indexes
-- [ ] Types exported (Type, NewType)
-- [ ] Tested in staging
-
----
-
-## Related Docs
-
-- [Repository Patterns](./repository_patterns.md) - Using BaseRepository
-- [API Pagination](./api_pagination_standards.md) - Implementing pagination
+- [ ] `...defaultTableColumns` (and `...tenantColumns` when it belongs to a company)
+- [ ] `...defaultTableIndexes(name, table)` and `tenantIndex(name, table)`
+- [ ] Indexes for the real lookups, `company_id` first
+- [ ] Partial unique indexes (`WHERE deleted_at IS NULL`) for rules among live rows
+- [ ] `CHECK` constraints for fixed value sets
+- [ ] No FK to another service's table
+- [ ] `XRecord` / `NewXRecord` types exported; not imported by controllers
+- [ ] Schema file added to the service's `db/db.ts`
+- [ ] Migration generated with drizzle-kit, read, and the drift check is clean

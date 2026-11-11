@@ -1,1029 +1,205 @@
 # Testing Standards
 
-## Overview
+How `apps/api` and `apps/web` are tested. Both use **Vitest**.
 
-This document defines comprehensive testing standards for Encore TypeScript services. We use **Vitest** as our testing framework, providing fast, modern unit and integration testing with excellent TypeScript support.
-
----
-
-## Core Principles
-
-1. **Tests are in dedicated test folders**, separate from source files
-2. **Tests mirror the structure** they test
-3. **Every layer is tested** (controllers, services, repositories)
-4. **Tests are fast** and isolated
-5. **Mock external dependencies**, not internal ones
-6. **Test behavior**, not implementation
-7. **Clear test names** describe what they test
+> Related:
+> - [How to add tests for an API endpoint](./how_to_add_new_api_tests.md) - step by step, with templates
+> - [Repository Patterns](./repository_patterns.md#testing-repositories)
+> - [Event Processing](./event_processing_patterns.md#testing)
 
 ---
 
-## Test File Organization
+## Commands
 
-### Dedicated Test Folder Pattern
+```bash
+# API unit tests (no database, no Encore runtime)
+cd apps/api && npx vitest run            # or: pnpm test  (vitest run --passWithNoTests)
+npx vitest run services/shipments/tests/jobNumber.test.ts   # one file
+npx vitest run services/customers                           # one folder
 
-Tests live in **dedicated test folders**, separate from source code:
+# Web tests
+cd apps/web && pnpm test                 # vitest run, picks up src/**/*.test.ts
 
-```
-/services/user/
-├── controllers/
-│   └── userCreate.controller.ts
-├── services/
-│   └── user.service.ts
-├── repositories/
-│   └── user.repository.ts
-├── utils/
-│   └── validation.utils.ts
-└── tests/
-    ├── controllers/
-    │   └── userCreate.controller.test.ts     ← Test here
-    ├── services/
-    │   └── user.service.test.ts              ← Test here
-    ├── repositories/
-    │   └── user.repository.test.ts           ← Test here
-    └── utils/
-        └── validation.utils.test.ts          ← Test here
+# Both apps
+pnpm test                                # from the repo root (pnpm -r test)
 ```
 
-### File Naming
+Typecheck before you push:
 
-- Test file: `{filename}.test.ts`
-- Located in `tests` folder, mirroring source structure
-- Same name as source file + `.test.ts`
+```bash
+cd apps/api && encore gen wrappers && npx tsc --noEmit -p .
+cd apps/web && pnpm typecheck
+```
 
-**Examples:**
-- `user.service.ts` → `user.service.test.ts`
-- `userCreate.controller.ts` → `userCreate.controller.test.ts`
-- `user.repository.ts` → `user.repository.test.ts`
+`apps/api/encore.gen` is gitignored and goes stale. Without `encore gen wrappers` first, `tsc` reports hundreds of errors about `~encore/...` types that are not real. In the web, errors under `.next/types/` are stale build output and can be ignored.
 
 ---
 
-## Testing Framework: Vitest
+## Where tests live
 
-### Why Vitest?
+**API**
 
-- **Fast**: Instant hot module replacement
-- **Compatible**: Jest-like API
-- **TypeScript**: First-class TypeScript support
-- **Modern**: ESM native, Vite-powered
-- **Parallel**: Tests run in parallel by default
+- `apps/api/services/<service>/tests/`, mostly flat, sometimes grouped in `repositories/`, `services/`, `utils/` or `db/`.
+- `apps/api/lib/tests/` for the shared code in `apps/api/lib` (outbox, repository update, text folding, job numbers, …).
+- Names: `<subject>.test.ts` (`jobNumber.test.ts`, `customer.service.test.ts`, `customerListFiltered.repository.test.ts`). Tests that need a database: `<subject>.db.test.ts` under `tests/db/`.
 
-### Basic Test Structure
+**Web**
+
+- Next to the module they test, as `src/**/<name>.test.ts`, for example `src/hooks/useShipments.test.ts` and `src/lib/fetchAllPages.test.ts`. Only `.test.ts` files are collected.
+
+---
+
+## API unit tests
+
+The Encore runtime is not loaded under a plain `vitest run`. A test therefore mocks the Encore modules the code touches, and the module's own dependencies (repositories, other services, topics). It then imports the code under test. Mocks that the factory needs are created with `vi.hoisted`.
+
+Common mocks, from real tests:
 
 ```typescript
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-
-describe("Feature/Component Name", () => {
-  // Setup runs before each test
-  beforeEach(() => {
-    // Setup code
-  });
-
-  // Cleanup runs after each test
-  afterEach(() => {
-    // Cleanup code
-  });
-
-  describe("specific method/function", () => {
-    it("should do something specific", () => {
-      // Arrange
-      const input = "test";
-
-      // Act
-      const result = functionUnderTest(input);
-
-      // Assert
-      expect(result).toBe("expected");
-    });
-
-    it("should handle error case", () => {
-      // Test error scenarios
-      expect(() => functionUnderTest(null)).toThrow("Error message");
-    });
-  });
-});
-```
-
----
-
-## Testing Controllers
-
-### Controller Test Template
-
-```typescript
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { userCreate } from "../../controllers/userCreate.controller";
-import { userService } from "../../services/user.service";
-import { authorization } from "~encore/clients";
-
-// Mock dependencies
-vi.mock("~encore/clients", () => ({
-  authorization: {
-    validatePermission: vi.fn(),
+// api() hands back the handler, so a controller can be called like a function
+vi.mock("encore.dev/api", () => ({
+  api: (_opts: unknown, handler: unknown) => handler,
+  APIError: {
+    notFound: (msg: string) => Object.assign(new Error(msg), { code: "not_found" }),
+    permissionDenied: (msg: string) => Object.assign(new Error(msg), { code: "permission_denied" }),
+    failedPrecondition: (msg: string) => Object.assign(new Error(msg), { code: "failed_precondition" }),
   },
 }));
 
-vi.mock("../../services/user.service", () => ({
-  userService: {
-    createUser: vi.fn(),
-  },
-}));
+// the signed-in user
+const auth = vi.hoisted(() => ({ role: "admin" }));
+vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: auth.role }) }));
 
-describe("userCreate controller", () => {
-  beforeEach(() => {
-    // Clear all mocks before each test
-    vi.clearAllMocks();
-  });
+// other services
+const userLookup = vi.hoisted(() => vi.fn());
+vi.mock("~encore/clients", () => ({ auth: { userLookup } }));
 
-  describe("successful creation", () => {
-    it("should create user with valid data", async () => {
-      // Arrange
-      const mockUser = {
-        id: "user-123",
-        name: "John Doe",
-        email: "john@example.com",
-      };
+// the service's own pieces
+const customers = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), updateForCompany: vi.fn() }));
+vi.mock("../repositories/customer.repository", () => ({ customerRepository: customers }));
+vi.mock("../topics", () => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }));
 
-      vi.mocked(authorization.validatePermission).mockResolvedValue(undefined);
-      vi.mocked(userService.createUser).mockResolvedValue({ user: mockUser });
+// logging and secrets
+vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
 
-      // Act
-      const result = await userCreate({
-        name: "John Doe",
-        email: "john@example.com",
-      });
-
-      // Assert
-      expect(result.user).toEqual(mockUser);
-      expect(authorization.validatePermission).toHaveBeenCalledWith({
-        requiredRoles: [UserRole.ADMIN, UserRole.USER_ADMIN],
-      });
-      expect(userService.createUser).toHaveBeenCalledWith({
-        name: "John Doe",
-        email: "john@example.com",
-      });
-    });
-  });
-
-  describe("authorization", () => {
-    it("should check user permissions", async () => {
-      // Arrange
-      vi.mocked(authorization.validatePermission).mockRejectedValue(
-        APIError.permissionDenied("Insufficient permissions")
-      );
-
-      // Act & Assert
-      await expect(
-        userCreate({
-          name: "John Doe",
-          email: "john@example.com",
-        })
-      ).rejects.toThrow("Insufficient permissions");
-
-      expect(authorization.validatePermission).toHaveBeenCalled();
-      expect(userService.createUser).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("validation", () => {
-    it("should validate email format", async () => {
-      // Act & Assert
-      await expect(
-        userCreate({
-          name: "John Doe",
-          email: "invalid-email",
-        })
-      ).rejects.toThrow("Invalid email");
-    });
-
-    it("should require name", async () => {
-      await expect(
-        userCreate({
-          name: "",
-          email: "john@example.com",
-        })
-      ).rejects.toThrow("Name is required");
-    });
-  });
-});
+import { customerService } from "../services/customer.service";
 ```
+
+`apps/api/vitest.config.ts` maps `~encore` to `./encore.gen`, the same way the app resolves it.
+
+What to test at each layer:
+
+- **Controllers**: who may call (the roles `requireRole` lets through and the ones it refuses), that the company comes from the token, and what is passed to the service. Example: `services/customers/tests/deletePermissions.test.ts`.
+- **Services**: business rules, refusals (which `APIError` with which message), what is written, published or sent to other services. Repositories and clients are mocked. Example: `services/customers/tests/customer.service.test.ts`.
+- **Repositories**: the SQL they build. Mock `../../db/db` with a stand-in that records the `where`, and render it with `new PgDialect().sqlToQuery(...)`. Example: `services/customers/tests/repositories/customerListFiltered.repository.test.ts`.
+- **Pure helpers** (`lib/`, `services/<service>/lib/`, `utils/`): plain input → output tests, and the most of them.
+
+Keep logic in pure functions where you can (`lib/outbox/outboxDelivery.ts`, `outboxRetry.ts` and `textSearch.ts` are built that way) so that it is tested without mocks.
 
 ---
 
-## Testing Services
+## Database tests
 
-### Service Test Template
+Some behaviour only shows against real Postgres: tenant scoping in real SQL, locks and two requests at once, outbox claims, partial unique indexes, `EXCLUDE` constraints. These tests are **skipped by a plain `vitest run`**, so a branch can pass the unit tests with them broken. Run them when you touch the code they cover.
 
-```typescript
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { userService } from "../../services/user.service";
-import { userRepository } from "../../repositories/user.repository";
-import { authorization } from "~encore/clients";
-import { APIError } from "encore.dev/api";
+### Under `encore test` (the Encore runtime opens the test database)
 
-// Mock repository
-vi.mock("../../repositories/user.repository", () => ({
-  userRepository: {
-    create: vi.fn(),
-    findByEmail: vi.fn(),
-    findById: vi.fn(),
-    update: vi.fn(),
-    softDelete: vi.fn(),
-  },
-}));
+`apps/api/vitest.config.ts` excludes these folders unless their flag is set, and runs the files one after another when a flag is set (they share tables, the outboxes above all):
 
-describe("UserService", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  describe("createUser", () => {
-    it("should create user successfully", async () => {
-      // Arrange
-      const userData = {
-        name: "John Doe",
-        email: "john@example.com",
-      };
-
-      const createdUser = {
-        id: "user-123",
-        ...userData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      vi.mocked(userRepository.findByEmail).mockResolvedValue(null);
-      vi.mocked(userRepository.create).mockResolvedValue(createdUser);
-
-      // Act
-      const result = await userService.createUser(userData);
-
-      // Assert
-      expect(result.user).toEqual(createdUser);
-      expect(userRepository.findByEmail).toHaveBeenCalledWith("john@example.com");
-      expect(userRepository.create).toHaveBeenCalledWith(userData);
-    });
-
-    it("should throw error if email already exists", async () => {
-      // Arrange
-      const existingUser = {
-        id: "existing-123",
-        name: "Existing User",
-        email: "john@example.com",
-      };
-
-      vi.mocked(userRepository.findByEmail).mockResolvedValue(existingUser);
-
-      // Act & Assert
-      await expect(
-        userService.createUser({
-          name: "John Doe",
-          email: "john@example.com",
-        })
-      ).rejects.toThrow(APIError.alreadyExists("User with this email already exists"));
-
-      expect(userRepository.create).not.toHaveBeenCalled();
-    });
-
-    it("should handle repository errors", async () => {
-      // Arrange
-      vi.mocked(userRepository.findByEmail).mockResolvedValue(null);
-      vi.mocked(userRepository.create).mockRejectedValue(
-        new Error("Database connection failed")
-      );
-
-      // Act & Assert
-      await expect(
-        userService.createUser({
-          name: "John Doe",
-          email: "john@example.com",
-        })
-      ).rejects.toThrow();
-
-      expect(userRepository.create).toHaveBeenCalled();
-    });
-  });
-
-  describe("getUserById", () => {
-    it("should return user when found", async () => {
-      // Arrange
-      const user = {
-        id: "user-123",
-        name: "John Doe",
-        email: "john@example.com",
-      };
-
-      vi.mocked(userRepository.findById).mockResolvedValue(user);
-
-      // Act
-      const result = await userService.getUserById("user-123");
-
-      // Assert
-      expect(result).toEqual(user);
-      expect(userRepository.findById).toHaveBeenCalledWith("user-123", false);
-    });
-
-    it("should throw not found error when user doesn't exist", async () => {
-      // Arrange
-      vi.mocked(userRepository.findById).mockResolvedValue(null);
-
-      // Act & Assert
-      await expect(userService.getUserById("non-existent")).rejects.toThrow(
-        APIError.notFound("User not found")
-      );
-    });
-  });
-
-  describe("updateUser", () => {
-    it("should update user successfully", async () => {
-      // Arrange
-      const existingUser = {
-        id: "user-123",
-        name: "Old Name",
-        email: "old@example.com",
-      };
-
-      const updatedUser = {
-        ...existingUser,
-        name: "New Name",
-      };
-
-      vi.mocked(userRepository.findById).mockResolvedValue(existingUser);
-      vi.mocked(userRepository.update).mockResolvedValue(updatedUser);
-
-      // Act
-      const result = await userService.updateUser("user-123", {
-        name: "New Name",
-      });
-
-      // Assert
-      expect(result.user).toEqual(updatedUser);
-      expect(userRepository.update).toHaveBeenCalledWith("user-123", {
-        name: "New Name",
-      });
-    });
-
-    it("should throw error if user not found", async () => {
-      // Arrange
-      vi.mocked(userRepository.findById).mockResolvedValue(null);
-
-      // Act & Assert
-      await expect(
-        userService.updateUser("non-existent", { name: "New Name" })
-      ).rejects.toThrow(APIError.notFound("User not found"));
-
-      expect(userRepository.update).not.toHaveBeenCalled();
-    });
-  });
-});
-```
-
----
-
-## Testing Repositories
-
-### Repository Test Template
-
-```typescript
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { userRepository } from "../../repositories/user.repository";
-import { db } from "../../db/db";
-import { userTable } from "../../schemas/schema";
-import { eq } from "drizzle-orm";
-
-describe("UserRepository", () => {
-  let testUserId: string;
-
-  beforeEach(async () => {
-    // Create test data
-    const [user] = await db
-      .insert(userTable)
-      .values({
-        name: "Test User",
-        email: "test@example.com",
-      })
-      .returning();
-
-    testUserId = user.id;
-  });
-
-  afterEach(async () => {
-    // Cleanup test data
-    await db.delete(userTable).where(eq(userTable.id, testUserId));
-  });
-
-  describe("findById", () => {
-    it("should find user by ID", async () => {
-      // Act
-      const user = await userRepository.findById(testUserId);
-
-      // Assert
-      expect(user).toBeDefined();
-      expect(user?.id).toBe(testUserId);
-      expect(user?.email).toBe("test@example.com");
-    });
-
-    it("should return null for non-existent ID", async () => {
-      // Act
-      const user = await userRepository.findById("non-existent-uuid");
-
-      // Assert
-      expect(user).toBeNull();
-    });
-
-    it("should exclude soft-deleted users by default", async () => {
-      // Arrange
-      await userRepository.softDelete(testUserId);
-
-      // Act
-      const user = await userRepository.findById(testUserId);
-
-      // Assert
-      expect(user).toBeNull();
-    });
-
-    it("should include soft-deleted when flag is true", async () => {
-      // Arrange
-      await userRepository.softDelete(testUserId);
-
-      // Act
-      const user = await userRepository.findById(testUserId, true);
-
-      // Assert
-      expect(user).toBeDefined();
-      expect(user?.deletedAt).toBeDefined();
-    });
-  });
-
-  describe("findByEmail", () => {
-    it("should find user by email", async () => {
-      // Act
-      const user = await userRepository.findByEmail("test@example.com");
-
-      // Assert
-      expect(user).toBeDefined();
-      expect(user?.id).toBe(testUserId);
-    });
-
-    it("should return null for non-existent email", async () => {
-      // Act
-      const user = await userRepository.findByEmail("nonexistent@example.com");
-
-      // Assert
-      expect(user).toBeNull();
-    });
-  });
-
-  describe("create", () => {
-    let createdUserId: string;
-
-    afterEach(async () => {
-      // Cleanup created user
-      if (createdUserId) {
-        await db.delete(userTable).where(eq(userTable.id, createdUserId));
-      }
-    });
-
-    it("should create new user", async () => {
-      // Act
-      const user = await userRepository.create({
-        name: "New User",
-        email: "new@example.com",
-      });
-
-      createdUserId = user.id;
-
-      // Assert
-      expect(user.id).toBeDefined();
-      expect(user.name).toBe("New User");
-      expect(user.email).toBe("new@example.com");
-      expect(user.createdAt).toBeDefined();
-      expect(user.updatedAt).toBeDefined();
-    });
-
-    it("should throw error for duplicate email", async () => {
-      // Act & Assert
-      await expect(
-        userRepository.create({
-          name: "Duplicate",
-          email: "test@example.com", // Already exists
-        })
-      ).rejects.toThrow();
-    });
-  });
-
-  describe("update", () => {
-    it("should update user", async () => {
-      // Act
-      const updated = await userRepository.update(testUserId, {
-        name: "Updated Name",
-      });
-
-      // Assert
-      expect(updated.id).toBe(testUserId);
-      expect(updated.name).toBe("Updated Name");
-      expect(updated.email).toBe("test@example.com");
-      expect(updated.updatedAt).toBeDefined();
-    });
-
-    it("should throw not found for non-existent user", async () => {
-      // Act & Assert
-      await expect(
-        userRepository.update("non-existent-uuid", { name: "New Name" })
-      ).rejects.toThrow("User not found");
-    });
-  });
-
-  describe("softDelete", () => {
-    it("should soft delete user", async () => {
-      // Act
-      await userRepository.softDelete(testUserId);
-
-      // Assert
-      const user = await userRepository.findById(testUserId, true);
-      expect(user?.deletedAt).toBeDefined();
-    });
-
-    it("should throw error for non-existent user", async () => {
-      // Act & Assert
-      await expect(
-        userRepository.softDelete("non-existent-uuid")
-      ).rejects.toThrow();
-    });
-  });
-
-  describe("search", () => {
-    let additionalUserIds: string[] = [];
-
-    beforeEach(async () => {
-      // Create additional test users
-      const users = await Promise.all([
-        db
-          .insert(userTable)
-          .values({ name: "Alice Smith", email: "alice@example.com" })
-          .returning(),
-        db
-          .insert(userTable)
-          .values({ name: "Bob Jones", email: "bob@example.com" })
-          .returning(),
-      ]);
-
-      additionalUserIds = users.map((u) => u[0].id);
-    });
-
-    afterEach(async () => {
-      // Cleanup additional users
-      if (additionalUserIds.length > 0) {
-        await db.delete(userTable).where(inArray(userTable.id, additionalUserIds));
-      }
-    });
-
-    it("should search users by email", async () => {
-      // Act
-      const result = await userRepository.search({ email: "alice" });
-
-      // Assert
-      expect(result.users.length).toBeGreaterThan(0);
-      expect(result.users[0].email).toContain("alice");
-    });
-
-    it("should paginate results", async () => {
-      // Act
-      const result = await userRepository.search({ limit: 1, offset: 0 });
-
-      // Assert
-      expect(result.users.length).toBe(1);
-      expect(result.total).toBeGreaterThan(1);
-    });
-  });
-});
-```
-
----
-
-## Testing Utilities
-
-### Utility Test Template
-
-```typescript
-import { describe, it, expect } from "vitest";
-import { validateEmail, formatName } from "../../utils/validation.utils";
-
-describe("Validation Utils", () => {
-  describe("validateEmail", () => {
-    it("should validate correct email", () => {
-      expect(validateEmail("user@example.com")).toBe(true);
-      expect(validateEmail("test.user@example.co.uk")).toBe(true);
-    });
-
-    it("should reject invalid email", () => {
-      expect(validateEmail("invalid")).toBe(false);
-      expect(validateEmail("@example.com")).toBe(false);
-      expect(validateEmail("user@")).toBe(false);
-    });
-  });
-
-  describe("formatName", () => {
-    it("should format name correctly", () => {
-      expect(formatName("john doe")).toBe("John Doe");
-      expect(formatName("ALICE SMITH")).toBe("Alice Smith");
-    });
-
-    it("should handle edge cases", () => {
-      expect(formatName("")).toBe("");
-      expect(formatName("   ")).toBe("");
-      expect(formatName("single")).toBe("Single");
-    });
-  });
-});
-```
-
----
-
-## Mocking Patterns
-
-### Mocking Encore Clients
-
-```typescript
-import { vi } from "vitest";
-
-vi.mock("~encore/clients", () => ({
-  userService: {
-    getUser: vi.fn(),
-    createUser: vi.fn(),
-  },
-  authorization: {
-    validatePermission: vi.fn(),
-  },
-}));
-```
-
-### Mocking Encore Auth
-
-```typescript
-import { vi } from "vitest";
-
-vi.mock("~encore/auth", () => ({
-  getAuthData: vi.fn(() => ({
-    userID: "test-user-123",
-    roles: ["ADMIN"],
-  })),
-}));
-```
-
-### Mocking External APIs
-
-```typescript
-import { vi } from "vitest";
-
-// Mock fetch
-global.fetch = vi.fn(() =>
-  Promise.resolve({
-    ok: true,
-    json: () => Promise.resolve({ data: "mocked" }),
-  })
-);
-
-// Reset after test
-afterEach(() => {
-  vi.resetAllMocks();
-});
-```
-
-### Mocking Database
-
-For integration tests, use test database:
-
-```typescript
-import { db } from "../../db/db";
-
-// Use transactions for isolation
-describe("Integration Test", () => {
-  beforeEach(async () => {
-    await db.transaction(async (tx) => {
-      // Setup test data
-    });
-  });
-
-  afterEach(async () => {
-    // Rollback or cleanup
-  });
-});
-```
-
----
-
-## Running Tests
-
-### Commands
-
-#### `pnpm test` — recommended for most development
-
-Runs Vitest directly without the Encore CLI. No daemon required.
-
-| Context | Behaviour |
+| Flag | Tests |
 |---|---|
-| Local (no `CI` env var) | Watch mode — reruns on file changes |
-| CI (`CI=true`) | Runs once, then exits |
+| `SHIPMENTS_DB_TESTS=1` | `services/shipments/tests/db/` |
+| `WAREHOUSE_DB_TESTS=1` | `services/warehouseConcept/tests/` (the whole folder) |
+| `TRUCKING_DB_TESTS=1` | `services/trucking/tests/db/` |
+| `QUOTES_DB_TESTS=1` | `services/quotes/tests/db/quoteRename.db.test.ts`, `quoteNumberIndexes.db.test.ts` (they skip themselves with `describe.skipIf`) |
 
 ```bash
-# Watch mode (local development)
-pnpm test
+cd apps/api
+SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1 \
+  encore test services/shipments/tests/db services/warehouseConcept/tests services/trucking/tests/db
 
-# Specific service (watch locally / one-shot in CI)
-VITEST_DIR=services/user pnpm test
+QUOTES_DB_TESTS=1 encore test services/quotes/tests/db/quoteRename.db.test.ts
 ```
 
-#### `pnpm encore:test` — when Encore runtime is needed
+### With a connection string (plain vitest against the Encore test database)
 
-Runs tests through the Encore CLI. Required for tests that rely on Encore-managed resources (databases, pub/sub, secrets). Requires a running Encore daemon.
+The customer-link tests of quotes and sales open their own connection and skip unless the URL is set:
 
 ```bash
-# Watch mode
-pnpm encore:test
-
-# One-shot
-CI=true pnpm encore:test
-
-# Specific directory
-VITEST_DIR=services/user pnpm encore:test
+cd apps/api
+QUOTES_DB_URL=$(encore db conn-uri quotes --test --write) npx vitest run services/quotes/tests/db
+SALES_DB_URL=$(encore db conn-uri sales --test --write) npx vitest run services/sales/tests/db
 ```
 
-#### Coverage report
+They run each test in a transaction that is rolled back, or delete their rows afterwards.
 
-Coverage is **disabled by default** and must be requested explicitly by passing the `--coverage` flag:
+### Running them on this machine: the app id
 
-```bash
-# Generate coverage report
-pnpm test --coverage
+With the app id in `apps/api/encore.app` (`shipment-tracker-ysci`), `encore test` (like `encore run`) asks Encore Cloud for the app's secrets. When the Encore CLI is not signed in to the account that owns the app, it fails with "access denied". To run locally anyway:
 
-# Coverage for a specific service
-VITEST_DIR=services/user pnpm test --coverage
-```
+1. Set `"id": ""` in `apps/api/encore.app` (local-only mode). This change is temporary.
+2. If `encore test` still says "access denied", restart the daemon with `encore daemon` (only when no `encore run` is up), because it caches the cloud id.
+3. Run the tests.
+4. **Restore the file at once:** `git checkout apps/api/encore.app`.
 
-Reports are written to `apps/encore-ts/coverage/`:
-- `coverage/index.html` — interactive HTML report, open in browser
-- `coverage/lcov.info` — for IDE integrations (e.g. Coverage Gutters extension)
+**Never commit `encore.app` with an empty id.** Deploys need `"id": "shipment-tracker-ysci"`.
 
-### Watch Mode (Development)
+### Writing one
 
-In watch mode, tests automatically re-run when files change:
-
-```bash
-pnpm encore:test
-
-# Output:
-# ✓ src/services/user/user.service.test.ts (5 tests)
-# ✓ src/services/user/repositories/user.repository.test.ts (12 tests)
-#
-# Test Files  2 passed (2)
-#      Tests  17 passed (17)
-#   Start at  10:30:45
-#   Duration  1.2s
-```
+- Give every test its own company: `const companyId = randomUUID()`. Rows of different tests then never meet, and the tenant filter is exercised.
+- Still mock what leaves the service (`~encore/clients`, `../../topics`, the service identity), as in `services/shipments/tests/db/writeTurns.db.test.ts`.
+- For races, start both calls before awaiting either (`Promise.allSettled([a(), b()])`) and assert what is stored afterwards.
+- Put the comment that says how to run the file at its top, as the existing ones do.
 
 ---
 
-## Test Naming Conventions
+## Web tests
 
-### Describe Blocks
+The web has **no React testing library and no DOM** (no jsdom). Components are not rendered in tests. Logic is tested as pure helpers:
+
+- Move the logic out of the component or hook into an exported function: how a grid filters or sorts, what a write invalidates, how a value is formatted or parsed, and how a page of results is merged.
+- Test that function. Hooks' helpers that work on react-query can be given a real `QueryClient` and checked with spies, as `src/hooks/useShipments.test.ts` does:
 
 ```typescript
-// Top level: Feature or component
-describe("UserService", () => {
-  // Second level: Method or function
-  describe("createUser", () => {
-    // Third level: Scenario
-    describe("when email already exists", () => {
-      it("should throw AlreadyExists error", () => {
-        // Test implementation
-      });
-    });
-  });
+import { describe, expect, it, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
+import { invalidateAfterShipmentUpdate } from "./useShipments";
+
+function invalidatedBy(write: (queryClient: QueryClient) => unknown): unknown[] {
+  const queryClient = new QueryClient();
+  const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+  write(queryClient);
+  return invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+}
+
+it("an edit: the Invoicing queue too", () => {
+  const keys = invalidatedBy((queryClient) => invalidateAfterShipmentUpdate(queryClient, { status: "Arrived [IMP]" }));
+  expect(keys).toEqual(expect.arrayContaining([["shipments"], ["invoice-queue"]]));
 });
 ```
 
-### Test Names (it blocks)
+`apps/web/vitest.config.ts` compiles JSX (automatic runtime), so a module that also holds JSX, such as column definitions, can still be imported for its helpers.
 
-Use clear, descriptive names:
-
-```typescript
-// ✅ Good: Clear and specific
-it("should create user with valid email", () => {});
-it("should throw error when email is invalid", () => {});
-it("should return null when user not found", () => {});
-
-// ❌ Bad: Vague or unclear
-it("works", () => {});
-it("test user creation", () => {});
-it("should work correctly", () => {});
-```
+Check what a screen looks like by running the app (`pnpm dev`) and looking at it. A unit test does not cover that.
 
 ---
 
-## Test Coverage
+## Style
 
-### What to Test
-
-**✅ DO test:**
-- All public methods/functions
-- Error handling paths
-- Edge cases and boundary conditions
-- Business logic
-- Data transformations
-- Authorization checks
-- Validation logic
-
-**❌ DON'T test:**
-- Third-party library internals
-- Trivial getters/setters
-- Type definitions
-- Constants
-
-### Coverage Goals
-
-- **Services**: 80%+ coverage
-- **Repositories**: 70%+ coverage
-- **Controllers**: 70%+ coverage
-- **Utilities**: 90%+ coverage
+- Name tests in plain sentences that state the behaviour: `it("refuses everyone else to delete a %s", ...)`, `describe("two House BoL releases at once", ...)`.
+- Fixed dates (`new Date("2026-11-10T12:00:00Z")`) or `vi.useFakeTimers()`. Never depend on today.
+- `beforeEach(() => vi.clearAllMocks())` when mocks are shared between tests. Restore spies (`vi.restoreAllMocks()`).
+- One behaviour per `it`; `it.each` for the same rule over several inputs.
+- No network and no real external services in unit tests.
+- A bug fix comes with the test that would have caught it.
 
 ---
 
-## Best Practices
+## Checklist
 
-### ✅ DO
-
-1. **Write tests first** (TDD when possible)
-2. **Keep tests simple and focused**
-3. **Use descriptive test names**
-4. **Test one thing per test**
-5. **Arrange-Act-Assert pattern**
-6. **Mock external dependencies**
-7. **Clean up after tests**
-8. **Test error cases**
-
-### ❌ DON'T
-
-1. **Test implementation details**
-2. **Share state between tests**
-3. **Make tests depend on execution order**
-4. **Use real external APIs**
-5. **Skip error cases**
-6. **Write flaky tests**
-7. **Ignore test failures**
-
----
-
-## Arrange-Act-Assert Pattern
-
-```typescript
-it("should create user successfully", async () => {
-  // 🔵 ARRANGE: Set up test data and mocks
-  const userData = {
-    name: "John Doe",
-    email: "john@example.com",
-  };
-  vi.mocked(userRepository.create).mockResolvedValue(mockUser);
-
-  // 🟢 ACT: Execute the code under test
-  const result = await userService.createUser(userData);
-
-  // 🔴 ASSERT: Verify the results
-  expect(result.user).toEqual(mockUser);
-  expect(userRepository.create).toHaveBeenCalledWith(userData);
-});
-```
-
----
-
-## Async Testing
-
-### Testing Promises
-
-```typescript
-it("should handle async operations", async () => {
-  // Using async/await
-  const result = await asyncFunction();
-  expect(result).toBe("expected");
-});
-
-it("should handle promise rejection", async () => {
-  // Testing rejections
-  await expect(asyncFunction()).rejects.toThrow("Error message");
-});
-```
-
-### Testing Timeouts
-
-```typescript
-it("should timeout after 5 seconds", async () => {
-  await expect(
-    longRunningFunction()
-  ).rejects.toThrow("Timeout");
-}, 6000); // Test timeout in milliseconds
-```
-
----
-
-## Integration Testing
-
-### Testing Full API Flow
-
-```typescript
-describe("User Creation Flow (Integration)", () => {
-  it("should create user end-to-end", async () => {
-    // Call actual controller
-    const result = await userCreate({
-      name: "Integration Test",
-      email: "integration@example.com",
-    });
-
-    // Verify in database
-    const dbUser = await db
-      .select()
-      .from(userTable)
-      .where(eq(userTable.id, result.user.id))
-      .limit(1);
-
-    expect(dbUser[0]).toBeDefined();
-    expect(dbUser[0].email).toBe("integration@example.com");
-
-    // Cleanup
-    await db.delete(userTable).where(eq(userTable.id, result.user.id));
-  });
-});
-```
-
----
-
-## Troubleshooting Tests
-
-### Tests Failing Locally
-
-```bash
-# Clear node_modules and reinstall
-rm -rf node_modules
-pnpm install
-
-# Clear Vitest cache
-rm -rf node_modules/.vitest
-
-# Run tests in CI mode
-CI=1 pnpm encore:test
-```
-
-### Flaky Tests
-
-```typescript
-// ❌ Bad: Test depends on timing
-it("should process after delay", async () => {
-  setTimeout(() => doSomething(), 100);
-  await new Promise(resolve => setTimeout(resolve, 150));
-  expect(result).toBe("done");
-});
-
-// ✅ Good: Use proper async patterns
-it("should process after delay", async () => {
-  const result = await processWithDelay();
-  expect(result).toBe("done");
-});
-```
-
----
-
-## Summary Checklist
-
-### Test File Checklist
-
-- [ ] Test file in dedicated `tests` folder
-- [ ] Named `{filename}.test.ts`
-- [ ] Imports from vitest (`describe`, `it`, `expect`)
-- [ ] Clear describe blocks for organization
-- [ ] Descriptive test names using `it("should...")`
-- [ ] Arrange-Act-Assert pattern used
-- [ ] Mocks cleaned up in `beforeEach`/`afterEach`
-- [ ] Tests are isolated and independent
-- [ ] Error cases tested
-- [ ] Edge cases covered
-
-### Test Quality Checklist
-
-- [ ] Tests pass consistently
-- [ ] Tests run fast (< 100ms per test ideally)
-- [ ] No hardcoded IDs or test data
-- [ ] Mocks are appropriate and minimal
-- [ ] Assertions are specific and meaningful
-- [ ] Tests document expected behavior
-- [ ] Coverage goals met
-
----
-
-## Related Documentation
-
-- [Debugging Production Services](./debugging_production_services.md) - Debug issues that tests didn't catch
-- [Error Handling](./errors.md) - Proper error patterns to test
-
----
-
-**Remember: Good tests are fast, isolated, repeatable, and meaningful. They document behavior and catch regressions.**
-
+- [ ] `npx vitest run` in `apps/api` and `pnpm test` in `apps/web` pass
+- [ ] `encore gen wrappers && npx tsc --noEmit -p .` in `apps/api` and `pnpm typecheck` in `apps/web` are clean
+- [ ] Changed repository SQL, locks or outboxes: the matching DB tests were run with their flag or URL
+- [ ] `apps/api/encore.app` is unchanged (`"id": "shipment-tracker-ysci"`)
+- [ ] New logic in the web is in a tested helper, not only inside a component
