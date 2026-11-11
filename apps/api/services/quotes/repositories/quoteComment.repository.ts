@@ -4,7 +4,7 @@ import { db } from "../db/db";
 import { quoteCommentReadTable, quoteCommentTable, type QuoteCommentRecord } from "../schemas/quoteComment.schema";
 import { quoteAttachmentTable } from "../schemas/quoteAttachment.schema";
 import { quoteTable } from "../schemas/quote.schema";
-import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
+import { quoteThreadSql } from "../lib/quoteNumberSql";
 
 const c = quoteCommentTable;
 const r = quoteCommentReadTable;
@@ -14,11 +14,13 @@ const f = quoteAttachmentTable;
  * The thread still has a live sales quote: its original reference, or one of its revisions
  * (QCZ…001-R2). A thread whose quotes were all deleted opens nowhere, so its messages count as
  * neither unread nor mentions - they would stay in the bell for good, with no chat to open and
- * mark them read in. The thread has no letters (quoteThreadOf), so the quotes are compared
- * without the letters of their Freight Mode: QCZLCL…001 keeps the thread QCZ…001 alive.
+ * mark them read in. Each quote is compared by the thread its number belongs to (quoteThreadOf:
+ * without the letters of its Freight Mode or a revision's suffix), so QCZLCL…001 and QCZ…001-R2
+ * keep the thread QCZ…001 alive - by equality, which quote_company_thread_idx answers with one
+ * probe per message, where a pattern built from each message would match against every quote of
+ * the company (the quote chat polls the unread counts every 15 s).
  */
-const PLAIN_QUOTE_NUMBER = plainSalesReferenceSql(quoteTable.quoteNumber);
-export const threadAliveSql = sql`exists (select 1 from ${quoteTable} where ${quoteTable.companyId} = ${c.companyId} and ${quoteTable.deletedAt} is null and (${PLAIN_QUOTE_NUMBER} = ${c.threadRef} or ${PLAIN_QUOTE_NUMBER} like ${c.threadRef} || '-R%'))`;
+export const threadAliveSql = sql`exists (select 1 from ${quoteTable} where ${quoteTable.companyId} = ${c.companyId} and ${quoteTable.deletedAt} is null and ${quoteThreadSql(quoteTable.quoteNumber)} = ${c.threadRef})`;
 
 // The quotes' chat (one thread per original Sales Reference, see quoteComment.schema): its
 // messages, how far each user has read a thread, and the files sent in it (quote_attachment rows

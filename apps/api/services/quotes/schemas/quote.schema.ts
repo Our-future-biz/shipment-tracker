@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, jsonb, uuid, timestamp, date, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { plainQuoteNumberSql, quoteThreadSql } from "../lib/quoteNumberSql";
 
 export const quoteTable = pgTable(
   "quote",
@@ -58,6 +59,13 @@ export const quoteTable = pgTable(
     // References that start with a prefix (createWithReference, a family): LIKE 'prefix%' can use
     // a btree only with pattern ops under a non-C collation.
     index("quote_company_number_pattern_idx").on(table.companyId, table.quoteNumber.op("text_pattern_ops")),
+    // A reference looked up, counted or grouped without the letters of its Freight Mode (loadLive,
+    // the next reference of a day under the company's lock, a family): the queries' own expression
+    // (lib/quoteNumberSql), its patterns written in. Pattern ops serve = as well as LIKE 'prefix%'.
+    index("quote_company_plain_number_idx").on(table.companyId, sql`${plainQuoteNumberSql(table.quoteNumber).inlineParams()} text_pattern_ops`),
+    // Whether a chat thread still has a live quote (threadAliveSql, in the unread counts the quote
+    // chat polls): one probe by the thread instead of a pattern match over the company's quotes.
+    index("quote_company_thread_idx").on(table.companyId, quoteThreadSql(table.quoteNumber).inlineParams()).where(sql`deleted_at IS NULL`),
     // Holds exactly the sales quotes whose columns are not filled yet, so "is anything waiting
     // to be adopted" is an index probe that normally finds nothing. quote_adopt_lifecycle
     // repeats this predicate word for word.

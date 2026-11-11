@@ -24,11 +24,13 @@ import { COMBINING_MARKS, FINAL_SIGMA, FOLD_FROM, FOLD_TO, SIGMA, escapeLike } f
 import { foldSql } from "../../../lib/db/textSearch";
 import { plainSalesReference } from "../../../lib/salesReference";
 import { plainSalesReferenceSql as plainNumber } from "../../../lib/db/salesReferenceSql";
+import { plainQuoteNumberSql } from "../lib/quoteNumberSql";
 import type { QuoteColumnFilter, QuoteFilterColumn } from "../utils/quoteColumnFilters.utils";
 
 // A quote's reference without the letters of its Freight Mode (lib/salesReference): what a reference
 // is looked up, counted, grouped and sorted by, so QCZ20261109001 and QCZLCL20261109001 name one quote.
-const PLAIN_NUMBER = plainNumber(quoteTable.quoteNumber);
+// The expression of quote_company_plain_number_idx, so a lookup by it is an index probe.
+const PLAIN_NUMBER = plainQuoteNumberSql(quoteTable.quoteNumber);
 
 // What a sales quote is: a row whose status column is filled. Rows of the old quotes module
 // share the table and have none. This is the one place the rule is written; a sales quote

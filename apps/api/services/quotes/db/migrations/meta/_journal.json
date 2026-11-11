@@ -134,6 +134,13 @@
       "when": 1794388713135,
       "tag": "0018_quote_event_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794390561690,
+      "tag": "0019_quote_plain_number_indexes",
+      "breakpoints": true
     }
   ]
 }
