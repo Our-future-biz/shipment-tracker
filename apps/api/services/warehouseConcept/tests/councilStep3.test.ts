@@ -171,8 +171,14 @@ describe("moving Received in warehouse later is storage given away: a manager's 
     const ahead = addDays(pragueDate(new Date()), 60);
     await expect(gateMovementService.update(movement.id, c, user, { loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
     expect((await gateMovementService.get(movement.id, c)).loadInDate).toBe("");
-    // Nor when the record is created with one.
+    // Nor when the record is created with one - checked on the date as stored, so padding it does not slip it through.
     await expect(gateMovementService.create(c, user, { gateRef: `G-${randomUUID().slice(0, 6)}`, loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(gateMovementService.create(c, user, { gateRef: `G-${randomUUID().slice(0, 6)}`, loadInDate: ` ${ahead}` }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    // A position of its own is held to the same rules as a gate record (free days too).
+    const position = { handling: "Export" as const, customsStatus: "Customs Cleared/Released" as const, colli: 1, weightKg: 10, measureCbm: 1 };
+    await expect(warehouseImportService.createPosition(c, user, { ...position, loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(warehouseImportService.createPosition(c, user, { ...position, freeDays: 30 }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect((await warehouseImportService.createPosition(c, user, { ...position, freeDays: 30 }, "manager")).movement.freeDays).toBe(30);
     // Today is fine.
     const today = pragueDate(new Date());
     expect((await gateMovementService.update(movement.id, c, user, { loadInDate: today }, "user")).loadInDate).toBe(today);

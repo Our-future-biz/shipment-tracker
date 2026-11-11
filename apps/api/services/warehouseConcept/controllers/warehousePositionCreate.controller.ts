@@ -49,8 +49,9 @@ interface WarehousePositionCreateResponse {
 export const warehousePositionCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-concept/positions" },
   async (req: WarehousePositionCreateRequest): Promise<WarehousePositionCreateResponse> => {
-    const { companyID, userID } = getAuthData()!;
-    const { task, movement } = await warehouseImportService.createPosition(companyID, userID, req);
+    const { companyID, userID, role } = getAuthData()!;
+    // The role: free days above the default, like a received date still to come, are a manager's (gateMovement.service buildRecord).
+    const { task, movement } = await warehouseImportService.createPosition(companyID, userID, req, role);
     return { task: toTaskItem(task), movement };
   },
 );

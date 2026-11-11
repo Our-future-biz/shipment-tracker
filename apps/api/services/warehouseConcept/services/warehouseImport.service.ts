@@ -270,7 +270,7 @@ class WarehouseImportService {
 
   // "Create new": a position of its own (WCZ reference, no shipment) and its gate record in one
   // transaction. The record is checked and filled in before the reference is taken.
-  async createPosition(companyId: string, userId: string, input: GateMovementInput) {
+  async createPosition(companyId: string, userId: string, input: GateMovementInput, role = "user") {
     const handling: GateHandling = input.handling === "Export" || input.handling === "Domestic" ? input.handling : "Import";
     const record = await gateMovementService.buildRecord(companyId, userId, {
       ...input,
@@ -282,7 +282,7 @@ class WarehouseImportService {
       handling,
       // Import cargo leaves through the gate, export and domestic cargo arrive — as for shipment positions.
       visit: visitOfHandling(handling),
-    });
+    }, role);
     const { task, movementId } = await db.transaction(async (tx) => {
       const { task } = await warehouseTaskRepository.createInTx(tx, companyId, null);
       const row = await gateMovementRepository.create({ ...record, gateRef: task.taskId, warehouseTaskId: task.id }, tx);

@@ -667,9 +667,14 @@ class GateMovementService {
 
   // The new record as it will be stored (checked and filled in), not saved yet — so callers can
   // insert it in a transaction of their own (a new position and its gate row together).
-  async buildRecord(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }): Promise<NewGateMovementRecord> {
+  // Every new record is built here (a gate record, a position of its own): the storage rules -
+  // free days above the default, a received date still to come - are checked on the values as
+  // they will be stored (trimmed and parsed), for whatever path creates it.
+  async buildRecord(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }, role = "user"): Promise<NewGateMovementRecord> {
     const { walkIn, ...rest } = input;
     const data = await this.fields(rest, companyId);
+    assertFreeDaysAllowed(data.freeDays, role);
+    if (data.loadInDate) assertReceivedDateAllowed("", data.loadInDate, false, role, pragueDate(new Date()));
     const handling = data.handling ?? "Import";
     const operationType = data.operationType ?? "LCL consolidation";
     const customsMode = data.customsMode ?? "SCP";
@@ -717,10 +722,8 @@ class GateMovementService {
   }
 
   async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }, role = "user") {
-    assertFreeDaysAllowed(input.freeDays, role);
-    // A new record's received date: no day still to come either (nothing was stored before it).
-    if (input.loadInDate) assertReceivedDateAllowed("", input.loadInDate, false, role, pragueDate(new Date()));
-    const record = await this.buildRecord(companyId, userId, input);
+    // The storage rules are checked on the record as built (buildRecord).
+    const record = await this.buildRecord(companyId, userId, input, role);
     const id = await db.transaction(async (tx) => {
       const row = await gateMovementRepository.create(record, tx);
       // A record saved as already received (an outbound record with a typed received date and no
