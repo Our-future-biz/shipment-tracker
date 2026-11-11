@@ -8,7 +8,7 @@ import { money } from "@/lib/money";
 import { type ShipmentItem } from "@/hooks/useShipments";
 
 import { type CustomsInvoiceLine, totalsByCurrency } from "./_lib/customsInvoice";
-import { EMPTY, LABEL_TEXT } from "@/styles/ui";
+import { EMPTY, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 
 // Who the invoice is for: the customer, or the principal party when there is none.
@@ -156,7 +156,8 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
       <div className="bg-white">
         <div className="bg-slate-800 text-white rounded-t-lg px-6 py-4 flex items-start justify-between">
           <div>
-            <div className="text-[16px] leading-6 font-semibold">Customs Invoice</div>
+            {/* the modal title's type, in white on the document's dark band */}
+            <div className={`${MODAL_TITLE} !text-white`}>Customs Invoice</div>
             <div className="tabular-nums text-xs text-slate-300">{issuedNumber || "—"}</div>
           </div>
           <div className="text-right">

@@ -5,7 +5,7 @@ import { useFxRoeHistory } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { Badge } from "@/components/Badge";
 import { Pill } from "@/components/Pill";
-import { EMPTY, HINT } from "@/styles/ui";
+import { EMPTY, EMPTY_STATE, HINT } from "@/styles/ui";
 import { fmtPct, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
 
 export function RoeHistoryTab() {
@@ -31,7 +31,7 @@ export function RoeHistoryTab() {
           <tbody>
             {changes.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-2 py-8 text-center text-[13px] text-slate-400">
+                <td colSpan={5} className={`${EMPTY_STATE} px-2`}>
                   Never changed — the company uses 100 % (the pure ČNB rate).
                 </td>
               </tr>
