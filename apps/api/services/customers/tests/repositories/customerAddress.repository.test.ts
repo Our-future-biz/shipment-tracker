@@ -18,6 +18,7 @@ const fake = vi.hoisted(() => {
     site: [] as Record<string, unknown>[],
     siteInserts: [] as Record<string, unknown>[],
     siteUpdates: [] as Record<string, unknown>[],
+    siteUpdateWheres: [] as SQL[],
   };
   const name = (table: unknown) => (table as { [k: symbol]: string })[Symbol.for("drizzle:Name")];
   const tx = {
@@ -46,6 +47,7 @@ const fake = vi.hoisted(() => {
         where: (where: SQL) => {
           if (name(table) === "customer_site") {
             state.siteUpdates.push(set);
+            state.siteUpdateWheres.push(where);
             return {};
           }
           return {
@@ -81,7 +83,7 @@ const address = (over: Record<string, unknown> = {}) => ({
 const seatOf = (a: Record<string, unknown>) => ({ street: a.street, city: a.city, postalCode: a.postalCode, country: a.country });
 
 beforeEach(() => {
-  Object.assign(fake.state, { before: [], address: null, seat: [], customerWrites: [], addressWrites: [], site: [], siteInserts: [], siteUpdates: [] });
+  Object.assign(fake.state, { before: [], address: null, seat: [], customerWrites: [], addressWrites: [], site: [], siteInserts: [], siteUpdates: [], siteUpdateWheres: [] });
 });
 
 describe("the customer's seat follows its Registered address", () => {
@@ -198,6 +200,32 @@ describe("a Pickup / Delivery address's site", () => {
   it("is refused, with the address, when a Czech postcode is not 5 digits", async () => {
     await expect(customerAddressRepository.createWithSeat(COMPANY, { ...pickup, postalCode: "Kolín" })).rejects.toThrow(/5 digits/);
     expect(fake.state.siteInserts).toEqual([]);
+  });
+
+  it("made the default, the customer's other default site stops being it first, in the same transaction", async () => {
+    await customerAddressRepository.createWithSeat(COMPANY, pickup, { isDefault: true });
+    expect(fake.state.siteUpdates).toEqual([{ isDefault: false, updatedAt: expect.any(Date) }]);
+    const cleared = new PgDialect().sqlToQuery(fake.state.siteUpdateWheres[0]!);
+    expect(cleared.sql).toContain('"customer_site"."customer_id" = $');
+    expect(cleared.params).toEqual(expect.arrayContaining([COMPANY, "c1", true]));
+    expect(fake.state.siteInserts).toEqual([expect.objectContaining({ isDefault: true, addressId: "a1" })]);
+
+    // An existing site made the default keeps its own flag: only the others are cleared.
+    Object.assign(fake.state, { siteInserts: [], siteUpdates: [], siteUpdateWheres: [] });
+    fake.state.before = [{ types: ["Pickup"] }];
+    fake.state.site = [{ id: "s1", street: "Průmyslová 5", postcode: "28002", city: "Kolín", country: "CZ" }];
+    fake.state.address = address({ ...pickup });
+    await customerAddressRepository.updateWithSeat("a1", COMPANY, {}, { isDefault: true });
+    expect(fake.state.siteUpdates).toEqual([{ isDefault: false, updatedAt: expect.any(Date) }, expect.objectContaining({ isDefault: true })]);
+    const others = new PgDialect().sqlToQuery(fake.state.siteUpdateWheres[0]!);
+    expect(others.sql).toContain('"customer_site"."id" <> $');
+    expect(others.params).toContain("s1");
+  });
+
+  it("not made the default, no other site is touched", async () => {
+    await customerAddressRepository.createWithSeat(COMPANY, pickup, { openingHours: "7-15" });
+    await customerAddressRepository.createWithSeat(COMPANY, pickup, { isDefault: false });
+    expect(fake.state.siteUpdates).toEqual([]);
   });
 
   it("is not added for an address that is no Pickup or Delivery", async () => {

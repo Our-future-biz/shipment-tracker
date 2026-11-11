@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, boolean, index, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, boolean, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 import type { ContactRole } from "../interfaces/interfaces";
@@ -25,6 +25,8 @@ export const contactTable = pgTable(
     ...defaultTableIndexes("contact", table),
     tenantIndex("contact", table),
     index("contact_customer_id_idx").on(table.customerId),
+    // At most one live main contact per customer (making another the main one clears it first, in the same write).
+    uniqueIndex("contact_one_main_per_customer").on(table.customerId).where(sql`${table.isMain} AND ${table.deletedAt} IS NULL`),
     check("contact_role_check", sql`${table.role} IN ('Purchasing / Procurement', 'Customer Service', 'Logistics Manager', 'Warehouse', 'Finance / Accounting', 'Sales', 'Management', 'Owner', 'Dispatch / Operations', 'Claims', 'Pricing / Tariffs', 'Accounts payable')`),
   ],
 );

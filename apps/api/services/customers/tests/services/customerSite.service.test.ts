@@ -12,9 +12,8 @@ const customers = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
 const sites = vi.hoisted(() => ({
   findByCustomer: vi.fn(),
   createForCompany: vi.fn(),
-  clearDefaultFlag: vi.fn(),
   getByIdForCompany: vi.fn(),
-  updateForCompany: vi.fn(),
+  updateInCustomer: vi.fn(),
   softDeleteForCompany: vi.fn(),
   findByAddress: vi.fn(),
 }));
@@ -129,12 +128,14 @@ describe("adding a site", () => {
     ).rejects.toMatchObject({ code: "invalid_argument" });
   });
 
-  it("as the default clears the flag on the customer's other sites first", async () => {
+  // Changed: the flag used to be cleared by a call of its own before the write; now the address
+  // write clears it in its own transaction (customerAddress.repository syncSite).
+  it("as the default is made so in the address's write, which clears the flag on the customer's other sites", async () => {
     customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
     addresses.createWithSeat.mockResolvedValue(addressRow());
     sites.findByAddress.mockResolvedValue(siteRow({ isDefault: true }));
     await customerSiteService.create(COMPANY, "c1", { label: "X", postcode: "11000", isDefault: true });
-    expect(sites.clearDefaultFlag).toHaveBeenCalledWith("c1", COMPANY);
+    expect(addresses.createWithSeat).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ customerId: "c1" }), { isDefault: true });
   });
 });
 
@@ -143,21 +144,21 @@ describe("changing a site", () => {
     sites.getByIdForCompany.mockResolvedValue(null);
     await expect(customerSiteService.update("s1", COMPANY, { label: "X" })).rejects.toMatchObject({ code: "not_found" });
     expect(sites.getByIdForCompany).toHaveBeenCalledWith("s1", COMPANY);
-    expect(sites.updateForCompany).not.toHaveBeenCalled();
+    expect(sites.updateInCustomer).not.toHaveBeenCalled();
   });
 
   it("writes only the fields sent", async () => {
     sites.getByIdForCompany.mockResolvedValue(siteRow());
-    sites.updateForCompany.mockResolvedValue(siteRow({ label: "Dock B" }));
+    sites.updateInCustomer.mockResolvedValue(siteRow({ label: "Dock B" }));
     await customerSiteService.update("s1", COMPANY, { label: "Dock B" });
-    expect(sites.updateForCompany).toHaveBeenCalledWith("s1", COMPANY, { label: "Dock B" });
+    expect(sites.updateInCustomer).toHaveBeenCalledWith("s1", COMPANY, "c1", { label: "Dock B" });
   });
 
   it("checks a new postcode against the stored country", async () => {
     sites.getByIdForCompany.mockResolvedValue(siteRow({ country: "CZ" }));
-    sites.updateForCompany.mockResolvedValue(siteRow());
+    sites.updateInCustomer.mockResolvedValue(siteRow());
     await customerSiteService.update("s1", COMPANY, { postcode: "602 00" });
-    expect(sites.updateForCompany).toHaveBeenCalledWith("s1", COMPANY, { country: "CZ", postcode: "60200" });
+    expect(sites.updateInCustomer).toHaveBeenCalledWith("s1", COMPANY, "c1", { country: "CZ", postcode: "60200" });
     await expect(customerSiteService.update("s1", COMPANY, { postcode: "D-80331" })).rejects.toMatchObject({
       code: "invalid_argument",
     });
@@ -168,14 +169,15 @@ describe("changing a site", () => {
     await expect(customerSiteService.update("s1", COMPANY, { country: "CZ" })).rejects.toMatchObject({
       code: "invalid_argument",
     });
-    expect(sites.updateForCompany).not.toHaveBeenCalled();
+    expect(sites.updateInCustomer).not.toHaveBeenCalled();
   });
 
-  it("as the default clears the flag on its own customer's sites, not on a client-sent one", async () => {
+  // Changed: cleared in the write's own transaction (customerSite.repository updateInCustomer), not before it.
+  it("as the default clears the flag on its own customer's sites, not on a client-sent one, in the write itself", async () => {
     sites.getByIdForCompany.mockResolvedValue(siteRow({ customerId: "c1" }));
-    sites.updateForCompany.mockResolvedValue(siteRow({ isDefault: true }));
+    sites.updateInCustomer.mockResolvedValue(siteRow({ isDefault: true }));
     await customerSiteService.update("s1", COMPANY, { isDefault: true });
-    expect(sites.clearDefaultFlag).toHaveBeenCalledWith("c1", COMPANY);
+    expect(sites.updateInCustomer).toHaveBeenCalledWith("s1", COMPANY, "c1", { isDefault: true });
   });
 });
 
@@ -187,7 +189,7 @@ describe("changing a site of an address", () => {
     sites.findByAddress.mockResolvedValue(siteRow({ addressId: "a1", label: "Dock B" }));
     await customerSiteService.update("s1", COMPANY, { label: "Dock B", kind: "loading", openingHours: "6-14" });
     expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { label: "Dock B", types: ["Registered", "Pickup"] }, { openingHours: "6-14" });
-    expect(sites.updateForCompany).not.toHaveBeenCalled();
+    expect(sites.updateInCustomer).not.toHaveBeenCalled();
   });
 
   it("keeps the postcode as typed on the address, checked for the country", async () => {

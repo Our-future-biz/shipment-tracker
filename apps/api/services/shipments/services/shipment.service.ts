@@ -542,7 +542,7 @@ class ShipmentService {
   // in the auth service, which this database cannot join against; an unresolvable user must not
   // fail the write - the stamp just records the time without who.
   private async actorOf(userId: string): Promise<string> {
-    const email = await userEmailOf(userId);
+    const email = await userEmailOf(userId).catch(() => "");
     if (email) return email;
     try {
       return (await companyUsers()).find((u) => u.id === userId)?.email ?? "";
@@ -557,7 +557,7 @@ class ShipmentService {
   // that name fits. Empty when the owner is nobody, no user of the company now, or can't be told:
   // a name that is no user is never copied.
   private async quoteOwnerEmail(quote: QuoteOwner, users: UsersOnce): Promise<string> {
-    if (quote.ownerUserId) return userEmailOf(quote.ownerUserId);
+    if (quote.ownerUserId) return userEmailOf(quote.ownerUserId).catch(() => "");
     if (!quote.ownerName.trim()) return "";
     try {
       return matchUser(quote.ownerName, await users())?.email ?? "";
@@ -1115,7 +1115,7 @@ class ShipmentService {
 
   /** Whether this person may change the shipment's details (lib/shipmentEditRule). */
   async mayChangeDetails(shipment: { personInCharge: string; holidayCover: string }, userId: string, role: string): Promise<boolean> {
-    return isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId));
+    return isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId).catch(() => ""));
   }
 
   /** For the actions that aren't a field edit but change the shipment: its master job, releasing its BoL. */
