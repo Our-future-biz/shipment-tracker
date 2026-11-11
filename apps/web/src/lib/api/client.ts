@@ -587,6 +587,7 @@ export namespace customers {
             this.registrationLinkRevoke = this.registrationLinkRevoke.bind(this)
             this.registrationSettingsGet = this.registrationSettingsGet.bind(this)
             this.registrationSettingsSave = this.registrationSettingsSave.bind(this)
+            this.searchCustomers = this.searchCustomers.bind(this)
             this.supplierApprovalDecide = this.supplierApprovalDecide.bind(this)
             this.supplierApprovalList = this.supplierApprovalList.bind(this)
             this.supplierApprovalSeen = this.supplierApprovalSeen.bind(this)
@@ -1061,6 +1062,24 @@ export namespace customers {
         }
 
         /**
+         * The main search (the top bar) in the Customer Database: the newest live companies (customers
+         * and suppliers, every status) whose name, IČO, DIČ or city - or one of whose live contacts' name,
+         * e-mail or phone - hold every word typed, and how many match in all. Fewer than 2 characters
+         * give nothing.
+         */
+        public async searchCustomers(params: interfaces.SearchCustomersRequest): Promise<interfaces.SearchCustomersResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/customers`, undefined, {query})
+            return await resp.json() as interfaces.SearchCustomersResponse
+        }
+
+        /**
          * Managers and admins only. Declined, the company is deleted (a manager can take the decline back: below).
          */
         public async supplierApprovalDecide(id: string, params: controllers.SupplierApprovalDecideRequest): Promise<controllers.SupplierApprovalDecideResponse> {
@@ -1459,6 +1478,7 @@ export namespace invoicing {
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
             this.jobProfitReportGet = this.jobProfitReportGet.bind(this)
+            this.searchInvoices = this.searchInvoices.bind(this)
             this.sellingAmountRequestDecide = this.sellingAmountRequestDecide.bind(this)
             this.sellingAmountRequestForMe = this.sellingAmountRequestForMe.bind(this)
             this.sellingAmountRequestList = this.sellingAmountRequestList.bind(this)
@@ -1797,6 +1817,24 @@ export namespace invoicing {
             return await resp.json() as interfaces.JobProfitReport
         }
 
+        /**
+         * The main search (the top bar) in Invoicing: the company's issued invoices and credit notes whose
+         * number, customer (name, IČO) or job number - as printed on them - hold every word typed, newest
+         * issue date first, and how many match in all. Every signed-in role, as for the invoice list and
+         * the Invoicing queue. Fewer than 2 characters give nothing.
+         */
+        public async searchInvoices(params: interfaces.SearchInvoicesRequest): Promise<interfaces.SearchInvoicesResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/invoices`, undefined, {query})
+            return await resp.json() as interfaces.SearchInvoicesResponse
+        }
+
         public async sellingAmountRequestDecide(id: string, params: controllers.DecideAmountRequest): Promise<{
     request: interfaces.SellingAmountRequestItem
 }> {
@@ -1898,6 +1936,7 @@ export namespace quotes {
             this.salesQuoteWarehouseInquiryDecide = this.salesQuoteWarehouseInquiryDecide.bind(this)
             this.salesQuoteWarehouseInquiryList = this.salesQuoteWarehouseInquiryList.bind(this)
             this.salesQuoteWarehouseInquirySeen = this.salesQuoteWarehouseInquirySeen.bind(this)
+            this.searchQuotes = this.searchQuotes.bind(this)
         }
 
         /**
@@ -2282,6 +2321,24 @@ export namespace quotes {
 }): Promise<void> {
             await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/warehouse-inquiry/seen`, JSON.stringify(params))
         }
+
+        /**
+         * The main search (the top bar) in Sales: the newest sales quotes the Quotes list's search finds
+         * by these words (reference, customer, service type, direction, origin, destination, commodity,
+         * incoterm, owner, job number, status), and how many match in all. Fewer than 2 characters give
+         * nothing.
+         */
+        public async searchQuotes(params: interfaces.SearchQuotesRequest): Promise<interfaces.SearchQuotesResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/quotes`, undefined, {query})
+            return await resp.json() as interfaces.SearchQuotesResponse
+        }
     }
 }
 
@@ -2598,6 +2655,8 @@ export namespace shipments {
             this.publicImportInstructionsForm = this.publicImportInstructionsForm.bind(this)
             this.publicImportInstructionsSubmit = this.publicImportInstructionsSubmit.bind(this)
             this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
+            this.searchMasterJobs = this.searchMasterJobs.bind(this)
+            this.searchShipments = this.searchShipments.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
@@ -3218,6 +3277,41 @@ export namespace shipments {
             return await resp.json() as {
     status: interfaces.PublicShipmentStatus
 }
+        }
+
+        /**
+         * The main search (the top bar) in master jobs: the newest live master jobs of the company these
+         * words find - by MCZ number, master B/L, booking, vessel, voyage, shipping line, ports,
+         * container numbers and their houses' job numbers - and how many match in all. Fewer than 2
+         * characters give nothing.
+         */
+        public async searchMasterJobs(params: interfaces.SearchMasterJobsRequest): Promise<interfaces.SearchMasterJobsResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/master-jobs`, undefined, {query})
+            return await resp.json() as interfaces.SearchMasterJobsResponse
+        }
+
+        /**
+         * The main search (the top bar) in Shipments: the newest live shipments of the company that the
+         * Shipments list's search finds by these words, and how many match in all. Fewer than 2
+         * characters give nothing.
+         */
+        public async searchShipments(params: interfaces.SearchShipmentsRequest): Promise<interfaces.SearchShipmentsResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/shipments`, undefined, {query})
+            return await resp.json() as interfaces.SearchShipmentsResponse
         }
 
         public async shipmentCreate(params: controllers.ShipmentCreateRequest): Promise<controllers.ShipmentCreateResponse> {
@@ -17518,6 +17612,15 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -17535,15 +17638,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -19631,6 +19725,281 @@ export namespace interfaces {
              */
             canApproveMargin: boolean
         }
+    }
+
+    /**
+     * A company (customer or supplier) found by the main search.
+     */
+    export interface SearchCustomerItem {
+        id: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        /**
+         * As the customer list gives them, e.g. ["customer"] or ["haulier", "customer"].
+         */
+        roles: string[]
+
+        /**
+         * The first live contact the words found, when the company was found only through one of its
+         * contacts (by name, e-mail or phone); null when its own name, IČO, DIČ or city matched.
+         */
+        matchedContact: {
+            id: string
+            name: string
+            email: string
+        } | null
+    }
+
+    /**
+     * GET /search/customers: the typed text and how many rows to give.
+     */
+    export interface SearchCustomersRequest {
+        /**
+         * What was typed; fewer than 2 characters (trimmed) give no rows.
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchCustomersResponse {
+        /**
+         * The newest matching companies, at most `limit`.
+         */
+        items: SearchCustomerItem[]
+
+        /**
+         * How many companies match in all.
+         */
+        total: number
+    }
+
+    /**
+     * An issued tax document (invoice or credit note) found by the main search.
+     */
+    export interface SearchInvoiceItem {
+        id: string
+        number: string
+        /**
+         * invoice | credit_note
+         */
+        kind: string
+
+        /**
+         * issued | credited
+         */
+        status: string
+
+        /**
+         * The customer as printed on the document.
+         */
+        customerName: string
+
+        /**
+         * The shipment's job number as printed on the document.
+         */
+        jobNumber: string
+
+        shipmentId: string
+        /**
+         * YYYY-MM-DD
+         */
+        issueDate: string
+
+        /**
+         * Total with VAT, in the document's currency.
+         */
+        gross: number
+
+        currency: string
+    }
+
+    /**
+     * GET /search/invoices: the typed text and how many rows to give.
+     */
+    export interface SearchInvoicesRequest {
+        /**
+         * What was typed; fewer than 2 characters (trimmed) give no rows.
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchInvoicesResponse {
+        /**
+         * The matching documents, newest issue date first, at most `limit`.
+         */
+        items: SearchInvoiceItem[]
+
+        /**
+         * How many documents match in all.
+         */
+        total: number
+    }
+
+    /**
+     * A master job found by the main search.
+     */
+    export interface SearchMasterJobItem {
+        id: string
+        mczNumber: string
+        masterBolNumber: string
+        vessel: string
+        voyage: string
+        pol: string
+        pod: string
+        /**
+         * Its live house shipments.
+         */
+        shipmentCount: number
+    }
+
+    /**
+     * GET /search/master-jobs: the typed text and how many rows to give.
+     */
+    export interface SearchMasterJobsRequest {
+        /**
+         * What was typed; fewer than 2 characters (trimmed) give no rows.
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchMasterJobsResponse {
+        /**
+         * The newest matching master jobs, at most `limit`.
+         */
+        items: SearchMasterJobItem[]
+
+        /**
+         * How many master jobs match in all.
+         */
+        total: number
+    }
+
+    /**
+     * A sales quote found by the main search.
+     */
+    export interface SearchQuoteItem {
+        id: string
+        quoteNumber: string
+        customerName: string
+        customerId: string | null
+        /**
+         * The status as the Quotes list shows it: "expired" for a Quoted or Feedback quote whose validity has passed.
+         */
+        status: string
+
+        /**
+         * Where it loads: its port of loading, else its Origin.
+         */
+        pol: string
+
+        /**
+         * Where it discharges: its port of discharge, else its Destination.
+         */
+        pod: string
+
+        /**
+         * YYYY-MM-DD; null when not set.
+         */
+        validUntil: string | null
+
+        /**
+         * The owner user's e-mail; for an old quote not linked to a user, its owner text; "" for none.
+         */
+        ownerEmail: string
+    }
+
+    /**
+     * GET /search/quotes: the typed text and how many rows to give.
+     */
+    export interface SearchQuotesRequest {
+        /**
+         * What was typed; fewer than 2 characters (trimmed) give no rows.
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchQuotesResponse {
+        /**
+         * The newest matching quotes, at most `limit`.
+         */
+        items: SearchQuoteItem[]
+
+        /**
+         * How many quotes match in all.
+         */
+        total: number
+    }
+
+    /**
+     * A shipment found by the main search.
+     */
+    export interface SearchShipmentItem {
+        id: string
+        jobNumber: string
+        customer: string
+        customerId: string | null
+        pol: string
+        pod: string
+        status: string
+        tradeDirection: string
+        freightMode: string
+        /**
+         * Estimated departure, YYYY-MM-DD; null when not known.
+         */
+        etd: string | null
+
+        /**
+         * Estimated arrival, YYYY-MM-DD; null when not known.
+         */
+        eta: string | null
+    }
+
+    /**
+     * GET /search/shipments and GET /search/master-jobs: the typed text and how many rows to give.
+     */
+    export interface SearchShipmentsRequest {
+        /**
+         * What was typed; fewer than 2 characters (trimmed) give no rows.
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchShipmentsResponse {
+        /**
+         * The newest matching shipments, at most `limit`.
+         */
+        items: SearchShipmentItem[]
+
+        /**
+         * How many shipments match in all.
+         */
+        total: number
     }
 
     /**

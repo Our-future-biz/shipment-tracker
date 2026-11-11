@@ -1,23 +1,14 @@
 "use client";
 
-import { Dropdown, Input, type MenuProps } from "antd";
-import { LogoutOutlined, SearchOutlined, UserOutlined } from "@ant-design/icons";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Dropdown, type MenuProps } from "antd";
+import { LogoutOutlined, UserOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { GlobalSearch } from "./globalSearch/GlobalSearch";
 import { NotificationBell } from "./NotificationBell";
 import { CompanySwitcher } from "./CompanySwitcher";
 
 export function TopNav() {
   const { user, logout } = useAuth();
-  const router = useRouter();
-  const [q, setQ] = useState("");
-
-  const submitSearch = (value: string) => {
-    const trimmed = value.trim();
-    router.push(trimmed ? `/shipments?q=${encodeURIComponent(trimmed)}` : "/shipments");
-  };
-
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short",
     day: "numeric",
@@ -51,20 +42,9 @@ export function TopNav() {
 
   return (
     <header className="print:hidden bg-white border-b border-slate-200 flex items-center px-8 h-[70px] sticky top-0 z-[100]">
-      {/* Search */}
+      {/* The main search: everything in the app (GlobalSearch). */}
       <div className="flex-1 max-w-lg">
-        <Input
-          prefix={<SearchOutlined className="text-slate-400" />}
-          placeholder="Search shipments, jobs, customers..."
-          size="large"
-          allowClear
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            if (!e.target.value) submitSearch("");
-          }}
-          onPressEnter={() => submitSearch(q)}
-        />
+        <GlobalSearch />
       </div>
 
       <div className="flex items-center gap-3 ml-auto">

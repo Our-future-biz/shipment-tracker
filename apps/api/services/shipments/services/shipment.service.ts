@@ -46,6 +46,7 @@ import type {
   CustomsPriority,
   PalletType,
   AdrPackingGroup,
+  SearchShipmentsResponse,
 } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
@@ -714,6 +715,27 @@ class ShipmentService {
     return {
       pagination: { total: result.total, offset: filters.offset, limit: filters.limit },
       data: enriched,
+    };
+  }
+
+  /** The main search (the top bar): the newest live shipments the Shipments search finds, and how many in all. */
+  async searchMain(companyId: string, search: string, limit: number): Promise<SearchShipmentsResponse> {
+    const { rows, total } = await shipmentRepository.searchMain(companyId, search, limit);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        jobNumber: r.jobNumber,
+        customer: r.customer ?? "",
+        customerId: r.customerId ?? null,
+        pol: r.pol ?? "",
+        pod: r.pod ?? "",
+        status: r.status ?? "",
+        tradeDirection: r.tradeDirection ?? "",
+        freightMode: r.freightMode ?? "",
+        etd: r.etd ?? null,
+        eta: r.eta ?? null,
+      })),
+      total,
     };
   }
 

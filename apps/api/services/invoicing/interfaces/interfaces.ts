@@ -929,3 +929,40 @@ export interface SupplierCostsResponse {
   /** a haulier's approved Trucking invoices not yet paid, apart: their totals are with VAT */
   haulierInvoices: SupplierHaulierInvoices;
 }
+
+// ── Main search (the app-wide search in the top bar) ──────────────────────────
+
+/** GET /search/invoices: the typed text and how many rows to give. */
+export interface SearchInvoicesRequest {
+  /** What was typed; fewer than 2 characters (trimmed) give no rows. */
+  q: string & MaxLen<200>;
+  /** Rows to give: 5 when left out, 1 to 50. */
+  limit?: number;
+}
+
+/** An issued tax document (invoice or credit note) found by the main search. */
+export interface SearchInvoiceItem {
+  id: string;
+  number: string;
+  /** invoice | credit_note */
+  kind: string;
+  /** issued | credited */
+  status: string;
+  /** The customer as printed on the document. */
+  customerName: string;
+  /** The shipment's job number as printed on the document. */
+  jobNumber: string;
+  shipmentId: string;
+  /** YYYY-MM-DD */
+  issueDate: string;
+  /** Total with VAT, in the document's currency. */
+  gross: number;
+  currency: string;
+}
+
+export interface SearchInvoicesResponse {
+  /** The matching documents, newest issue date first, at most `limit`. */
+  items: SearchInvoiceItem[];
+  /** How many documents match in all. */
+  total: number;
+}

@@ -1,3 +1,4 @@
+import type { MaxLen } from "encore.dev/validate";
 import type { StoredFx } from "../lib/quoteFx";
 import type { ServiceLevelCode } from "../../trucking/interfaces/interfaces";
 // Plain interfaces for controllers. Never import Drizzle table types here.
@@ -532,4 +533,39 @@ export interface QuoteLinksNormalizeResult {
    * of the customer, as "name (customer)".
    */
   unmatched: { field: string; value: string; count: number }[];
+}
+
+// ── Main search (the app-wide search in the top bar) ──────────────────────────
+
+/** GET /search/quotes: the typed text and how many rows to give. */
+export interface SearchQuotesRequest {
+  /** What was typed; fewer than 2 characters (trimmed) give no rows. */
+  q: string & MaxLen<200>;
+  /** Rows to give: 5 when left out, 1 to 50. */
+  limit?: number;
+}
+
+/** A sales quote found by the main search. */
+export interface SearchQuoteItem {
+  id: string;
+  quoteNumber: string;
+  customerName: string;
+  customerId: string | null;
+  /** The status as the Quotes list shows it: "expired" for a Quoted or Feedback quote whose validity has passed. */
+  status: string;
+  /** Where it loads: its port of loading, else its Origin. */
+  pol: string;
+  /** Where it discharges: its port of discharge, else its Destination. */
+  pod: string;
+  /** YYYY-MM-DD; null when not set. */
+  validUntil: string | null;
+  /** The owner user's e-mail; for an old quote not linked to a user, its owner text; "" for none. */
+  ownerEmail: string;
+}
+
+export interface SearchQuotesResponse {
+  /** The newest matching quotes, at most `limit`. */
+  items: SearchQuoteItem[];
+  /** How many quotes match in all. */
+  total: number;
 }

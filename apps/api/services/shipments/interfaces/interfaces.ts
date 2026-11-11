@@ -1223,3 +1223,65 @@ export interface ShipmentTracking {
   ticks: TrackingTick[];
   taxDate: TrackingTaxDate;
 }
+
+// ── Main search (the app-wide search in the top bar) ──────────────────────────
+
+/** GET /search/shipments and GET /search/master-jobs: the typed text and how many rows to give. */
+export interface SearchShipmentsRequest {
+  /** What was typed; fewer than 2 characters (trimmed) give no rows. */
+  q: string & MaxLen<200>;
+  /** Rows to give: 5 when left out, 1 to 50. */
+  limit?: number;
+}
+
+/** A shipment found by the main search. */
+export interface SearchShipmentItem {
+  id: string;
+  jobNumber: string;
+  customer: string;
+  customerId: string | null;
+  pol: string;
+  pod: string;
+  status: string;
+  tradeDirection: string;
+  freightMode: string;
+  /** Estimated departure, YYYY-MM-DD; null when not known. */
+  etd: string | null;
+  /** Estimated arrival, YYYY-MM-DD; null when not known. */
+  eta: string | null;
+}
+
+export interface SearchShipmentsResponse {
+  /** The newest matching shipments, at most `limit`. */
+  items: SearchShipmentItem[];
+  /** How many shipments match in all. */
+  total: number;
+}
+
+/** GET /search/master-jobs: the typed text and how many rows to give. */
+export interface SearchMasterJobsRequest {
+  /** What was typed; fewer than 2 characters (trimmed) give no rows. */
+  q: string & MaxLen<200>;
+  /** Rows to give: 5 when left out, 1 to 50. */
+  limit?: number;
+}
+
+/** A master job found by the main search. */
+export interface SearchMasterJobItem {
+  id: string;
+  mczNumber: string;
+  masterBolNumber: string;
+  vessel: string;
+  voyage: string;
+  pol: string;
+  pod: string;
+  /** Its live house shipments. */
+  shipmentCount: number;
+}
+
+export interface SearchMasterJobsResponse {
+  /** The newest matching master jobs, at most `limit`. */
+  items: SearchMasterJobItem[];
+  /** How many master jobs match in all. */
+  total: number;
+}

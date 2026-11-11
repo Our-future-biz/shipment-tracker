@@ -31,6 +31,7 @@ import type {
   MasterJobInvoiceHouseItem,
   MasterJobShipmentItem,
   MasterJobDetail,
+  SearchMasterJobsResponse,
 } from "../interfaces/interfaces";
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
 import { dropSharesOfLeftShipments } from "../lib/masterJobCosts";
@@ -146,6 +147,25 @@ async function resolveParties(data: Record<string, unknown>): Promise<void> {
 const cargoItemOf = ({ stackability, ...cargo }: ReturnType<typeof houseCargo>) => ({ ...cargo, cargoStackability: stackability });
 
 class MasterJobService {
+  /** The main search (the top bar): the newest live master jobs these words find, with their house counts, and how many in all. */
+  async searchMain(companyId: string, search: string, limit: number): Promise<SearchMasterJobsResponse> {
+    const { rows, total } = await masterJobRepository.searchMain(companyId, search, limit);
+    const counts = await masterJobRepository.shipmentCounts(rows.map((r) => r.id), companyId);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        mczNumber: r.mczNumber,
+        masterBolNumber: r.masterBolNumber,
+        vessel: r.vessel,
+        voyage: r.voyage,
+        pol: r.pol,
+        pod: r.pod,
+        shipmentCount: counts.get(r.id) ?? 0,
+      })),
+      total,
+    };
+  }
+
   async list(companyId: string): Promise<MasterJobItem[]> {
     const rows = await masterJobRepository.listForCompany(companyId);
     const counts = await masterJobRepository.shipmentCounts(rows.map((r) => r.id), companyId);

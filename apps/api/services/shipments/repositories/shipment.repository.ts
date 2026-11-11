@@ -696,6 +696,39 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     return { data: rows, total: Number(total) };
   }
 
+  /**
+   * The main search (the top bar): the company's live shipments the Shipments search finds by
+   * these words (searchMatch over SEARCHED_TEXT), the newest `limit` of them and how many in all.
+   * The same company and deleted rules as listFiltered, which the Shipments list reads.
+   */
+  async searchMain(companyId: string, search: string, limit: number) {
+    const match = searchMatch(search);
+    if (!match) return { rows: [], total: 0 };
+    const where = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), match);
+    const [rows, [{ value: total }]] = await Promise.all([
+      this.db
+        .select({
+          id: shipmentTable.id,
+          jobNumber: shipmentTable.jobNumber,
+          customer: shipmentTable.customer,
+          customerId: shipmentTable.customerId,
+          pol: shipmentTable.pol,
+          pod: shipmentTable.pod,
+          status: shipmentTable.status,
+          tradeDirection: shipmentTable.tradeDirection,
+          freightMode: shipmentTable.freightMode,
+          etd: shipmentTable.estimatedDeparture,
+          eta: shipmentTable.estimatedArrival,
+        })
+        .from(shipmentTable)
+        .where(where)
+        .orderBy(desc(shipmentTable.createdAt), desc(shipmentTable.id))
+        .limit(limit),
+      this.db.select({ value: count() }).from(shipmentTable).where(where),
+    ]);
+    return { rows, total: Number(total) };
+  }
+
 
   /**
    * Counts for the Shipments overview tiles, computed in SQL over the whole

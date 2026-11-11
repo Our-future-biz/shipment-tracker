@@ -1,3 +1,5 @@
+import type { MaxLen } from "encore.dev/validate";
+
 // Plain interfaces for controllers. Never import Drizzle table types here —
 // Encore's parser cannot resolve the $inferSelect generic chain.
 
@@ -504,4 +506,37 @@ export interface CustomerCreditFacts {
   overdueCount: number;
   /** The due day of the oldest overdue invoice; null for none. */
   oldestOverdueDue: string | null;
+}
+
+// ── Main search (the app-wide search in the top bar) ──────────────────────────
+
+/** GET /search/customers: the typed text and how many rows to give. */
+export interface SearchCustomersRequest {
+  /** What was typed; fewer than 2 characters (trimmed) give no rows. */
+  q: string & MaxLen<200>;
+  /** Rows to give: 5 when left out, 1 to 50. */
+  limit?: number;
+}
+
+/** A company (customer or supplier) found by the main search. */
+export interface SearchCustomerItem {
+  id: string;
+  companyName: string;
+  ico: string;
+  city: string;
+  country: string;
+  /** As the customer list gives them, e.g. ["customer"] or ["haulier", "customer"]. */
+  roles: string[];
+  /**
+   * The first live contact the words found, when the company was found only through one of its
+   * contacts (by name, e-mail or phone); null when its own name, IČO, DIČ or city matched.
+   */
+  matchedContact: { id: string; name: string; email: string } | null;
+}
+
+export interface SearchCustomersResponse {
+  /** The newest matching companies, at most `limit`. */
+  items: SearchCustomerItem[];
+  /** How many companies match in all. */
+  total: number;
 }

@@ -19,6 +19,7 @@ import type {
   NewCustomerContact,
   RoleCompanyItem,
   RiskLevelOverride,
+  SearchCustomersResponse,
 } from "../interfaces/interfaces";
 import { isSupplier, SUPPLIER_ROLES } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
@@ -274,6 +275,29 @@ class CustomerService {
    * as the repository takes them. Filtered here, on the server, so they cover every company and not only the
    * newest 2000 the list holds.
    */
+  /**
+   * The main search (the top bar): the newest live companies these words find by their own fields
+   * or through a contact, and how many in all. A company found only through a contact names the
+   * first contact that matched.
+   */
+  async searchMain(companyId: string, search: string, limit: number): Promise<SearchCustomersResponse> {
+    const { rows, total } = await customerRepository.searchMain(companyId, search, limit);
+    const throughContact = rows.filter((r) => !r.ownMatch).map((r) => r.id);
+    const contacts = await customerRepository.firstMatchingContacts(companyId, throughContact, search);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        companyName: r.companyName,
+        ico: r.ico,
+        city: r.city,
+        country: r.country,
+        roles: r.roles,
+        matchedContact: r.ownMatch ? null : (contacts.get(r.id) ?? null),
+      })),
+      total,
+    };
+  }
+
   async listFor(
     companyId: string,
     userId: string,

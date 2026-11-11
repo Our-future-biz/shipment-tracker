@@ -1,10 +1,41 @@
-import { and, count, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { masterJobTable, type MasterJobRecord } from "../schemas/masterJob.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 import { masterJobNumberForms } from "../lib/masterJobNumber";
 import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
+import { masterJobContainerTable } from "../schemas/masterJobContainer.schema";
+import { containerTable } from "../schemas/container.schema";
+import { containsAllWords } from "../../../lib/db/textSearch";
+
+/**
+ * What the main search looks in for a master job: its MCZ number, master B/L and booking, the
+ * transport (vessel, voyage, shipping line), the ports, the containers on its master BL and on
+ * its live houses (a Full Load shows its houses' containers), and its houses' job numbers.
+ */
+const HOUSES = sql`${shipmentTable} WHERE ${shipmentTable.masterJobId} = ${masterJobTable.id} AND ${shipmentTable.deletedAt} IS NULL`;
+const MASTER_JOB_SEARCHED_TEXT: SQL[] = [
+  sql`${masterJobTable.mczNumber}`,
+  sql`${masterJobTable.masterBolNumber}`,
+  sql`${masterJobTable.bookingNumber}`,
+  sql`${masterJobTable.vessel}`,
+  sql`${masterJobTable.voyage}`,
+  sql`${masterJobTable.shippingLine}`,
+  sql`${masterJobTable.pol}`,
+  sql`${masterJobTable.pod}`,
+  sql`(SELECT string_agg(${masterJobContainerTable.containerNumber}, ' ') FROM ${masterJobContainerTable} WHERE ${masterJobContainerTable.masterJobId} = ${masterJobTable.id} AND ${masterJobContainerTable.deletedAt} IS NULL)`,
+  sql`(SELECT string_agg(${containerTable.containerNumber}, ' ') FROM ${containerTable} WHERE ${containerTable.deletedAt} IS NULL AND ${containerTable.shipmentId} IN (SELECT ${shipmentTable.id} FROM ${HOUSES}))`,
+  sql`(SELECT string_agg(${shipmentTable.jobNumber}, ' ') FROM ${HOUSES})`,
+];
+
+// A word typed as an MCZ reference also finds the job by its number, whatever its letters are now
+// (the letters follow the Load Type): mcz00000007 finds MCZCONSOL00000007. Digits still being
+// typed find the numbers they start.
+const sameMczNumber = (word: string): SQL | undefined => {
+  const digits = /^mcz(?:project|consol|full)?([0-9]+)$/.exec(word)?.[1];
+  return digits === undefined ? undefined : sql`substring(${masterJobTable.mczNumber} from '^MCZ[A-Z]*([0-9]+)$') LIKE ${`${digits}%`}`;
+};
 
 class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
   constructor() {
@@ -29,6 +60,22 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
       const [created] = await tx.insert(masterJobTable).values({ companyId, mczNumber, createdBy }).returning();
       return created!;
     });
+  }
+
+  /**
+   * The main search (the top bar): the company's live master jobs these words find (every word
+   * somewhere in MASTER_JOB_SEARCHED_TEXT), the newest `limit` and how many in all - the same
+   * company and deleted rules as the master job list (listForCompany).
+   */
+  async searchMain(companyId: string, search: string, limit: number): Promise<{ rows: MasterJobRecord[]; total: number }> {
+    const match = containsAllWords(MASTER_JOB_SEARCHED_TEXT, search, sameMczNumber);
+    if (!match) return { rows: [], total: 0 };
+    const where = and(eq(masterJobTable.companyId, companyId), isNull(masterJobTable.deletedAt), match);
+    const [rows, [{ value: total }]] = await Promise.all([
+      this.db.select().from(masterJobTable).where(where).orderBy(desc(masterJobTable.createdAt), desc(masterJobTable.id)).limit(limit),
+      this.db.select({ value: count() }).from(masterJobTable).where(where),
+    ]);
+    return { rows, total: Number(total) };
   }
 
   /** Live shipments per master job, for the given ids. */

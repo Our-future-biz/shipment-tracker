@@ -31,6 +31,7 @@ import type {
   InvoicePartyItem,
   InvoicePreviewItem,
   QueueView,
+  SearchInvoicesResponse,
 } from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
@@ -764,6 +765,12 @@ class InvoiceDocumentService {
       };
     });
     return { queue, counts: { all, toBill, notInvoiced, invoiced, unbilledArrivals }, truncated: total > listed.length };
+  }
+
+  /** The main search (the top bar): the tax documents these words find, newest issue date first, and how many in all. */
+  async searchMain(companyId: string, search: string, limit: number): Promise<SearchInvoicesResponse> {
+    const { rows, total } = await invoiceRepository.searchMain(companyId, search, limit);
+    return { items: rows.map((r) => ({ ...r, gross: Number(r.gross) })), total };
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {

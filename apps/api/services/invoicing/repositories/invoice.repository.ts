@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import {
@@ -46,6 +47,41 @@ const openInvoice = (companyId: string) =>
 class InvoiceRepository extends TenantRepository<typeof t> {
   constructor() {
     super(db, t, "invoice");
+  }
+
+  /**
+   * The main search (the top bar): the company's live tax documents whose number, customer (name,
+   * IČO) or job number - as printed on them - hold every word typed, the newest issue date first
+   * (`limit` of them), and how many match in all.
+   */
+  async searchMain(companyId: string, search: string, limit: number) {
+    const match = containsAllWords(
+      [t.number, sql`${t.customer}->>'companyName'`, sql`${t.customer}->>'ico'`, sql`${t.shipment}->>'jobNumber'`],
+      search,
+    );
+    if (!match) return { rows: [], total: 0 };
+    const where = and(eq(t.companyId, companyId), isNull(t.deletedAt), match);
+    const [rows, [{ value: total }]] = await Promise.all([
+      this.db
+        .select({
+          id: t.id,
+          number: t.number,
+          kind: t.kind,
+          status: t.status,
+          customerName: sql<string>`coalesce(${t.customer}->>'companyName', '')`,
+          jobNumber: sql<string>`coalesce(${t.shipment}->>'jobNumber', '')`,
+          shipmentId: t.shipmentId,
+          issueDate: t.issueDate,
+          gross: t.gross,
+          currency: t.currency,
+        })
+        .from(t)
+        .where(where)
+        .orderBy(desc(t.issueDate), desc(t.createdAt), desc(t.id))
+        .limit(limit),
+      this.db.select({ value: count() }).from(t).where(where),
+    ]);
+    return { rows, total: Number(total) };
   }
 
   async listByShipment(shipmentId: string, companyId: string): Promise<InvoiceRecord[]> {

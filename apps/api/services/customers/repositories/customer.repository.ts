@@ -1,4 +1,4 @@
-import { and, arrayContains, arrayOverlaps, asc, count, eq, getTableColumns, gte, inArray, desc, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, arrayContains, arrayOverlaps, asc, count, eq, exists, getTableColumns, gte, inArray, desc, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -41,6 +41,22 @@ const LIST_COLUMNS = {
 };
 
 /** The companies of a view of the list (and of its count): customers have the customer role, suppliers any other. */
+/** What the Customer Database list searches in a company's own fields (listFiltered). */
+const CUSTOMER_SEARCHED_TEXT = [customerTable.companyName, customerTable.ico, customerTable.dic, customerTable.city];
+/** What the main search looks in for a contact of a company. */
+const CONTACT_SEARCHED_TEXT = [contactTable.name, contactTable.email, contactTable.phone];
+
+/** A company the main search found, and whether its own fields matched (else one of its contacts did). */
+export interface CustomerSearchRow {
+  id: string;
+  companyName: string;
+  ico: string;
+  city: string;
+  country: string;
+  roles: CustomerRole[];
+  ownMatch: boolean;
+}
+
 export const kindClause = (kind: CustomerListKind) =>
   kind === "customers" ? arrayContains(customerTable.roles, ["customer"]) : arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES]);
 
@@ -267,6 +283,60 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       this.db.select({ value: count() }).from(customerTable).where(where),
     ]);
     return { rows, total: Number(total) };
+  }
+
+  /**
+   * The main search (the top bar): the company's live companies - every status, customers and
+   * suppliers alike, as the Customer Database list without filters - whose name, IČO, DIČ or city
+   * hold every word typed, or one of whose live contacts holds them all in its name, e-mail or
+   * phone. The newest `limit` and how many match in all.
+   */
+  async searchMain(companyId: string, search: string, limit: number): Promise<{ rows: CustomerSearchRow[]; total: number }> {
+    const own = containsAllWords(CUSTOMER_SEARCHED_TEXT, search);
+    const contact = containsAllWords(CONTACT_SEARCHED_TEXT, search);
+    if (!own || !contact) return { rows: [], total: 0 };
+    const throughContact = exists(
+      this.db
+        .select({ one: sql`1` })
+        .from(contactTable)
+        .where(and(eq(contactTable.customerId, customerTable.id), eq(contactTable.companyId, companyId), isNull(contactTable.deletedAt), contact)),
+    );
+    const where = and(eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), or(own, throughContact));
+    const [rows, [{ value: total }]] = await Promise.all([
+      this.db
+        .select({
+          id: customerTable.id,
+          companyName: customerTable.companyName,
+          ico: customerTable.ico,
+          city: customerTable.city,
+          country: customerTable.country,
+          roles: customerTable.roles,
+          ownMatch: sql<boolean>`coalesce(${own}, false)`.mapWith(Boolean),
+        })
+        .from(customerTable)
+        .where(where)
+        .orderBy(desc(customerTable.createdAt), desc(customerTable.id))
+        .limit(limit),
+      this.db.select({ value: count() }).from(customerTable).where(where),
+    ]);
+    return { rows, total: Number(total) };
+  }
+
+  /**
+   * For the main search: of these companies' live contacts, the first (the main contact first, then
+   * the oldest) whose name, e-mail or phone hold every word typed, by company id.
+   */
+  async firstMatchingContacts(companyId: string, customerIds: string[], search: string): Promise<Map<string, { id: string; name: string; email: string }>> {
+    const contact = containsAllWords(CONTACT_SEARCHED_TEXT, search);
+    if (!contact || !customerIds.length) return new Map();
+    const rows = await this.db
+      .select({ id: contactTable.id, customerId: contactTable.customerId, name: contactTable.name, email: contactTable.email })
+      .from(contactTable)
+      .where(and(eq(contactTable.companyId, companyId), inArray(contactTable.customerId, customerIds), isNull(contactTable.deletedAt), contact))
+      .orderBy(desc(contactTable.isMain), asc(contactTable.createdAt), asc(contactTable.id));
+    const first = new Map<string, { id: string; name: string; email: string }>();
+    for (const r of rows) if (!first.has(r.customerId)) first.set(r.customerId, { id: r.id, name: r.name, email: r.email });
+    return first;
   }
 
   /**

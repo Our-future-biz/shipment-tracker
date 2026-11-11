@@ -22,6 +22,7 @@ import type {
   SalesQuoteItem,
   QuoteWarehouseInquiry,
   QuoteWarehouseInquiryItem,
+  SearchQuotesResponse,
 } from "../interfaces/interfaces";
 import { quoteAttachmentRepository } from "../repositories/quoteAttachment.repository";
 import { quoteCommentRepository } from "../repositories/quoteComment.repository";
@@ -558,6 +559,43 @@ class SalesQuoteService {
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
       data: rows.map((row) => toItem(row, people.emails, actor, at, margins, customerStates)),
+    };
+  }
+
+  /**
+   * The main search (the top bar): the newest quotes the Quotes list's search finds by these words
+   * - the same quotes the list holds for this user, read the same way - and how many in all.
+   */
+  async searchMain(actor: Actor, search: string, limit: number): Promise<SearchQuotesResponse> {
+    const filter = filterOf(actor, { search });
+    if (!filter.search?.length) return { items: [], total: 0 };
+    await this.catchUp(actor.companyID);
+    const at = new Date();
+    const people = await companyPeople(actor);
+    const { rows, total } = await salesQuoteRepository.list(
+      actor.companyID,
+      filter,
+      { limit, offset: 0, sortBy: "createdAt", sortDirection: "desc" },
+      { today: businessDay(at), dueBefore: followUpDueBefore(at) },
+      people.users,
+    );
+    return {
+      items: rows.map((row) => {
+        const item = toItem(row, people.emails, actor, at);
+        const data = isPlainObject(row.data) ? row.data : {};
+        return {
+          id: item.id,
+          quoteNumber: item.quoteNumber,
+          customerName: docText(data, "customerName"),
+          customerId: item.customerId,
+          status: item.effectiveStatus,
+          pol: docText(data, "pol") || docText(data, "origin"),
+          pod: docText(data, "pod") || docText(data, "destination"),
+          validUntil: item.validUntil,
+          ownerEmail: item.ownerName ?? "",
+        };
+      }),
+      total,
     };
   }
 
