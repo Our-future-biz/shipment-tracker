@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
-import { gateKeys, warehouseRecordKeys } from "./warehouseKeys";
+import { gateKeys, invalidateAfterGateEvent, warehouseRecordKeys } from "./warehouseKeys";
 
 export type WarehouseContainer = interfaces.WarehouseContainerItem;
 export type DockSlot = interfaces.WarehouseDockSlotItem;
@@ -172,8 +172,8 @@ export const containerKey = (id: string) => [...CONTAINERS_KEY, id];
 /**
  * One container with its houses: the stuffing plan (export) or the stripping tally (import), its
  * stamps and its log. Every action answers with the container as it is now (written into the
- * cache); the containers list, the report figures and the gate log are read again, since the
- * houses' lifecycles change with it.
+ * cache); the containers list, the gate log, stock, bonded and the report figures are read again,
+ * since the houses' lifecycles change with it.
  */
 export const useWarehouseContainer = (id: string | undefined) => {
   const queryClient = useQueryClient();
@@ -182,11 +182,11 @@ export const useWarehouseContainer = (id: string | undefined) => {
     queryFn: async () => (await w.warehouseContainerGet(id!)).container,
     enabled: !!id,
   });
+  // The server builds its houses' stock lines and bonded entries again on each action (tally,
+  // stamps, stuffed marks, their voids), so those lists are read again as after a gate event.
   const onContainer = (c: WarehouseContainer) => {
     queryClient.setQueryData(containerKey(c.id), c);
-    queryClient.invalidateQueries({ queryKey: CONTAINERS_KEY, exact: true });
-    queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.reportSummary() });
-    queryClient.invalidateQueries({ queryKey: gateKeys.all });
+    void invalidateAfterGateEvent(queryClient);
   };
   const withContainer = <R extends { container: WarehouseContainer }>(res: R) => {
     onContainer(res.container);

@@ -18,6 +18,7 @@ import { freeTimeText, storageHint } from "@/app/warehouse-concept/_lib/storageT
 import { CustomsDeadlineChip } from "@/app/warehouse-concept/_lib/customsDeadline";
 import { movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock";
 import { dockSlotText } from "@/app/warehouse-concept/_lib/worklist";
+import { missingRecordText } from "@/app/warehouse-concept/_lib/loadFailure";
 import { errorMessage, hasAnyStamp, hasSurvey, isManager, nf, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
 import { cargoLeg, gateSteps, isOutbound, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
 import { PrintLabelsModal } from "../PrintLabelsModal";
@@ -205,6 +206,7 @@ export function GateJobView({ id }: { id: string }) {
   const {
     movement: m,
     isLoading,
+    error,
     update,
     stamp,
     requestRelease,
@@ -245,7 +247,7 @@ export function GateJobView({ id }: { id: string }) {
   if (!m) {
     return (
       <div className="p-10 text-center text-slate-500">
-        Movement not found.{" "}
+        {missingRecordText(error, "movement", "Movement not found.")}{" "}
         <Link href={GATE_LOG_HREF} className={LINK}>
           Back to Gate Log
         </Link>
@@ -662,7 +664,11 @@ export function GateJobView({ id }: { id: string }) {
           update
             .mutateAsync({ ...linkChange!, linkChangeReason: reason })
             .then(() => setLinkChange(null))
-            .catch((e) => toast.error(errorMessage(e, "Failed to save")))
+            .catch((e) => {
+              toast.error(errorMessage(e, "Failed to save"));
+              // Rethrown so the dialog stays open with the reason typed (ReasonModal).
+              throw e;
+            })
         }
       />
       <ReasonModal

@@ -15,7 +15,7 @@ import { HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 // gate "No open exceptions" is Blocked and the WH release is refused, unless a supervisor
 // overrides (the override wins). Any user resolves an exception with a note; who and when are logged.
 
-/** Must match the API's EXCEPTION_GATE (apps/api/services/warehouse/services/osd.ts). */
+/** Must match the API's EXCEPTION_GATE (apps/api/services/warehouseConcept/services/osd.ts). */
 export const EXCEPTION_GATE = "No open exceptions";
 export const EXCEPTION_TYPES = ["Damaged", "Short", "Over"] as const;
 const TYPE_TONE = { Damaged: "r", Short: "a", Over: "b" } as const;

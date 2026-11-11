@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { declaredTotals, EMPTY_LINE, lineInvalid, linesTotals, parseLines, pctText, reweighVariance, serializeLines, toNum, variance, wm } from "./cargoCompare";
+import { copiedCargoFigures, declaredTotals, EMPTY_LINE, lineInvalid, linesTotals, parseLines, pctText, reweighVariance, serializeLines, toNum, variance, wm } from "./cargoCompare";
 
 const line = (pieces: string, l: string, w: string, h: string, kg: string) => ({ pieces, lengthCm: l, widthCm: w, heightCm: h, weightPerPcKg: kg });
 
@@ -58,6 +58,20 @@ describe("declared", () => {
   });
   it("leaves the shipment's own total volume first", () => {
     expect(declaredTotals({ pcs: "", totalWeightTons: "", totalVolumeCbm: "3", cargoDimensions: [{ ...line("4", "", "", "", "250"), volumePerPcM3: "0.6" }] })?.cbm).toBe(3);
+  });
+});
+
+describe("copied from a job", () => {
+  it("reads pieces with thousands separators and a weight with a decimal comma", () => {
+    expect(copiedCargoFigures({ pcs: "1,200", totalWeightTons: "4,2", totalVolumeCbm: "9,6" })).toEqual({ colli: 1200, weightKg: 4200, measureCbm: 9.6 });
+  });
+
+  it("keeps the kg to the gram, as the server's import does", () => {
+    expect(copiedCargoFigures({ pcs: "3", totalWeightTons: "1.2345", totalVolumeCbm: "2.5" })).toEqual({ colli: 3, weightKg: 1234.5, measureCbm: 2.5 });
+  });
+
+  it("takes nothing declared as 0", () => {
+    expect(copiedCargoFigures({ pcs: "", totalWeightTons: null, totalVolumeCbm: null })).toEqual({ colli: 0, weightKg: 0, measureCbm: 0 });
   });
 });
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Select, Table, Tooltip } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useImportMasterJobDetails, useImportMasterJobs, useImportShipmentSearch } from "@/hooks/useWarehouseImport";
+import { useDebounced } from "@/hooks/useDebounced";
 import { formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "../_lib/glossary";
@@ -36,15 +37,6 @@ export function ImportOutcomeTag({ result }: { result: ImportResult }) {
 }
 
 const PAGE = 200;
-
-function useDebounced<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
 
 /**
  * Picks shipments to bring into the warehouse, each becoming its own position linked to the

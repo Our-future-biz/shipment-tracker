@@ -15,7 +15,7 @@ import { errorMessage, isManager } from "../gate-log/_lib/gate";
 export function WarehouseTaskDetailContent() {
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
-  const { movements, isLoading } = useGateLog();
+  const { movements, isLoading, isError } = useGateLog();
   const movementId = movements.find((x) => x.warehouseTaskId === taskId)?.id;
   const { user } = useAuth();
   const toast = useToast();
@@ -50,6 +50,17 @@ export function WarehouseTaskDetailContent() {
     return (
       <div className="flex justify-center p-20">
         <Spin size="large" />
+      </div>
+    );
+  }
+  // A Gate Log that could not be read says nothing about this position: no "no job yet", no repair.
+  if (isError) {
+    return (
+      <div className="p-10 text-center text-slate-500">
+        Could not load the Gate Log — reload the page.{" "}
+        <Link href="/warehouse-concept" className={LINK}>
+          Back to Warehouse
+        </Link>
       </div>
     );
   }

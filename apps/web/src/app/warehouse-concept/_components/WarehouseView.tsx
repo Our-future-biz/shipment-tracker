@@ -31,6 +31,7 @@ import { freeTimeSort, freeTimeText, freeTimeTone, storageHint } from "../_lib/s
 import { customsChipText, customsClockSort, movementCustomsClock } from "../_lib/customsClock";
 import { CustomsDeadlineChip } from "../_lib/customsDeadline";
 import { confirmLeave } from "../_lib/useUnsavedGuard";
+import { copiedCargoFigures } from "../_lib/cargoCompare";
 import { ContainersTab } from "./tabs/ContainersTab";
 import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
@@ -43,7 +44,7 @@ import { positionRemeasurementHref } from "./remeasurementLinks";
 import { reportBulk, runBulk } from "./tabs/shared";
 import { LifecycleChip } from "./LifecycleStrip";
 import { LIFECYCLE_VALUES, lifecycleText, stageOrder } from "../_lib/lifecycle";
-import { BTN, BTN_PRIMARY, BTN_SM, EMPTY, HINT, KPI_VALUE, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, BTN_SM, CHIP, CHIP_ON, EMPTY, HINT, KPI_VALUE, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 
 // The Warehouse module works with its own data: a position (WCZ reference) and the record
 // on its gate movement. "Create new" either copies job or quote values in once (a position
@@ -412,11 +413,7 @@ function QuickChips({ active, counts, onSelect }: { active: ChipId | null; count
               type="button"
               aria-pressed={on}
               onClick={() => onSelect(on ? null : c.id)}
-              className={[
-                // The look of the app's pill toggles (PillTabs).
-                "inline-flex items-center gap-1.5 rounded-lg border px-3 h-8 text-[13px] font-medium transition-colors cursor-pointer",
-                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-              ].join(" ")}
+              className={`${CHIP} ${on ? CHIP_ON : ""}`}
             >
               {c.label}
               <span className={`tabular-nums font-semibold ${c.danger && n > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-500"}`}>{n}</span>
@@ -448,15 +445,15 @@ export const WarehouseView = () => {
     // Unsaved edits (Remeasurement / Release) are not dropped without asking.
     if (!confirmLeave()) return;
     const params = new URLSearchParams(searchParams.toString());
-    for (const key of ["shipment", "position", "sub", "bubble", "load", "archived", "view"]) params.delete(key);
+    for (const key of ["shipment", "position", "sub", "bubble", "load", "archived", "view", "day", "yard", "status", "customs", "closed", "waiting"]) params.delete(key);
     if (tab === "positions") params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const { tasks, isLoading: tasksLoading, deleteTask } = useWarehouse();
-  const { movements, isLoading: movementsLoading } = useGateLog();
+  const { tasks, isLoading: tasksLoading, isError: tasksError, deleteTask } = useWarehouse();
+  const { movements, isLoading: movementsLoading, isError: movementsError } = useGateLog();
   const [createOpen, setCreateOpen] = useState(false);
   // Read me lives in a help drawer; an old ?tab=readme link opens it on Positions.
   // Read from the URL on every render, so a ?tab=readme link opens it while the page is mounted too.
@@ -624,7 +621,13 @@ export const WarehouseView = () => {
           // v2: saved layouts reset once so the Lifecycle and Container columns appear.
           storageKey="warehouse:positions:v2"
           exportFilePrefix="warehouse"
-          emptyText={tasks.length ? "No positions match this filter." : "No positions in the warehouse yet."}
+          emptyText={
+            tasksError || movementsError
+              ? "Could not load the warehouse — reload the page."
+              : tasks.length
+                ? "No positions match this filter."
+                : "No positions in the warehouse yet."
+          }
           resetKey={`${activeBubble?.id ?? ""}|${activeChip ?? ""}|${load ?? ""}`}
           actions={
             <>
@@ -722,11 +725,6 @@ const packageType = (t: string | undefined): string => (t === "Pallets" ? "Palle
 
 type ShipmentItem = interfaces.ShipmentItem;
 
-const num = (v: string | null | undefined) => {
-  const n = Number(v);
-  return v && isFinite(n) ? n : undefined;
-};
-
 // Values a new position takes over from a shipment job — a copy only, nothing stays linked.
 // The person in charge comes along only when it is a user's e-mail (the API takes nothing else).
 const fromShipment = (sh: ShipmentItem, users: readonly PickableUser[]): Partial<NewPositionValues> => ({
@@ -738,9 +736,7 @@ const fromShipment = (sh: ShipmentItem, users: readonly PickableUser[]): Partial
   loadType: sh.loadType || undefined,
   commodity: sh.cargoDescription || undefined,
   packing: sh.typeOfPackages || undefined,
-  colli: num(sh.pcs) ?? 0,
-  weightKg: num(sh.totalWeightTons) != null ? Math.round(num(sh.totalWeightTons)! * 1000) : 0,
-  measureCbm: num(sh.totalVolumeCbm) ?? 0,
+  ...copiedCargoFigures(sh),
   shipmentOwner: userByEmail(sh.personInCharge, users)?.email || undefined,
   customsStatus: asGateCustomsStatus(sh.customsStatus),
   jobNumber: sh.jobNumber || undefined,

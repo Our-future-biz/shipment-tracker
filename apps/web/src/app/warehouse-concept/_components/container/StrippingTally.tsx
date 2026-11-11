@@ -8,6 +8,7 @@ import { DeleteOutlined, DownOutlined } from "@ant-design/icons";
 import { useGateLog, useCreateGateException } from "@/hooks/useGateLog";
 import type { useWarehouseContainer, WarehouseContainer, ContainerHouse } from "@/hooks/useWarehouseRecords";
 import { useToast } from "@/lib/toast";
+import { uuid } from "@/lib/uuid";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { TALLY_CONDITIONS, TALLY_LABEL, TALLY_TONE, openHouses, planCandidates, strippingComplete, tallyExempt, tallyHouses } from "@/app/warehouse-concept/_lib/containerPlan";
@@ -42,7 +43,8 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
   const [reasonFor, setReasonFor] = useState<{ h: ContainerHouse; outcome: "short" | "not_arrived" } | null>(null);
   const [voidFor, setVoidFor] = useState<ContainerHouse | null>(null);
   const [reweighFor, setReweighFor] = useState<ContainerHouse | null>(null);
-  const [suggestion, setSuggestion] = useState<{ h: ContainerHouse; type: "Short" | "Over"; pieces: number } | null>(null);
+  // `requestId` is sent with the exception, so recording the same suggestion twice adds it once.
+  const [suggestion, setSuggestion] = useState<{ h: ContainerHouse; type: "Short" | "Over"; pieces: number; requestId: string } | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const gone = !!c.gateOutAt;
 
@@ -66,7 +68,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
       if (res.outcome !== "done") toast.info(res.notice);
       else if (outcome === "received") toast.success(`${ref} ticked off — received; its shipment gets the received date`);
       else toast.success(`${ref} marked ${TALLY_LABEL[outcome]!.toLowerCase()} — logged`);
-      if (res.suggestException) setSuggestion({ h, ...res.suggestException });
+      if (res.suggestException) setSuggestion({ h, ...res.suggestException, requestId: uuid() });
       setDrafts((all) => {
         const next = { ...all };
         delete next[h.movementId];
@@ -79,11 +81,18 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
   };
 
   const recordException = async () => {
-    if (!suggestion) return;
+    if (!suggestion || createException.isPending) return;
     try {
       await createException.mutateAsync({
         movementId: suggestion.h.movementId,
-        exception: { type: suggestion.type, pieces: suggestion.pieces, container: c.number, source: "tally", note: `Found at the stripping tally of container ${c.number}` },
+        exception: {
+          type: suggestion.type,
+          pieces: suggestion.pieces,
+          container: c.number,
+          source: "tally",
+          note: `Found at the stripping tally of container ${c.number}`,
+          clientRequestId: suggestion.requestId,
+        },
       });
       toast.success(`${suggestion.type} recorded on ${suggestion.h.positionRef || suggestion.h.gateRef} — the cargo is on hold until it is resolved`);
       setSuggestion(null);
@@ -109,7 +118,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
           description="Record it as an exception? While it is open the cargo is on hold."
           action={
             <div className="flex flex-col gap-1.5">
-              <button type="button" className={btnPrimary} onClick={recordException}>
+              <button type="button" className={btnPrimary} onClick={recordException} disabled={createException.isPending}>
                 Record {suggestion.type.toLowerCase()} — {suggestion.pieces} pc{suggestion.pieces === 1 ? "" : "s"}
               </button>
               <button type="button" className={btnDefault} onClick={() => setSuggestion(null)}>

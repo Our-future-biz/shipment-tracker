@@ -64,7 +64,7 @@ describe("order and what may be sent", () => {
     q = enqueue(q, b);
     q = enqueue(q, a);
     expect(q.map((i) => i.id)).toEqual([a.id, b.id]);
-    expect(nextSendable(q, NOW, "u1")?.id).toBe(a.id);
+    expect(nextSendable(q, NOW, "u1", null)?.id).toBe(a.id);
   });
 
   it("holds a position's later items behind one that failed, and lets other positions go on", () => {
@@ -72,18 +72,47 @@ describe("order and what may be sent", () => {
     const b = item({ label: "Draft receipt", payload: { kind: "expDraft" } } as Partial<QueueItem>);
     const c = item({ movementId: "m2" });
     const q = [a, b, c];
-    expect(nextSendable(q, NOW, "u1")?.id).toBe(c.id);
-    expect(itemStatus(q, b, NOW, "u1")).toMatchObject({ state: "blocked" });
-    expect(itemStatus(q, a, NOW, "u1")).toEqual({ state: "failed", why: "Stamp Gate-in first" });
+    expect(nextSendable(q, NOW, "u1", null)?.id).toBe(c.id);
+    expect(itemStatus(q, b, NOW, "u1", null)).toMatchObject({ state: "blocked" });
+    expect(itemStatus(q, a, NOW, "u1", null)).toEqual({ state: "failed", why: "Stamp Gate-in first" });
     // Try again: the failed one is first in line again.
-    expect(nextSendable(retryItem(q, a.id), NOW, "u1")?.id).toBe(a.id);
+    expect(nextSendable(retryItem(q, a.id), NOW, "u1", null)?.id).toBe(a.id);
   });
 
   it("never sends another user's items, and says who must sign in", () => {
     const a = item({ userId: "u2", userName: "Petr" });
-    expect(nextSendable([a], NOW, "u1")).toBeUndefined();
-    expect(itemStatus([a], a, NOW, "u1")).toEqual({ state: "held_user", why: "Waiting for Petr to sign in" });
-    expect(nextSendable([a], NOW, "u2")?.id).toBe(a.id);
+    expect(nextSendable([a], NOW, "u1", null)).toBeUndefined();
+    expect(itemStatus([a], a, NOW, "u1", null)).toEqual({ state: "held_user", why: "Waiting for Petr to sign in" });
+    expect(nextSendable([a], NOW, "u2", null)?.id).toBe(a.id);
+  });
+
+  it("sends an item only while the page works as the company it was made as", () => {
+    const asA = item({ actingCompanyId: "company-a" });
+    const own = item({ movementId: "m2", actingCompanyId: null });
+    const why = "Recorded while working as another company — switch back to it to send";
+    // Working as company B: neither is sent, each says why.
+    expect(nextSendable([asA, own], NOW, "u1", "company-b")).toBeUndefined();
+    expect(itemStatus([asA, own], asA, NOW, "u1", "company-b")).toEqual({ state: "held_company", why });
+    expect(itemStatus([asA, own], own, NOW, "u1", "company-b")).toEqual({ state: "held_company", why });
+    // Back as company A, then as the user's own company.
+    expect(nextSendable([asA, own], NOW, "u1", "company-a")?.id).toBe(asA.id);
+    expect(nextSendable([asA, own], NOW, "u1", null)?.id).toBe(own.id);
+  });
+
+  it("reads an item queued before the company was kept as made in the user's own company", () => {
+    const before = item();
+    expect(before).not.toHaveProperty("actingCompanyId");
+    expect(nextSendable([before], NOW, "u1", null)?.id).toBe(before.id);
+    expect(itemStatus([before], before, NOW, "u1", "company-a").state).toBe("held_company");
+  });
+
+  it("does not offer to retry or discard another company's failed or too old item here", () => {
+    // Either would go to this company: a retry is refused as not found, the lost-write note lands there.
+    const failed = item({ actingCompanyId: "company-a", state: "failed", error: "Refused" });
+    const old = item({ movementId: "m2", actingCompanyId: "company-a", recordedAt: minutesAgo(13 * 60) });
+    expect(itemStatus([failed, old], failed, NOW, "u1", null).state).toBe("held_company");
+    expect(itemStatus([failed, old], old, NOW, "u1", null).state).toBe("held_company");
+    expect(itemStatus([failed, old], failed, NOW, "u1", "company-a")).toEqual({ state: "failed", why: "Refused" });
   });
 
   it("keeps items older than 12 hours for the user to discard, and holds what follows", () => {
@@ -91,8 +120,8 @@ describe("order and what may be sent", () => {
     const after = item();
     expect(isTooOld(old, NOW)).toBe(true);
     expect(isTooOld(after, NOW)).toBe(false);
-    expect(itemStatus([old, after], old, NOW, "u1").state).toBe("too_old");
-    expect(nextSendable([old, after], NOW, "u1")).toBeUndefined();
+    expect(itemStatus([old, after], old, NOW, "u1", null).state).toBe("too_old");
+    expect(nextSendable([old, after], NOW, "u1", null)).toBeUndefined();
   });
 
   it("picks up items left sending when the page closed", () => {
@@ -150,7 +179,7 @@ describe("answers of the server", () => {
     const after = onResult([ex, other], ex.id, { type: "deferred", error: "Waiting for its photos to be sent" });
     expect(after.items[0]).toMatchObject({ state: "waiting", attempts: 0 });
     expect(after.message).toBeNull();
-    expect(nextSendable(after.items, NOW, "u1", new Set([ex.id]))?.id).toBe(other.id);
+    expect(nextSendable(after.items, NOW, "u1", null, new Set([ex.id]))?.id).toBe(other.id);
   });
 });
 
@@ -270,8 +299,8 @@ describe("re-weighs and container work in the queue", () => {
     const tick = tally("m7", "c1");
     const other = tally("m8", "c2");
     const q = [gateIn, tick, other];
-    expect(itemStatus(q, tick, NOW, "u1")).toMatchObject({ state: "blocked" });
-    expect(nextSendable(q, NOW, "u1")?.id).toBe(other.id);
+    expect(itemStatus(q, tick, NOW, "u1", null)).toMatchObject({ state: "blocked" });
+    expect(nextSendable(q, NOW, "u1", null)?.id).toBe(other.id);
     expect(pendingInContainer(q, "c1").map((i) => i.id)).toEqual([tick.id]);
   });
 
@@ -351,7 +380,14 @@ describe("waiting count", () => {
       item({ movementId: "m3", userId: "u2", userName: "Petr" }),
       item({ movementId: "m4" }),
     ];
-    expect(waitingCount(items, NOW, "u1")).toBe(2);
-    expect(waitingCount([], NOW, "u1")).toBe(0);
+    expect(waitingCount(items, NOW, "u1", null)).toBe(2);
+    expect(waitingCount([], NOW, "u1", null)).toBe(0);
+  });
+
+  it("leaves out items made as another company", () => {
+    const items = [item(), item({ movementId: "m2", actingCompanyId: "company-a" })];
+    expect(waitingCount(items, NOW, "u1", null)).toBe(1);
+    expect(waitingCount(items, NOW, "u1", "company-a")).toBe(1);
+    expect(waitingCount(items, NOW, "u1", "company-b")).toBe(0);
   });
 });

@@ -2,7 +2,7 @@ import type { interfaces } from "@/lib/api/client";
 import type { Tone } from "../gate-log/_lib/gate";
 
 // The position's in-and-out lifecycle as the screens show it. The server derives it (one
-// calculation, apps/api/services/warehouse/services/lifecycle.ts) and sends it on every gate
+// calculation, apps/api/services/warehouseConcept/services/lifecycle.ts) and sends it on every gate
 // record; this file only gives each stage its words and colour. Pure (tested in lifecycle.test.ts).
 
 type Lifecycle = interfaces.GatePositionLifecycle;

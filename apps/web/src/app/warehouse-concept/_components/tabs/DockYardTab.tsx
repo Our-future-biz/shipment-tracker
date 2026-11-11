@@ -25,6 +25,7 @@ import { useUrlParam } from "@/hooks/useUrlParam";
 import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 import { addDays, businessToday } from "@/lib/date";
+import { dayParamOf } from "@/app/warehouse-concept/_lib/urlDay";
 import type { Tone } from "@/components/Badge";
 import { BTN, BTN_PRIMARY, HINT, LINK, REF } from "@/styles/ui";
 
@@ -142,7 +143,15 @@ function DockSchedule() {
   const toast = useToast();
   const { items, isLoading, create, update, remove, isSaving } = useDockSlots();
   const { movements, isLoading: movementsLoading } = useGateLog();
-  const [date, setDate] = useState(businessToday);
+  // The day is in the address (?day=, today left out), so it survives Back and refresh.
+  const date = dayParamOf(searchParams.get("day"), businessToday());
+  const setDate = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === businessToday()) params.delete("day");
+    else params.set("day", next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
   const [editing, setEditing] = useState<{ slot?: DockSlot; preset?: Partial<interfaces.WarehouseDockSlotInput> } | null>(null);
   const daySlots = useMemo(() => items.filter((s) => s.date === date).sort((a, b) => a.time.localeCompare(b.time)), [items, date]);
   // The docks and hours from Warehouse settings, and any other door name used on this day.
@@ -372,12 +381,14 @@ function DockSchedule() {
 
 // ---------- Yard / container park ----------
 
-type YardFilter = "risk" | "empties" | null;
+type YardFilter = "risk" | "empties" | "";
+const YARD_FILTERS = ["risk", "empties"] as const satisfies readonly YardFilter[];
 
 function YardPark() {
   const router = useRouter();
   const { items, isLoading, create, update, remove, isSaving } = useWarehouseContainers();
-  const [filter, setFilter] = useState<YardFilter>(null);
+  // Kept in the address (?yard=), so it survives Back and refresh.
+  const [filter, setFilter] = useUrlParam<YardFilter>("yard", YARD_FILTERS, "");
   const [editing, setEditing] = useState<{ container?: WarehouseContainer } | null>(null);
 
   // On the yard = gated in and not yet gated out.
@@ -403,7 +414,7 @@ function YardPark() {
     ...(expiryFromJob ? [] : [{ name: "detentionExpiry", label: "Detention expiry (the job's free time wins)", type: "date" } as FieldDef]),
     { name: "yardStatus", label: "Status", type: "select", options: YARD_STATUSES },
   ];
-  // One object per opening: the form fills itself again whenever its initial values change.
+  // One object per opening (the form fills itself from it as it opens).
   const initial = useMemo<Partial<interfaces.WarehouseContainerInput>>(() => {
     if (!editing?.container) return { gatedIn: businessToday(), yardStatus: "On site" };
     return editing.container.detentionFromJob ? { ...editing.container, detentionExpiry: undefined } : editing.container;
@@ -460,10 +471,10 @@ function YardPark() {
             <button type="button" className={BTN_PRIMARY} onClick={() => setEditing({})}>
               <PlusOutlined /> Gate-in container
             </button>
-            <button type="button" onClick={() => setFilter(filter === "empties" ? null : "empties")} className={toggleBtn(filter === "empties")}>
+            <button type="button" onClick={() => setFilter(filter === "empties" ? "" : "empties")} className={toggleBtn(filter === "empties")}>
               Plan empty returns
             </button>
-            <button type="button" onClick={() => setFilter(filter === "risk" ? null : "risk")} className={toggleBtn(filter === "risk")}>
+            <button type="button" onClick={() => setFilter(filter === "risk" ? "" : "risk")} className={toggleBtn(filter === "risk")}>
               Detention risk
             </button>
           </>

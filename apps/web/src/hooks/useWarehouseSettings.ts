@@ -5,8 +5,7 @@ import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { warehouseSettingsKey } from "./warehouseKeys";
 
-// Warehouse settings (supplier e-mail recipients per message type, docks and hours). Kept next to
-// the settings screen; the integrator may move it to src/hooks/useWarehouseSettings.ts.
+// Warehouse settings (supplier e-mail recipients per message type, docks and hours).
 
 export type WarehouseSettings = interfaces.WarehouseSettingsItem;
 export type SupplierKind = "vgm" | "survey" | "remeasurement";

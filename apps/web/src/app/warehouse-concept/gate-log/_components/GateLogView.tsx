@@ -168,6 +168,7 @@ const BUBBLES: { id: BubbleId; label: string; hint: string; danger?: boolean; ma
   { id: "lcl", label: "Consol shipments", hint: "LCL consolidation movements", match: (m) => isLcl(m.operationType) },
   { id: "fcl", label: "FCL shipments", hint: "FCL stuffing · stripping · transload", match: (m) => isFcl(m.operationType) },
 ];
+const BUBBLE_IDS = BUBBLES.map((b) => b.id);
 
 // Bulk stamps follow the same step order as the gate job (see _lib/steps): a movement is
 // stamped only when this stamp is its next step — inbound: Gate-in, Draft receipt, Receipt,
@@ -203,13 +204,16 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   // Show archived (?archived=1): archived records only, read-only here; managers restore them on the job.
   const [archivedParam, setArchivedParam] = useUrlParam("archived", ["0", "1"] as const, "0");
   const archived = archivedParam === "1";
-  const { movements, isLoading } = useGateLog({ archived });
+  const { movements, isLoading, isError } = useGateLog({ archived });
   const [selection, setSelection] = useState<{ rows: GateMovement[]; clear: () => void }>({ rows: [], clear: () => {} });
   const [stampAction, setStampAction] = useState<StampAction | null>(null);
   const [stamping, setStamping] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
 
-  const [bubble, setBubble] = useState<BubbleId | null>(null);
+  // The bubble filter is kept in the address (?bubble=), so it survives Back and refresh.
+  const [bubbleParam, setBubbleParam] = useUrlParam<BubbleId | "">("bubble", BUBBLE_IDS, "");
+  const bubble = bubbleParam || null;
+  const setBubble = (id: BubbleId | null) => setBubbleParam(id ?? "");
 
   const rows = useMemo(() => {
     const b = archived ? undefined : BUBBLES.find((x) => x.id === bubble);
@@ -361,7 +365,15 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
         storageKey={archived ? "warehouse:gate-log-archived" : "warehouse:gate-log"}
         exportFilePrefix="gate-log"
         hideExport
-        emptyText={archived ? "No archived records." : movements.length ? "No movements match this filter." : "No gate movements yet."}
+        emptyText={
+          isError
+            ? "Could not load the Gate Log — reload the page."
+            : archived
+              ? "No archived records."
+              : movements.length
+                ? "No movements match this filter."
+                : "No gate movements yet."
+        }
         resetKey={`${archived ? "archived" : ""}|${bubble ?? ""}`}
         onSelectionChange={archived ? undefined : onSelectionChange}
       />

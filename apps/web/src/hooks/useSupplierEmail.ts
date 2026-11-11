@@ -7,8 +7,7 @@ import type { SupplierKind } from "./useWarehouseSettings";
 import { gateKeys, sectionKeys, supplierEmailAttemptsKey, supplierEmailPreviewKey } from "./warehouseKeys";
 
 // Supplier e-mail of a position (Send VGM / survey / remeasurement): the preview, the send and the
-// latest attempts (for "Last e-mail failed — Retry"). Kept next to the Sent-to-suppliers block; the
-// integrator may move it to src/hooks/useWarehouseSection.ts.
+// latest attempts (for "Last e-mail failed — Retry").
 
 export type SupplierEmail = interfaces.SupplierEmailItem;
 export type SupplierEmailPreview = interfaces.SupplierEmailPreview;

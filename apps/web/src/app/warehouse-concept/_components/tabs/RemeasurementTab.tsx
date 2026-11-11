@@ -13,6 +13,7 @@ import { sectionSaveError } from "@/app/warehouse-concept/_components/shipmentPa
 import { errorMessage } from "../../gate-log/_lib/gate";
 import { linesTotals, parseLines } from "../../_lib/cargoCompare";
 import { useUnsavedGuard } from "../../_lib/useUnsavedGuard";
+import { missingRecordText } from "../../_lib/loadFailure";
 import { HeaderStrip } from "../remeasurement/HeaderStrip";
 import { CargoComparison } from "../remeasurement/CargoComparison";
 import { RemeasureLines } from "../remeasurement/RemeasureLines";
@@ -40,11 +41,19 @@ export function RemeasurementTab({ shipmentId, positionId, onBack }: { shipmentI
 }
 
 function Resolve({ shipmentId, positionId, onBack }: { shipmentId: string | null; positionId: string | null; onBack: () => void }) {
-  const { tasks, isLoading } = useWarehouse();
+  const { tasks, isLoading, isError } = useWarehouse();
   if (isLoading) {
     return (
       <div className="flex justify-center p-20">
         <Spin size="large" />
+      </div>
+    );
+  }
+  // Without the positions it cannot tell whether one exists: say so, not "not found".
+  if (isError && !tasks.length) {
+    return (
+      <div className="flex items-center gap-2 text-slate-500">
+        <BackButton onClick={onBack}>Worklist</BackButton> Could not load the warehouse positions — reload the page.
       </div>
     );
   }
@@ -61,7 +70,7 @@ function Resolve({ shipmentId, positionId, onBack }: { shipmentId: string | null
 
 function PositionPart({ task, onBack }: { task: interfaces.WarehouseConceptTaskItem; onBack: () => void }) {
   const toast = useToast();
-  const { movements, isLoading: movementsLoading } = useGateLog();
+  const { movements, isLoading: movementsLoading, isError: movementsError } = useGateLog();
   const listed = movements.find((mv) => mv.warehouseTaskId === task.id);
   const { movement: detail, applyRemeasured } = useGateMovement(listed?.id);
   const m = detail ?? listed;
@@ -128,7 +137,12 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseConceptTaskI
     <div className="flex flex-col gap-4">
       <HeaderStrip task={task} m={m} shipment={shipment} remeasured={savedRemeasured} onBack={onBack} />
       {section.isError && <Alert type="error" showIcon message="The Shipment Details of this position could not be read — reload the page." />}
-      {!m && <Alert type="info" showIcon message="This position has no gate record yet — the gate figures, exceptions and release show once it has one." />}
+      {!m &&
+        (movementsError ? (
+          <Alert type="error" showIcon message="The Gate Log could not be read, so the gate figures, exceptions and release are not shown — reload the page." />
+        ) : (
+          <Alert type="info" showIcon message="This position has no gate record yet — the gate figures, exceptions and release show once it has one." />
+        ))}
 
       <CargoComparison
         m={m}
@@ -171,7 +185,7 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseConceptTaskI
 // A shipment that is not (or no longer) a warehouse position: its own Shipment Details, kept on
 // the shipment as before positions owned them.
 function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: () => void }) {
-  const { data, isLoading, isError } = useWarehouseShipment(shipmentId);
+  const { data, isLoading, error } = useWarehouseShipment(shipmentId);
   if (isLoading) {
     return (
       <div className="flex justify-center p-20">
@@ -179,10 +193,10 @@ function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: 
       </div>
     );
   }
-  if (isError || !data) {
+  if (!data) {
     return (
       <div className="flex items-center gap-2 text-slate-500">
-        <BackButton onClick={onBack}>Worklist</BackButton> Shipment not found.
+        <BackButton onClick={onBack}>Worklist</BackButton> {missingRecordText(error, "shipment", "Shipment not found.")}
       </div>
     );
   }

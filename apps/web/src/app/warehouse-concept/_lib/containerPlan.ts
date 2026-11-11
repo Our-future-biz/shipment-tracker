@@ -4,7 +4,7 @@ import type { Tone } from "../gate-log/_lib/gate";
 // One container, many positions (houses): what the container screens work out on the phone or
 // desk before the server answers — which positions may be added, in what order they are offered,
 // and the totals against the container's capacity. The server checks the same rules again
-// (apps/api/services/warehouse/services/containerRules.ts). Pure (tested in containerPlan.test.ts).
+// (apps/api/services/warehouseConcept/services/containerRules.ts). Pure (tested in containerPlan.test.ts).
 
 type Movement = interfaces.GateMovementItem;
 type Container = interfaces.WarehouseContainerItem;
