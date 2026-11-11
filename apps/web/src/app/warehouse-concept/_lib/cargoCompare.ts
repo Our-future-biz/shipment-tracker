@@ -2,7 +2,7 @@
 // warehouse — with the variance rule: any difference in pieces, or more than 5 % on weight or
 // volume. Pure helpers (tested in cargoCompare.test.ts).
 
-import { dimensionVolumePerPiece } from "@/lib/cargo";
+import { dimensionVolumePerPiece, num as cargoNum, shipmentDeclaredFigures } from "@/lib/cargo";
 
 export type CargoTotals = { pieces: number; kg: number; cbm: number };
 
@@ -120,6 +120,17 @@ export function declaredTotals(s: DeclaredShipment | null | undefined): CargoTot
   const kg = num(s.totalWeightTons) ? Math.round(num(s.totalWeightTons) * 1000 * 10) / 10 : dims.kg;
   const cbm = num(s.totalVolumeCbm) || dims.cbm;
   return pieces || kg || cbm ? { pieces, kg, cbm } : null;
+}
+
+/**
+ * The pieces, kg and cbm a new position copies from a shipment job, read as Shipments states them
+ * (lib/cargo shipmentDeclaredFigures, the server's rule): pieces may carry thousands separators
+ * ("1,200"), the weight a decimal comma ("4,2" t), and the kg are kept to the gram, not rounded.
+ * Pieces are whole (the gate record counts them so), as the server's import reads them.
+ */
+export function copiedCargoFigures(s: Pick<DeclaredShipment, "pcs" | "totalWeightTons" | "totalVolumeCbm">): { colli: number; weightKg: number; measureCbm: number } {
+  const f = shipmentDeclaredFigures(s);
+  return { colli: Math.max(0, Math.floor(cargoNum(f.packages))), weightKg: cargoNum(f.grossWeight), measureCbm: cargoNum(f.volume) };
 }
 
 /** Chargeable weight or measure: the larger of cbm and tonnes (2 decimals, as the storage clock). */

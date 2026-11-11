@@ -31,6 +31,7 @@ import { freeTimeSort, freeTimeText, freeTimeTone, storageHint } from "../_lib/s
 import { customsChipText, customsClockSort, movementCustomsClock } from "../_lib/customsClock";
 import { CustomsDeadlineChip } from "../_lib/customsDeadline";
 import { confirmLeave } from "../_lib/useUnsavedGuard";
+import { copiedCargoFigures } from "../_lib/cargoCompare";
 import { ContainersTab } from "./tabs/ContainersTab";
 import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
@@ -728,11 +729,6 @@ const packageType = (t: string | undefined): string => (t === "Pallets" ? "Palle
 
 type ShipmentItem = interfaces.ShipmentItem;
 
-const num = (v: string | null | undefined) => {
-  const n = Number(v);
-  return v && isFinite(n) ? n : undefined;
-};
-
 // Values a new position takes over from a shipment job — a copy only, nothing stays linked.
 // The person in charge comes along only when it is a user's e-mail (the API takes nothing else).
 const fromShipment = (sh: ShipmentItem, users: readonly PickableUser[]): Partial<NewPositionValues> => ({
@@ -744,9 +740,7 @@ const fromShipment = (sh: ShipmentItem, users: readonly PickableUser[]): Partial
   loadType: sh.loadType || undefined,
   commodity: sh.cargoDescription || undefined,
   packing: sh.typeOfPackages || undefined,
-  colli: num(sh.pcs) ?? 0,
-  weightKg: num(sh.totalWeightTons) != null ? Math.round(num(sh.totalWeightTons)! * 1000) : 0,
-  measureCbm: num(sh.totalVolumeCbm) ?? 0,
+  ...copiedCargoFigures(sh),
   shipmentOwner: userByEmail(sh.personInCharge, users)?.email || undefined,
   customsStatus: asGateCustomsStatus(sh.customsStatus),
   jobNumber: sh.jobNumber || undefined,
