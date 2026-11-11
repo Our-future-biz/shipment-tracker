@@ -448,7 +448,7 @@ export const WarehouseView = () => {
     // Unsaved edits (Remeasurement / Release) are not dropped without asking.
     if (!confirmLeave()) return;
     const params = new URLSearchParams(searchParams.toString());
-    for (const key of ["shipment", "position", "sub", "bubble", "load", "archived", "view"]) params.delete(key);
+    for (const key of ["shipment", "position", "sub", "bubble", "load", "archived", "view", "day", "yard", "status", "customs", "closed", "waiting"]) params.delete(key);
     if (tab === "positions") params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();

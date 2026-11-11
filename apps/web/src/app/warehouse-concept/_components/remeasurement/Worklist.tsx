@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { PillTabs } from "@/components/SectionCard";
 import { EMPTY, REF } from "@/styles/ui";
@@ -24,6 +25,7 @@ import { positionRemeasurementHref } from "../remeasurementLinks";
 type Reason = "remeasure" | "release";
 type Item = { task: interfaces.WarehouseConceptTaskItem; m: GateMovement; reasons: Reason[]; summary?: interfaces.WarehouseSectionSummaryItem };
 type Filter = "all" | Reason;
+const FILTERS = ["all", "remeasure", "release"] as const satisfies readonly Filter[];
 
 const REASON_TEXT: Record<Reason, string> = { remeasure: "Remeasurement", release: "Release" };
 
@@ -32,7 +34,8 @@ export function Worklist() {
   const { tasks, isLoading: tasksLoading, isError: tasksError } = useWarehouse();
   const { movements, isLoading: movementsLoading, isError: movementsError } = useGateLog();
   const { positions, isLoading: summaryLoading } = useWarehouseSectionSummary();
-  const [filter, setFilter] = useState<Filter>("all");
+  // Kept in the address (?waiting=), so it survives Back and refresh.
+  const [filter, setFilter] = useUrlParam<Filter>("waiting", FILTERS, "all");
 
   const items = useMemo<Item[]>(() => {
     const byTask = new Map<string, GateMovement>();

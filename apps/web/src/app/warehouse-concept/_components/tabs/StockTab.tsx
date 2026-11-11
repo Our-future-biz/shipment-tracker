@@ -216,9 +216,12 @@ function StockOnHand() {
   const { items: all, isLoading, create, update, remove, isSaving } = useStockLines();
   const positions = usePositionOptions();
   const [editing, setEditing] = useState<{ line?: StockLine } | null>(null);
-  const [status, setStatus] = useState("");
-  const [customs, setCustoms] = useState("");
-  const [showClosed, setShowClosed] = useState(false);
+  // The filters are kept in the address, so they survive Back and refresh.
+  const [status, setStatus] = useUrlParam<string>("status", ALL_STATUSES, "");
+  const [customs, setCustoms] = useUrlParam<string>("customs", CUSTOMS, "");
+  const [closedParam, setClosedParam] = useUrlParam("closed", ["0", "1"] as const, "0");
+  const showClosed = closedParam === "1";
+  const setShowClosed = (on: boolean) => setClosedParam(on ? "1" : "0");
 
   // On hand = open lines; "Show closed" adds the lines that left (Picked) or were voided.
   const items = useMemo(() => all.filter((l) => !l.closed), [all]);
