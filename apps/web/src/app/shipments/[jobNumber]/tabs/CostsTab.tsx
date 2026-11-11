@@ -10,7 +10,8 @@ import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
-import { amountEdited, amountInBox, normaliseAmount } from "@/lib/money";
+import { amountInBox, normaliseAmount } from "@/lib/money";
+import { onAmountBlur } from "./amountBox";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
@@ -51,20 +52,13 @@ import {
   TH,
 } from "@/styles/ui";
 
-/** Leaving an amount box: saved when it is another amount, and written the way figures are, 1,250.50. */
-const onAmountBlur = (stored: string, save: (typed: string) => void) => (e: React.FocusEvent<HTMLInputElement>) => {
-  const typed = e.target.value;
-  if (amountEdited(typed, stored)) save(typed);
-  e.target.value = amountInBox(typed);
-};
-
 /** Amount fields of a row: the database (numeric) takes "4999.5", not "4 999,50". */
 const AMOUNT_FIELDS = ["estQty", "estAmount", "realQty", "realAmount", "qty", "amount"];
 
 /**
- * Typed amounts in the form the API takes ("4 999,50" -> "4999.5"). An invalid amount is not
- * sent: it throws, and onError shows the message (instead of a 500 and a value on screen
- * that was never saved).
+ * Typed amounts in the form the API takes ("4 999,50" -> "4999.5"). An amount that is no number
+ * is not sent: it throws, onError says why, and its box shows the stored amount again
+ * (onAmountBlur) - the server would refuse it as well.
  */
 function cleanAmounts<T extends object>(params: T): T {
   const out: Record<string, unknown> = { ...(params as Record<string, unknown>) };
@@ -287,6 +281,25 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     message.error(detail ? `${what}: ${detail}` : what);
   };
 
+  /* ── One write that adds rows at a time ──
+     Add, Duplicate, Copy from buying, Copy from quote and Undo add rows the server does not tell apart
+     from the ones there (a selling row copied from buying is not checked against its source): a second
+     click while one runs would add them twice. Their buttons wait meanwhile; the ref is the lock
+     itself, so a second click or Enter is turned away even before the screen shows them waiting. */
+  const [adding, setAdding] = useState(false);
+  const addingNow = useRef(false);
+  const oneAtATime = async (run: () => Promise<unknown>) => {
+    if (addingNow.current) return;
+    addingNow.current = true;
+    setAdding(true);
+    try {
+      await run();
+    } finally {
+      addingNow.current = false;
+      setAdding(false);
+    }
+  };
+
   /* ── Buying costs ── */
   // a new row: Qty = 1, currencies of the chosen billing currency - on Real only when the
   // shipment's estimate comes from its quote
@@ -296,7 +309,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       realQty: "1", realCurrency: billingCur,
       sortOrder: buyRows.length,
     }),
-    onSuccess: (res) => { unlock(res.cost.id); invalidate(); },
+    onSuccess: (res) => { unlock(res.cost.id); return invalidate(); },
     onError: showError("Could not add the buying cost"),
   });
   const updateBuy = useMutation({
@@ -319,7 +332,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         qty: "1", currency: billingCur, invoice: true,
         sortOrder: sellRows.length, ...params,
       })),
-    onSuccess: (res) => { unlock(res.sellingCost.id); invalidate(); },
+    onSuccess: (res) => { unlock(res.sellingCost.id); return invalidate(); },
     onError: showError("Could not add the selling cost"),
   });
   const updateSell = useMutation({
@@ -429,24 +442,32 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     ...(row.sourceBuyId ? { sourceBuyId: row.sourceBuyId } : {}),
   });
 
-  // Remembered once it is deleted: a row that failed to delete has nothing to bring back.
+  // Remembered once it is deleted: a row that failed to delete has nothing to bring back. Each
+  // delete's own promise, as callbacks handed to mutate run for the last of several deletes only.
   const removeBuy = (row: BuyingRow, index: number) => {
-    deleteBuy.mutate(row.id, {
-      onSuccess: () => {
-        if (!buyRowFilled(row)) return;
-        undoBuyStack.current.push({ index, id: row.id });
-        setUndoBuyCount(undoBuyStack.current.length);
-      },
-    });
+    deleteBuy.mutateAsync(row.id).then(() => {
+      if (!buyRowFilled(row)) return;
+      undoBuyStack.current.push({ index, id: row.id });
+      setUndoBuyCount(undoBuyStack.current.length);
+    }, () => { /* onError has said why */ });
   };
 
   /**
    * Runs a handler that talks to the API directly (not via a mutation) and
    * surfaces any failure — otherwise a rejected promise from an onClick just
-   * disappears and the button looks like it did nothing.
+   * disappears and the button looks like it did nothing. One at a time: each
+   * of them adds or moves rows (oneAtATime).
    */
   const guarded = (what: string, run: () => Promise<void>) => () => {
-    run().catch(showError(what));
+    oneAtATime(run).catch(showError(what));
+  };
+
+  /** Add buying cost / Add selling cost, one at a time; a refusal is said by the mutation's onError. */
+  const addBuyRow = () => {
+    oneAtATime(() => addBuy.mutateAsync()).catch(() => undefined);
+  };
+  const addSellRow = () => {
+    oneAtATime(() => addSell.mutateAsync({})).catch(() => undefined);
   };
 
   const undoBuy = async () => {
@@ -461,15 +482,17 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
-    invalidate();
+    await invalidate();
   };
 
+  // Remembered once it is deleted, as a buying row is: a row the server kept (one on an issued
+  // invoice) is not brought back as a copy by Undo.
   const removeSell = (row: SellingRow, index: number) => {
-    if (sellRowFilled(row)) {
+    deleteSell.mutateAsync(row.id).then(() => {
+      if (!sellRowFilled(row)) return;
       undoSellStack.current.push({ index, values: sellUndoValues(row) });
       setUndoSellCount(undoSellStack.current.length);
-    }
-    deleteSell.mutate(row.id);
+    }, () => { /* onError has said why */ });
   };
 
   const undoSell = async () => {
@@ -482,7 +505,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
-    invalidate();
+    await invalidate();
   };
 
   /* ── Duplicate a row ──
@@ -501,7 +524,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     await Promise.all(buyRows.flatMap((row, i) => i > index && ownRow(row)
       ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
-    invalidate();
+    await invalidate();
   };
 
   // A copy of a row on an issued invoice is a new charge, not one more line of the same: it is not
@@ -517,7 +540,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     await Promise.all(sellRows.flatMap((row, i) => i > index && ownRow(row)
       ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
-    invalidate();
+    await invalidate();
   };
 
   /* ── A currency change on Estimated is mirrored to Real while Real is empty ── */
@@ -575,7 +598,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         })),
       ...(onlyEmpty ? [api.invoicing.invoicingDeleteSellingCost(shipment.id, onlyEmpty.id)] : []),
     ]);
-    invalidate();
+    await invalidate();
     message.success(`Copied ${rows.length} row(s) from buying`);
   };
 
@@ -592,8 +615,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   // The server copies the lines of the quote as it is stored - one row per line, each in its own
   // currency - to both sides: its buying lines to buying, its selling lines to selling. A side
-  // that holds the quote's lines already is left as it is.
-  const importQuoteCosts = async () => {
+  // that holds the quote's lines already is left as it is. One copy at a time: an Enter pressed
+  // again while it runs would be refused as copied already, and the try after that would copy again.
+  const importQuoteCosts = () => oneAtATime(async () => {
     // The whole reference, variant suffix included: QCZ...-2 is another quote than QCZ...
     const quoteNumber = quoteInput.trim();
     if (!quoteNumber) { setQuoteErr("Enter the quotation reference."); return; }
@@ -622,7 +646,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       setQuoteErr(`${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`);
     }
     setQuoteLoading(false);
-  };
+  });
 
   /** Currencies on a row (plus the billing currency) that ČNB has no rate for. */
   const missingFor = (...currencies: string[]) =>
@@ -663,7 +687,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={billed || !undoBuyCount} title="Bring back the last deleted buying cost" ariaLabel="Undo the last deleted buying cost">
+            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={billed || !undoBuyCount || adding} title="Bring back the last deleted buying cost" ariaLabel="Undo the last deleted buying cost">
               <RollbackOutlined />
               Undo
             </HeadBtn>
@@ -671,7 +695,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
             <HeadBtn onClick={openQuoteModal} disabled={billed}>
               Copy from quote
             </HeadBtn>
-            <HeadBtn primary disabled={billed} onClick={() => addBuy.mutate()}><PlusOutlined />Add buying cost</HeadBtn>
+            <HeadBtn primary disabled={billed || adding} onClick={addBuyRow}><PlusOutlined />Add buying cost</HeadBtn>
           </>
         }
       >
@@ -789,7 +813,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       defaultValue={amountInBox(r.estQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.estQty, (estQty) => updateBuy.mutate({ id: r.id, estQty }))}
+                      onBlur={onAmountBlur(r.estQty, (estQty, refused) => updateBuy.mutateAsync({ id: r.id, estQty }).catch(refused))}
                     />
                   </td>
                   <td className={CELL}>
@@ -799,7 +823,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       defaultValue={amountInBox(r.estAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.estAmount, (estAmount) => updateBuy.mutate({ id: r.id, estAmount }))}
+                      onBlur={onAmountBlur(r.estAmount, (estAmount, refused) => updateBuy.mutateAsync({ id: r.id, estAmount }).catch(refused))}
                     />
                   </td>
                   <td className={CELL}>
@@ -817,7 +841,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       defaultValue={amountInBox(r.realQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.realQty, (realQty) => updateBuy.mutate({ id: r.id, realQty }))}
+                      onBlur={onAmountBlur(r.realQty, (realQty, refused) => updateBuy.mutateAsync({ id: r.id, realQty }).catch(refused))}
                     />
                   </td>
                   <td
@@ -835,7 +859,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       defaultValue={amountInBox(r.realAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.realAmount, (realAmount) => updateBuy.mutate({ id: r.id, realAmount }))}
+                      onBlur={onAmountBlur(r.realAmount, (realAmount, refused) => updateBuy.mutateAsync({ id: r.id, realAmount }).catch(refused))}
                     />
                   </td>
                   <td className={CELL}>
@@ -872,7 +896,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateBuy(r, rowIndex))}
-                        disabled={billed}
+                        disabled={billed || adding}
                         aria-label="Duplicate buying cost row"
                         className={ROW_BTN}
                       >
@@ -909,8 +933,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 <tr>
                   <td colSpan={13} className="px-4 py-8 text-center">
                     <button
-                      onClick={() => addBuy.mutate()}
-                      disabled={billed || addBuy.isPending}
+                      onClick={addBuyRow}
+                      disabled={billed || adding}
                       className={ADD_FIRST_BTN}
                     >
                       No buying costs yet — add the first one
@@ -949,12 +973,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Bring back the last deleted selling cost" ariaLabel="Undo the last deleted selling cost">
+            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount || adding} title="Bring back the last deleted selling cost" ariaLabel="Undo the last deleted selling cost">
               <RollbackOutlined />
               Undo
             </HeadBtn>
-            <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
-            <HeadBtn primary onClick={() => addSell.mutate({})}><PlusOutlined />Add selling cost</HeadBtn>
+            <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)} disabled={adding}>Copy from buying</HeadBtn>
+            <HeadBtn primary disabled={adding} onClick={addSellRow}><PlusOutlined />Add selling cost</HeadBtn>
           </>
         }
       >
@@ -1041,6 +1065,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                           <Tooltip title="Duplicate row">
                             <button
                               onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex, true))}
+                              disabled={adding}
                               aria-label="Duplicate selling cost row"
                               className={ROW_BTN}
                             >
@@ -1137,7 +1162,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       defaultValue={amountInBox(r.qty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.qty, (qty) => updateSell.mutate({ id: r.id, qty }))}
+                      onBlur={onAmountBlur(r.qty, (qty, refused) => updateSell.mutateAsync({ id: r.id, qty }).catch(refused))}
                     />
                   </td>
                   <td className={CELL}>
@@ -1147,7 +1172,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       defaultValue={amountInBox(r.amount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.amount, (amount) => updateSell.mutate({ id: r.id, amount }))}
+                      onBlur={onAmountBlur(r.amount, (amount, refused) => updateSell.mutateAsync({ id: r.id, amount }).catch(refused))}
                     />
                   </td>
                   <td className={CELL}>
@@ -1158,6 +1183,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
+                        disabled={adding}
                         aria-label="Duplicate selling cost row"
                         className={ROW_BTN}
                       >
@@ -1181,8 +1207,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center">
                     <button
-                      onClick={() => addSell.mutate({})}
-                      disabled={addSell.isPending}
+                      onClick={addSellRow}
+                      disabled={adding}
                       className={ADD_FIRST_BTN}
                     >
                       No selling costs yet — add the first one
