@@ -389,6 +389,10 @@ class PortalOrderService {
     if (!c.podReceivedAt) await consignmentService.refreshDepartments(actor, [c], { warn: false });
     await withStoredFile(companyId, c.id, file, (key) => inTx(async (tx) => {
       await assertNoPod(tx, companyId, c.id, POD_ON_FILE_HAULIER);
+      // The job before the first write: the document's row locks the consignment, and the POD
+      // then settles the job's Billing over all its consignments (consignmentService.lockJob).
+      // After the POD's own lock, which an upload takes before its document too.
+      await consignmentService.lockJob(tx, companyId, c.shipmentId);
       await insertDocument(tx, companyId, c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: by });
       // The stamps the POD proves, in order; each one guarded, each on the row the previous one left.
       let row = (await consignmentRepository.find(companyId, c.id, tx))!;

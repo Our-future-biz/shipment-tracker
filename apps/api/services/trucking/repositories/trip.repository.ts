@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, sql, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import {
   truckingHaulierLinkTable,
@@ -125,6 +125,21 @@ class TripRepository {
     await this.revokeLinks(tx, companyId, tripId);
     const [row] = await tx.insert(l).values({ companyId, tripId, tokenHash, expiresAt }).returning();
     return row!;
+  }
+
+  /**
+   * The live link of the trip valid until `expiresAt` when it ran out sooner (a later pick-up
+   * carries it further; it is never shortened). The link itself - its token - stays the same, so
+   * the haulier's copy of the order keeps working. Null when there is no live link or it already
+   * runs that long.
+   */
+  async extendLink(tx: Tx, companyId: string, tripId: string, expiresAt: Date): Promise<TruckingHaulierLinkRecord | null> {
+    const [row] = await tx
+      .update(l)
+      .set({ expiresAt, updatedAt: new Date() })
+      .where(and(eq(l.companyId, companyId), eq(l.tripId, tripId), isNull(l.revokedAt), isNull(l.deletedAt), lt(l.expiresAt, expiresAt)))
+      .returning();
+    return row ?? null;
   }
 
   async revokeLinks(tx: Tx, companyId: string, tripId: string): Promise<void> {

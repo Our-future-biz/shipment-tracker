@@ -297,6 +297,13 @@ export const tripRepository = {
   revokeLinks: vi.fn(async (_tx: unknown, _companyId: string, tripId: string) => {
     for (const l of store.links.filter((x) => x.tripId === tripId && !x.revokedAt)) l.revokedAt = new Date();
   }),
+  extendLink: vi.fn(async (_tx: unknown, _companyId: string, tripId: string, expiresAt: Date) => {
+    // (Some tests push a bare link with no expiry.)
+    const live = store.links.find((x) => x.tripId === tripId && !x.revokedAt && !!x.expiresAt && x.expiresAt.getTime() < expiresAt.getTime());
+    if (!live) return null;
+    Object.assign(live, { expiresAt, updatedAt: new Date() });
+    return copy(live);
+  }),
   liveLink: vi.fn(async (_companyId: string, tripId: string) => copy(store.links.find((l) => l.tripId === tripId && !l.revokedAt) ?? null)),
   linkByHash: vi.fn(async (hash: string) => copy(store.links.find((l) => l.tokenHash === hash) ?? null)),
 };

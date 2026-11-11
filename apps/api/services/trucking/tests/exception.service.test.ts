@@ -231,9 +231,13 @@ describe("exceptions", () => {
     expect(d.status).toBe("POD_RECEIVED");
     expect(outboxOf("billing")).toEqual([]);
     await exceptionService.decide(manager, e.id, decide("ABSORB"));
+    vi.clearAllMocks();
     await exceptionService.close(user, e.id, "");
     expect(store.consignments[0]!.status).toBe("READY_TO_BILL");
     expect(outboxOf("billing")).toHaveLength(1);
+    // The job is locked before the close is written, as every transaction that settles its Billing.
+    const { exceptionRepository } = await import("../repositories/exception.repository");
+    expect(vi.mocked(consignmentRepository.forShipmentLocked).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(exceptionRepository.update).mock.invocationCallOrder[0]!);
   });
 
   it("a failed delivery is refused once the delivery is stamped", async () => {
