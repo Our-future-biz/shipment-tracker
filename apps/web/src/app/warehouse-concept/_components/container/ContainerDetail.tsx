@@ -13,6 +13,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { KPI_TILE_CLASS, KpiTile } from "@/components/KpiTile";
 import { HINT, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
+import { missingRecordText } from "@/app/warehouse-concept/_lib/loadFailure";
 import {
   CONTAINER_STAMP_LABEL,
   CONTAINER_STATUS_TONE,
@@ -72,7 +73,7 @@ export function ContainerDetail({ id }: { id: string }) {
   if (!c) {
     return (
       <div className="p-10 text-center text-slate-500">
-        Container not found.{" "}
+        {missingRecordText(api.error, "container", "Container not found.")}{" "}
         <Link href={CONTAINERS_HREF} className={LINK}>
           Back to Containers
         </Link>

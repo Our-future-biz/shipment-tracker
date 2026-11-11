@@ -455,8 +455,8 @@ export const WarehouseView = () => {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const { tasks, isLoading: tasksLoading, deleteTask } = useWarehouse();
-  const { movements, isLoading: movementsLoading } = useGateLog();
+  const { tasks, isLoading: tasksLoading, isError: tasksError, deleteTask } = useWarehouse();
+  const { movements, isLoading: movementsLoading, isError: movementsError } = useGateLog();
   const [createOpen, setCreateOpen] = useState(false);
   // Read me lives in a help drawer; an old ?tab=readme link opens it on Positions.
   // Read from the URL on every render, so a ?tab=readme link opens it while the page is mounted too.
@@ -624,7 +624,13 @@ export const WarehouseView = () => {
           // v2: saved layouts reset once so the Lifecycle and Container columns appear.
           storageKey="warehouse:positions:v2"
           exportFilePrefix="warehouse"
-          emptyText={tasks.length ? "No positions match this filter." : "No positions in the warehouse yet."}
+          emptyText={
+            tasksError || movementsError
+              ? "Could not load the warehouse — reload the page."
+              : tasks.length
+                ? "No positions match this filter."
+                : "No positions in the warehouse yet."
+          }
           resetKey={`${activeBubble?.id ?? ""}|${activeChip ?? ""}|${load ?? ""}`}
           actions={
             <>

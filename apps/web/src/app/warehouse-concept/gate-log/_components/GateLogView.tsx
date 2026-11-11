@@ -203,7 +203,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   // Show archived (?archived=1): archived records only, read-only here; managers restore them on the job.
   const [archivedParam, setArchivedParam] = useUrlParam("archived", ["0", "1"] as const, "0");
   const archived = archivedParam === "1";
-  const { movements, isLoading } = useGateLog({ archived });
+  const { movements, isLoading, isError } = useGateLog({ archived });
   const [selection, setSelection] = useState<{ rows: GateMovement[]; clear: () => void }>({ rows: [], clear: () => {} });
   const [stampAction, setStampAction] = useState<StampAction | null>(null);
   const [stamping, setStamping] = useState(false);
@@ -361,7 +361,15 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
         storageKey={archived ? "warehouse:gate-log-archived" : "warehouse:gate-log"}
         exportFilePrefix="gate-log"
         hideExport
-        emptyText={archived ? "No archived records." : movements.length ? "No movements match this filter." : "No gate movements yet."}
+        emptyText={
+          isError
+            ? "Could not load the Gate Log — reload the page."
+            : archived
+              ? "No archived records."
+              : movements.length
+                ? "No movements match this filter."
+                : "No gate movements yet."
+        }
         resetKey={`${archived ? "archived" : ""}|${bubble ?? ""}`}
         onSelectionChange={archived ? undefined : onSelectionChange}
       />

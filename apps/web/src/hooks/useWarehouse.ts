@@ -41,6 +41,8 @@ export const useWarehouse = () => {
   return {
     tasks: query.data?.tasks ?? [],
     isLoading: query.isLoading,
+    // A failed read must not read as "no positions".
+    isError: query.isError,
     createTask: createMutation.mutateAsync,
     updateTask: updateMutation.mutateAsync,
     deleteTask: deleteMutation.mutateAsync,

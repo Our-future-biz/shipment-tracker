@@ -19,7 +19,8 @@ export const useGateLog = ({ archived = false }: { archived?: boolean } = {}) =>
     queryKey: archived ? gateKeys.archived() : gateKeys.list(),
     queryFn: () => api.warehouseConcept.gateMovementList(archived ? { archived: true } : {}),
   });
-  return { movements: query.data?.movements ?? [], isLoading: query.isLoading };
+  // isError: a failed read must not read as "no movements".
+  return { movements: query.data?.movements ?? [], isLoading: query.isLoading, isError: query.isError };
 };
 
 /**
@@ -176,6 +177,8 @@ export const useGateMovement = (id: string | undefined) => {
   return {
     movement: query.data?.movement,
     isLoading: query.isLoading,
+    /** Why the movement could not be read (not found, or the server failed). */
+    error: query.error,
     update,
     stamp,
     requestRelease,

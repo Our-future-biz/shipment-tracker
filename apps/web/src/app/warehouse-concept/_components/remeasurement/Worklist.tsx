@@ -29,8 +29,8 @@ const REASON_TEXT: Record<Reason, string> = { remeasure: "Remeasurement", releas
 
 export function Worklist() {
   const router = useRouter();
-  const { tasks, isLoading: tasksLoading } = useWarehouse();
-  const { movements, isLoading: movementsLoading } = useGateLog();
+  const { tasks, isLoading: tasksLoading, isError: tasksError } = useWarehouse();
+  const { movements, isLoading: movementsLoading, isError: movementsError } = useGateLog();
   const { positions, isLoading: summaryLoading } = useWarehouseSectionSummary();
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -138,7 +138,7 @@ export function Worklist() {
       onRowClick={(r) => router.push(positionRemeasurementHref(r.task.id))}
       storageKey="warehouse:remeasure-worklist"
       exportFilePrefix="remeasure-worklist"
-      emptyText="Nothing is waiting for remeasurement or release."
+      emptyText={tasksError || movementsError ? "Could not load the warehouse — reload the page." : "Nothing is waiting for remeasurement or release."}
       resetKey={filter}
     />
   );
