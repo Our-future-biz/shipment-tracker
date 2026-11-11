@@ -6,7 +6,7 @@ vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   customers: { customerGet: vi.fn() },
-  shipments: { _internalShipmentBasics: vi.fn(), _internalShipmentCreateRoad: vi.fn() },
+  shipments: { _internalShipmentBasics: vi.fn(), _internalShipmentCreateRoad: vi.fn(), _internalShipmentRoadRetire: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
   holidays: { _internalHolidaysCzNational: vi.fn(async () => ({ dates: [] })) },
 }));
@@ -272,6 +272,27 @@ describe("create and price sources", () => {
       expect(again.sell).toMatchObject({ source: "QUOTE", total: 15000 });
       await consignmentService.cancel(manager, first.id, "Booked twice");
       expect((await consignmentService.create(user, input(asQuote))).sell).toMatchObject({ source: "QUOTE" });
+    });
+
+    it("stores the quote as Sales numbers it now, and prices one consignment whatever spelling of it is sent", async () => {
+      // The quote has taken its Freight Mode letters; the user typed it without them.
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ quoteNumber: "QCZROAD20261010001", status: "won", effectiveStatus: "won" }) as never);
+      const first = await consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }));
+      expect(store.consignments[0]!.quoteNumber).toBe("QCZROAD20261010001");
+      // The job made for it names the quote as Sales does now too.
+      expect(shipments._internalShipmentCreateRoad).toHaveBeenCalledWith(expect.objectContaining({ quoteNumber: "QCZROAD20261010001" }));
+      await expect(consignmentService.create(user, input({ ...asQuote, quoteNumber: "QCZROAD20261010001" }))).rejects.toMatchObject({
+        code: "already_exists",
+        message: `Quote QCZROAD20261010001 already prices consignment ${first.ref}: one consignment per quote`,
+      });
+    });
+
+    it("takes back the job it made when the consignment can't be saved (two bookings of one quote at once)", async () => {
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ status: "won", effectiveStatus: "won" }) as never);
+      vi.mocked(consignmentRepository.insert).mockRejectedValueOnce(Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "trucking_consignment_quote_unique" } }));
+      await expect(consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }))).rejects.toMatchObject({ code: "already_exists" });
+      expect(shipments._internalShipmentRoadRetire).toHaveBeenCalledWith({ shipmentId: SHIPMENT }, { authData: { userID: user.userID, companyID: user.companyID, role: user.role } });
+      expect(store.consignments).toEqual([]);
     });
 
     it("takes the total from the trucking lines as they stand (an amount edited by hand), not the tariff's", async () => {

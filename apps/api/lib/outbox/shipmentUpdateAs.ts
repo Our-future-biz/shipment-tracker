@@ -15,17 +15,21 @@ export interface ShipmentUpdateOwed {
   actingRole: string;
 }
 
-async function actingRoleNow(row: Pick<ShipmentUpdateOwed, "companyId" | "actingUserId" | "actingRole">): Promise<string | null> {
+// The acting user as they are now: a user of the row's company, or a superadmin who worked as it
+// (X-Acting-Company) - their record is in their own company, which the call then carries as the
+// auth handler would (homeCompanyID).
+async function actingUserNow(row: Pick<ShipmentUpdateOwed, "companyId" | "actingUserId" | "actingRole">): Promise<{ role: string; homeCompanyId?: string } | null> {
   const authData = { userID: row.actingUserId, companyID: row.companyId, role: row.actingRole };
-  const { users } = await auth.userLookup({ ids: [row.actingUserId] }, { authData });
-  return users.find((u) => u.id === row.actingUserId)?.role ?? null;
+  const { users } = await auth.userLookup({ ids: [row.actingUserId], orSuperadmin: true }, { authData });
+  const user = users.find((u) => u.id === row.actingUserId);
+  return user ? { role: user.role, homeCompanyId: user.homeCompanyId } : null;
 }
 
 /** Who an owed call is made as: the acting user with their role now; permission_denied when the user is gone. */
 export async function actingAuthNow(row: Pick<ShipmentUpdateOwed, "companyId" | "actingUserId" | "actingRole">) {
-  const role = await actingRoleNow(row);
-  if (!role) throw APIError.permissionDenied("the acting user no longer exists");
-  return { userID: row.actingUserId, companyID: row.companyId, role };
+  const user = await actingUserNow(row);
+  if (!user) throw APIError.permissionDenied("the acting user no longer exists");
+  return { userID: row.actingUserId, companyID: row.companyId, role: user.role, ...(user.homeCompanyId ? { homeCompanyID: user.homeCompanyId } : {}) };
 }
 
 /** Throws the upstream error when Shipments does not take the update. */

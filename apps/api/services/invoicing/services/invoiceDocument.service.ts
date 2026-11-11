@@ -35,8 +35,9 @@ import type {
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
-import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
+import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
+import { deliverInvoiceFollowups, followupsOfCreditNote, followupsOfInvoice, type FollowupActor } from "./invoiceFollowups.service";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 
@@ -293,26 +294,9 @@ const money = (calc: Pick<InvoiceCalc, "net" | "vat" | "gross" | "netCzk" | "vat
   grossCzk: calc.grossCzk.toFixed(2),
 });
 
-/**
- * Adds the document to the customer's invoice list (aging / credit). A credit note goes in as
- * Credited and turns the invoice it reverses into Credited too: the two cancel out and
- * neither counts as owed. Never blocks issuing.
- */
-async function postToCustomer(inv: InvoiceRecord, corrects?: InvoiceRecord) {
-  try {
-    await customers.invoiceCreate({
-      customerId: inv.customerId,
-      invoiceNumber: inv.number,
-      amount: Number(inv.gross),
-      currency: inv.currency,
-      dueDate: inv.dueDate,
-      status: corrects ? "Credited" : "Open",
-      issuedAt: inv.issueDate,
-    });
-    if (corrects) await customers.invoiceMarkCredited({ invoiceNumbers: [corrects.number] });
-  } catch (err) {
-    log.error(err, "could not update the customer's invoice list", { number: inv.number });
-  }
+// Who an issued document's follow-ups are sent as: the user who issued it, with their role then.
+function actorOf(userId: string): FollowupActor {
+  return { userId, role: getAuthData()?.role ?? "" };
 }
 
 /**
@@ -418,22 +402,6 @@ async function storePdfQuietly(inv: InvoiceRecord, lines: InvoiceLineRecord[], c
   } catch (err) {
     log.error(err, "could not store the invoice PDF; it will be made on first download", { number: inv.number });
     return false;
-  }
-}
-
-/**
- * Moves the shipment's statuses after issuing / crediting (Billing -> Billed, Invoiced ...).
- * Goes through the shipments service, so the change is in the shipment's audit history.
- * Never fails the invoice: the document is already issued.
- */
-async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: string) {
-  if (!patch.status && !patch.invoicingStatus) return;
-  try {
-    // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
-    const authData = getAuthData();
-    await shipments.shipmentUpdate({ shipmentId, ...patch }, authData ? { authData: { ...authData, appWrite: true } } : undefined);
-  } catch (err) {
-    log.error(err, "could not update the shipment statuses after invoicing", { number });
   }
 }
 
@@ -548,10 +516,14 @@ class InvoiceDocumentService {
               throw APIError.failedPrecondition("Some of these selling rows were changed a moment ago — reload and check the invoice");
             }
           },
+          // What the invoice owes the customer's list and the shipment's statuses commits with it.
+          afterInsert: async (tx, inserted) => {
+            await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfInvoice(inserted, actorOf(userId)));
+          },
         },
       );
-      await postToCustomer(invoice);
-      await applyStatusPatch(shipmentId, statusesAfterIssue(ctx.shipment), invoice.number);
+      // Sent straight away; what a service does not take now is sent again by the followups cron.
+      await deliverInvoiceFollowups(invoice.id);
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };
     });
@@ -623,20 +595,15 @@ class InvoiceDocumentService {
         },
         lineRows(calcLines).map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId || null })),
         {
-          afterInsert: async (tx) => {
+          afterInsert: async (tx, inserted) => {
             const ok = await invoiceRepository.markCredited(tx, original.id, companyId);
             if (!ok) throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
+            await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCreditNote(inserted, original, actorOf(userId)));
           },
         },
       );
-      await postToCustomer(invoice, original);
-      try {
-        const { shipment } = await shipments.shipmentGet({ shipmentId: original.shipmentId });
-        const openLeft = await invoiceRepository.countOpenInvoices(original.shipmentId, companyId);
-        await applyStatusPatch(original.shipmentId, statusesAfterCredit(shipment, openLeft), invoice.number);
-      } catch (err) {
-        log.error(err, "could not read the shipment after the credit note", { number: invoice.number });
-      }
+      // Sent straight away; what a service does not take now is sent again by the followups cron.
+      await deliverInvoiceFollowups(invoice.id);
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };
     });

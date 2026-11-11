@@ -30,6 +30,8 @@ export const LOG_IN_AGAIN = "Please log in again";
 /** The one answer to an unknown, used or expired set-password link. */
 export const SET_PASSWORD_LINK_INVALID = "This link is no longer valid. Ask the dispatcher for a new one.";
 export const HAULIER_BLOCKED = "Your company's access to the portal is blocked. Please call the dispatcher.";
+/** What a blocked haulier's transport-order link answers: the same block as the portal's. */
+export const HAULIER_BLOCKED_LINK = "Your company's access to our transport orders is blocked. Please call the dispatcher.";
 /** An IP with too many failed logins (it says nothing about any e-mail). */
 export const TOO_MANY_ATTEMPTS = "Too many failed logins from your network. Please wait and try again later.";
 

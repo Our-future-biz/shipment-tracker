@@ -48,6 +48,7 @@ import type {
   AdrPackingGroup,
 } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
@@ -58,7 +59,8 @@ import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../l
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { AGENT_CONTACT, CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
-import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
+import { shipmentPartiesChanged } from "../topics";
+import { deliverShipmentEvents } from "./shipmentEvents.service";
 import { INVOICED_STATUS, jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
 import { jobNumberDigits } from "../../../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
@@ -1471,7 +1473,7 @@ class ShipmentService {
     return shipmentIds.length > 0;
   }
 
-  async softDelete(id: string, companyId: string, userId?: string): Promise<void> {
+  async softDelete(id: string, companyId: string, userId?: string, role?: string): Promise<void> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
     // Its invoices would stay open in the queue and the customer's balance with no job.
@@ -1490,9 +1492,14 @@ class ShipmentService {
       });
     }
 
-    await shipmentRepository.softDeleteForCompany(id, companyId);
+    // The delete and the shipment-deleted event it owes commit together; the event is published
+    // straight away, and retried by the event outbox cron when that fails, so the services that
+    // keep rows for the shipment always hear of it.
+    if (!(await shipmentRepository.softDeleteWithEvent(id, companyId, { userId: userId ?? "", role: role ?? "" }))) {
+      throw APIError.notFound("Shipment not found");
+    }
+    await deliverShipmentEvents(id);
     await this.recalcCustomerRollups(existing.customerId, companyId);
-    await shipmentDeleted.publish({ shipmentId: id, companyId });
     // The quote the shipment named loses it - and with its last shipment a Won it owed to one.
     await this.tellQuote(companyId, existing.salesNumber.trim());
     // It carries nothing of its master job any more; the others keep theirs until the split is processed.
@@ -1580,10 +1587,18 @@ class ShipmentService {
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string, userId?: string): Promise<ShipmentRecord | null> {
     let masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
     if (!masterJob) {
-      // A master job made by linking (Create new in the Master Job dialog) records who made it. It
-      // has no Load Type yet, so its reference has no letters (lib/masterJobNumber), whatever was typed.
+      // A master job made by linking to a number typed in records who made it. It has no Load Type
+      // yet, so its reference has no letters (lib/masterJobNumber), whatever was typed. ("Create new"
+      // in the Master Job dialog creates the job first, under the next free number, then links.)
       const createdBy = userId ? await this.actorOf(userId) : "";
-      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber: masterJobNumberFor(mczNumber, null), createdBy });
+      try {
+        masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber: masterJobNumberFor(mczNumber, null), createdBy });
+      } catch (err) {
+        // Another link to the same new number at the same moment created it first: this one joins it.
+        if (!(isUniqueViolation(err) && constraintOf(err) === "master_job_company_mcz_unique")) throw err;
+        masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
+        if (!masterJob) throw err;
+      }
     }
     return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id });
   }

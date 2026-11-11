@@ -22,6 +22,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
     softDeleteForCompany: vi.fn(),
+    softDeleteWithEvent: vi.fn(),
     customerRollups: vi.fn(),
     customerFacts: vi.fn(),
     truckPlate: vi.fn(),
@@ -53,6 +54,7 @@ vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionR
 vi.mock("../../repositories/commercialInvoice.repository", () => ({ commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), replaceForShipment: vi.fn() } }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
+vi.mock("../../services/shipmentEvents.service", () => ({ deliverShipmentEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
 
 import log from "encore.dev/log";
 import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
@@ -64,6 +66,7 @@ import { commercialInvoiceRepository } from "../../repositories/commercialInvoic
 import { containerRepository } from "../../repositories/container.repository";
 import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
+import { deliverShipmentEvents } from "../../services/shipmentEvents.service";
 import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachment.repository";
 import type { ShipmentRecord } from "../../schemas/shipment.schema";
 import { shipmentAuditRepository } from "../../repositories/shipmentAudit.repository";
@@ -145,6 +148,7 @@ beforeEach(() => {
     return updated;
   });
   repository.softDeleteForCompany.mockImplementation(async (id) => stored.get(id) ?? null);
+  repository.softDeleteWithEvent.mockImplementation(async (id) => stored.has(id));
   // The reference writes, against the shipments held: a rename only while the row still reads what it was worked out from.
   repository.referencesOf.mockImplementation(async () => [...stored.values()]);
   repository.referenceInTurn.mockImplementation(async (_tx, id) => stored.get(id) ?? null);
@@ -1117,7 +1121,23 @@ describe("softDelete", () => {
     stored.set(SHIPMENT, row({ salesNumber: ` ${REF}` }));
     await shipmentService.softDelete(SHIPMENT, COMPANY, USER);
     expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF);
-    expect(repository.softDeleteForCompany.mock.invocationCallOrder[0]).toBeLessThan(links.syncReference.mock.invocationCallOrder[0]!);
+    expect(repository.softDeleteWithEvent.mock.invocationCallOrder[0]).toBeLessThan(links.syncReference.mock.invocationCallOrder[0]!);
+  });
+
+  it("writes the shipment-deleted event with the delete, then publishes it", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: "" }));
+    await shipmentService.softDelete(SHIPMENT, COMPANY, USER, "manager");
+    // The event is owed in the delete's own transaction (the outbox row), so it can't be lost.
+    expect(repository.softDeleteWithEvent).toHaveBeenCalledWith(SHIPMENT, COMPANY, { userId: USER, role: "manager" });
+    expect(deliverShipmentEvents).toHaveBeenCalledWith(SHIPMENT);
+    expect(repository.softDeleteWithEvent.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(deliverShipmentEvents).mock.invocationCallOrder[0]!);
+  });
+
+  it("says not found when the shipment went meanwhile, and owes no event", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: "" }));
+    repository.softDeleteWithEvent.mockResolvedValueOnce(false);
+    await expect(shipmentService.softDelete(SHIPMENT, COMPANY, USER)).rejects.toMatchObject({ code: "not_found" });
+    expect(deliverShipmentEvents).not.toHaveBeenCalled();
   });
 
   it("is deleted also when the quote could not be told", async () => {
@@ -1317,6 +1337,23 @@ describe("linkMasterJob", () => {
     await shipmentService.linkMasterJob("s-1", COMPANY, "MCZ00000007");
     expect(masterJobs.createForCompany).not.toHaveBeenCalled();
     expect(repository.updateForCompany).toHaveBeenCalledWith("s-1", COMPANY, { masterJobId: "mj-7" });
+  });
+
+  it("joins the master job another link to the same new number created a moment before", async () => {
+    masterJobs.findByMczNumber = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "mj-first", mczNumber: "MCZ00000020" });
+    masterJobs.createForCompany = vi.fn(async () => {
+      throw Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "master_job_company_mcz_unique" } });
+    });
+    await shipmentService.linkMasterJob("s-1", COMPANY, "MCZ00000020");
+    expect(repository.updateForCompany).toHaveBeenCalledWith("s-1", COMPANY, { masterJobId: "mj-first" });
+  });
+
+  it("does not take another unique clash for that one", async () => {
+    masterJobs.createForCompany = vi.fn(async () => {
+      throw Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "something_else" } });
+    });
+    await expect(shipmentService.linkMasterJob("s-1", COMPANY, "MCZ00000020")).rejects.toThrow("duplicate key");
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 });
 

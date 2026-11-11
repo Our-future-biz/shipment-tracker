@@ -22,12 +22,15 @@ vi.mock("../services/settings.service", async () => ({ settingsService: { get: v
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
 vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), download: vi.fn() } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "") }));
+const hauliers = vi.hoisted(() => ({ find: vi.fn(async (): Promise<{ profile: { blocked: boolean } } | null> => null) }));
+vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: hauliers }));
 
 import { publicOrderService, LINK_INVALID } from "../services/publicOrder.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { truckingDocumentBucket } from "../storage/documentBucket";
 import { newToken } from "../lib/haulierToken";
+import { HAULIER_BLOCKED_LINK } from "../lib/portalRules";
 import { COMPANY, CUSTOMER, HAULIER, SERVICE_USER, SHIPMENT, TX, eventsOf, load, outboxOf, resetStore, stop, store } from "./truckingFakes";
 
 const SENDER = "00000000-0000-0000-0000-000000000003";
@@ -81,6 +84,14 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("the link", () => {
+  it("is refused to a blocked haulier, as the portal is: no view, no answer", async () => {
+    const { token } = await ordered();
+    hauliers.find.mockResolvedValueOnce({ profile: { blocked: true } }).mockResolvedValueOnce({ profile: { blocked: true } });
+    await expect(publicOrderService.get(token)).rejects.toMatchObject({ code: "permission_denied", message: HAULIER_BLOCKED_LINK });
+    await expect(publicOrderService.respond(token, { action: "confirm", name: "Petr", reason: "" })).rejects.toMatchObject({ code: "permission_denied" });
+    expect(hauliers.find).toHaveBeenCalledWith(COMPANY, HAULIER);
+  });
+
   it("shows the order without the customer's price: the buy price only, no site ids", async () => {
     const { token } = await ordered();
     const order = await publicOrderService.get(token);

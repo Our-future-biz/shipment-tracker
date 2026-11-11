@@ -454,6 +454,22 @@ class AuthService {
     const own = ownCompanyToLookIn(caller, ids, refs);
     return own ? [...refs, ...(await this.userRefs(own, [caller.userID]))] : refs;
   }
+
+  /**
+   * userRefs in the company, and of the ids not found there the live superadmins (with their own
+   * company): who a write owed by an outbox row is made as. A superadmin working as the company
+   * (X-Acting-Company) caused it there, though their record is in their own company; anybody else
+   * outside the company is nobody here.
+   */
+  async actorRefs(companyId: string, ids: string[]): Promise<UserRef[]> {
+    const refs = await this.userRefs(companyId, ids);
+    const missing = [...new Set(ids)].filter((id) => !refs.some((u) => u.id === id));
+    const supers = await userRepository.listLiveSuperadminsByIds(missing);
+    return [
+      ...refs,
+      ...supers.map((u) => ({ id: u.id, name: u.displayName || u.email || "", email: u.email, role: u.role, homeCompanyId: u.companyId })),
+    ];
+  }
 }
 
 export const authService = new AuthService();

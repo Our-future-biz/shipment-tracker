@@ -32,12 +32,15 @@ export async function serviceActor(companyId: string): Promise<ServiceActor> {
   return { userID: await id, companyID: companyId, role: SERVICE_ROLE };
 }
 
-/** Of `userIds`, those that are no live user of the company now ("" included). */
+/**
+ * Of `userIds`, those that are no live user of the company now ("" included). A live superadmin
+ * (who works in every company) is not gone: their rows are sent as them, as on the first try.
+ */
 export async function goneUsers(companyId: string, userIds: string[]): Promise<string[]> {
   const wanted = [...new Set(userIds)];
   const real = wanted.filter(Boolean);
   if (!real.length) return wanted;
-  const { users } = await auth.userLookup({ ids: real }, { authData: callerOf(companyId) });
+  const { users } = await auth.userLookup({ ids: real, orSuperadmin: true }, { authData: callerOf(companyId) });
   const live = new Set(users.map((u) => u.id));
   return wanted.filter((id) => !live.has(id));
 }

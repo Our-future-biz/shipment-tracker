@@ -70,7 +70,7 @@ import {
   type StatusChange,
 } from "../utils/quoteLifecycle.utils";
 import { searchTokens } from "../utils/quoteSearch.utils";
-import { holdsSending, toItem } from "../utils/salesQuoteItem.utils";
+import { holdsSending, STATES_UNAVAILABLE, toItem, type LinkedStates } from "../utils/salesQuoteItem.utils";
 import { ownerBackfillService } from "./ownerBackfill.service";
 import { companyUsers } from "../../../lib/companyUsers";
 import { companyPeople, peopleOf, withCaller, type People } from "../lib/people";
@@ -402,17 +402,18 @@ async function linkedSupplierStates(ids: string[]): Promise<Map<string, LinkedSu
   return new Map(states.map((s) => [s.id, { companyName: s.companyName, status: s.status, comment: s.comment }]));
 }
 
-// Where the companies the quotes are for stand, for what the quotes are handed out with (sendBlocked
-// says beforehand what customerGate refuses): asked once, for the quotes whose prices are open.
-// Unknown when the Customer Database does not answer - the transition still asks it.
-async function customerStatesOf(rows: readonly SalesQuoteRecord[], at: Date): Promise<Map<string, LinkedSupplierState> | undefined> {
-  const ids = [...new Set(rows.filter((row) => holdsSending(row, at)).flatMap((row) => linkedCustomerIds(row.data)))];
-  if (!ids.length) return undefined;
+// Where the companies the quotes are linked to stand - their customers and their buying lines'
+// suppliers - for what the quotes are handed out with (sendBlocked says beforehand what customerGate
+// and supplierGate refuse; Create shipment trusts it): asked once, for the quotes whose prices are
+// open. STATES_UNAVAILABLE when the Customer Database does not answer: the quotes are held then.
+async function linkedStatesOf(rows: readonly SalesQuoteRecord[], at: Date): Promise<LinkedStates> {
+  const open = rows.filter((row) => holdsSending(row, at));
+  const ids = [...new Set(open.flatMap((row) => [...linkedCustomerIds(row.data), ...linkedSupplierIds(row.data)]))];
   try {
     return await linkedSupplierStates(ids);
   } catch (err) {
-    log.warn("where the quotes' customers stand could not be read", { error: err instanceof Error ? err.message : String(err) });
-    return undefined;
+    log.warn("where the quotes' customers and suppliers stand could not be read", { error: err instanceof Error ? err.message : String(err) });
+    return STATES_UNAVAILABLE;
   }
 }
 
@@ -531,8 +532,8 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, [stored], at), customerStatesOf([stored], at)]);
-    return toItem(stored, people.emails, actor, at, margins, customerStates);
+    const [margins, states] = await Promise.all([marginsFor(actor.companyID, [stored], at), linkedStatesOf([stored], at)]);
+    return toItem(stored, people.emails, actor, at, margins, states);
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -554,10 +555,10 @@ class SalesQuoteService {
       { today: businessDay(at), dueBefore: followUpDueBefore(at) },
       people.users,
     );
-    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, rows, at), customerStatesOf(rows, at)]);
+    const [margins, states] = await Promise.all([marginsFor(actor.companyID, rows, at), linkedStatesOf(rows, at)]);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
-      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, customerStates)),
+      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, states)),
     };
   }
 

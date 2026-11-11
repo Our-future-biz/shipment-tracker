@@ -5,7 +5,7 @@ import { fclProfitGateMessage } from "./fclProfit.utils";
 import { inquiryGateMessage } from "./warehouseInquiry.utils";
 import { shippingTermsGateMessage } from "./shippingTerms.utils";
 import { tariffDirectionGateMessage, tariffUpdateGateMessage } from "./tariffDirection.utils";
-import { customerGate, type LinkedSupplierState } from "./supplierApproval.utils";
+import { customerGate, linkedCustomerIds, linkedSupplierIds, supplierGate, type LinkedSupplierState } from "./supplierApproval.utils";
 import type { RoadMargin, SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject, isWonRevision } from "./quoteDocument.utils";
@@ -15,6 +15,16 @@ const iso = (at: Date | null) => at?.toISOString() ?? null;
 
 // Whether the quote's prices are open as it is shown: not sent or decided, or a Won quote's revision.
 const pricesOpen = (row: SalesQuoteRecord, shown: string) => !PRICING_CLOSED.includes(shown) || isWonRevision(row.status, row.data);
+
+/** The Customer Database could not be asked where a quote's customer and suppliers stand. */
+export const STATES_UNAVAILABLE = "unavailable" as const;
+const STATES_UNAVAILABLE_MESSAGE = "Where the customer and the suppliers stand in the Customer Database could not be read — try again in a moment";
+
+/**
+ * Where the companies a quote is linked to stand (its customer, its buying lines' suppliers), by id;
+ * STATES_UNAVAILABLE when the Customer Database did not answer. Left out when it was not asked.
+ */
+export type LinkedStates = ReadonlyMap<string, LinkedSupplierState> | typeof STATES_UNAVAILABLE;
 
 /** Whether the quote's prices are open now, so the gates hold it (and where its customer stands is asked). */
 export function holdsSending(row: SalesQuoteRecord, now: Date): boolean {
@@ -29,7 +39,7 @@ export function holdsSending(row: SalesQuoteRecord, now: Date): boolean {
  * the transition holds it by, in its words; `customers` is where the companies the quotes are for
  * stand (customerGate), left out when it was not asked.
  */
-function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin | null, margins?: MarginContext, customers?: ReadonlyMap<string, LinkedSupplierState>): string | null {
+function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin | null, margins?: MarginContext, states?: LinkedStates): string | null {
   if (!pricesOpen(row, shown)) return null;
   const mode = freightModeGateMessage(row.data);
   if (mode) return mode;
@@ -41,8 +51,20 @@ function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin 
   if (direction) return direction;
   const tariffUpdate = tariffUpdateGateMessage(row.data);
   if (tariffUpdate) return tariffUpdate;
-  const customer = customers ? customerGate(row.data, customers).message : null;
-  if (customer) return customer;
+  // Where the customer and the suppliers stand: what the transition (and Create shipment, which
+  // trusts sendBlocked) holds a quote by. Not known, it holds it too - never let through unasked.
+  if (states) {
+    const linked = linkedCustomerIds(row.data).length + linkedSupplierIds(row.data).length > 0;
+    if (states === STATES_UNAVAILABLE) {
+      if (linked) return STATES_UNAVAILABLE_MESSAGE;
+    } else {
+      const customer = customerGate(row.data, states);
+      if (customer.message) return customer.message;
+      const supplier = supplierGate(row.data, states);
+      if (supplier.message) return supplier.message;
+      if (customer.unknown || supplier.unknown) return STATES_UNAVAILABLE_MESSAGE;
+    }
+  }
   return margin?.needsApproval ? marginGateMessage(margin) : inquiryGateMessage(row.data, "ready_to_send");
 }
 
@@ -74,7 +96,7 @@ function ownerPermission(
  * expired, what it may be set to, whether a follow-up is due, its road margin, and what this user
  * may do with it. `userEmails` are the e-mails of the company's users by id - a person is shown
  * by e-mail; `margins` is what a road margin is judged with - left out when the rule applies to
- * none of the quotes read; `customers` where the companies the quotes are for stand, by id.
+ * none of the quotes read; `states` where the companies the quotes are linked to stand (LinkedStates).
  */
 export function toItem(
   row: SalesQuoteRecord,
@@ -82,7 +104,7 @@ export function toItem(
   actor: { userID: string; role: string },
   now: Date,
   margins?: MarginContext,
-  customers?: ReadonlyMap<string, LinkedSupplierState>,
+  states?: LinkedStates,
 ): SalesQuoteItem {
   const state = stateOf(row);
   const today = businessDay(now);
@@ -118,7 +140,7 @@ export function toItem(
     shipmentId: state.shipmentId,
     shipmentJobNumber: state.shipmentJobNumber,
     roadMargin: margin ? shownMargin(margin, userEmails) : null,
-    sendBlocked: sendBlockedOf(row, shown, margin, margins, customers),
+    sendBlocked: sendBlockedOf(row, shown, margin, margins, states),
     permissions: {
       ...ownerPermission(actor, state, row.data),
       canDelete: deletion.allowed,

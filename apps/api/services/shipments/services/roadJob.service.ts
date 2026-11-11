@@ -72,6 +72,19 @@ class RoadJobService {
     return { shipmentId: shipment.id, jobNumber: shipment.jobNumber };
   }
 
+  /**
+   * Takes back a job Trucking made a moment ago for a consignment that then could not be saved (two
+   * bookings of one quote at once, a database error): deleted as any job is - the quote it named
+   * loses it, the services keeping rows for it hear of it. Only a job Trucking created, never one
+   * that is invoiced; one already gone is fine.
+   */
+  async retire(companyId: string, shipmentId: string, userId: string, role: string): Promise<void> {
+    const existing = isUuid(shipmentId) ? await shipmentRepository.getByIdForCompany(shipmentId, companyId) : null;
+    if (!existing) return;
+    if (!existing.createdBy.startsWith("Trucking")) throw APIError.failedPrecondition("Only a job Trucking created can be taken back by Trucking");
+    await shipmentService.softDelete(shipmentId, companyId, userId, role);
+  }
+
   /** The company's live jobs among `ids`; deleted or unknown ones are left out. */
   async basics(companyId: string, ids: string[]): Promise<RoadJobBasics[]> {
     const wanted = [...new Set((ids ?? []).filter(isUuid))];

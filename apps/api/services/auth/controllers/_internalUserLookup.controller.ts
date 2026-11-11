@@ -11,6 +11,11 @@ interface UserLookupRequest {
    * superadmin works as another one (AuthData.homeCompanyID). Everybody else only in the caller's company.
    */
   selfInOwnCompany?: boolean;
+  /**
+   * For a write owed by an outbox row: of the ids that are no user of the caller's company, the live
+   * superadmins are found too (with homeCompanyId), as they work in every company. Nobody else.
+   */
+  orSuperadmin?: boolean;
 }
 
 interface UserLookupResponse {
@@ -21,8 +26,9 @@ interface UserLookupResponse {
 // services resolve the users on their records without loading the whole company.
 export const userLookup = api(
   { expose: false, auth: true, method: "POST", path: "/auth/internal/users/lookup" },
-  async ({ ids, selfInOwnCompany }: UserLookupRequest): Promise<UserLookupResponse> => {
+  async ({ ids, selfInOwnCompany, orSuperadmin }: UserLookupRequest): Promise<UserLookupResponse> => {
     const caller = getAuthData()!;
+    if (orSuperadmin) return { users: await authService.actorRefs(caller.companyID, ids) };
     return { users: selfInOwnCompany ? await authService.userRefsWithSelf(caller, ids) : await authService.userRefs(caller.companyID, ids) };
   },
 );

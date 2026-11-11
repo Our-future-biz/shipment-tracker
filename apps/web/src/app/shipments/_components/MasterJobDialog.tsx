@@ -4,7 +4,9 @@ import { useState, useMemo, useEffect } from "react";
 import { Modal, Button, Input, Checkbox, Radio, Space, Spin } from "antd";
 import { LockOutlined, SearchOutlined } from "@ant-design/icons";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { useMasterJobs } from "@/hooks/useMasterJobs";
+import { useCreateMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
+import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
 import { compareMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { Badge } from "@/components/Badge";
 import { EMPTY_CELL } from "@/components/EmptyCell";
@@ -127,11 +129,25 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
     });
   };
 
+  const toast = useToast();
+  const createMasterJob = useCreateMasterJob();
   const handleConfirm = async () => {
     if (chosen.length === 0 || isLinking) return;
     setIsLinking(true);
     try {
-      await onLink(chosen, activeMCZ);
+      // A new master job is created once, under the number the server hands out (the one shown is
+      // its guess), and every shipment is then linked to it: the links never create one of their own,
+      // nor join one a colleague created meanwhile under the guessed number.
+      let mczNumber = activeMCZ;
+      if (mode === "new") {
+        try {
+          mczNumber = (await createMasterJob.mutateAsync()).masterJob.mczNumber;
+        } catch (err) {
+          toast.error(`The master job could not be created: ${apiErrorMessage(err)}`);
+          return;
+        }
+      }
+      await onLink(chosen, mczNumber);
     } finally {
       setIsLinking(false);
     }

@@ -22,6 +22,7 @@ const users = vi.hoisted(() => ({
   updateInCompany: vi.fn(),
   create: vi.fn(),
   listByIdsInCompany: vi.fn(),
+  listLiveSuperadminsByIds: vi.fn(async (_ids: string[]): Promise<{ id: string; displayName: string; email: string; role: string; companyId: string }[]> => []),
 }));
 vi.mock("../repositories/user.repository", () => ({ userRepository: users }));
 const companies = vi.hoisted(() => ({ getById: vi.fn(async () => null) }));
@@ -215,5 +216,18 @@ describe("looking users up for a stamp of who did something", () => {
     await expect(authService.userRefsWithSelf({ userID: JANA, companyID: TENANT, homeCompanyID: TENANT }, [ROOT])).resolves.toEqual([]);
     expect(users.listByIdsInCompany).toHaveBeenCalledTimes(1);
     expect(users.listByIdsInCompany).toHaveBeenCalledWith([ROOT], TENANT);
+  });
+
+  it("finds who an outbox row is owed by: a user of the company, or a live superadmin with their own company", async () => {
+    users.listByIdsInCompany.mockImplementation(async (ids: string[], companyId: string) => (byCompany[companyId] ?? []).filter((u) => ids.includes(u.id)));
+    users.listLiveSuperadminsByIds.mockImplementation(async (ids: string[]) =>
+      ids.includes(ROOT) ? [{ ...row(ROOT, "root@platform.cz", "superadmin"), companyId: PLATFORM }] : [],
+    );
+    await expect(authService.actorRefs(TENANT, [JANA, ROOT])).resolves.toEqual([
+      { id: JANA, name: "jana@tenant.cz", email: "jana@tenant.cz", role: "user" },
+      { id: ROOT, name: "root@platform.cz", email: "root@platform.cz", role: "superadmin", homeCompanyId: PLATFORM },
+    ]);
+    // Only the ids not found in the company are looked for among the superadmins.
+    expect(users.listLiveSuperadminsByIds).toHaveBeenLastCalledWith([ROOT]);
   });
 });

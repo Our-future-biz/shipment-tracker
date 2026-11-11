@@ -30,8 +30,11 @@ export interface OpenInvoiceWithSources {
 export interface IssueHooks {
   /** Runs under the series lock before the number is taken, e.g. to re-check what may be invoiced. */
   beforeInsert?: (tx: Tx) => Promise<void>;
-  /** Runs in the same transaction after the insert, e.g. marking the original as credited. */
-  afterInsert?: (tx: Tx, invoiceId: string) => Promise<void>;
+  /**
+   * Runs in the same transaction after the insert, e.g. marking the original as credited, or writing
+   * what the document owes the other services (services/invoiceFollowups).
+   */
+  afterInsert?: (tx: Tx, invoice: InvoiceRecord) => Promise<void>;
 }
 
 // An issued, not credited invoice (credit notes are never "open").
@@ -161,7 +164,7 @@ class InvoiceRepository extends TenantRepository<typeof t> {
             .values(lines.map((l) => ({ ...l, invoiceId: invoice!.id, companyId: header.companyId })))
             .returning()
         : [];
-      if (hooks.afterInsert) await hooks.afterInsert(tx, invoice!.id);
+      if (hooks.afterInsert) await hooks.afterInsert(tx, invoice!);
       return { invoice: invoice!, lines: saved };
     });
   }

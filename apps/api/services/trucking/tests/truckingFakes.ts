@@ -4,6 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
+import { sameSalesReference } from "../../../lib/salesReference";
 import type {
   TruckingConsignmentRecord,
   TruckingDocumentRecord,
@@ -216,7 +217,8 @@ export const consignmentRepository = {
       .map(copy),
   ),
   liveByQuote: vi.fn(async (companyId: string, quoteNumber: string) =>
-    copy(store.consignments.find((c) => c.companyId === companyId && c.quoteNumber === quoteNumber && !c.cancelledAt && c.sell?.source === "QUOTE") ?? null),
+    // As the SQL compares: the reference without the letters of the quote's Freight Mode.
+    copy(store.consignments.find((c) => c.companyId === companyId && !!c.quoteNumber && sameSalesReference(c.quoteNumber, quoteNumber) && !c.cancelledAt && c.sell?.source === "QUOTE") ?? null),
   ),
 };
 

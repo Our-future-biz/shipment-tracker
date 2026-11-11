@@ -610,6 +610,15 @@ describe("four eyes and today's figures on approval", () => {
     await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "permission_denied", message: FOUR_EYES });
   });
 
+  it("nor whoever changed the invoice after it was entered", async () => {
+    // Entered by a user and held; a manager then rewrites the figures and would approve them himself.
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    expect(inv.status).toBe("NEEDS_APPROVAL");
+    const changed = await haulierInvoiceService.update(manager, inv.id, { ...invoice({ totalNet: 10300, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10300, note: "" }] }), version: 1 });
+    expect(changed.status).toBe("NEEDS_APPROVAL");
+    await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "permission_denied", message: FOUR_EYES });
+  });
+
   it("nor who last changed the haulier's bank accounts", async () => {
     mem.profiles.set(H, profile({ bankAccountsChangedByUserId: M, bankAccountsChangedAt: new Date(Date.now() - 60 * 86_400_000) }));
     const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
@@ -630,6 +639,23 @@ describe("four eyes and today's figures on approval", () => {
     const inv = await haulierInvoiceService.create(user, invoice({ vatAmount: 0 }));
     expect(inv.status).toBe("NEEDS_APPROVAL");
     expect(inv.holdReasons).toEqual([expect.stringContaining("No VAT on a Czech VAT payer")]);
+  });
+
+  it("refuses a save while the Customer Database does not answer, rather than skip the VAT check", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ vatAmount: 0 }));
+    expect(inv.status).toBe("NEEDS_APPROVAL");
+    vi.mocked(customers._internalHaulierList).mockRejectedValueOnce(Object.assign(new Error("customers is down"), { code: "unavailable" }));
+    await expect(haulierInvoiceService.update(user, inv.id, { ...invoice({ vatAmount: 0 }), version: 1 })).rejects.toMatchObject({ code: "unavailable" });
+    // Nothing was saved: still held, never approved by itself.
+    expect((await haulierInvoiceService.get(user, inv.id)).status).toBe("NEEDS_APPROVAL");
+  });
+
+  it("holds a save for a haulier no longer in the Customer Database (its VAT unknown)", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ vatAmount: 0 }));
+    vi.mocked(customers._internalHaulierList).mockResolvedValueOnce({ hauliers: [] } as never);
+    const saved = await haulierInvoiceService.update(user, inv.id, { ...invoice({ vatAmount: 0 }), version: inv.version });
+    expect(saved.status).toBe("NEEDS_APPROVAL");
+    expect(saved.holdReasons).toEqual(expect.arrayContaining([expect.stringContaining("VAT details could not be read")]));
   });
 });
 

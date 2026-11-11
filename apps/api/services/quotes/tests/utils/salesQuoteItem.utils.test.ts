@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
-import { toItem } from "../../utils/salesQuoteItem.utils";
+import { STATES_UNAVAILABLE, toItem } from "../../utils/salesQuoteItem.utils";
 import { SHIPPING_TERMS_FIRST, shippingTermsGateMessage } from "../../utils/shippingTerms.utils";
 
 // 10 October 2026, noon in Prague.
@@ -308,5 +308,25 @@ describe("toItem's sendBlocked: the gates the sending is refused by, said before
     // Not asked, or approved: nothing to say beforehand.
     expect(toItem(row({ data }), emails, manager, NOW).sendBlocked).toBeNull();
     expect(toItem(row({ data }), emails, manager, NOW, undefined, new Map([[CUSTOMER, { companyName: "ACME s.r.o.", status: "" as const, comment: "" }]])).sendBlocked).toBeNull();
+  });
+
+  it("holds a quote whose buying line's supplier a manager declined: Create shipment trusts this, so a Draft is never Won past it", () => {
+    const SUPPLIER = "5b1f3c2e-8d4a-4f6b-9c1e-2a3b4c5d6e7f";
+    const data = { ...ready, customerId: CUSTOMER, buyingLines: [{ type: "Air freight", supplier: "Bad Bank Air", supplierCustomerId: SUPPLIER, amount: 100 }] };
+    const states = new Map([
+      [CUSTOMER, { companyName: "ACME s.r.o.", status: "" as const, comment: "" }],
+      [SUPPLIER, { companyName: "Bad Bank Air", status: "declined" as const, comment: "bad bank" }],
+    ]);
+    expect(toItem(row({ data }), emails, manager, NOW, undefined, states).sendBlocked).toBe("A manager declined the supplier Bad Bank Air (bad bank) — pick another supplier on its buying line");
+    // A supplier only typed holds it too, as the transition does.
+    const typed = { ...ready, buyingLines: [{ type: "Air freight", supplier: "Somebody Air", amount: 100 }] };
+    expect(toItem(row({ data: typed }), emails, manager, NOW, undefined, new Map()).sendBlocked).toMatch(/is only typed/);
+  });
+
+  it("holds a quote linked to companies whose standing could not be read, rather than let it through", () => {
+    const data = { ...ready, customerId: CUSTOMER };
+    expect(toItem(row({ data }), emails, manager, NOW, undefined, STATES_UNAVAILABLE).sendBlocked).toMatch(/could not be read/);
+    // A linked company missing from the answer (the quote changed since it was read) is no pass either.
+    expect(toItem(row({ data }), emails, manager, NOW, undefined, new Map()).sendBlocked).toMatch(/could not be read/);
   });
 });

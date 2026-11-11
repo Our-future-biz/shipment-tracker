@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import log from "encore.dev/log";
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import { customers, shipments } from "~encore/clients";
 import { inTx, type Tx } from "../db/db";
 import { haulierInvoiceRepository, type LineValues, type StoredInvoice } from "../repositories/haulierInvoice.repository";
@@ -148,6 +148,10 @@ function paidOnDay(value: unknown): string {
   return day;
 }
 
+/** Who entered or saved the invoice (and `also`, saving it now): none of them may approve its payment. */
+const savers = (inv: Pick<TruckingHaulierInvoiceRecord, "createdByUserId" | "enteredByUserIds">, also?: string): string[] =>
+  [...new Set([inv.createdByUserId, ...inv.enteredByUserIds, also].filter((id): id is string => !!id))];
+
 class HaulierInvoiceService {
   /** The haulier's name in the Customer Database; not found when it is not a live haulier there. */
   /** The haulier's name and VAT party; notFound when the customer is not a live haulier. */
@@ -159,13 +163,18 @@ class HaulierInvoiceService {
     return { name: found.companyName, party: { dic: found.dic, country: found.country } };
   }
 
-  /** The haulier's VAT party for a later save; null (no VAT check) when it can't be read. */
+  /**
+   * The haulier's VAT party for a later save. Null - held for a manager, never approved by itself -
+   * when the haulier is no longer in the Customer Database; a Customer Database that does not answer
+   * refuses the save, as on create, rather than skip the VAT check.
+   */
   private async vatParty(customerId: string): Promise<HaulierVatParty | null> {
     try {
       return (await this.haulier(customerId)).party;
     } catch (err) {
+      if (err instanceof APIError && err.code === ErrCode.NotFound) return null;
       log.warn(err, "trucking: haulier VAT party not read", { customerId });
-      return null;
+      throw APIError.unavailable("The haulier's VAT details could not be read from the Customer Database: try again in a moment");
     }
   }
 
@@ -467,6 +476,7 @@ class HaulierInvoiceService {
             ...this.fileValues(file),
             createdByUserId: actor.userID || null,
             createdBy: by,
+            enteredByUserIds: actor.userID ? [actor.userID] : [],
             version: 1,
           },
           this.lineValues(resolved),
@@ -494,7 +504,7 @@ class HaulierInvoiceService {
     const profile = await this.profile(companyId, haulierId);
     const resolved = await this.resolve(companyId, haulierId, clean.currency, clean.lines);
     const party = await this.vatParty(haulierId);
-    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null, cur.invoice.createdByUserId], party);
+    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null, cur.invoice.createdByUserId, ...cur.invoice.enteredByUserIds], party);
     const by = await userName(actor.userID);
     const approved = match.status === "APPROVED";
     const plans = approved
@@ -515,6 +525,8 @@ class HaulierInvoiceService {
           difference: match.difference,
           ...this.autoApproval(match.status, actor),
           ...this.fileValues(file),
+          // Whoever saves it is one of those who entered it (the version read keeps two saves apart).
+          enteredByUserIds: savers(cur.invoice, actor.userID),
         });
         if (!row) throw APIError.aborted(INVOICE_CONFLICT);
         const lines = await haulierInvoiceRepository.replaceLines(tx, companyId, row.id, this.lineValues(resolved));
@@ -554,7 +566,7 @@ class HaulierInvoiceService {
         throw APIError.failedPrecondition(`Payment cannot be approved (Czech VAT joint liability): ${blockReasons.join("; ")}`).withDetails({ blockReasons });
       }
       // Four eyes: who entered the invoice, or last changed the haulier's bank accounts, can't approve its payment.
-      if (actor.userID && (actor.userID === cur.invoice.createdByUserId || actor.userID === profile?.bankAccountsChangedByUserId)) {
+      if (actor.userID && (savers(cur.invoice).includes(actor.userID) || actor.userID === profile?.bankAccountsChangedByUserId)) {
         throw APIError.permissionDenied(FOUR_EYES);
       }
       const now = await this.resolve(

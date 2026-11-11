@@ -52,6 +52,16 @@ class UserRepository extends BaseRepository<typeof userTable> {
       .where(and(eq(userTable.companyId, companyId), inArray(userTable.id, ids), isNull(userTable.deletedAt)));
   }
 
+  // Live superadmins by id, whatever their company: they work in every company (X-Acting-Company),
+  // so a write one of them caused in another company is theirs there too (lib/outbox).
+  async listLiveSuperadminsByIds(ids: string[]): Promise<{ id: string; displayName: string; email: string; role: string; companyId: string }[]> {
+    if (!ids.length) return [];
+    return this.db
+      .select({ id: userTable.id, displayName: userTable.displayName, email: userTable.email, role: userTable.role, companyId: userTable.companyId })
+      .from(userTable)
+      .where(and(inArray(userTable.id, ids), eq(userTable.role, "superadmin"), isNull(userTable.deletedAt), person));
+  }
+
   // User-management writes are always scoped to the admin's own company.
   async getByIdInCompany(id: string, companyId: string) {
     const [row] = await this.db

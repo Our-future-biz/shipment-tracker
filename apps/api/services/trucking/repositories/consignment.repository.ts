@@ -13,6 +13,8 @@ import type { ConsignmentNotice, ConsignmentStatus, StampKind } from "../interfa
 import { formatTruckingRef, MAX_REF_NUMBER } from "../lib/consignmentRules";
 import type { LegRealCost } from "../lib/haulierCost";
 import { legCostParts } from "./legCost.sql";
+import { plainSalesReference } from "../../../lib/salesReference";
+import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
 
 const c = truckingConsignmentTable;
 const MAX_LIST = 1000;
@@ -173,12 +175,22 @@ class ConsignmentRepository {
     return db.select().from(c).where(and(...clauses)).orderBy(c.id).limit(limit);
   }
 
-  /** The live consignment priced from a quote (one per quote), when there is one. */
+  /**
+   * The live consignment priced from a quote (one per quote), when there is one. The reference is
+   * compared without the letters of the quote's Freight Mode: a consignment that holds it from
+   * before a rename, or as it was typed, still names that quote (lib/salesReference).
+   */
   async liveByQuote(companyId: string, quoteNumber: string, reader: Tx | typeof db = db): Promise<TruckingConsignmentRecord | null> {
     const [row] = await reader
       .select()
       .from(c)
-      .where(and(eq(c.companyId, companyId), eq(c.quoteNumber, quoteNumber), isNull(c.cancelledAt), isNull(c.deletedAt), sql`${c.sell}->>'source' = 'QUOTE'`));
+      .where(and(
+        eq(c.companyId, companyId),
+        sql`${plainSalesReferenceSql(c.quoteNumber)} = ${plainSalesReference(quoteNumber)}`,
+        isNull(c.cancelledAt),
+        isNull(c.deletedAt),
+        sql`${c.sell}->>'source' = 'QUOTE'`,
+      ));
     return row ?? null;
   }
 

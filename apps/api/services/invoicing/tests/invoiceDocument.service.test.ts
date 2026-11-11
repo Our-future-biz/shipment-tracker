@@ -24,6 +24,33 @@ const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
 const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listLiveByCompany: vi.fn() }));
 const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi.fn() }));
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
+// The follow-up outbox, in memory: rows written in the issue's transaction, claimed and settled.
+const outbox = vi.hoisted(() => {
+  const rows: Record<string, unknown>[] = [];
+  const settle = (status: string) => vi.fn(async (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    if (row) row.status = status;
+    return "pending";
+  });
+  return {
+    rows,
+    enqueue: vi.fn(async (_tx: unknown, add: Record<string, unknown>[]) => {
+      for (const r of add) rows.push({ ...r, id: `o${rows.length + 1}`, attempts: 0, status: "pending" });
+      return add;
+    }),
+    claimDue: vi.fn(async (_limit: number, invoiceId?: string) => {
+      const due = rows.filter((r) => r.status === "pending" && (!invoiceId || r.invoiceId === invoiceId));
+      for (const r of due) {
+        r.attempts = (r.attempts as number) + 1;
+        r.status = "claimed";
+      }
+      return due;
+    }),
+    markSent: settle("sent"),
+    markRetry: settle("retry"),
+    markFailed: settle("failed"),
+  };
+});
 const clients = vi.hoisted(() => ({
   shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
   invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(), addressList: vi.fn(),
@@ -31,6 +58,7 @@ const clients = vi.hoisted(() => ({
 
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: "user" }) }));
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
+vi.mock("../repositories/invoiceFollowupOutbox.repository", () => ({ invoiceFollowupOutboxRepository: outbox }));
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
   truckingLinesLock: trucking.lock,
@@ -49,7 +77,7 @@ vi.mock("~encore/clients", () => ({
   customers: {
     customerGet: clients.customerGet,
     addressList: clients.addressList,
-    invoiceCreate: clients.invoiceCreate,
+    _internalCustomerInvoicePost: clients.invoiceCreate,
     invoiceMarkCredited: clients.invoiceMarkCredited,
   },
   fx: fxClient,
@@ -119,10 +147,12 @@ beforeEach(() => {
   bucket.upload.mockResolvedValue(undefined);
   bucket.remove.mockResolvedValue(undefined);
   pdf.render.mockResolvedValue(new TextEncoder().encode("%PDF-test"));
-  repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[]) => ({
-    invoice: { ...header, id: "inv1", number: `${prefix}001`, correctsInvoiceId: header.correctsInvoiceId ?? null, creditReason: header.creditReason ?? "", pdfKey: "", createdAt: new Date("2026-10-13T10:00:00Z") },
-    lines: lines.map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId ?? null })),
-  }));
+  outbox.rows.length = 0;
+  repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[], hooks?: { afterInsert?: (tx: unknown, invoice: unknown) => Promise<void> }) => {
+    const invoice = { ...header, id: "inv1", number: `${prefix}001`, correctsInvoiceId: header.correctsInvoiceId ?? null, creditReason: header.creditReason ?? "", pdfKey: "", createdAt: new Date("2026-10-13T10:00:00Z") };
+    await hooks?.afterInsert?.({}, invoice);
+    return { invoice, lines: lines.map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId ?? null })) };
+  });
 });
 
 describe("preview", () => {
@@ -237,9 +267,13 @@ describe("issue", () => {
     expect(inv.hasPdf).toBe(true);
     // Billing -> Billed and Invoiced, through the shipments service (audited there)
     expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Invoiced", status: "Billed [IMP]"  }, { authData: expect.objectContaining({ appWrite: true }) });
-    expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({
-      customerId: CUSTOMER, invoiceNumber: "INV2026CZ00000028-001", amount: 29999.5, currency: "CZK", status: "Open",
-    }));
+    expect(clients.invoiceCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ customerId: CUSTOMER, invoiceNumber: "INV2026CZ00000028-001", amount: 29999.5, currency: "CZK", status: "Open" }),
+      { authData: { userID: USER, companyID: COMPANY, role: "user" } },
+    );
+    // Both follow-ups were written with the invoice (its transaction) and are sent.
+    expect(outbox.enqueue).toHaveBeenCalledTimes(1);
+    expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "sent"], ["status_after_issue", "sent"]]);
   });
 
   it("addresses the invoice to the customer's billing address instead of its seat, and keeps the seat's country for VAT", async () => {
@@ -422,16 +456,19 @@ describe("issue", () => {
     expect(inv.hasPdf).toBe(false);
   });
 
-  it("still issues when the shipment statuses cannot be updated", async () => {
-    clients.shipmentUpdate.mockRejectedValue(new Error("shipments down"));
+  it("still issues when the shipment statuses cannot be updated, and keeps them owed", async () => {
+    clients.shipmentUpdate.mockRejectedValue(Object.assign(new Error("shipments down"), { code: "unavailable" }));
     const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
     expect(inv.number).toBe("INV2026CZ00000028-001");
+    // Sent again by the followups cron, not lost.
+    expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "sent"], ["status_after_issue", "retry"]]);
   });
 
-  it("still issues when posting to the customer's list fails", async () => {
-    clients.invoiceCreate.mockRejectedValue(new Error("customers down"));
+  it("still issues when posting to the customer's list fails, and keeps it owed", async () => {
+    clients.invoiceCreate.mockRejectedValue(Object.assign(new Error("customers down"), { code: "unavailable" }));
     const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
     expect(inv.number).toBe("INV2026CZ00000028-001");
+    expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "retry"], ["status_after_issue", "sent"]]);
   });
 });
 
@@ -466,9 +503,10 @@ describe("credit", () => {
     repo.getByIdForCompany.mockResolvedValue(original);
     repo.getLines.mockResolvedValue([line]);
     repo.markCredited.mockResolvedValue(true);
-    repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[], hooks?: { afterInsert?: (tx: unknown, id: string) => Promise<void> }) => {
-      await hooks?.afterInsert?.({}, "cn1");
-      return { invoice: { ...header, id: "cn1", number: `${prefix}001`, pdfKey: "", createdAt: new Date() }, lines };
+    repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[], hooks?: { afterInsert?: (tx: unknown, invoice: unknown) => Promise<void> }) => {
+      const invoice = { ...header, id: "cn1", number: `${prefix}001`, pdfKey: "", createdAt: new Date() };
+      await hooks?.afterInsert?.({}, invoice);
+      return { invoice, lines };
     });
 
     const cn = await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
@@ -483,10 +521,25 @@ describe("credit", () => {
     expect(repo.markCredited).toHaveBeenCalledWith({}, "inv1", COMPANY);
     expect(cn.number).toBe("CN2026CZ00000028-001");
     // the credit note and the invoice it reverses stop counting as owed
-    expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", status: "Credited" }));
-    expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] });
+    expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", status: "Credited" }), expect.anything());
+    expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] }, expect.anything());
+    // Each follow-up is a row of its own: the Credited mark is sent even when the list entry is not.
+    expect(outbox.rows.map((r) => r.kind)).toEqual(["customer_invoice", "mark_credited", "status_after_credit"]);
     // no open invoice left: the job goes back to Billing / Not Invoiced
     expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]"  }, { authData: expect.objectContaining({ appWrite: true }) });
+  });
+
+  it("marks the original Credited even when the credit note can't go into the customer's list", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
+    repo.countOpenInvoices.mockResolvedValue(0);
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue([line]);
+    repo.markCredited.mockResolvedValue(true);
+    // The customer was deleted meanwhile: its list refuses the credit note for good.
+    clients.invoiceCreate.mockRejectedValue(Object.assign(new Error("customer gone"), { code: "failed_precondition" }));
+    await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
+    expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] }, expect.anything());
+    expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "failed"], ["mark_credited", "sent"], ["status_after_credit", "sent"]]);
   });
 
   it("refuses a key that was used for issuing an invoice", async () => {
@@ -506,8 +559,8 @@ describe("credit", () => {
     repo.getByIdForCompany.mockResolvedValue(original);
     repo.getLines.mockResolvedValue([line]);
     repo.markCredited.mockResolvedValue(false);
-    repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { afterInsert?: (tx: unknown, id: string) => Promise<void> }) => {
-      await hooks?.afterInsert?.({}, "cn1");
+    repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { afterInsert?: (tx: unknown, invoice: unknown) => Promise<void> }) => {
+      await hooks?.afterInsert?.({}, { id: "cn1" });
       return { invoice: {}, lines: [] };
     });
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toThrow(/already been credited/);

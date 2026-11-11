@@ -2,6 +2,8 @@ import { APIError } from "encore.dev/api";
 import { inTx, type Tx } from "../db/db";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
+import { haulierRepository } from "../repositories/haulier.repository";
+import { HAULIER_BLOCKED_LINK } from "../lib/portalRules";
 import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord, TruckingHaulierLinkRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
@@ -117,6 +119,11 @@ class PublicOrderService {
     if (!link || !tokenMatches(link.tokenHash, token) || link.revokedAt || link.expiresAt.getTime() < Date.now()) throw invalid();
     const trip = await tripRepository.find(link.companyId, link.tripId);
     if (!trip || trip.cancelledAt) throw invalid();
+    // A blocked haulier is refused here as in the portal: no view, confirmation or POD (the block
+    // ends its portal sessions; its links answer this until the block is lifted).
+    if (trip.haulierCustomerId && (await haulierRepository.find(link.companyId, trip.haulierCustomerId))?.profile.blocked) {
+      throw APIError.permissionDenied(HAULIER_BLOCKED_LINK);
+    }
     const c = await consignmentRepository.findByTrip(link.companyId, trip.id);
     if (!c || c.cancelledAt) throw invalid();
     return { link, trip, c };
