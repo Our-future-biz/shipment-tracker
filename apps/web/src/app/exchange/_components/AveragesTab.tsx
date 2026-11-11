@@ -6,8 +6,8 @@ import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useFxAverages } from "@/hooks/useFx";
 import { Pill } from "@/components/Pill";
-import { HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
-import { fmtAverage, type AveragesResponse } from "./fxShared";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
+import { fmtAverage, type AveragesResponse, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
 
 type Period = AveragesResponse["periods"][number];
 
@@ -46,14 +46,14 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
       ) : isLoading ? (
         <div className="flex justify-center py-10"><Spin /></div>
       ) : (
-        <div className="overflow-x-auto border border-slate-200 rounded-xl">
+        <div className={FX_TABLE_WRAP}>
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th className={TH}>Period</th>
-                {currencies.map((c) => <th key={c} className={`${TH} !text-right`}>{c}</th>)}
-                <th className={`${TH} !text-right`}>Fixing days</th>
-                <th className={TH}>Status</th>
+                <th className={`${FX_TH} ${FX_KEY}`}>Period</th>
+                {currencies.map((c) => <th key={c} className={`${FX_TH} ${FX_NUM}`}>{c}</th>)}
+                <th className={`${FX_TH} ${FX_NUM}`}>Fixing days</th>
+                <th className={`${FX_TH} ${FX_AFTER_NUM}`}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -62,20 +62,20 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
                 if (!rows.length) return null;
                 return [
                   <tr key={g.type}>
-                    <td colSpan={currencies.length + 3} className={`px-2 pt-3 pb-1 ${LABEL_TEXT}`}>
+                    <td colSpan={currencies.length + 3} className={`px-4 pt-4 pb-1.5 border-b border-slate-200 ${LABEL_TEXT} !text-indigo-700`}>
                       {g.title}
                     </td>
                   </tr>,
                   ...rows.map((p) => (
                     <tr key={p.key}>
-                      <td className={`${TD} ${p.type === "month" ? "" : "font-semibold"}`}>{label(p)}</td>
+                      <td className={`${FX_TD} ${FX_KEY} ${p.type === "month" ? "" : "font-semibold"}`}>{label(p)}</td>
                       {currencies.map((c) => (
-                        <td key={c} className={`${TD} text-right tabular-nums`}>
+                        <td key={c} className={`${FX_TD} ${FX_NUM} !text-slate-900`}>
                           {fmtAverage(p.averages.find((a) => a.currency === c))}
                         </td>
                       ))}
-                      <td className={`${TD} text-right tabular-nums !text-slate-500`}>{p.averages[0]?.fixingDays ?? 0}</td>
-                      <td className={TD}>
+                      <td className={`${FX_TD} ${FX_NUM} !text-slate-500`}>{p.averages[0]?.fixingDays ?? 0}</td>
+                      <td className={`${FX_TD} ${FX_AFTER_NUM}`}>
                         {p.final ? (
                           <Pill tone="slate">Final</Pill>
                         ) : (

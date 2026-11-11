@@ -6,7 +6,7 @@ import { formatDate, formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { Badge } from "@/components/Badge";
 import { Pill } from "@/components/Pill";
-import { TD, TH } from "@/styles/ui";
+import { FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
 
 const STATUS_LABEL: Record<interfaces.ImportRunStatus, string> = {
   ok: "New rates stored",
@@ -29,16 +29,16 @@ export function ImportLogTab() {
   const runs = data?.runs ?? [];
 
   return (
-    <div className="overflow-x-auto border border-slate-200 rounded-xl mt-1">
+    <div className={`${FX_TABLE_WRAP} mt-1`}>
       <table className="w-full border-collapse">
         <thead>
           <tr>
-            <th className={TH}>Started</th>
-            <th className={TH}>Trigger</th>
-            <th className={TH}>Result</th>
-            <th className={`${TH} !text-right`}>Rates added</th>
-            <th className={TH}>Newest ČNB fixing</th>
-            <th className={TH}>Error</th>
+            <th className={`${FX_TH} ${FX_KEY}`}>Started</th>
+            <th className={FX_TH}>Trigger</th>
+            <th className={FX_TH}>Result</th>
+            <th className={`${FX_TH} ${FX_NUM}`}>Rates added</th>
+            <th className={`${FX_TH} ${FX_AFTER_NUM}`}>Newest ČNB fixing</th>
+            <th className={FX_TH}>Error</th>
           </tr>
         </thead>
         <tbody>
@@ -49,12 +49,12 @@ export function ImportLogTab() {
           )}
           {runs.map((r) => (
             <tr key={r.id}>
-              <td className={`${TD} whitespace-nowrap`}>{formatDateTime(r.startedAt)}</td>
-              <td className={TD}>{r.trigger}</td>
-              <td className={TD}><StatusMark status={r.status} /></td>
-              <td className={`${TD} text-right tabular-nums`}>{r.rowsAdded}</td>
-              <td className={TD}>{formatDate(r.latestValidDate)}</td>
-              <td className={`${TD} !text-red-600 max-w-[360px] truncate`} title={r.error}>{r.error}</td>
+              <td className={`${FX_TD} ${FX_KEY}`}>{formatDateTime(r.startedAt)}</td>
+              <td className={`${FX_TD} capitalize`}>{r.trigger}</td>
+              <td className={FX_TD}><StatusMark status={r.status} /></td>
+              <td className={`${FX_TD} ${FX_NUM} !text-slate-900`}>{r.rowsAdded}</td>
+              <td className={`${FX_TD} ${FX_AFTER_NUM} whitespace-nowrap`}>{formatDate(r.latestValidDate)}</td>
+              <td className={`${FX_TD} !text-red-600 max-w-[360px] truncate`} title={r.error}>{r.error}</td>
             </tr>
           ))}
         </tbody>

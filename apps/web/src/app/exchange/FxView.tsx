@@ -1,13 +1,13 @@
 "use client";
 
-import { Alert, Button, Spin, Tabs, Tooltip } from "antd";
+import { Alert, Spin, Tabs, Tooltip } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useFxOverview, useFxSync } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { Pill } from "@/components/Pill";
-import { CARD, HINT } from "@/styles/ui";
+import { BTN, CARD, HINT } from "@/styles/ui";
 import type { FxOverview } from "./_components/fxShared";
 import { OverviewCards } from "./_components/OverviewCards";
 import { useFxCurrencies, withBase } from "./_components/useFxCurrencies";
@@ -126,7 +126,7 @@ export function FxView() {
     <>
       <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-4 py-3`}>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[13px] font-semibold text-slate-600">
+          <span className="text-[13px] font-semibold text-slate-900">
             {data.base === "CZK" ? "ČNB official rates — CZK per 1 unit" : `Rates in ${data.base} per 1 unit — crossed from the ČNB fixing`}
           </span>
           <SyncPill sync={data.sync} />
@@ -134,9 +134,10 @@ export function FxView() {
         </div>
         {canSync && (
           <Tooltip title="Fetch the latest fixing from ČNB now">
-            <Button icon={<SyncOutlined spin={sync.isPending} />} onClick={handleSync} disabled={sync.isPending}>
+            <button type="button" className={BTN} onClick={handleSync} disabled={sync.isPending}>
+              <SyncOutlined spin={sync.isPending} />
               Sync now
-            </Button>
+            </button>
           </Tooltip>
         )}
       </div>

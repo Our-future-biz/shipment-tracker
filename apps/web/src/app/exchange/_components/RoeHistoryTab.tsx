@@ -5,8 +5,8 @@ import { useFxRoeHistory } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { Badge } from "@/components/Badge";
 import { Pill } from "@/components/Pill";
-import { EMPTY, HINT, TD, TH } from "@/styles/ui";
-import { fmtPct } from "./fxShared";
+import { EMPTY, HINT } from "@/styles/ui";
+import { fmtPct, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
 
 export function RoeHistoryTab() {
   const { data, isLoading, isError } = useFxRoeHistory();
@@ -17,15 +17,15 @@ export function RoeHistoryTab() {
 
   return (
     <div className="flex flex-col gap-3 pt-1">
-      <div className="overflow-x-auto border border-slate-200 rounded-xl">
+      <div className={FX_TABLE_WRAP}>
         <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th className={TH}>Effective from</th>
-              <th className={`${TH} !text-right`}>ROE %</th>
-              <th className={TH}>Changed by</th>
-              <th className={TH}>Changed at</th>
-              <th className={TH}>Note</th>
+              <th className={`${FX_TH} ${FX_KEY}`}>Effective from</th>
+              <th className={`${FX_TH} ${FX_NUM}`}>ROE %</th>
+              <th className={`${FX_TH} ${FX_AFTER_NUM}`}>Changed by</th>
+              <th className={FX_TH}>Changed at</th>
+              <th className={FX_TH}>Note</th>
             </tr>
           </thead>
           <tbody>
@@ -38,15 +38,15 @@ export function RoeHistoryTab() {
             )}
             {changes.map((c) => (
               <tr key={c.id} className={c.current ? "bg-indigo-50/60" : ""}>
-                <td className={TD}>
+                <td className={`${FX_TD} ${FX_KEY}`}>
                   {formatDate(c.effectiveFrom)}
                   {c.current && <Badge tone="i" className="ml-2">in force</Badge>}
                   {c.scheduled && <Pill tone="amber" className="ml-2">scheduled</Pill>}
                 </td>
-                <td className={`${TD} text-right tabular-nums font-semibold`}>{fmtPct(c.pct)}</td>
-                <td className={TD}>{c.changedByName || <span className={EMPTY}>—</span>}</td>
-                <td className={`${TD} !text-slate-500`}>{formatDateTime(c.changedAt)}</td>
-                <td className={TD}>{c.note}</td>
+                <td className={`${FX_TD} ${FX_NUM} font-semibold !text-slate-900`}>{fmtPct(c.pct)}</td>
+                <td className={`${FX_TD} ${FX_AFTER_NUM}`}>{c.changedByName || <span className={EMPTY}>—</span>}</td>
+                <td className={`${FX_TD} whitespace-nowrap !text-slate-500`}>{formatDateTime(c.changedAt)}</td>
+                <td className={FX_TD}>{c.note}</td>
               </tr>
             ))}
           </tbody>

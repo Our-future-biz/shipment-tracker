@@ -1,4 +1,18 @@
 import { api } from "@/lib/api";
+import { TD, TH } from "@/styles/ui";
+
+// The tables of the four tabs, built alike: a framed table with a light grey header, roomy cells,
+// figures in columns of one width (right-aligned under their heading) and the text column after
+// them set apart, so the figures and the words do not run together.
+export const FX_TABLE_WRAP = "overflow-x-auto border border-slate-200 rounded-xl";
+export const FX_TH = `${TH} !px-4 !py-2.5 bg-slate-50`;
+export const FX_TD = `${TD} !px-4 !py-2.5`;
+/** A column of figures: one width, right-aligned. */
+export const FX_NUM = "w-[130px] !text-right tabular-nums whitespace-nowrap";
+/** The first text column after the figures: set apart from them. */
+export const FX_AFTER_NUM = "!pl-10";
+/** The row's key (date, period, start): one width, never wrapped. */
+export const FX_KEY = "w-[190px] whitespace-nowrap";
 
 // Shapes returned by the fx service, taken from the generated client.
 export type FxOverview = Awaited<ReturnType<typeof api.fx.fxOverview>>;

@@ -6,8 +6,8 @@ import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { formatDate } from "@/lib/date";
 import { useFxDaily } from "@/hooks/useFx";
-import { HINT, TD, TH } from "@/styles/ui";
-import { fmtRate, type DailyResponse } from "./fxShared";
+import { HINT } from "@/styles/ui";
+import { fmtRate, type DailyResponse, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
 
 type Day = DailyResponse["days"][number];
 
@@ -68,14 +68,14 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
       ) : isLoading ? (
         <div className="flex justify-center py-10"><Spin /></div>
       ) : (
-        <div className="overflow-x-auto border border-slate-200 rounded-xl">
+        <div className={FX_TABLE_WRAP}>
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th className={TH}>Date</th>
-                {currencies.map((c) => <th key={c} className={`${TH} !text-right`}>{c}</th>)}
-                {!all && showRoe && currencies.map((c) => <th key={`roe-${c}`} className={`${TH} !text-right`}>{c} pricing</th>)}
-                <th className={TH}>Source</th>
+                <th className={`${FX_TH} ${FX_KEY}`}>Date</th>
+                {currencies.map((c) => <th key={c} className={`${FX_TH} ${FX_NUM}`}>{c}</th>)}
+                {!all && showRoe && currencies.map((c) => <th key={`roe-${c}`} className={`${FX_TH} ${FX_NUM}`}>{c} pricing</th>)}
+                <th className={`${FX_TH} ${FX_AFTER_NUM}`}>Source</th>
               </tr>
             </thead>
             <tbody>
@@ -83,14 +83,14 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                 const quiet = d.kind !== "fixing";
                 return (
                   <tr key={d.date} className={quiet ? "bg-slate-50/60" : ""}>
-                    <td className={`${TD} whitespace-nowrap`}>
+                    <td className={`${FX_TD} ${FX_KEY}`}>
                       {formatDate(d.date)} <span className="text-slate-400 text-[13px]">{dayjs(d.date).format("ddd")}</span>
                     </td>
                     {currencies.map((c) => {
                       const r = d.rates.find((x) => x.currency === c);
                       const lastFixing = retired.get(c);
                       return (
-                        <td key={c} className={`${TD} text-right tabular-nums ${quiet ? "!text-slate-400" : "!text-slate-900"}`}>
+                        <td key={c} className={`${FX_TD} ${FX_NUM} ${quiet ? "!text-slate-400" : "!text-slate-900"}`}>
                           {!r && lastFixing && d.date > lastFixing ? (
                             <Tooltip title={`No longer published by ČNB — last fixing ${formatDate(lastFixing)}`}>
                               <span className="text-slate-400 text-[13px]">not published</span>
@@ -104,12 +104,12 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                     {!all && showRoe && currencies.map((c) => {
                       const r = d.rates.find((x) => x.currency === c);
                       return (
-                        <td key={`roe-${c}`} className={`${TD} text-right tabular-nums !text-slate-500`}>
+                        <td key={`roe-${c}`} className={`${FX_TD} ${FX_NUM} !text-slate-500`}>
                           {fmtRate(r ? (r.rate * d.roePct) / 100 : null)}
                         </td>
                       );
                     })}
-                    <td className={`${TD} ${d.kind === "missing" ? "!text-red-600 font-semibold" : "!text-slate-500"}`}>
+                    <td className={`${FX_TD} ${FX_AFTER_NUM} ${d.kind === "missing" ? "!text-red-600 font-semibold" : "!text-slate-500"}`}>
                       {d.kind === "missing" || d.kind === "pending" ? KIND[d.kind].label : sourceText(d)}
                     </td>
                   </tr>
