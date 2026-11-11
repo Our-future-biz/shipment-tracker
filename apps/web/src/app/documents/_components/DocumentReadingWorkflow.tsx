@@ -292,6 +292,11 @@ export function DocumentReadingWorkflow() {
   const [hblTotalBatches, setHblTotalBatches] = useState(0);
   const [hblLoading, setHblLoading] = useState(false);
   const [waitingForBatch, setWaitingForBatch] = useState(false);
+  // The Master B/L could not be read (not: the pre-alert has none): said, with a retry.
+  const [mblReadError, setMblReadError] = useState<string | null>(null);
+  // The pre-alert read and House B/L batch an answer is for, as they are now: a batch that arrives
+  // for a read left behind (a new pre-alert, a new extraction) or asked for twice is dropped.
+  const pipelineRun = useRef({ sessionId: "", batchIndex: 0 });
 
   // Derived
   const targetShipmentId = targetShipment?.id ?? "";
@@ -575,6 +580,32 @@ export function DocumentReadingWorkflow() {
     return hasShipmentInput && (shipmentMode === "new" || !!targetShipmentId);
   })();
 
+  // Nothing of an earlier pre-alert read stays: a new read starts on the next free MCZ, without the
+  // earlier Master B/L's details or House B/Ls, and a batch still on its way for it is dropped.
+  const resetPipeline = () => {
+    pipelineRun.current = { sessionId: "", batchIndex: 0 };
+    setPipelineSessionId("");
+    setPipelineStep("idle");
+    setClassification({});
+    setPreparedFiles([]);
+    setBatchJob(null);
+    houseShipments.current.clear();
+    setMblInfo(null);
+    setMblTicked({});
+    setMblFiled(false);
+    setMblReadError(null);
+    setMasterShipments([]);
+    setMasterIdx(0);
+    setMasterFields([]);
+    setMasterCreatedJobs([]);
+    setMasterDocs([]);
+    setMasterDocsSaved(0);
+    setHblBatchIndex(0);
+    setHblTotalBatches(0);
+    setHblLoading(false);
+    setWaitingForBatch(false);
+  };
+
   // ─── Extraction ──────────────────────────────────────────────────
   // `invoiceFile`: the invoice of the queue to read; else the first one not done yet.
   const handleExtract = async (invoiceFile?: UploadedFile) => {
@@ -700,15 +731,12 @@ export function DocumentReadingWorkflow() {
         await quoteReading.read(inputMode === "file" ? { fileBase64, fileName } : { text: textInput.trim() });
         setStep("review");
       } else {
-        // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
-        setBatchJob(null);
-        houseShipments.current.clear();
-        setMblFiled(false);
-        setMasterCreatedJobs([]);
-        setPipelineStep("idle");
+        // masterjob — Phase 1: prepare + classify.
+        resetPipeline();
         const prep = await api.extraction.pipelinePrepare({
           files: masterFiles.map((f) => ({ fileBase64: f.base64, fileName: f.name })),
         });
+        pipelineRun.current = { sessionId: prep.sessionId, batchIndex: 0 };
         setPreparedFiles(prep.files);
         setPipelineSessionId(prep.sessionId);
         setClassification(prep.classification);
@@ -1008,20 +1036,39 @@ export function DocumentReadingWorkflow() {
   // A batch's House B/L documents, one per shipment (none from a server that sends none).
   const batchDocs = (res: interfaces.ExtractHblResult) => (res.shipments ?? []).map((_, i) => res.documents?.[i] ?? null);
 
-  const startMasterExtraction = async () => {
+  // `withoutMbl`: the user goes on to the House B/Ls after the Master B/L could not be read.
+  const startMasterExtraction = async (withoutMbl = false) => {
+    const sessionId = pipelineSessionId;
     setPipelineStep("extracting");
     setError(null);
+    setMblReadError(null);
     try {
-      const mbl = await api.extraction.pipelineExtractMbl({ sessionId: pipelineSessionId }).catch(() => null);
-      const info = mbl?.mblInfo ? normalizeExtracted(mbl.mblInfo) : null;
-      if (info) {
-        setMblInfo(info);
-        setMblTicked(mblDefaultTicks(info));
-        setMblFiled(false);
+      // The server answers null for a pre-alert with no Master B/L pages; a read that failed is said,
+      // with a retry, instead of going on as if there were none (each read is a paid AI call, kept
+      // by the server for the session, so a retry reads only what has not been read).
+      let info: Record<string, string> | null = null;
+      if (!withoutMbl) {
+        try {
+          const mbl = await api.extraction.pipelineExtractMbl({ sessionId });
+          info = mbl.mblInfo ? normalizeExtracted(mbl.mblInfo) : null;
+        } catch (err) {
+          if (pipelineRun.current.sessionId !== sessionId) return;
+          setMblReadError(`The Master B/L could not be read: ${apiErrorMessage(err)}`);
+          setPipelineStep("classified");
+          return;
+        }
       }
 
-      const hbl = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: 0 });
+      const hbl = await api.extraction.pipelineExtractHbl({ sessionId, batchIndex: 0 });
+      if (pipelineRun.current.sessionId !== sessionId) return;
       const extracted = (hbl.shipments || []).map((house) => withMblSeals(normalizeExtracted(house), info));
+      if (extracted.length === 0 && (hbl.totalBatches || 1) <= 1 && !info) {
+        throw new Error("Nothing could be read from this pre-alert's Bills of Lading.");
+      }
+      pipelineRun.current.batchIndex = 1;
+      setMblInfo(info);
+      setMblTicked(info ? mblDefaultTicks(info) : {});
+      setMblFiled(false);
       setMasterShipments(extracted);
       setMasterDocs(batchDocs(hbl));
       setMasterDocsSaved(0);
@@ -1032,22 +1079,29 @@ export function DocumentReadingWorkflow() {
       loadMasterFields(extracted[0]);
       setPipelineStep("ready");
     } catch (err) {
+      if (pipelineRun.current.sessionId !== sessionId) return;
       setError(err instanceof Error ? err.message : "Failed to extract shipments.");
       setPipelineStep("classified");
     }
   };
 
   // Reads the current session and batch, so the prefetch below always asks for the right one.
+  // An answer is taken only while its read and batch are still the current ones (pipelineRun).
   const loadNextBatch = useCallback(async () => {
     if (hblLoading || hblBatchIndex >= hblTotalBatches) return;
+    const asked = { sessionId: pipelineSessionId, batchIndex: hblBatchIndex };
+    const current = () => pipelineRun.current.sessionId === asked.sessionId && pipelineRun.current.batchIndex === asked.batchIndex;
     setHblLoading(true);
     setError(null);
     try {
-      const res = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: hblBatchIndex });
+      const res = await api.extraction.pipelineExtractHbl(asked);
+      if (!current()) return;
+      pipelineRun.current.batchIndex = asked.batchIndex + 1;
       setMasterShipments((prev) => [...prev, ...(res.shipments || []).map((house) => withMblSeals(normalizeExtracted(house), mblInfo))]);
       setMasterDocs((prev) => [...prev, ...batchDocs(res)]);
-      setHblBatchIndex((prev) => prev + 1);
+      setHblBatchIndex(asked.batchIndex + 1);
     } catch (err) {
+      if (!current()) return;
       setError(err instanceof Error ? err.message : "Failed to load next batch.");
     }
     setHblLoading(false);
@@ -1249,7 +1303,6 @@ export function DocumentReadingWorkflow() {
     setInvoiceFiles([]);
     setInvoiceFilesDone(new Set());
     setInvoiceFileUid("");
-    setPreparedFiles([]);
     setTextInput("");
     setFields([]);
     setExtractionMethod("");
@@ -1279,25 +1332,8 @@ export function DocumentReadingWorkflow() {
     setSplitDone(null);
     setMasterMode("new");
     setMasterMczExisting("");
-    setBatchJob(null);
-    houseShipments.current.clear();
-    setPipelineSessionId("");
-    setPipelineStep("idle");
-    setClassification({});
     setInvoiceCreditNote(false);
-    setMblInfo(null);
-    setMblTicked({});
-    setMblFiled(false);
-    setMasterShipments([]);
-    setMasterIdx(0);
-    setMasterFields([]);
-    setMasterCreatedJobs([]);
-    setMasterDocs([]);
-    setMasterDocsSaved(0);
-    setHblBatchIndex(0);
-    setHblTotalBatches(0);
-    setHblLoading(false);
-    setWaitingForBatch(false);
+    resetPipeline();
   };
 
   const stepIndex = { upload: 0, extracting: 1, review: 2, committed: 3 }[step];
@@ -1937,9 +1973,30 @@ export function DocumentReadingWorkflow() {
                   <span className="text-base font-bold text-indigo-700">{hblCount}</span>
                 </div>
                 {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+                {mblReadError && (
+                  <Alert
+                    className="mb-3"
+                    type="error"
+                    showIcon
+                    message={mblReadError}
+                    description={hblCount > 0 ? "Its details (vessel, ports, containers…) go onto the master job and its shipments. Retry, or read the House B/Ls without them." : undefined}
+                    action={
+                      <Space direction="vertical" size={4}>
+                        <Button size="small" onClick={() => startMasterExtraction()}>
+                          Retry
+                        </Button>
+                        {hblCount > 0 && (
+                          <Button size="small" type="text" onClick={() => startMasterExtraction(true)}>
+                            Go on without it
+                          </Button>
+                        )}
+                      </Space>
+                    }
+                  />
+                )}
                 <div className="flex gap-2">
                   <Button onClick={() => setStep("upload")}>Back</Button>
-                  <Button type="primary" onClick={startMasterExtraction}>
+                  <Button type="primary" onClick={() => startMasterExtraction()}>
                     {hblCount === 0 && (classification.MBL || 0) > 0 ? "Read the Master Bill of Lading" : "Extract Shipments from Bills of Lading"}
                   </Button>
                 </div>
