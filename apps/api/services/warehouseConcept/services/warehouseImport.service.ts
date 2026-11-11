@@ -23,6 +23,7 @@ import { PICKUP_PIN_GATE } from "./pickupPin";
 import { EXCEPTION_GATE } from "./osd";
 import { isManager, userName } from "./users";
 import { syncStockForMovement } from "./warehouseStockSync";
+import { copiedCargo } from "./copiedCargo";
 import { isUniqueViolation } from "../../../lib/db/errors";
 
 // Bringing shipments into the warehouse. Each shipment becomes a position (WCZ reference) and
@@ -95,11 +96,9 @@ export function copiedFields(s: Partial<Shipment>) {
     customerContact: s.customerPic ?? "",
     // As the shipment holds it (a user's e-mail there too); not checked against the users here.
     shipmentOwner: s.personInCharge ?? "",
-    colli: parseInt(s.pcs ?? "", 10) || 0,
+    // Pieces, weight and volume as the shipment declares them ("1,353" pieces, "4,2" t): copiedCargo.
+    ...copiedCargo(s),
     packing: s.typeOfPackages ?? "",
-    // Tonnes to kg, kept to the gram (the column is numeric(12,3)); not rounded to whole kg.
-    weightKg: s.totalWeightTons ? Math.round(parseFloat(s.totalWeightTons) * 1_000_000) / 1000 || 0 : 0,
-    measureCbm: s.totalVolumeCbm ? parseFloat(s.totalVolumeCbm) || 0 : 0,
     freightMode: s.freightMode ?? "",
     loadType: s.loadType ?? "",
     commodity: s.cargoDescription ?? "",
