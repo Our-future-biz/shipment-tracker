@@ -9,12 +9,13 @@ import { PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { UsersManager } from "../../../settings/_components/UsersManager";
 
 export default function PlatformCompanyUsersPage() {
-  const { user } = useAuth();
+  const { user, company: workingCompany } = useAuth();
   const { companyId } = useParams<{ companyId: string }>();
   const { companies } = usePlatformCompanies();
   const cu = usePlatformCompanyUsers(companyId);
-  // Departments and branches are only readable for the signed-in user's own company.
-  const isOwnCompany = companyId === user?.companyId;
+  // Departments and branches are read for the company the superadmin works as (their own, or the
+  // one chosen in the company switcher), so they can be assigned only on that company's users.
+  const isOwnCompany = companyId === (workingCompany?.id ?? user?.companyId);
   const { departments } = useDepartments();
   const { branches } = useBranches();
 
