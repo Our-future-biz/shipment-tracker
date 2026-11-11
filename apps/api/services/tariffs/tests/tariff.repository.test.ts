@@ -81,7 +81,7 @@ const fake = vi.hoisted(() => {
 
 vi.mock("../db/db", () => ({ db: fake.db }));
 
-import type { RailLayout } from "../interfaces/interfaces";
+import type { RailLayout, TariffFinding } from "../interfaces/interfaces";
 import { tariffRepository, type DraftFields } from "../repositories/tariff.repository";
 import { collectionAreaTable, collectionRateTable, oceanPortTable, railRateTable, tariffTable, tariffVersionTable } from "../schemas/tariff.schema";
 
@@ -235,12 +235,22 @@ describe("discard", () => {
 });
 
 describe("setOceanPort", () => {
-  it("picks the port only once the version is locked as the company's live draft", async () => {
-    const picked = { versionId: VERSION, side: "pod", name: "HAMBURG", code: "DEHAM", status: "manual" };
-    fake.state.returned = [[{ id: VERSION }], [picked]];
-    await expect(tariffRepository.setOceanPort(COMPANY, VERSION, "pod", "HAMBURG", "DEHAM")).resolves.toEqual({ ok: true, port: picked });
+  const recount = vi.fn((stored: TariffFinding[], pending: number) => ({ findings: [...stored, { level: "warning" as const, code: "ports_pending", message: `${pending}`, count: pending, rows: [] }], totals: { errors: 1, warnings: 1 } }));
+  const relaidError: TariffFinding = { level: "error", code: "bad_price", message: "A price is not a number", count: 1, rows: [3] };
 
-    expect(fake.state.steps).toEqual(["begin", "tx select for share", "tx update", "commit"]);
+  it("picks the port only once the version is locked as the company's live draft, and its findings with it", async () => {
+    const picked = { versionId: VERSION, side: "pod", name: "HAMBURG", code: "DEHAM", status: "manual" };
+    // The version as stored under the lock: a relayout by another user wrote an error meanwhile.
+    fake.state.returned = [[{ id: VERSION, findings: [relaidError] }], [picked], [{ pending: 2 }], [{ id: VERSION }]];
+    await expect(tariffRepository.setOceanPort(COMPANY, VERSION, "pod", "HAMBURG", "DEHAM", recount)).resolves.toEqual({ ok: true, port: picked });
+
+    // Locked for update (it is written in the same transaction), the pick, the count, the findings.
+    expect(fake.state.steps).toEqual(["begin", "tx select for update", "tx update", "tx select", "tx update", "commit"]);
+    expect(recount).toHaveBeenCalledWith([relaidError], 2);
+    expect(fake.state.updates[1]!.values).toEqual({
+      findings: [relaidError, expect.objectContaining({ code: "ports_pending", count: 2 })], errorCount: 1, warningCount: 1, updatedAt: expect.any(Date),
+    });
+    expect(sent(fake.state.updates[1]!.where).params).toEqual([VERSION, COMPANY]);
     expect(sent(fake.state.selects[0]!.where)).toEqual({
       sql: '("tariff_version"."id" = $1 and ("tariff_version"."company_id" = $2 and "tariff_version"."deleted_at" is null) and "tariff_version"."status" = $3)',
       params: [VERSION, COMPANY, "draft"],
@@ -254,13 +264,16 @@ describe("setOceanPort", () => {
 
   it("changes nothing on a version approved or discarded meanwhile, and says so", async () => {
     fake.state.returned = [[]];
-    await expect(tariffRepository.setOceanPort(COMPANY, VERSION, "pod", "HAMBURG", null)).resolves.toEqual({ ok: false, reason: "not_draft" });
+    await expect(tariffRepository.setOceanPort(COMPANY, VERSION, "pod", "HAMBURG", null, recount)).resolves.toEqual({ ok: false, reason: "not_draft" });
     expect(fake.state.updates).toEqual([]);
   });
 
-  it("tells a port name the draft does not have", async () => {
-    fake.state.returned = [[{ id: VERSION }], []];
-    await expect(tariffRepository.setOceanPort(COMPANY, VERSION, "pod", "NOWHERE", null)).resolves.toEqual({ ok: false, reason: "no_such_name" });
+  it("tells a port name the draft does not have, its findings left as they are", async () => {
+    recount.mockClear();
+    fake.state.returned = [[{ id: VERSION, findings: [] }], []];
+    await expect(tariffRepository.setOceanPort(COMPANY, VERSION, "pod", "NOWHERE", null, recount)).resolves.toEqual({ ok: false, reason: "no_such_name" });
+    expect(recount).not.toHaveBeenCalled();
+    expect(fake.state.updates).toHaveLength(1);
   });
 });
 
