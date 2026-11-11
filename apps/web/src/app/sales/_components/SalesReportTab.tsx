@@ -9,6 +9,7 @@ import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { computeTotals, fmtByCurrency, newestFirst, type CurrencyAmount, type QuoteTotals, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { isSentQuote, QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
+import { reportMonthOf } from "@/app/sales/_lib/salesReport";
 import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
 import { ExchangeRatesError } from "./ExchangeRatesError";
 import { QuotesLoadError } from "./QuotesLoadError";
@@ -57,9 +58,6 @@ interface PricedQuote extends SalesQuote {
   totals: QuoteTotals;
   czk: { selling: number; profit: number } | null;
 }
-
-// The month whose ČNB average converts a quote: when it was sent, or created if never sent.
-const monthOf = (q: SalesQuote) => (q.data.sentAt || q.createdAt || "").slice(0, 7);
 
 // The quotes of one table row, added up.
 interface Group {
@@ -121,13 +119,13 @@ export function SalesReportTab() {
   const exchange = useCurrentExchangeRates();
   // The row whose quotes are listed in the dialog, while it is open.
   const [group, setGroup] = useState<QuoteGroup | null>(null);
-  const avg = usePeriodAverages(quotes.map((q) => Number(monthOf(q).slice(0, 4))).filter(Boolean));
+  const avg = usePeriodAverages(quotes.map((q) => Number(reportMonthOf(q).slice(0, 4))).filter(Boolean));
 
   const priced = useMemo<PricedQuote[]>(
     () =>
       [...quotes].sort(newestFirst).map((q) => {
         const totals = computeTotals(q.data, exchange.rates, exchange);
-        const month = monthOf(q);
+        const month = reportMonthOf(q);
         const selling = toCzkAt(totals.selling, totals.currency, month, avg);
         const profit = toCzkAt(totals.profit, totals.currency, month, avg);
         return { ...q, totals, czk: selling === null || profit === null ? null : { selling, profit } };
@@ -258,6 +256,23 @@ export function SalesReportTab() {
       <div className="flex items-center justify-center py-16">
         <Spin />
       </div>
+    );
+  }
+  // Averages that could not be read are unknown, not missing: every sum is in CZK at them, so the
+  // figures are not shown without them (nor the quotes "without a ČNB monthly average").
+  if (avg.isError) {
+    return (
+      <Alert
+        type="error"
+        showIcon
+        message="ČNB monthly averages could not be loaded"
+        description="The report's amounts are in CZK at the average of each quote's month - try again."
+        action={
+          <Button size="small" onClick={() => avg.reload()}>
+            Retry
+          </Button>
+        }
+      />
     );
   }
 

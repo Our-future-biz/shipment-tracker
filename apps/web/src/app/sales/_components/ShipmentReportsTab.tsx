@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Alert, DatePicker, Input, Tooltip } from "antd";
+import { Alert, Button, DatePicker, Input, Tooltip } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
@@ -9,12 +9,12 @@ import { formatDate, todayIso } from "@/lib/date";
 import { useJobProfitReport } from "@/hooks/useJobProfitReport";
 import { fmtMoney } from "@/lib/money";
 import { DataTable } from "@/components/DataTable";
-import { KpiTile, profitTone } from "@/components/KpiTile";
+import { KPI_GRID_CLASS, KpiTile, profitTone } from "@/components/KpiTile";
 import { Pill } from "@/components/Pill";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { interfaces } from "@/lib/api/client";
 import { periodBasisLabel, provisionalText } from "../_lib/jobPeriod";
-import { CARD, LABEL_TEXT, LINK, REF } from "@/styles/ui";
+import { CARD, LINK, REF } from "@/styles/ui";
 import { MonthBreakdownDialog } from "./MonthBreakdownDialog";
 
 type Report = interfaces.JobProfitReport;
@@ -39,7 +39,7 @@ export function ShipmentReportsTab() {
     setRange((r) => r ?? [`${thisMonth.slice(0, 4)}-01`, thisMonth]);
   }, []);
 
-  const { data, isLoading, isError } = useJobProfitReport(range);
+  const { data, isError, isLoading, refetch } = useJobProfitReport(range);
 
   const rows = useMemo<Row[]>(() => {
     const term = search.trim().toLowerCase();
@@ -135,14 +135,30 @@ export function ShipmentReportsTab() {
 
   return (
     <div>
-      <span className={`block ${LABEL_TEXT} mb-3`}>Shipment Reports</span>
-
-      <div className="grid grid-cols-4 gap-3 mb-4">
-        <KpiTile label="Jobs" value={String(totals.count)} />
-        <KpiTile label="Revenue" value={czk(totals.revenue)} />
-        <KpiTile label="Profit" value={czk(totals.profit)} tone={profitTone(totals.profit)} />
-        <KpiTile label="Margin" value={`${totals.margin}%`} />
-      </div>
+      {/* The figures only once the report is here: while it loads, or when it could not be read,
+          zeros would read as a period without profit. */}
+      {data ? (
+        <div className={`${KPI_GRID_CLASS} mb-4`}>
+          <KpiTile label="Jobs" value={String(totals.count)} />
+          <KpiTile label="Revenue" value={czk(totals.revenue)} />
+          <KpiTile label="Profit" value={czk(totals.profit)} tone={profitTone(totals.profit)} />
+          <KpiTile label="Margin" value={`${totals.margin}%`} />
+        </div>
+      ) : (
+        isError && (
+          <Alert
+            type="error"
+            showIcon
+            className="mb-4"
+            message="Could not load the job profit report"
+            action={
+              <Button size="small" onClick={() => void refetch()}>
+                Retry
+              </Button>
+            }
+          />
+        )
+      )}
 
       <div className={`flex flex-wrap items-center gap-3 ${CARD} px-4 py-3 mb-4`}>
         <DatePicker.RangePicker
@@ -167,12 +183,8 @@ export function ShipmentReportsTab() {
         </span>
       </div>
 
-      {isError && <Alert type="error" showIcon className="mb-4" message="Could not load the job profit report." />}
-
       {unconverted.length > 0 && (
-        <div className="text-[13px] text-warn-ink bg-warn-soft border border-warn/40 rounded-xl px-4 py-2.5 mb-4">
-          No ČNB average for {unconverted.join(", ")} — those amounts are left out (marked *).
-        </div>
+        <Alert type="warning" showIcon className="mb-4" message={`No ČNB average for ${unconverted.join(", ")} — those amounts are left out (marked *).`} />
       )}
 
       {(data?.months.length ?? 0) > 1 && (
