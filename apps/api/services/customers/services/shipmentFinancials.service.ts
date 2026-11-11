@@ -18,20 +18,17 @@ class ShipmentFinancialsService {
     const { shipmentIds: own } = await shipments._internalCustomerShipmentIds({ customerId, shipmentIds: [...new Set(shipmentIds)] });
     if (!own.length) return [];
 
-    // The rates each job is valued at (locked at ATA/ATD, provisional before). A job whose rates
-    // can't be read gets no totals rather than failing the whole list.
-    const jobs = await Promise.all(
-      own.map(async (shipmentId) => {
-        try {
-          const r = await fx.fxJobRates({ shipmentId });
-          return { shipmentId, rates: r.rates.map((x) => ({ currency: x.currency, rate: x.rate })), ok: true };
-        } catch (err) {
-          log.warn("customer financials: job rates not readable", { shipmentId, error: err instanceof Error ? err.message : String(err) });
-          return { shipmentId, rates: [], ok: false };
-        }
-      }),
-    );
-    const readable = jobs.filter((j) => j.ok).map(({ shipmentId, rates }) => ({ shipmentId, rates }));
+    // The rates each job is valued at (locked at ATA/ATD, provisional before), all in one call to fx.
+    // A job whose rates can't be read gets no totals rather than failing the whole list; fx not
+    // answering at all leaves every one without.
+    let readable: { shipmentId: string; rates: { currency: string; rate: number }[] }[] = [];
+    try {
+      const { jobs, unreadable } = await fx._internalFxJobRatesBatch({ shipmentIds: own });
+      if (unreadable.length) log.warn("customer financials: job rates not readable", { shipmentIds: unreadable });
+      readable = jobs.map((j) => ({ shipmentId: j.shipmentId, rates: j.rates.map((x) => ({ currency: x.currency, rate: x.rate })) }));
+    } catch (err) {
+      log.warn("customer financials: job rates not readable", { count: own.length, error: err instanceof Error ? err.message : String(err) });
+    }
     const totals = readable.length
       ? (await invoicing._internalShipmentCostTotals({ jobs: readable, currency })).items
       : [];

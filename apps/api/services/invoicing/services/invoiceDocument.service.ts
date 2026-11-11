@@ -659,6 +659,11 @@ class InvoiceDocumentService {
     return invoiceRepository.countOpenInvoices(shipmentId, companyId);
   }
 
+  /** Of the shipments, those with an issued, not credited invoice: openInvoiceCount for many at once. */
+  async shipmentsWithOpenInvoices(shipmentIds: string[], companyId: string): Promise<string[]> {
+    return [...(await invoiceRepository.billedShipmentIds(shipmentIds.filter(isUuid), companyId))];
+  }
+
   /** The official PDF: the stored copy, or made and stored now if issuing could not store it. */
   async pdf(id: string, companyId: string): Promise<InvoicePdfFile> {
     const row = await invoiceRepository.getByIdForCompany(id, companyId);

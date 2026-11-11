@@ -12,6 +12,7 @@ const repo = vi.hoisted(() => ({
   listOpenInvoicesWithSources: vi.fn(),
   invoicedSellingRowIds: vi.fn(),
   shipmentIdsWithInvoices: vi.fn(),
+  billedShipmentIds: vi.fn(),
 }));
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
 const trucking = vi.hoisted(() => ({
@@ -571,6 +572,17 @@ describe("shipmentsEverInvoiced", () => {
     // What is no id is never asked about.
     expect(repo.shipmentIdsWithInvoices).toHaveBeenCalledWith([A, B, C], COMPANY);
     expect(generated.shipmentIdsWithInvoices).toHaveBeenCalledWith([A, B, C], COMPANY);
+  });
+});
+
+describe("shipmentsWithOpenInvoices", () => {
+  const A = "00000000-0000-0000-0000-0000000000a1";
+  const B = "00000000-0000-0000-0000-0000000000b1";
+
+  it("answers, for several jobs at once, those with an issued, not credited invoice in the caller's company", async () => {
+    repo.billedShipmentIds.mockResolvedValue(new Set([B]));
+    await expect(invoiceDocumentService.shipmentsWithOpenInvoices([A, B, "not-an-id"], COMPANY)).resolves.toEqual([B]);
+    expect(repo.billedShipmentIds).toHaveBeenCalledWith([A, B], COMPANY);
   });
 });
 

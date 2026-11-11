@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { jobRateTable as t, type JobRateRecord, type LockedRates } from "../schemas/jobRate.schema";
@@ -11,6 +11,17 @@ class JobRateRepository extends TenantRepository<typeof t> {
 
   async get(companyId: string, shipmentId: string): Promise<JobRateRecord | null> {
     return this.getByColumnForCompany(t.shipmentId, shipmentId, companyId);
+  }
+
+  /** The live locks of several jobs, by shipment id (a job without one is not in it). */
+  async getMany(companyId: string, shipmentIds: string[]): Promise<Map<string, JobRateRecord>> {
+    const ids = [...new Set(shipmentIds)];
+    if (!ids.length) return new Map();
+    const rows = await this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, ids), isNull(t.deletedAt)));
+    return new Map(rows.map((r) => [r.shipmentId, r]));
   }
 
   /**
