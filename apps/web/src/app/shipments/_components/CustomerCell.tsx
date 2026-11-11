@@ -21,6 +21,8 @@ interface CustomerCellProps {
   onChange: (name: string, customerId: string | null) => void;
   /** The user may not change this shipment's details: the name is shown (with its link and card) and not edited. */
   locked?: boolean;
+  /** Offer only companies with the Customer role (the shipment's Customer; a typed name stays allowed). */
+  customersOnly?: boolean;
 }
 
 // A party column of the shipments list (Customer / Shipper / Consignee):
@@ -28,17 +30,20 @@ interface CustomerCellProps {
 // up) and pick a customer, which links the shipment to it. Free text is still
 // allowed for a party that isn't in the CRM — it just stays unlinked. Mirrors
 // the detail page's CustomerLinkField.
-export function CustomerCell({ name, customerId, textStyle, onChange, locked = false }: CustomerCellProps) {
+export function CustomerCell({ name, customerId, textStyle, onChange, locked = false, customersOnly = false }: CustomerCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   // Debounced so holding down a key doesn't fire a request per character.
   const query = useDebounced(draft.trim(), 250);
   const justSelected = useRef(false);
 
+  // The shipment's Customer is someone with the Customer role (K13), as on the detail page; a shipper or
+  // consignee may be anyone. The server refuses any other Customer too.
+  const kind = customersOnly ? "customers" : undefined;
   const enabled = editing && query.length >= MIN_QUERY;
   const { data, isFetching } = useQuery({
-    queryKey: ["customers", "lookup", query],
-    queryFn: () => api.customers.customerList({ search: query }),
+    queryKey: ["customers", "lookup", query, kind ?? "all"],
+    queryFn: () => api.customers.customerList({ search: query, kind }),
     enabled,
     staleTime: 60_000,
   });

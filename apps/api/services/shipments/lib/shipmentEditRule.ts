@@ -78,6 +78,15 @@ export function creditCheckLockRefusal(existing: { creditCheck: string }, data: 
   return "The credit check is approved: only a manager can change it";
 }
 
+/**
+ * Why a person may not make this company the shipment's Customer, or null when they may: the Customer is a
+ * company with the Customer role (K13), so a supplier is not made one by a pick. A shipment created from a
+ * quote takes the quote's customer, which a manager may have approved as a supplier (Sales → Managers → Company approval).
+ */
+export function customerRoleRefusal(company: { companyName: string; roles: readonly string[] }): string | null {
+  return company.roles.includes("customer") ? null : `Not a customer: ${company.companyName} has no Customer role in the Customer Database`;
+}
+
 /** Whether this user-level person may change the details: they are named, or nobody is. */
 export function isOpenToPerson(shipment: People, email: string): boolean {
   const named = [shipment.personInCharge, shipment.holidayCover].map(personEmail).filter(Boolean);

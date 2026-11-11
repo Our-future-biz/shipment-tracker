@@ -55,7 +55,7 @@ import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
-import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, SALES_REFERENCE_INVOICED, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { approvedByLockRefusal, creditCheckLockRefusal, customerRoleRefusal, DETAILS_REFUSAL, SALES_REFERENCE_INVOICED, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
@@ -840,8 +840,10 @@ class ShipmentService {
    * caller's company: an unknown id is refused and a blank one unlinks (the name stays as free
    * text). A linked party stores the customer's current name, whatever text came with the id, so
    * name and id never disagree; later renames reach it through the customer-changed event.
+   * `byPerson`: a person picks the shipment's Customer, and gets only a company with the Customer
+   * role (customerRoleRefusal); the link the shipment has already is kept.
    */
-  private async resolveCustomerLinks(data: Partial<NewShipmentRecord>): Promise<LinkedCustomers> {
+  private async resolveCustomerLinks(data: Partial<NewShipmentRecord>, byPerson: boolean, existing?: ShipmentRecord): Promise<LinkedCustomers> {
     const links = [
       ["customerId", "customer", "customer"],
       ["shipperId", "shipper", "shipper"],
@@ -860,6 +862,8 @@ class ShipmentService {
         }
         try {
           const { customer } = await customers.customerGet({ id });
+          const refused = key === "customerId" && byPerson && id !== existing?.customerId ? customerRoleRefusal(customer) : null;
+          if (refused) throw APIError.invalidArgument(refused);
           linked[key] = customer;
           data[nameKey] = customer.companyName;
         } catch (err) {
@@ -1068,10 +1072,12 @@ class ShipmentService {
     if (directionStatus) shipmentData.status = directionStatus;
     const stored: Record<string, unknown> = shipmentData;
     normalizeCustomsPriority(stored, (key) => stored[key] as string);
-    const linked = await this.resolveCustomerLinks(shipmentData);
+    const fromQuote = fromQuoteNumber?.trim();
+    // A person's create holds its Customer to the Customer role; one from a quote takes the quote's
+    // customer, and the app's own (a Trucking road job) the customer it was asked for.
+    const linked = await this.resolveCustomerLinks(shipmentData, creatorRole !== undefined && !fromQuote);
     const contactsOf = contactsOnce();
     await this.fillPartyStops(shipmentData, linked, contactsOf);
-    const fromQuote = fromQuoteNumber?.trim();
     // On create a Customer's PIC that is no contact of the customer is left out, not refused. One
     // made from a quote is settled once the quote is read (it may name the contact).
     await linkContacts(shipmentData, undefined, contactsOf, { picMode: "lenient", pic: !fromQuote });
@@ -1201,7 +1207,8 @@ class ShipmentService {
         throw APIError.invalidArgument(`customsStatus can only be set to: ${[PAPERWORK_VERIFIED, ...AFTER_VERIFIED].join(", ")}`);
       }
     }
-    const linked = await this.resolveCustomerLinks(shipmentData);
+    // A person's edit (role given) links the Customer only to a company with the Customer role.
+    const linked = await this.resolveCustomerLinks(shipmentData, role !== undefined, existing);
     const contactsOf = contactsOnce();
     await this.fillPartyStops(shipmentData, linked, contactsOf, existing);
     // An edit naming a Customer's PIC that is no contact of the customer is refused.
