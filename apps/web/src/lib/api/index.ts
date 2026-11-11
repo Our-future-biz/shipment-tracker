@@ -1,6 +1,6 @@
 import Client, { APIError, ErrCode, isAPIError } from "./client";
 import { withActingCompany } from "@/lib/actingCompany";
-import { dropSessionToken, pageSessionChanged, reportPageSessionChange, sessionToken } from "@/lib/auth/pageSession";
+import { SESSION_CHANGED_MESSAGE, dropSessionToken, pageSessionChanged, reportPageSessionChange, sessionToken } from "@/lib/auth/pageSession";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
 
@@ -24,7 +24,7 @@ function endSession(): void {
 }
 
 /** Why a request of a page whose session changed in another tab was not sent. */
-export const SESSION_CHANGED_MESSAGE = "your session changed in another tab - the page is loaded again";
+export { SESSION_CHANGED_MESSAGE };
 
 // Attach the logged-in user's bearer token so authenticated endpoints can
 // derive the actor (e.g. who deleted a shipment) server-side - and a superadmin's choice of the

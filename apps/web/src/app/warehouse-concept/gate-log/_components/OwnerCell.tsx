@@ -9,10 +9,11 @@ import { EMPTY } from "@/styles/ui";
 // The Shipment Owner in a grid, as the user's e-mail. An older value that is no user (a name,
 // free text) is shown as it is and marked, so somebody picks a user in the job's Overview.
 export function OwnerCell({ value }: { value: string | null | undefined }) {
-  const { users, isLoading } = useUsers();
+  const { users, loaded } = useUsers();
   const owner = shipmentOwnerOf(value);
   if (!owner) return <span className={EMPTY}>—</span>;
-  const why = !isLoading && isUnlinkedPerson(owner, users) ? `"${owner}" is not a user — pick one in the job's Overview` : "";
+  // Unknown until the users are read (or when that failed): nobody is marked then.
+  const why = loaded && isUnlinkedPerson(owner, users) ? `"${owner}" is not a user — pick one in the job's Overview` : "";
   return (
     <span className="inline-flex items-center gap-1 text-slate-700" title={why || undefined}>
       {owner}

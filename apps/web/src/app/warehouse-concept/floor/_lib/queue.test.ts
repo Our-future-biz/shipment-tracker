@@ -1,3 +1,4 @@
+import { SESSION_CHANGED_MESSAGE } from "@/lib/auth/pageSession";
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
 import { gateSteps } from "@/app/warehouse-concept/gate-log/_lib/steps";
@@ -164,6 +165,13 @@ describe("answers of the server", () => {
     expect(classifyError({ status: 401, code: "unauthenticated", message: "x" }).type).toBe("auth");
     expect(classifyError({ status: 503, code: "unavailable", message: "x" }).type).toBe("offline");
     expect(classifyError({ status: 400, code: "invalid_argument", message: "Stamp Gate-in first" })).toEqual({ type: "refused", error: "Stamp Gate-in first" });
+  });
+
+  it("keeps an item waiting when the page sent nothing because the session changed in another tab", () => {
+    const e = { status: 409, code: "failed_precondition", message: SESSION_CHANGED_MESSAGE };
+    expect(classifyError(e).type).toBe("auth");
+    // A refusal of the server with the same code is still a refusal.
+    expect(classifyError({ status: 409, code: "failed_precondition", message: "Stamp Gate-in first" }).type).toBe("refused");
   });
 
   it("does not take a bug or an unreadable photo for a lost connection", () => {

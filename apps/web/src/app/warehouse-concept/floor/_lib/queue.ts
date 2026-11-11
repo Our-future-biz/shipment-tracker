@@ -1,6 +1,7 @@
 import type { interfaces } from "@/lib/api/client";
 import type { StepKind } from "@/app/warehouse-concept/gate-log/_lib/steps";
 import { surveyPhaseKey } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { SESSION_CHANGED_MESSAGE } from "@/lib/auth/pageSession";
 
 // Floor mode's offline queue: stamps, survey saves, exceptions, photos, re-weighs and a container's
 // tally ticks, stuffed marks and gate-in / start of stripping made on the phone while
@@ -189,6 +190,9 @@ export function classifyError(e: unknown): Exclude<SendResult, { type: "done" | 
     return { type: "refused", error: message && message !== "[object Object]" ? message : "Could not be sent from this phone" };
   }
   if (err.status === 401 || err.code === "unauthenticated") return { type: "auth", error: "Signed out — sign in again to send" };
+  // Another tab signed out, signed in or picked another company: this page sent nothing and is
+  // loaded again. The item is not refused - it waits, and goes once the page is back.
+  if (message === SESSION_CHANGED_MESSAGE) return { type: "auth", error: "Your session changed in another tab — it is sent once the page is back" };
   if (err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504 || err.code === "unavailable") {
     return { type: "offline", error: "The server cannot be reached" };
   }

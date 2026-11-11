@@ -243,8 +243,9 @@ function CustomerCard({ card, sheet, live }: CustomerCardProps) {
   const detailsId = useId();
   // The sales owner is the owner user's e-mail. The card does not carry the user, so - as a picker
   // does - an owner that is no user's e-mail (a typed name nobody was matched to) is marked.
-  const { users, isLoading: usersLoading } = useUsers();
-  const ownerLinked = usersLoading || !isUnlinkedPerson(card.salesOwner, users);
+  const { users, loaded: usersLoaded } = useUsers();
+  // Unknown until the users are read (or when that failed): nobody is marked then.
+  const ownerLinked = !usersLoaded || !isUnlinkedPerson(card.salesOwner, users);
   const tone = TYPE_TONE[labelTone(card.label)];
 
   return (

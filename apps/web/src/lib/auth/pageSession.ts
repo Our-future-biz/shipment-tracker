@@ -105,6 +105,9 @@ export function sessionStillStored(page: SessionCopy, stored: SessionCopy, here:
  * signed out, signed in or chose another company. False when the storage cannot be read: nothing
  * is shared with other tabs then.
  */
+/** Why a request of a page whose session changed in another tab was not sent (lib/api's authFetcher). */
+export const SESSION_CHANGED_MESSAGE = "your session changed in another tab - the page is loaded again";
+
 export function pageSessionChanged(): boolean {
   if (typeof window === "undefined") return false;
   const token = readStorage(KEY);
