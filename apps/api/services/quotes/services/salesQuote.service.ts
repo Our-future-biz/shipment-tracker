@@ -733,6 +733,7 @@ class SalesQuoteService {
     actor: Actor,
     quoteNumber: string,
     expectedDataVersion?: number,
+    expectedStatus?: string,
   ): Promise<{ quote: SalesQuoteItem; revision: SalesQuoteItem; warning?: string }> {
     const at = new Date();
     const people = await companyPeople(actor);
@@ -745,6 +746,9 @@ class SalesQuoteService {
     let won = false;
     const result = await salesQuoteRepository.revise(actor.companyID, quoteNumber, `${root}-R`, (quote, existing) => {
       if (expectedDataVersion !== undefined && expectedDataVersion !== quote.dataVersion) throw conflict();
+      // The status the user saw: a status change writes no document, so the version alone misses a
+      // Quoted quote made Won meanwhile - revising that would make a Won revision take its shipments.
+      if (expectedStatus !== undefined) ruled(() => expectStatus(stateOf(quote), expectedStatus, ctx.today));
       const reference = salesReferenceFor(
         nextRevision(revisionRoot(quote.quoteNumber), existing),
         isPlainObject(quote.data) ? quote.data.serviceType : undefined,
@@ -1218,6 +1222,14 @@ class SalesQuoteService {
         // While a shipment is linked nobody may, so it is the request that cannot be met as
         // things stand; otherwise it is this user who may not.
         throw permission.blockedBy === "shipment" ? APIError.failedPrecondition(permission.reason) : APIError.permissionDenied(permission.reason);
+      }
+      // A revision is the offer the quote it replaced handed on to: deleted, it would leave that
+      // quote Replaced for good (Replaced has no way out), its offer never to be Won or Lost.
+      const replaced = await salesQuoteRepository.liveReplacedBy(tx, quote.companyId, quote.quoteNumber);
+      if (replaced) {
+        throw APIError.failedPrecondition(
+          `${quote.quoteNumber} is the revision that replaced ${replaced}: deleted, it would leave ${replaced} Replaced for good - mark it Lost instead, or keep working on it`,
+        );
       }
       await salesQuoteRepository.writeLifecycle(tx, quote, { state, entries: [deletionEntry(ctx)], deleted: { by: actor.userID, at } });
       await quoteAttachmentRepository.deleteForQuote(tx, quote.quoteNumber, quote.companyId, at);

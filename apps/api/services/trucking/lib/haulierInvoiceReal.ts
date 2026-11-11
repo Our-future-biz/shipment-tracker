@@ -29,6 +29,11 @@ export interface TargetJob {
   shipmentId: string;
   consignmentId: string;
   weight: number;
+  /**
+   * The consignment's side - billed internally or to the customer - as frozen at its POD (decision 8),
+   * which its estimate followed too; absent, the job's department as Shipments has it now decides.
+   */
+  internal?: boolean;
 }
 
 export interface RealTarget {

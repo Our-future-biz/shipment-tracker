@@ -563,6 +563,20 @@ describe("real cost and internal jobs", () => {
     ]);
   });
 
+  it("follows the side the consignment froze at its POD, not the job's department today (decision 8)", async () => {
+    // Billed to the customer (Road) when its POD came; the job has moved to Operations since.
+    const ftl = mem.consignments.find((c) => c.tripId === FTL)!;
+    Object.assign(ftl, { internal: false });
+    vi.mocked(shipments._internalShipmentBasics).mockImplementation((async ({ ids }: { ids: string[] }) => ({
+      shipments: ids.map((id) => ({ id, jobNumber: id.slice(-4), department: "Operations" })),
+    })) as never);
+    const inv = await haulierInvoiceService.create(user, invoice());
+    expect(inv.status).toBe("APPROVED");
+    // The real cost replaces the Road estimate on the job's Costs, where the estimate is.
+    expect(mem.outbox).toEqual([expect.objectContaining({ kind: "real_costs", shipmentId: S_ROAD })]);
+    expect(mem.lines[0]!.allocations).toEqual([expect.objectContaining({ shipmentId: S_ROAD, internal: false })]);
+  });
+
   it("a partner delivery of an internal consignment: no job line at all, the cost stays in Trucking's ledger", async () => {
     const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 800, lines: [{ targetKind: "PARTNER_LEG", targetId: LEG, invoiced: 800, note: "" }] }));
     expect(inv).toMatchObject({ status: "APPROVED", lines: [{ target: { ref: "TCZ2026000003 partner delivery" } }] });

@@ -40,6 +40,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     customerFacts: vi.fn(),
     openCustomerQuotes: vi.fn(),
     openQuotes: vi.fn(async () => []),
+    liveReplacedBy: vi.fn(async (): Promise<string | null> => null),
   },
 }));
 
@@ -612,6 +613,16 @@ describe("revise", () => {
         revision: { ...stored, ...planned.row, quoteNumber: planned.reference } as SalesQuoteRecord,
       };
     });
+  });
+
+  it("is refused when the quote is no longer in the status the user saw (made Won meanwhile)", async () => {
+    stored = sent();
+    // The page showed Feedback; a colleague's shipment has made it Won since - no document key moved.
+    stored = { ...stored, status: "won" } as SalesQuoteRecord;
+    await expect(salesQuoteService.revise(martin, REF, undefined, "feedback")).rejects.toMatchObject({ message: expect.stringContaining("the quote is now Won") });
+    // As shown, it goes.
+    stored = sent();
+    await expect(salesQuoteService.revise(martin, REF, undefined, "feedback")).resolves.toMatchObject({ revision: { quoteNumber: `${REF}-R2` } });
   });
 
   it("makes the next revision with everything the quote holds, Revised, and replaces the quote", async () => {
@@ -1361,6 +1372,16 @@ describe("delete", () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
     expect(attachments.deleteForQuote).not.toHaveBeenCalled();
   };
+
+  it("refuses to delete the revision a Replaced quote handed its offer on to", async () => {
+    vi.mocked(repository.liveReplacedBy).mockResolvedValueOnce("QCZ20261010001");
+    await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringContaining("is the revision that replaced QCZ20261010001"),
+    });
+    expect(repository.liveReplacedBy).toHaveBeenCalledWith(TX, stored!.companyId, stored!.quoteNumber);
+    nothingDeleted();
+  });
 
   it("deletes under the lock: the row stamped with who and when, a last history line, the attachments - one transaction, one moment", async () => {
     await expect(salesQuoteService.delete(martin, REF)).resolves.toBeUndefined();

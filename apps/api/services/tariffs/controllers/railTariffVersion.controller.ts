@@ -54,7 +54,7 @@ export const railTariffLayout = api(
 );
 
 // Approves a draft without errors (manager): it prices from its start date; active versions whose
-// dates it covers give way.
+// dates it covers give way, and keep pricing the days before and after it (lib/versionGiveWay).
 export const railTariffApprove = api(
   { expose: true, auth: true, method: "POST", path: "/tariffs/rail/versions/:versionId/approve" },
   async ({ versionId }: VersionRequest): Promise<RailTariffVersionResponse> => {

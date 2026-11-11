@@ -623,6 +623,14 @@ describe("a price change after the customer invoice (decision 9, C8)", () => {
     expect((await consignmentService.list(user, { view: "attention" })).consignments.map((x) => x.id)).toEqual([c.id]);
     await consignmentService.clearNotice(manager, c.id, `${diff.sourceRef}|CZK`, "Invoiced on 2026100123");
     expect((await consignmentService.get(user, c.id)).needsAttention.some((r) => r.startsWith("Price change after invoice"))).toBe(false);
+    // The next reprice: Invoicing answers every difference line of the set again. Only the new one is
+    // noticed; the cleared one (invoiced already) never comes back.
+    const second = { sourceRef: `trucking:consignment:${c.id}:diff:2`, currency: "CZK", amount: 500 };
+    expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [diff, second])).toBe(1);
+    expect((await consignmentService.get(user, c.id)).needsAttention.filter((r) => r.startsWith("Price change after invoice"))).toEqual([
+      "Price change after invoice: +500 CZK added to job CZ00000042 as its own line — invoice it",
+    ]);
+    expect(eventsOf("selling_difference_pushed")).toHaveLength(2);
   });
 
   it("a cancel after invoicing: the negative difference keeps the cancelled consignment in Needs attention", async () => {

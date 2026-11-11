@@ -1,6 +1,6 @@
-import { inTx } from "../db/db";
+import { db, inTx } from "../db/db";
 import { consignmentRepository } from "../repositories/consignment.repository";
-import { appendEvent } from "../repositories/event.repository";
+import { appendEvent, recordedNoticeKeys } from "../repositories/event.repository";
 import type { TruckingOutboxRecord } from "../schemas/truckingOutbox.schema";
 import { roundToStep } from "../lib/rateEngine";
 
@@ -8,7 +8,8 @@ import { roundToStep } from "../lib/rateEngine";
 // and adds only the difference as its own line ("<sourceRef>:diff:<n>", "Price change after
 // invoice"). Trucking reads that answer after each costs push and records every difference line it
 // has not recorded yet: an event and a notice in Needs attention (until a manager clears it). Keyed
-// by the line, so a retried push records it once.
+// by the line, so a retried push records it once - and a later push, which answers every difference
+// line of the set again, never brings back a notice a manager cleared (the events keep the keys).
 
 /** A difference line as Invoicing answers it (TruckingLinesResult.differences). */
 export interface SellingDifference {
@@ -24,7 +25,7 @@ export async function recordSellingDifferences(row: Pick<TruckingOutboxRecord, "
   if (!differences?.length) return 0;
   const c = await consignmentRepository.find(row.companyId, row.consignmentId);
   if (!c) return 0;
-  const known = new Set((c.notices ?? []).map((n) => n.key));
+  const known = new Set([...(c.notices ?? []).map((n) => n.key), ...(await recordedNoticeKeys(db, c.companyId, c.id, "selling_difference_pushed"))]);
   const fresh = differences.filter((d) => !known.has(`${d.sourceRef}|${d.currency}`));
   if (!fresh.length) return 0;
   let added = 0;

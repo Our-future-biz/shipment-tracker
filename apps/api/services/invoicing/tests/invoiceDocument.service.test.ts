@@ -213,6 +213,20 @@ describe("ČNB rates", () => {
     expect(future.problems).toContain("DUZP is in the future — the ČNB rate for it is not known yet");
   });
 
+  it("does not hold a CZK invoice of CZK rows for the ČNB rate: nothing is converted", async () => {
+    selling.listByShipmentId.mockResolvedValue([sellRow({ currency: "CZK", amount: "12000.00" })]);
+    fxClient.fxRatesOn.mockResolvedValue({ ...cnb, provisional: true });
+    const today = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2020-01-02" });
+    expect(today.problems).toEqual([]);
+    expect(today.grossCzk).toBe(12000);
+    fxClient.fxRatesOn.mockResolvedValue({ ...cnb, missing: true });
+    expect((await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2020-01-02" })).problems).toEqual([]);
+    // One EUR row is converted: held as before.
+    selling.listByShipmentId.mockResolvedValue([sellRow({ currency: "CZK" }), sellRow({ id: "s2", currency: "EUR" })]);
+    fxClient.fxRatesOn.mockResolvedValue({ ...cnb, provisional: true });
+    expect((await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2020-01-02" })).problems).toContain("Today's ČNB rate is imported at 15:00 (ČNB publishes about 14:30) — issue the invoice after that");
+  });
+
   // Bulgaria adopted the euro: ČNB's last BGN fixing is 2025-12-31, fxRatesOn lists it as retired.
   const withBgnRetired = { ...cnb, retired: [{ currency: "BGN", lastFixingDate: "2025-12-31" }] };
 

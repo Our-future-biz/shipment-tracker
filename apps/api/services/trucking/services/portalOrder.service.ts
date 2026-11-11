@@ -384,6 +384,9 @@ class PortalOrderService {
     const receiver = typeof input.receiverName === "string" ? input.receiverName.trim().slice(0, MAX_NAME) : "";
     const by = receiver ? `${caller.who}, received by ${receiver}` : caller.who;
     const actor = await actingFor(caller.user);
+    // The POD freezes the consignment's department: take the job's as it is now first (C7), as a
+    // POD stamped in the app does.
+    if (!c.podReceivedAt) await consignmentService.refreshDepartments(actor, [c], { warn: false });
     await withStoredFile(companyId, c.id, file, (key) => inTx(async (tx) => {
       await assertNoPod(tx, companyId, c.id, POD_ON_FILE_HAULIER);
       await insertDocument(tx, companyId, c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: by });

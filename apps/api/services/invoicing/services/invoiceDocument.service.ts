@@ -213,7 +213,10 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
     warnings.push(`No bank account in ${currency} (Settings → Organization): the invoice has no payment details or QR payment`);
   }
   const picked = await ratesForDuzp(isIsoDate(duzp) ? duzp : issueDate, issueDate);
-  if (picked.problem) problems.push(picked.problem);
+  // The ČNB rate of the tax date only matters when something is converted: a CZK invoice of CZK
+  // rows needs none, so it is not held for the 15:00 import or a fixing that is missing.
+  const converts = currency !== "CZK" || rows.some((r) => r.invoice && (r.currency || currency).toUpperCase() !== "CZK");
+  if (picked.problem && converts) problems.push(picked.problem);
   const calc = calculateInvoice({
     rows: rows.map((r) => ({
       // the selling row's "customer" column is the line's own text (Issue invoice); else its Description is printed

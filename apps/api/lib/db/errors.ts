@@ -19,3 +19,6 @@ export const constraintOf = (err: unknown): string | undefined => {
 
 /** An EXCLUDE constraint refused the write (e.g. two bookings of one dock at once). */
 export const isExclusionViolation = (err: unknown): boolean => sqlState(err) === "23P01";
+
+/** Postgres broke a deadlock by aborting this statement (40P01): the other side got there. */
+export const isDeadlock = (err: unknown): boolean => sqlState(err) === "40P01";

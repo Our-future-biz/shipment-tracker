@@ -238,13 +238,13 @@ class HaulierInvoiceService {
       const leg = await legRepository.find(companyId, id);
       if (!leg?.buy) return null;
       const [c] = await consignmentRepository.findMany(companyId, [leg.consignmentId]);
-      return { kind, id, tripKind: null, ref: partnerLegRef(c?.ref ?? ""), buy: leg.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
+      return { kind, id, tripKind: null, ref: partnerLegRef(c?.ref ?? ""), buy: leg.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1, internal: c.internal }] : [] };
     }
     const trip = await tripRepository.find(companyId, id);
     if (!trip?.buy) return null;
     if (trip.kind === "FTL") {
       const c = await consignmentRepository.findByTrip(companyId, trip.id);
-      return { kind, id, tripKind: "FTL", ref: trip.ref, buy: trip.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
+      return { kind, id, tripKind: "FTL", ref: trip.ref, buy: trip.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1, internal: c.internal }] : [] };
     }
     // LTL: each job weighs its part of the estimate (Σ its legs' cost shares).
     const legs = await legRepository.forTrips(companyId, [trip.id]);
@@ -254,7 +254,7 @@ class HaulierInvoiceService {
     for (const l of legs) {
       const c = byId.get(l.consignmentId);
       if (!c) continue;
-      const job = jobs.get(c.shipmentId) ?? { shipmentId: c.shipmentId, consignmentId: c.id, weight: 0 };
+      const job = jobs.get(c.shipmentId) ?? { shipmentId: c.shipmentId, consignmentId: c.id, weight: 0, internal: c.internal };
       job.weight = round2(job.weight + (l.costShareCzk ?? 0));
       jobs.set(c.shipmentId, job);
     }
@@ -270,6 +270,9 @@ class HaulierInvoiceService {
     const shipmentIds = [...new Set(targets.flatMap((t) => t?.jobs.map((j) => j.shipmentId) ?? []))];
     const { shipments: jobs } = shipmentIds.length ? await shipments._internalShipmentBasics({ ids: shipmentIds }) : { shipments: [] };
     const departmentOf = new Map(jobs.map((j) => [j.id, j.department]));
+    // Each job's side as its consignment froze it at the POD (decision 8): the estimate's side too, so
+    // the real cost replaces the estimate where it is - not wherever the job's department is today.
+    const internalOf = new Map(targets.flatMap((t) => t?.jobs.filter((j) => j.internal !== undefined).map((j) => [j.shipmentId, j.internal!] as const) ?? []));
     const plans = lines.map((line, n) => {
       const t = targets[n];
       if (!t) return { lineId: line.id, allocations: [], owed: [] as TruckingOutboxInput[] };
@@ -278,7 +281,7 @@ class HaulierInvoiceService {
         line.invoiced,
         invoice.currency,
         invoice.invoiceNumber,
-        (shipmentId) => isInternalDepartment(departmentOf.get(shipmentId)),
+        (shipmentId) => internalOf.get(shipmentId) ?? isInternalDepartment(departmentOf.get(shipmentId)),
         (shipmentId) => departmentOf.has(shipmentId),
       );
       const owed = pushes.map(

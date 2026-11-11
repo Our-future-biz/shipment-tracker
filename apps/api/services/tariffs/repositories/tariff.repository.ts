@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNull, lte, 
 import { alias } from "drizzle-orm/pg-core";
 import { containsAllWords, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
 import { db } from "../db/db";
+import { giveWay } from "../lib/versionGiveWay";
 import type {
   CollectionData,
   CollectionFreightMode,
@@ -195,9 +196,6 @@ const RATE_BATCH = 1000;
 
 const live = (companyId: string) => and(eq(tariffVersionTable.companyId, companyId), isNull(tariffVersionTable.deletedAt));
 
-// The day before a YYYY-MM-DD date.
-const dayBefore = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-
 // Whether a version prices on a day from `from` to `to` (no end when null): both prices it then.
 const overlaps = (version: Pick<TariffVersionRecord, "validFrom" | "validTo">, from: string, to: string | null) =>
   (version.validTo === null || version.validTo >= from) && (to === null || version.validFrom === null || version.validFrom <= to);
@@ -345,9 +343,10 @@ class TariffRepository {
 
   /**
    * Approves a draft without errors, in one transaction with the tariff's row locked. Active
-   * versions its dates overlap give way: one that started earlier now ends the day before it
-   * starts, one that starts on or after that day is superseded. A draft that would end inside an
-   * earlier version is refused: the dates after it would be left without prices. So is an ocean
+   * versions its dates overlap give way (lib/versionGiveWay): one that started earlier now ends the
+   * day before it starts, one that runs on after the draft ends now starts the day after it, and
+   * one the draft covers wholly is superseded. A draft that would end inside an earlier version is
+   * refused: it would split that version, leaving the dates after it without prices. So is an ocean
    * draft with a port name still to match, counted under the version's lock so a layout read again
    * meanwhile cannot slip pending ports through. The tariff remembers the draft's layout for the
    * next upload.
@@ -384,11 +383,15 @@ class TariffRepository {
       const versionById = (id: string) => and(eq(tariffVersionTable.companyId, companyId), eq(tariffVersionTable.id, id));
       for (const other of active) {
         if (!overlaps(other, from, version.validTo)) continue;
-        if (other.validFrom !== null && other.validFrom < from && version.validTo !== null && (other.validTo === null || other.validTo > version.validTo)) {
+        const way = giveWay(other, from, version.validTo);
+        if (way.kind === "refuse") {
           return { ok: false, reason: `This version ends on ${version.validTo}, inside version ${other.versionNo}; approving it would leave the days after it without prices. Give it the same end date or none.` };
         }
-        if (other.validFrom !== null && other.validFrom < from) {
-          await tx.update(tariffVersionTable).set({ validTo: dayBefore(from), updatedAt: now }).where(versionById(other.id));
+        if (way.kind === "end") {
+          await tx.update(tariffVersionTable).set({ validTo: way.validTo, updatedAt: now }).where(versionById(other.id));
+        } else if (way.kind === "start") {
+          // It keeps pricing the days after the draft: superseding it would leave them without prices.
+          await tx.update(tariffVersionTable).set({ validFrom: way.validFrom, updatedAt: now }).where(versionById(other.id));
         } else {
           await tx.update(tariffVersionTable).set({ status: "superseded", supersededAt: now, updatedAt: now }).where(versionById(other.id));
         }

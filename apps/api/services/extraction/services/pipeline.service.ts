@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { classifyPages, extractFromPages } from "./extraction.service";
-import { splitPdfToPages, detectMediaType, mergePagesToPdf } from "../lib/pdf";
+import { splitPdfToPages, detectMediaType, mergePagesToPdf, TooManyPagesError } from "../lib/pdf";
 import { MBL_FIELDS, SHIPMENT_FIELDS } from "../lib/fields";
 import { MASTER_JOB_PROMPT, MBL_PROMPT } from "../lib/prompts";
 import { applyTradeDirection } from "../lib/tradeDirection";
@@ -100,7 +100,14 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
     // single page. This is what lets the pipeline traverse the WHOLE document.
     let filePages: { base64: string; mediaType: string }[] = [{ base64: fileBase64, mediaType }];
     if (mediaType === "application/pdf") {
-      const pageB64s = await splitPdfToPages(fileBase64);
+      let pageB64s: string[];
+      try {
+        // Counted before it is split: the pages left of the pre-alert's limit.
+        pageB64s = await splitPdfToPages(fileBase64, MAX_PAGES - rawPages.length);
+      } catch (err) {
+        if (err instanceof TooManyPagesError) throw APIError.invalidArgument(`A pre-alert can have at most ${MAX_PAGES} pages - please read it in smaller batches`);
+        throw err;
+      }
       if (pageB64s.length > 0) filePages = pageB64s.map((b) => ({ base64: b, mediaType: "application/pdf" }));
     }
     rawPages.push(...filePages.map((p, i) => ({ ...p, fileName, filePageNum: i + 1 })));

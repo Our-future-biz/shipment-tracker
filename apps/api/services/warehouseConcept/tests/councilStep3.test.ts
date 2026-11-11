@@ -150,6 +150,20 @@ describe("only a manager gives more than 7 free days (decision 19)", () => {
   });
 });
 
+describe("moving Received in warehouse later is storage given away: a manager's call", () => {
+  it("lets anyone set it or move it earlier, and only a manager move it later or clear it", async () => {
+    const c = randomUUID();
+    const { movement } = await warehouseImportService.createPosition(c, user, { handling: "Export", customsStatus: "Customs Cleared/Released", colli: 4, weightKg: 400, measureCbm: 1 });
+    const id = movement.id;
+    expect((await gateMovementService.update(id, c, user, { loadInDate: "2026-11-02" }, "user")).loadInDate).toBe("2026-11-02");
+    expect((await gateMovementService.update(id, c, user, { loadInDate: "2026-11-01" }, "user")).loadInDate).toBe("2026-11-01");
+    await expect(gateMovementService.update(id, c, user, { loadInDate: "2026-11-11" }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(gateMovementService.update(id, c, user, { loadInDate: "" }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect((await gateMovementService.get(id, c)).loadInDate).toBe("2026-11-01");
+    expect((await gateMovementService.update(id, c, user, { loadInDate: "2026-11-11" }, "manager")).loadInDate).toBe("2026-11-11");
+  });
+});
+
 describe("the closing date comes from the shipment (decision 7)", () => {
   it("is read with the customs status and logged", async () => {
     const c = randomUUID();

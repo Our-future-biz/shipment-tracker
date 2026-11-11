@@ -393,6 +393,24 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
+   * The live quote a revision replaced, by the revision's number: a Replaced quote whose document
+   * names it (replacedBy, compared without the Freight Mode letters). Null when there is none.
+   */
+  async liveReplacedBy(tx: QuoteTransaction, companyId: string, revisionNumber: string): Promise<string | null> {
+    const [row] = await tx
+      .select({ quoteNumber: quoteTable.quoteNumber })
+      .from(quoteTable)
+      .where(and(
+        eq(quoteTable.companyId, companyId),
+        isNull(quoteTable.deletedAt),
+        eq(quoteTable.status, "replaced"),
+        sql`${plainNumber(sql`${quoteTable.data} ->> 'replacedBy'`)} = ${plainSalesReference(revisionNumber)}`,
+      ))
+      .limit(1);
+    return row?.quoteNumber ?? null;
+  }
+
+  /**
    * Runs `change` on a live sales quote while nobody else can write its lifecycle: in one
    * transaction, after locking the row. `change` gets the quote as stored at that moment and
    * the transaction to write it with (writeLifecycle); what it returns is returned, and an error

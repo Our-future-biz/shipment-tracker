@@ -50,7 +50,8 @@ import type {
   WarehouseStaffInput,
   WarehouseStaffItem,
 } from "../interfaces/records.interfaces";
-import { isExclusionViolation } from "../../../lib/db/errors";
+import { isDeadlock, isExclusionViolation } from "../../../lib/db/errors";
+import type { Tx } from "../repositories/warehouseSection.repository";
 
 type ContainerRow = typeof warehouseContainerTable.$inferSelect;
 type SlotRow = typeof warehouseDockSlotTable.$inferSelect;
@@ -275,23 +276,27 @@ class WarehouseRecordsService {
     };
   }
 
-  private async clashMessage(companyId: string, dock: string, startsAt: Date, endsAt: Date, exceptId?: string) {
-    const o = await dockSlotRepository.findOverlap(companyId, dock, startsAt, endsAt, exceptId);
+  private async clashMessage(companyId: string, dock: string, startsAt: Date, endsAt: Date, exceptId?: string, tx?: Tx) {
+    const o = await dockSlotRepository.findOverlap(companyId, dock, startsAt, endsAt, exceptId, tx);
     if (!o) return null;
     return `${o.dock} is already booked ${o.time}–${slotEnd(o)} on ${o.date} for ${o.reference || "another booking"} — pick another time or door`;
   }
 
-  // Runs the write; a clash with another slot (also one booked at the same moment, which only the
-  // constraint sees) is a 409 naming that slot.
-  private async writeSlot<T>(companyId: string, v: Awaited<ReturnType<typeof this.slotValues>>, exceptId: string | undefined, write: () => Promise<T>) {
-    if (v.startsAt && v.endsAt && slotHoldsDock({ status: v.status })) {
-      const clash = await this.clashMessage(companyId, v.dock, v.startsAt, v.endsAt, exceptId);
-      if (clash) throw APIError.alreadyExists(clash);
-    }
+  // Runs the write in a transaction that has taken the door first (lockDock), so a booking of the
+  // same door at the same moment - by hand or by a trip - waits and then finds this one: a clash is
+  // a 409 naming the other slot. The constraint (and a deadlock it could still meet) answers the same.
+  private async writeSlot<T>(companyId: string, v: Awaited<ReturnType<typeof this.slotValues>>, exceptId: string | undefined, write: (tx: Tx) => Promise<T>) {
     try {
-      return await write();
+      return await db.transaction(async (tx) => {
+        if (v.startsAt && v.endsAt && slotHoldsDock({ status: v.status })) {
+          await dockSlotRepository.lockDock(tx, companyId, v.dock);
+          const clash = await this.clashMessage(companyId, v.dock, v.startsAt, v.endsAt, exceptId, tx);
+          if (clash) throw APIError.alreadyExists(clash);
+        }
+        return write(tx);
+      });
     } catch (err) {
-      if (!isExclusionViolation(err)) throw err;
+      if (!isExclusionViolation(err) && !isDeadlock(err)) throw err;
       const clash = v.startsAt && v.endsAt ? await this.clashMessage(companyId, v.dock, v.startsAt, v.endsAt, exceptId) : null;
       throw APIError.alreadyExists(clash ?? `${v.dock} is already booked at that time — pick another time or door`);
     }
@@ -311,8 +316,8 @@ class WarehouseRecordsService {
   async createDockSlot(companyId: string, input: WarehouseDockSlotInput) {
     if (!input.date || !input.time || !input.dock?.trim()) throw APIError.invalidArgument("Date, time and dock are required");
     const v = await this.slotValues(companyId, input);
-    const row = await this.writeSlot(companyId, v, undefined, () =>
-      dockSlotRepository.createForCompany(companyId, v.values as Omit<typeof warehouseDockSlotTable.$inferInsert, "companyId">),
+    const row = await this.writeSlot(companyId, v, undefined, (tx) =>
+      dockSlotRepository.insertTx(tx, { ...(v.values as Omit<typeof warehouseDockSlotTable.$inferInsert, "companyId">), companyId }),
     );
     return this.slotById(row.id, companyId);
   }
@@ -321,7 +326,7 @@ class WarehouseRecordsService {
     const stored = await dockSlotRepository.getByIdForCompany(id, companyId);
     if (!stored) throw notFound("Dock slot");
     const v = await this.slotValues(companyId, input, stored);
-    const row = await this.writeSlot(companyId, v, id, () => dockSlotRepository.updateForCompany(id, companyId, v.values));
+    const row = await this.writeSlot(companyId, v, id, (tx) => dockSlotRepository.updateTx(tx, id, companyId, v.values));
     if (!row) throw notFound("Dock slot");
     return this.slotById(id, companyId);
   }

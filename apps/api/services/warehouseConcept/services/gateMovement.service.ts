@@ -370,6 +370,17 @@ function assertFreeDaysAllowed(freeDays: number | null | undefined, role: string
     throw APIError.permissionDenied(`Only a manager gives more than ${DEFAULT_FREE_DAYS} free days`);
   }
 }
+// "Received in warehouse" starts the storage clock of outbound cargo: moved later or cleared, the
+// days in between are storage given away too, so only a manager does it (as free days above the
+// default); setting it the first time or earlier is anyone's. Once the cargo is released its
+// storage is settled: only a manager corrects the date then.
+function assertReceivedDateAllowed(before: string | null | undefined, after: string | null | undefined, released: boolean, role: string) {
+  if (isManagerRole(role)) return;
+  if (released) throw APIError.permissionDenied("The cargo was released: only a manager changes Received in warehouse now");
+  if (before && (!after || after > before)) {
+    throw APIError.permissionDenied("Only a manager moves Received in warehouse later or clears it: the days in between are storage given away");
+  }
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a
 // gate-out of its own would skip the release gates.
@@ -802,6 +813,7 @@ class GateMovementService {
           `Received in warehouse is set by the stripping tally${house ? ` of container ${house.container.number}` : ""} — tick the house off there`,
         );
       }
+      assertReceivedDateAllowed(m.loadInDate, patch.loadInDate, !!m.impRelease, role);
       clockEvents.push({ kind: "storageClockChanged", label: `Received in warehouse: ${patch.loadInDate || "cleared"}`, at: clockAt, by: patch.updatedBy, detail: `was ${m.loadInDate || "—"}` });
     }
     if (patch.freeDays !== undefined && patch.freeDays !== m.freeDays) {

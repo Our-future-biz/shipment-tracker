@@ -5,7 +5,7 @@ import { PDFDocument } from "pdf-lib";
 // the other extraction tests do.
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 
-import { mergePagesToPdf, splitPdfToPages } from "../lib/pdf";
+import { mergePagesToPdf, splitPdfToPages, TooManyPagesError } from "../lib/pdf";
 
 // A PDF of `count` pages, each page `width` points wide so the pages can be told apart.
 async function pdf(widths: number[]): Promise<string> {
@@ -16,6 +16,13 @@ async function pdf(widths: number[]): Promise<string> {
 
 const widths = async (base64: string) =>
   (await PDFDocument.load(Buffer.from(base64, "base64"))).getPages().map((p) => p.getWidth());
+
+describe("splitPdfToPages", () => {
+  it("refuses a PDF with more pages than may be split, saying how many it has", async () => {
+    await expect(splitPdfToPages(await pdf([100, 200, 300, 400, 500]), 3)).rejects.toEqual(new TooManyPagesError(5));
+    expect(await splitPdfToPages(await pdf([100, 200, 300]), 3)).toHaveLength(3);
+  });
+});
 
 describe("mergePagesToPdf", () => {
   it("joins the pages of one House B/L into one PDF, in order", async () => {

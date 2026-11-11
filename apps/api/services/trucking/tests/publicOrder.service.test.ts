@@ -26,6 +26,7 @@ const hauliers = vi.hoisted(() => ({ find: vi.fn(async (): Promise<{ profile: { 
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: hauliers }));
 
 import { publicOrderService, LINK_INVALID } from "../services/publicOrder.service";
+import { consignmentService } from "../services/consignment.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { truckingDocumentBucket } from "../storage/documentBucket";
@@ -148,6 +149,15 @@ describe("confirm or reject, once", () => {
 });
 
 describe("POD through the link", () => {
+  it("takes the job's department as it is now before the POD freezes it, as a POD stamped in the app does (C7)", async () => {
+    const { token, c } = await ordered({ confirmed: true });
+    const refresh = vi.spyOn(consignmentService, "refreshDepartments");
+    await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: "2026-10-15T08:30:00Z", receiverName: "" });
+    expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ companyID: COMPANY }), [expect.objectContaining({ id: c.id, podReceivedAt: null })], { warn: false });
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(truckingDocumentBucket.upload).mock.invocationCallOrder[0]!);
+    refresh.mockRestore();
+  });
+
   it("stores the file and stamps picked up, delivered and POD received (source HAULIER); owes the job its dates and Billing", async () => {
     const { token, c } = await ordered({ confirmed: true });
     const order = await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: "2026-10-15T08:30:00Z", receiverName: "K. Malá" });

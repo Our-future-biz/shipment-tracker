@@ -4,14 +4,26 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../services/extraction.service", () => ({ classifyPages: vi.fn(async (pages: unknown[]) => pages.map(() => ({ type: "HBL", ref: "" }))), extractFromPages: vi.fn() }));
-// A PDF splits into as many pages as its "content" says.
-vi.mock("../lib/pdf", () => ({
-  detectMediaType: () => "application/pdf",
-  splitPdfToPages: vi.fn(async (base64: string) => Array.from({ length: Number(base64) }, (_, i) => `page-${i}`)),
-}));
+// A PDF splits into as many pages as its "content" says - refused, as the real one is, past `maxPages`.
+vi.mock("../lib/pdf", () => {
+  class TooManyPagesError extends Error {
+    constructor(readonly pageCount: number) {
+      super(`The PDF has ${pageCount} pages`);
+    }
+  }
+  return {
+    detectMediaType: () => "application/pdf",
+    TooManyPagesError,
+    splitPdfToPages: vi.fn(async (base64: string, maxPages = Number.POSITIVE_INFINITY) => {
+      if (Number(base64) > maxPages) throw new TooManyPagesError(Number(base64));
+      return Array.from({ length: Number(base64) }, (_, i) => `page-${i}`);
+    }),
+  };
+});
 vi.mock("../services/places.service", () => ({ canonicalizeRecords: vi.fn() }));
 
 import { extractMbl, MAX_PAGES, ownsSession, prepare } from "../services/pipeline.service";
+import { splitPdfToPages } from "../lib/pdf";
 
 const alice = { companyId: "c1", userId: "u1" };
 
@@ -32,6 +44,12 @@ describe("what one pre-alert may cost", () => {
 
   it("refuses a pre-alert of more pages than MAX_PAGES, before any page is read", async () => {
     await expect(prepare([pdf(MAX_PAGES), pdf(1)], { companyId: "c1", userId: "big-reader" })).rejects.toThrow(`at most ${MAX_PAGES} pages`);
+  });
+
+  it("counts a PDF's pages before splitting it: only the pages left of the limit may be split", async () => {
+    vi.mocked(splitPdfToPages).mockClear();
+    await expect(prepare([pdf(150), pdf(40_000)], { companyId: "c1", userId: "blank-pages" })).rejects.toThrow(`at most ${MAX_PAGES} pages`);
+    expect(vi.mocked(splitPdfToPages).mock.calls.map((c) => c[1])).toEqual([MAX_PAGES, MAX_PAGES - 150]);
   });
 
   it("keeps at most 3 sessions per user: a new one drops the user's oldest", async () => {

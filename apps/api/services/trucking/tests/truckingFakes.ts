@@ -414,6 +414,14 @@ export const eventModule = {
   hasEvent: vi.fn(async (_reader: unknown, companyId: string, consignmentId: string, kind: string) =>
     store.events.some((e) => e.companyId === companyId && e.consignmentId === consignmentId && e.kind === kind),
   ),
+  recordedNoticeKeys: vi.fn(async (_reader: unknown, companyId: string, consignmentId: string, kind: string) =>
+    new Set(
+      store.events
+        .filter((e) => e.companyId === companyId && e.consignmentId === consignmentId && e.kind === kind)
+        .map((e) => ((e.payload as { facts?: { noticeKey?: string } } | undefined)?.facts?.noticeKey ?? ""))
+        .filter(Boolean),
+    ),
+  ),
   listEvents: vi.fn(async (_companyId: string, about: { consignmentId?: string | null; tripId?: string | null }) =>
     store.events
       .filter((e) => (about.consignmentId && e.consignmentId === about.consignmentId) || (about.tripId && e.tripId === about.tripId))

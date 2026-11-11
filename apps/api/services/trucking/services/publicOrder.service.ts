@@ -173,6 +173,9 @@ class PublicOrderService {
     // What the haulier causes is sent to the job as the service identity ("Trucking (system)");
     // the haulier is named in the events.
     const actor = await serviceActor(companyId);
+    // The POD freezes the consignment's department: take the job's as it is now first (C7), as a
+    // POD stamped in the app does.
+    if (!o.c.podReceivedAt) await consignmentService.refreshDepartments(actor, [o.c], { warn: false });
     await withStoredFile(companyId, o.c.id, file, (key) =>
       inTx(async (tx) => {
         await assertNoPod(tx, companyId, o.c.id, POD_ON_FILE_HAULIER);

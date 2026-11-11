@@ -9732,6 +9732,12 @@ export namespace controllers {
          * The dataVersion the caller's copy is based on; a quote changed since is not revised (HTTP 409).
          */
         expectedDataVersion?: number
+
+        /**
+         * The status the caller's screen showed - the effective one ("expired" past the validity). When
+         * sent, the quote is not revised if it is in another by now (a colleague made it Won meanwhile).
+         */
+        expectedStatus?: string
     }
 
     export interface SalesQuoteReviseResponse {

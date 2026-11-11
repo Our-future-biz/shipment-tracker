@@ -98,7 +98,8 @@ describe("one container, many positions", () => {
     // A migrated one-position container keeps the received date typed by hand (no tally needed).
     expect(item.lifecycle.stage).toBe("in_warehouse");
     expect(item.storage.startSource).toBe("loadInDate");
-    expect((await gateMovementService.update(m.id, c, user, { loadInDate: "2026-10-02" })).loadInDate).toBe("2026-10-02");
+    // (Moved earlier: later is storage given away, a manager's call.)
+    expect((await gateMovementService.update(m.id, c, user, { loadInDate: "2026-09-30" })).loadInDate).toBe("2026-09-30");
     expect(b).toBeTruthy();
   });
 });
