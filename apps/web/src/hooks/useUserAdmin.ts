@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { services } from "@/lib/api/client";
+import { usersKey } from "./useUsers";
 
 export type ManagedUser = services.AuthUserInfo;
 export type CompanyRow = services.CompanyInfo;
@@ -26,12 +27,19 @@ export interface UpdateUserInput {
   reportsToUserId?: string | null;
 }
 
+/**
+ * After a change of users: the admin list `key` and the list the pickers and person marks read
+ * (useUsers), which would otherwise show the users before for its five minutes.
+ */
+export const invalidateUserLists = (qc: QueryClient, key: QueryKey) =>
+  Promise.all([qc.invalidateQueries({ queryKey: key }), qc.invalidateQueries({ queryKey: usersKey })]);
+
 // Company admin/manager managing their OWN company's users (company is implicit from token).
 export const useCompanyUsers = () => {
   const qc = useQueryClient();
   const key = ["company-users"];
   const query = useQuery({ queryKey: key, queryFn: () => api.auth.usersList() });
-  const invalidate = () => qc.invalidateQueries({ queryKey: key });
+  const invalidate = () => invalidateUserLists(qc, key);
 
   const create = useMutation({ mutationFn: (input: NewUserInput) => api.auth.userCreate(input), onSuccess: invalidate });
   const update = useMutation({
@@ -85,7 +93,8 @@ export const usePlatformCompanyUsers = (companyId: string) => {
     queryFn: () => api.auth.companyUsersList(companyId),
     enabled: !!companyId,
   });
-  const invalidate = () => qc.invalidateQueries({ queryKey: key });
+  // The company may be the one the superadmin works as, whose users the pickers list.
+  const invalidate = () => invalidateUserLists(qc, key);
 
   const create = useMutation({
     mutationFn: (input: NewUserInput) => api.auth.companyUserCreate(companyId, input),

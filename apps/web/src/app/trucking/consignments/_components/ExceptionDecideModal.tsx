@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Input, InputNumber, Modal, Select } from "antd";
+import { Input, Modal, Select } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import type { DeliveryException, ExceptionCause, ExceptionCurrency, ExceptionDecide, ExceptionDecision } from "@/hooks/useTruckingControl";
 import { CAUSE_LABELS, DECISION_LABELS, EXCEPTION_KIND_LABELS, decisionChoices, decisionState } from "../../_lib/exceptions";
 import { CURRENCIES } from "../../_lib/hauliers";
@@ -73,7 +74,7 @@ export const ExceptionDecideModal = ({ exception, manager, internal, jobNumber, 
           </TruckingField>
           <TruckingField label="Amount">
             <div className="flex gap-2">
-              <InputNumber aria-label="Amount" min={0} value={amount} disabled={!manager} onChange={(v) => setAmount(v ?? null)} className="flex-1" />
+              <DecimalInput aria-label="Amount" min={0} value={amount} disabled={!manager} onChange={(v) => setAmount(v ?? null)} className="flex-1" />
               <Select aria-label="Currency" value={currency} options={CURRENCY_OPTIONS} disabled={!manager} onChange={setCurrency} className="w-[84px]" />
             </div>
           </TruckingField>

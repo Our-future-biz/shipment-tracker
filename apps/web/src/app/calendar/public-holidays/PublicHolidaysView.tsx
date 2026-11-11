@@ -34,7 +34,7 @@ export function PublicHolidaysView() {
         </div>
       )}
       <div hidden={active !== "world"}>
-        <WorldHolidaysTab items={holidays} loading={isLoading} />
+        <WorldHolidaysTab items={holidays} loading={isLoading} canManage={canManage} />
       </div>
     </div>
   );

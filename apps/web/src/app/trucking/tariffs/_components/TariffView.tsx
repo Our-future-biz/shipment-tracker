@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Input, InputNumber, Radio, Spin } from "antd";
+import { Alert, Button, Input, Radio, Spin } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { UploadOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { CountChip, SectionCard } from "@/components/SectionCard";
@@ -185,7 +186,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
             </TruckingField>
             {isDiscount && (
               <TruckingField label="Discount (%)" hint={draft.discountPercent != null ? `Reads ${discountLabel(draft.discountPercent)}. Negative = uplift.` : "Negative = uplift."}>
-                <InputNumber
+                <DecimalInput
                   aria-label="Discount percent"
                   min={-99.9}
                   max={99.9}

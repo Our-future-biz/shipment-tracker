@@ -10,9 +10,9 @@ import { splitPersonStamp } from "@/app/shipments/_lib/personFields";
  * again; `hint` says where. An approval stamp is judged by who is in it, not by its date.
  */
 export function UnlinkedPersonMark({ value, hint }: { value: string | null | undefined; hint: string }) {
-  const { users, isLoading } = useUsers();
+  const { users, loaded } = useUsers();
   const { person } = splitPersonStamp(value);
-  if (isLoading || !isUnlinkedPerson(person, users)) return null;
+  if (!loaded || !isUnlinkedPerson(person, users)) return null;
   const why = `"${person}" is not a user — ${hint}`;
   return (
     <span role="img" aria-label={why} title={why} className="ml-1 shrink-0 self-center text-amber-500 text-[11px] leading-none">

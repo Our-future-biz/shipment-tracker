@@ -7,6 +7,7 @@ import { SearchOutlined } from "@ant-design/icons";
 import { useDebounced } from "@/hooks/useDebounced";
 import { HINT } from "@/styles/ui";
 import { SearchHitRow } from "./SearchHitRow";
+import { hitToOpen } from "./searchPick";
 import { MIN_QUERY, searchHref, useGlobalSearch } from "./useGlobalSearch";
 
 // Results per group in the dropdown; the results page shows more.
@@ -39,10 +40,11 @@ export function GlobalSearch() {
   // The last row of the list, after the hits: all results on their own page.
   const allIndex = hits.length;
 
-  // A new text starts with nothing picked.
-  const [pickedFor, setPickedFor] = useState(query);
-  if (pickedFor !== query) {
-    setPickedFor(query);
+  // A new text starts with nothing picked - at once, not after the debounce, so Enter never opens
+  // what was picked among the results of the text before.
+  const [pickedFor, setPickedFor] = useState(text);
+  if (pickedFor !== text) {
+    setPickedFor(text);
     setActive(-1);
   }
 
@@ -99,7 +101,7 @@ export function GlobalSearch() {
     }
     if (e.key === "Enter") {
       e.preventDefault();
-      const hit = active >= 0 && active < hits.length ? hits[active] : null;
+      const hit = hitToOpen(groups, active, ready);
       if (hit) {
         setOpen(false);
         inputRef.current?.blur();

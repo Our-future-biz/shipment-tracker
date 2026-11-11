@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Input, InputNumber, Select, Tooltip } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { RailBand, RailLayout } from "@/hooks/useRailTariffs";
 import { COLUMN_FIELDS, columnOptions, newBand } from "../../_lib/railLayoutForm";
@@ -100,7 +101,7 @@ export const RailVersionLayoutForm = ({ form, onChange, sheetNames, headings, di
               onChange={(v: string) => setBand(i, { column: v })}
             />
             <Input aria-label={`Price column ${i + 1} label`} value={band.label} maxLength={100} disabled={disabled} onChange={(e) => setBand(i, { label: e.target.value })} />
-            <InputNumber
+            <DecimalInput
               aria-label={`Price column ${i + 1} length from`}
               min={1}
               max={60}
@@ -109,7 +110,7 @@ export const RailVersionLayoutForm = ({ form, onChange, sheetNames, headings, di
               onChange={(v) => v != null && setBand(i, { minLengthFt: v })}
               className="!w-full"
             />
-            <InputNumber
+            <DecimalInput
               aria-label={`Price column ${i + 1} length to`}
               min={1}
               max={60}
@@ -118,7 +119,7 @@ export const RailVersionLayoutForm = ({ form, onChange, sheetNames, headings, di
               onChange={(v) => v != null && setBand(i, { maxLengthFt: v })}
               className="!w-full"
             />
-            <InputNumber
+            <DecimalInput
               aria-label={`Price column ${i + 1} max gross tonnes`}
               min={0.1}
               max={100}

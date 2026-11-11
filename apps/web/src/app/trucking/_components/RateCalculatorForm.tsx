@@ -1,7 +1,8 @@
 "use client";
 
 import dayjs from "dayjs";
-import { Checkbox, DatePicker, Input, InputNumber, Select, Switch, TimePicker } from "antd";
+import { Checkbox, DatePicker, Input, Select, Switch, TimePicker } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { LABEL_TEXT } from "@/styles/ui";
 import { TERMS } from "../_lib/glossary";
 import { formatPsc, pscDigits } from "../_lib/hauliers";
@@ -33,7 +34,7 @@ interface QuantityProps {
 
 const Quantity = ({ label, value, step = 1, precision, onChange }: QuantityProps) => (
   <TruckingField label={label}>
-    <InputNumber aria-label={label} min={0} step={step} precision={precision} value={value} onChange={(v) => onChange(v ?? 0)} className="w-full" />
+    <DecimalInput aria-label={label} min={0} step={step} precision={precision} value={value} onChange={(v) => onChange(v ?? 0)} className="w-full" />
   </TruckingField>
 );
 
@@ -112,10 +113,10 @@ export const RateCalculatorForm = ({ form, onChange, customer, laneOnly = false 
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <TruckingField label={`${TERMS.waitingTime} (hours)`}>
-            <InputNumber aria-label="Waiting hours" min={0} step={0.5} value={form.extras.waitingHours} onChange={(v) => setExtra("waitingHours", v ?? 0)} className="w-full" />
+            <DecimalInput aria-label="Waiting hours" min={0} step={0.5} value={form.extras.waitingHours} onChange={(v) => setExtra("waitingHours", v ?? 0)} className="w-full" />
           </TruckingField>
           <TruckingField label="Declared value (CZK)" hint="Set it to add insurance">
-            <InputNumber
+            <DecimalInput
               aria-label="Declared value in CZK"
               min={0}
               step={10000}

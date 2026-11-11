@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ACTING_COMPANY_HEADER, actingCompanyId, setActingCompanyId, withActingCompany } from "./actingCompany";
 
 // The browser's storage, as the tests' Node has none.
 function fakeStorage() {
@@ -11,6 +10,15 @@ function fakeStorage() {
   };
 }
 
+// A page loaded: the module comes fresh, as it does with every page load.
+const loadPage = async () => {
+  vi.resetModules();
+  return import("./actingCompany");
+};
+
+const A = "22222222-2222-4222-8222-222222222222";
+const B = "33333333-3333-4333-8333-333333333333";
+
 describe("a superadmin's company choice", () => {
   beforeEach(() => {
     vi.stubGlobal("window", {});
@@ -18,17 +26,49 @@ describe("a superadmin's company choice", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("is sent with the requests once chosen, and not after going back to the own company", () => {
-    expect(withActingCompany(new Headers()).has(ACTING_COMPANY_HEADER)).toBe(false);
-    setActingCompanyId("22222222-2222-4222-8222-222222222222");
-    expect(actingCompanyId()).toBe("22222222-2222-4222-8222-222222222222");
-    expect(withActingCompany(new Headers()).get(ACTING_COMPANY_HEADER)).toBe("22222222-2222-4222-8222-222222222222");
-    setActingCompanyId(null);
-    expect(actingCompanyId()).toBeNull();
-    expect(withActingCompany(new Headers()).has(ACTING_COMPANY_HEADER)).toBe(false);
+  it("is sent with the requests of the pages loaded after it was chosen, and not after going back to the own company", async () => {
+    let page = await loadPage();
+    expect(page.withActingCompany(new Headers()).has(page.ACTING_COMPANY_HEADER)).toBe(false);
+    page.setActingCompanyId(A);
+    page = await loadPage();
+    expect(page.actingCompanyId()).toBe(A);
+    expect(page.withActingCompany(new Headers()).get(page.ACTING_COMPANY_HEADER)).toBe(A);
+    page.setActingCompanyId(null);
+    page = await loadPage();
+    expect(page.actingCompanyId()).toBeNull();
+    expect(page.withActingCompany(new Headers()).has(page.ACTING_COMPANY_HEADER)).toBe(false);
   });
 
-  it("is nothing when the storage is refused", () => {
+  it("stays the one the page was loaded with when another tab chooses another company", async () => {
+    localStorage.setItem("acting_company", A);
+    const page = await loadPage();
+    expect(page.actingCompanyId()).toBe(A);
+    localStorage.setItem("acting_company", B);
+    expect(page.withActingCompany(new Headers()).get(page.ACTING_COMPANY_HEADER)).toBe(A);
+    localStorage.removeItem("acting_company");
+    expect(page.actingCompanyId()).toBe(A);
+  });
+
+  it("stays the one the page was loaded with when the switcher stores another before loading the page again", async () => {
+    localStorage.setItem("acting_company", A);
+    const page = await loadPage();
+    page.actingCompanyId();
+    // The save a page sends as it is left goes to the company it was typed in.
+    page.setActingCompanyId(B);
+    expect(page.withActingCompany(new Headers()).get(page.ACTING_COMPANY_HEADER)).toBe(A);
+    expect((await loadPage()).actingCompanyId()).toBe(B);
+  });
+
+  it("is dropped for the page as well when cleared (a sign-in, a sign-out, a company no longer there)", async () => {
+    localStorage.setItem("acting_company", A);
+    const page = await loadPage();
+    expect(page.actingCompanyId()).toBe(A);
+    page.clearActingCompany();
+    expect(page.actingCompanyId()).toBeNull();
+    expect(localStorage.getItem("acting_company")).toBeNull();
+  });
+
+  it("is nothing when the storage is refused", async () => {
     vi.stubGlobal("localStorage", {
       getItem: () => {
         throw new Error("denied");
@@ -40,7 +80,8 @@ describe("a superadmin's company choice", () => {
         throw new Error("denied");
       },
     });
-    expect(() => setActingCompanyId("x")).not.toThrow();
-    expect(actingCompanyId()).toBeNull();
+    const page = await loadPage();
+    expect(() => page.setActingCompanyId("x")).not.toThrow();
+    expect(page.actingCompanyId()).toBeNull();
   });
 });

@@ -10,7 +10,7 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { ColumnChecklist } from "@/components/ColumnChecklist";
 import { ColumnFilterRows } from "@/components/ColumnFilterRows";
-import { CARD, HEADING, PAGE_TITLE } from "@/styles/ui";
+import { BTN, BTN_GHOST, BTN_SM, CARD, HEADING, PAGE_TITLE } from "@/styles/ui";
 import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridFilter } from "@/components/gridFilters";
 import { cellRender } from "@/components/gridColumns";
 import { downloadCsv } from "@/lib/csv";
@@ -323,10 +323,7 @@ export function AppGrid<T extends object>({
                 <div className="flex items-center justify-between px-1 pb-2.5 mb-2.5 border-b border-slate-100">
                   <span className={HEADING}>Filter by column</span>
                   {colFilters.length > 0 && (
-                    <button
-                      onClick={() => setColFilters([])}
-                      className="text-xs font-medium text-slate-400 hover:text-red-500 bg-transparent border-none cursor-pointer p-0"
-                    >
+                    <button onClick={() => setColFilters([])} className={`${BTN_GHOST} ${BTN_SM}`}>
                       Clear all
                     </button>
                   )}
@@ -370,9 +367,10 @@ export function AppGrid<T extends object>({
           </Popover>
           {!hideExport && (
             <button
-              onClick={() => exportCsv(filtered, visibleColumns, exportFilePrefix)}
+              // In the order the grid is sorted in, as on screen.
+              onClick={() => exportCsv(sorted, visibleColumns, exportFilePrefix)}
               title="Export the filtered rows (visible columns) to CSV"
-              className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              className={BTN}
             >
               <DownloadOutlined />
               Export

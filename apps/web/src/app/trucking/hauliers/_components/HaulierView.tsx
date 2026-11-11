@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
 import { Alert, Button, DatePicker, Input, InputNumber, Select, Spin, Switch, Tooltip } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { LockOutlined, UnlockOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
@@ -247,7 +248,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
               </TruckingField>
               <TruckingField label="Limit">
                 <div className="flex gap-2">
-                  <InputNumber
+                  <DecimalInput
                     aria-label="Insurance limit"
                     min={0}
                     step={100000}

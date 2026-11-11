@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, InputNumber, Modal, type GetRef } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { fmtMoney, moneyInputParser, round2 } from "@/lib/money";
 import { lineRate, withRate } from "@/app/sales/_lib/salesQuote";
@@ -95,7 +96,7 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
         </div>
         <label className="flex items-center gap-3">
           <span className={`w-28 shrink-0 ${LABEL_TEXT}`}>Markup</span>
-          <InputNumber
+          <DecimalInput
             ref={markupInput}
             className="!w-full"
             aria-label="Markup %"

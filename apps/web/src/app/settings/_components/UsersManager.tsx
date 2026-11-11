@@ -5,12 +5,14 @@ import { Table, Button, Modal, Form, Input, Select } from "antd";
 import { PlusOutlined, EditOutlined, StopOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Badge, type Tone } from "@/components/Badge";
 import { SectionCard } from "@/components/SectionCard";
 import { EMPTY } from "@/styles/ui";
 import type { ManagedUser, NewUserInput, UpdateUserInput } from "@/hooks/useUserAdmin";
 import type { Department, Branch } from "@/hooks/useOrgUnits";
+import { userActionRefusals } from "../_lib/userRules";
 
 // The role marks in the app's badge tones: the administrators in indigo, managers amber, users grey.
 const ROLE_TONE: Record<string, Tone> = { superadmin: "i", admin: "i", manager: "a", user: "" };
@@ -25,6 +27,7 @@ export function UsersManager({
   isLoading,
   allowedRoles,
   currentUserId,
+  currentUserRole,
   orgUnits,
   createUser,
   updateUser,
@@ -34,6 +37,8 @@ export function UsersManager({
   isLoading: boolean;
   allowedRoles: string[]; // roles this actor may assign
   currentUserId: string;
+  // The actor's role: what the server would refuse them on a row is not offered (userRules).
+  currentUserRole: string;
   // The company's departments and branches; when given, users can be assigned to them, and to
   // the manager they report to (a manager or admin of the company), who gets the user's discount
   // inquiries in Sales.
@@ -47,6 +52,9 @@ export function UsersManager({
   const [editTarget, setEditTarget] = useState<ManagedUser | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<ManagedUser | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const refusalsFor = (target: ManagedUser) => userActionRefusals({ id: currentUserId, role: currentUserRole }, target);
+  const roleRefusal = editTarget ? refusalsFor(editTarget).editRole : null;
   const [addForm] = Form.useForm();
   const [editForm] = Form.useForm();
 
@@ -100,8 +108,8 @@ export function UsersManager({
       toast.success("User created");
       addForm.resetFields();
       setAddOpen(false);
-    } catch {
-      toast.error("Failed to create user (email may already be in use)");
+    } catch (err) {
+      toast.error(`Failed to create user: ${apiErrorMessage(err)}`);
     } finally {
       setSaving(false);
     }
@@ -124,10 +132,26 @@ export function UsersManager({
       await updateUser({ id: editTarget.id, input });
       toast.success("User updated");
       setEditTarget(null);
-    } catch {
-      toast.error("Failed to update user");
+    } catch (err) {
+      toast.error(`Failed to update user: ${apiErrorMessage(err)}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // A refusal (a manager deactivating another manager, say) is shown in the server's words, and the
+  // dialog stays open; it can't be closed while the request is on its way.
+  const confirmDeactivate = async () => {
+    if (!deactivateTarget) return;
+    setDeactivating(true);
+    try {
+      await deleteUser(deactivateTarget.id);
+      toast.success("User deactivated");
+      setDeactivateTarget(null);
+    } catch (err) {
+      toast.error(`Failed to deactivate the user: ${apiErrorMessage(err)}`);
+    } finally {
+      setDeactivating(false);
     }
   };
 
@@ -146,35 +170,42 @@ export function UsersManager({
       title: "",
       key: "actions",
       width: 110,
-      render: (_: unknown, r) => (
-        <div className="flex justify-end gap-1">
-          <Button
-            type="text"
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => {
-              setEditTarget(r);
-              editForm.setFieldsValue({
-                displayName: r.displayName,
-                role: r.role,
-                password: "",
-                departmentId: r.departmentId ?? undefined,
-                branchId: r.branchId ?? undefined,
-                reportsToUserId: r.reportsToUserId ?? undefined,
-              });
-            }}
-          />
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<StopOutlined />}
-            disabled={r.id === currentUserId}
-            title={r.id === currentUserId ? "You can't deactivate yourself" : "Deactivate"}
-            onClick={() => setDeactivateTarget(r)}
-          />
-        </div>
-      ),
+      render: (_: unknown, r) => {
+        const refused = refusalsFor(r);
+        return (
+          <div className="flex justify-end gap-1">
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              disabled={!!refused.edit}
+              title={refused.edit ?? "Edit"}
+              aria-label={`Edit ${r.email}`}
+              onClick={() => {
+                setEditTarget(r);
+                editForm.setFieldsValue({
+                  displayName: r.displayName,
+                  role: r.role,
+                  password: "",
+                  departmentId: r.departmentId ?? undefined,
+                  branchId: r.branchId ?? undefined,
+                  reportsToUserId: r.reportsToUserId ?? undefined,
+                });
+              }}
+            />
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<StopOutlined />}
+              disabled={!!refused.deactivate}
+              title={refused.deactivate ?? "Deactivate"}
+              aria-label={`Deactivate ${r.email}`}
+              onClick={() => setDeactivateTarget(r)}
+            />
+          </div>
+        );
+      },
     },
   ];
 
@@ -224,7 +255,7 @@ export function UsersManager({
             <Input />
           </Form.Item>
           <Form.Item name="role" label="Role">
-            <Select options={roleOptions} disabled={editTarget?.id === currentUserId} />
+            <Select options={roleOptions} disabled={!!roleRefusal} title={roleRefusal ?? undefined} />
           </Form.Item>
           {orgUnitFields}
           {reportsToField}
@@ -236,12 +267,9 @@ export function UsersManager({
 
       <ConfirmModal
         open={!!deactivateTarget}
-        onClose={() => setDeactivateTarget(null)}
-        onConfirm={async () => {
-          if (deactivateTarget) await deleteUser(deactivateTarget.id);
-          setDeactivateTarget(null);
-          toast.success("User deactivated");
-        }}
+        onClose={() => !deactivating && setDeactivateTarget(null)}
+        onConfirm={confirmDeactivate}
+        loading={deactivating}
         title="Deactivate user"
         description={`Deactivate ${deactivateTarget?.email}? They will no longer be able to log in.`}
         confirmLabel="Deactivate"

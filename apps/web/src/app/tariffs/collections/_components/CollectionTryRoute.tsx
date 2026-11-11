@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Alert, Button, Input, InputNumber } from "antd";
+import { Alert, Button, Input } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { CalculatorOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { useCollectionHubs, useCollectionTariffActions, type CollectionTariffVersionDetail, type CollectionTry } from "@/hooks/useCollectionTariffs";
@@ -68,13 +69,13 @@ export const CollectionTryRoute = ({ version }: { version: CollectionTariffVersi
           <Input aria-label="Customer's postcode" placeholder="602 00" value={customerPostcode} maxLength={6} onChange={(e) => setCustomerPostcode(e.target.value)} />
         </Field>
         <Field label="Weight kg">
-          <InputNumber aria-label="Weight kg" min={0} value={weightKg} onChange={setWeightKg} className="!w-full" />
+          <DecimalInput aria-label="Weight kg" min={0} value={weightKg} onChange={setWeightKg} className="!w-full" />
         </Field>
         <Field label="m³">
-          <InputNumber aria-label="Volume m³" min={0} step={0.1} value={cbm} onChange={setCbm} className="!w-full" />
+          <DecimalInput aria-label="Volume m³" min={0} step={0.1} value={cbm} onChange={setCbm} className="!w-full" />
         </Field>
         <Field label="Longest piece cm">
-          <InputNumber aria-label="Longest piece cm" min={0} value={longestCm} onChange={setLongestCm} className="!w-full" />
+          <DecimalInput aria-label="Longest piece cm" min={0} value={longestCm} onChange={setLongestCm} className="!w-full" />
         </Field>
         <Button icon={<CalculatorOutlined />} loading={isTrying} disabled={!ready} onClick={handleTry}>
           Price it

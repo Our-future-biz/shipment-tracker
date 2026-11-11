@@ -1,5 +1,6 @@
-import Client, { ErrCode, isAPIError } from "./client";
+import Client, { APIError, ErrCode, isAPIError } from "./client";
 import { withActingCompany } from "@/lib/actingCompany";
+import { dropSessionToken, pageSessionChanged, reportPageSessionChange, sessionToken } from "@/lib/auth/pageSession";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
 
@@ -18,16 +19,28 @@ let sessionEnded = false;
 function endSession(): void {
   if (sessionEnded) return;
   sessionEnded = true;
-  localStorage.removeItem("auth_token");
+  dropSessionToken();
   if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
 }
 
+/** Why a request of a page whose session changed in another tab was not sent. */
+export const SESSION_CHANGED_MESSAGE = "your session changed in another tab - the page is loaded again";
+
 // Attach the logged-in user's bearer token so authenticated endpoints can
 // derive the actor (e.g. who deleted a shipment) server-side - and a superadmin's choice of the
-// company to work as (lib/actingCompany), which the server ignores for anyone else.
-const authFetcher: typeof fetch = async (input, init) => {
+// company to work as (lib/actingCompany), which the server ignores for anyone else. Both are this
+// page's own copies (lib/auth/pageSession), never what another tab stored since: a save of this
+// page goes out as the user, and to the company, it was made by - or, once the storage holds
+// another session (a sign-out, a sign-in or another company in another tab, which a page asleep or
+// restored from the browser's cache may not have heard of), not at all: the page is loaded again.
+// Exported for its test.
+export const authFetcher: typeof fetch = async (input, init) => {
+  if (pageSessionChanged()) {
+    reportPageSessionChange();
+    throw new APIError(409, { code: ErrCode.FailedPrecondition, message: SESSION_CHANGED_MESSAGE });
+  }
   const headers = new Headers(init?.headers);
-  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+  const token = sessionToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
     withActingCompany(headers);

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button, DatePicker, Input, Popconfirm, Select, Table } from "antd";
 import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
@@ -19,9 +20,11 @@ type Kind = "all" | "national" | "regional";
 interface WorldHolidaysTabProps {
   items: HolidayItem[];
   loading: boolean;
+  /** Whether the user may delete holidays (managers; the server refuses anyone else). */
+  canManage: boolean;
 }
 
-export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
+export function WorldHolidaysTab({ items, loading, canManage }: WorldHolidaysTabProps) {
   const toast = useToast();
   const { deleteHoliday } = usePublicHolidays();
   const [search, setSearch] = useState("");
@@ -29,7 +32,7 @@ export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
   const [kind, setKind] = useState<Kind>("all");
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
 
-  const handleDelete = (id: string) => deleteHoliday(id).catch(() => toast.error("Could not delete the holiday"));
+  const handleDelete = (id: string) => deleteHoliday(id).catch((err) => toast.error(`Could not delete the holiday: ${apiErrorMessage(err)}`));
 
   const countryOptions = useMemo(
     () =>
@@ -71,19 +74,24 @@ export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
     { title: "Regional start date", dataIndex: "regionalStart", width: 140, sorter: byText("regionalStart"), render: dateCell },
     { title: "Regional end date", dataIndex: "regionalEnd", width: 140, sorter: byText("regionalEnd"), render: dateCell },
     { title: "Region(s) / subdivision(s)", dataIndex: "regions", width: 260, sorter: byText("regions"), render: textCell },
-    {
-      title: "",
-      key: "actions",
-      width: 56,
-      fixed: "right",
-      render: (_: unknown, h: HolidayItem) => (
-        <Popconfirm title="Delete this holiday?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(h.id)}>
-          <button type="button" aria-label="Delete holiday" className={ICON_BTN_GHOST}>
-            <DeleteOutlined />
-          </button>
-        </Popconfirm>
-      ),
-    },
+    // Deleting is for managers only, as the upload is.
+    ...(canManage
+      ? [
+          {
+            title: "",
+            key: "actions",
+            width: 56,
+            fixed: "right" as const,
+            render: (_: unknown, h: HolidayItem) => (
+              <Popconfirm title="Delete this holiday?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(h.id)}>
+                <button type="button" aria-label="Delete holiday" className={ICON_BTN_GHOST}>
+                  <DeleteOutlined />
+                </button>
+              </Popconfirm>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (

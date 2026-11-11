@@ -1,6 +1,7 @@
 "use client";
 
-import { Checkbox, Input, InputNumber, Select } from "antd";
+import { Checkbox, Input, Select } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import type { LoadInput } from "@/hooks/useTruckingConsignments";
 import { LABEL_TEXT } from "@/styles/ui";
 import { TERMS } from "../_lib/glossary";
@@ -32,7 +33,7 @@ export const ConsignmentLoadFields = ({ load, onChange, disabled = false }: Cons
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {MEASURES.map((m) => (
           <TruckingField key={m.key} label={m.label}>
-            <InputNumber aria-label={m.label} className="w-full" min={0} step={m.step} disabled={disabled} value={load[m.key]} onChange={(v) => set(m.key, v ?? 0)} />
+            <DecimalInput aria-label={m.label} className="w-full" min={0} step={m.step} disabled={disabled} value={load[m.key]} onChange={(v) => set(m.key, v ?? 0)} />
           </TruckingField>
         ))}
       </div>

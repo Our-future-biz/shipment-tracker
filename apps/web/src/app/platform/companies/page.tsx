@@ -8,6 +8,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { usePlatformCompanies, type CompanyRow } from "@/hooks/useUserAdmin";
 import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
 import { CARD, HINT, LABEL_TEXT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 
 export default function PlatformCompaniesPage() {
@@ -37,8 +38,8 @@ export default function PlatformCompaniesPage() {
       toast.success(`Company ${v.companyName} created`);
       form.resetFields();
       setAddOpen(false);
-    } catch {
-      toast.error("Failed to create company (slug or admin email may already exist)");
+    } catch (err) {
+      toast.error(`Failed to create the company: ${apiErrorMessage(err)}`);
     }
   };
 

@@ -1,7 +1,8 @@
 "use client";
 
 import dayjs from "dayjs";
-import { Checkbox, DatePicker, Input, InputNumber, Radio, Segmented, Select, TimePicker } from "antd";
+import { Checkbox, DatePicker, Input, Radio, Segmented, Select, TimePicker } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { useCustomerSites } from "@/hooks/useCustomerSites";
 import { useHauliers, useTruckingSettings } from "@/hooks/useTrucking";
 import type { ConsignmentScope } from "@/hooks/useTruckingConsignments";
@@ -132,7 +133,7 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
         {form.priceSource === "MANUAL" && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_100px_1fr]">
             <TruckingField label="Total">
-              <InputNumber aria-label="Agreed total" className="w-full" min={0} disabled={limited} value={form.manualTotal} onChange={(v) => set("manualTotal", v)} />
+              <DecimalInput aria-label="Agreed total" className="w-full" min={0} disabled={limited} value={form.manualTotal} onChange={(v) => set("manualTotal", v)} />
             </TruckingField>
             <TruckingField label="Currency">
               <Select aria-label="Currency" disabled={limited} value={form.manualCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} onChange={(c) => set("manualCurrency", c)} />

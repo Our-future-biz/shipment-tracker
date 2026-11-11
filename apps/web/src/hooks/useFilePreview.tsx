@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { apiFileUrl, isNotFound } from "@/lib/api";
 import { decodeText, previewTypeOf, type PreviewType } from "@/lib/filePreview";
+import { saveBlob } from "@/lib/files";
 import { useMessages, useToast } from "@/lib/toast";
 import { FilePreviewDialog, type FilePreviewState } from "@/components/FilePreviewDialog";
 
@@ -47,18 +48,8 @@ export async function loadPreviewSource(source: PreviewSource): Promise<Blob> {
   }
 }
 
-/** Hands bytes to the browser as a download under the given name; the page stays where it is. */
-export function saveBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  // Freed once the browser has taken the download over.
-  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-}
+// Kept in lib/files with the app's other download helpers (the CSV export uses it too).
+export { saveBlob };
 
 const asDataUrl = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import dayjs from "dayjs";
-import { Alert, DatePicker, Input, InputNumber, Modal, Select, Table } from "antd";
+import { Alert, DatePicker, Input, Modal, Select, Table } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { formatFileSize } from "@/lib/files";
@@ -128,7 +129,7 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
       render: (_: unknown, t: InvoiceCandidate) => {
         const line = lineOf(t.id);
         return line ? (
-          <InputNumber aria-label={`Invoiced for ${t.ref}`} min={0} value={line.invoiced} onChange={(v) => setLine(t.id, { invoiced: v ?? null })} className="w-full" />
+          <DecimalInput aria-label={`Invoiced for ${t.ref}`} min={0} value={line.invoiced} onChange={(v) => setLine(t.id, { invoiced: v ?? null })} className="w-full" />
         ) : null;
       },
     },
@@ -220,13 +221,13 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
             <Select aria-label="Invoice currency" value={header.currency} options={CURRENCY_OPTIONS} onChange={(v) => setH("currency", v)} />
           </TruckingField>
           <TruckingField label="Net total" hint={summary.netDiffers ? "Differs from the sum of the lines" : undefined}>
-            <InputNumber aria-label="Net total" min={0} value={effectiveHeader.totalNet} onChange={(v) => setH("totalNet", v ?? null)} className="w-full" />
+            <DecimalInput aria-label="Net total" min={0} value={effectiveHeader.totalNet} onChange={(v) => setH("totalNet", v ?? null)} className="w-full" />
           </TruckingField>
           <TruckingField label="VAT">
-            <InputNumber aria-label="VAT amount" min={0} value={header.vatAmount} onChange={(v) => setH("vatAmount", v ?? null)} className="w-full" />
+            <DecimalInput aria-label="VAT amount" min={0} value={header.vatAmount} onChange={(v) => setH("vatAmount", v ?? null)} className="w-full" />
           </TruckingField>
           <TruckingField label="Gross total">
-            <InputNumber aria-label="Gross total" min={0} value={effectiveHeader.totalGross} onChange={(v) => setH("totalGross", v ?? null)} className="w-full" />
+            <DecimalInput aria-label="Gross total" min={0} value={effectiveHeader.totalGross} onChange={(v) => setH("totalGross", v ?? null)} className="w-full" />
           </TruckingField>
           <div className="col-span-2">
             <TruckingField label="Bank account on the invoice">

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Alert, Button, Input, InputNumber, Modal, Radio, Select, Spin } from "antd";
+import { Alert, Button, Input, Modal, Radio, Select, Spin } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { PushpinFilled } from "@ant-design/icons";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
@@ -183,7 +184,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
           </TruckingField>
           <div className="grid grid-cols-[1fr_96px] gap-2">
             <TruckingField label="Agreed price">
-              <InputNumber aria-label="Agreed price" className="w-full" min={0} value={agreedTotal} onChange={setAgreedTotal} />
+              <DecimalInput aria-label="Agreed price" className="w-full" min={0} value={agreedTotal} onChange={setAgreedTotal} />
             </TruckingField>
             <TruckingField label="Currency">
               <Select aria-label="Currency" value={agreedCurrency} options={CURRENCIES.map((x) => ({ value: x, label: x }))} onChange={setAgreedCurrency} />

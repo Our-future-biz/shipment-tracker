@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import { Alert, Button, Input, InputNumber } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import {
   approvedFee,
@@ -257,7 +258,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                         <span className="text-slate-300">{pieces > 0 ? "From the warehouse" : "—"}</span>
                       )
                     ) : pieces > 0 ? (
-                      <InputNumber
+                      <DecimalInput
                         size="small"
                         className={`!w-[150px] ${differs ? "!bg-amber-100 !border-amber-400" : ""}`}
                         min={0}

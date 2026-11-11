@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Alert, Button, Form, Input, InputNumber, Modal, Select } from "antd";
+import { Alert, Button, Form, Input, Modal, Select } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { DeleteOutlined } from "@ant-design/icons";
 import { Badge, type Tone } from "@/components/Badge";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -305,7 +306,7 @@ export function RecordFormModal<V extends object>({
           const options = (f.options ?? []).map((o) => (typeof o === "string" ? { value: o, label: o } : o));
           const control =
             f.type === "number" ? (
-              <InputNumber min={0} step={f.step ?? 1} className="w-full" placeholder={f.placeholder} />
+              <DecimalInput min={0} step={f.step ?? 1} className="w-full" placeholder={f.placeholder} />
             ) : f.type === "select" ? (
               <Select allowClear showSearch optionFilterProp="label" options={options} placeholder={f.placeholder} />
             ) : f.type === "textarea" ? (

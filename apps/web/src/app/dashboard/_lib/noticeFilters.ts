@@ -1,4 +1,5 @@
 import type { Announcement } from "@/hooks/useNoticeboard";
+import { fold } from "@/lib/fold";
 
 // The noticeboard's filters; undefined is "All".
 export interface NoticeFilters {
@@ -17,10 +18,8 @@ export const hasFilters = (f: NoticeFilters) =>
 const reaches = (wanted: string | null, filter: string | undefined) =>
   !filter || !wanted || wanted === filter;
 
-// Lower case without accents, so "zmenilo" finds "Něco se změnilo".
-const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
-// Every word typed must appear somewhere in the notice.
+// Every word typed must appear somewhere in the notice, case and accents ignored (lib/fold), so
+// "zmenilo" finds "Něco se změnilo" and "lodz" finds "Łódź".
 const matchesSearch = (n: Announcement, search: string | undefined) => {
   const words = fold(search ?? "").split(/\s+/).filter(Boolean);
   if (!words.length) return true;

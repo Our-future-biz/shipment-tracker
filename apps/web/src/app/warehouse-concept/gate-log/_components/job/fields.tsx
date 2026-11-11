@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { DatePicker, Input, InputNumber, Select, TimePicker } from "antd";
+import { DatePicker, Input, Select, TimePicker } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { formatDateTime } from "@/lib/date";
@@ -151,7 +152,7 @@ export function InlineNumber({
   const [draft, setDraft] = useDraft<number | null>(value);
   return (
     <span className="inline-flex items-center gap-1.5">
-      <InputNumber
+      <DecimalInput
         size="small"
         variant="borderless"
         min={0}

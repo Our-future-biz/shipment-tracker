@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Checkbox, Input, InputNumber, Select, Tooltip } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { OceanLayout } from "@/hooks/useOceanTariffs";
 import type { interfaces } from "@/lib/api/client";
@@ -203,7 +204,7 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
                   <Input aria-label={`${name} name`} size="small" placeholder="Emergency Bunker Surcharge" value={s.name} maxLength={200} disabled={disabled} onChange={(e) => setSurcharge(i, { name: e.target.value })} />
                 </Field>
                 <Field label="Amount">
-                  <InputNumber aria-label={`${name} amount`} size="small" min={0} value={s.amount} disabled={disabled} onChange={(v) => setSurcharge(i, { amount: v ?? 0 })} className="!w-full" />
+                  <DecimalInput aria-label={`${name} amount`} size="small" min={0} value={s.amount} disabled={disabled} onChange={(v) => setSurcharge(i, { amount: v ?? 0 })} className="!w-full" />
                 </Field>
                 <Field label="Currency">
                   <Input aria-label={`${name} currency`} size="small" value={s.currency} maxLength={3} disabled={disabled} onChange={(e) => setSurcharge(i, { currency: e.target.value.toUpperCase() })} />

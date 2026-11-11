@@ -29,6 +29,7 @@ export default function CompanyUsersPage() {
         isLoading={cu.isLoading}
         allowedRoles={allowedRoles}
         currentUserId={user?.id ?? ""}
+        currentUserRole={user?.role ?? ""}
         orgUnits={{ departments, branches }}
         createUser={cu.createUser}
         updateUser={cu.updateUser}
