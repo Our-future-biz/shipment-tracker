@@ -11,7 +11,9 @@ import { useInvoicing } from "@/hooks/useInvoicing";
 import { AppCard } from "@/components/AppCard";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { Pill } from "@/components/Pill";
-import { CARD, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
+import { CARD, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
+import { BackLink } from "@/components/BackLink";
+import { CopyButton } from "@/components/CopyButton";
 import { formatDate } from "@/lib/date";
 import { StatusBadge } from "@/components/StatusBadge";
 import { money } from "@/lib/money";
@@ -46,19 +48,22 @@ function InvoicingStatusTag({ value }: { value: string }) {
 interface SummaryItemProps {
   label: string;
   className?: string;
-  /** The label may take two lines in a narrow column (the ports' long names) instead of running into the next fact. */
-  wrapLabel?: boolean;
   children: React.ReactNode;
 }
 
-function SummaryItem({ label, className = "", wrapLabel = false, children }: SummaryItemProps) {
+// One fact of the header: a small caps label over its value, as in the shipment header
+// (ShipmentFacts). Nothing wraps: a value too long for its column is cut, with the full text on hover.
+function SummaryItem({ label, className = "", children }: SummaryItemProps) {
   return (
     <div className={`min-w-0 ${className}`}>
-      <div className={`${LABEL_TEXT} ${wrapLabel ? "" : "whitespace-nowrap"}`}>{label}</div>
-      <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
+      <div className={`${LABEL_TEXT} whitespace-nowrap truncate`} title={label}>{label}</div>
+      <div className="mt-0.5 min-h-[24px] flex items-center whitespace-nowrap overflow-hidden text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
     </div>
   );
 }
+
+/** A plain value that is cut instead of widening its column. */
+const text = (v: string | null | undefined) => (v ? <span className="truncate" title={v}>{v}</span> : EMPTY_CELL);
 
 interface ShipmentProps {
   shipment: ShipmentItem;
@@ -92,29 +97,28 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
     }
   };
 
+  const job = shipment.jobNumber ?? shipment.id;
+
   return (
-    // 11 facts on a wide screen, in columns of 9: the text facts share the width, the last three take
-    // the width of their label (labels do not wrap, but the ports' may); a long Shipment Status is cut, not widened
-    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_fit-content(120px)_max-content_max-content] gap-x-4 gap-y-3">
-      <SummaryItem label="Job">
-        <Link href={`/shipments/${shipment.id}`} className={`${REF} font-semibold ${LINK}`}>
-          {shipment.jobNumber}
-        </Link>
+    // Two rows of six on a wide screen, lined up as in the shipment header: Job, Direction, Customer,
+    // Shipment Status, Invoicing Status, Lines Invoiced; then Port of Loading, Port of Discharge,
+    // Destination, DUZP, Quote, Quote profit. Below xl the job number has a row of its own.
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1fr)_minmax(124px,1fr)_minmax(110px,1.3fr)_minmax(140px,1fr)_minmax(140px,1fr)_minmax(150px,1.2fr)] gap-x-6 xl:gap-x-4 2xl:gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
+      <SummaryItem label="Job" className="col-span-full xl:col-span-1">
+        {/* The job number is the page's title, and leads to the shipment. */}
+        <div className="flex items-center gap-1 min-w-0">
+          <h1 className={`${PAGE_TITLE} ${REF} truncate`} title={job}>
+            <Link href={`/shipments/${shipment.id}`} className="text-inherit hover:text-indigo-600">
+              {job}
+            </Link>
+          </h1>
+          <CopyButton text={job} what="job number" />
+        </div>
       </SummaryItem>
-      <SummaryItem label="Direction">{shipment.tradeDirection || EMPTY_CELL}</SummaryItem>
-      <SummaryItem label="Customer">{shipment.customer || <span className="text-slate-500">Not linked</span>}</SummaryItem>
-      <SummaryItem label="Port of Loading" wrapLabel>{shipment.pol || EMPTY_CELL}</SummaryItem>
-      <SummaryItem label="Port of Discharge" wrapLabel>
-        <span className="min-w-0">
-          {shipment.pod || EMPTY_CELL}
-          {/* the final destination, which the old Route column also showed */}
-          {shipment.destination && shipment.destination !== shipment.pod && (
-            <span className="block text-[12px] text-slate-500">Destination: {shipment.destination}</span>
-          )}
-        </span>
+      <SummaryItem label="Direction">{text(shipment.tradeDirection)}</SummaryItem>
+      <SummaryItem label="Customer">
+        {shipment.customer ? text(shipment.customer) : <span className="text-slate-500">Not linked</span>}
       </SummaryItem>
-      {/* The tax date: of the newest open invoice once issued, else the one the Invoice tab would use */}
-      <SummaryItem label="DUZP">{formatDate(jobDuzp(data?.invoices ?? [], nextDuzp)) || EMPTY_CELL}</SummaryItem>
       <SummaryItem label="Shipment Status">
         {status ? <StatusBadge status={status} className="max-w-full truncate" /> : EMPTY_CELL}
       </SummaryItem>
@@ -142,7 +146,15 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
           EMPTY_CELL
         )}
       </SummaryItem>
-      {/* The quote the job was priced from, and its profit against the job's: a second row on a wide screen. */}
+      <SummaryItem label="Port of Loading">{text(shipment.pol)}</SummaryItem>
+      <SummaryItem label="Port of Discharge">{text(shipment.pod)}</SummaryItem>
+      {/* the final destination, which the old Route column also showed */}
+      <SummaryItem label="Destination">{text(shipment.destination)}</SummaryItem>
+      {/* The tax date: of the newest open invoice once issued, else the one the Invoice tab would use */}
+      <SummaryItem label="DUZP">
+        <span className="tabular-nums">{formatDate(jobDuzp(data?.invoices ?? [], nextDuzp)) || EMPTY_CELL}</span>
+      </SummaryItem>
+      {/* The quote the job was priced from, and its profit against the job's. */}
       <QuoteProfitFacts shipment={shipment} />
     </div>
   );
@@ -201,9 +213,9 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
 
   let profit: React.ReactNode = EMPTY_CELL;
   if (ref && (quote.isLoading || !data || ratesLoading)) profit = <span className="text-slate-500">…</span>;
-  else if (ref && !jobRatesReady) profit = <span className="text-slate-500">No exchange rates for the job yet</span>;
-  else if (ref && !quoteData) profit = <span className="text-slate-500">The quote could not be read</span>;
-  else if (ref && !cmp) profit = <span className="text-slate-500">No rate for its currency</span>;
+  else if (ref && !jobRatesReady) profit = <span className="text-slate-500 truncate" title="No exchange rates for the job yet">No exchange rates for the job yet</span>;
+  else if (ref && !quoteData) profit = <span className="text-slate-500 truncate" title="The quote could not be read">The quote could not be read</span>;
+  else if (ref && !cmp) profit = <span className="text-slate-500 truncate" title="No rate for its currency">No rate for its currency</span>;
   else if (ref && cmp) {
     profit = (
       <Popover content={<QuoteDifference cmp={cmp} jobProfit={jobProfit} quoteRef={shownRef ?? ref} currency={billingCur} />} trigger={["hover", "focus"]} placement="bottom">
@@ -228,7 +240,7 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
           EMPTY_CELL
         )}
       </SummaryItem>
-      <SummaryItem label={`Quote profit (${billingCur})`} className="xl:col-span-2">
+      <SummaryItem label={`Quote profit (${billingCur})`}>
         {profit}
       </SummaryItem>
     </>
@@ -259,15 +271,15 @@ interface JobTabsProps extends ShipmentProps {
   onChange: (key: TabKey) => void;
 }
 
-/** The tab bar under the job summary, with the costs totals at its right end. */
+/** The tab bar under the job header, with the costs totals at its right end. */
 function JobTabs({ shipment, active, onChange }: JobTabsProps) {
   const { data } = useInvoiceDocList(shipment.id);
   const docCount = data?.invoices.length;
 
   return (
-    // wrap-reverse: on a narrow screen the totals go above the tabs, so the tabs stay the card's bottom edge
+    // wrap-reverse: on a narrow screen the totals go above the tabs, so the tabs stay the strip's bottom edge
     // (in wrap-reverse items-start is the bottom, as items-end was before)
-    <div className="flex items-start justify-between gap-x-4 flex-wrap-reverse px-2 border-t border-slate-100">
+    <div className="flex items-start justify-between gap-x-4 flex-wrap-reverse border-b border-slate-200">
       <div role="tablist" aria-label="Invoicing of the job" className="flex flex-wrap shrink-0 max-w-full">
         {TABS.map((tab) => (
           <button
@@ -351,35 +363,33 @@ export const InvoicingView = () => {
 
   if (!selectedShipmentId) return <BillingQueue onOpen={handleSelect} />;
 
+  // Back to the queue as it was left: its filters stay, only the job and its tab go.
+  const queueParams = new URLSearchParams(searchParams.toString());
+  queueParams.delete("shipment");
+  queueParams.delete("tab");
+  const queueQs = queueParams.toString();
+  const queueHref = queueQs ? `${pathname}?${queueQs}` : pathname;
+
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
-        {/* Title row: back to the queue and the job; jobs are opened from the queue, not switched here */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="min-w-0">
-            <button
-              type="button"
-              onClick={() => handleSelect(null)}
-              className={`${PAGE_SUBTITLE} p-0 border-0 bg-transparent cursor-pointer hover:text-indigo-600`}
-            >
-              ← Invoicing queue
-            </button>
-            <h1 className={PAGE_TITLE}>
-              Invoicing{selectedShipment ? <span className="text-slate-400 font-semibold"> · {selectedShipment.jobNumber}</span> : null}
-            </h1>
-          </div>
+        {/* The way back to the queue, then the job at a glance - its job number first - and the tabs, as on the shipment detail */}
+        <div>
+          <BackLink href={queueHref}>Invoicing queue</BackLink>
+          {selectedShipment && (
+            <div className={`${CARD} mt-3 px-5 pt-3 pb-2.5`}>
+              <ShipmentSummary shipment={selectedShipment} nextDuzp={nextDuzp?.id === selectedShipment.id ? nextDuzp.iso : null} />
+            </div>
+          )}
+          {selectedShipment && (
+            <div className="mt-3.5">
+              <JobTabs shipment={selectedShipment} active={activeTab} onChange={handleTab} />
+            </div>
+          )}
         </div>
 
         {selectedShipment ? (
           <>
-            {/* The job at a glance, with the tab bar along its bottom edge as on the shipment detail */}
-            <section className={`${CARD} min-w-0`}>
-              <div className="px-4 pt-4 pb-3">
-                <ShipmentSummary shipment={selectedShipment} nextDuzp={nextDuzp?.id === selectedShipment.id ? nextDuzp.iso : null} />
-              </div>
-              <JobTabs shipment={selectedShipment} active={activeTab} onChange={handleTab} />
-            </section>
-
             <div role="tabpanel" id="invoicing-tab-panel" aria-labelledby={`invoicing-tab-${activeTab}`} className="min-w-0">
               {/* key: a fresh Costs editor per shipment */}
               {costsMountedFor === selectedShipment.id && (
