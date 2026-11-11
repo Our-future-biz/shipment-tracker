@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Modal, Button, Input, Checkbox, Radio, Space, Spin } from "antd";
 import { LockOutlined, SearchOutlined } from "@ant-design/icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useCreateMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
 import { useToast } from "@/lib/toast";
@@ -83,12 +84,22 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   const shipments = given ?? own.shipments;
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [selected, setSelected] = useState<Set<string>>(new Set(initialSelectedIds ?? []));
-
-  useEffect(() => {
-    if (open) setSelected(new Set(initialSelectedIds ?? []));
-  }, [open, initialSelectedIds]);
   const [search, setSearch] = useState("");
   const [selectedExistingMCZ, setSelectedExistingMCZ] = useState("");
+
+  // Each opening starts afresh, with the shipments it is opened for ticked. Only an opening: the
+  // caller may hand a new list of the same ids on every render (a refetch when the window gets the
+  // focus), which must not take away what the user ticked meanwhile.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setSelected(new Set(initialSelectedIds ?? []));
+      setSearch("");
+      setMode("new");
+      setSelectedExistingMCZ("");
+    }
+  }
   const [isLinking, setIsLinking] = useState(false);
   // A shipment whose details the user may not change cannot be linked by them either: shown, not picked.
   const { user } = useAuth();
@@ -130,6 +141,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   };
 
   const toast = useToast();
+  const queryClient = useQueryClient();
   const createMasterJob = useCreateMasterJob();
   const handleConfirm = async () => {
     if (chosen.length === 0 || isLinking) return;
@@ -146,8 +158,14 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
           toast.error(`The master job could not be created: ${apiErrorMessage(err)}`);
           return;
         }
+        // Created once: a retry after some links were refused links to this one, not to a second new one.
+        setMode("existing");
+        setSelectedExistingMCZ(mczNumber);
       }
       await onLink(chosen, mczNumber);
+      // The list was read again when the master job was created, before its shipments were linked:
+      // read now, it counts them.
+      void queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
     } finally {
       setIsLinking(false);
     }

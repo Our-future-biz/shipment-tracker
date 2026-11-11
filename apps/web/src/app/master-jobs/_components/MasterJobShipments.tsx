@@ -468,6 +468,14 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
             <div className="flex justify-center py-8">
               <Spin />
             </div>
+          ) : results.isError ? (
+            // A search that failed says so: it found nothing only because it was not answered.
+            <div className={EMPTY_STATE}>
+              Could not search the shipments - {apiErrorMessage(results.error)}.{" "}
+              <Button size="small" onClick={() => void results.refetch()}>
+                Retry
+              </Button>
+            </div>
           ) : (
             candidates.length === 0 && <div className={EMPTY_STATE}>{search ? "No shipments match the search." : "No shipments found."}</div>
           )}
