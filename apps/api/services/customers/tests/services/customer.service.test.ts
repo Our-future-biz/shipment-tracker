@@ -125,6 +125,20 @@ describe("roles", () => {
     expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 
+  it("made a haulier, read who changes them before the row is locked: no other service is asked under the lock but Trucking", async () => {
+    const USER = "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f";
+    vi.mocked(auth.userLookup).mockClear();
+    vi.mocked(auth.userLookup).mockResolvedValue({ users: [{ id: USER, email: "Rep@Firm.cz" }] } as never);
+    lockedOn({ roles: ["haulier"] });
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer"] }, USER);
+    expect(auth.userLookup).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(auth.userLookup).mock.invocationCallOrder[0]).toBeLessThan(repository.updateLocked.mock.invocationCallOrder.at(-1)!);
+    // A change that makes nobody a haulier asks nobody.
+    vi.mocked(auth.userLookup).mockClear();
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["customer"] }, USER);
+    expect(auth.userLookup).not.toHaveBeenCalled();
+  });
+
   it("make a supplier only that becomes a customer a Prospect, unless a status is sent with them (K14)", async () => {
     lockedOn({ roles: ["haulier"], status: "Active" });
     await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer"] });

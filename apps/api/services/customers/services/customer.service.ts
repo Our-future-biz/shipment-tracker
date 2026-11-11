@@ -28,6 +28,7 @@ import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { isSalesReference } from "../../../lib/salesReference";
 import { storedEmail } from "../../../lib/personPick";
+import { userEmailOf } from "../../../lib/companyUsers";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { companyOfLogoToken } from "../lib/logoUrl";
@@ -488,6 +489,10 @@ class CustomerService {
     // What depends on the row as it is now is worked out with the row locked, after every check above: a change
     // of roles may write to Trucking first (K3), and it then runs one after the other with a save of the terms.
     const fromCurrent = values.roles !== undefined || addRoles.length > 0 || values.currency !== undefined || values.secondaryCurrencies !== undefined;
+    // Who changes the roles, for a supplier made a haulier (its terms go to Trucking with the e-mail): read
+    // before the row is locked, so no other service is asked while the lock is held but Trucking itself.
+    const makesHaulier = !!values.roles?.includes("haulier") || addRoles.includes("haulier");
+    const rolesBy = makesHaulier ? await userEmailOf(actorUserId) : "";
     const row = fromCurrent
       ? await customerRepository.updateLocked(id, companyId, async (current) => {
           const locked = { ...values };
@@ -509,7 +514,7 @@ class CustomerService {
             // in use as one - its Inactive said nothing of its supply - unless a status comes with the change.
             if (wasCustomer && !isCustomer && current.status === "Inactive" && patch.status === undefined) locked.status = "Active";
             // A supplier with terms set here that becomes a haulier: Trucking gets them first (K3), the last step.
-            Object.assign(locked, await supplierTermsService.beforeRolesChange(current, locked.roles, actorUserId));
+            Object.assign(locked, await supplierTermsService.beforeRolesChange(current, locked.roles, { userId: actorUserId, by: rolesBy }));
           }
           return locked;
         })

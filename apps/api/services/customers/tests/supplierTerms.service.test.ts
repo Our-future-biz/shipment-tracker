@@ -17,6 +17,8 @@ vi.mock("../repositories/customer.repository", () => ({ customerRepository: repo
 import { supplierTermsService } from "../services/supplierTerms.service";
 
 const MANAGER = { userID: "u1", role: "manager" };
+// Who changes a supplier's roles, as customerService.update reads them before the row is locked.
+const JANA = { userId: "u1", by: "jana@ourfuture.biz" };
 const input = (over = {}) => ({
   paymentDays: 30,
   currency: "eur",
@@ -45,6 +47,8 @@ beforeEach(() => {
   termsSet.mockResolvedValue(undefined);
   termsGet.mockResolvedValue({ haulier: null });
   repo.updateForCompany.mockImplementation(async () => ({ ...fullRow() }));
+  // The row read before the lock: the same as the lock reads it, unless a test changes it in between.
+  repo.getByIdForCompany.mockImplementation(async () => current);
   repo.updateLocked.mockImplementation(async (_id: string, _company: string, work: (row: unknown) => Promise<Record<string, unknown> | null>) => {
     written = await work(current);
     return { ...fullRow(), ...(written ?? {}) };
@@ -152,6 +156,49 @@ describe("a haulier whose terms were never saved here (K1)", () => {
     }));
   });
 
+  it("reads Trucking's copy before the row is locked, never while the lock is held", async () => {
+    termsGet.mockResolvedValue({ haulier: truckingCopy });
+    let locked = false;
+    repo.updateLocked.mockImplementation(async (_id: string, _company: string, work: (row: unknown) => Promise<Record<string, unknown> | null>) => {
+      locked = true;
+      written = await work(current);
+      locked = false;
+      return { ...fullRow(), ...(written ?? {}) };
+    });
+    termsGet.mockImplementation(async () => {
+      expect(locked).toBe(false);
+      return { haulier: truckingCopy };
+    });
+    await supplierTermsService.set("co", "c1", MANAGER, input({ fromTrucking: true }));
+    expect(termsGet).toHaveBeenCalledTimes(1);
+    expect(written).toEqual(expect.objectContaining({ supplierBankAccountsChangedBy: "petr@ourfuture.biz" }));
+  });
+
+  it("re-checks under the lock: saved meanwhile it no longer starts from Trucking's copy; made a haulier meanwhile it is tried again", async () => {
+    termsGet.mockResolvedValue({ haulier: truckingCopy });
+    // Read with nothing saved; by the time the row is locked another manager saved its terms.
+    repo.getByIdForCompany.mockResolvedValueOnce(company());
+    current = company({ supplierPaymentDays: 30, supplierBankAccounts: ["19-2000145399/0800"] });
+    await supplierTermsService.set("co", "c1", MANAGER, input({ fromTrucking: true }));
+    expect(written).not.toHaveProperty("supplierBankAccountsChangedBy", "petr@ourfuture.biz");
+
+    // Read as a rail operator; a haulier with nothing saved when the row is locked: Trucking's copy was never read.
+    written = undefined;
+    termsGet.mockClear();
+    repo.getByIdForCompany.mockResolvedValueOnce(company({ roles: ["rail_operator"] }));
+    current = company();
+    await expect(supplierTermsService.set("co", "c1", MANAGER, input())).rejects.toMatchObject({ code: "aborted" });
+    expect(termsSet).toHaveBeenCalledTimes(1);
+    expect(written).toBeUndefined();
+  });
+
+  it("says a supplier that is gone is not found, before Trucking is asked", async () => {
+    repo.getByIdForCompany.mockResolvedValueOnce(null);
+    await expect(supplierTermsService.set("co", "c1", MANAGER, input())).rejects.toMatchObject({ code: "not_found" });
+    expect(termsGet).not.toHaveBeenCalled();
+    expect(repo.updateLocked).not.toHaveBeenCalled();
+  });
+
   it("refuses a first save made from values the page did not show: Trucking holds terms it could not read then", async () => {
     termsGet.mockResolvedValue({ haulier: truckingCopy });
     await expect(supplierTermsService.set("co", "c1", MANAGER, input())).rejects.toMatchObject({ code: "failed_precondition" });
@@ -205,7 +252,7 @@ describe("a supplier that becomes a haulier (K3)", () => {
   it("sends its terms to Trucking first, every account on the 30-day hold", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-04T09:00:00Z"));
-    const stamp = await supplierTermsService.beforeRolesChange(railOperator(), ["rail_operator", "haulier"], "u1");
+    const stamp = await supplierTermsService.beforeRolesChange(railOperator(), ["rail_operator", "haulier"], JANA);
     expect(termsSet).toHaveBeenCalledWith({
       customerId: "c1",
       terms: { paymentDays: 45, currency: "EUR", vatUnreliable: false, bankAccountPublished: true, vatCheckedAt: "2026-10-10", bankAccounts: ["19-2000145399/0800"] },
@@ -216,19 +263,19 @@ describe("a supplier that becomes a haulier (K3)", () => {
   });
 
   it("is refused while its currency is not one Trucking pays in", async () => {
-    await expect(supplierTermsService.beforeRolesChange(railOperator({ supplierCurrency: "USD" }), ["haulier"], "u1")).rejects.toThrow(/CZK or EUR.*Terms and checks first/);
+    await expect(supplierTermsService.beforeRolesChange(railOperator({ supplierCurrency: "USD" }), ["haulier"], JANA)).rejects.toThrow(/CZK or EUR.*Terms and checks first/);
     expect(termsSet).not.toHaveBeenCalled();
   });
 
   it("changes nothing for one already a haulier, one losing the role, or one with no terms here", async () => {
-    expect(await supplierTermsService.beforeRolesChange(company({ supplierPaymentDays: 30 }) as never, ["haulier", "customer"], "u1")).toEqual({});
-    expect(await supplierTermsService.beforeRolesChange(railOperator(), ["rail_operator"], "u1")).toEqual({});
-    expect(await supplierTermsService.beforeRolesChange(company({ roles: ["rail_operator"] }) as never, ["haulier"], "u1")).toEqual({});
+    expect(await supplierTermsService.beforeRolesChange(company({ supplierPaymentDays: 30 }) as never, ["haulier", "customer"], JANA)).toEqual({});
+    expect(await supplierTermsService.beforeRolesChange(railOperator(), ["rail_operator"], JANA)).toEqual({});
+    expect(await supplierTermsService.beforeRolesChange(company({ roles: ["rail_operator"] }) as never, ["haulier"], JANA)).toEqual({});
     expect(termsSet).not.toHaveBeenCalled();
   });
 
   it("is refused for terms set here without what a haulier needs: Trucking would start from its defaults and hide them", async () => {
-    await expect(supplierTermsService.beforeRolesChange(railOperator({ supplierPaymentDays: null, supplierVatUnreliable: true }), ["haulier"], "u1")).rejects.toThrow(/payment days.*Terms and checks first/);
+    await expect(supplierTermsService.beforeRolesChange(railOperator({ supplierPaymentDays: null, supplierVatUnreliable: true }), ["haulier"], JANA)).rejects.toThrow(/payment days.*Terms and checks first/);
     expect(termsSet).not.toHaveBeenCalled();
   });
 });
