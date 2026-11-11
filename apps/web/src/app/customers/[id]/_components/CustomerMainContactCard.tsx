@@ -17,7 +17,7 @@ interface CustomerMainContactCardProps {
 
 // Who to call or write to first, without opening the Contacts tab.
 export function CustomerMainContactCard({ customerId, onSelectTab }: CustomerMainContactCardProps) {
-  const { contacts, isLoading } = useCustomerContacts(customerId);
+  const { contacts, isLoading, isError } = useCustomerContacts(customerId);
   // The first row of the Contacts tab: the contact flagged as main, otherwise the one added first.
   const contact = contacts.find((c) => c.isMain) ?? contacts[0];
   const phone = (contact?.phone ?? "").trim();
@@ -68,8 +68,9 @@ export function CustomerMainContactCard({ customerId, onSelectTab }: CustomerMai
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
-          <span className="text-slate-400">{isLoading ? "Loading…" : "No contacts yet."}</span>
-          {!isLoading && (
+          {/* A list that could not be loaded is not an empty one: no "add the first one" for it. */}
+          <span className="text-slate-400">{isLoading ? "Loading…" : isError ? "Could not load the contacts." : "No contacts yet."}</span>
+          {!isLoading && !isError && (
             <button type="button" onClick={handleOpenContacts} className={TEXT_BUTTON_CLASS}>
               Add a contact
             </button>

@@ -5,7 +5,7 @@ import { Alert, Button, Spin } from "antd";
 import { PillTabs } from "@/components/SectionCard";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
-import { summarizeInvoices } from "../../_lib/customerInvoices";
+import { summarizeInvoices, unconvertedReason } from "../../_lib/customerInvoices";
 import { useLatestRates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "../../_lib/customerMoney";
 import { CustomerAgingCard, invoiceCountLabel } from "../_components/CustomerAgingCard";
@@ -36,7 +36,7 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
   const searchParams = useSearchParams();
   const { customer } = useCustomer(customerId);
   const { invoices, isLoading, isError, refetch } = useCustomerInvoices(customerId);
-  const { rates, fixingLabel } = useLatestRates();
+  const { rates, fixingLabel, isLoading: ratesLoading, isError: ratesError } = useLatestRates();
 
   // The sub-view lives in the URL (?view=) next to ?tab=, so it survives a reload and can be linked to.
   const rawView = searchParams.get("view") ?? DEFAULT_VIEW;
@@ -75,7 +75,8 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
       ) : (
         <>
           {/* Every figure in this block is derived from the invoices, so it waits for them as one —
-              and without them it shows an error, not a customer with nothing outstanding. */}
+              and without them it shows an error, not a customer with nothing outstanding. It waits for
+              today's rates too: until they are in, an invoice in another currency would be left out. */}
           {isError ? (
             <Alert
               type="error"
@@ -88,13 +89,13 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
               }
             />
           ) : (
-            <Spin spinning={isLoading}>
+            <Spin spinning={isLoading || ratesLoading}>
               <div className="space-y-5">
                 {summary.unconverted.length > 0 && (
                   <Alert
                     type="warning"
                     showIcon
-                    message={`ČNB publishes no rate for ${summary.unconverted.map((u) => u.currency).join(", ")}`}
+                    message={unconvertedReason(summary.unconverted, ratesError)}
                     description={`${summary.unconverted.map((u) => fmtMoney(u.amount, u.currency)).join(" + ")} is left out of the totals below.`}
                   />
                 )}

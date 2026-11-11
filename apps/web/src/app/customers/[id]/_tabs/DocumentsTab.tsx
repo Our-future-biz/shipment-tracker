@@ -44,7 +44,7 @@ const documentFile = (doc: DocumentItem): PreviewSource => ({
 export function DocumentsTab({ customerId }: DocumentsTabProps) {
   const toast = useToast();
   const filePreview = useFilePreview();
-  const { documents, isLoading, createDocument, deleteDocument } = useCustomerDocuments(customerId);
+  const { documents, isLoading, isError, createDocument, deleteDocument } = useCustomerDocuments(customerId);
   const [typeFilter, setTypeFilter] = useState(ALL_TYPES);
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
@@ -177,7 +177,7 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
           columns={columns}
           scroll={{ x: "max-content" }}
           pagination={{ ...TABLE_PAGINATION, current: page, onChange: setPage }}
-          locale={{ emptyText: typeFilter === ALL_TYPES ? "No documents yet" : "No documents of this type" }}
+          locale={{ emptyText: isError ? "Could not load the documents." : typeFilter === ALL_TYPES ? "No documents yet" : "No documents of this type" }}
         />
       </SectionCard>
 

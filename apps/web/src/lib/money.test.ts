@@ -54,6 +54,9 @@ describe("normaliseAmount", () => {
     expect(normaliseAmount("4 999,50")).toBe("4999.5");
     expect(normaliseAmount("1.250,00")).toBe("1250");
     expect(normaliseAmount("-150")).toBe("-150");
+    // A comma in threes separates thousands, as the amounts are shown; any other single comma is the decimal one.
+    expect(normaliseAmount("1,250")).toBe("1250");
+    expect(normaliseAmount("0,50")).toBe("0.5");
   });
 
   it("keeps empty text empty and rejects invalid text", () => {

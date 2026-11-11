@@ -7,7 +7,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useLatestRates } from "@/lib/fx";
-import { summarizeInvoices } from "../../_lib/customerInvoices";
+import { summarizeInvoices, unconvertedReason } from "../../_lib/customerInvoices";
 import { fmtMoney, roundCents } from "../../_lib/customerMoney";
 import { BAR_COLOR, utilizationTone } from "./CustomerCreditCard";
 import { LINK } from "@/styles/ui";
@@ -21,19 +21,24 @@ interface CustomerCreditSummaryCardProps {
 export function CustomerCreditSummaryCard({ customerId, onSelectTab }: CustomerCreditSummaryCardProps) {
   const { customer } = useCustomer(customerId);
   const { invoices, isLoading, isError } = useCustomerInvoices(customerId);
-  const { rates } = useLatestRates();
+  const { rates, isLoading: ratesLoading, isError: ratesError } = useLatestRates();
 
   if (!customer) return null;
 
   const { creditLimit, currency } = customer;
-  // Derived the same way as in the Finance tab, so the two always show the same figures.
-  const { outstanding } = summarizeInvoices(invoices, { currency, rates });
+  // Derived from the same invoices and today's rates as the Finance tab's figures; an open invoice in a
+  // currency ČNB has no rate for is left out of the outstanding sum here as there (the tab names it).
+  const { outstanding, unconverted } = summarizeInvoices(invoices, { currency, rates });
   const utilization = creditLimit > 0 ? Math.round((outstanding / creditLimit) * 100) : null;
 
   let content: ReactNode;
-  if (isError || isLoading) {
+  if (isError || isLoading || ratesLoading) {
     // Every figure comes from the invoices: without them the card would show a customer who owes nothing.
+    // And from today's rates: until they are in, an invoice in another currency would be left out.
     content = <p className="m-0 text-[13px] text-slate-400">{isError ? "Could not load invoices." : "Loading…"}</p>;
+  } else if (ratesError && unconverted.length > 0) {
+    // Only CZK is known without the rates: the sum would leave out what is owed in other currencies.
+    content = <p className="m-0 text-[13px] text-slate-400">{unconvertedReason(unconverted, true)}.</p>;
   } else if (utilization === null) {
     content = (
       <div className="text-[13px]">

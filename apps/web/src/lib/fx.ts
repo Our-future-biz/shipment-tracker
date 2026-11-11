@@ -20,13 +20,17 @@ export function convert(amount: number, from: string, to: string, rates: Rates):
   return (amount * f) / t;
 }
 
-/** Today's ČNB rates (the same query quotes use). `fixingLabel` names the fixing used. */
+/**
+ * Today's ČNB rates (the same query quotes use). `fixingLabel` names the fixing used. Until they are
+ * in (`isLoading`), or when they could not be loaded (`isError`), `rates` knows only CZK: an amount in
+ * another currency then has no rate, though ČNB publishes one.
+ */
 export function useLatestRates() {
-  const { data, isLoading } = useFxRatesToday();
+  const { data, isLoading, isLoadingError } = useFxRatesToday();
   const rates = useMemo<Rates>(
     () => ({ CZK: 1, ...Object.fromEntries((data?.rates ?? []).map((r) => [r.currency, r.rate])) }),
     [data?.rates],
   );
   const fixing = data?.fixingDate ? `ČNB ${data.fixingDate.split("-").reverse().join(".")}` : "";
-  return { rates, fixingLabel: fixing, isLoading };
+  return { rates, fixingLabel: fixing, isLoading, isError: isLoadingError };
 }

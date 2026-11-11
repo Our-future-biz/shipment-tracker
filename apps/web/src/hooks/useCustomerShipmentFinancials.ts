@@ -6,9 +6,12 @@ import type { interfaces } from "@/lib/api/client";
 
 export type ShipmentFinancials = interfaces.ShipmentFinancials;
 
+/** Every customer's shipment financials: what a change of a job's rows, rates or invoices marks out of date. */
+export const customerShipmentFinancialsKeys = { all: ["customer-shipment-financials"] as const };
+
 /** A customer's shipment financials for a set of shipments in a currency. */
 export const customerShipmentFinancialsKey = (customerId: string, shipmentIds: readonly string[], currency: string) =>
-  ["customer-shipment-financials", customerId, currency, ...shipmentIds] as const;
+  [...customerShipmentFinancialsKeys.all, customerId, currency, ...shipmentIds] as const;
 
 /**
  * Revenue, cost and profit of the given shipments of a customer, worked out on the server as each

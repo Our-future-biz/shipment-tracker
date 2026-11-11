@@ -55,7 +55,7 @@ function SyncWarning({ sync }: { sync: FxOverview["sync"] }) {
   return (
     <div
       className={
-        "rounded-xl px-4 py-3 text-[14px] border " +
+        "rounded-xl px-4 py-3 text-[13px] border " +
         (failed ? "bg-red-50 border-red-300 text-red-800" : "bg-warn-soft border-warn/40 text-warn-ink")
       }
     >
@@ -68,7 +68,7 @@ function SyncWarning({ sync }: { sync: FxOverview["sync"] }) {
 function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
   if (!alerts.length) return null;
   return (
-    <div className="rounded-xl px-4 py-3 text-[14px] border bg-red-50 border-red-300 text-red-800 flex flex-col gap-1">
+    <div className="rounded-xl px-4 py-3 text-[13px] border bg-red-50 border-red-300 text-red-800 flex flex-col gap-1">
       {alerts.map((a) => (
         <div key={a.id}>
           <span className="font-semibold">ČNB rates missing for {formatDate(a.fixingDate)}</span> — {a.reason}.{" "}
@@ -77,7 +77,7 @@ function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
           </span>
         </div>
       ))}
-      <div className="text-[13px] text-red-700/80">This closes by itself once the rates are imported (Sync now, or the next day&apos;s pull).</div>
+      <div className="text-[12px] text-red-700/80">This closes by itself once the rates are imported (Sync now, or the next day&apos;s pull).</div>
     </div>
   );
 }

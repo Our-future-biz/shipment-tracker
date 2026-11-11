@@ -11,7 +11,7 @@ describe("resolveFixing", () => {
 
   it("uses the day's own fixing", () => {
     expect(resolveFixing(rows, "2026-10-09", "2026-10-12")).toEqual({
-      rate: 24.365, fixingDate: "2026-10-09", carried: false, provisional: false, missing: false,
+      rate: 24.365, amount: 1, fixingDate: "2026-10-09", carried: false, provisional: false, missing: false,
     });
   });
 
@@ -49,6 +49,13 @@ describe("resolveFixing", () => {
   it("divides by the quoted amount (JPY per 100)", () => {
     const jpy: Fixing[] = [{ validDate: "2026-10-09", currency: "JPY", amount: 100, rate: 15.4 }];
     expect(resolveFixing(jpy, "2026-10-09", "2026-10-14")?.rate).toBeCloseTo(0.154, 6);
+  });
+
+  it("says how many units ČNB quotes the rate for, so a small currency is shown per that many (IDR per 1000)", () => {
+    const idr: Fixing[] = [{ validDate: "2026-10-09", currency: "IDR", amount: 1000, rate: 1.372 }];
+    expect(resolveFixing(idr, "2026-10-11", "2026-10-12")).toMatchObject({ amount: 1000, carried: true });
+    // A row stored without an amount is quoted per 1.
+    expect(resolveFixing([{ ...idr[0]!, amount: 0 }], "2026-10-09", "2026-10-12")?.amount).toBe(1);
   });
 });
 

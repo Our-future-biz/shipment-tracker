@@ -31,6 +31,10 @@ function useInvalidateFx() {
   }, [queryClient]);
 }
 
+/** The overview's key for a choice of currencies made on the page; null for the saved one, which the server reads. */
+export const fxOverviewKey = (choice: { currencies: string[]; base: string } | null) =>
+  FX_KEYS.overview(choice ? `${choice.currencies.join(",")}|${choice.base}` : "saved");
+
 /**
  * Today's rates as the user sees them: by the choice saved on the user, which the server reads -
  * or, once `choice` is changed on the page, by that (ahead of the save).
@@ -38,7 +42,7 @@ function useInvalidateFx() {
 export function useFxOverview(choice: { currencies: string[]; base: string } | null) {
   const list = choice?.currencies.join(",") ?? "";
   return useQuery({
-    queryKey: FX_KEYS.overview(choice ? `${list}|${choice.base}` : "saved"),
+    queryKey: fxOverviewKey(choice),
     queryFn: () => api.fx.fxOverview(choice ? { currencies: list || undefined, base: choice.base } : {}),
     // A changed choice keeps the page on screen while the new rates load.
     placeholderData: keepPreviousData,

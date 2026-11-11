@@ -67,9 +67,10 @@ import { filtersFromSearchParams, writeFiltersToSearchParams } from "../_lib/cus
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../_lib/customerPermissions";
 import { DeletedCustomersPanel } from "./DeletedCustomersPanel";
-import { apiFileUrl } from "@/lib/api";
+import { apiErrorMessage, apiFileUrl } from "@/lib/api";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
+import { useToast } from "@/lib/toast";
 import { BTN_PRIMARY, CARD, LINK, PAGE_TITLE } from "@/styles/ui";
 
 // Superadmins also get the deleted companies, to restore one (?view=deleted).
@@ -153,6 +154,7 @@ function upsertByName<T extends { id: string; name: string }>(list: T[], item: O
 }
 
 export function CustomersView() {
+  const toast = useToast();
   const { user } = useAuth();
   const canSeeDeleted = canDeleteCustomerRecords(user);
   const router = useRouter();
@@ -381,14 +383,17 @@ export function CustomersView() {
     await filterTemplates.update((list) => upsertByName(list, { name, filters: active }));
   };
 
+  // A save that fails is put back by the preference hook; the user is told, not left with a change that did not stick.
+  const handleSaveError = (e: unknown) => toast.error(apiErrorMessage(e));
+
   const handleDeleteFilterTemplate = (id: string) => {
-    void filterTemplates.update((list) => list.filter((t) => t.id !== id));
+    filterTemplates.update((list) => list.filter((t) => t.id !== id)).catch(handleSaveError);
   };
 
   // Nothing is saved before the user's stored layout is read: a layout built on the defaults would replace it.
   const handleColumnsChange = (keys: string[]) => {
     if (!columnPref.loaded) return;
-    void columnPref.save(normalizeCustomerColumns(keys));
+    columnPref.save(normalizeCustomerColumns(keys)).catch(handleSaveError);
   };
 
   const handleSaveColumnTemplate = async (name: string) => {
@@ -396,7 +401,7 @@ export function CustomersView() {
   };
 
   const handleDeleteColumnTemplate = (id: string) => {
-    void columnTemplates.update((list) => list.filter((t) => t.id !== id));
+    columnTemplates.update((list) => list.filter((t) => t.id !== id)).catch(handleSaveError);
   };
 
   // Reordering the columns: the pencil turns it on, and the column headers can then be dragged.

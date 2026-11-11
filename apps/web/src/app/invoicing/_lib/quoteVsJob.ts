@@ -1,5 +1,6 @@
 import { isSalesQuoteRef, lineValue, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
+import { roundCents } from "@/lib/money";
 
 /** CZK per 1 unit of a currency (the job's ČNB rates); CZK itself is 1. */
 type Rates = Record<string, number>;
@@ -30,8 +31,6 @@ export interface QuoteVsJob {
   /** Currencies of quote lines the job has no rate for; those lines are left out of `ratesAndRoe`. */
   missingRates: string[];
 }
-
-const round2 = (v: number) => Math.round(v * 100) / 100 || 0;
 
 /**
  * Splits the difference between the job's profit and its quote's into what moved it: the exchange
@@ -67,16 +66,16 @@ export function quoteVsJob(
     }, 0);
   const quoteAtJobRates = valued(quote.sellingLines) - valued(quote.buyingLines);
 
-  const difference = round2(job.profit - quoteProfit);
-  const ratesAndRoe = round2(quoteAtJobRates - quoteProfit);
+  const difference = roundCents(job.profit - quoteProfit);
+  const ratesAndRoe = roundCents(quoteAtJobRates - quoteProfit);
   // A real cost above its estimate lowers the profit.
-  const realVsEstimate = round2(-job.rxeTotal);
+  const realVsEstimate = roundCents(-job.rxeTotal);
   return {
-    quoteProfit: round2(quoteProfit),
+    quoteProfit: roundCents(quoteProfit),
     difference,
     ratesAndRoe,
     realVsEstimate,
-    otherRows: round2(difference - ratesAndRoe - realVsEstimate),
+    otherRows: roundCents(difference - ratesAndRoe - realVsEstimate),
     missingRates: [...missing].sort(),
   };
 }

@@ -8723,6 +8723,11 @@ export namespace controllers {
          * Sent again on retry / double click: returns the invoice already issued instead of a second one
          */
         idempotencyKey?: string
+
+        /**
+         * The total with VAT the user confirmed (the preview's gross): an invoice that would come to another one is refused
+         */
+        expectedGross?: number
     }
 
     export interface JobProfitReportRequest {
@@ -14403,6 +14408,7 @@ export namespace interfaces {
     export interface DayRate {
         currency: string
         rate: number
+        amount: number
         fixingDate: string
         carried: boolean
     }
@@ -16561,6 +16567,16 @@ export namespace interfaces {
          * The address above is the customer's Billing address, not its seat.
          */
         billingAddress: boolean
+
+        /**
+         * The currencies the customer is billed in, as the Customer Database has them: its default, and up
+         * to two others (never the default) that billing in asks to confirm. null without a customer, or when
+         * it could not be read.
+         */
+        customerCurrencies: {
+            currency: string
+            secondaryCurrencies: string[]
+        } | null
 
         /**
          * Who issues the invoice (Settings → Organization); null until it is filled in.

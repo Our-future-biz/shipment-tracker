@@ -6,6 +6,7 @@ import type { interfaces } from "@/lib/api/client";
 import { INVOICE_KEYS } from "./useInvoiceQueue";
 import { invoicingKey } from "./useInvoicing";
 import { FX_KEYS } from "./useFx";
+import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
 import { saveBlob, type PreviewSource } from "./useFilePreview";
 
@@ -42,17 +43,24 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     // …so the views computed from them (tiles, needs-attention, customer pages) move too
     invalidateShipmentDerivedViews(queryClient);
     invalidateShipmentCustomerViews(queryClient);
-    // the customer's invoice list (aging) got a new row
+    // the customer's invoice list (aging) got a new row, and its Shipments tab values an invoiced job by its locked rates
     void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
+    void queryClient.invalidateQueries({ queryKey: customerShipmentFinancialsKeys.all });
     // the costs card, and the job's rate lock, which becomes final once invoiced
     void queryClient.invalidateQueries({ queryKey: invoicingKey(shipmentId) });
     void queryClient.invalidateQueries({ queryKey: FX_KEYS.jobAll(shipmentId) });
   };
 
   const issue = useMutation({
-    mutationFn: (req: { customerId?: string; duzp?: string; note?: string; idempotencyKey: string }) =>
+    mutationFn: (req: { customerId?: string; duzp?: string; note?: string; idempotencyKey: string; expectedGross?: number }) =>
       api.invoicing.invoiceDocIssue(shipmentId, req),
     onSuccess: refreshAfterIssue,
+    // Refused (the invoice changed since its preview, a row billed meanwhile): the rows and the preview
+    // are read again, so what is looked at again is the invoice the server would issue now.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: invoicingKey(shipmentId) });
+      void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.preview(shipmentId) });
+    },
   });
 
   const credit = useMutation({
@@ -66,7 +74,11 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     previewLoading: preview.isFetching,
     previewError: preview.error,
     docs: docs.data?.invoices ?? [],
-    docsLoading: docs.isLoading,
+    // Until the list is in, "no invoices" is not known: which rows are billed already is not either.
+    docsLoaded: docs.data !== undefined,
+    // The list could not be loaded (and none was before): not an empty one.
+    docsError: docs.isLoadingError,
+    refetchDocs: docs.refetch,
     issue: issue.mutateAsync,
     isIssuing: issue.isPending,
     credit: credit.mutateAsync,

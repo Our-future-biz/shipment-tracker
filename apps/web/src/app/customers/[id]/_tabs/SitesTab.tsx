@@ -32,7 +32,7 @@ const saveError = (err: unknown, fallback: string) =>
 
 // The loading and delivery addresses of the customer, as trucking orders and zone pricing use them.
 export function SitesTab({ customerId }: { customerId: string }) {
-  const { sites, isLoading, createSite, updateSite, deleteSite } = useCustomerSites(customerId);
+  const { sites, isLoading, isError, createSite, updateSite, deleteSite } = useCustomerSites(customerId);
   const toast = useToast();
   const [dialog, setDialog] = useState<SiteDialogState>({ key: 0, open: false, site: null });
   const [saving, setSaving] = useState(false);
@@ -151,7 +151,7 @@ export function SitesTab({ customerId }: { customerId: string }) {
           columns={columns}
           scroll={{ x: "max-content" }}
           pagination={TABLE_PAGINATION}
-          locale={{ emptyText: "No sites yet" }}
+          locale={{ emptyText: isError ? "Could not load the sites." : "No sites yet" }}
         />
       </SectionCard>
 

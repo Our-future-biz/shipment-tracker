@@ -101,7 +101,8 @@ export type DayKind = "fixing" | "weekend" | "no_fixing" | "missing" | "pending"
 
 export interface DayRate {
   currency: string;
-  rate: number;
+  rate: number; // CZK per 1 unit
+  amount: number; // units ČNB quotes it for (1, 100, 1000): small currencies are shown per that many
   fixingDate: string;
   carried: boolean;
 }

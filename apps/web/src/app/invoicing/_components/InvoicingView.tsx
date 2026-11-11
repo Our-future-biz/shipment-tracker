@@ -3,7 +3,8 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Popover, Select } from "antd";
+import { Popover, Select, Tooltip } from "antd";
+import { WarningOutlined } from "@ant-design/icons";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
@@ -27,6 +28,7 @@ import { InvoicePanel } from "./InvoicePanel";
 import { BillingQueue } from "./BillingQueue";
 import { invoicedLineCount } from "../_lib/lineCounts";
 import { jobDuzp } from "../_lib/openInvoices";
+import { jobTotalsState, leftOutText } from "../_lib/jobTotalsState";
 import { profitQuoteRef, quoteVsJob, type QuoteVsJob } from "../_lib/quoteVsJob";
 
 /** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
@@ -196,6 +198,13 @@ function QuoteDifference({ cmp, jobProfit, quoteRef, currency }: { cmp: QuoteVsJ
  */
 function QuoteProfitFacts({ shipment }: ShipmentProps) {
   const { data, billingCur, rates, ratesLoading, ratesError, totals: t } = useCostsData(shipment);
+  const jobTotals = jobTotalsState({
+    costsLoaded: !!data,
+    ratesLoading,
+    ratesError,
+    missingCurrencies: t.missingCurrencies,
+    unconvertibleRowCount: t.unconvertibleRowCount,
+  });
   const ref = profitQuoteRef(
     data?.billingSettings?.quoteRef,
     (data?.costs ?? []).map((c) => c.sourceQuoteNumber ?? ""),
@@ -208,12 +217,14 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
   const jobProfit = t.sellTotal - t.buyTotal;
   const cmp = quoteData ? quoteVsJob(quoteData, { profit: jobProfit, rxeTotal: t.rxeTotal, billingCurrency: billingCur, rates }) : null;
 
-  // The job's side needs its rates in the billing currency: without them its profit reads 0.
-  const jobRatesReady = !ratesError && (billingCur === "CZK" || !!rates[billingCur]);
+  // The job's side needs its rates (the quote's lines are valued at them too): without them its rows in
+  // another currency - all of them, billed in one - are left out, and its profit reads 0 or a part of it.
+  const leftOut = jobTotals.kind === "ready" ? jobTotals.leftOut : null;
 
   let profit: React.ReactNode = EMPTY_CELL;
-  if (ref && (quote.isLoading || !data || ratesLoading)) profit = <span className="text-slate-500">…</span>;
-  else if (ref && !jobRatesReady) profit = <span className="text-slate-500 truncate" title="No exchange rates for the job yet">No exchange rates for the job yet</span>;
+  if (ref && (quote.isLoading || jobTotals.kind === "wait" || ratesLoading)) profit = <span className="text-slate-500">…</span>;
+  else if (ref && ratesError) profit = <span className="text-slate-500 truncate" title="The job's exchange rates could not be loaded">The job&apos;s exchange rates could not be loaded</span>;
+  else if (ref && leftOut) profit = <span className="text-slate-500 truncate" title={leftOutText(leftOut)}>No ČNB rate for {leftOut.currencies.join(", ")}</span>;
   else if (ref && !quoteData) profit = <span className="text-slate-500 truncate" title="The quote could not be read">The quote could not be read</span>;
   else if (ref && !cmp) profit = <span className="text-slate-500 truncate" title="No rate for its currency">No rate for its currency</span>;
   else if (ref && cmp) {
@@ -249,19 +260,45 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
 
 /** The job's Buying / Selling / Profit (the Costs Breakdown totals), shown on every tab. */
 function CostsTotals({ shipment }: ShipmentProps) {
-  const { billingCur, totals: t } = useCostsData(shipment);
+  const { data, billingCur, ratesLoading, ratesError, totals: t } = useCostsData(shipment);
+  // "…" while the rows or the rates they need are on the way, or when those rates could not be loaded:
+  // never 0.00 or a part of the totals as if it were all of them.
+  const state = jobTotalsState({
+    costsLoaded: !!data,
+    ratesLoading,
+    ratesError,
+    missingCurrencies: t.missingCurrencies,
+    unconvertibleRowCount: t.unconvertibleRowCount,
+  });
+  const shown = state.kind === "ready";
+  const figure = (v: number) => (shown ? money(v) : "…");
+  const profit = t.sellTotal - t.buyTotal;
   return (
     // one block that does not squeeze; its parts wrap only if it is wider than the whole row
     <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[13px] text-slate-500 tabular-nums">
-      <span>Buying <strong className="text-slate-900">{money(t.buyTotal)}</strong></span>
-      <span>Selling <strong className="text-slate-900">{money(t.sellTotal)}</strong></span>
+      <span>Buying <strong className="text-slate-900">{figure(t.buyTotal)}</strong></span>
+      <span>Selling <strong className="text-slate-900">{figure(t.sellTotal)}</strong></span>
       <span>
         Profit{" "}
-        <strong className={t.sellTotal - t.buyTotal >= 0 ? "text-ok" : "text-danger"}>
-          {money(t.sellTotal - t.buyTotal)}
+        <strong className={!shown ? "text-slate-900" : profit >= 0 ? "text-ok" : "text-danger"}>
+          {figure(profit)}
         </strong>
       </span>
       <span className="text-slate-500">{billingCur}</span>
+      {state.kind === "no-rates" && (
+        <Tooltip title="The job's exchange rates could not be loaded, so its rows in other currencies cannot be added up. Reload the page to try again.">
+          <span className="inline-flex items-center gap-1 text-danger">
+            <WarningOutlined aria-hidden /> rates not loaded
+          </span>
+        </Tooltip>
+      )}
+      {state.kind === "ready" && state.leftOut && (
+        <Tooltip title={leftOutText(state.leftOut)}>
+          <span className="inline-flex items-center gap-1 text-warn">
+            <WarningOutlined aria-hidden /> rows left out
+          </span>
+        </Tooltip>
+      )}
     </div>
   );
 }

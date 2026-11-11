@@ -3,10 +3,12 @@
 import { Modal, Button } from "antd";
 import { escapeHtml } from "@/lib/html";
 import { useToast } from "@/lib/toast";
+import { businessToday, formatDate } from "@/lib/date";
+import { money } from "@/lib/money";
 import { type ShipmentItem } from "@/hooks/useShipments";
 
-import { type CustomsInvoiceLine, fmt, totalsByCurrency } from "./_lib/customsInvoice";
-import { EMPTY, LABEL_TEXT } from "@/styles/ui";
+import { type CustomsInvoiceLine, totalsByCurrency } from "./_lib/customsInvoice";
+import { EMPTY, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 
 // Who the invoice is for: the customer, or the principal party when there is none.
@@ -17,14 +19,15 @@ const route = (s: ShipmentItem) => `${s.pol || "—"} → ${s.pod || "—"}`;
 // Client-facing PDF via the browser print dialog, the same way as the quotation. Returns why that did
 // not happen, or null once it did.
 function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines: CustomsInvoiceLine[]): string | null {
-  const issueDate = new Date().toISOString().slice(0, 10);
+  // The company's day (Prague), as the app writes dates: a UTC day would be yesterday's after midnight here.
+  const issueDate = formatDate(businessToday());
   const totals = totalsByCurrency(lines);
   const rows = lines
     .map(
       (l) => `<tr>
         <td>${escapeHtml(l.category) || "—"}</td>
         <td>${escapeHtml(l.currency)}</td>
-        <td style="text-align:right">${escapeHtml(fmt(l.value))}</td>
+        <td style="text-align:right">${escapeHtml(money(l.value))}</td>
       </tr>`,
     )
     .join("");
@@ -32,7 +35,7 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
     .map(
       ([cur, sum], i) => `<tr class="totals">
         <td colspan="2">${i === 0 ? "Total" : ""}</td>
-        <td style="text-align:right">${escapeHtml(cur)} ${escapeHtml(fmt(sum))}</td>
+        <td style="text-align:right">${escapeHtml(cur)} ${escapeHtml(money(sum))}</td>
       </tr>`,
     )
     .join("");
@@ -153,7 +156,8 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
       <div className="bg-white">
         <div className="bg-slate-800 text-white rounded-t-lg px-6 py-4 flex items-start justify-between">
           <div>
-            <div className="text-[16px] leading-6 font-semibold">Customs Invoice</div>
+            {/* the modal title's type, in white on the document's dark band */}
+            <div className={`${MODAL_TITLE} !text-white`}>Customs Invoice</div>
             <div className="tabular-nums text-xs text-slate-300">{issuedNumber || "—"}</div>
           </div>
           <div className="text-right">
@@ -195,7 +199,7 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
                   <tr key={i}>
                     <td className="border border-slate-200 px-2.5 py-1.5">{l.category || "—"}</td>
                     <td className="border border-slate-200 px-2.5 py-1.5">{l.currency}</td>
-                    <td className="border border-slate-200 px-2.5 py-1.5 text-right">{fmt(l.value)}</td>
+                    <td className="border border-slate-200 px-2.5 py-1.5 text-right">{money(l.value)}</td>
                   </tr>
                 ))
               ) : (
@@ -211,7 +215,7 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
                     {i === 0 ? "Total" : ""}
                   </td>
                   <td className="border border-slate-200 px-2.5 py-1.5 text-right">
-                    {cur ? `${cur} ${fmt(sum)}` : "—"}
+                    {cur ? `${cur} ${money(sum)}` : "—"}
                   </td>
                 </tr>
               ))}

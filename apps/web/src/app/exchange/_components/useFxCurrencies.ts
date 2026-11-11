@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/lib/toast";
 import { api } from "@/lib/api";
+import { fxOverviewKey } from "@/hooks/useFx";
 
 // The currencies each user picks to see on the Exchange rates page, and the one they are shown
 // against, saved on the user so the choice follows them to another computer. Stored as
@@ -32,11 +33,20 @@ export function withBase(choice: FxCurrencyChoice, base: string): FxCurrencyChoi
 
 export function useFxCurrencies() {
   const toast = useToast();
+  const queryClient = useQueryClient();
   // The choice made on the page, ahead of its save; null until the user changes it.
   const [changed, setChanged] = useState<FxCurrencyChoice | null>(null);
 
   const save = useMutation({
     mutationFn: (next: FxCurrencyChoice) => api.shipments.userPrefSet(PREF_KEY, { value: JSON.stringify(next) }),
+    // The page opened again starts from the saved choice (its own cache entry, kept for a minute): it gets
+    // the rates of the choice just saved, and is read again then, never showing the choice from before.
+    onSuccess: (_res, next) => {
+      const savedKey = fxOverviewKey(null);
+      const shown = queryClient.getQueryData(fxOverviewKey(next));
+      if (shown) queryClient.setQueryData(savedKey, shown);
+      void queryClient.invalidateQueries({ queryKey: savedKey, exact: true });
+    },
     // Shown at once, so two quick clicks build on each other instead of the second undoing the first.
     onMutate: (next: FxCurrencyChoice) => {
       const previous = changed;

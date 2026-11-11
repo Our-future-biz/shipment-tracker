@@ -12,7 +12,8 @@ import { type ShipmentItem } from "@/hooks/useShipments";
 import { type CustomsInvoiceLineItem, useCustomsInvoicing } from "@/hooks/useCustomsInvoicing";
 import { EMPTY, HINT, ICON_BTN_GHOST, INPUT, LABEL_TEXT } from "@/styles/ui";
 import { CustomsInvoicePreview } from "./CustomsInvoicePreview";
-import { type CustomsInvoiceLine, fmt, parseAmount, totalsByCurrency } from "./_lib/customsInvoice";
+import { amountEdited, money, normaliseAmount } from "@/lib/money";
+import { type CustomsInvoiceLine, totalsByCurrency } from "./_lib/customsInvoice";
 
 // Offered in the Category field; any other text can be typed in as well.
 const CUSTOMS_CATEGORIES = ["Customs clearance", "Duty", "VAT", "T1 document", "Other"];
@@ -76,14 +77,15 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
   const handleLineCommit = (row: LineRow) => {
     const saved = lines.find((l) => l.id === row.id);
     if (!saved) return;
-    const value = parseAmount(row.value);
+    const value = normaliseAmount(row.value);
     if (value === null) {
       toast.error(`"${row.value}" is not an amount — use e.g. 1 250,50`);
       return;
     }
     const sent: LineDraft = { category: row.category, currency: row.currency, value: row.value };
     const before = toRow(saved);
-    if (before.category === row.category && before.currency === row.currency && before.value === value) {
+    // The amount is compared, not its text: "1250,50" is the stored 1250.50.
+    if (before.category === row.category && before.currency === row.currency && !amountEdited(row.value, before.value)) {
       settleDraft(row.id, sent);
       return;
     }
@@ -105,7 +107,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
 
   // Lines with an amount that reads as a number; the rest are left out of totals and preview.
   const amountOf = (r: LineRow) => {
-    const v = parseAmount(r.value);
+    const v = normaliseAmount(r.value);
     return v ? Number(v) : null;
   };
 
@@ -124,7 +126,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
   const previewLines: CustomsInvoiceLine[] = rows
     .filter((r) => r.category.trim() !== "" || r.value.trim() !== "")
     .map((r) => ({ category: r.category, currency: r.currency, value: amountOf(r) ?? 0 }));
-  const unreadable = rows.filter((r) => parseAmount(r.value) === null).length;
+  const unreadable = rows.filter((r) => normaliseAmount(r.value) === null).length;
 
   if (isLoading) {
     return (
@@ -186,7 +188,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
                   onChange={(v) => handleFieldChange(row.id, "value", v)}
                   onBlur={() => handleLineCommit(row)}
                   placeholder="0.00"
-                  className={parseAmount(row.value) === null ? "!border-red-400 !text-red-600" : ""}
+                  className={normaliseAmount(row.value) === null ? "!border-red-400 !text-red-600" : ""}
                 />
                 <button
                   type="button"
@@ -224,7 +226,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
             ) : (
               totals.map(([cur, sum]) => (
                 <span key={cur} className="text-slate-900 font-semibold tabular-nums">
-                  {cur} {fmt(sum)}
+                  {cur} {money(sum)}
                 </span>
               ))
             )}
