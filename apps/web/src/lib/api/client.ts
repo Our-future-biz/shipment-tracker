@@ -14408,6 +14408,7 @@ export namespace interfaces {
     export interface DayRate {
         currency: string
         rate: number
+        amount: number
         fixingDate: string
         carried: boolean
     }

@@ -20,6 +20,7 @@ export function round(value: number, places: number): number {
 
 export interface ResolvedFixing {
   rate: number; // CZK per 1 unit
+  amount: number; // units ČNB quotes it for (1, 100, 1000): a small currency is shown per that many
   fixingDate: string; // the ČNB fixing used
   carried: boolean; // the date had no fixing of its own (weekend, holiday, not yet published)
   provisional: boolean; // a later fixing is still to come and may replace it (not published yet)
@@ -47,6 +48,7 @@ export function resolveFixing(rows: Fixing[], date: string, expectedLatest: stri
   const covered = next > date;
   return {
     rate: perUnit(best),
+    amount: best.amount || 1,
     fixingDate: best.validDate,
     carried,
     provisional: !covered && next > expectedLatest,

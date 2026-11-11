@@ -183,7 +183,9 @@ export const fxRatesService = {
       const dayRates = kind === "future" ? [] : currencies.flatMap((currency) => {
         const res = resolveFixing(byCurrency.get(currency) ?? [], date, expected);
         // a currency ČNB no longer publishes has no rate that day — never its old one carried on
-        return res && !isRetired(res.fixingDate, newest) ? [{ currency, rate: res.rate, fixingDate: res.fixingDate, carried: res.carried }] : [];
+        return res && !isRetired(res.fixingDate, newest)
+          ? [{ currency, rate: res.rate, amount: res.amount, fixingDate: res.fixingDate, carried: res.carried }]
+          : [];
       });
       days.push({ date, kind, fixingNo: fixingNoByDate.get(date) ?? null, roePct: pctOn(history, date), rates: dayRates });
     }

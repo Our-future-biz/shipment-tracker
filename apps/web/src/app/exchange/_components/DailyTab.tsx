@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { formatDate } from "@/lib/date";
 import { useFxDaily } from "@/hooks/useFx";
 import { HINT } from "@/styles/ui";
-import { fmtRate, type DailyResponse, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
+import { fmtQuoted, type DailyResponse, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
 
 type Day = DailyResponse["days"][number];
 
@@ -96,7 +96,9 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                               <span className="text-slate-400 text-[13px]">not published</span>
                             </Tooltip>
                           ) : (
-                            fmtRate(r?.rate)
+                            // per the units ČNB quotes (IDR per 1000), as the Overview and the Averages: per 1 unit
+                            // a small currency would round to nothing at 3 decimals
+                            fmtQuoted(r?.rate, r?.amount)
                           )}
                         </td>
                       );
@@ -105,7 +107,7 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                       const r = d.rates.find((x) => x.currency === c);
                       return (
                         <td key={`roe-${c}`} className={`${FX_TD} ${FX_NUM} !text-slate-500`}>
-                          {fmtRate(r ? (r.rate * d.roePct) / 100 : null)}
+                          {fmtQuoted(r ? (r.rate * d.roePct) / 100 : null, r?.amount)}
                         </td>
                       );
                     })}
@@ -126,7 +128,8 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
         </p>
       )}
       <p className={`${HINT} m-0`}>
-        A fixing applies to its day and any following weekend or public holiday (ČNB rule). Rates are CZK per 1 unit.
+        A fixing applies to its day and any following weekend or public holiday (ČNB rule). Rates are CZK per 1 unit, or per
+        the 100 / 1000 units ČNB quotes a small currency for.
       </p>
     </div>
   );
