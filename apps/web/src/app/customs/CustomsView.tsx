@@ -11,9 +11,9 @@ import { useDebounced } from "@/hooks/useDebounced";
 import { BackLink } from "@/components/BackLink";
 import { CountToggleButton } from "@/components/CountToggleButton";
 import { RecordTabs } from "@/components/RecordTabs";
-import { PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
+import { CARD } from "@/styles/ui";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
-import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
+import { CustomsFacts, CustomsShipmentInfo } from "./CustomsOverview";
 import { CustomsTab } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
 import { CustomsInvoicing } from "./CustomsInvoicing";
 
@@ -124,15 +124,12 @@ export function CustomsView() {
         {openId ? (
           <div className="flex flex-col gap-5">
             <div>
-              {/* The way back above the shipment's job number, its page title, as on every record page. */}
+              {/* The way back, then the shipment at a glance - its job number first - above the tabs, on every tab. */}
               <div className="mb-4">
-                <BackLink href={listHref} className="mb-1.5">
-                  Customs
-                </BackLink>
+                <BackLink href={listHref}>Customs</BackLink>
                 {openShipment && (
-                  <div className="flex flex-wrap items-baseline gap-x-3">
-                    <h1 className={`${PAGE_TITLE} ${REF}`}>{openShipment.jobNumber}</h1>
-                    {openShipment.customer && <span className={PAGE_SUBTITLE}>{openShipment.customer}</span>}
+                  <div className={`${CARD} mt-3 px-5 pt-3 pb-2.5`}>
+                    <CustomsFacts shipment={openShipment} />
                   </div>
                 )}
               </div>
@@ -149,7 +146,6 @@ export function CustomsView() {
                 <CustomsInvoicing shipment={openShipment} />
               ) : openShipment ? (
                 <div className="flex flex-col gap-3">
-                  {detailTab === "details" && <CustomsSummary shipment={openShipment} />}
                   <CustomsTab
                     canReview
                     section={detailTab === "documents" ? "documents" : "details"}

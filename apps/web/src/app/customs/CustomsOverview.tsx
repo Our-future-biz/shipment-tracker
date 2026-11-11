@@ -14,8 +14,9 @@ import { customsDeadlineAt } from "@/lib/customsDeadline";
 import { RECEIVED_TICKS } from "@/lib/customsReceived";
 import { CUSTOMS_CONTAINERS_ID } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
 import { COLS2, LABEL, ROW, VALUE } from "@/app/shipments/[jobNumber]/_components/detailStyles";
-import { KpiTile, KPI_GRID_CLASS } from "@/components/KpiTile";
-import { EMPTY, HINT, LINK, TD, TH } from "@/styles/ui";
+import { KPI_TONE_CLASS } from "@/components/KpiTile";
+import { CopyButton } from "@/components/CopyButton";
+import { EMPTY, HINT, LABEL_TEXT, LINK, PAGE_TITLE, REF, TD, TH } from "@/styles/ui";
 
 // What a customs officer needs from the shipment itself, read-only: everything here is
 // kept in Shipments and only shown in Customs.
@@ -70,11 +71,6 @@ function PartyName({ name, customerId }: { name: string; customerId?: string | n
   );
 }
 
-/** A fact of the top strip: the app's KPI tile, with the fact in words. */
-function Tile({ label, value, note, tone }: { label: string; value: React.ReactNode; note?: React.ReactNode; tone?: "red" | "green" }) {
-  return <KpiTile size="text" label={label} value={value || <span className={EMPTY}>—</span>} tone={tone} hint={note} />;
-}
-
 // The first column (what the line is) reads from the left; the figures after it are centred
 // under their headings, like the cargo table in the shipment.
 // `failed`: the lines could not be read, and `empty` says so (in red) rather than that there are none.
@@ -108,8 +104,35 @@ function LinesTable({ head, rows, empty, failed = false }: { head: string[]; row
   );
 }
 
-/** The top strip: what is to be cleared and by when. */
-export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
+interface FactProps {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}
+
+// One fact of the header: a small caps label over its value, as in the shipment header
+// (ShipmentFacts). Nothing wraps: a value too long for its column is cut, with the full text on hover.
+function Fact({ label, className = "", children }: FactProps) {
+  return (
+    <div className={`min-w-0 ${className}`}>
+      <div className={`${LABEL_TEXT} whitespace-nowrap truncate`} title={label}>{label}</div>
+      <div className="mt-0.5 min-h-[22px] flex items-center whitespace-nowrap overflow-hidden text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+const dash = <span className={EMPTY}>—</span>;
+
+/** A plain value that is cut instead of widening its column. */
+const text = (v: string | null | undefined, className = "") => (v ? <span className={`truncate ${className}`} title={v}>{v}</span> : dash);
+
+/**
+ * The shipment as customs sees it, in the page header on every tab: which job it is, whose,
+ * how urgent and by when; then where and when the cargo arrives and whether the papers are in.
+ * Read-only: priority and deadline are changed in the Customs Overview card, the rest in Shipments.
+ */
+export function CustomsFacts({ shipment }: { shipment: ShipmentItem }) {
+  const job = shipment.jobNumber ?? shipment.id;
   const urgent = shipment.customsPriority === "Urgent";
   // A deadline that has passed is shown in red until customs has released the shipment.
   const deadlineAt = customsDeadlineAt(shipment.customsDeadline);
@@ -117,37 +140,72 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
     urgent && shipment.customsStatus !== "Customs Cleared/Released" && !!deadlineAt && deadlineAt.isBefore(Date.now());
   const received = shipment.documentTypes ?? [];
   const missing = CUSTOMS_DOCUMENT_TYPES.filter((t) => !received.includes(t));
-  // The tile follows the uploads: a paper copy ticked as received by hand still has to be
-  // uploaded before customs can review it, and the note says so.
+  // The documents follow the uploads: a paper copy ticked as received by hand still has to be
+  // uploaded before customs can review it, and the list says so.
   const tickedOnPaper = (type: string) =>
     Object.entries(RECEIVED_TICKS).some(([field, ticked]) => ticked === type && shipment[field as keyof ShipmentItem] === "yes");
-  const missingNote = missing.map((t) => (tickedOnPaper(t) ? `${t} (on paper, to upload)` : t)).join(", ");
+  const missingList = missing.map((t) => (tickedOnPaper(t) ? `${t} (on paper, to upload)` : t)).join(", ");
+  const pod = shipment.pod;
 
   return (
-    <div className={KPI_GRID_CLASS}>
-      <Tile
-        label="Priority"
-        value={shipment.customsPriority || "Standard"}
-        tone={urgent ? "red" : "green"}
-      />
-      <Tile
-        label="Deadline"
-        value={urgent ? formatDateTime(shipment.customsDeadline) : ""}
-        tone={overdue ? "red" : undefined}
-      />
-      <Tile label="Direction" value={shipment.tradeDirection} />
-      <Tile
-        label="ETA Warehouse/HUB"
-        value={formatDate(shipment.etaWarehouse)}
-        note={shipment.warehouseReceivedDate && `Received ${formatDate(shipment.warehouseReceivedDate)}`}
-      />
-      <Tile label="Load Type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
-      <Tile
-        label="Documents"
-        value={missing.length === 0 ? "Received" : "Missing"}
-        tone={missing.length === 0 ? "green" : "red"}
-        note={missingNote}
-      />
+    // Two rows of six on a wide screen, lined up as in the shipment header: Job, Direction, Load Type,
+    // Customer, Priority, Deadline; then Port of Discharge, ETA Estimated, CFS, ETA Warehouse/HUB,
+    // Warehouse Received, Documents. Below xl the job number has a row of its own.
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1fr)_minmax(96px,0.8fr)_minmax(94px,0.8fr)_minmax(132px,1.5fr)_minmax(140px,1fr)_minmax(170px,1.4fr)] gap-x-6 xl:gap-x-4 2xl:gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
+      <Fact label="Job" className="col-span-full xl:col-span-1">
+        {/* The job number is the page's title. */}
+        <div className="flex items-center gap-1 min-w-0">
+          <h1 className={`${PAGE_TITLE} ${REF} truncate`} title={job}>
+            {job}
+          </h1>
+          <CopyButton text={job} what="job number" />
+        </div>
+      </Fact>
+      <Fact label="Direction">{text(shipment.tradeDirection)}</Fact>
+      <Fact label="Load Type">{text(loadTypeLabel(shipment.loadType, shipment.freightMode))}</Fact>
+      <Fact label="Customer">
+        {shipment.customer ? (
+          shipment.customerId ? (
+            <Link href={`/customers/${shipment.customerId}`} className={`${LINK} truncate`} title={shipment.customer}>
+              {shipment.customer}
+            </Link>
+          ) : (
+            text(shipment.customer)
+          )
+        ) : (
+          dash
+        )}
+      </Fact>
+      <Fact label="Priority">
+        <span className={`font-semibold ${urgent ? KPI_TONE_CLASS.red : KPI_TONE_CLASS.green}`}>{shipment.customsPriority || "Standard"}</span>
+      </Fact>
+      <Fact label="Deadline">
+        {urgent && shipment.customsDeadline ? (
+          <span className={`tabular-nums text-[14px] font-semibold ${overdue ? KPI_TONE_CLASS.red : ""}`}>{formatDateTime(shipment.customsDeadline)}</span>
+        ) : (
+          dash
+        )}
+      </Fact>
+      <Fact label="Port of Discharge">
+        <span className="min-w-0">{pod ? <span className="block truncate" title={pod}>{pod}</span> : dash}</span>
+      </Fact>
+      <Fact label="ETA Estimated">
+        <span className="tabular-nums text-[14px] font-semibold">{formatDate(shipment.estimatedArrival) || dash}</span>
+      </Fact>
+      <Fact label="CFS">{text(shipment.cfs)}</Fact>
+      <Fact label="ETA Warehouse/HUB">
+        <span className="tabular-nums text-[14px] font-semibold">{formatDate(shipment.etaWarehouse) || dash}</span>
+      </Fact>
+      <Fact label="Warehouse Received">
+        <span className="tabular-nums">{formatDate(shipment.warehouseReceivedDate) || dash}</span>
+      </Fact>
+      <Fact label="Documents">
+        {missing.length === 0 ? (
+          <span className={`font-semibold ${KPI_TONE_CLASS.green}`}>Received</span>
+        ) : (
+          text(`Missing: ${missingList}`, `font-semibold ${KPI_TONE_CLASS.red}`)
+        )}
+      </Fact>
     </div>
   );
 }
