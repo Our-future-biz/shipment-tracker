@@ -9,7 +9,7 @@ import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useCreateHaulierInvoice, useHaulierInvoices, type HaulierInvoice, type HaulierInvoiceStatus } from "@/hooks/useTruckingMoney";
-import { BTN_PRIMARY, LINK, REF } from "@/styles/ui";
+import { BTN_PRIMARY, CHIP, CHIP_ON, LINK, REF } from "@/styles/ui";
 import { INVOICE_STATUS_CHIP, INVOICE_STATUS_ORDER, differenceText, haulierInvoiceHref } from "../_lib/haulierInvoices";
 import { formatMoney } from "../_lib/tariffs";
 import { HaulierInvoiceEntryModal } from "../haulier-invoices/_components/HaulierInvoiceEntryModal";
@@ -104,10 +104,7 @@ export const TruckingHaulierInvoicesTab = () => {
                     type="button"
                     aria-pressed={on}
                     onClick={() => handleStatus(on ? null : s)}
-                    className={[
-                      "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-                      on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                    ].join(" ")}
+                    className={`${CHIP} ${on ? CHIP_ON : ""}`}
                   >
                     {chip.label}
                     <span className={`font-bold tabular-nums ${danger ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{isLoading ? "—" : counts[s]}</span>

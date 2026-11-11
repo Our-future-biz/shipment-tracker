@@ -2,6 +2,7 @@
 
 import { Tooltip } from "antd";
 import type { ConsignmentCounts } from "@/hooks/useTruckingConsignments";
+import { CHIP, CHIP_ON } from "@/styles/ui";
 import { CONSIGNMENT_CHIPS, type ChipView } from "../_lib/consignments";
 
 interface ConsignmentQuickChipsProps {
@@ -23,10 +24,7 @@ export const ConsignmentQuickChips = ({ active, counts, onSelect }: ConsignmentQ
             type="button"
             aria-pressed={on}
             onClick={() => onSelect(on ? null : c.id)}
-            className={[
-              "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-              on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-            ].join(" ")}
+            className={`${CHIP} ${on ? CHIP_ON : ""}`}
           >
             {c.label}
             <span className={`font-bold tabular-nums ${c.danger && n ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{n ?? "—"}</span>

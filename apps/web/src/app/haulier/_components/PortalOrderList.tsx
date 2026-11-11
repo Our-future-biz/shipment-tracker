@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Spin } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { usePortalOrders } from "@/hooks/useHaulierPortal";
-import { BTN_GHOST } from "@/styles/ui";
+import { BTN_GHOST, CHIP, CHIP_ON } from "@/styles/ui";
 import type { BiText } from "../_lib/publicOrder";
 import { PortalSignedOutError } from "../_lib/portalClient";
 import { Bi } from "./Bi";
@@ -32,9 +32,7 @@ export const PortalOrderList = () => {
             type="button"
             aria-pressed={view === v.key}
             onClick={() => setView(v.key)}
-            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${
-              view === v.key ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-            }`}
+            className={`${CHIP} ${view === v.key ? CHIP_ON : ""}`}
           >
             <span>
               <Bi text={v.label} />
