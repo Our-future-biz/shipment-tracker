@@ -13,8 +13,12 @@ function fakeStorage() {
 // A page loaded: the modules come fresh, as they do with every page load.
 const loadPage = async () => {
   vi.resetModules();
-  return import("./pageSession");
+  const session = await import("./pageSession");
+  const acting = await import("@/lib/actingCompany");
+  return { ...session, ...acting };
 };
+
+const ANN = { token: "token-of-ann", company: "company-a" };
 
 describe("the session a page works in", () => {
   beforeEach(() => {
@@ -73,40 +77,85 @@ describe("the session a page works in", () => {
     });
   });
 
-  describe("a change another tab makes to the storage", () => {
-    it("changes it when the token is another: a sign-out, a sign-in, another user", async () => {
-      localStorage.setItem("auth_token", "token-of-ann");
-      const page = await loadPage();
-      expect(page.changesPageSession("auth_token", null)).toBe(true);
-      expect(page.changesPageSession("auth_token", "token-of-bob")).toBe(true);
-      expect(page.changesPageSession("auth_token", "token-of-ann")).toBe(false);
+  describe("whether the storage still holds the page's session (its requests are sent, or held back and the page reloaded)", () => {
+    it("holds it while nothing changed", async () => {
+      const { sessionStillStored } = await loadPage();
+      expect(sessionStillStored(ANN, ANN)).toBe(true);
+      expect(sessionStillStored({ token: null, company: null }, { token: null, company: null })).toBe(true);
     });
 
-    it("changes the login page's when another tab signs in", async () => {
-      const page = await loadPage();
-      expect(page.changesPageSession("auth_token", "token-of-ann")).toBe(true);
-      expect(page.changesPageSession("auth_token", null)).toBe(false);
+    it("does not once another tab signed out, or signed in as anyone", async () => {
+      const { sessionStillStored } = await loadPage();
+      expect(sessionStillStored(ANN, { ...ANN, token: null })).toBe(false);
+      expect(sessionStillStored(ANN, { ...ANN, token: "token-of-bob" })).toBe(false);
+      // The login page, when another tab signs in.
+      expect(sessionStillStored({ token: null, company: null }, { token: "token-of-ann", company: null })).toBe(false);
     });
 
-    it("changes it when another company is chosen to work as, or the choice is dropped", async () => {
+    it("does not once another tab chose another company, or went back to the own one", async () => {
+      const { sessionStillStored } = await loadPage();
+      expect(sessionStillStored(ANN, { ...ANN, company: "company-b" })).toBe(false);
+      expect(sessionStillStored(ANN, { ...ANN, company: null })).toBe(false);
+    });
+
+    it("does while the company stored is the one this page chose itself, before it is loaded again", async () => {
+      const { sessionStillStored } = await loadPage();
+      expect(sessionStillStored(ANN, { ...ANN, company: "company-b" }, { companyStoredHere: "company-b" })).toBe(true);
+      expect(sessionStillStored(ANN, { ...ANN, company: null }, { companyStoredHere: null })).toBe(true);
+      // Another tab chose yet another company after it.
+      expect(sessionStillStored(ANN, { ...ANN, company: "company-c" }, { companyStoredHere: "company-b" })).toBe(false);
+      // The exception is the company only: a sign-out elsewhere still holds the requests back.
+      expect(sessionStillStored(ANN, { token: null, company: "company-b" }, { companyStoredHere: "company-b" })).toBe(false);
+    });
+
+    it("does when this page's sign-in could not be stored: no other tab ever had its token", async () => {
+      const { sessionStillStored } = await loadPage();
+      expect(sessionStillStored(ANN, { ...ANN, token: null }, { tokenShared: false })).toBe(true);
+    });
+  });
+
+  describe("the storage as the page finds it", () => {
+    it("holds the page's session while nobody changed it", async () => {
       localStorage.setItem("auth_token", "token-of-ann");
       localStorage.setItem("acting_company", "company-a");
       const page = await loadPage();
-      expect(page.changesPageSession("acting_company", "company-b")).toBe(true);
-      expect(page.changesPageSession("acting_company", null)).toBe(true);
-      expect(page.changesPageSession("acting_company", "company-a")).toBe(false);
+      expect(page.pageSessionChanged()).toBe(false);
+      localStorage.setItem("sidebar-collapsed", "true");
+      expect(page.pageSessionChanged()).toBe(false);
     });
 
-    it("changes it when the whole storage is cleared while the page has a session", async () => {
-      expect((await loadPage()).changesPageSession(null, null)).toBe(false);
+    it("holds another session once another tab signed out or chose another company", async () => {
       localStorage.setItem("auth_token", "token-of-ann");
-      expect((await loadPage()).changesPageSession(null, null)).toBe(true);
-    });
-
-    it("leaves it alone when anything else is stored (column widths, the sidebar)", async () => {
-      localStorage.setItem("auth_token", "token-of-ann");
+      localStorage.setItem("acting_company", "company-a");
       const page = await loadPage();
-      expect(page.changesPageSession("sidebar-collapsed", "true")).toBe(false);
+      localStorage.setItem("acting_company", "company-b");
+      expect(page.pageSessionChanged()).toBe(true);
+      localStorage.setItem("acting_company", "company-a");
+      localStorage.removeItem("auth_token");
+      expect(page.pageSessionChanged()).toBe(true);
+    });
+
+    it("holds this page's session still after its own switch, a sign-in or a sign-out in it", async () => {
+      localStorage.setItem("auth_token", "token-of-ann");
+      localStorage.setItem("acting_company", "company-a");
+      const page = await loadPage();
+      page.setActingCompanyId("company-b");
+      expect(page.pageSessionChanged()).toBe(false);
+      page.clearActingCompany();
+      page.startSession("token-of-bob");
+      expect(page.pageSessionChanged()).toBe(false);
+      page.dropSessionToken();
+      expect(page.pageSessionChanged()).toBe(false);
+    });
+
+    it("tells whoever listens when a request found the session changed", async () => {
+      const page = await loadPage();
+      const listener = vi.fn();
+      const unsubscribe = page.onPageSessionChange(listener);
+      page.reportPageSessionChange();
+      unsubscribe();
+      page.reportPageSessionChange();
+      expect(listener).toHaveBeenCalledTimes(1);
     });
   });
 });

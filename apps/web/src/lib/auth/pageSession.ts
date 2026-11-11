@@ -2,29 +2,35 @@
 // work as (lib/actingCompany). Both are kept in the browser's storage, which every tab shares, but
 // each page reads them once, when it loads, and keeps its own copy: its screens, its cache and the
 // saves it still has to send are of that user and that company. A sign-out and sign-in, or another
-// company chosen, in another tab changes the storage only; this page is loaded again then
-// (components/SessionChangedNotice) and, until it is, its requests still go out as what it shows.
+// company chosen, in another tab changes the storage only. This page then sends nothing more - every
+// request first checks the storage still holds its session, as a page asleep or restored from the
+// browser's cache may have missed the change - and is loaded again (components/SessionChangedNotice).
 
-import { ACTING_COMPANY_KEY, actingCompanyId } from "@/lib/actingCompany";
+import { ACTING_COMPANY_KEY, actingCompanyId, actingCompanyStoredHere } from "@/lib/actingCompany";
 
 const KEY = "auth_token";
 
-function storedToken(): string | null {
+// What the storage holds under a key; undefined when it cannot be read at all (storage refused).
+function readStorage(key: string): string | null | undefined {
   try {
-    return localStorage.getItem(KEY) || null;
+    return localStorage.getItem(key) || null;
   } catch {
-    return null;
+    return undefined;
   }
 }
 
 // This page's copy of the token: read from the storage when the page loads, then changed only by a
 // sign-in or a sign-out in this page.
-let pageToken: string | null | undefined = typeof window === "undefined" ? undefined : storedToken();
+let pageToken: string | null | undefined = typeof window === "undefined" ? undefined : (readStorage(KEY) ?? null);
+
+// False when this page's sign-in could not be stored (storage full or refused): no other tab ever
+// had that token, so what the storage holds says nothing about it.
+let tokenShared = true;
 
 /** The token this page signs its requests with: the one stored when it loaded, or the one it signed in with since. */
 export function sessionToken(): string | null {
   if (typeof window === "undefined") return null;
-  if (pageToken === undefined) pageToken = storedToken();
+  if (pageToken === undefined) pageToken = readStorage(KEY) ?? null;
   return pageToken;
 }
 
@@ -33,8 +39,10 @@ export function startSession(token: string): void {
   pageToken = token;
   try {
     localStorage.setItem(KEY, token);
+    tokenShared = true;
   } catch {
-    // Storage refused (private window): the session lasts while this page does.
+    // Storage full or refused (private window): the session lasts while this page does.
+    tokenShared = false;
   }
 }
 
@@ -65,15 +73,62 @@ export function sessionCheckOutcome(status: number | null): SessionCheck {
   return status !== null && status >= 200 && status < 300 ? "valid" : "unreachable";
 }
 
+/** A session: the token and the company to work as (null: the user's own). */
+export interface SessionCopy {
+  token: string | null;
+  company: string | null;
+}
+
+/** What this page itself did to the storage, which may then differ from what the page sends. */
+export interface StoredHere {
+  /** The company choice this page stored itself (the switcher, just before the page is loaded again); undefined for none. */
+  companyStoredHere?: string | null;
+  /** False when this page's sign-in could not be stored. */
+  tokenShared?: boolean;
+}
+
 /**
- * Whether a change another tab made to the storage (a `storage` event's key and new value) changes
- * the session this page works in: another token - a sign-out, a sign-in, another user - or another
- * company to work as. A key of null is the whole storage cleared.
+ * Whether the storage still holds the session the page works in, so its requests may go out: the
+ * same token - none stored is a sign-out elsewhere, another one a sign-in elsewhere - and the same
+ * company to work as. The one exception is a company this page stored itself: the switcher stores
+ * the choice and then loads the page again, and what the page sends as it goes (a quote's last
+ * change) still goes out as the company it was typed in.
  */
-export function changesPageSession(key: string | null, newValue: string | null): boolean {
-  const value = newValue || null;
-  if (key === null) return sessionToken() !== null || actingCompanyId() !== null;
-  if (key === KEY) return value !== sessionToken();
-  if (key === ACTING_COMPANY_KEY) return value !== actingCompanyId();
-  return false;
+export function sessionStillStored(page: SessionCopy, stored: SessionCopy, here: StoredHere = {}): boolean {
+  const sameToken = here.tokenShared === false || stored.token === page.token;
+  const sameCompany = stored.company === page.company || (here.companyStoredHere !== undefined && stored.company === here.companyStoredHere);
+  return sameToken && sameCompany;
+}
+
+/**
+ * Whether the storage now holds another session than the one this page works in: another tab
+ * signed out, signed in or chose another company. False when the storage cannot be read: nothing
+ * is shared with other tabs then.
+ */
+export function pageSessionChanged(): boolean {
+  if (typeof window === "undefined") return false;
+  const token = readStorage(KEY);
+  const company = readStorage(ACTING_COMPANY_KEY);
+  if (token === undefined || company === undefined) return false;
+  return !sessionStillStored(
+    { token: sessionToken(), company: actingCompanyId() },
+    { token, company },
+    { companyStoredHere: actingCompanyStoredHere(), tokenShared },
+  );
+}
+
+// Whoever shows that the session changed and loads the page again (components/SessionChangedNotice).
+const changeListeners = new Set<() => void>();
+
+/** Calls `listener` when a request finds the page's session changed; returns the unsubscribe. */
+export function onPageSessionChange(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => {
+    changeListeners.delete(listener);
+  };
+}
+
+/** Tells the listeners the page's session changed (a request found it so, and was not sent). */
+export function reportPageSessionChange(): void {
+  changeListeners.forEach((listener) => listener());
 }
