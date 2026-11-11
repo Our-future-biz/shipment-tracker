@@ -106,7 +106,7 @@ function SetFilter({ label, onRemove }: { label: string; onRemove: () => void })
 // keeps its room and the button says how many filters are on. Every control shows the filter
 // that is on, wherever it came from - the control itself, a view, the address.
 export function QuoteListFilters({ filters, onChange, onClear, userOptions }: QuoteListFiltersProps) {
-  const ownerOptions: UserIdOption[] = [{ value: "me", label: "Me" }, { value: NO_OWNER, label: "No owner" }, ...userOptions];
+  const ownerOptions: UserIdOption[] = [{ value: "me", label: "Me" }, { value: NO_OWNER, label: "Quoted by nobody" }, ...userOptions];
   // An owner the users do not name - they are still loading, or the user is gone - reads "…",
   // not as the id the address carries.
   if (filters.owner && !ownerOptions.some((option) => option.value === filters.owner)) ownerOptions.push({ value: filters.owner, label: "…" });

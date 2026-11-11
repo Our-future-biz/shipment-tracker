@@ -6,6 +6,8 @@ interface LineBlockProps {
   // A quiet line beside the title (the cargo weight of a block's containers). It gives way first
   // when the header runs out of room.
   note?: ReactNode;
+  // The note as plain text, shown on hover when the note is cut off.
+  noteText?: string;
   actions?: ReactNode;
   children: ReactNode;
 }
@@ -13,13 +15,18 @@ interface LineBlockProps {
 // A block of the quote's Cargo details or Pricing step - the cargo description, packages, cost
 // lines, exchange rates: a card of its own, as the cards of a shipment's Cargo Details, whose
 // header bar (CARD_BAR) names the block and holds its actions.
-export function LineBlock({ title, note, actions, children }: LineBlockProps) {
+export function LineBlock({ title, note, noteText, actions, children }: LineBlockProps) {
   return (
     <div className={`${CARD} overflow-hidden`}>
       <div className={`${CARD_BAR} justify-between`}>
         <div className="flex items-baseline gap-2.5 min-w-0">
           <h3 className={`${CARD_TITLE} min-w-0 truncate`}>{title}</h3>
-          {note && <span className="min-w-0 shrink-[9999] truncate text-[12px] text-slate-500">{note}</span>}
+          {/* The note gives way first in a narrow card; its whole text stays on hover. */}
+          {note && (
+            <span className="min-w-0 shrink-[9999] truncate text-[12px] text-slate-500" title={noteText}>
+              {note}
+            </span>
+          )}
         </div>
         {actions && <div className="shrink-0 flex items-center gap-2">{actions}</div>}
       </div>

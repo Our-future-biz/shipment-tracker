@@ -123,6 +123,15 @@ describe("noteService", () => {
     expect(repo.updateNote).toHaveBeenCalledWith("n1", "s1", "c1", { text: "Call the depot at 9" });
   });
 
+  it("changes and deletes the to-dos of a live shipment only", async () => {
+    vi.mocked(shipmentService.requireLive).mockRejectedValueOnce(new Error("Shipment not found"));
+    await expect(noteService.update("s1", "n1", "c1", "u1", { done: true })).rejects.toThrow("Shipment not found");
+    vi.mocked(shipmentService.requireLive).mockRejectedValueOnce(new Error("Shipment not found"));
+    await expect(noteService.delete("s1", "n1", "c1")).rejects.toThrow("Shipment not found");
+    expect(repo.updateNote).not.toHaveBeenCalled();
+    expect(repo.deleteNote).not.toHaveBeenCalled();
+  });
+
   it("says when the note is gone", async () => {
     vi.mocked(repo.updateNote).mockResolvedValue(null);
     await expect(noteService.update("s1", "n1", "c1", "u1", { done: true })).rejects.toThrow("Note not found");

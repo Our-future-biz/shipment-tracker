@@ -70,6 +70,7 @@ export function FclBlockCard({
   const title = block.perContainer ? `${block.label} · ${block.units} ${block.units === 1 ? "container" : "containers"}` : block.label;
   const many = block.perContainer && block.units > 1;
   const times = (amount: number) => fmtMoney(roundCents(amount * block.units), currency);
+  const weights = block.weights.map((w) => `${fmtQuantity(w)} kgs`).join(", ");
 
   return (
     <LineBlock
@@ -77,11 +78,11 @@ export function FclBlockCard({
       note={
         block.weights.length > 0 && (
           <>
-            Cargo weight{" "}
-            <span className="font-semibold text-slate-700">{block.weights.map((w) => `${fmtQuantity(w)} kgs`).join(", ")}</span> per container
+            Cargo weight <span className="font-semibold text-slate-700">{weights}</span> per container
           </>
         )
       }
+      noteText={block.weights.length > 0 ? `Cargo weight ${weights} per container` : undefined}
       actions={
         <>
           <MiniButton icon={<EditOutlined />} title="Set the profit of each charge" disabled={closed || priced.charges.length === 0} onClick={onEditPerCharge}>

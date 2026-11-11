@@ -505,6 +505,16 @@ function MemberRow({
           }`}
           title={editable ? "Double-click to edit" : undefined}
           onDoubleClick={editable ? () => setEditing(true) : undefined}
+          // Reached with the keyboard too, as the Invoice rows are: Enter opens the picker.
+          {...(editable
+            ? {
+                role: "button",
+                tabIndex: 0,
+                onKeyDown: (e: React.KeyboardEvent) => {
+                  if (e.key === "Enter") setEditing(true);
+                },
+              }
+            : {})}
         >
           {person ? <FadeText className="text-slate-900">{person}</FadeText> : <span className={EMPTY}>—</span>}
           <UnlinkedPersonMark value={person} hint={editable ? "double-click to pick one" : "only a user can be picked"} />
@@ -1418,6 +1428,11 @@ export function ShipmentDetailContent() {
                 <Badge count={openNotes} size="small" color="#ef4444" offset={[8, -2]} title={`${openNotes} open`}>
                   <span className="text-inherit">{tab.label}</span>
                 </Badge>
+              ) : tab.key === "notes" && shipment.freeComments?.trim() ? (
+                // No open to-do, but the older Free Comments hold a note: the tab says so.
+                <Badge dot color="#6366f1" offset={[6, 0]} title="Free Comments hold a note">
+                  <span className="text-inherit">{tab.label}</span>
+                </Badge>
               ) : (
                 tab.label
               )}
@@ -1985,7 +2000,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "alerts" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
 
-        {activeTab === "notes" && <NotesTab shipment={shipment} onSaveFreeComments={(value) => handleCommit("freeComments", value)} />}
+        {activeTab === "notes" && <NotesTab shipment={shipment} freeCommentsEditable={detailsEditable} onSaveFreeComments={(value) => handleCommit("freeComments", value)} />}
       </div>
 
       <MasterJobDialog

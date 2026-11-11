@@ -12,12 +12,13 @@ import {
 import dayjs from "dayjs";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentNotes, type ShipmentNote } from "@/hooks/useShipmentNotes";
-import { formatDate, formatDateTime, todayIso } from "@/lib/date";
+import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { AppModal } from "@/components/AppModal";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, LABEL_TEXT, TD, TH } from "@/styles/ui";
 import { dueInfo, type DueTone } from "./noteDue";
+import { NOTE_DETAILS_MAX, freeCommentsAsNote } from "./noteDraft";
 
 
 /** The deadline chip's colours: a deadline is red; once past, solid red; a done to-do's grey. */
@@ -37,9 +38,15 @@ const ymd = (day: dayjs.Dayjs | null) => (day ? day.format("YYYY-MM-DD") : "");
 // name shows how many are open.
 export function NotesTab({
   shipment,
+  freeCommentsEditable,
   onSaveFreeComments,
 }: {
   shipment: ShipmentItem;
+  /**
+   * Whether the user may change the shipment's details, Free Comments among them (the to-dos are
+   * everyone's).
+   */
+  freeCommentsEditable: boolean;
   /** Free Comments, the shipment's older single note: kept here while it holds something. */
   onSaveFreeComments: (value: string) => void;
 }) {
@@ -53,7 +60,8 @@ export function NotesTab({
   const [editing, setEditing] = useState<ShipmentNote | null>(null);
   const [deleting, setDeleting] = useState<ShipmentNote | null>(null);
 
-  const today = todayIso();
+  // The deadlines are days of the business (Prague), as everywhere on the shipment.
+  const today = businessToday();
   // Newest first; the starred ones at the very top (the latest starred first); the done ones at the bottom, newest first too
   // (the server's order, kept here as well while a change is on its way).
   const newestFirst = (a: ShipmentNote, b: ShipmentNote) => b.createdAt.localeCompare(a.createdAt);
@@ -183,14 +191,15 @@ export function NotesTab({
         {freeComments && (
           <FreeComments
             value={shipment.freeComments ?? ""}
+            editable={freeCommentsEditable}
             onSave={onSaveFreeComments}
             moving={add.isPending}
-            onMoveToList={() =>
-              add.mutate(
-                { text: freeComments.slice(0, 300) },
-                { onSuccess: () => onSaveFreeComments("") },
-              )
-            }
+            // Moved whole (the first line the title, all of it the details) or not at all.
+            movable={!!freeCommentsAsNote(freeComments)}
+            onMoveToList={() => {
+              const note = freeCommentsAsNote(freeComments);
+              if (note) add.mutate(note, { onSuccess: () => onSaveFreeComments("") });
+            }}
           />
         )}
 
@@ -345,7 +354,7 @@ function NoteRow({
       </td>
       <td className={cell} title="Double-click to edit" onDoubleClick={onEdit}>
         <div
-          className={`text-[14.5px] leading-5 font-semibold break-words ${note.done ? "text-slate-500 line-through" : "text-slate-900"}`}
+          className={`text-[14px] leading-5 font-semibold break-words ${note.done ? "text-slate-500 line-through" : "text-slate-900"}`}
         >
           {note.text}
           {/* The details stay out of the list: a mark says there are some, a click shows the whole to-do. */}
@@ -499,6 +508,8 @@ function NoteEditModal({
   const [details, setDetails] = useState(note.details);
   const [due, setDue] = useState<dayjs.Dayjs | null>(note.dueDate ? dayjs(note.dueDate) : null);
   const save = () => {
+    // Enter in the title saves as the button does: once, and not without a title.
+    if (saving || !text.trim()) return;
     const changes: { text?: string; details?: string; dueDate?: string } = {};
     if (text.trim() !== note.text) changes.text = text.trim();
     if (details.trim() !== note.details) changes.details = details.trim();
@@ -570,11 +581,17 @@ function FreeComments({
   onSave,
   onMoveToList,
   moving,
+  movable,
+  editable,
 }: {
   value: string;
+  /** False for a user who may not change the shipment's details: it is only shown. */
+  editable: boolean;
   onSave: (value: string) => void;
   onMoveToList: () => void;
   moving: boolean;
+  /** False when the text is too long for one to-do. */
+  movable: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -585,14 +602,17 @@ function FreeComments({
   return (
     <div className="mt-6 border-t border-slate-100 pt-4">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-900">
-          Free Comments
-        </span>
-        <Button size="small" onClick={onMoveToList} loading={moving}>
-          Add to the list
-        </Button>
+        <span className={LABEL_TEXT}>Free Comments</span>
+        {/* Moving empties Free Comments, which only who may change the details can do. */}
+        {editable && (
+          <Tooltip title={movable ? "" : `Too long for one to-do (${NOTE_DETAILS_MAX} characters at most): shorten it or split it first`}>
+            <Button size="small" onClick={onMoveToList} loading={moving} disabled={!movable}>
+              Add to the list
+            </Button>
+          </Tooltip>
+        )}
       </div>
-      {editing ? (
+      {editing && editable ? (
         <Input.TextArea
           autoFocus
           autoSize={{ minRows: 3 }}
@@ -610,12 +630,25 @@ function FreeComments({
         />
       ) : (
         <p
-          className="m-0 text-[13px] leading-5 text-slate-700 whitespace-pre-wrap break-words rounded px-1 -mx-1 cursor-pointer hover:bg-slate-100"
-          title="Double-click to edit"
-          onDoubleClick={() => {
-            setDraft(value);
-            setEditing(true);
-          }}
+          className={`m-0 text-[13px] leading-5 text-slate-700 whitespace-pre-wrap break-words rounded px-1 -mx-1 ${editable ? "cursor-pointer hover:bg-slate-100" : ""}`}
+          {...(editable
+            ? {
+                title: "Double-click to edit",
+                role: "button",
+                tabIndex: 0,
+                onDoubleClick: () => {
+                  setDraft(value);
+                  setEditing(true);
+                },
+                // Reached with the keyboard too: Enter edits it.
+                onKeyDown: (e: React.KeyboardEvent) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  setDraft(value);
+                  setEditing(true);
+                },
+              }
+            : {})}
         >
           {value}
         </p>

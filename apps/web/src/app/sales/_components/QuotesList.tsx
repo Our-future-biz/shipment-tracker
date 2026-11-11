@@ -462,7 +462,7 @@ export function QuotesList() {
     await runAndReport(
       selected.map((q) => q.quoteNumber),
       (quoteNumber) => api.quotes.salesQuoteOwner(quoteNumber, { ownerUserId: assignee }),
-      "Assigned the owner of",
+      "Set Quoted by on",
     );
   };
   // Changes the status of the quotes the confirmation named - the ones ticked when the status was
@@ -645,7 +645,7 @@ export function QuotesList() {
   const bulkItems: MenuProps["items"] = [
     {
       key: "owner",
-      label: "Assign owner…",
+      label: "Set Quoted by…",
       onClick: () => {
         setAssignee(undefined);
         setAssignOpen(true);
@@ -828,7 +828,7 @@ export function QuotesList() {
       <SalesDialog
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
-        title={`Assign owner of ${countOf(ticked)}`}
+        title={`Set Quoted by on ${countOf(ticked)}`}
         footer={
           <>
             <Button onClick={() => setAssignOpen(false)}>Cancel</Button>

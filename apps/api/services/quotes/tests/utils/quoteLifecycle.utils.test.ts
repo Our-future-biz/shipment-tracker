@@ -738,7 +738,7 @@ describe("applyOwner", () => {
     expect(applyOwner(martins, jana, ctx)).toEqual({
       changed: true,
       state: { ...martins, ownerUserId: "user-2", ownerLabel: "jana@forwarder.cz" },
-      entry: { kind: "owner", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1", comment: "Owner: jana@forwarder.cz (was martin@forwarder.cz)" },
+      entry: { kind: "owner", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1", comment: "Quoted by jana@forwarder.cz (was martin@forwarder.cz)" },
     });
   });
 
@@ -750,7 +750,7 @@ describe("applyOwner", () => {
   it("can leave the quote with nobody", () => {
     const result = applyOwner(martins, null, ctx);
     expect(result.changed && result.state).toMatchObject({ ownerUserId: null, ownerLabel: "" });
-    expect(result.changed && result.entry.comment).toBe("No owner (was martin@forwarder.cz)");
+    expect(result.changed && result.entry.comment).toBe("Quoted by nobody (was martin@forwarder.cz)");
   });
 
   it("is no change when the quote already has that owner under that e-mail", () => {
@@ -762,7 +762,7 @@ describe("applyOwner", () => {
     const typed = state({ ownerLabel: "martin k." });
     const result = applyOwner(typed, { userId: "user-1", email: "martin@forwarder.cz" }, ctx);
     expect(result.changed && result.state).toMatchObject({ ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz" });
-    expect(result.changed && result.entry.comment).toBe("Owner: martin@forwarder.cz (was martin k.)");
+    expect(result.changed && result.entry.comment).toBe("Quoted by martin@forwarder.cz (was martin k.)");
   });
 
   it("turns the owner's display name of an older quote into their e-mail", () => {
@@ -774,7 +774,7 @@ describe("applyOwner", () => {
   it("clears a typed name nobody is linked to", () => {
     const result = applyOwner(state({ ownerLabel: "Petr" }), null, ctx);
     expect(result.changed && result.state.ownerLabel).toBe("");
-    expect(result.changed && result.entry.comment).toBe("No owner (was Petr)");
+    expect(result.changed && result.entry.comment).toBe("Quoted by nobody (was Petr)");
   });
 
   it("stores the label the way the database reads it back: trimmed, at most 200 characters", () => {

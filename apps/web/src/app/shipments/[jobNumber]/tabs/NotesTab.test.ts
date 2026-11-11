@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { dueInfo } from "./noteDue";
+import { NOTE_DETAILS_MAX, freeCommentsAsNote } from "./noteDraft";
+
+describe("freeCommentsAsNote", () => {
+  it("is a title alone when Free Comments is one short line", () => {
+    expect(freeCommentsAsNote("  Call the depot \n")).toEqual({ text: "Call the depot" });
+  });
+
+  it("keeps the whole text as details when the title does not hold it", () => {
+    expect(freeCommentsAsNote("Call the depot\nThey close at 3")).toEqual({ text: "Call the depot", details: "Call the depot\nThey close at 3" });
+    const long = "x".repeat(400);
+    expect(freeCommentsAsNote(long)).toEqual({ text: `${"x".repeat(299)}…`, details: long });
+  });
+
+  it("leaves a text too long for a to-do where it is", () => {
+    expect(freeCommentsAsNote("y".repeat(NOTE_DETAILS_MAX + 1))).toBeNull();
+    expect(freeCommentsAsNote("   ")).toBeNull();
+  });
+});
 
 describe("dueInfo", () => {
   const today = "2026-11-10";

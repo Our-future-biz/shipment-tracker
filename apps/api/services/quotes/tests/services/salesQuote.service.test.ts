@@ -1291,12 +1291,12 @@ describe("setOwner", () => {
     // Recorded by her e-mail; the history still says who did it by name.
     expect(written()).toMatchObject({
       state: { ownerUserId: U_JANA, ownerLabel: "jana@forwarder.cz", status: "draft" },
-      entries: [{ kind: "owner", user: "marie@forwarder.cz", userId: U_MANAGER, comment: "Owner: jana@forwarder.cz (was martin@forwarder.cz)" }],
+      entries: [{ kind: "owner", user: "marie@forwarder.cz", userId: U_MANAGER, comment: "Quoted by jana@forwarder.cz (was martin@forwarder.cz)" }],
     });
 
     repository.writeLifecycle.mockClear();
     await expect(salesQuoteService.setOwner(manager, REF, null)).resolves.toMatchObject({ changed: true, quote: { ownerUserId: null, ownerLabel: "" } });
-    expect(written().entries).toMatchObject([{ kind: "owner", comment: "No owner (was martin@forwarder.cz)" }]);
+    expect(written().entries).toMatchObject([{ kind: "owner", comment: "Quoted by nobody (was martin@forwarder.cz)" }]);
   });
 
   it("says so, and writes nothing, when the quote already has that owner", async () => {
@@ -1451,7 +1451,7 @@ describe("delete", () => {
     await salesQuoteService.setOwner(jana, REF, U_JANA);
     await expect(salesQuoteService.delete(jana, REF)).resolves.toBeUndefined();
     const [taken, deleted] = repository.writeLifecycle.mock.calls.map((call) => call[2]);
-    expect(taken!.entries).toMatchObject([{ kind: "owner", userId: U_JANA, comment: "Owner: jana@forwarder.cz (was Petr)" }]);
+    expect(taken!.entries).toMatchObject([{ kind: "owner", userId: U_JANA, comment: "Quoted by jana@forwarder.cz (was Petr)" }]);
     expect(deleted!.entries).toMatchObject([{ kind: "deleted", userId: U_JANA }]);
     expect(deleted!.deleted).toEqual({ by: U_JANA, at: NOW });
   });

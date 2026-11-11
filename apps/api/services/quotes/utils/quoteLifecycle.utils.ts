@@ -501,7 +501,7 @@ export function applyOwner(
   }
 
   const was = state.ownerLabel ? ` (was ${state.ownerLabel})` : "";
-  const entry = { ...entryBy("owner", ctx), comment: owner ? `Owner: ${ownerLabel}${was}` : `No owner${was}` };
+  const entry = { ...entryBy("owner", ctx), comment: owner ? `Quoted by ${ownerLabel}${was}` : `Quoted by nobody${was}` };
   return { changed: true, state: { ...state, ownerUserId, ownerLabel }, entry };
 }
 

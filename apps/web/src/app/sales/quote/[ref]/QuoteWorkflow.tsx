@@ -1611,6 +1611,9 @@ export function QuoteWorkflow() {
                   />
                 )
               }
+              // Where a counted weight comes from: an FCL quote takes its containers' and leaves its
+              // packages' weights out, which only this says.
+              hint={cargo.weightFromContainers ? "From containers" : cargo.weightFromLines ? "From packages" : undefined}
             />
             <KpiTile
               size="text"
@@ -1632,6 +1635,7 @@ export function QuoteWorkflow() {
                   />
                 )
               }
+              hint={cargo.cbmFromLines ? "From package dimensions" : undefined}
             />
             {containerQuote ? (
               <KpiTile size="text" label="Equipment" value={cargo.equipment || EMPTY_CELL} />

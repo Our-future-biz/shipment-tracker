@@ -28,10 +28,22 @@ class ShipmentNoteRepository extends TenantRepository<typeof shipmentNoteTable> 
       .orderBy(sql`${shipmentNoteTable.doneAt} IS NOT NULL`, desc(shipmentNoteTable.pinned), sql`${shipmentNoteTable.pinnedAt} DESC NULLS LAST`, desc(shipmentNoteTable.createdAt));
   }
 
+  /**
+   * A to-do ticked off that already was (by somebody else at the same moment, or from a page not
+   * reloaded since) keeps who ticked it and when: the first tick stands.
+   */
   async updateNote(id: string, shipmentId: string, companyId: string, change: NoteChange): Promise<ShipmentNoteRecord | null> {
+    const { doneAt, doneById, ...rest } = change;
+    const ticked =
+      doneAt instanceof Date
+        ? {
+            doneAt: sql`COALESCE(${shipmentNoteTable.doneAt}, ${doneAt})`,
+            doneById: sql`CASE WHEN ${shipmentNoteTable.doneAt} IS NULL THEN ${doneById ?? null}::uuid ELSE ${shipmentNoteTable.doneById} END`,
+          }
+        : { ...("doneAt" in change ? { doneAt } : {}), ...("doneById" in change ? { doneById } : {}) };
     const [row] = await this.db
       .update(shipmentNoteTable)
-      .set({ ...change, updatedAt: new Date() })
+      .set({ ...rest, ...ticked, updatedAt: new Date() })
       .where(noteOf(id, shipmentId, companyId))
       .returning();
     return row ?? null;

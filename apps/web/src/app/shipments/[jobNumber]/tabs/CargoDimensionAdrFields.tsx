@@ -24,7 +24,8 @@ const LABEL = "text-[13px] text-amber-800";
 // ADR box is ticked: a soft amber strip, each field with a small label. The server checks UN
 // number and packing group again and refuses others.
 export function CargoDimensionAdrFields({ line, onPatch, onCommit }: CargoDimensionAdrFieldsProps) {
-  const unNumber = line.adrUn ?? "";
+  // A quote saved before may still hold "UN 1203": shown as its four digits (the server takes both).
+  const unNumber = (line.adrUn ?? "").replace(/^UN\s*/i, "");
   const commitSoon = () => setTimeout(onCommit, 0);
 
   return (
@@ -36,7 +37,7 @@ export function CargoDimensionAdrFields({ line, onPatch, onCommit }: CargoDimens
           className="!w-24"
           placeholder="1203"
           aria-label="UN number"
-          maxLength={4}
+          // No maxLength: it would cut a pasted "UN 1203" to "UN 1" before the digits are taken.
           inputMode="numeric"
           status={unNumber && !UN_NUMBER.test(unNumber.trim()) ? "error" : undefined}
           value={unNumber}

@@ -87,12 +87,15 @@ class NoteService {
       // The latest starred goes to the very top.
       change.pinnedAt = input.pinned ? new Date() : null;
     }
+    // A deleted shipment's to-dos are not shown, so they are not changed either.
+    await shipmentService.requireLive(shipmentId, companyId);
     const row = await shipmentNoteRepository.updateNote(id, shipmentId, companyId, change);
     if (!row) throw APIError.notFound("Note not found");
     return item(row, await userEmails());
   }
 
   async delete(shipmentId: string, id: string, companyId: string): Promise<void> {
+    await shipmentService.requireLive(shipmentId, companyId);
     if (!(await shipmentNoteRepository.deleteNote(id, shipmentId, companyId))) throw APIError.notFound("Note not found");
   }
 }

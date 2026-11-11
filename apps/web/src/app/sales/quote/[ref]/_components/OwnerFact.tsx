@@ -59,6 +59,8 @@ export function OwnerFact({
             autoFocus
             defaultOpen
             onBlur={() => setEditing(false)}
+            // Esc, or the owner picked again, closes the list: the fact locks again then too.
+            onOpenChange={(open) => !open && setEditing(false)}
             showSearch
             allowClear
             size="small"
@@ -80,7 +82,7 @@ export function OwnerFact({
             role="button"
             tabIndex={0}
             aria-label={`Quoted by: ${ownerEmail || "nobody"}. Double-click or press Enter to change.`}
-            title="Double-click to change"
+            title={`${ownerEmail || "Nobody"} · double-click to change`}
             onDoubleClick={unlock}
             onKeyDown={handleUnlockKey}
             className="flex items-center gap-1.5 min-w-0 rounded cursor-default select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
@@ -99,7 +101,7 @@ export function OwnerFact({
       {owner}
     </span>
   ) : (
-    <span className="font-normal text-slate-400">No owner</span>
+    <span className="font-normal text-slate-400">Nobody</span>
   );
 
   if (right === "claim") {

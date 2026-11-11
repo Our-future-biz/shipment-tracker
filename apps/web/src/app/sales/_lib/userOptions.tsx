@@ -20,7 +20,7 @@ export function userIdOptions(users: readonly PickableUser[]): UserIdOption[] {
   return sortedUsers(users).map((u) => ({ value: u.id, label: u.email, name: u.displayName }));
 }
 
-/** filterOption of such a Select: the option fits every word typed, in its name or e-mail. Other options ("Me", "No owner") are found by their label. */
+/** filterOption of such a Select: the option fits every word typed, in its name or e-mail. Other options ("Me", "Quoted by nobody") are found by their label. */
 export function matchesUserOption(input: string, option?: { label?: ReactNode; name?: string }): boolean {
   const label = typeof option?.label === "string" ? option.label : "";
   return userMatches({ id: "", email: label, displayName: option?.name ?? "" }, input);
