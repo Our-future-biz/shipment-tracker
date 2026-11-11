@@ -72,6 +72,33 @@ class WarehouseContainerRepository extends TenantRepository<typeof warehouseCont
     return row ?? null;
   }
 
+  // The register form's writes, in its transaction (with the container's house written in the same one).
+  async insertTx(tx: Tx, companyId: string, values: Omit<typeof ct.$inferInsert, "companyId">) {
+    const [row] = await tx.insert(ct).values({ ...values, companyId }).returning();
+    return row!;
+  }
+
+  // As updateForCompany: the id, company, creation and deletion are never changed by a form.
+  async updateTx(tx: Tx, id: string, companyId: string, set: PgUpdateSetSource<typeof warehouseContainerTable>) {
+    const { id: _id, companyId: _c, createdAt: _ca, deletedAt: _d, ...rest } = set as Record<string, unknown>;
+    const [row] = await tx
+      .update(ct)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
+  async softDeleteTx(tx: Tx, id: string, companyId: string) {
+    const now = new Date();
+    const [row] = await tx
+      .update(ct)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
   // One conditional UPDATE that appends `events` in SQL, only while `cond` holds; null otherwise.
   async conditionalUpdate(tx: Tx | typeof db, id: string, companyId: string, set: PgUpdateSetSource<typeof warehouseContainerTable>, events: GateEvent[], cond?: SQL) {
     const [row] = await tx

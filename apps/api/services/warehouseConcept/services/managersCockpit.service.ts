@@ -35,6 +35,8 @@ const within = (at: Date | string | null | undefined, days: number, now: Date) =
 
 class ManagersCockpitService {
   async cockpit(companyId: string, now = new Date()): Promise<WarehouseManagersCockpit> {
+    // Every live record (a full read, kept): which records still matter is judged below by rules
+    // (stamps, holds, owed updates, recent events) the cockpit applies to each of them.
     const rows = await gateMovementRepository.listAll(companyId);
     const unsent = new Set(await shipmentOutboxRepository.unsentMovementIds(companyId));
     const truckingFailed = await gateEventOutboxRepository.failedWhere(companyId);

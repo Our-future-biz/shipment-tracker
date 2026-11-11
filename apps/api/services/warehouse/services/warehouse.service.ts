@@ -1,5 +1,6 @@
 import { APIError } from "encore.dev/api";
 import { iso } from "../../../lib/db/serialize";
+import { businessDay } from "../../../lib/businessDate";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { cargoNum, dimensionVolumePerPiece } from "../../../lib/cargoVolume";
 import { tellOperations, type RemeasuredFigures } from "../../../lib/operationsNotice";
@@ -16,6 +17,9 @@ import {
   type WarehouseTaskItem,
   type WarehouseTaskPatch,
 } from "../interfaces/interfaces";
+
+// The year of a reference is Prague's (23:30 UTC on 31 December is already the next year there).
+const pragueYear = (now: Date) => businessDay(now).slice(0, 4);
 
 const toTaskItem = (r: WarehouseTaskRecord): WarehouseTaskItem => ({
   id: r.id,
@@ -175,11 +179,12 @@ class WarehouseService {
   }
 
   /**
-   * Warehouse references are WHCZ + the calendar year + a per-company sequence. A shipment that
-   * has none yet is checked with the shipments service before it gets one.
+   * Warehouse references are WHCZ + the Prague calendar year + a per-company sequence (as the
+   * Warehouse Concept's WCZ references: the server's own year turned an hour late, or early). A
+   * shipment that has none yet is checked with the shipments service before it gets one.
    */
   async ensureForShipments(companyId: string, shipmentIds: string[], now = new Date()): Promise<WarehouseRef[]> {
-    const prefix = `WHCZ${now.getFullYear()}`;
+    const prefix = `WHCZ${pragueYear(now)}`;
     const out: WarehouseRef[] = [];
     for (const shipmentId of new Set(shipmentIds)) {
       const existing = await warehouseTaskRepository.findForShipment(companyId, shipmentId);
@@ -190,9 +195,9 @@ class WarehouseService {
     return out;
   }
 
-  /** Truck references are TCZ + the calendar year + a per-company sequence. */
+  /** Truck references are TCZ + the Prague calendar year + a per-company sequence. */
   async createTruck(companyId: string, now = new Date()): Promise<string> {
-    const truck = await warehouseTaskRepository.createTruck(companyId, `TCZ${now.getFullYear()}`);
+    const truck = await warehouseTaskRepository.createTruck(companyId, `TCZ${pragueYear(now)}`);
     return truck.taskId;
   }
 

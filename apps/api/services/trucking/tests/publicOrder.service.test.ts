@@ -29,6 +29,7 @@ import { publicOrderService, LINK_INVALID } from "../services/publicOrder.servic
 import { consignmentService } from "../services/consignment.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
+import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
 import { truckingDocumentBucket } from "../storage/documentBucket";
 import { newToken } from "../lib/haulierToken";
 import { HAULIER_BLOCKED_LINK } from "../lib/portalRules";
@@ -174,6 +175,19 @@ describe("POD through the link", () => {
     expect(outboxOf("delivered")).toEqual([expect.objectContaining({ payload: { actualDeliveryDate: "2026-10-15" }, actingUserId: SERVICE_USER, actingRole: "user" })]);
     expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT, actingUserId: SERVICE_USER })]);
     expect(eventsOf("stamp_set").map((e) => (e.payload as { facts: { kind: string } }).facts.kind)).toEqual(["pickedUp", "delivered", "podReceived"]);
+  });
+
+  // The document's row locks the consignment, and the POD then settles the job's Billing over all
+  // its consignments: the job is locked first (after the POD's own lock), or two PODs of one job at
+  // the same moment deadlock.
+  it("locks the job's consignments before the document and the stamps are written", async () => {
+    const { token } = await ordered({ confirmed: true });
+    await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: "2026-10-15T08:30:00Z", receiverName: "" });
+    const lock = vi.mocked(consignmentRepository.forShipmentLocked).mock.invocationCallOrder[0]!;
+    expect(vi.mocked(consignmentRepository.forShipmentLocked).mock.calls[0]![2]).toBe(SHIPMENT);
+    expect(lock).toBeGreaterThan(vi.mocked(truckingDocumentRepository.lockPod).mock.invocationCallOrder[0]!);
+    expect(lock).toBeLessThan(vi.mocked(truckingDocumentRepository.insert).mock.invocationCallOrder[0]!);
+    expect(lock).toBeLessThan(vi.mocked(consignmentRepository.update).mock.invocationCallOrder[0]!);
   });
 
   it("one POD per stop: a second is refused before anything is stored (a manager replaces it in the app)", async () => {

@@ -65,6 +65,7 @@ import { cleanLtlChoice, hubPlace, LEG_SEQ, legEnds, legKindsFor, ltlPromise, lt
 import { ltlFactsOf, ltlLegsOf } from "../lib/ltlView";
 import { isPriced, promise, roundToStep, showPostcode } from "../lib/rateEngine";
 import { formatDay } from "../lib/format";
+import { LINK_DAYS_AFTER_PICKUP, linkExpiry } from "../lib/haulierToken";
 import { quoteRefusal, quoteSellLines } from "../lib/quoteRules";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isManager, requireManager } from "../lib/roles";
@@ -703,9 +704,14 @@ class ConsignmentService {
         await legRepository.insertMany(tx, newLegs(companyId, { id, pickup: f.pickup, delivery: f.delivery }, ltl, hub));
       }
       // FTL: the trip is picked up when the consignment is; the job learns the new dates.
+      let linkExpiresAt: Date | null = null;
       if (liveTrip && dateMoved) {
         await tripRepository.update(tx, companyId, liveTrip.id, { plannedPickupDate: f.pickupDate }, { live: true });
         owes.push(owed(actor, row, "planned", { pickupDate: f.pickupDate, ...(promisedDate ? { plannedDeliveryDate: promisedDate } : {}) }));
+        // The haulier's link is valid until LINK_DAYS_AFTER_PICKUP days after the planned pick-up,
+        // as set at the send: a pick-up moved later carries it as far (the haulier uploads the POD
+        // through it); one moved earlier never shortens it.
+        linkExpiresAt = (await tripRepository.extendLink(tx, companyId, liveTrip.id, linkExpiry(f.pickupDate)))?.expiresAt ?? null;
       }
       await appendEvent(tx, companyId, {
         kind: "consignment_updated",
@@ -717,7 +723,8 @@ class ConsignmentService {
           changes,
           summary: priced
             ? `Repriced: ${money(priced.sell.total, priced.sell.currency)} (${priced.sell.source.toLowerCase()})`
-            : `Changed ${Object.keys(changes).join(", ")}`,
+            : `Changed ${Object.keys(changes).join(", ")}${linkExpiresAt ? `; the haulier's link is valid until ${formatDay(addDays(f.pickupDate, LINK_DAYS_AFTER_PICKUP))}` : ""}`,
+          ...(linkExpiresAt ? { facts: { linkExpiresAt: linkExpiresAt.toISOString() } } : {}),
         },
       });
       await truckingOutboxRepository.enqueue(tx, companyId, owes);
@@ -929,6 +936,8 @@ class ConsignmentService {
   ): Promise<boolean> {
     const companyId = actor.companyID;
     const now = new Date();
+    // The job first: the cancel settles the job's Billing again (see lockJob).
+    await this.lockJob(tx, companyId, c.shipmentId);
     const row = await consignmentRepository.update(
       tx,
       companyId,
@@ -1067,6 +1076,9 @@ class ConsignmentService {
     source: "USER" | "HAULIER",
   ): Promise<TruckingConsignmentRecord> {
     const companyId = actor.companyID;
+    // The job first: a POD settles the job's Billing over all its consignments (a no-op when the
+    // caller's transaction holds the job already).
+    await this.lockJob(tx, companyId, c.shipmentId);
     const cols = STAMP_COLUMNS[kind];
     const next: ConsignmentFacts = { ...factsOf(c, trip), [cols.at]: time };
     const status = c.scope === "LTL" ? await this.ltlStatusAfter(tx, companyId, c, { [cols.at]: time }) : consignmentStatus(next);
@@ -1128,6 +1140,18 @@ class ConsignmentService {
   }
 
   /**
+   * The job's lock: every consignment of the job, locked in id order. Every transaction that stamps
+   * a consignment, cancels one or settles the job's Billing takes it first - before it writes a
+   * consignment or inserts a row naming one (a document, a charge: that locks the consignment row
+   * too) - and settleBilling then locks the same rows again, which costs nothing. Without it two
+   * PODs of one job at the same moment each wrote their own consignment and then waited for the
+   * other's in settleBilling: a deadlock.
+   */
+  async lockJob(tx: Tx, companyId: string, shipmentId: string): Promise<void> {
+    await consignmentRepository.forShipmentLocked(tx, companyId, shipmentId);
+  }
+
+  /**
    * The Billing rule: when every live (not cancelled) consignment of the job has its POD and no
    * delivery exception of theirs is open, they become READY_TO_BILL and the job is owed the
    * "Billing" step (once). Runs in the transaction of the change, with the job's consignments
@@ -1172,6 +1196,8 @@ class ConsignmentService {
     const by = await userName(actor.userID);
     const companyId = actor.companyID;
     await inTx(async (tx) => {
+      // The job first: a voided POD takes the job's other consignments out of Billing (see lockJob).
+      await this.lockJob(tx, companyId, c.shipmentId);
       const next: ConsignmentFacts = { ...facts, [cols.at]: null, ...(kind === "podReceived" ? { readyToBillAt: null } : {}) };
       const status =
         c.scope === "LTL"

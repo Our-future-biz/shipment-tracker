@@ -111,18 +111,23 @@ class ConsignmentRepository {
     return db.select().from(c).where(and(...clauses)).orderBy(desc(c.pickupDate), desc(c.createdAt)).limit(MAX_LIST);
   }
 
-  /** The live LTL consignments of a job (not cancelled), locked for the caller's transaction. */
+  /** The live LTL consignments of a job (not cancelled), locked for the caller's transaction, in id order (as forShipmentLocked). */
   async ltlForShipmentLocked(tx: Tx, companyId: string, shipmentId: string): Promise<TruckingConsignmentRecord[]> {
     return tx
       .select()
       .from(c)
       .where(and(eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), eq(c.scope, "LTL"), isNull(c.cancelledAt), isNull(c.deletedAt)))
+      .orderBy(c.id)
       .for("update");
   }
 
-  /** Every live consignment of a job (cancelled ones included), locked for the caller's transaction. */
+  /**
+   * Every live consignment of a job (cancelled ones included), locked for the caller's transaction.
+   * Locked in id order (the rows are locked as they are sorted), so two transactions locking the
+   * same job's consignments take them in the same order and never deadlock.
+   */
   async forShipmentLocked(tx: Tx, companyId: string, shipmentId: string): Promise<TruckingConsignmentRecord[]> {
-    return tx.select().from(c).where(and(eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), isNull(c.deletedAt))).for("update");
+    return tx.select().from(c).where(and(eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), isNull(c.deletedAt))).orderBy(c.id).for("update");
   }
 
   /**

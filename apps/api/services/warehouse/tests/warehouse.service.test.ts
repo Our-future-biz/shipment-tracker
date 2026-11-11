@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const tasks = vi.hoisted(() => ({
   findForShipment: vi.fn(),
   ensureForShipment: vi.fn(),
+  createTruck: vi.fn(),
   softDeleteForShipment: vi.fn(),
 }));
 const sections = vi.hoisted(() => ({ findManyBySection: vi.fn(), findByShipmentAndSection: vi.fn(), upsert: vi.fn(),softDeleteForShipment: vi.fn(), patchKeys: vi.fn() }));
@@ -169,6 +170,22 @@ describe("ensureForShipments", () => {
     ]);
     expect(shipments.assertShipmentExists).toHaveBeenCalledTimes(1);
     expect(shipments.assertShipmentExists).toHaveBeenCalledWith("b");
+  });
+
+  // The year came from the server's clock (getFullYear): on a UTC server the new year's first
+  // references still carried the old year for an hour.
+  it("numbers WHCZ and TCZ references by the Prague year", async () => {
+    tasks.findForShipment.mockResolvedValue(null);
+    tasks.ensureForShipment.mockResolvedValue({ taskId: "WHCZ2027001" });
+    tasks.createTruck.mockResolvedValue({ taskId: "TCZ2027001" });
+    // 23:30 UTC on 31 December is 00:30 on 1 January in Prague.
+    const newYear = new Date("2026-12-31T23:30:00Z");
+    await warehouseService.ensureForShipments(COMPANY, ["a"], newYear);
+    expect(tasks.ensureForShipment).toHaveBeenCalledWith(COMPANY, "a", "WHCZ2027");
+    await warehouseService.createTruck(COMPANY, newYear);
+    expect(tasks.createTruck).toHaveBeenCalledWith(COMPANY, "TCZ2027");
+    await warehouseService.createTruck(COMPANY, new Date("2026-12-31T22:30:00Z"));
+    expect(tasks.createTruck).toHaveBeenLastCalledWith(COMPANY, "TCZ2026");
   });
 });
 

@@ -23271,7 +23271,7 @@ export namespace interfaces {
         usedBays: number
 
         /**
-         * Pieces stored in the zone.
+         * Pallet positions in use: the distinct locations of the zone holding stock.
          */
         occupied: number
 

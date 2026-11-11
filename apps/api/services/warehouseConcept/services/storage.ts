@@ -30,6 +30,10 @@ const PRAGUE = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Prague" });
 /** YYYY-MM-DD of an instant in the warehouse's local time (Europe/Prague). */
 export const pragueDate = (d: Date) => PRAGUE.format(d);
 
+const PRAGUE_MINUTE = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" });
+/** "YYYY-MM-DDTHH:MM" of an instant in Prague time, as the stock movement log shows it. */
+export const pragueStamp = (d: Date) => PRAGUE_MINUTE.format(d).replace(" ", "T");
+
 export const isIsoDate = (s: string | null | undefined): s is string => !!s && DATE.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
 
 /** Day number of a YYYY-MM-DD date (calendar days, no time zone shifts). */

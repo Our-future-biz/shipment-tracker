@@ -111,7 +111,7 @@ export interface WarehouseZoneItem {
   note: string;
   /** Bays holding at least one stock line. */
   usedBays: number;
-  /** Pieces stored in the zone. */
+  /** Pallet positions in use: the distinct locations of the zone holding stock. */
   occupied: number;
   /** How full the zone is, in %. */
   fullPercent: number;

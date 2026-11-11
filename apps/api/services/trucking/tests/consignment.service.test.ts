@@ -433,6 +433,33 @@ describe("stamps", () => {
     ]);
   });
 
+  // Two PODs of one job at the same moment each wrote their own consignment and then, in
+  // settleBilling, locked all of the job's - each waiting for the other's: a deadlock. The job's
+  // consignments are locked first now, in every transaction that stamps, voids or cancels.
+  it("locks the job's consignments before it writes the stamp, the void or the cancel", async () => {
+    const a = await seed(delivered, { trip: true, sent: true });
+    await seed(delivered);
+    const lockedBefore = (written: (values: Record<string, unknown>) => boolean) => {
+      const writes = vi.mocked(consignmentRepository.update).mock;
+      const at = writes.calls.findIndex((call) => written(call[3] as Record<string, unknown>));
+      const locks = vi.mocked(consignmentRepository.forShipmentLocked).mock;
+      return at >= 0 && locks.calls.some((call, i) => call[2] === SHIPMENT && locks.invocationCallOrder[i]! < writes.invocationCallOrder[at]!);
+    };
+    await consignmentService.stamp(manager, a.c.id, "podReceived", null);
+    expect(lockedBefore((v) => !!v.podReceivedAt)).toBe(true);
+    vi.clearAllMocks();
+    await consignmentService.voidStamp(manager, a.c.id, "podReceived", "Wrong file");
+    expect(lockedBefore((v) => "podReceivedAt" in v && v.podReceivedAt === null)).toBe(true);
+    vi.clearAllMocks();
+    // A plain stamp too: in one transaction the haulier's POD stamps the pick-up and delivery first.
+    const open = await seed({}, { trip: true, sent: true });
+    await consignmentService.stamp(user, open.c.id, "pickedUp", null);
+    expect(lockedBefore((v) => !!v.pickedUpAt)).toBe(true);
+    vi.clearAllMocks();
+    await consignmentService.cancel(manager, (await seed()).c.id, "Not needed");
+    expect(lockedBefore((v) => !!v.cancelledAt)).toBe(true);
+  });
+
   it("a voided POD takes its fact off the job's timeline (the file stays in its Documents); a corrected one is a new fact", async () => {
     const { c } = await seed(delivered, { trip: true, sent: true });
     store.documents.push({ consignmentId: c.id, kind: "POD", fileName: "pod.pdf", contentType: "application/pdf", sha256: "abc", storageKey: "k/1" } as never);
@@ -538,6 +565,27 @@ describe("update", () => {
     await consignmentService.update(user, c.id, fields({ version: 2, reprice: true }));
     expect(row(c.id).sellCzk).toBe(13000);
     expect(outboxOf("costs")).toHaveLength(1);
+  });
+
+  // The link was set at the send to run 30 days past the planned pick-up and only a new send moved
+  // it: a pick-up moved later left the haulier with a link that ran out before the POD was due.
+  it("a pick-up moved later carries the haulier's link as far, by the send's rule; one moved earlier keeps it", async () => {
+    const { c, trip } = await seed({}, { trip: true, sent: true });
+    const sent = { id: "l1", companyId: COMPANY, tripId: trip!.id, tokenHash: "h", revokedAt: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null };
+    store.links.push({ ...sent, expiresAt: new Date("2026-11-15T22:59:59Z") } as never);
+    await consignmentService.update(user, c.id, fields({ pickupDate: "2026-10-30" }));
+    expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-30");
+    expect(store.links[0]!).toMatchObject({ tokenHash: "h", revokedAt: null });
+    expect(store.links[0]!.expiresAt.toISOString()).toBe("2026-11-29T22:59:59.000Z");
+    expect(eventsOf("consignment_updated").at(-1)!.payload).toMatchObject({
+      summary: expect.stringContaining("the haulier's link is valid until"),
+      facts: { linkExpiresAt: "2026-11-29T22:59:59.000Z" },
+    });
+    // Moved back: the link is never shortened.
+    await consignmentService.update(user, c.id, fields({ version: 2, pickupDate: "2026-10-20" }));
+    expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-20");
+    expect(store.links[0]!.expiresAt.toISOString()).toBe("2026-11-29T22:59:59.000Z");
+    expect(eventsOf("consignment_updated").at(-1)!.payload).not.toHaveProperty("facts");
   });
 });
 

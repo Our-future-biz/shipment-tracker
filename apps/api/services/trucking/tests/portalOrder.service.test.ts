@@ -47,6 +47,7 @@ import { haulierService } from "../services/haulier.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { legRepository } from "../repositories/leg.repository";
+import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
 import { buildTransportOrderPdf } from "../lib/transportOrderPdf";
 import { buildLtlTransportOrderPdf } from "../lib/ltlTransportOrderPdf";
 import type { HaulierDetail, TripKind } from "../interfaces/interfaces";
@@ -469,6 +470,19 @@ describe("stamps through the trucking services' own checks", () => {
     await portalOrderService.pod(eva, t.id, c.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null });
     expect(cOf(c.id)).toMatchObject({ pickedUpBy: "Eva Malá (haulier)", deliveredBy: "Eva Malá (haulier)", podSource: "HAULIER", status: "READY_TO_BILL" });
     expect(outboxOf("billing")).toEqual([expect.objectContaining({ actingUserId: SERVICE_USER })]);
+  });
+
+  // As the link's POD: the job is locked after the POD's own lock and before the document and the
+  // stamps are written, so two PODs of one job at the same moment take turns instead of deadlocking.
+  it("locks the job's consignments before the document and the stamps are written", async () => {
+    const { trip: t, c } = await ftl({ confirmedAt: new Date("2026-10-14T09:00:00Z"), status: "CONFIRMED" });
+    vi.clearAllMocks();
+    await portalOrderService.pod(eva, t.id, c.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null });
+    const locks = vi.mocked(consignmentRepository.forShipmentLocked).mock;
+    expect(locks.calls[0]![2]).toBe(SHIPMENT);
+    expect(locks.invocationCallOrder[0]!).toBeGreaterThan(vi.mocked(truckingDocumentRepository.lockPod).mock.invocationCallOrder[0]!);
+    expect(locks.invocationCallOrder[0]!).toBeLessThan(vi.mocked(truckingDocumentRepository.insert).mock.invocationCallOrder[0]!);
+    expect(locks.invocationCallOrder[0]!).toBeLessThan(vi.mocked(consignmentRepository.update).mock.invocationCallOrder[0]!);
   });
 
   it("one POD per stop: a second is refused before anything is stored", async () => {

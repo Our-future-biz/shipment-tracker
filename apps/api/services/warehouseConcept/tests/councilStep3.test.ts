@@ -131,6 +131,24 @@ describe("Storage settled goes back to Pending when storage becomes chargeable (
     expect(await settled(id, c)).toMatchObject({ s: "OK" });
   });
 
+  // The hourly run read every record of every company; now only the ones whose line can still go
+  // back (picked in SQL), and the rule judges those.
+  it("the clock reads only the records whose line can still go back", async () => {
+    const c = randomUUID();
+    const due = await chargeable(c);
+    const reopened = await chargeable(c);
+    await gateMovementRepository.appendEvents(reopened, c, [{ kind: "storageSettledReopened", label: "", at: new Date().toISOString(), by: "Warehouse" }]);
+    const inbound = await gateMovementService.create(c, user, { gateRef: "IN-STORAGE", handling: "Export", visit: "příjem" });
+    const released = await chargeable(c);
+    await gateMovementRepository.update(released, c, { impRelease: new Date() });
+    const pending = await chargeable(c);
+    const m = await gateMovementService.get(pending, c);
+    await gateMovementRepository.update(pending, c, { releaseGates: m.releaseGates.map((g) => (g.g === "Storage settled" ? { ...g, s: "Pending" as const } : g)) });
+    expect((await gateMovementRepository.storageReopenCandidates(c)).map((r) => r.id)).toEqual([due]);
+    expect(inbound.id).toBeTruthy();
+    expect(await reopenChargeableStorage(c)).toBe(1);
+  });
+
   it("the WH release reopens it first and is refused", async () => {
     const c = randomUUID();
     const id = await chargeable(c);

@@ -11,7 +11,7 @@ import { containerKind, LEGACY_LINK } from "./containerRules";
 import { CUSTOMS_CLEARED } from "./customs";
 import { positionLifecycle } from "./lifecycle";
 import { isDomestic, releasePlate } from "./direction";
-import { DEFAULT_FREE_DAYS, isIsoDate, movementStorage, pragueDate } from "./storage";
+import { DEFAULT_FREE_DAYS, isIsoDate, movementStorage, pragueDate, pragueStamp } from "./storage";
 import { customsDeadline, customsRegime, type CustomsRegime } from "./warehouseStockCustoms";
 
 // Stock on Hand and the Bonded Register follow the gate. ONE function, called inside the
@@ -74,10 +74,6 @@ const lineState = (l: StockLineRecord | null): LineState =>
 // (no colli, no tally count) is still open and must be discharged when the position leaves.
 const entryState = (e: BondedEntryRecord | null): EntryState =>
   !e ? "none" : e.voidedReason ? "voided" : e.dischargedAt ? "discharged" : "open";
-
-/** "YYYY-MM-DDTHH:MM" in Prague time, as the movement log shows it. */
-const pragueStamp = (d: Date) =>
-  new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" }).format(d).replace(" ", "T");
 
 const PROCEDURE: Record<Exclude<CustomsRegime, "">, string> = {
   "Temporary storage": "Temporary storage (UCC art. 147–149)",

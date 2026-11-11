@@ -69,6 +69,18 @@ async function fetchStatuses(shipmentIds: string[], budgetMs: number, authData?:
 }
 
 /**
+ * The records a list call (and the cron) reads now: the ones followCustoms would pick with the
+ * list's age and limit, chosen in SQL - not every record of the company loaded to keep 25.
+ */
+export function dueForListFollow(companyId: string, now = new Date()): Promise<GateMovementRow[]> {
+  return gateMovementRepository.dueForShipmentFollow(companyId, {
+    checkedBefore: new Date(now.getTime() - FOLLOW_ON_LIST_MS),
+    limit: FOLLOW_LIST_LIMIT,
+    goneEvent: SHIPMENT_GONE,
+  });
+}
+
+/**
  * Brings the customs status of linked, unreleased records up to date with their shipments.
  * Only records not read within `maxAgeMs` (all of them with `force`), at most `limit`.
  * Returns the records it changed, as stored now.

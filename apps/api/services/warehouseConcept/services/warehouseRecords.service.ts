@@ -11,9 +11,11 @@ import {
 } from "../repositories/warehouseRecords.repository";
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
-import { movementStorage, pragueDate } from "./storage";
+import { addDays, movementStorage, pragueDate } from "./storage";
 import { directionFits, EQUIPMENT_CAPACITY_CBM } from "./containerRules";
-import { containerService } from "./container.service";
+import { containerService, houseRaceError } from "./container.service";
+import { deliverDue } from "./shipmentOutbox.service";
+import { userName } from "./users";
 import {
   DOCK_SLOT_DEFAULT_MIN,
   DOCK_SLOT_MAX_MIN,
@@ -108,10 +110,6 @@ function containerFields(input: WarehouseContainerInput) {
 const directionForVisit = (visit: string) => (visit === "výdej" ? "Unloading" : "Loading");
 
 class WarehouseRecordsService {
-  private async movementsById(companyId: string) {
-    return new Map((await gateMovementRepository.listAll(companyId)).map((m) => [m.id, m]));
-  }
-
   async listContainers(companyId: string) {
     return containerService.items(await containerRepository.listForCompany(companyId, 5000), companyId);
   }
@@ -122,83 +120,130 @@ class WarehouseRecordsService {
 
   // The register form. With a position (`movementId`), the container is registered for it: the
   // position becomes its house (as before containers held many positions); a container with no
-  // direction given takes the one the position belongs in.
+  // direction given takes the one the position belongs in. The container and its house are
+  // written in one transaction, so a house refused (the position taken by another container at
+  // the same moment) leaves no container behind. The new row is seen by no one else until the
+  // commit, so it needs no lock of its own; the position is locked and checked in addPositionsInTx.
   async createContainer(companyId: string, input: WarehouseContainerInput, userId = "") {
     if (!input.number?.trim()) throw APIError.invalidArgument("Container number is required");
+    // Read before the transaction for the direction it gives and to answer "not found" early; it is
+    // read again under its lock in the transaction.
     const movement = input.movementId ? await gateMovementRepository.findById(input.movementId, companyId) : null;
     if (input.movementId && !movement) throw APIError.invalidArgument("Position not found");
     const fields = containerFields(input);
-    if (movement) {
-      if (fields.direction === undefined) fields.direction = directionForVisit(movement.visit);
-      await this.checkRegisterLink(companyId, fields.direction, movement);
+    if (movement && fields.direction === undefined) fields.direction = directionForVisit(movement.visit);
+    // Who adds the house is read before the transaction: no lock is held while auth answers.
+    const by = movement ? await userName(userId) : "";
+    let id: string;
+    try {
+      id = await db.transaction(async (tx) => {
+        const row = await containerRepository.insertTx(tx, companyId, fields as Omit<typeof warehouseContainerTable.$inferInsert, "companyId">);
+        if (movement) {
+          await this.checkRegisterLink(tx, companyId, row.direction, movement);
+          await containerService.addPositionsInTx(tx, row, companyId, by, [movement.id], { fromRegister: true });
+        }
+        return row.id;
+      });
+    } catch (err) {
+      throw houseRaceError(err);
     }
-    const row = await containerRepository.createForCompany(companyId, fields as typeof warehouseContainerTable.$inferInsert);
-    if (movement) await containerService.addPositions(row.id, companyId, userId, [movement.id], { fromRegister: true });
-    return this.containerById(row.id, companyId);
+    return this.containerById(id, companyId);
   }
 
   // The register form's position becomes a house of the container: only the direction and the
-  // one-container rule apply (the plan and tally screens check the rest).
-  private async checkRegisterLink(companyId: string, direction: string, movement: GateMovementRow, exceptContainer?: string) {
+  // one-container rule apply (the plan and tally screens check the rest). Names the other
+  // container; addPositionsInTx checks the same again under the position's lock.
+  private async checkRegisterLink(tx: Tx, companyId: string, direction: string, movement: GateMovementRow, exceptContainer?: string) {
     if (!directionFits(direction, movement.visit)) {
       throw APIError.invalidArgument(
         direction === "Loading" ? "This position is outgoing cargo (výdej) — it belongs in an import (Unloading) container" : "This position is inbound cargo (příjem) — it belongs in an export (Loading) container",
       );
     }
-    const other = await containerPositionRepository.liveForMovement(db, movement.id, companyId);
+    const other = await containerPositionRepository.liveForMovement(tx, movement.id, companyId);
     if (other && other.containerId !== exceptContainer) {
-      const c = await containerRepository.findById(other.containerId, companyId);
+      const c = await containerRepository.findById(other.containerId, companyId, tx);
       throw APIError.failedPrecondition(`This position is already in container ${c?.number ?? "another container"} — take it out there first`);
     }
   }
 
+  // One transaction with the container locked first, so the checks read it as it is: a stamp, a
+  // tally or another save at the same moment waits for this one or is seen by it. A relink takes
+  // the old house out, saves the form and adds the new house together - a refused house leaves
+  // the old one in place, never a container with neither.
   async updateContainer(id: string, companyId: string, input: WarehouseContainerInput, userId = "", role = "user") {
-    const stored = await containerRepository.findById(id, companyId);
-    if (!stored) throw notFound("Container");
     const fields = containerFields(input);
-    // The typed yard dates follow the container's stamps once there are stamps.
-    if (fields.gatedIn !== undefined && stored.gateInAt && fields.gatedIn !== stored.gatedIn) {
-      throw APIError.failedPrecondition("Gated in follows the container's gate-in stamp — a manager can void the stamp");
+    const relinkTo = input.movementId !== undefined ? input.movementId || null : undefined;
+    // The new position, read before the transaction to answer "not found" early; it is locked and
+    // checked again in the transaction (addPositionsInTx).
+    const movement = relinkTo ? await gateMovementRepository.findById(relinkTo, companyId) : null;
+    if (relinkTo && !movement) throw APIError.invalidArgument("Position not found");
+    // No lock is held while auth answers.
+    const by = relinkTo !== undefined ? await userName(userId) : "";
+    let owed: string[];
+    try {
+      owed = await db.transaction(async (tx) => {
+        const stored = await containerRepository.lock(tx, id, companyId);
+        if (!stored) throw notFound("Container");
+        // The typed yard dates follow the container's stamps once there are stamps.
+        if (fields.gatedIn !== undefined && stored.gateInAt && fields.gatedIn !== stored.gatedIn) {
+          throw APIError.failedPrecondition("Gated in follows the container's gate-in stamp — a manager can void the stamp");
+        }
+        if (fields.gatedOut !== undefined && stored.gateOutAt && fields.gatedOut !== stored.gatedOut) {
+          throw APIError.failedPrecondition("Gated out follows the container's gate-out stamp — a manager can void the stamp");
+        }
+        // Once the container is gated in, only its gate-out stamp takes it out (it checks the houses).
+        if (fields.gatedOut !== undefined && stored.gateInAt && !stored.gateOutAt && fields.gatedOut !== stored.gatedOut) {
+          throw APIError.failedPrecondition("The container is gated in — stamp its Container gate-out on the container page (Gated out follows that stamp)");
+        }
+        const relink = relinkTo !== undefined && relinkTo !== stored.movementId;
+        if (relink && movement) await this.checkRegisterLink(tx, companyId, fields.direction ?? stored.direction, movement, id);
+        const houses = await containerPositionRepository.listForContainers([id], companyId, tx);
+        if (fields.direction !== undefined && fields.direction !== stored.direction && houses.length) {
+          throw APIError.failedPrecondition("The direction cannot change while the container has positions — take them out first");
+        }
+        if (relink) {
+          // The old and the new position locked together, in id order after the container, as
+          // every container action takes them - two relinks crossing each other never deadlock.
+          await gateMovementRepository.lockLive(
+            tx,
+            [stored.movementId, movement?.id].filter((x): x is string => !!x),
+            companyId,
+          );
+          const old = houses.find((h) => h.movementId === stored.movementId);
+          if (old && (old.stuffedAt || old.tallyOutcome)) throw APIError.failedPrecondition("The position is stuffed or tallied in this container — it stays");
+          if (old) await containerService.removePositionInTx(tx, stored, companyId, by, old.movementId);
+        }
+        const row = await containerRepository.updateTx(tx, id, companyId, fields);
+        if (!row) throw notFound("Container");
+        if (relink && movement) await containerService.addPositionsInTx(tx, row, companyId, by, [movement.id], { fromRegister: true });
+        return fields.plate !== undefined ? containerService.plateChangedInTx(tx, stored, fields.plate, companyId, userId, role) : [];
+      });
+    } catch (err) {
+      throw houseRaceError(err);
     }
-    if (fields.gatedOut !== undefined && stored.gateOutAt && fields.gatedOut !== stored.gatedOut) {
-      throw APIError.failedPrecondition("Gated out follows the container's gate-out stamp — a manager can void the stamp");
-    }
-    // Once the container is gated in, only its gate-out stamp takes it out (it checks the houses).
-    if (fields.gatedOut !== undefined && stored.gateInAt && !stored.gateOutAt && fields.gatedOut !== stored.gatedOut) {
-      throw APIError.failedPrecondition("The container is gated in — stamp its Container gate-out on the container page (Gated out follows that stamp)");
-    }
-    const relink = input.movementId !== undefined && (input.movementId || null) !== stored.movementId;
-    const movement = relink && input.movementId ? await gateMovementRepository.findById(input.movementId, companyId) : null;
-    if (relink && input.movementId && !movement) throw APIError.invalidArgument("Position not found");
-    if (movement) await this.checkRegisterLink(companyId, fields.direction ?? stored.direction, movement, id);
-    const houses = await containerPositionRepository.listForContainers([id], companyId);
-    if (fields.direction !== undefined && fields.direction !== stored.direction && houses.length) {
-      throw APIError.failedPrecondition("The direction cannot change while the container has positions — take them out first");
-    }
-    if (relink) {
-      const old = houses.find((h) => h.movementId === stored.movementId);
-      if (old && (old.stuffedAt || old.tallyOutcome)) throw APIError.failedPrecondition("The position is stuffed or tallied in this container — it stays");
-      if (old) await containerService.removePosition(id, companyId, userId, old.movementId);
-    }
-    const row = await containerRepository.updateForCompany(id, companyId, fields);
-    if (!row) throw notFound("Container");
-    if (relink && movement) await containerService.addPositions(id, companyId, userId, [movement.id], { fromRegister: true });
-    if (fields.plate !== undefined) await containerService.plateChanged(stored, fields.plate, companyId, userId, role);
+    // Delivered once committed: the shipments are another service.
+    if (owed.length) await deliverDue({ shipmentIds: owed });
     return this.containerById(id, companyId);
   }
 
   // Deleting a container takes its houses out (kept as history); refused once a house is stuffed
-  // or tallied, or the container has stamps.
+  // or tallied, or the container has stamps. Checked and done in one transaction with the
+  // container locked first: a stamp or a tally at the same moment (they lock it first too) either
+  // happened before - and the delete is refused - or waits and then finds no container.
   async deleteContainer(id: string, companyId: string) {
-    const blocked = await containerService.deleteBlocked(id, companyId);
-    if (blocked) throw APIError.failedPrecondition(blocked);
-    if (!(await containerRepository.softDeleteForCompany(id, companyId))) throw notFound("Container");
-    const houses = await containerPositionRepository.listForContainers([id], companyId);
-    await containerPositionRepository.softRemove(
-      db,
-      houses.map((h) => h.id),
-      companyId,
-    );
+    await db.transaction(async (tx) => {
+      const c = await containerRepository.lock(tx, id, companyId);
+      if (!c) throw notFound("Container");
+      const houses = await containerPositionRepository.listForContainers([id], companyId, tx);
+      const blocked = containerService.deleteBlocked(c, houses);
+      if (blocked) throw APIError.failedPrecondition(blocked);
+      if (!(await containerRepository.softDeleteTx(tx, id, companyId))) throw notFound("Container");
+      await containerPositionRepository.softRemove(
+        tx,
+        houses.map((h) => h.id),
+        companyId,
+      );
+    });
   }
 
   // ---------- Dock slots ----------
@@ -302,8 +347,12 @@ class WarehouseRecordsService {
     }
   }
 
+  // The slots are labelled from the positions they name, read by id (live ones, as before: an
+  // archived position's slot shows no reference) - not every gate record of the company.
   async listDockSlots(companyId: string) {
-    const [rows, movements] = await Promise.all([dockSlotRepository.listForCompany(companyId, 5000), this.movementsById(companyId)]);
+    const rows = await dockSlotRepository.listForCompany(companyId, 5000);
+    const ids = [...new Set(rows.map((s) => s.movementId).filter((x): x is string => !!x))];
+    const movements = new Map((await gateMovementRepository.findByIds(ids, companyId)).map((m) => [m.id, m]));
     return rows.map((s) => this.slotItem(s, s.movementId ? movements.get(s.movementId) : undefined));
   }
 
@@ -449,6 +498,9 @@ class WarehouseRecordsService {
 
   // ---------- Calculated reports ----------
 
+  // Reads every live gate record (gateMovementRepository.listAll): the storage figures count all
+  // cargo in the warehouse now, and the throughput / monthly summaries any record received or
+  // dispatched in their weeks, whatever its age - a bounded read would undercount them.
   async reportSummary(companyId: string, now = new Date()): Promise<WarehouseReportSummary> {
     const [movements, containerRows, slots, health] = await Promise.all([
       gateMovementRepository.listAll(companyId),
@@ -462,7 +514,14 @@ class WarehouseRecordsService {
 
 // ---------- report calculations (pure, exported for tests) ----------
 
-const isoDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+// The Prague day of a stamp, as the gate and the storage clock count it (a gate-in at 00:30 in
+// Prague is that day, not the UTC day before).
+const isoDate = (d: Date | null) => (d ? pragueDate(d) : "");
+// The Prague day of an ISO instant stored as text (a survey's time); "" when it is none.
+const pragueDayOf = (at: string | null | undefined) => {
+  const t = at ? Date.parse(at) : NaN;
+  return Number.isNaN(t) ? "" : pragueDate(new Date(t));
+};
 // Received = gate-in (or load-in date); dispatched = gate-out (or the WH release stamp, or the
 // gate-out of the container the cargo left in).
 const receivedOn = (m: GateMovementRow) => isoDate(m.gateIn) || m.loadInDate;
@@ -491,8 +550,9 @@ export function buildReportSummary(
 ): WarehouseReportSummary {
   const today = todayIso(now);
 
-  // Throughput — the last 8 ISO weeks, oldest first.
-  const thisMonday = isoWeek(now).monday;
+  // Throughput — the last 8 ISO weeks, oldest first. Weeks and months are counted from today's
+  // Prague day (a Monday 00:30 in Prague starts the week, though it is still Sunday in UTC).
+  const thisMonday = isoWeek(new Date(`${today}T00:00:00Z`)).monday;
   const throughput = Array.from({ length: 8 }, (_, i) => {
     const start = new Date(Date.parse(`${thisMonday}T00:00:00Z`) - (7 - i) * 7 * DAY);
     const from = start.toISOString().slice(0, 10);
@@ -524,8 +584,9 @@ export function buildReportSummary(
     .map(([customer, e]) => ({ customer, jobs: e.jobs, cbm: round(e.cbm), wm: round(e.wm), share: monthCbm ? Math.round((e.cbm / monthCbm) * 100) : 0 }));
 
   // Monthly summary — this month and the three before it, newest first.
+  const [todayYear, todayMonth] = today.split("-").map(Number) as [number, number];
   const monthly: MonthlySummary[] = Array.from({ length: 4 }, (_, i) => {
-    const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const first = new Date(Date.UTC(todayYear, todayMonth - 1 - i, 1));
     const next = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 1));
     const key = first.toISOString().slice(0, 7);
     const received = movements.filter((m) => receivedOn(m).startsWith(key));
@@ -554,11 +615,11 @@ export function buildReportSummary(
   });
 
   // Fill rate of loaded containers by discharge port over the last 90 days.
-  const since = new Date(now.getTime() - 90 * DAY).toISOString().slice(0, 10);
+  const since = addDays(today, -90);
   const byLane = new Map<string, { n: number; cbm: number; cap: number; fill: number; pieces: number }>();
   for (const c of containers) {
     const cap = EQUIPMENT_CAPACITY_CBM[c.equipment];
-    const when = c.gatedOut || c.createdAt.toISOString().slice(0, 10);
+    const when = c.gatedOut || pragueDate(c.createdAt);
     if (c.direction !== "Loading" || !cap || c.cbm == null || when < since) continue;
     const lane = c.dischargePort || "(no Port of Discharge)";
     const e = byLane.get(lane) ?? { n: 0, cbm: 0, cap: 0, fill: 0, pieces: 0 };
@@ -589,7 +650,7 @@ export function buildReportSummary(
   let surveyedPieces = 0;
   let damagedPieces = 0;
   for (const m of movements) {
-    const surveys = m.surveys.filter((s) => (s.surveyedAt ?? "").startsWith(year));
+    const surveys = m.surveys.filter((s) => pragueDayOf(s.surveyedAt).startsWith(year));
     if (!surveys.length) continue;
     surveyedPieces += m.colli;
     damagedPieces += surveys.reduce((a, s) => a + (s.damaged ?? 0), 0);

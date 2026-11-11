@@ -98,6 +98,15 @@ const paymentTracked = (r: Pick<TruckingHaulierInvoiceRecord, "paidOn" | "approv
 
 const targetKey = (kind: HaulierInvoiceTargetKind, id: string) => `${kind}:${id}`;
 
+export const TARGETS_CHANGED = "A trip or delivery of the invoice changed while it was being approved. Reload and try again.";
+
+/** Whether the targets read again are the ones the real cost was planned on (the jobs in any order). */
+function sameRealTargets(planned: (RealTarget | null)[], now: (RealTarget | null)[]): boolean {
+  const key = (t: RealTarget | null) =>
+    t ? JSON.stringify({ ...t, jobs: [...t.jobs].sort((a, b) => a.shipmentId.localeCompare(b.shipmentId) || a.consignmentId.localeCompare(b.consignmentId)) }) : "none";
+  return planned.length === now.length && planned.every((t, i) => key(t) === key(now[i]!));
+}
+
 /** The invoice as shown: an open one with its status and block reasons worked out against the haulier's profile now. */
 function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile | null, trackingSince: Date | null): HaulierInvoice {
   const open = OPEN_STATUSES.includes(r.status);
@@ -261,12 +270,24 @@ class HaulierInvoiceService {
     return { kind, id, tripKind: trip.kind, ref: trip.ref, buy: trip.buy, jobs: [...jobs.values()] };
   }
 
+  /** Each line's target as the real cost is planned on it (null when it has no price). */
+  private realTargets(companyId: string, lines: Pick<TruckingHaulierInvoiceLineRecord, "targetKind" | "targetId">[]): Promise<(RealTarget | null)[]> {
+    return Promise.all(lines.map((l) => this.realTarget(companyId, l.targetKind, l.targetId)));
+  }
+
   /**
    * The real cost of an approved invoice's lines: per line, the allocations (written on the line)
-   * and the outbox rows owed to Road Department jobs. The jobs' departments are read first.
+   * and the outbox rows owed to Road Department jobs. The jobs' departments are read first (from
+   * Shipments: call it before the transaction). `known`: the lines' targets when already read.
    */
-  private async planReal(companyId: string, invoice: Pick<TruckingHaulierInvoiceRecord, "currency" | "invoiceNumber">, lines: Pick<TruckingHaulierInvoiceLineRecord, "id" | "targetKind" | "targetId" | "invoiced">[], actor: Actor) {
-    const targets = await Promise.all(lines.map((l) => this.realTarget(companyId, l.targetKind, l.targetId)));
+  private async planReal(
+    companyId: string,
+    invoice: Pick<TruckingHaulierInvoiceRecord, "currency" | "invoiceNumber">,
+    lines: Pick<TruckingHaulierInvoiceLineRecord, "id" | "targetKind" | "targetId" | "invoiced">[],
+    actor: Actor,
+    known?: (RealTarget | null)[],
+  ) {
+    const targets = known ?? (await this.realTargets(companyId, lines));
     const shipmentIds = [...new Set(targets.flatMap((t) => t?.jobs.map((j) => j.shipmentId) ?? []))];
     const { shipments: jobs } = shipmentIds.length ? await shipments._internalShipmentBasics({ ids: shipmentIds }) : { shipments: [] };
     const departmentOf = new Map(jobs.map((j) => [j.id, j.department]));
@@ -558,6 +579,12 @@ class HaulierInvoiceService {
     if (!cur.lines.length) throw APIError.failedPrecondition("The invoice has no lines");
     const haulierId = cur.invoice.haulierCustomerId;
     const by = await userName(actor.userID);
+    // The real cost is planned before the transaction: the plan asks Shipments for the jobs'
+    // departments, and the haulier's lock is not held while another service answers. What it is
+    // planned on here - each line's target, its price and the jobs sharing it - is read again under
+    // the lock below, so a change in between is refused rather than sent as a stale real cost.
+    const targets = await this.realTargets(companyId, cur.lines);
+    const plans = await this.planReal(companyId, cur.invoice, cur.lines, actor, targets);
     let profile: HaulierProfile | null = null;
     const owed = await inTx(async (tx) => {
       await haulierInvoiceRepository.lockHaulier(tx, companyId, haulierId);
@@ -579,7 +606,9 @@ class HaulierInvoiceService {
         cur.lines.map((l) => ({ targetKind: l.targetKind, targetId: l.targetId, invoiced: l.invoiced, note: l.note })),
       );
       if (figuresChanged(cur.lines, now)) throw APIError.failedPrecondition(FIGURES_CHANGED);
-      const plans = await this.planReal(companyId, cur.invoice, cur.lines, actor);
+      // The jobs' departments came from Shipments before the lock and are not read again (another
+      // service's data is never locked here); the targets are ours, and must still be as planned.
+      if (!sameRealTargets(targets, await this.realTargets(companyId, cur.lines))) throw APIError.aborted(TARGETS_CHANGED);
       const row = await haulierInvoiceRepository.update(tx, companyId, cur.invoice.id, cur.invoice.version, APPROVABLE, {
         status: "APPROVED",
         blockReasons: [],

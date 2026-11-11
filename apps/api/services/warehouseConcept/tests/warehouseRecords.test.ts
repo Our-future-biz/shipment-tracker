@@ -112,4 +112,30 @@ describe("report summary", () => {
     ]);
     expect(r.quality).toEqual({ surveyedPieces: 10, damagedPieces: 2, damageRate: 20, onTimeDispatch: 50 });
   });
+
+  // The days, weeks and months were the UTC ones: cargo gated in after midnight in Prague counted
+  // in the day, week and month before (and "this month" changed an hour or two late).
+  it("counts days, weeks, months and years in Prague time", () => {
+    // Monday 1 February 2027, 00:30 in Prague - still Sunday 31 January in UTC.
+    const now = new Date("2027-01-31T23:30:00Z");
+    const movements = [
+      movement({ customer: "Night", measureCbm: 4, colli: 5, gateIn: new Date("2027-01-31T23:15:00Z"), surveys: [{ damaged: 1, surveyedAt: "2026-12-31T23:30:00Z" } as never] }),
+      movement({ customer: "Day", measureCbm: 2, gateIn: new Date("2027-01-10T08:00:00Z"), gateOut: new Date("2027-01-31T23:20:00Z") }),
+    ];
+    const box = { direction: "Loading", equipment: "20' DV", cbm: 15.5, pieces: 4, gatedIn: "", gatedOut: "" };
+    const containers = [
+      { ...box, dischargePort: "Durban", createdAt: new Date("2026-11-02T23:30:00Z") },
+      // 23:30 on 2 November in Prague: 91 days ago (in UTC it was the 90th day).
+      { ...box, dischargePort: "Older", createdAt: new Date("2026-11-02T22:30:00Z") },
+    ] as never[];
+    const r = buildReportSummary(movements, containers, [], now);
+    expect(r.throughput.at(-1)).toEqual({ week: "W5", receivedCbm: 4, dispatchedCbm: 2 });
+    expect(r.monthly[0]).toMatchObject({ month: "2027-02", monthToDate: true, receipts: 1, cbmIn: 4, dispatches: 1, cbmOut: 2 });
+    expect(r.monthly[1]).toMatchObject({ month: "2027-01", receipts: 1, cbmIn: 2, dispatches: 0 });
+    expect(r.topCustomers).toEqual([{ customer: "Night", jobs: 1, cbm: 4, wm: 4, share: 100 }]);
+    // Surveyed at 00:30 on New Year's Day in Prague: this year's.
+    expect(r.quality).toMatchObject({ surveyedPieces: 5, damagedPieces: 1 });
+    // Made on 3 November in Prague: within the 90 days that start on 3 November.
+    expect(r.lanes.map((l) => l.lane)).toEqual(["Durban"]);
+  });
 });

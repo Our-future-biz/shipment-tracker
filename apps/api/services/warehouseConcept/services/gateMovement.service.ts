@@ -21,7 +21,7 @@ import { remeasureTotals, type RemeasureTotals } from "./remeasure";
 import { warehouseSectionTable } from "../schemas/warehouseSection.schema";
 import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } from "./customs";
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
-import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
+import { dueForListFollow, FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
 import { ownerFromRequest } from "./shipmentOwner";
 import { companyUsers } from "../../../lib/companyUsers";
@@ -503,6 +503,9 @@ function groupByMovement<R extends { movementId: string | null }>(rows: R[]): Ma
 class GateMovementService {
   // The Gate Log. `archived` lists archived records only. Reads only — the customs status of
   // linked records is brought up to date by followShipments (its own POST endpoint).
+  // Every record, with its related rows read for exactly those ids (itemsFor): a full read, kept
+  // as it is - the Gate Log is one list the client filters, searches and counts as a whole (its
+  // chips and totals), so a page of it would show other numbers. Paging it is a change of screen.
   async list(companyId: string, opts: { archived?: boolean } = {}) {
     const movements = opts.archived ? await gateMovementRepository.listArchived(companyId) : await gateMovementRepository.listAll(companyId);
     return this.itemsFor(movements, companyId);
@@ -584,9 +587,8 @@ class GateMovementService {
   // `asService`: no user is calling (the customs follow cron) — Shipments is read as the company's
   // service identity.
   async followShipments(companyId: string, opts: { id?: string; force?: boolean; asService?: boolean } = {}): Promise<number> {
-    const movements = opts.id
-      ? [await this.load(opts.id, companyId)]
-      : await gateMovementRepository.listAll(companyId);
+    // A list call reads only the records due (picked in SQL); followCustoms checks them again.
+    const movements = opts.id ? [await this.load(opts.id, companyId)] : await dueForListFollow(companyId);
     const authData = opts.asService ? await serviceActor(companyId) : undefined;
     const changed = opts.id
       ? await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_GET_MS, limit: 1, force: opts.force, authData })

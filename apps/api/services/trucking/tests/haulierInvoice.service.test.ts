@@ -200,7 +200,8 @@ vi.mock("../repositories/haulierInvoice.repository", () => {
 });
 
 import { customers, shipments } from "~encore/clients";
-import { haulierInvoiceService } from "../services/haulierInvoice.service";
+import { haulierInvoiceService, TARGETS_CHANGED } from "../services/haulierInvoice.service";
+import { haulierInvoiceRepository } from "../repositories/haulierInvoice.repository";
 import { setClaimsSource, noClaims } from "../lib/haulierClaims";
 import { FIGURES_CHANGED, FOUR_EYES } from "../lib/haulierInvoiceRules";
 import type { HaulierInvoiceInput } from "../interfaces/haulierInvoice.interfaces";
@@ -643,6 +644,28 @@ describe("four eyes and today's figures on approval", () => {
     const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
     setClaimsSource({ claimedFor: async () => new Map([[FTL, 500]]) });
     await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "failed_precondition", message: FIGURES_CHANGED });
+  });
+
+  // The plan asked Shipments for the jobs' departments inside the transaction holding the
+  // haulier's lock: a slow Shipments held every save and approval of the haulier's invoices.
+  it("asks Shipments for the jobs before it takes the haulier's lock", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    vi.mocked(shipments._internalShipmentBasics).mockClear();
+    vi.mocked(haulierInvoiceRepository.lockHaulier).mockClear();
+    expect(await haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).toMatchObject({ status: "APPROVED" });
+    expect(vi.mocked(shipments._internalShipmentBasics).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(haulierInvoiceRepository.lockHaulier).mock.invocationCallOrder[0]!);
+    expect(mem.outbox).toEqual([expect.objectContaining({ kind: "real_costs", shipmentId: S_ROAD })]);
+  });
+
+  it("refuses when a target changed between the plan and the lock, and sends nothing", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    // Planned on the trip's job; by the time the lock is held its consignment went to another job.
+    vi.mocked(haulierInvoiceRepository.lockHaulier).mockImplementationOnce(async () => {
+      mem.consignments.find((c) => c.tripId === FTL)!.shipmentId = S_ROAD2;
+    });
+    await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "aborted", message: TARGETS_CHANGED });
+    expect(mem.invoices[0]!.status).toBe("NEEDS_APPROVAL");
+    expect(mem.outbox).toEqual([]);
   });
 
   it("refuses a gross total that is not net plus VAT", async () => {
