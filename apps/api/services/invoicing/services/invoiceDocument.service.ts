@@ -53,6 +53,8 @@ export interface IssueParams {
   duzp?: string;
   note?: string;
   idempotencyKey?: string;
+  /** The total with VAT the user confirmed (the preview's gross): issuing refuses another one. */
+  expectedGross?: number;
 }
 
 /** Today in Prague - the issue date of a Czech invoice. */
@@ -180,11 +182,14 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
 
   const customerId = params.customerId || shipment.customerId || null;
   let customer: CustomerSnapshot | null = null;
+  // What the customer may be billed in, for the preview's currency picker (not part of the invoice).
+  let customerCurrencies: InvoicePreviewItem["customerCurrencies"] = null;
   if (!customerId) {
     problems.push("Choose the customer to invoice");
   } else {
     try {
       const { customer: c } = await customers.customerGet({ id: customerId });
+      customerCurrencies = { currency: c.currency, secondaryCurrencies: c.secondaryCurrencies };
       customer = {
         customerId: c.id,
         companyName: c.companyName,
@@ -270,7 +275,7 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const quoteNumber = billedQuotes.join(", ") || settings?.quoteRef?.trim() || shipment.salesNumber?.trim() || "";
   const routeFrom = shipment.pol?.trim() || shipment.origin?.trim() || "";
   const routeTo = shipment.pod?.trim() || shipment.destination?.trim() || "";
-  return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions, quoteNumber, routeFrom, routeTo };
+  return { shipment, profile, customer, customerId, customerCurrencies, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions, quoteNumber, routeFrom, routeTo };
 }
 
 function supplierSnapshot(profile: NonNullable<Awaited<ReturnType<typeof loadContext>>["profile"]>, currency: string): SupplierSnapshot {
@@ -447,6 +452,7 @@ class InvoiceDocumentService {
       customerId: ctx.customerId,
       customer: ctx.customer ? customerParty(ctx.customer) : null,
       billingAddress: !!ctx.customer?.billingAddress,
+      customerCurrencies: ctx.customerCurrencies,
       // The issuer and the account the invoice is paid to, so a wrong one is seen before issuing.
       issuer: ctx.profile ? supplierParty(supplierSnapshot(ctx.profile, ctx.calc.currency)) : null,
       bankAccount: ctx.profile ? supplierSnapshot(ctx.profile, ctx.calc.currency).bankAccount : null,
@@ -479,6 +485,11 @@ class InvoiceDocumentService {
     return issueOnce(companyId, key, sameRequest, async () => {
       const ctx = await loadContext(shipmentId, companyId, params);
       if (ctx.problems.length) throw APIError.failedPrecondition(ctx.problems.join("; "));
+      // The user confirmed the preview's total: a line ticked, a VAT code or the currency changed since
+      // (a save still on its way, another tab) makes another invoice than the one they agreed to.
+      if (params.expectedGross !== undefined && Math.abs(ctx.calc.gross - params.expectedGross) >= 0.005) {
+        throw APIError.failedPrecondition("The invoice changed since you checked it — look at it again and issue it then");
+      }
 
       // The invoice number carries the job's Internal Reference, so from here on the reference is
       // final. Shipments marks it so under the shipment's write turn and gives it back as it is now:

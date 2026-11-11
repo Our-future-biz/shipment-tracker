@@ -50,9 +50,15 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
   };
 
   const issue = useMutation({
-    mutationFn: (req: { customerId?: string; duzp?: string; note?: string; idempotencyKey: string }) =>
+    mutationFn: (req: { customerId?: string; duzp?: string; note?: string; idempotencyKey: string; expectedGross?: number }) =>
       api.invoicing.invoiceDocIssue(shipmentId, req),
     onSuccess: refreshAfterIssue,
+    // Refused (the invoice changed since its preview, a row billed meanwhile): the rows and the preview
+    // are read again, so what is looked at again is the invoice the server would issue now.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: invoicingKey(shipmentId) });
+      void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.preview(shipmentId) });
+    },
   });
 
   const credit = useMutation({

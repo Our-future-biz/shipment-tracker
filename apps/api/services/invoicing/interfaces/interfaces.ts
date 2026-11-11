@@ -498,6 +498,12 @@ export interface InvoicePreviewItem {
   customer: InvoicePartyItem | null;
   /** The address above is the customer's Billing address, not its seat. */
   billingAddress: boolean;
+  /**
+   * The currencies the customer is billed in, as the Customer Database has them: its default, and up
+   * to two others (never the default) that billing in asks to confirm. null without a customer, or when
+   * it could not be read.
+   */
+  customerCurrencies: { currency: string; secondaryCurrencies: string[] } | null;
   /** Who issues the invoice (Settings → Organization); null until it is filled in. */
   issuer: InvoicePartyItem | null;
   /** The issuer's account in the invoice currency, printed for the payment; null when there is none. */

@@ -17,14 +17,13 @@ import {
   SendOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canChangeShipmentDetails, isDetailsManager } from "@/lib/shipmentEditRule";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentMutations } from "@/hooks/useShipments";
-import { useCustomers } from "@/hooks/useCustomers";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { downloadInvoicePdf, invoicePdfSource, useInvoiceDocs, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { useFilePreview } from "@/hooks/useFilePreview";
@@ -46,7 +45,9 @@ import { Pill } from "@/components/Pill";
 import { CARD, HINT, ICON_BTN, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
+import { billingCurrencyOptions, billToCurrencies } from "../_lib/billToCurrencies";
 import { IssuedInvoiceEmailModal, type IssuedInvoiceEmail } from "./IssuedInvoiceEmailModal";
+import { InvoiceCustomerSelect } from "./InvoiceCustomerSelect";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
 // Offered for a shipment without a customer; one with a customer is billed in that customer's currencies.
@@ -134,7 +135,6 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   const queryClient = useQueryClient();
   const { data, billingCur } = useCostsData(shipment);
   const { updateShipment } = useShipmentMutations();
-  const { customers } = useCustomers();
   // The shipment's Customer is one of its details (lib/shipmentEditRule): whoever may not change them
   // still picks whom to bill, but the pick is not linked to the shipment (the server would refuse it).
   const { user } = useAuth();
@@ -222,16 +222,14 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
     onError: () => toast.error("Failed to change which lines are invoiced"),
   });
 
-  // The customer the invoice is for and the currencies it is billed in: its default, then up to
-  // two secondary ones (billing in one of those asks to confirm). Without a customer: CZK, EUR, USD.
+  // The customer the invoice is for and the currencies it is billed in, as the server's preview has them
+  // from the Customer Database: its default, then up to two secondary ones (billing in one of those asks
+  // to confirm). Without a customer: CZK, EUR, USD.
   const billToId = customerId ?? shipment.customerId ?? undefined;
-  const billTo = billToId ? customers.find((c) => c.id === billToId) : undefined;
-  const allowedCurrencies = billTo ? [billTo.currency, ...billTo.secondaryCurrencies] : [...BILLING_CURRENCIES];
-  // A currency saved before (or since dropped from the customer) still shows as the current one.
-  const currencyOptions = (allowedCurrencies.includes(billingCur) ? allowedCurrencies : [billingCur, ...allowedCurrencies]).map((c) => ({
-    value: c,
-    label: billTo && c === billTo.currency ? `${c} · default` : c,
-  }));
+  const billTo = billToCurrencies(preview, billToId);
+  // Until the preview is the bill-to customer's, its currencies are not known: none is offered to switch to.
+  const currenciesKnown = !billToId || preview?.customerId === billToId;
+  const currencyOptions = billingCurrencyOptions(billTo, billingCur, BILLING_CURRENCIES);
 
   const changeBillingCurrency = (currency: string) => {
     if (!billTo?.secondaryCurrencies.includes(currency)) {
@@ -248,11 +246,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   };
 
   const linkCustomer = useMutation({
-    mutationFn: (id: string) => {
-      const c = customers.find((x) => x.id === id);
-      return updateShipment({ id: shipment.id, data: { customer: c?.companyName ?? "", customerId: id } }).then(() => c);
-    },
-    onSuccess: (c) => toast.success(`${c?.companyName ?? "Customer"} linked to ${shipment.jobNumber}`),
+    mutationFn: ({ id, companyName }: { id: string; companyName: string }) =>
+      updateShipment({ id: shipment.id, data: { customer: companyName, customerId: id } }).then(() => companyName),
+    onSuccess: (companyName) => toast.success(`${companyName} linked to ${shipment.jobNumber}`),
     onError: (e) => toast.error(`The customer is used for this invoice, but linking it to the shipment failed: ${apiErrorMessage(e)}`),
   });
 
@@ -261,9 +257,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   };
 
   /** Picking a customer for a shipment that has none also links it, as on the shipment page, for whoever may. */
-  const handlePickCustomer = (id: string) => {
+  const handlePickCustomer = (id: string, companyName: string) => {
     setCustomerId(id);
-    if (!shipment.customerId && mayLinkCustomer) linkCustomer.mutate(id);
+    if (!shipment.customerId && mayLinkCustomer) linkCustomer.mutate({ id, companyName });
   };
 
   const download = async (doc: Pick<InvoiceDoc, "id" | "number">) => {
@@ -280,7 +276,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   const confirmIssue = async () => {
     if (!confirmKey) return;
     try {
-      const { invoice } = await issue({ customerId, duzp, note: note.trim() || undefined, idempotencyKey: confirmKey });
+      // The total the dialog shows goes with the request: the server issues no other one.
+      const { invoice } = await issue({ customerId, duzp, note: note.trim() || undefined, idempotencyKey: confirmKey, expectedGross: preview?.gross });
       setConfirmKey(null);
       setNote("");
       toast.success(`Invoice ${invoice.number} issued`);
@@ -336,11 +333,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
     warnings.push(...p.warnings);
   }
   const problems = p?.problems ?? [];
-  const canIssue = !!p && problems.length === 0 && !previewLoading;
-  // Billed to a customer: a company with no Customer role is not offered, unless it is the one chosen (K13).
-  const customerOptions = customers
-    .filter((c) => c.roles.includes("customer") || c.id === billToId)
-    .map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
+  // A change still being saved, or the job's rows read again after one: the preview is computed from
+  // those rows, so until its own refetch it is a step behind what was just changed. Issuing waits for it
+  // (and the server issues no other total than the one confirmed).
+  const invoicingFetching = useIsFetching({ queryKey: invoicingKey(shipment.id) }) > 0;
+  const savingChanges = billingCurrency.isPending || lineVat.isPending || lineText.isPending || lineTick.isPending || invoicingFetching;
+  const canIssue = !!p && problems.length === 0 && !previewLoading && !savingChanges;
   const hasLines = !!p && p.lines.length > 0;
   // The table: the invoice's lines (ticked selling rows) and, greyed, the selling rows left unticked,
   // so a line can be put back. Kept in the Costs Breakdown order (see lineTableRows).
@@ -423,25 +421,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
 
   // The same customer picker in both places; behind the pencil it opens at once and hides again when closed.
   const customerSelect = (behindPencil: boolean) => (
-    <Select
-      ref={behindPencil ? pickerRef : undefined}
-      size="small"
-      showSearch
+    <InvoiceCustomerSelect
+      selectRef={behindPencil ? pickerRef : undefined}
       placeholder={p?.customer ? "Change customer" : "Pick customer"}
-      value={null}
-      onChange={(v) => {
-        if (!behindPencil) setPickingCustomer(false);
-        if (v) handlePickCustomer(v);
-      }}
       disabled={linkCustomer.isPending}
-      options={customerOptions}
-      optionFilterProp="label"
-      className="w-[220px] max-w-full"
-      aria-label="Customer to invoice"
-      notFoundContent={<span className="text-[13px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
-      autoFocus={behindPencil}
-      defaultOpen={behindPencil}
-      onOpenChange={behindPencil ? (open) => !open && closePicker() : undefined}
+      onPick={(id, companyName) => {
+        if (!behindPencil) setPickingCustomer(false);
+        handlePickCustomer(id, companyName);
+      }}
+      autoOpen={behindPencil}
+      onClose={behindPencil ? closePicker : undefined}
     />
   );
 
@@ -537,7 +526,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
             </Fact>
             <Fact label="Due date">{p ? czDate(p.dueDate) : EMPTY_CELL}</Fact>
             <Fact label="Currency">
-              <Select size="small" value={billingCur} onChange={changeBillingCurrency} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={currencyOptions} labelRender={(o) => o.value} popupMatchSelectWidth={false} className="w-[84px]" aria-label="Billing currency" />
+              <Select size="small" value={billingCur} onChange={changeBillingCurrency} loading={billingCurrency.isPending} disabled={billingCurrency.isPending || !currenciesKnown} options={currencyOptions} labelRender={(o) => o.value} popupMatchSelectWidth={false} className="w-[84px]" aria-label="Billing currency" />
             </Fact>
           </div>
         </div>

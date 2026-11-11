@@ -37,6 +37,8 @@ interface IssueRequest {
   note?: string & MaxLen<1000>;
   /** Sent again on retry / double click: returns the invoice already issued instead of a second one */
   idempotencyKey?: string & MaxLen<200>;
+  /** The total with VAT the user confirmed (the preview's gross): an invoice that would come to another one is refused */
+  expectedGross?: number;
 }
 
 interface InvoiceDocResponse {

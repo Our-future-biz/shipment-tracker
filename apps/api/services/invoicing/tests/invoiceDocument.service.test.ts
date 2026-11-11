@@ -192,6 +192,17 @@ describe("preview", () => {
     ]);
   });
 
+  it("carries the currencies the customer is billed in, as the Customer Database has them", async () => {
+    clients.customerGet.mockResolvedValue({ customer: { ...customer, currency: "EUR", secondaryCurrencies: ["CZK", "USD"] } });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(p.customerCurrencies).toEqual({ currency: "EUR", secondaryCurrencies: ["CZK", "USD"] });
+    // No customer, or one that could not be read: none.
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, customerId: null } });
+    expect((await invoiceDocumentService.preview(SHIPMENT, COMPANY, {})).customerCurrencies).toBeNull();
+    clients.customerGet.mockRejectedValue(new Error("customers is down"));
+    expect((await invoiceDocumentService.preview(SHIPMENT, COMPANY, { customerId: CUSTOMER })).customerCurrencies).toBeNull();
+  });
+
   it("warns, without blocking, when there is no bank account in the billing currency", async () => {
     const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
     expect(p.warnings).toEqual([]);
@@ -421,6 +432,16 @@ describe("issue", () => {
     profiles.getByCompany.mockResolvedValue(null);
     await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoicing details/);
     expect(repo.issue).not.toHaveBeenCalled();
+  });
+
+  it("refuses to issue another total than the one the user confirmed, and issues the one confirmed", async () => {
+    // The preview said 29 999,50 CZK; a line ticked since makes it 4 999,50.
+    selling.listByShipmentId.mockResolvedValue([sellRow({ invoice: false }), sellRow({ id: "s2", category: "THC Destination", amount: "4999.50", currency: "CZK" })]);
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { expectedGross: 29999.5 })).rejects.toThrow(/changed since you checked it/);
+    expect(clients.shipmentReferenceFinal).not.toHaveBeenCalled();
+    expect(repo.issue).not.toHaveBeenCalled();
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { expectedGross: 4999.5 });
+    expect(repo.issue).toHaveBeenCalledTimes(1);
   });
 
   const issuedEarlier = {
