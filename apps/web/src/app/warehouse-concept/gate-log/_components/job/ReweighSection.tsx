@@ -6,6 +6,7 @@ import { Checkbox, Input, InputNumber, Modal } from "antd";
 import { DashboardOutlined } from "@ant-design/icons";
 import { useGateFilePreview, useGateFiles, useGateMovement, type GateFile, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
+import { uuid } from "@/lib/uuid";
 import { formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
@@ -152,20 +153,25 @@ export function ReweighModal({
   const [kg, setKg] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [fileIds, setFileIds] = useState<string[]>([]);
+  // One id per opening, sent with the weighing: a second send of it (Enter pressed again, a retry
+  // after a lost answer) adds no second weighing.
+  const [requestId, setRequestId] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!open) return;
     setKg(null);
     setNote("");
     setFileIds([]);
+    setRequestId(uuid());
   }, [open]);
   const valid = kg != null && Number.isFinite(kg) && kg > 0 && kg <= MAX_KG;
   const photos = files.filter(isImage);
 
   const submit = async () => {
-    if (!valid) return;
+    // Enter in the kg field calls this too, past the OK button's loading state.
+    if (!valid || reweigh.isPending) return;
     try {
-      const res = await reweigh.mutateAsync({ weighedKg: kg!, note: note.trim(), fileIds });
+      const res = await reweigh.mutateAsync({ weighedKg: kg!, note: note.trim(), fileIds, clientRequestId: requestId || undefined });
       if (res.notice) toast.notify({ type: /variance|5 %/.test(res.notice) ? "warning" : "info", title: `Re-weighed ${kgText(kg!)}`, description: res.notice });
       else toast.success(`Re-weighed ${kgText(kg!)} — logged on the position`);
       onDone?.(res);
