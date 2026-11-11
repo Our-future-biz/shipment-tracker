@@ -34,6 +34,7 @@ export default function PlatformCompanyUsersPage() {
         isLoading={cu.isLoading}
         allowedRoles={["admin", "manager", "user"]}
         currentUserId={user?.id ?? ""}
+        currentUserRole={user?.role ?? ""}
         orgUnits={isOwnCompany ? { departments, branches } : undefined}
         createUser={cu.createUser}
         updateUser={cu.updateUser}
