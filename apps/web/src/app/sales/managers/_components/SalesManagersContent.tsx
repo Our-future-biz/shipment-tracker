@@ -40,6 +40,7 @@ const VISIBLE_ROWS = 3;
 const LIST_SERVICE: Partial<Record<SalesCockpitMode, string>> = { air: "Air", rail: "Rail", road: "Road" };
 
 type CardKey = "urgent" | "attention";
+// A card's tone.border has "!": on the card it replaces CARD's own slate frame.
 const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string; empty: string; dialog: string; tone: { border: string; header: string; icon: string; link: string } }> = {
   urgent: {
     title: "Urgent",
@@ -47,7 +48,7 @@ const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string;
     linkLabel: "Click here to show URGENT quotes",
     empty: "Nothing urgent in Sales.",
     dialog: "URGENT quotes",
-    tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" },
+    tone: { border: "!border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" },
   },
   attention: {
     title: "Attention",
@@ -55,7 +56,7 @@ const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string;
     linkLabel: "Click here to show ATTENTION quotes",
     empty: "Nothing to watch within 48 hours.",
     dialog: "ATTENTION quotes",
-    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" },
+    tone: { border: "!border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" },
   },
 };
 
@@ -337,7 +338,7 @@ function SalesManagersCockpit() {
     const total = list?.total ?? 0;
     const hot = total > 0;
     return (
-      <section aria-label={`${title} — ${window}`} className={`bg-white border rounded-xl shadow-sm overflow-hidden ${hot ? tone.border : "border-slate-200"}`}>
+      <section aria-label={`${title} — ${window}`} className={`${CARD} overflow-hidden ${hot ? tone.border : ""}`}>
         {/* The card's bar (CARD_BAR), in the card's own warning colour while it holds something. */}
         <div className={hot ? `flex items-center gap-2.5 min-h-[42px] px-4 py-2 border-b ${tone.border} ${tone.header}` : CARD_BAR}>
           <WarningFilled className={hot ? tone.icon : "text-slate-300"} />

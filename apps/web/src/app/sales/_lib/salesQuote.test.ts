@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CostLine, SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
-import { baseRef, computeCargo, cyAtDestination, cyAtOrigin, cyTermsOf, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, routingMissing, routingNeeds, withoutPricing, withLineBasis, withRate, CONTAINER_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, cyAtDestination, cyAtOrigin, cyTermsOf, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, routingMissing, routingNeeds, withLineBasis, withRate, CONTAINER_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -42,12 +42,6 @@ describe("followStored", () => {
     expect(followStored(draft, won, "won")).toEqual({ ...draft, quoteStatus: "won", wonRevisionOf: "QCZ20261010001" });
     // Any other Won quote has its prices as stored.
     expect(followStored(draft, { ...stored, quoteStatus: "won" }, "won")).toEqual({ buyingLines: stored.buyingLines, currency: "EUR", quoteStatus: "won" });
-  });
-});
-
-describe("withoutPricing", () => {
-  it("drops the price keys of a patch, for a quote whose prices are closed", () => {
-    expect(withoutPricing({ origin: "Praha", buyingLines: [], sellingLines: [], currency: "EUR", allIn: true })).toEqual({ origin: "Praha" });
   });
 });
 

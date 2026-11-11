@@ -181,13 +181,6 @@ export function followStored(draft: Partial<SalesQuoteData>, stored: SalesQuoteD
   return next;
 }
 
-/** A patch without the keys that hold prices: what an import may change on a quote whose prices are closed. */
-export function withoutPricing(patch: Partial<SalesQuoteData>): Partial<SalesQuoteData> {
-  const own: Record<string, unknown> = { ...patch };
-  for (const key of PRICING_KEYS) delete own[key];
-  return own;
-}
-
 // Newest first, the order quotes are listed in; the reference settles it for two quotes created
 // in the same instant. For lists that come from the server in no order (useAllSalesQuotes).
 export function newestFirst(a: SalesQuote, b: SalesQuote): number {

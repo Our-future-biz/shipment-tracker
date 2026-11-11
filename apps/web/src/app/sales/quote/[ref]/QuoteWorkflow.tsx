@@ -1893,9 +1893,11 @@ export function QuoteWorkflow() {
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
           <div className="text-[13px] text-slate-500">{fxNote(totals)}</div>
           {liveRatesMissing && (
-            <div className="text-[13px] text-danger bg-danger-soft border border-danger/30 rounded-lg px-3 py-2">
-              Today&apos;s ČNB rates have not been imported — prices use an older fixing. Sync them on the Exchange page before sending.
-            </div>
+            <Alert
+              type="error"
+              showIcon
+              message="Today's ČNB rates have not been imported — prices use an older fixing. Sync them on the Exchange page before sending."
+            />
           )}
         </div>
         </NewSupplierFromQuote.Provider>
@@ -2327,7 +2329,7 @@ export function QuoteWorkflow() {
         }}
       />
 
-      {/* On a closed quote an import fills in everything but the prices: the server keeps those as stored. */}
+      {/* A closed quote is not filled in from anything: the Actions menu offers none of the three, and `set` changes nothing of it. */}
       <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={set} />
       <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={set} />
       <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={set} />

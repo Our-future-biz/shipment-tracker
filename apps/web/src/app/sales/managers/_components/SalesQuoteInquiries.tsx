@@ -20,7 +20,7 @@ import { floorText, marginText } from "../../_lib/roadQuote";
 import { serviceTypeLabel } from "../../_lib/types";
 import { COCKPIT_MODES, inCockpitMode } from "../_lib/cockpitModes";
 import { SellingAmountRequests } from "./SellingAmountRequests";
-import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
+import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, TD, TEXTAREA, TH } from "@/styles/ui";
 
 // Sales → Managers → Quote inquiries (Council Outlay 6, step 3): reps ask a manager to approve a
 // margin below the floor. A manager approves it, approves it down to a counter margin, rejects it,
@@ -247,7 +247,7 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                                 value={comment}
                                 maxLength={1000}
                                 onChange={(e) => setComment(e.target.value)}
-                                className="w-full text-[13px] text-slate-900 border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors"
+                                className={`${TEXTAREA} w-full resize-y`}
                               />
                               <span className={`block ${HINT} mt-0.5`}>Sent to {i.requestedByName || "whoever asked"} and the quote&apos;s owner, and kept in the quote&apos;s history</span>
                             </label>

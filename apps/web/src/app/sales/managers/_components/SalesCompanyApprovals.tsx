@@ -17,7 +17,7 @@ import { refreshCustomerLists } from "@/hooks/useCustomers";
 import { supplierApprovalKeys, useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { CUSTOMER_ROLE_LABELS, customerRoleOptions } from "@/app/customers/_lib/constants";
 import { quoteHref } from "../../_lib/quoteHref";
-import { BTN, BTN_DANGER, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, MODAL_TITLE, TD, TH } from "@/styles/ui";
+import { BTN, BTN_DANGER, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, MODAL_TITLE, TD, TEXTAREA, TH } from "@/styles/ui";
 
 // Sales → Managers → Company approval: a user who is no manager adds a supplier that is not in the
 // Customer Database from a quote's Pricing. It is in the database at once, waiting here; until a manager
@@ -235,7 +235,7 @@ export function SalesCompanyApprovals() {
                                 value={reason}
                                 maxLength={500}
                                 onChange={(e) => setReason(e.target.value)}
-                                className="w-full text-[13px] text-slate-900 border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors"
+                                className={`${TEXTAREA} w-full resize-y`}
                               />
                               <span className={`block ${HINT} mt-0.5`}>
                                 {a.alreadyInDatabase ? <>Sent to {who(a)}. The company stays as it is in the Customer Database.</> : a.registered ? <>Sent to {who(a)}. The company is deleted. Given by mistake? Undo decline under Answered brings it back.</> : <>Sent to {who(a)}. The company is deleted, and its quote&apos;s line asks for another supplier. Given by mistake, it can be undone under Answered.</>}
