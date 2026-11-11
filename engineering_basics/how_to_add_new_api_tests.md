@@ -1,463 +1,215 @@
-# How to Add New API Tests to Groupon Encore Backend
+# How to Add Tests for an API Endpoint
 
-## Overview
+A step-by-step guide to testing a new or changed endpoint in `apps/api`. There is no test suite that calls a running server over HTTP. Endpoints are tested with Vitest at the layer where the behaviour lives, and against the Encore test database when SQL, locks or races are the point.
 
-This guide walks you through the process of creating new API integration tests for the Groupon Encore Backend using Playwright and the `@groupon/encore-client` package. The test suite includes role-based authentication, multi-environment support, and type-safe API client integration.
+The general rules (commands, mocks, DB test flags, the `encore.app` id) are in [Testing Standards](./testing_standards.md). This page is the recipe.
 
-## Prerequisites
+---
 
-Before adding new tests, ensure you have:
+## Step 1: Decide what needs proving, and where
 
-*   ✅ Node.js 18+ and pnpm installed
-*   ✅ Access to preview, staging, or production environment
-*   ✅ Familiarity with TypeScript and Playwright basics
-*   ✅ Understanding of REST API testing concepts
-*   ✅ Knowledge of the `@groupon/encore-client` package
+| What the change does | Test it in | Example |
+|---|---|---|
+| Who may call it (roles), and that the company comes from the token | a **controller** test | `services/customers/tests/deletePermissions.test.ts` |
+| Business rules, refusals, what gets written, published or sent | a **service** test | `services/customers/tests/customer.service.test.ts` |
+| The SQL a repository builds (filters, company scope, search) | a **repository** test with a stand-in db | `services/customers/tests/repositories/customerListFiltered.repository.test.ts` |
+| Real rows: constraints, locks, two requests at once, outbox claims | a **DB test** under `tests/db/` | `services/shipments/tests/db/writeTurns.db.test.ts` |
+| A calculation or parser | a **pure helper** test | `lib/tests/outbox.test.ts`, `services/shipments/tests/jobNumber.test.ts` |
 
-## Step-by-Step Guide
+Most changes need a service test. Add a controller test when the change touches roles or the endpoint's wiring, and a DB test when it touches concurrency or a constraint.
 
-### Step 1: Understand the Test Structure
+## Step 2: Create the file
 
-The `api` test project follows this structure:
+- `apps/api/services/<service>/tests/<subject>.test.ts` (or under `tests/repositories/`, `tests/services/`, or `tests/db/<subject>.db.test.ts`).
+- Shared code in `apps/api/lib` is tested in `apps/api/lib/tests/`.
 
-```
-api/
-├── config/
-│   └── envs/          # Environment-specific configurations
-├── tests/             # Test specifications (organized by API domain)
-├── test-data/         # Test data and user roles
-├── utils/             # Helper functions (auth, client initialization)
-└── playwright.config.ts
-```
+## Step 3: Mock what the code touches, then import it
 
-**Key Concepts:**
+Vitest hoists `vi.mock` calls above the imports. Values a mock factory uses are created with `vi.hoisted`. Import the code under test **after** the mocks.
 
-*   **Test Files**: Organized by API domain (authentication, user, booster, mad, etc.)
-*   **EncoreClientAuth**: Wrapper for initializing authenticated API clients
-*   **Token Generation**: Automatic token generation per user role via `generateApiToken()`
-*   **Environment Configuration**: Multi-environment support (preview, staging, production)
-*   **Type Safety**: Full TypeScript support with `@groupon/encore-client`
+### Controller test template
 
-### Step 2: Decide What You're Testing
-
-Before writing code, identify:
-
-| Question | Example Answer |
-| :--- | :--- |
-| **What API endpoint are you testing?** | User profile endpoint (`/user/me`) |
-| **Which service/domain does it belong to?** | User management |
-| **What user role is needed?** | ADMIN |
-| **Does it modify data?** | No - read-only |
-| **What's the expected response?** | User object with email and roles |
-| **Which environments support it?** | All (preview, staging, production) |
-
-### Step 3: Choose the Right Test Location
-
-Create your test file in the appropriate domain directory under `tests/`:
-
-*   `tests/authentication/` - Authentication and user creation flows
-*   `tests/user/` - User management endpoints
-*   `tests/booster/` - Booster service endpoints
-*   `tests/mad/` - MAD (Merchant Acquisition/Deal) API endpoints
-*   `tests/<your-domain>/` - Create new directory for new API domains
-
-**File Naming Convention:** `<feature>.api.test.ts`
-
-**Example:** `tests/user/user-profile.api.test.ts`
-
-### Step 4: Create Your Test File
-
-Create a new test file following the standard structure:
-
-**Example: Basic Test Structure**
+Encore's `api()` is replaced by a function that returns the handler, so the endpoint can be called directly. The signed-in user comes from a stubbed `getAuthData`, which `requireRole` reads.
 
 ```typescript
-// tests/user/user-profile.api.test.ts
-import type Client from "@groupon/encore-client";
-import { expect, test } from "@playwright/test";
-import { env as ENV } from "../../config/envs/env";
-import { EncoreClientAuth } from "../../utils/encore-client-auth";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-test.describe("User - Profile", () => {
-  let encoreClient: Client;
+const auth = vi.hoisted(() => ({ role: "superadmin" }));
+vi.mock("encore.dev/api", () => ({
+  api: (_opts: unknown, handler: unknown) => handler,
+  APIError: {
+    permissionDenied: (msg: string) => Object.assign(new Error(msg), { code: "permission_denied" }),
+    unauthenticated: (msg: string) => new Error(msg),
+  },
+}));
+vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: auth.role }) }));
 
-  test.beforeAll(async () => {
-    encoreClient = await new EncoreClientAuth(ENV.url, ENV.token).init();
+const softDelete = vi.hoisted(() => vi.fn());
+vi.mock("../services/customer.service", () => ({ customerService: { softDelete } }));
+
+import { customerDelete } from "../controllers/customerDelete.controller";
+
+type Handler = (req: { id: string }) => Promise<{ ok: boolean }>;
+const call = customerDelete as unknown as Handler;
+
+describe("deleting a customer", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("lets a superadmin hide it, in their own company", async () => {
+    auth.role = "superadmin";
+    await expect(call({ id: "x1" })).resolves.toEqual({ ok: true });
+    expect(softDelete).toHaveBeenCalledWith("x1", "c1"); // the company from the token
   });
 
-  test("should return user profile data", async () => {
-    const response = await encoreClient.user.me();
-
-    expect(response).toHaveProperty("user");
-    expect(response.user).toHaveProperty("email");
-    expect(response.user).toHaveProperty("roles");
-  });
-});
-```
-
-### Step 5: Add Role-Based Authentication
-
-Use `generateApiToken()` to create tokens for different user roles:
-
-**Example: Test with Specific Role**
-
-```typescript
-import { expect, test } from "@playwright/test";
-import { env as ENV } from "../../config/envs/env";
-import { getTestAccount, USER_ROLES } from "../../test-data/users";
-import { EncoreClientAuth } from "../../utils/encore-client-auth";
-import { generateApiToken } from "../../utils/global-setup";
-
-test.describe("User - Get Current User Data", () => {
-  test("should return valid Content Editor user data", async () => {
-    // Step 1: Generate token for specific role
-    const editorToken = await generateApiToken(USER_ROLES.CONTENT_EDITOR);
-
-    // Step 2: Initialize client with role-specific token
-    const encoreClient = await new EncoreClientAuth(ENV.url, editorToken).init();
-
-    // Step 3: Get expected account data
-    const editorAccount = getTestAccount(USER_ROLES.CONTENT_EDITOR);
-
-    // Step 4: Make API call
-    const response = await encoreClient.user.me();
-
-    // Step 5: Verify response
-    expect(response).toHaveProperty("user");
-    expect(response.user.email).toBe(editorAccount.email);
-    expect(response.user.roles).toContain(USER_ROLES.CONTENT_EDITOR);
-  });
-});
-```
-
-**Available Roles:**
-
-*   `USER_ROLES.ADMIN` - Full administrative access
-*   `USER_ROLES.CONTENT_EDITOR` - Content editing permissions
-*   `USER_ROLES.CONTENT_MODERATOR` - Content moderation permissions
-
-**How Token Generation Works:**
-
-*   **Preview Environment**: Creates a new test user and retrieves an authentication token
-*   **Staging/Production**: Uses existing API key to generate an authentication token
-*   Tokens are automatically managed per environment
-
-### Step 6: Handle Environment-Specific Tests
-
-Use `test.skip()` to conditionally run tests based on environment:
-
-**Example: Environment-Specific Test**
-
-```typescript
-import { expect, test } from "@playwright/test";
-import { env as ENV } from "../../config/envs/env";
-import { EncoreClientAuth } from "../../utils/encore-client-auth";
-
-test.describe("Authentication - Create User", () => {
-  let encoreClient: Client;
-
-  test.beforeAll(async () => {
-    // Skip if not in preview environment
-    test.skip(ENV.target !== "preview", "This test is only available in preview environment");
-    encoreClient = await new EncoreClientAuth(ENV.url, ENV.token).init();
-  });
-
-  test("should create account with valid credentials", async () => {
-    const response = await encoreClient.authentication.createUserInPreviewEnvironment({
-      email: "test@example.com",
-      name: "Test User",
-    });
-
-    expect(response).toHaveProperty("token");
-    expect(response).toHaveProperty("expiresAt");
-  });
-});
-```
-
-### Step 7: Add Error Handling
-
-Handle API errors using the `APIError` class from `@groupon/encore-client`:
-
-**Example: Error Handling**
-
-```typescript
-import { expect, test } from "@playwright/test";
-import { env as ENV } from "../../config/envs/env";
-import { INVALID_AUTHENTICATION } from "../../test-data/users";
-import { EncoreClientAuth } from "../../utils/encore-client-auth";
-import { APIError } from "../../utils/global-setup";
-
-test.describe("User - Authentication Errors", () => {
-  test("should return error for invalid authentication", async () => {
-    const invalidClient = await new EncoreClientAuth(ENV.url, INVALID_AUTHENTICATION.auth).init();
-
-    try {
-      const response = await invalidClient.user.me();
-      expect(response, "Response should be undefined").toBeUndefined();
-    } catch (error) {
-      if (error instanceof APIError) {
-        expect((error as { code: string }).code).toBe("unauthenticated");
-        expect(error.message).toBeDefined();
-      }
+  it("refuses everyone else", async () => {
+    for (const role of ["admin", "manager", "user"]) {
+      auth.role = role;
+      await expect(call({ id: "x1" })).rejects.toMatchObject({ code: "permission_denied" });
     }
+    expect(softDelete).not.toHaveBeenCalled();
   });
 });
 ```
 
-### Step 8: Run and Debug Your Test
+### Service test template
 
-**Run Locally**
+Mock the repositories, the other services (`~encore/clients`), the topics, the log and the `APIError` factories the service uses:
+
+```typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const customers = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
+const contacts = vi.hoisted(() => ({ createInCustomer: vi.fn(), getByIdForCompany: vi.fn(), updateInCustomer: vi.fn() }));
+vi.mock("../repositories/customer.repository", () => ({ customerRepository: customers }));
+vi.mock("../repositories/contact.repository", () => ({ contactRepository: contacts }));
+vi.mock("../topics", () => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ auth: { userLookup: vi.fn() } }));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock("encore.dev/api", () => ({
+  APIError: {
+    notFound: (msg: string) => new Error(msg),
+    aborted: (msg: string) => Object.assign(new Error(msg), { code: "aborted" }),
+  },
+}));
+
+import { contactService } from "../services/contact.service";
+
+const COMPANY = "00000000-0000-0000-0000-000000000001";
+
+beforeEach(() => vi.clearAllMocks());
+
+it("can't add a contact under a customer that isn't live in the company", async () => {
+  customers.getByIdForCompany.mockResolvedValue(null);
+  await expect(contactService.create(COMPANY, "other-company-customer", { firstName: "X", lastName: "Y" })).rejects.toThrow("Customer not found");
+  expect(contacts.createInCustomer).not.toHaveBeenCalled();
+});
+```
+
+To test how the service handles a refused write, reject the repository mock with the error drizzle would give. The SQLSTATE goes on `cause`, which `lib/db/errors.ts` reads:
+
+```typescript
+const oneMain = Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "contact_one_main_per_customer" } });
+contacts.createInCustomer.mockRejectedValueOnce(oneMain);
+```
+
+The real `customer.service.test.ts` mocks a few more modules (`encore.dev/config` for a secret, the ARES lookup). Mock whatever the module imports that needs the Encore runtime.
+
+### Repository test template
+
+Stand in for the database, record what the repository asks for, and render the condition to SQL:
+
+```typescript
+import { expect, it, vi } from "vitest";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+
+const fake = vi.hoisted(() => {
+  const state = { wheres: [] as unknown[] };
+  const db = {
+    select: () => ({
+      from: () => ({
+        where: (where: unknown) => {
+          state.wheres.push(where);
+          // the rows (ordered, limited) or, awaited as it is, the count
+          return { orderBy: () => ({ limit: async () => [] }), then: (resolve: (rows: { value: number }[]) => unknown) => resolve([{ value: 0 }]) };
+        },
+      }),
+    }),
+  };
+  return { state, db };
+});
+vi.mock("../../db/db", () => ({ db: fake.db }));
+
+import { customerRepository } from "../../repositories/customer.repository";
+
+const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
+const lastWhere = () => new PgDialect().sqlToQuery(fake.state.wheres.at(-1) as SQL);
+
+it("keeps the companies whose roles include the one asked for, within the company", async () => {
+  await customerRepository.listFiltered(COMPANY, { role: "haulier" });
+  const { sql, params } = lastWhere();
+  expect(sql).toBe('("customer"."company_id" = $1 and "customer"."deleted_at" is null and "customer"."roles" @> $2)');
+  expect(params).toEqual([COMPANY, '{"haulier"}']);
+});
+```
+
+Shape the stand-in after the drizzle calls the method really makes. It only has to answer those.
+
+### DB test template
+
+```typescript
+import { randomUUID } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+
+// What two requests at the same moment leave behind. Runs only under `encore test`
+// (SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db).
+vi.mock("~encore/clients", () => ({ /* the services the code calls, faked */ }));
+vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
+
+import { db } from "../../db/db";
+import { shipmentService } from "../../services/shipment.service";
+
+describe("two House BoL releases at once", () => {
+  it("stamp the shipment once", async () => {
+    const companyId = randomUUID(); // a company of its own: no other test's rows
+    // ... insert the rows the test needs with db.insert(...)
+    const outcomes = await Promise.allSettled([/* call A */, /* call B */]);
+    // ... assert on outcomes and on what db.select() finds stored
+  });
+});
+```
+
+Put the file under a folder that is already wired to a flag (see the table in [Testing Standards](./testing_standards.md#database-tests)). For a new service, add its folder and flag to `apps/api/vitest.config.ts` the same way, or skip in the file with `describe.skipIf(!process.env.<FLAG>)` as the quotes DB tests do.
+
+## Step 4: Write the cases
+
+For an endpoint, cover at least:
+
+- the success path, and what it returns (no `companyId` or `deletedAt` in API items);
+- each refusal: not found (also when the row belongs to another company), invalid input, wrong role, a conflict;
+- what is written, published or sent. Assert the arguments, not just that a call happened;
+- for a list: filters, the `limit` clamp, the company scope (see [API Pagination](./api_pagination_standards.md)).
+
+Name the cases in plain sentences that state the rule: `it("can't be added under a customer that isn't live in the company", ...)`.
+
+## Step 5: Run it
 
 ```bash
-# Set environment and run your specific test
-ENV=preview API_BASE_URL=<api-url> pnpm test tests/user/user-profile.api.test.ts
+cd apps/api
+npx vitest run services/customers/tests/deletePermissions.test.ts   # the new file
+npx vitest run                                                     # everything
+encore gen wrappers && npx tsc --noEmit -p .                       # types
 
-# Run tests in a specific directory
-ENV=staging-us pnpm test tests/user/
-
-# Run tests matching a pattern
-ENV=preview API_BASE_URL=<api-url> pnpm test --grep "should return user profile"
-
-# Run with UI mode (interactive)
-ENV=preview API_BASE_URL=<api-url> pnpm test:ui
-
-# Run with single worker (useful for debugging)
-ENV=preview API_BASE_URL=<api-url> pnpm test:ci
+# DB tests, with their flag (see Testing Standards for the encore.app id note)
+SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db
 ```
 
-**View Test Reports**
+## Checklist
 
-```bash
-# View HTML report
-pnpm report
-```
-
-### Step 9: Review and Refine
-
-Before submitting your test, verify:
-
-| Checklist Item | ✓ |
-| :--- | :--- |
-| Test file follows naming convention (`*.api.test.ts`) | □ |
-| Test is in the correct domain directory | □ |
-| Uses `EncoreClientAuth` for client initialization | □ |
-| Uses `generateApiToken()` for role-based auth when needed | □ |
-| Includes proper error handling | □ |
-| Uses environment-specific logic with `test.skip()` if needed | □ |
-| Test passes locally and in CI | □ |
-| Test can run multiple times (idempotent) | □ |
-| No hardcoded credentials or sensitive data | □ |
-| Test has clear comments and descriptive names | □ |
-| Response assertions are comprehensive | □ |
-
-## Common Test Patterns
-
-### Pattern 1: Simple API Read Test
-
-```typescript
-test.describe("User - Profile", () => {
-  let encoreClient: Client;
-
-  test.beforeAll(async () => {
-    encoreClient = await new EncoreClientAuth(ENV.url, ENV.token).init();
-  });
-
-  test("should return user profile", async () => {
-    const response = await encoreClient.user.me();
-
-    expect(response).toHaveProperty("user");
-    expect(response.user.email).toBeDefined();
-  });
-});
-```
-
-### Pattern 2: Role-Based Testing
-
-```typescript
-test.describe("User - Role Verification", () => {
-  test("should return correct roles for Admin", async () => {
-    const adminToken = await generateApiToken(USER_ROLES.ADMIN);
-    const client = await new EncoreClientAuth(ENV.url, adminToken).init();
-    const account = getTestAccount(USER_ROLES.ADMIN);
-
-    const response = await client.user.me();
-
-    expect(response.user.roles).toContain(USER_ROLES.ADMIN);
-    expect(response.user.email).toBe(account.email);
-  });
-
-  test("should return correct roles for Content Editor", async () => {
-    const editorToken = await generateApiToken(USER_ROLES.CONTENT_EDITOR);
-    const client = await new EncoreClientAuth(ENV.url, editorToken).init();
-
-    const response = await client.user.me();
-
-    expect(response.user.roles).toContain(USER_ROLES.CONTENT_EDITOR);
-    expect(response.user.roles).not.toContain(USER_ROLES.ADMIN);
-  });
-});
-```
-
-### Pattern 3: Error Handling Test
-
-```typescript
-test.describe("Authentication - Error Cases", () => {
-  test("should handle invalid credentials", async () => {
-    const invalidClient = await new EncoreClientAuth(ENV.url, "invalid-token").init();
-
-    try {
-      await invalidClient.user.me();
-      // If we reach here, the test should fail
-      expect(true).toBe(false);
-    } catch (error) {
-      if (error instanceof APIError) {
-        expect(error.code).toBe("unauthenticated");
-      }
-    }
-  });
-});
-```
-
-### Pattern 4: Environment-Specific Test
-
-```typescript
-test.describe("Preview - User Creation", () => {
-  test.beforeAll(async () => {
-    test.skip(ENV.target !== "preview", "Preview environment only");
-  });
-
-  test("should create user in preview", async () => {
-    const client = await new EncoreClientAuth(ENV.url, ENV.token).init();
-    const response = await client.authentication.createUserInPreviewEnvironment({
-      email: "test@example.com",
-      name: "Test User",
-    });
-
-    expect(response.token).toBeDefined();
-  });
-});
-```
-
-### Pattern 5: Multi-Step API Flow
-
-```typescript
-test.describe("User - Complete Flow", () => {
-  test("should complete user workflow", async () => {
-    // Step 1: Authenticate
-    const token = await generateApiToken(USER_ROLES.ADMIN);
-    const client = await new EncoreClientAuth(ENV.url, token).init();
-
-    // Step 2: Get user profile
-    const profile = await client.user.me();
-    expect(profile.user).toBeDefined();
-
-    // Step 3: Perform another operation with same client
-    const deals = await client.booster.searchAndResolveDeals({
-      searchQuery: "test",
-      country: "US",
-      offset: 0,
-      count: 10,
-    });
-    expect(deals.deals).toBeDefined();
-  });
-});
-```
-
-## Best Practices
-
-**✅ DO**
-
-*   Use `EncoreClientAuth` for client initialization
-*   Use `generateApiToken()` for role-based authentication
-*   Add comprehensive response assertions
-*   Handle errors using `APIError` class
-*   Use environment-specific logic with `test.skip()` when needed
-*   Organize tests by API domain in separate directories
-*   Use descriptive test names that explain what is being tested
-*   Add comments for complex test steps
-*   Use `getTestAccount()` to get expected test data
-*   Test locally before pushing to CI
-
-**❌ DON'T**
-
-*   Don't hardcode credentials or sensitive data
-*   Don't skip error handling
-*   Don't write tests that depend on each other
-*   Don't commit environment files or tokens
-*   Don't use hardcoded API URLs (use `ENV.url`)
-*   Don't skip environment checks for environment-specific features
-*   Don't make assumptions about response structure without assertions
-*   Don't use `any` types - leverage TypeScript from `@groupon/encore-client`
-
-## Troubleshooting
-
-### Test Fails with "Token not found"
-
-**Cause:** Token generation failed or environment not configured
-
-**Solution:**
-
-*   Ensure `ENV` variable is set correctly
-*   Check environment config file exists in `config/envs/`
-*   Verify API credentials are valid in `test-data/users.ts`
-*   For preview: Ensure user creation endpoint is accessible
-*   For staging/production: Verify API keys are correct
-
-### Test Fails with "APIError: unauthenticated"
-
-**Cause:** Invalid or expired token
-
-**Solution:**
-
-*   Regenerate token using `generateApiToken()`
-*   Check token expiration
-*   Verify user account exists in the environment
-*   Ensure API key is valid (for staging/production)
-
-### Test Fails with "Config file does not exist"
-
-**Cause:** Environment configuration file missing
-
-**Solution:**
-
-*   Ensure `ENV` variable matches available config files
-*   Check that `config/envs/<env>.env` exists
-*   Verify environment name is correct (preview, staging-us, production)
-
-### Client Initialization Fails
-
-**Cause:** Invalid base URL or token
-
-**Solution:**
-
-*   Verify `API_BASE_URL` is set correctly
-*   Check that `ENV.url` returns a valid URL
-*   Ensure token is generated before client initialization
-*   For staging: Use `initWithAPIKey()` if using API key authentication
-
-### Tests Are Flaky
-
-**Cause:** Network issues or timing problems
-
-**Solution:**
-
-*   Add retry logic in Playwright config (already configured)
-*   Use appropriate timeouts for slow endpoints
-*   Check network connectivity to API
-*   Verify API is stable and not under heavy load
-
-## Additional Resources
-
-*   [Playwright Documentation: Fast and reliable end-to-end testing for modern web apps | Playwright](https://playwright.dev/)
-*   **Project README**: `apps/test/api/README.md`
-*   **Example Tests**:
-    *   `tests/authentication/create-user-in-preview.api.test.ts`
-    *   `tests/user/user-me.api.test.ts`
-    *   `tests/booster/search-and-resolve-deals.api.test.ts`
-    *   `tests/mad/inferpds.api.test.ts`
-
-## 🔗 Related Documentation
-
-*   [Testing: Github Web End-to-End Workflow](../monorepo-and-config/e2e-tests-workflow.md)
-*   [Testing: Encore Github Triggers](../monorepo-and-config/github-pipeline-triggers.md)
-
+- [ ] The test is at the layer where the behaviour lives
+- [ ] Mocks come before the import of the code under test; shared values via `vi.hoisted`
+- [ ] Roles: allowed and refused both tested; the company comes from the token
+- [ ] Refusals assert the error (`code` or message), and that nothing was written
+- [ ] A test that needs a database is a `*.db.test.ts` under `tests/db/`, behind its flag, with its own company
+- [ ] `npx vitest run` and `npx tsc --noEmit -p .` pass; DB tests run if they apply
+- [ ] `apps/api/encore.app` is unchanged

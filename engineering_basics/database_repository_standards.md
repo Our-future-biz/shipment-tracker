@@ -1,264 +1,58 @@
 # Database & Repository Standards
 
-> **This documentation has been split into specialized documents**
+The entry page for everything about data in `apps/api`. The details are in these documents:
 
-## Documentation
-
-This page serves as a hub for database and repository standards in Encore TypeScript services. Documentation is split into three focused documents:
-
-### 1. [Database Standards](database_standards.md) 🗄️
-**Database schemas, migrations, and configuration**
-- Drizzle ORM setup
-- Schema design principles
-- Migrations (create, test, deploy)
-- Indexing and performance
-- Data types and naming conventions
-
-**Read when:**
-- Creating new tables
-- Adding migrations
-- Optimizing database queries
-  database-and-data/database_repository_standards/api_pagination_standards
-### 2. [Repository Patterns](repository_patterns.md) 🏗️
-**BaseRepository and repository layer**
-- BaseRepository class and methods
-- CRUD operations (create, findById, update, delete)
-- Advanced query methods (getOneByQuery, getListByQuery)
-- Soft delete implementation
-- Business-specific methods
-- Error handling and transactions
-
-**Read when:**
-- Creating new repository
-- Understanding BaseRepository methods
-- Implementing complex queries
-
-### 3. [API Pagination Standards](api_pagination_standards.md) 📄
-**Pagination in API and repository layer**
-- PaginationRequest and PaginatedResponse interfaces
-- BaseRepository.getPaginated() method
-- API endpoint implementation
-- Filtering and sorting
-- Best practices and optimization
-
-**Read when:**
-- Creating list endpoints with pagination
-- Implementing filtering
-- Understanding pagination system
+| Document | Read it when you |
+|---|---|
+| [Database Standards](database_standards.md) | add or change a table, an index or a constraint; make a migration |
+| [Repository Patterns](repository_patterns.md) | write a repository method; need a transaction, a lock, search, or to map a database error |
+| [API Pagination Standards](api_pagination_standards.md) | build or change a list endpoint |
+| [Event Processing Patterns](event_processing_patterns.md) | need another service to learn about a change (events, outboxes, cron jobs) |
+| [Testing Standards](testing_standards.md) | test any of the above, including the DB tests |
+| [Local Drizzle Helpers](../LOCAL_DRIZZLE_HELPERS.md) | want to know what `lib/db` and `lib/outbox` export |
 
 ---
 
-## Quick Start
+## The rules in short
 
-### For New Tables
-
-1. **Create schema** → [Database Standards - Schema Design](database_standards.md#schema-design)
-2. **Generate migration** → [Database Standards - Migrations](database_standards.md#migrations)
-3. **Create repository** → [Repository Patterns - Basic Usage](epository_patterns.md#basic-usage)
-
-### For New List Endpoints
-
-1. **Define interfaces** → [API Pagination - Request/Response](api_pagination_standards.md#paginationrequest)
-2. **Create endpoint** → [API Pagination - API Endpoint](api_pagination_standards.md#implementation-in-api-endpoint)
-3. **Implement repository** → [API Pagination - Repository](api_pagination_standards.md#implementation-in-repository)
+1. **One Postgres database per service**, through Drizzle. No foreign keys and no reads across services. Another service's data comes through its endpoint, and changes arrive as events.
+2. **Repositories are the only layer that runs SQL.** Controller → service → repository. Controllers never import drizzle types.
+3. **Every tenant table has `company_id`**, and every query filters on it. The company comes from the signed-in request (`getAuthData()` / `requireRole()`), never from the client. Use `TenantRepository`.
+4. **Soft delete** with `deleted_at`. Reads filter `deleted_at IS NULL`, and live-only uniqueness is a partial unique index.
+5. **Shared columns and indexes** from `lib/db/defaults.ts`: `defaultTableColumns`, `tenantColumns`, `defaultTableIndexes`, `tenantIndex`.
+6. **Writes that belong together share a transaction.** Concurrent writes of one thing take a lock (advisory key or `FOR UPDATE`), and a constraint still guarantees the rule.
+7. **Every list is bounded**: `limit` / `offset` with `total`, a cap with `truncated`, or `afterId` to load everything.
+8. **Migrations are generated** with `drizzle-kit generate --config=services/<service>/db/drizzle.config.ts`, read, and edited only where drizzle-kit cannot know better. Dev data is disposable.
+9. **What must reach another service goes through an outbox** written in the same transaction and retried by a cron.
 
 ---
 
-## Core Principles
+## Quick start: a new table
 
-1. ✅ **Repository is the ONLY layer** that touches database
-2. ✅ **Type-safe queries** with Drizzle ORM
-3. ✅ **Soft deletes by default** for audit and recovery
-4. ✅ **UUID primary keys** for distributed systems
-5. ✅ **Consistent timestamps** (created_at, updated_at, deleted_at)
-6. ✅ **snake_case for database**, camelCase for TypeScript
-7. ✅ **Proper indexing** for performance
-8. ✅ **Immutable migrations** after deployment
-9. ✅ **BaseRepository for consistency** across repositories
-10. ✅ **Pagination for list endpoints**
+1. Write `services/<service>/schemas/<model>.schema.ts` with `...defaultTableColumns`, `...tenantColumns`, `...defaultTableIndexes(name, table)` and `tenantIndex(name, table)`. See [Database Standards - Table design](database_standards.md#table-design).
+2. Add the schema to the service's `db/db.ts`.
+3. From `apps/api`, run `npx drizzle-kit generate --config=services/<service>/db/drizzle.config.ts --name=<what>` and read the SQL. See [Migrations](database_standards.md#migrations).
+4. Write `repositories/<model>.repository.ts` extending `TenantRepository` and export the singleton. See [Repository Patterns](repository_patterns.md#the-base-classes).
+5. Restart the backend. Encore applies the migration on start.
+6. Run the drift check (the same generate command must say "No schema changes").
 
----
+## Quick start: a new list endpoint
 
-## Project Structure
-
-```
-/services/{service-name}/
-├── db/
-│   ├── db.ts                 # Database connection
-│   ├── drizzle.config.ts     # Drizzle Kit config
-│   └── migrations/           # SQL migrations
-├── schemas/
-│   └── schema.ts             # Table schemas
-└── repositories/
-    └── user.repository.ts    # Data access layer
-```
-
-**Details:** [Database Standards - Project Structure](database_standards.md#project-structure)
+1. Choose the shape: paged (`{ pagination: { total, offset, limit }, data }`), capped (`truncated`), or search (`{ items, total }`). See [API Pagination](api_pagination_standards.md).
+2. Clamp `limit` and `offset` in the controller or service, and fall back to the default sort for an unknown `sortBy`.
+3. In the repository: company and `deleted_at` in the where clause, search with `containsAllWords`, an `id` tiebreaker in the order, and rows plus count in `Promise.all`.
+4. Enrich the page with one query per related table, never one per row.
 
 ---
 
-## Quick Examples
+## Drizzle operators you will see
 
-### Database Configuration
-
-```typescript
-// db.ts
-import { drizzle } from "drizzle-orm/node-postgres";
-import { SQLDatabase } from "encore.dev/storage/sqldb";
-import * as schema from "../schemas/schema";
-
-const database = new SQLDatabase("service_name", {
-  migrations: "./db/migrations",
-});
-
-export const db = drizzle(database.connectionString, { schema });
-```
-
-**Full examples:** [Database Standards - Setup](database_standards.md#database-setup)
-
-### Table Schema
-
-```typescript
-export const userTable = pgTable("user", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-}, (table) => ({
-  emailIdx: index("user_email_idx").on(table.email),
-}));
-```
-
-**Detailed examples:** [Database Standards - Schema Design](database_standards.md#schema-design)
-
-### Migrations
-
-```bash
-# 1. Update schema.ts
-# 2. Generate migration
-npx drizzle-kit generate
-
-# 3. Migration runs automatically on service start
-```
-
-**Complete guide:** [Database Standards - Migrations](database_standards.md#migrations)
-
-### Repository with BaseRepository
-
-```typescript
-import { BaseRepository } from "@core/databases/drizzle/repository";
-
-class UserRepository extends BaseRepository<typeof userTable> {
-  constructor() {
-    super(db, userTable);
-  }
-
-  // Add business-specific methods
-  async softDelete(id: string): Promise<void> {
-    await this.update(id, { deletedAt: new Date() });
-  }
-}
-
-export const userRepository = new UserRepository();
-```
-
-**Complete guide:** [Repository Patterns](repository_patterns.md)
-
-### Pagination with getPaginated()
-
-```typescript
-// API endpoint with pagination
-export interface UserFilterRequest extends PaginationRequest {
-  active?: boolean;
-  role?: UserRole[];
-}
-
-export interface UserFilterResponse extends PaginatedResponse<IUserPublic> {}
-
-// Repository implementation
-async getByFilter(request: UserFilterRequest): Promise<UserFilterResponse> {
-  const whereClauses: SQL[] = [];
-
-  // Filter soft-deleted
-  whereClauses.push(ne(userTable.deleted, true));
-
-  if (request.active != null) {
-    whereClauses.push(eq(userTable.active, request.active));
-  }
-
-  return this.getPaginated<IUserPublic>({
-    request,
-    whereClauses,
-    whereDefaultQuery: "AND",
-    defaultOrderBy: userTable.name,
-  });
-}
-```
-
-**Detailed guide:** [API Pagination Standards](api_pagination_standards.md)
+`eq`, `ne`, `and`, `or`, `inArray`, `notInArray`, `isNull`, `isNotNull`, `gt`, `gte`, `lt`, `lte`, `asc`, `desc`, `count`, `max`, `sql`, plus `getTableColumns` (all from `drizzle-orm`), and `.for("update")` for row locks. Use `sql\`...\`` for what has no operator (subqueries, `pg_advisory_xact_lock`, `nulls last`). Values always go in as parameters (`${value}`), never by string concatenation.
 
 ---
 
-## Checklists
+## Related
 
-### New Tables
-- [ ] UUID primary key
-- [ ] Standard timestamps (created_at, updated_at, deleted_at)
-- [ ] snake_case for columns and tables
-- [ ] Indexes on queried columns
-- [ ] Foreign keys with indexes
-- [ ] Types exported
-
-### New Repositories
-- [ ] Extends BaseRepository
-- [ ] Constructor calls super(db, table)
-- [ ] Export singleton instance
-- [ ] Type hints on methods
-- [ ] Error handling with APIError
-- [ ] Soft delete implemented
-- [ ] Tests for key methods
-
-### List Endpoints with Pagination
-- [ ] Request extends PaginationRequest
-- [ ] Response extends PaginatedResponse<T>
-- [ ] Type-safe sortBy values
-- [ ] defaultOrderBy defined
-- [ ] Soft-deleted records filtered
-- [ ] Indexes on sort columns
-
----
-
-## Quick Reference
-
-```typescript
-// Basic CRUD with BaseRepository
-const item = await repository.findById(id);
-const createdItem = await repository.create(data);
-const updatedItem = await repository.update(id, data);
-await repository.delete(id);
-
-// Query methods
-const itemGet = await repository.getOneByQuery({ where: eq(table.id, id) });
-const itemsList = await repository.getListByQuery({ where: conditions });
-const items = await repository.findBy([eq(table.active, true)]);
-
-// Pagination! Please this is important, check pagination documentation.
-const result = await repository.getPaginated({
-  request,
-  whereClauses,
-  defaultOrderBy: table.name,
-});
-
-// Drizzle ORM helpers
-eq, ne, and, or, like, ilike, inArray, isNull, gt, lt, desc, asc
-```
-
----
-
-## Related Documentation
-
-- [Controllers & API Endpoints](controllers_api_endpoints.md) - API endpoint patterns
-- [Naming Conventions](naming_convention.md) - Project naming standards
+- [Controllers & API Endpoints](controllers_api_endpoints.md)
+- [Naming Conventions](naming_convention.md)
+- [Service Architecture Patterns](service_architecture_patterns.md)

@@ -1,1212 +1,222 @@
-# Event Processing Patterns in Encore
+# Event Processing Patterns
 
-## Overview
+How `apps/api` services tell each other what happened. The tools are Encore Pub/Sub (`Topic` / `Subscription`), transactional outboxes in `apps/api/lib/outbox`, and Encore `CronJob`s.
 
-Event Processing (using Publish/Subscribe pattern) enables asynchronous, event-driven communication between services. In Encore, the event processing system provides a robust mechanism for decoupling services and handling background processing with built-in retry capabilities.
-
-This document defines the **mandatory patterns** for implementing event processing in Encore TypeScript services.
-
----
-
-## Core Principles
-
-1. **Separate Concerns**: Topics and subscriptions live in dedicated folders
-2. **Interface-First**: Define event interfaces in topic files
-3. **Controller-Based**: Subscriptions must call controllers, not services directly
-4. **Error Handling**: Throw errors to trigger automatic retries
-5. **Internal by Default**: Subscription endpoints should be internal (no auth required)
-6. **Type Safety**: All events are strongly typed
-7. **Idempotency**: **CRITICAL** - Handlers MUST be idempotent (can be invoked multiple times safely)
+> Related:
+> - [Database Standards](./database_standards.md) - why there are no foreign keys between services
+> - [Repository Patterns](./repository_patterns.md) - transactions and `FOR UPDATE SKIP LOCKED`
+> - [Testing Standards](./testing_standards.md)
 
 ---
 
-## Folder Structure
+## Why events
 
-### Required Structure
+Each service has its own database, so nothing joins or cascades across services. Two needs follow:
 
-Every service using event processing must have two dedicated folders:
-
-```
-/services/{service-name}/
-  ├── topics/               # Topic definitions and event interfaces
-  │   └── {event}.topic.ts
-  └── subscriptions/        # Subscription handlers
-      └── {event}.subscription.ts
-  └── controllers/          # Controllers called by subscriptions
-      └── _{event}Process.controller.ts
-  └── services/             # Business logic
-      └── {domain}.service.ts
-  └── interfaces/           # Shared interfaces
-      └── interfaces.ts
-```
-
-### Example: Demo Service
-
-```
-/services/demo_service/
-  ├── topics/
-  │   └── demoContentCreated.topic.ts
-  ├── subscriptions/
-  │   └── demoContentCreated.subscription.ts
-  ├── controllers/
-  │   └── _processDemoContentCreated.controller.ts
-  ├── services/
-  │   └── demo.service.ts
-  ├── repositories/
-  │   └── demoContent.repository.ts
-  ├── schemas/
-  │   └── demoContent.schema.ts
-  └── interfaces/
-      └── interfaces.ts
-```
+- **Copies stay current.** Services keep copies of other services' text next to the id (a shipment shows its customer's name, an open quote too) so that their lists can be searched and exported. When the owner changes the text, it publishes an event and the copies are rewritten.
+- **Deletes reach the other services.** When a shipment is deleted, invoicing, trucking, warehouse, warehouseConcept and fx retire their own rows for it.
 
 ---
 
-## Topic Definition
+## Topics
 
-Topics define the events that can be published and consumed. Each topic has:
-- Event interface definition
-- Topic configuration
-- Delivery guarantees
+Each publishing service declares its topics in `services/<service>/topics.ts`, with the event interface next to them:
 
-### Pattern
-
-**File:** `topics/{eventName}.topic.ts`
+| Service | Topic | Published when |
+|---|---|---|
+| `customers` | `customer-changed` | a customer is edited, deleted or restored |
+| `customers` | `contact-changed` | a contact person is edited or deleted |
+| `shipments` | `shipment-deleted` | a shipment is soft-deleted (through the outbox) |
+| `shipments` | `shipment-parties-changed` | a shipment's Customer or Customer's PIC text changed |
+| `quotes` | `quote-renamed` | a sales quote's reference changed (through the outbox) |
+| `warehouseConcept` | `warehouse-gate-stamped` | a gate stamp moved cargo in or out, or was voided (through the outbox) |
 
 ```typescript
 import { Topic } from "encore.dev/pubsub";
 
-/**
- * Topic for broadcasting {event name} events
- */
-export const {eventName}Topic = new Topic<{EventName}Event>("{event-name-kebab}", {
-  deliveryGuarantee: "at-least-once",
-});
-
-/**
- * Event interface for {event name}
- *
- * Best Practice: Keep events minimal - only include IDs
- * Subscribers fetch full data as needed
- *
- * IMPORTANT: Subscribers MUST implement idempotent processing
- * Events can be delivered multiple times due to "at-least-once" guarantee
- */
-export interface {EventName}Event {
-  // Primary identifier(s) only
-  id: string;
-}
-```
-
-### Real Example
-
-**File:** `topics/demoContentCreated.topic.ts`
-
-```typescript
-import { Topic } from "encore.dev/pubsub";
-
-/**
- * Topic for broadcasting demo content creation events
- * Subscribers can react to content creation for cache invalidation,
- * notifications, analytics, etc.
- */
-export const demoContentCreatedTopic = new Topic<DemoContentCreatedEvent>("demo-content-created", {
-  deliveryGuarantee: "at-least-once",
-});
-
-export interface DemoContentCreatedEvent {
-  contentId: string;
-}
-```
-
-### Topic Configuration Options
-
-| Option | Values | Description |
-|--------|--------|-------------|
-| `deliveryGuarantee` | `"at-least-once"` | Messages delivered at least once (may be duplicated) |
-| | `"exactly-once"` | Messages delivered exactly once (no duplicates) |
-
-**Recommendation:** Use `"at-least-once"` for most use cases.
-
-**⚠️ CRITICAL: Idempotency Required**
-
-With `"at-least-once"` delivery, events can be delivered multiple times:
-- Same event may arrive more than once
-- Handler can be invoked multiple times for the same event
-- **Your processing MUST be idempotent** (safe to execute multiple times)
-
-Without idempotent handlers, you risk:
-- Duplicate data creation
-- Multiple notifications sent
-- Incorrect state updates
-- Data corruption
-
----
-
-## Subscription Definition
-
-Subscriptions consume events from topics and delegate processing to controllers. They must:
-- Call internal controllers (not services directly)
-- Handle errors by throwing (triggers retry)
-- Be named with underscore prefix
-- Configure retry policies
-
-### Pattern
-
-**File:** `subscriptions/{eventName}.subscription.ts`
-
-```typescript
-import { Subscription } from "encore.dev/pubsub";
-import type { {EventName}Event } from "../topics/{eventName}.topic";
-import { {eventName}Topic } from "../topics/{eventName}.topic";
-import { {serviceName} } from "~encore/clients";
-
-/**
- * Subscription handler for {event name} events
- * Delegates processing to internal controller
- *
- * This demonstrates the correct pattern:
- * 1. Subscription calls internal controller (not service directly)
- * 2. Throws error on failure to trigger retry
- * 3. Includes retry policy configuration
- */
-export const _{eventName}Subscription = new Subscription(
-  {eventName}Topic,
-  "{event-name-subscription}",
-  {
-    handler: async (event: {EventName}Event): Promise<{EventName}Response> => {
-      // Call internal controller - NOT service directly
-      // If processing fails, the service will throw an error automatically
-      return await {serviceName}._{processEvent}(event);
-    },
-    retryPolicy: {
-      maxRetries: 10,      // Number of retry attempts
-      minBackoff: "10s",   // Minimum wait between retries
-      maxBackoff: "10m",   // Maximum wait between retries (exponential backoff)
-    },
-  }
-);
-
-/**
- * Response interface for {event name} processing
- */
-export interface {EventName}Response {
-  success: boolean;
-}
-```
-
-### Real Example
-
-**File:** `subscriptions/demoContentCreated.subscription.ts`
-
-```typescript
-import { Subscription } from "encore.dev/pubsub";
-import type { DemoContentCreatedEvent } from "../topics/demoContentCreated.topic";
-import { demoContentCreatedTopic } from "../topics/demoContentCreated.topic";
-import { demo_service } from "~encore/clients";
-
-/**
- * Subscription handler for demo content creation events
- * Delegates processing to internal controller
- *
- * This demonstrates the correct pattern:
- * 1. Subscription calls internal controller (not service directly)
- * 2. Throws error on failure to trigger retry
- * 3. Includes retry policy configuration
- */
-export const _demoContentCreatedSubscription = new Subscription(
-  demoContentCreatedTopic,
-  "process-demo-content-created",
-  {
-    handler: async (event: DemoContentCreatedEvent): Promise<DemoContentCreatedResponse> => {
-      // Call internal controller - NOT service directly
-      // If processing fails, the service will throw an error automatically
-      return await demo_service._processDemoContentCreated(event);
-    },
-    retryPolicy: {
-      maxRetries: 10,
-      minBackoff: "10s",
-      maxBackoff: "10m",
-    },
-  }
-);
-
-/**
- * Response interface for demo content creation processing
- */
-export interface DemoContentCreatedResponse {
-  success: boolean;
-}
-```
-
-### Retry Policy Configuration
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `maxRetries` | `number` | Maximum number of retry attempts |
-| `minBackoff` | `string` | Minimum delay between retries (e.g., "10s", "1m") |
-| `maxBackoff` | `string` | Maximum delay between retries (e.g., "10m", "1h") |
-
-**Best Practices:**
-- Start with conservative retry settings
-- Use exponential backoff (minBackoff → maxBackoff)
-- Consider the criticality of the event when setting maxRetries
-- For critical events: `maxRetries: 20+`
-- For non-critical events: `maxRetries: 3-5`
-
----
-
-## Controller for Subscription
-
-Subscriptions should always call internal controllers. Controllers validate inputs, perform authorization if needed, and delegate to services.
-
-### Pattern
-
-**File:** `controllers/_{eventName}Process.controller.ts`
-
-```typescript
-import { api } from "encore.dev/api";
-import { {domain}Service } from "../services/{domain}.service";
-import type { {EventName}Response } from "../subscriptions/{eventName}.subscription";
-import type { {EventName}Event } from "../topics/{eventName}.topic";
-
-/**
- * Internal controller for processing {event name} events
- * Called by subscription handlers
- *
- * This demonstrates the correct pattern:
- * 1. Prefixed with underscore (_) for internal use
- * 2. expose: false (not exposed to external APIs)
- * 3. auth: false (no auth required for service-to-service)
- * 4. Delegates to service layer for business logic
- */
-export const _{processEvent} = api(
-  {
-    method: "POST",
-    path: "/{service-name}/internal/{event-name}/process",
-    expose: false,  // Internal only - not exposed to external APIs
-    auth: false,    // No auth required (trusted service-to-service communication)
-  },
-  async (event: {EventName}Event): Promise<{EventName}Response> => {
-    // Delegate to service layer for business logic
-    // NOTE: Assign to variable first — never `return await` directly (rule: no return await)
-    const result = await {domain}Service.process{Event}(event);
-    return result;
-  }
-);
-```
-
-### Real Example
-
-**File:** `controllers/_processDemoContentCreated.controller.ts`
-
-```typescript
-import { api } from "encore.dev/api";
-import { demoService } from "../services/demo.service";
-import type { DemoContentCreatedResponse } from "../subscriptions/demoContentCreated.subscription";
-import type { DemoContentCreatedEvent } from "../topics/demoContentCreated.topic";
-
-/**
- * Internal controller for processing demo content creation events
- * Called by subscription handlers
- *
- * This demonstrates the correct pattern:
- * 1. Prefixed with underscore (_) for internal use
- * 2. expose: false (not exposed to external APIs)
- * 3. auth: false (no auth required for service-to-service)
- * 4. Delegates to service layer for business logic
- */
-export const _processDemoContentCreated = api(
-  {
-    method: "POST",
-    path: "/demo-service/internal/demo-content-created/process",
-    expose: false, // Internal only - not exposed to external APIs
-    auth: false, // No auth required (trusted service-to-service communication)
-  },
-  async (event: DemoContentCreatedEvent): Promise<DemoContentCreatedResponse> => {
-    // Delegate to service layer for business logic
-    const result = await demoService.processDemoContentCreated(event);
-    return result;
-  }
-);
-```
-
-### Why Controllers, Not Services?
-
-**⚠️ PRODUCTION REQUIREMENT — Not just a style rule:**
-
-Services are **not deployable units** in Encore. Only `api()` endpoints are. Calling a service class directly from a subscription works locally but **breaks in production** where each service runs as a separate deployable unit.
-
-**Wrong (breaks in production):**
-```typescript
-import { demoService } from "../services/demo.service";
-handler: async (event) => demoService.processDemoContentCreated(event) // NEVER do this
-```
-
-**Right:**
-```typescript
-import { demo_service } from "~encore/clients"; // always via Encore clients
-handler: async (event) => demo_service._processDemoContentCreated(event)
-```
-
-**Additional reasons:**
-1. **Consistency**: All entry points (HTTP, PubSub) go through controllers
-2. **Authorization**: Controllers can inject auth checks if needed
-3. **Validation**: Controllers handle request validation
-4. **Observability**: Better tracing and monitoring at controller layer
-5. **Service Isolation**: Services remain decoupled from transport concerns
-
----
-
-## Publishing Events
-
-Events are published from services using the topic's `publish()` method.
-
-### Pattern
-
-**In Service Layer:**
-
-```typescript
-import { {eventName}Topic } from "../topics/{eventName}.topic";
-import type { {EventName}Event } from "../topics/{eventName}.topic";
-
-class {Domain}Service {
-  async performOperation(params: OperationParams): Promise<OperationResponse> {
-    // ... business logic ...
-
-    // Publish event when operation completes
-    const event: {EventName}Event = {
-      id: result.id,
-      timestamp: new Date().toISOString(),
-      // ... other event data
-    };
-
-    // Publish event asynchronously
-    await {eventName}Topic.publish(event);
-
-    return result;
-  }
-}
-```
-
-### Real Example
-
-```typescript
-import { staticVideoReady } from "../topics/staticVideoReady.topic";
-import type { StaticVideoReadyEvent } from "../topics/staticVideoReady.topic";
-
-class VideoService {
-  async createStaticVideo(params: CreateStaticVideoRequest): Promise<CreateStaticVideoResponse> {
-    // Create static video processing job
-    const result = await this.processVideo(params);
-
-    // Publish event when video is ready
-    const event: StaticVideoReadyEvent = {
-      videoId: result.id,
-    };
-
-    await staticVideoReady.publish(event);
-
-    return result;
-  }
-}
-```
-
----
-
-## Error Handling & Retries
-
-### Throw Errors to Trigger Retries
-
-When a subscription handler encounters an error, the **service throws an exception** to trigger automatic retry:
-
-```typescript
-export const _eventSubscription = new Subscription(eventTopic, "subscription-name", {
-  handler: async (event: EventType): Promise<EventProcessedResponse> => {
-    // Call internal controller
-    // If processing fails, the service will throw an error automatically to trigger retry
-    return await serviceName._processEvent(event);
-  },
-  retryPolicy: {
-    maxRetries: 10,
-    minBackoff: "10s",
-    maxBackoff: "10m",
-  },
-});
-
-export interface EventProcessedResponse {
-  success: boolean;
-}
-```
-
-**Service Implementation:**
-
-```typescript
-class MyService {
-  async processEvent(event: EventType): Promise<EventProcessedResponse> {
-    // Process the event
-    const result = await this.doSomething(event);
-
-    if (!result) {
-      // Throw error to trigger retry
-      throw APIError.internal("Processing failed");
-    }
-
-    // Return success
-    return { success: true };
-  }
-}
-```
-
-### Idempotent Handlers (CRITICAL)
-
-**⚠️ REQUIRED: All handlers MUST be idempotent**
-
-Since the event processing system uses `at-least-once` delivery, handlers **WILL** receive duplicate events. This is not a bug - it's how the system guarantees delivery.
-
-**Why events are delivered multiple times:**
-- Delivery guarantee: "at-least-once" means events can arrive more than once
-- Network issues or timeouts during processing
-- Service restarts during event processing
-- Retry mechanism after errors
-
-**Your handler will be invoked multiple times with the same event**. Design all handlers to be **idempotent**:
-
-```typescript
-class DemoService {
-  async processDemoContentCreated(event: DemoContentCreatedEvent): Promise<DemoContentCreatedResponse> {
-    // Check if already processed (idempotency)
-    const content = await this.demoContentRepository.findById(event.contentId);
-
-    if (!content) {
-      // Content doesn't exist, throw error to retry
-      throw APIError.notFound(`Content not found: ${event.contentId}`);
-    }
-
-    // Check if already processed based on some flag or timestamp
-    if (content.processedAt) {
-      log.info("Event already processed, skipping", { contentId: event.contentId });
-      return { success: true };
-    }
-
-    // Process the content
-    // ... processing logic ...
-
-    return { success: true };
-  }
-}
-```
-
-### Dead Letter Queue (DLQ)
-
-After `maxRetries` is exhausted, events go to a Dead Letter Queue (DLQ). Monitor DLQs for:
-- Systematic failures
-- Data quality issues
-- Service degradation
-
-**Recommendation:** Set up alerts for DLQ depth.
-
----
-
-## Complete Example: Demo Content Created Event
-
-This example shows the complete implementation of a PubSub pattern from the demo_service. All files follow the exact patterns we've established.
-
-### 1. Define Topic
-
-**File:** `topics/demoContentCreated.topic.ts`
-
-```typescript
-import { Topic } from "encore.dev/pubsub";
-
-/**
- * Topic for broadcasting demo content creation events
- * Subscribers can react to content creation for cache invalidation,
- * notifications, analytics, etc.
- */
-export const demoContentCreatedTopic = new Topic<DemoContentCreatedEvent>("demo-content-created", {
-  deliveryGuarantee: "at-least-once",
-});
-
-/**
- * Event interface for demo content creation
- * This event is published when demo content is created
- *
- * Following minimal-event guidance:
- * - Contains only IDs and metadata
- * - Consumers must fetch full content using contentId
- */
-export interface DemoContentCreatedEvent {
-  contentId: string;
-}
-```
-
-### 2. Create Subscription
-
-**File:** `subscriptions/demoContentCreated.subscription.ts`
-
-```typescript
-import { Subscription } from "encore.dev/pubsub";
-import type { DemoContentCreatedEvent } from "../topics/demoContentCreated.topic";
-import { demoContentCreatedTopic } from "../topics/demoContentCreated.topic";
-import { demo_service } from "~encore/clients";
-
-/**
- * Subscription handler for demo content creation events
- * Delegates processing to internal controller
- *
- * This demonstrates the correct pattern:
- * 1. Subscription calls internal controller (not service directly)
- * 2. Throws error on failure to trigger retry
- * 3. Includes retry policy configuration
- */
-export const _demoContentCreatedSubscription = new Subscription(
-  demoContentCreatedTopic,
-  "process-demo-content-created",
-  {
-    handler: async (event: DemoContentCreatedEvent): Promise<DemoContentCreatedResponse> => {
-      // Call internal controller - NOT service directly
-      // If processing fails, the service will throw an error automatically
-      return await demo_service._processDemoContentCreated(event);
-    },
-    retryPolicy: {
-      maxRetries: 10,
-      minBackoff: "10s",
-      maxBackoff: "10m",
-    },
-  }
-);
-
-/**
- * Response interface for demo content creation processing
- */
-export interface DemoContentCreatedResponse {
-  success: boolean;
-}
-```
-
-### 3. Create Controller
-
-**File:** `controllers/_processDemoContentCreated.controller.ts`
-
-```typescript
-import { api } from "encore.dev/api";
-import { demoService } from "../services/demo.service";
-import type { DemoContentCreatedResponse } from "../subscriptions/demoContentCreated.subscription";
-import type { DemoContentCreatedEvent } from "../topics/demoContentCreated.topic";
-
-/**
- * Internal controller for processing demo content creation events
- * Called by subscription handlers
- *
- * This demonstrates the correct pattern:
- * 1. Prefixed with underscore (_) for internal use
- * 2. expose: false (not exposed to external APIs)
- * 3. auth: false (no auth required for service-to-service)
- * 4. Delegates to service layer for business logic
- */
-export const _processDemoContentCreated = api(
-  {
-    method: "POST",
-    path: "/demo-service/internal/demo-content-created/process",
-    expose: false, // Internal only - not exposed to external APIs
-    auth: false, // No auth required (trusted service-to-service communication)
-  },
-  async (event: DemoContentCreatedEvent): Promise<DemoContentCreatedResponse> => {
-    // Delegate to service layer for business logic
-    const result = await demoService.processDemoContentCreated(event);
-    return result;
-  }
-);
-```
-
-### 4. Implement Service Logic
-
-**File:** `services/demo.service.ts`
-
-```typescript
-import { APIError } from "encore.dev/api";
-import log from "encore.dev/log";
-import type { DemoContentCreatedResponse } from "../subscriptions/demoContentCreated.subscription";
-import type { DemoContentCreatedEvent } from "../topics/demoContentCreated.topic";
-import { demoContentRepository } from "../repositories/demoContent.repository";
-import type { DemoContent } from "../interfaces/interfaces";
-
-class DemoService {
-  /**
-   * Process demo content creation events from event processing system
-   * This demonstrates:
-   * - Idempotent handling (checking if already processed)
-   * - Error handling that allows retries (throws errors to trigger retry)
-   * - Business logic triggered by events
-   */
-  async processDemoContentCreated(event: DemoContentCreatedEvent): Promise<DemoContentCreatedResponse> {
-    log.info("Processing demo content creation event", {
-      contentId: event.contentId,
-    });
-
-    // Fetch the full content data (the event only contains the ID)
-    const content = await demoContentRepository.getById<DemoContent>(event.contentId);
-
-    if (!content) {
-      log.error("Content not found for processing", {
-        contentId: event.contentId,
-      });
-      // Throw error to trigger retry
-      throw APIError.notFound(`Content not found: ${event.contentId}`);
-    }
-
-    // Here you would implement your business logic
-    // Examples:
-    // - Invalidate cache
-    // - Update search index
-    // - Send notifications
-    // - Trigger downstream processes
-    // - Update analytics
-
-    log.info("Processing new content creation", {
-      contentId: event.contentId,
-      text: content.text,
-    });
-
-    // Example: Update search index, send notifications, etc.
-    // await searchIndexService.indexContent(content);
-    // await notificationService.notifyContentCreated(content);
-
-    log.info("Successfully processed demo content creation", {
-      contentId: event.contentId,
-    });
-
-    return { success: true };
-  }
+export interface ShipmentDeletedEvent {
+  shipmentId: string;
+  companyId: string;
 }
 
-export const demoService = new DemoService();
-```
-
-### 5. Publish Event
-
-**File:** `services/demo.service.ts` (publishing side)
-
-```typescript
-import { demoContentCreatedTopic } from "../topics/demoContentCreated.topic";
-import type { DemoContentCreatedEvent } from "../topics/demoContentCreated.topic";
-
-class DemoService {
-  async createContent(request: CreateDemoContentRequest): Promise<CreateDemoContentResponse> {
-    // Create content in database
-    const data = await demoContentRepository.create(request);
-
-    // Publish event to notify subscribers
-    // Note: Only send IDs - subscribers will fetch full data if needed
-    const event: DemoContentCreatedEvent = {
-      contentId: data.id,
-    };
-
-    await demoContentCreatedTopic.publish(event);
-
-    return { data };
-  }
-}
-```
-
----
-
-## Complete Example (Alternative): Deal Content Change Event
-
-### 1. Define Topic
-
-**File:** `topics/dealContentChanged.topic.ts`
-
-```typescript
-import { Topic } from "encore.dev/pubsub";
-
-/**
- * Event interface for deal content changes
- */
-export interface DealContentChangedEvent {
-  dealUid: string;
-  changeType: "created" | "updated" | "deleted";
-  timestamp: string;
-  changedBy: string;
-}
-
-/**
- * Topic for broadcasting deal content change events
- */
-export const dealContentChanged = new Topic<DealContentChangedEvent>("deal-content-changed", {
+// Published when a shipment is (soft-)deleted, so services that keep rows for it (invoicing,
+// warehouse, …) can retire them too: there are no foreign keys across service databases.
+export const shipmentDeleted = new Topic<ShipmentDeletedEvent>("shipment-deleted", {
   deliveryGuarantee: "at-least-once",
 });
 ```
 
-### 2. Create Subscription
+Rules:
 
-**File:** `subscriptions/dealContentChanged.subscription.ts`
-
-```typescript
-import { Subscription } from "encore.dev/pubsub";
-import { dealService } from "~encore/clients";
-import type { DealContentChangedEvent } from "../topics/dealContentChanged.topic";
-import { dealContentChanged } from "../topics/dealContentChanged.topic";
-
-/**
- * Process deal content change events
- * Triggers cache invalidation and downstream notifications
- */
-export const _dealContentChangedSubscription = new Subscription(
-  dealContentChanged,
-  "process-deal-content-change",
-  {
-    handler: async (event: DealContentChangedEvent): Promise<void> => {
-      // Call internal controller
-      // If processing fails, the service will throw an error automatically
-      await dealService._processDealContentChange(event);
-    },
-    retryPolicy: {
-      maxRetries: 15,
-      minBackoff: "5s",
-      maxBackoff: "5m",
-    },
-  }
-);
-```
-
-### 3. Create Controller
-
-**File:** `controllers/_processDealContentChange.controller.ts`
-
-```typescript
-import { api } from "encore.dev/api";
-import type { DealContentChangedEvent } from "../topics/dealContentChanged.topic";
-import { dealService } from "../services/deal.service";
-
-/**
- * Internal controller for processing deal content change events
- * Invalidates caches and triggers downstream updates
- */
-export const _processDealContentChange = api(
-  {
-    method: "POST",
-    path: "/deal/internal/content-change/process",
-    expose: false,
-    auth: false,
-  },
-  async (event: DealContentChangedEvent): Promise<void> => {
-    // Service will throw error automatically if processing fails
-    await dealService.processDealContentChange(event);
-  }
-);
-```
-
-### 4. Implement Service Logic
-
-**File:** `services/deal.service.ts`
-
-```typescript
-import { APIError } from "encore.dev/api";
-import log from "encore.dev/log";
-import type { DealContentChangedEvent } from "../topics/dealContentChanged.topic";
-import { dealRepository } from "../repositories/deal.repository";
-import { cacheService } from "@/cache/cache.service";
-
-class DealService {
-  async processDealContentChange(event: DealContentChangedEvent): Promise<void> {
-    // Check idempotency - skip if already processed
-    const isProcessed = await this.checkIfProcessed(event);
-    if (isProcessed) {
-      log.info("Event already processed, skipping", { event });
-      return;
-    }
-
-    // Invalidate cache for this deal
-    await cacheService.invalidate(`deal:${event.dealUid}`);
-
-    // Trigger any downstream processes based on change type
-    if (event.changeType === "deleted") {
-      await this.handleDealDeletion(event.dealUid);
-    }
-
-    // Mark as processed
-    await this.markAsProcessed(event);
-
-    log.info("Successfully processed deal content change", { dealUid: event.dealUid });
-  }
-
-  private async checkIfProcessed(event: DealContentChangedEvent): Promise<boolean> {
-    // Implementation: Check if event already processed
-    return false;
-  }
-
-  private async markAsProcessed(event: DealContentChangedEvent): Promise<void> {
-    // Implementation: Mark event as processed
-  }
-
-  private async handleDealDeletion(dealUid: string): Promise<void> {
-    // Implementation: Handle deal deletion logic
-  }
-}
-
-export const dealService = new DealService();
-```
-
-### 5. Publish Event
-
-**File:** `services/deal.service.ts` (publishing side)
-
-```typescript
-import { dealContentChanged } from "../topics/dealContentChanged.topic";
-import type { DealContentChangedEvent } from "../topics/dealContentChanged.topic";
-
-class DealService {
-  async updateDealContent(params: UpdateDealContentRequest): Promise<UpdateDealContentResponse> {
-    // Update deal content in database
-    const updatedDeal = await dealRepository.update(params.dealUid, params);
-
-    // Publish event to notify subscribers
-    const event: DealContentChangedEvent = {
-      dealUid: params.dealUid,
-      changeType: "updated",
-      timestamp: new Date().toISOString(),
-      changedBy: params.updatedBy,
-    };
-
-    await dealContentChanged.publish(event);
-
-    return { deal: updatedDeal };
-  }
-}
-```
+- Topic names are kebab-case and in the past tense (`customer-changed`, `quote-renamed`).
+- Every topic is `at-least-once`, so every subscriber must be idempotent.
+- Every event carries `companyId`. A subscriber runs without a signed-in user, and the event is how it knows which company the work belongs to.
+- An event carries the ids and the values the subscribers copy (`companyName`, `label`, `deleted` on `customer-changed`; `from` / `to` on `quote-renamed`). Write the contract in the comment above the interface, including what subscribers must do.
 
 ---
 
-## Best Practices
+## Subscriptions
 
-### 1. Event Design
-
-✅ **DO:**
-- Keep events minimal - **only include IDs** (best practice)
-- Subscribers fetch full data as needed
-- Use immutable event structures
-- Version events if schema may change
-- Document what the ID represents
-
-❌ **DON'T:**
-- Include full object data (use ID references instead)
-- Include large payloads or nested objects
-- Include sensitive data without encryption
-- Include computed or derived data
-- Change event structure without versioning
-
-**Why Minimal Events?**
-- Reduces message size and network overhead
-- Avoids data staleness issues
-- Allows subscribers to get latest data
-- Prevents exposing unnecessary information
-- Makes events more reusable
-
-### 2. Naming Conventions
-
-**Topics:**
-- Use snake_case: `deal_content_changed`
-- Be descriptive: `user-profile-updated` not `user-event`
-- Use past tense for events: `order-created` not `create-order`
-
-**Subscriptions:**
-- Prefix with underscore: `_dealContentChangedSubscription`
-- Describe the action: `_processOrderCreated`
-
-**Controllers:**
-- Prefix with underscore: `_processDealContentChange`
-- Start with `_process` or `_handle`: `_processVideoReady`
-
-### 3. Error Handling
-
-✅ **DO:**
-- Throw errors to trigger retries
-- Log all errors with context
-- **Implement idempotent handlers (REQUIRED)**
-- Set appropriate retry policies
-- Monitor Dead Letter Queues
-- Check if event already processed before doing work
-
-❌ **DON'T:**
-- Swallow errors silently
-- Retry forever without limits
-- **Assume events arrive only once (they WILL arrive multiple times)**
-- Process without idempotency checks
-- Create duplicate data or side effects
-
-### 4. Testing
-
-**Test subscriptions with:**
+One file per subscription in `services/<service>/subscriptions/<event>.subscription.ts`. The subscription name is `<service>-<event>`. The handler calls the subscribing service's own service or repository directly:
 
 ```typescript
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { dealService } from "~encore/clients";
-import type { DealContentChangedEvent } from "../topics/dealContentChanged.topic";
+import { Subscription } from "encore.dev/pubsub";
+import { shipmentDeleted } from "../../shipments/topics";
+import { jobRateRepository } from "../repositories/jobRate.repository";
 
-vi.mock("~encore/clients", () => ({
-  dealService: {
-    _processDealContentChange: vi.fn(),
+// No foreign keys cross service databases: a deleted shipment's rate lock is retired here.
+export const fxShipmentDeleted = new Subscription(shipmentDeleted, "fx-shipment-deleted", {
+  handler: async ({ shipmentId, companyId }) => {
+    await jobRateRepository.softDeleteForShipment(companyId, shipmentId);
   },
-}));
+});
+```
 
-describe("Deal Content Changed Subscription", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+- **Throw to retry.** A handler that throws gets the message again later (Encore's retry; no subscription sets its own `retryPolicy`). Don't catch and swallow errors that a retry could fix.
+- **Be idempotent.** Write the new value instead of applying a change ("set the name to X", "soft-delete where still live"), so a second delivery does nothing new.
+- **Read the owner's current state when order matters.** Deliveries can come out of order. `shipments`' `partyLinksService.customerChanged` takes the customer's name as the Customer Database holds it *now*, not the possibly older name in the event.
+- **Know a redelivery.** `isRedelivery()` (`services/shipments/lib/delivery.ts`) is true when Encore's `currentRequest().deliveryAttempt > 1`. The shipments party-links handler then re-announces every affected shipment, because it cannot know what the failed attempt already wrote.
+
+Subscriptions currently in use: customers (`quote-renamed`), sales (`customer-changed`, `quote-renamed`), quotes (`customer-changed`, `contact-changed`), shipments (`customer-changed`, `contact-changed`, `quote-renamed`), trucking (`customer-changed`, `quote-renamed`, `shipment-deleted`, `warehouse-gate-stamped`), warehouse (`shipment-deleted`), warehouseConcept (`shipment-deleted`, `shipment-parties-changed`), invoicing (`shipment-deleted`, `quote-renamed`), fx (`shipment-deleted`).
+
+---
+
+## Publishing: directly or through an outbox
+
+### Directly, after the write
+
+`topic.publish(event)` after the database write has committed, outside its transaction. Use it when a lost event can be repaired. `customers` publishes `customer-changed` like this:
+
+- For an edit, a failed publish fails the request, so the user sees it and saves again.
+- For a delete or restore (which cannot simply be repeated), a failed publish is only logged.
+- Copies that missed an event are repaired by the superadmin "links normalize" backfills in shipments, quotes, sales, trucking and warehouseConcept.
+
+### Through a transactional outbox
+
+Use an outbox when the event or call must never be lost and must never go out for a write that rolled back. The pattern:
+
+1. In the **same transaction** as the change, insert a row into the service's outbox table. Either both commit or neither does.
+2. **After the commit**, deliver that row straight away (for example `deliverShipmentEvents(shipmentId)` at the end of `shipmentService` delete).
+3. Whatever could not be delivered then, a **cron job** retries every minute, with backoff.
+
+The outbox tables:
+
+| Table (service) | Delivers |
+|---|---|
+| `shipment_event_outbox` (shipments) | publishes `shipment-deleted` |
+| `quote_event_outbox` (quotes) | publishes `quote-renamed` |
+| `warehouse_gate_event_outbox` (warehouseConcept) | publishes `warehouse-gate-stamped` |
+| `warehouse_shipment_outbox` (warehouseConcept) | calls Shipments: received / released dates and plates from gate stamps |
+| `trucking_outbox` (trucking) | calls Shipments, Invoicing and the warehouse: planned dates and plates, delivered date, Billing, Trucking cost lines, POD files, expected arrivals |
+| `invoice_followup_outbox` (invoicing) | calls Customers and Shipments after an invoice or credit note is issued: the customer's invoice list, the Credited mark, the shipment's statuses |
+
+An outbox that calls another service makes the call **as the user who caused it** (`actingUserId` / `actingRole` on the row), passed as `authData` on the internal call. Shipment updates go through `sendShipmentUpdateAs()` (`lib/outbox/shipmentUpdateAs.ts`), which checks the user's role as it is now and marks the update `appWrite: true`.
+
+### The shared outbox code (`apps/api/lib/outbox`)
+
+- **`outbox.columns.ts`**: `outboxColumns` (`acting_user_id`, `acting_role`, `status`, `attempts`, `next_attempt_at`, `locked_until`, `last_error`, `sent_at`) and `outboxStatusCheck` (`status IN ('pending', 'sent', 'failed', 'cancelled')`). An outbox table also spreads `defaultTableColumns` and `tenantColumns`, and has its own target and payload columns.
+- **`outboxRepository.ts`**: `OutboxRepository` (extends `TenantRepository`). Construct it with `{ orderKey, sentAfterCancelNote, wholeValueKinds? }`.
+  - `claimDueRows(limit, scope?)` takes due `pending` rows with `FOR UPDATE SKIP LOCKED`, holds them for 2 minutes and adds one to `attempts`. The claim count is the token: only the run holding the latest claim can settle a row. Rows of one `orderKey` (for example one `shipment_id`) go out in creation order, one at a time. A row that failed for good does not hold the later ones back.
+  - `markSent`, `markRetry`, `markFailed`.
+  - `failedWhere` and `requeueFailed` (for "Send again"). `wholeValueKinds` cancels a failed row instead of resending it when a newer value of the same kind was sent since.
+  - `unsentHealth`, `stalePending` (for warnings and the warehouse managers' cockpit).
+- **`outboxDelivery.ts`**: pure delivery logic, with no database and no Encore runtime. `deliverOutboxRow(row, handlers)` sends one row and settles it as `sent`, `retry` or `failed`. `runOutboxDelivery({ claim, deliver, onError })` runs up to 5 rounds of 20 rows and never throws.
+- **`outboxRetry.ts`**: `OUTBOX_MAX_ATTEMPTS = 15`; the next try after 2, 4, 8 … minutes, never more than 60. Error codes that a retry cannot fix (`not_found`, `invalid_argument`, `permission_denied`, `unauthenticated`, `failed_precondition`) fail the row at once.
+- **`sendAgain.ts` / `serviceIdentity.ts`**: "Send again" requeues failed rows. A row written by a user who is no longer there is resent as the company's service identity ("Trucking (system)"), which can never sign in.
+
+### A service's delivery code
+
+From `services/shipments/services/shipmentEvents.service.ts`:
+
+```typescript
+const handlers: OutboxHandlers<ShipmentEventOutboxRecord> = {
+  async send(row) {
+    await shipmentDeleted.publish(row.event);
+  },
+  errorText: () => "The shipment's delete could not be published", // our own words, never upstream text
+  async onFailed(row, error, err) {
+    await shipmentEventOutboxRepository.markFailed(row.id, row.attempts, error);
+    log.error(err, "shipments: shipment-deleted not published for good", { outboxId: row.id, shipmentId: row.shipmentId });
+  },
+  async onRetry(row, error, nextAttemptAt, err) {
+    await shipmentEventOutboxRepository.markRetry(row.id, row.attempts, error, nextAttemptAt);
+  },
+  async onSent(row) {
+    await shipmentEventOutboxRepository.markSent(row.id, row.attempts);
+  },
+};
+
+/** Publishes what is due (with a shipment id, only that shipment's events). Never throws. */
+export async function deliverShipmentEvents(shipmentId?: string) {
+  return runOutboxDelivery({
+    claim: (limit) => shipmentEventOutboxRepository.claimDue(limit, shipmentId),
+    deliver: (row) => deliverOutboxRow(row, handlers),
+    onError: (err) => log.error(err, "shipments: shipment event publish run failed"),
   });
-
-  it("should process deal content change successfully", async () => {
-    const event: DealContentChangedEvent = {
-      dealUid: "deal-123",
-      changeType: "updated",
-      timestamp: new Date().toISOString(),
-      changedBy: "user-456",
-    };
-
-    vi.mocked(dealService._processDealContentChange).mockResolvedValue({
-      success: true,
-    });
-
-    // Test subscription handler directly
-    await expect(
-      subscriptionHandler(event)
-    ).resolves.not.toThrow();
-
-    expect(dealService._processDealContentChange).toHaveBeenCalledWith(event);
-  });
-
-  it("should throw error on processing failure", async () => {
-    const event: DealContentChangedEvent = {
-      dealUid: "deal-123",
-      changeType: "updated",
-      timestamp: new Date().toISOString(),
-      changedBy: "user-456",
-    };
-
-    vi.mocked(dealService._processDealContentChange).mockResolvedValue({
-      success: false,
-      error: "Database error",
-    });
-
-    // Should throw to trigger retry
-    await expect(
-      subscriptionHandler(event)
-    ).rejects.toThrow();
-  });
-});
-```
-
-### 5. Monitoring
-
-**Monitor:**
-- Subscription lag (time between publish and process)
-- Retry rates
-- Dead Letter Queue depth
-- Processing duration
-- Error rates by event type
-
-**Set alerts for:**
-- DLQ depth > 0
-- Subscription lag > 5 minutes
-- Error rate > 5%
-- Processing duration > 30 seconds
-
----
-
-## Common Patterns
-
-### Pattern 1: Cache Invalidation
-
-```typescript
-// Publish event when data changes
-await cacheInvalidationTopic.publish({
-  cacheKey: `user:${userId}`,
-  operation: "invalidate",
-});
-
-// Subscribe to invalidate cache
-const _cacheInvalidationSubscription = new Subscription(
-  cacheInvalidationTopic,
-  "invalidate-cache",
-  {
-    handler: async (event) => {
-      await cacheService.invalidate(event.cacheKey);
-    },
-  }
-);
-```
-
-### Pattern 2: Async Processing
-
-```typescript
-// Publish event for expensive operation
-await videoProcessingTopic.publish({
-  videoId: video.id,
-  operation: "transcode",
-});
-
-// Subscribe to process asynchronously
-const _videoProcessingSubscription = new Subscription(
-  videoProcessingTopic,
-  "process-video",
-  {
-    handler: async (event) => {
-      await video._processVideo(event);
-    },
-    retryPolicy: {
-      maxRetries: 20,
-      minBackoff: "30s",
-      maxBackoff: "30m",
-    },
-  }
-);
-```
-
-### Pattern 3: Fan-Out (Multiple Subscribers)
-
-```typescript
-// One topic, multiple subscribers
-export const orderCreatedTopic = new Topic<OrderCreatedEvent>("order-created", {
-  deliveryGuarantee: "at-least-once",
-});
-
-// Subscriber 1: Send email
-const _orderEmailSubscription = new Subscription(orderCreatedTopic, "send-email", {
-  handler: async (event) => await email._sendOrderConfirmation(event),
-});
-
-// Subscriber 2: Update inventory
-const _orderInventorySubscription = new Subscription(orderCreatedTopic, "update-inventory", {
-  handler: async (event) => await inventory._updateStock(event),
-});
-
-// Subscriber 3: Analytics
-const _orderAnalyticsSubscription = new Subscription(orderCreatedTopic, "track-analytics", {
-  handler: async (event) => await analytics._trackOrder(event),
-});
-```
-
----
-
-## Migration Guide
-
-### From Direct Service Calls
-
-**Before (❌ Wrong):**
-```typescript
-// Subscription calling service directly
-export const _videoSubscription = new Subscription(videoTopic, "process-video", {
-  handler: async (event: VideoEvent): Promise<void> => {
-    // WRONG: Calling service directly
-    await videoService.processVideo(event);
-  },
-});
-```
-
-**After (✅ Correct):**
-```typescript
-// Subscription calling controller with response interface
-export const _videoSubscription = new Subscription(videoTopic, "process-video", {
-  handler: async (event: VideoEvent): Promise<VideoProcessedResponse> => {
-    // CORRECT: Calling internal controller
-    // Service will throw error automatically if processing fails
-    return await video._processVideo(event);
-  },
-});
-
-export interface VideoProcessedResponse {
-  success: boolean;
 }
 ```
 
-### Adding Folder Structure
+---
 
-**Steps:**
-1. Create `topics/` folder in service root
-2. Create `subscriptions/` folder in service root
-3. Move topic definitions to `topics/{event}.topic.ts`
-   - Topic definition first, interface at bottom
-4. Move subscriptions to `subscriptions/{event}.subscription.ts`
-   - Add response interface at bottom of file
-5. Create internal controllers in `controllers/_{event}Process.controller.ts`
-   - Import response interface from subscription file
-   - Return the response type
-6. Update service methods to return response with `{ success: true }`
-7. Update imports in all files
+## Cron jobs
+
+A cron job calls an internal endpoint. The endpoint's name starts with `_cron`, and it is `expose: false` and `auth: false`, because the cron runs without a login:
+
+```typescript
+// controllers/_cronShipmentEventOutbox.controller.ts
+startShipmentEventTimer();
+
+export const _cronShipmentEventOutbox = api(
+  { expose: false, auth: false, method: "POST", path: "/internal/shipments/event-outbox/deliver" },
+  async (): Promise<ShipmentEventOutboxResponse> => deliverShipmentEvents(),
+);
+
+// crons/shipmentEventOutbox.cron.ts
+export const shipmentEventOutbox = new CronJob("shipments-event-outbox", {
+  title: "Publish shipment deletes",
+  every: "1m",
+  endpoint: _cronShipmentEventOutbox,
+});
+```
+
+**Encore cron jobs do not fire under `encore run`.** Every outbox therefore also starts a one-minute `setInterval` timer (`startShipmentEventTimer()` and its siblings). The timer is started once, is `unref()`'d, and is skipped under vitest (`process.env.VITEST`). In the cloud both the cron and the timer run, and `SKIP LOCKED` claims keep them apart.
+
+The cron jobs today:
+
+| Cron | Schedule | Title (what it does) |
+|---|---|---|
+| `shipments-event-outbox` | every 1m | Publish shipment deletes (`shipment_event_outbox`) |
+| `shipments-quote-links-reconcile` | every 1h | Reconcile quote ↔ shipment links |
+| `quotes-event-outbox` | every 1m | Publish quote renames (`quote_event_outbox`) |
+| `quotes-tariff-check` | `0 2 * * *` | Check the tariffs of quotes not yet sent |
+| `fx-cnb-import` | `0,30 13-15 * * 1-5` | Import ČNB exchange rates |
+| `trucking-shipment-outbox` | every 1m | Retry job updates from Trucking (`trucking_outbox`) |
+| `warehouse-shipment-outbox` | every 1m | Retry shipment updates from the gate (`warehouse_shipment_outbox`, and publishes `warehouse_gate_event_outbox`) |
+| `warehouse-storage-settled` | every 1h | Reopen Storage settled when storage becomes chargeable |
+| `warehouse-customs-follow` | every 5m | Read customs status from Shipments for the gate |
+| `invoicing-followups` | every 1m | Send invoice follow-ups (`invoice_followup_outbox`) |
+
+Jobs that are not outboxes have local timers too (the ČNB import, the quotes tariff check, the warehouse storage and customs jobs), for the same reason.
+
+Cron files live in `services/<service>/crons/<name>.cron.ts`. The quotes service declares its crons in the `_cron…` controller file itself.
 
 ---
 
-## Troubleshooting
+## Testing
 
-### Subscription Not Processing Events
-
-**Check:**
-1. ✅ Topic and subscription are properly exported
-2. ✅ Subscription file is in `subscriptions/` folder
-3. ✅ Service is running and healthy
-4. ✅ No errors in service logs
-
-### Events Being Retried Forever
-
-**Solution:**
-- Ensure handler throws errors on failure
-- Check `maxRetries` is set appropriately
-- Verify DLQ is configured
-- Add idempotency checks
-
-### Duplicate Event Processing
-
-**Solution:**
-- Implement idempotent handlers
-- Use database constraints (unique keys)
-- Track processed events in dedicated table
-- Check event timestamp/ID before processing
+- Pure delivery and retry rules: `lib/tests/outbox.test.ts`.
+- Services that publish: mock the topics module, for example `vi.mock("../topics", () => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }))`, and assert what was published.
+- Outboxes against a real database, including the claim, the ordering and concurrent runs: `services/shipments/tests/db/shipmentEvents.db.test.ts` and `services/trucking/tests/db/truckingOutbox.db.test.ts`. See [Testing Standards](./testing_standards.md#database-tests).
 
 ---
 
-## References
+## Checklist
 
-### Internal Documentation
-
-- [Controllers & API Endpoints](controllers_api_endpoints.md)
-- [Service Architecture Patterns](service_architecture_patterns.md)
-- [Error Handling](errors.md)
-- [Testing Standards](testing_standards.md)
-
-### External Documentation
-
-- [Encore Pub/Sub Documentation](https://encore.dev/docs/primitives/pubsub)
-- [Event-Driven Architecture Patterns](https://martinfowler.com/articles/201701-event-driven.html)
-
----
-
-## Summary Checklist
-
-When implementing event processing in your service:
-
-- [ ] Create `topics/` and `subscriptions/` folders
-- [ ] Define topic first, then event interface at bottom in topic file
-- [ ] **Keep event minimal - only include ID(s), not full data**
-- [ ] Configure topic with delivery guarantee
-- [ ] Create subscription with retry policy
-- [ ] Define response interface at bottom of subscription file with `success: boolean`
-- [ ] Subscription returns `Promise<Response>` and calls controller
-- [ ] Create internal controller (prefixed with `_`)
-- [ ] Set `expose: false` and `auth: false` on controller
-- [ ] Controller imports response interface from subscription file
-- [ ] Controller calls service via `const result = await ...; return result;` — **never `return await`**
-- [ ] Subscription calls controller via `~encore/clients` — **never import service class directly**
-- [ ] **Service fetches full data using ID from event**
-- [ ] Service returns `{ success: true }` on success
-- [ ] Service throws errors to trigger retry (APIError.notFound, etc.)
-- [ ] Implement idempotent processing in service
-- [ ] Add comprehensive error logging
-- [ ] Write unit tests for subscription handler
-- [ ] Monitor DLQ depth and subscription lag
-- [ ] Document event schema in interfaces
-
----
-
-**Remember: Event processing enables scalable, decoupled architectures. Follow these patterns to ensure reliable event processing.**
-
+- [ ] Topic in `topics.ts`, kebab-case past tense, `at-least-once`, event has `companyId`, contract commented
+- [ ] Subscription in `subscriptions/<event>.subscription.ts`, named `<service>-<event>`
+- [ ] Handler is idempotent, throws to retry, and reads the owner's current state when order matters
+- [ ] If losing the event is not acceptable: outbox row in the write's transaction, delivered after commit, retried by a cron
+- [ ] Outbox table spreads `defaultTableColumns`, `tenantColumns`, `outboxColumns` and has `outboxStatusCheck`
+- [ ] Repository extends `OutboxRepository` with the right `orderKey`
+- [ ] `_cron…` endpoint is `expose: false, auth: false`; local minute timer started and skipped under vitest
+- [ ] `errorText` and `last_error` are in our own words
