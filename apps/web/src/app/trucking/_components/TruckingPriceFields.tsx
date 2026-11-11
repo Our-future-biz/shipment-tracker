@@ -1,6 +1,7 @@
 "use client";
 
-import { Input, InputNumber, Radio, Select } from "antd";
+import { Input, Radio, Select } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { CURRENCIES } from "../_lib/hauliers";
 import type { PriceForm } from "../_lib/planning";
 import { TruckingField } from "./TruckingField";
@@ -28,7 +29,7 @@ export const TruckingPriceFields = ({ value, onChange, tariffLabel = "From the h
     {value.source === "MANUAL" && (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[140px_96px_1fr]">
         <TruckingField label="Total">
-          <InputNumber aria-label="Agreed total" className="w-full" min={0} value={value.total} onChange={(total) => onChange({ ...value, total })} />
+          <DecimalInput aria-label="Agreed total" className="w-full" min={0} value={value.total} onChange={(total) => onChange({ ...value, total })} />
         </TruckingField>
         <TruckingField label="Currency">
           <Select aria-label="Currency" value={value.currency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} onChange={(currency) => onChange({ ...value, currency })} />

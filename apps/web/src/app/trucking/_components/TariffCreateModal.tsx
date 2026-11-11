@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Alert, Button, Input, InputNumber, Modal, Radio, Select } from "antd";
+import { Alert, Button, Input, Modal, Radio, Select } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { apiErrorMessage } from "@/lib/api";
 import { useHauliers, type TariffCreate, type TariffSide } from "@/hooks/useTrucking";
 import { HINT } from "@/styles/ui";
@@ -221,7 +222,7 @@ export const TariffCreateModal = ({ open, side, onClose, create, isCreating, onC
                     label="Discount (%)"
                     hint={draft.discountPercent != null ? `Prices read ${discountLabel(draft.discountPercent)}. A negative discount is an uplift.` : "A negative discount is an uplift."}
                   >
-                    <InputNumber aria-label="Discount percent" min={-99.9} max={99.9} step={0.5} value={draft.discountPercent} onChange={(v) => set("discountPercent", v ?? null)} className="w-full" />
+                    <DecimalInput aria-label="Discount percent" min={-99.9} max={99.9} step={0.5} value={draft.discountPercent} onChange={(v) => set("discountPercent", v ?? null)} className="w-full" />
                   </TruckingField>
                 )}
               </>

@@ -2,7 +2,8 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { InputNumber, Segmented } from "antd";
+import { Segmented } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { useWarehouseInquiries, type WarehouseInquiryItem } from "@/hooks/useWarehouseInquiries";
 import { useToast } from "@/lib/toast";
@@ -152,7 +153,7 @@ export function QuoteInquiries() {
                           <div className="flex flex-wrap items-end gap-3">
                             <label className="block">
                               <span className={`block ${LABEL_TEXT} mb-1`}>Extra handling per piece (EUR)</span>
-                              <InputNumber
+                              <DecimalInput
                                 autoFocus
                                 min={0}
                                 max={100000}

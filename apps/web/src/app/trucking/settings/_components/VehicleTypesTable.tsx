@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Input, InputNumber, Switch, Table, Tooltip } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { interfaces } from "@/lib/api/client";
 import { MAX_LDM, vehicleTypeProblems } from "../../_lib/settings";
@@ -65,14 +66,14 @@ export const VehicleTypesTable = ({ types, savedCodes, disabled, onChange }: Veh
             key: "ldm",
             title: "LDM",
             render: (_, t, i) => (
-              <InputNumber aria-label={`Vehicle type ${i + 1} LDM`} value={t.capacityLdm} min={0.1} max={MAX_LDM} step={0.1} disabled={disabled} onChange={(v) => patch(i, { capacityLdm: v ?? 0 })} className="w-[80px]" />
+              <DecimalInput aria-label={`Vehicle type ${i + 1} LDM`} value={t.capacityLdm} min={0.1} max={MAX_LDM} step={0.1} disabled={disabled} onChange={(v) => patch(i, { capacityLdm: v ?? 0 })} className="w-[80px]" />
             ),
           },
           {
             key: "kg",
             title: "kg",
             render: (_, t, i) => (
-              <InputNumber aria-label={`Vehicle type ${i + 1} kg`} value={t.capacityKg} min={1} step={100} disabled={disabled} onChange={(v) => patch(i, { capacityKg: v ?? 0 })} className="w-[100px]" />
+              <DecimalInput aria-label={`Vehicle type ${i + 1} kg`} value={t.capacityKg} min={1} step={100} disabled={disabled} onChange={(v) => patch(i, { capacityKg: v ?? 0 })} className="w-[100px]" />
             ),
           },
           {

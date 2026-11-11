@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Checkbox, Input, InputNumber, Modal } from "antd";
+import { Checkbox, Input, Modal } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { DashboardOutlined } from "@ant-design/icons";
 import { useGateFilePreview, useGateFiles, useGateMovement, type GateFile, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
@@ -193,7 +194,7 @@ export function ReweighModal({
       </p>
       <label className="flex flex-col gap-1">
         <span className={LABEL_TEXT}>Weighed gross kg</span>
-        <InputNumber
+        <DecimalInput
           autoFocus
           min={0}
           max={MAX_KG}

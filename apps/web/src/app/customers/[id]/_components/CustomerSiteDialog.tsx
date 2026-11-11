@@ -1,6 +1,7 @@
 "use client";
 
-import { Checkbox, Form, Input, InputNumber, Modal, Select } from "antd";
+import { Checkbox, Form, Input, Modal, Select } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import type { FormInstance } from "antd";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { interfaces } from "@/lib/api/client";
@@ -165,10 +166,10 @@ export function CustomerSiteDialog({ open, site, saving, onCancel, onSubmit }: C
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
           <Form.Item name="lat" label="Latitude">
-            <InputNumber className="!w-full" min={-90} max={90} step={0.000001} placeholder="optional" />
+            <DecimalInput className="!w-full" min={-90} max={90} step={0.000001} placeholder="optional" />
           </Form.Item>
           <Form.Item name="lng" label="Longitude">
-            <InputNumber className="!w-full" min={-180} max={180} step={0.000001} placeholder="optional" />
+            <DecimalInput className="!w-full" min={-180} max={180} step={0.000001} placeholder="optional" />
           </Form.Item>
         </div>
 

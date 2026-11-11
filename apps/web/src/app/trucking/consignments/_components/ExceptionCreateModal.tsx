@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Input, InputNumber, Modal, Select } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import type { ExceptionCause, ExceptionCreate, ExceptionCurrency, ExceptionKind, FailedReason } from "@/hooks/useTruckingControl";
 import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import { CAUSE_LABELS, EXCEPTION_KIND_LABELS, FAILED_REASON_LABELS, PIECE_KINDS, exceptionDraftProblems, waitingText } from "../../_lib/exceptions";
@@ -103,7 +104,7 @@ export const ExceptionCreateModal = ({ c, freeMinutes, onClose, onCreate }: Exce
           )}
           <TruckingField label="Amount (if known)" hint={waiting ? "Left empty, it may be priced from the tariff's waiting-time surcharge" : undefined}>
             <div className="flex gap-2">
-              <InputNumber aria-label="Amount" min={0} value={amount} onChange={(v) => setAmount(v ?? null)} className="flex-1" />
+              <DecimalInput aria-label="Amount" min={0} value={amount} onChange={(v) => setAmount(v ?? null)} className="flex-1" />
               <Select aria-label="Currency" value={currency} options={CURRENCY_OPTIONS} onChange={setCurrency} className="w-[84px]" />
             </div>
           </TruckingField>

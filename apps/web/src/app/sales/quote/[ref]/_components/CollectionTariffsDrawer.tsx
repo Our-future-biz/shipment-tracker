@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { DatePicker, Input, InputNumber, Segmented, Table } from "antd";
+import { DatePicker, Input, Segmented, Table } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { useDebounced } from "@/hooks/useDebounced";
@@ -146,13 +147,13 @@ export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQu
           />
         </TariffDrawerField>
         <TariffDrawerField label="Weight (kg)">
-          <InputNumber aria-label="Weight (kg)" min={0} value={route.weightKg} onChange={(v) => set({ weightKg: v ?? null })} className="!w-full" />
+          <DecimalInput aria-label="Weight (kg)" min={0} value={route.weightKg} onChange={(v) => set({ weightKg: v ?? null })} className="!w-full" />
         </TariffDrawerField>
         <TariffDrawerField label="Volume (m³)">
-          <InputNumber aria-label="Volume (m³)" min={0} step={0.1} value={route.cbm} onChange={(v) => set({ cbm: v ?? null })} className="!w-full" />
+          <DecimalInput aria-label="Volume (m³)" min={0} step={0.1} value={route.cbm} onChange={(v) => set({ cbm: v ?? null })} className="!w-full" />
         </TariffDrawerField>
         <TariffDrawerField label="Longest piece (cm)">
-          <InputNumber aria-label="Longest piece (cm)" min={0} value={route.longestCm} onChange={(v) => set({ longestCm: v ?? null })} className="!w-full" />
+          <DecimalInput aria-label="Longest piece (cm)" min={0} value={route.longestCm} onChange={(v) => set({ longestCm: v ?? null })} className="!w-full" />
         </TariffDrawerField>
       </div>
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Alert, App, DatePicker, Input, InputNumber, Modal } from "antd";
+import { Alert, App, DatePicker, Input, Modal } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import dayjs from "dayjs";
 import { useSetRoe } from "@/hooks/useFx";
 import { useToast } from "@/lib/toast";
@@ -79,14 +80,13 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
         <div className="grid grid-cols-2 gap-4">
           <label className="flex flex-col gap-1">
             <span className={LABEL_TEXT}>ROE %</span>
-            <InputNumber
+            <DecimalInput
               value={pct}
               onChange={(v) => setPct(v)}
               min={80}
               max={120}
               step={0.5}
               precision={3}
-              decimalSeparator="."
               suffix="%"
               className="!w-full"
             />

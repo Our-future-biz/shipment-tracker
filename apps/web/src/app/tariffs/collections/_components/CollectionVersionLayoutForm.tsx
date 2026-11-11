@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Input, InputNumber, Select, Tooltip } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { CollectionLayout } from "@/hooks/useCollectionTariffs";
 import type { interfaces } from "@/lib/api/client";
@@ -177,11 +178,11 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
           />
         </Field>
         <Field label="kg per m³" hint="Only when the tariff turns volume into weight by a factor; leave empty when a table has a volume column">
-          <InputNumber aria-label="kg per m³" min={0} value={form.kgPerCbm} disabled={disabled} onChange={(v) => set("kgPerCbm", v ?? null)} className="!w-full" />
+          <DecimalInput aria-label="kg per m³" min={0} value={form.kgPerCbm} disabled={disabled} onChange={(v) => set("kgPerCbm", v ?? null)} className="!w-full" />
         </Field>
         {byDistance && (
           <Field label="km within one region" hint="When the distance list has no row for two places of one region">
-            <InputNumber aria-label="km within one region" min={0} value={form.sameRegionKm} disabled={disabled} onChange={(v) => set("sameRegionKm", v ?? null)} className="!w-full" />
+            <DecimalInput aria-label="km within one region" min={0} value={form.sameRegionKm} disabled={disabled} onChange={(v) => set("sameRegionKm", v ?? null)} className="!w-full" />
           </Field>
         )}
       </div>
@@ -247,7 +248,7 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
                   />
                   <Input aria-label={`Table ${i + 1} zone ${k + 1} heading`} size="small" placeholder="Heading" value={z.label} maxLength={100} disabled={disabled} onChange={(e) => setZone(i, k, { label: e.target.value })} />
                   {byDistance ? (
-                    <InputNumber
+                    <DecimalInput
                       aria-label={`Table ${i + 1} zone ${k + 1} km`}
                       size="small"
                       min={0}
@@ -313,17 +314,17 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
             <Select aria-label={`Surcharge ${i + 1} kind`} size="small" value={s.kind} disabled={disabled} options={SURCHARGE_KIND_OPTIONS} popupMatchSelectWidth={false} onChange={(v: interfaces.CollectionSurchargeKind) => setSurcharge(i, { kind: v })} />
             <Input aria-label={`Surcharge ${i + 1} name`} size="small" placeholder="Name" value={s.label} maxLength={100} disabled={disabled} onChange={(e) => setSurcharge(i, { label: e.target.value })} />
             {s.kind === "oversize" ? (
-              <InputNumber aria-label={`Surcharge ${i + 1} longer than`} size="small" min={0} addonBefore=">" addonAfter="cm" value={s.overLengthCm} disabled={disabled} onChange={(v) => setSurcharge(i, { overLengthCm: v ?? null })} className="!w-full" />
+              <DecimalInput aria-label={`Surcharge ${i + 1} longer than`} size="small" min={0} addonBefore=">" addonAfter="cm" value={s.overLengthCm} disabled={disabled} onChange={(v) => setSurcharge(i, { overLengthCm: v ?? null })} className="!w-full" />
             ) : (
               <span />
             )}
             {s.kind !== "flat" ? (
-              <InputNumber aria-label={`Surcharge ${i + 1} percent`} size="small" addonAfter="%" value={s.percent} disabled={disabled} onChange={(v) => setSurcharge(i, { percent: v ?? null })} className="!w-full" />
+              <DecimalInput aria-label={`Surcharge ${i + 1} percent`} size="small" addonAfter="%" value={s.percent} disabled={disabled} onChange={(v) => setSurcharge(i, { percent: v ?? null })} className="!w-full" />
             ) : (
               <span />
             )}
             {s.kind === "flat" ? (
-              <InputNumber aria-label={`Surcharge ${i + 1} amount`} size="small" min={0} addonAfter={form.currency || "—"} value={s.amount} disabled={disabled} onChange={(v) => setSurcharge(i, { amount: v ?? null })} className="!w-full" />
+              <DecimalInput aria-label={`Surcharge ${i + 1} amount`} size="small" min={0} addonAfter={form.currency || "—"} value={s.amount} disabled={disabled} onChange={(v) => setSurcharge(i, { amount: v ?? null })} className="!w-full" />
             ) : (
               <span />
             )}

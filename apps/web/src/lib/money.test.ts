@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountEdited, amountInBox, amountTypingAllowed, money, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
+import { amountEdited, amountInBox, amountTypingAllowed, decimalInputText, money, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
 
 describe("num", () => {
   it.each([
@@ -162,5 +162,40 @@ describe("amountTypingAllowed", () => {
     expect(parseMoney("1e5")).toBeNull();
     expect(normaliseAmount("2 x 40HC")).toBeNull();
     expect(normaliseAmount("CZK 200")).toBeNull();
+  });
+});
+
+describe("decimalInputText", () => {
+  it("reads the Czech decimal comma and the English figures alike", () => {
+    expect(decimalInputText("1 234,56")).toBe("1234.56");
+    expect(decimalInputText("2 592,45")).toBe("2592.45");
+    expect(decimalInputText("1,234.56")).toBe("1234.56");
+    expect(decimalInputText("1.234,56")).toBe("1234.56");
+    expect(decimalInputText("12,5")).toBe("12.5");
+    expect(decimalInputText("-3,25")).toBe("-3.25");
+    expect(decimalInputText("37,50", 0)).toBe("37.50");
+  });
+
+  it("keeps the decimals of a value in its range, which the default parser turned into a clamped maximum", () => {
+    expect(decimalInputText("101,5", 80, 120)).toBe("101.5");
+    expect(decimalInputText("12,5", 0, 100)).toBe("12.5");
+    expect(decimalInputText("50,0875", -90, 90)).toBe("50.0875");
+  });
+
+  it("reads a lone comma before three digits as thousands, unless only the decimal figure fits the range", () => {
+    expect(decimalInputText("1,250")).toBe("1250");
+    expect(decimalInputText("1,250", 0, 10_000)).toBe("1250");
+    expect(decimalInputText("50,087", -90, 90)).toBe("50.087");
+    expect(decimalInputText("-14,421", -180, 180)).toBe("-14.421");
+    expect(decimalInputText("101,125", 80, 120)).toBe("101.125");
+    // Neither fits: the field clamps the figure as it always did.
+    expect(decimalInputText("999,500", 0, 100)).toBe("999500");
+  });
+
+  it("lets a half-typed number and an emptied field be", () => {
+    expect(decimalInputText("")).toBe("");
+    expect(decimalInputText(undefined)).toBe("");
+    expect(decimalInputText("12,")).toBe("12.");
+    expect(decimalInputText("-")).toBe("-");
   });
 });

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import dayjs from "dayjs";
-import { Button, DatePicker, InputNumber, Spin } from "antd";
+import { Button, DatePicker, Spin } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday } from "@/lib/date";
@@ -82,7 +83,7 @@ export const FuelIndexSection = ({ canEdit }: FuelIndexSectionProps) => {
                 />
               </TruckingField>
               <TruckingField label="Fuel surcharge (%)" hint={current ? `Now ${formatPercent(current.percent)}` : "Not set yet"}>
-                <InputNumber aria-label="Fuel surcharge percent" min={0} max={100} step={0.1} value={percent} onChange={(v) => setPercent(v ?? null)} className="w-full" />
+                <DecimalInput aria-label="Fuel surcharge percent" min={0} max={100} step={0.1} value={percent} onChange={(v) => setPercent(v ?? null)} className="w-full" />
               </TruckingField>
             </div>
             <div>

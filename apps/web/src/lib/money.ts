@@ -137,6 +137,9 @@ export function roundCents(amount: number): number {
   return Math.round(amount * 100) / 100 || 0;
 }
 
+// A figure whose one comma may separate thousands: up to three digits, the comma, exactly three digits ("1,250").
+const THOUSANDS_FIGURE = /^-?[1-9]\d{0,2},\d{3}$/;
+
 // Amounts are typed with a decimal comma ("1234,56") but shown with comma thousands ("12,345"), so a
 // comma is the decimal mark when it follows a dot, or when it is the only comma and the text cannot
 // be a thousands figure. That figure has one shape - up to three digits, the comma, exactly three
@@ -146,7 +149,7 @@ export function normalizeMoneyInput(text: string | undefined): string {
   const lastComma = cleaned.lastIndexOf(",");
   if (lastComma === -1) return cleaned;
   const lastDot = cleaned.lastIndexOf(".");
-  const thousands = /^-?[1-9]\d{0,2},\d{3}$/.test(cleaned);
+  const thousands = THOUSANDS_FIGURE.test(cleaned);
   const commaIsDecimal = lastDot === -1 ? cleaned.indexOf(",") === lastComma && !thousands : lastComma > lastDot;
   if (!commaIsDecimal) return cleaned.replace(/,/g, "");
   return `${cleaned.slice(0, lastComma).replace(/[.,]/g, "")}.${cleaned.slice(lastComma + 1)}`;
@@ -155,6 +158,23 @@ export function normalizeMoneyInput(text: string | undefined): string {
 // For antd InputNumber's `parser`. It is typed as returning the value type, but the component parses
 // the returned text itself (its default parser returns text too), which keeps an emptied field empty.
 export const moneyInputParser = (text: string | undefined) => normalizeMoneyInput(text) as unknown as number;
+
+/**
+ * What a number field with a range (components/DecimalInput) reads in the typed text, as text in
+ * the form antd's InputNumber parses: Czech ("2 592,45", "12,5", "-3,25") and English ("2,592.45")
+ * alike, as normalizeMoneyInput. A lone comma before three digits ("1,250") reads as thousands
+ * there - unless that figure is outside the field's range while the decimal one is in it: a
+ * latitude typed "50,087", an ROE of "101,125" % or a surcharge of "12,500" % keeps its decimal
+ * comma instead of being clamped to the maximum.
+ */
+export function decimalInputText(text: string | undefined, min?: number, max?: number): string {
+  const normal = normalizeMoneyInput(text);
+  const cleaned = (text ?? "").replace(/[^\d.,-]+/g, "");
+  if (!THOUSANDS_FIGURE.test(cleaned)) return normal;
+  const fits = (n: number) => (min === undefined || n >= min) && (max === undefined || n <= max);
+  const decimal = cleaned.replace(",", ".");
+  return !fits(Number(normal)) && fits(Number(decimal)) ? decimal : normal;
+}
 
 /** "1,250 CZK", "1,250.50 EUR" (cents only when there are some); "—" for none. */
 export function formatAmount(amount: number | null | undefined, currency: string): string {

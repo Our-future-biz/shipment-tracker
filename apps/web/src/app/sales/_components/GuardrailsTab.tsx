@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Button, InputNumber, Spin } from "antd";
+import { Alert, Button, Spin } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { apiErrorMessage } from "@/lib/api";
 import { formatAmount } from "@/lib/money";
 import { formatPercent } from "@/lib/number";
@@ -66,14 +67,14 @@ export function GuardrailsTab() {
                     </td>
                     <td className={TD}>
                       {editable ? (
-                        <InputNumber aria-label={`${r.serviceType} minimum margin %`} min={0} max={100} step={0.5} value={value(r, "percent")} onChange={(v) => setField(r, "percent", v)} suffix="%" className="!w-[130px]" />
+                        <DecimalInput aria-label={`${r.serviceType} minimum margin %`} min={0} max={100} step={0.5} value={value(r, "percent")} onChange={(v) => setField(r, "percent", v)} suffix="%" className="!w-[130px]" />
                       ) : (
                         <span className="tabular-nums">{formatPercent(r.percent)}</span>
                       )}
                     </td>
                     <td className={TD}>
                       {editable ? (
-                        <InputNumber aria-label={`${r.serviceType} minimum margin CZK`} min={0} step={100} value={value(r, "minAmountCzk")} onChange={(v) => setField(r, "minAmountCzk", v)} suffix="CZK" className="!w-[160px]" />
+                        <DecimalInput aria-label={`${r.serviceType} minimum margin CZK`} min={0} step={100} value={value(r, "minAmountCzk")} onChange={(v) => setField(r, "minAmountCzk", v)} suffix="CZK" className="!w-[160px]" />
                       ) : (
                         <span className="tabular-nums">{formatAmount(r.minAmountCzk, "CZK")}</span>
                       )}

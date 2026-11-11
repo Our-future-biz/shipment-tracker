@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Alert, Button, Input, InputNumber, Spin } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -147,13 +148,13 @@ export const TruckingSettingsView = () => {
           <SectionCard title={`${TERMS.chargeableWeight} factors`}>
             <div className="grid grid-cols-3 gap-3">
               <TruckingField label="kg per LDM">
-                <InputNumber aria-label="kg per LDM" min={1} value={draft.factors.kgPerLdm} disabled={!canEdit} onChange={(v) => set("factors", { ...draft.factors, kgPerLdm: v ?? 0 })} className="w-full" />
+                <DecimalInput aria-label="kg per LDM" min={1} value={draft.factors.kgPerLdm} disabled={!canEdit} onChange={(v) => set("factors", { ...draft.factors, kgPerLdm: v ?? 0 })} className="w-full" />
               </TruckingField>
               <TruckingField label="kg per m³">
-                <InputNumber aria-label="kg per cubic metre" min={1} value={draft.factors.kgPerCbm} disabled={!canEdit} onChange={(v) => set("factors", { ...draft.factors, kgPerCbm: v ?? 0 })} className="w-full" />
+                <DecimalInput aria-label="kg per cubic metre" min={1} value={draft.factors.kgPerCbm} disabled={!canEdit} onChange={(v) => set("factors", { ...draft.factors, kgPerCbm: v ?? 0 })} className="w-full" />
               </TruckingField>
               <TruckingField label="kg per pallet place">
-                <InputNumber
+                <DecimalInput
                   aria-label="kg per pallet place"
                   min={1}
                   value={draft.factors.kgPerPalletPlace}
@@ -169,10 +170,10 @@ export const TruckingSettingsView = () => {
           <SectionCard title="Margin floor">
             <div className="grid grid-cols-2 gap-3">
               <TruckingField label="Margin at least (%)">
-                <InputNumber aria-label="Margin floor percent" min={0} max={100} value={draft.marginFloor.percent} disabled={!canEdit} onChange={(v) => set("marginFloor", { ...draft.marginFloor, percent: v ?? 0 })} className="w-full" />
+                <DecimalInput aria-label="Margin floor percent" min={0} max={100} value={draft.marginFloor.percent} disabled={!canEdit} onChange={(v) => set("marginFloor", { ...draft.marginFloor, percent: v ?? 0 })} className="w-full" />
               </TruckingField>
               <TruckingField label="and at least (CZK)">
-                <InputNumber
+                <DecimalInput
                   aria-label="Minimum margin in CZK"
                   min={0}
                   step={50}
