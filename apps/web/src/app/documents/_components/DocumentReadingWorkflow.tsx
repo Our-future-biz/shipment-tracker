@@ -325,6 +325,8 @@ export function DocumentReadingWorkflow() {
         ? masterJobs.find((m) => m.id === batchJob.id)
         : undefined;
   const activeMcz = masterMode === "existing" ? masterMczExisting : (currentMasterJob?.mczNumber ?? batchJob?.mczNumber ?? newMcz);
+  // A new master job's number is only a preview until the server has created it.
+  const mczShown = masterMode === "new" && !batchJob ? `${newMcz} (will be assigned)` : activeMcz;
   // Load Type is chosen once per master job; a different one on the MBL can't be filed.
   const mblLoadTypeLocked =
     !!currentMasterJob?.loadType && !!mblInfo?.["Load Type"] && currentMasterJob.loadType !== mblInfo["Load Type"];
@@ -2083,7 +2085,7 @@ export function DocumentReadingWorkflow() {
             <div>
               <div className={CARD_BAR}>
                 <h3 className={CARD_TITLE}>Master Bill of Lading</h3>
-                <Pill tone="slate" className={REF}>{activeMcz}</Pill>
+                <Pill tone="slate" className={REF}>{mczShown}</Pill>
                 <span className={HINT}>No House B/Ls in this upload — the MBL alone is filed</span>
               </div>
               <div className="p-4">
@@ -2092,7 +2094,7 @@ export function DocumentReadingWorkflow() {
                   ticked={mblTicked}
                   onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
                   filed={mblFiled}
-                  mcz={activeMcz}
+                  mcz={mczShown}
                   masterJob={currentMasterJob}
                   loadTypeLocked={mblLoadTypeLocked}
                   alone
@@ -2116,7 +2118,7 @@ export function DocumentReadingWorkflow() {
                   Shipment {Math.min(masterIdx + 1, masterShipments.length)} of {masterShipments.length}
                   {hblBatchIndex < hblTotalBatches ? "+" : ""}
                 </h3>
-                <Pill tone="slate" className={REF}>{activeMcz}</Pill>
+                <Pill tone="slate" className={REF}>{mczShown}</Pill>
                 <span className={HINT}>{masterCreatedJobs.length} created</span>
               </div>
               <div className="p-4">
@@ -2127,7 +2129,7 @@ export function DocumentReadingWorkflow() {
                     ticked={mblTicked}
                     onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
                     filed={mblFiled}
-                    mcz={activeMcz}
+                    mcz={mczShown}
                     masterJob={currentMasterJob}
                     loadTypeLocked={mblLoadTypeLocked}
                     onSealChange={setMblSeals}
