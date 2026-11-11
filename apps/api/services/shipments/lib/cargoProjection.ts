@@ -1,5 +1,6 @@
 import { isUuid } from "../../../lib/uuid";
 import { cargoNum, dimensionVolumePerPiece, type PieceSizes } from "../../../lib/cargoVolume";
+import { parseTypedAmount } from "../../../lib/typedAmount";
 import type { ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
 
 // Numeric fields on container/cargo lines are free-text; parse them the same way
@@ -33,11 +34,13 @@ const uniqJoin = (values: string[], sep: string): string =>
   [...new Set(values.map((v) => v.trim()).filter(Boolean))].join(sep);
 
 // The commercial invoices' values summed per currency: "12 500 USD, 3 000 EUR". A value
-// without a currency is shown as a bare number.
+// without a currency is shown as a bare number. A value is read as an amount (lib/typedAmount),
+// as the dialog that saves it reads it: "12,500.00" is 12 500, not 12.5 as a cargo number would
+// read it; text that is no amount counts nothing.
 export function invoiceValueByCurrency(invoices: { value: string; currency: string }[]): string {
   const byCurrency = new Map<string, number>();
   for (const inv of invoices) {
-    const value = num(inv.value);
+    const value = parseTypedAmount(inv.value);
     if (!value) continue;
     const currency = inv.currency.trim().toUpperCase();
     byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + value);
