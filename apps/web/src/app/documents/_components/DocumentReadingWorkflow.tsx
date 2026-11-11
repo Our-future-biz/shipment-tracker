@@ -89,6 +89,7 @@ import {
 import { useQuoteReading } from "../_lib/useQuoteReading";
 import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentType } from "../_lib/savedDocument";
 import { mergeReads } from "../_lib/mergeReads";
+import { createAndWrite, type ShipmentProgress } from "../_lib/resumeShipment";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
@@ -213,6 +214,8 @@ export function DocumentReadingWorkflow() {
   // The shipments picked as targets, as the server search found them: any of the company's, not
   // only the newest the cached list holds.
   const [targetShipment, setTargetShipment] = useState<ShipmentItem | null>(null);
+  // The shipment "Create new shipment" made: a retry after a failed write writes to it, not to another new one.
+  const createdShipment = useRef<ShipmentProgress<ShipmentItem> | null>(null);
   const [committedJobNumber, setCommittedJobNumber] = useState("");
   // A file read into Shipments is also saved to the shipment's documents, named after its
   // document number. The user approves the name and type on Review; until they edit them
@@ -254,11 +257,15 @@ export function DocumentReadingWorkflow() {
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
   const [masterMczExisting, setMasterMczExisting] = useState("");
-  // The new MCZ a batch was started under. "Next free number" moves on as soon as the
-  // first shipment is linked, so the batch keeps the number it began with.
-  const [batchMcz, setBatchMcz] = useState("");
-  // The master job made for an MBL filed on its own: a retry after a failed filing files to it, not to another new one.
-  const mblOnlyJobId = useRef<string | null>(null);
+  // The master job "Create new Master Job" made for the batch: the server creates it under its next
+  // free number before the batch's first shipment (or its MBL filed alone), and every house of the
+  // batch, and a retry after a failure, goes to it. The number shown before then is only a preview:
+  // linking a house by it would join whatever master job has that number by then.
+  const [batchJob, setBatchJob] = useState<{ id: string; mczNumber: string } | null>(null);
+  // The shipment made from each House B/L of the batch (by its place in the batch) until it is
+  // linked: a retry after a failed write or link carries on with it instead of creating another
+  // shipment, which would be left behind with a job number used.
+  const houseShipments = useRef(new Map<number, { current: ShipmentProgress<ShipmentItem> | null }>());
   // The master job a booking save created, so a retry after a failed save reuses it.
   const [bookingCreated, setBookingCreated] = useState<{ id: string; mczNumber: string } | null>(null);
   const [bookingSaving, setBookingSaving] = useState(false);
@@ -298,9 +305,14 @@ export function DocumentReadingWorkflow() {
   const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
   const newMcz = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
   const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
-  const activeMcz = masterMode === "existing" ? masterMczExisting : batchMcz || newMcz;
-  // The master job the batch goes to, once it exists ("Add to existing", or after the first shipment).
-  const currentMasterJob = masterJobs.find((m) => sameMczNumber(m.mczNumber, activeMcz));
+  // The master job the batch goes to, once it exists ("Add to existing", or once the batch made its new one).
+  const currentMasterJob =
+    masterMode === "existing"
+      ? masterJobs.find((m) => sameMczNumber(m.mczNumber, masterMczExisting))
+      : batchJob
+        ? masterJobs.find((m) => m.id === batchJob.id)
+        : undefined;
+  const activeMcz = masterMode === "existing" ? masterMczExisting : (currentMasterJob?.mczNumber ?? batchJob?.mczNumber ?? newMcz);
   // Load Type is chosen once per master job; a different one on the MBL can't be filed.
   const mblLoadTypeLocked =
     !!currentMasterJob?.loadType && !!mblInfo?.["Load Type"] && currentMasterJob.loadType !== mblInfo["Load Type"];
@@ -689,8 +701,8 @@ export function DocumentReadingWorkflow() {
         setStep("review");
       } else {
         // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
-        setBatchMcz("");
-        mblOnlyJobId.current = null;
+        setBatchJob(null);
+        houseShipments.current.clear();
         setMblFiled(false);
         setMasterCreatedJobs([]);
         setPipelineStep("idle");
@@ -727,6 +739,19 @@ export function DocumentReadingWorkflow() {
     setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, extractedValue: value, approved: true } : f)));
   const setAll = (approved: boolean) => setFields((prev) => prev.map((f) => ({ ...f, approved })));
 
+  // One write of the read at a time: its button shows it is working, and a second click while it runs
+  // does nothing, so a slow write never creates the shipment twice.
+  const [writing, setWriting] = useState(false);
+  const whileWriting = (write: () => Promise<unknown>) => async () => {
+    if (writing) return;
+    setWriting(true);
+    try {
+      await write();
+    } finally {
+      setWriting(false);
+    }
+  };
+
   // ─── Commit: shipment ────────────────────────────────────────────
   const commitShipment = async () => {
     const approved = fieldsToLabelValues(fields);
@@ -762,21 +787,32 @@ export function DocumentReadingWorkflow() {
         await updateShipment({ id: targetShipmentId, data });
         jobNumber = target.jobNumber;
       } else {
-        const created = await createShipment(baseCreatePayload());
-        shipmentId = created.shipment.id;
-        let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
-        const after = containersRead ? containersFrom([]) : [];
-        if (after.length > 0) data.containers = after;
-        data = withContainerType(data, approved);
-        data = withCargoLine(data, approved);
-        data = withPackageType(data, approved["Type Of Packages"]);
-        await updateShipment({ id: created.shipment.id, data });
+        const created = await createAndWrite(
+          createdShipment,
+          async () => (await createShipment(baseCreatePayload())).shipment,
+          async (shipment) => {
+            let data = await withPartyLinks(toShipmentUpdate(approved), async () => shipment, keptPartyDetails);
+            const after = containersRead ? containersFrom([]) : [];
+            if (after.length > 0) data.containers = after;
+            data = withContainerType(data, approved);
+            data = withCargoLine(data, approved);
+            data = withPackageType(data, approved["Type Of Packages"]);
+            await updateShipment({ id: shipment.id, data });
+          },
+        );
+        createdShipment.current = null;
+        shipmentId = created.id;
         // The number the server gave the shipment (a parallel create may have taken the preview).
-        jobNumber = created.shipment.jobNumber;
+        jobNumber = created.jobNumber;
       }
       setCommittedJobNumber(jobNumber);
-    } catch {
-      return toast.error("Failed to write shipment data.");
+    } catch (err) {
+      const made = shipmentMode === "new" ? createdShipment.current?.shipment : null;
+      return toast.error(
+        made
+          ? `${made.jobNumber} was created, but its fields could not be written: ${apiErrorMessage(err)}. Write them again to finish it.`
+          : `Failed to write shipment data: ${apiErrorMessage(err)}`,
+      );
     }
     const saved: string[] = [];
     for (const d of shipmentDocViews) {
@@ -928,8 +964,8 @@ export function DocumentReadingWorkflow() {
       await updateShipment({ id: customsShipmentId, data });
       setCommittedJobNumber(target.jobNumber);
       setStep("committed");
-    } catch {
-      toast.error("Failed to write the customs data to the shipment.");
+    } catch (err) {
+      toast.error(`Failed to write the customs data to the shipment: ${apiErrorMessage(err)}`);
     }
   };
 
@@ -1127,12 +1163,11 @@ export function DocumentReadingWorkflow() {
     if (masterMode === "existing" && !currentMasterJob) return toast.warning(`Master job ${activeMcz || ""} was not found.`);
     setFilingMblOnly(true);
     try {
-      let id = masterMode === "existing" ? currentMasterJob!.id : mblOnlyJobId.current;
+      let id = masterMode === "existing" ? currentMasterJob!.id : batchJob?.id;
       if (!id) {
         const { masterJob } = await createMasterJob.mutateAsync();
         id = masterJob.id;
-        mblOnlyJobId.current = id;
-        setBatchMcz(masterJob.mczNumber);
+        setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
       }
       if (await fileMblToMasterJob(id)) setStep("committed");
     } catch (err) {
@@ -1145,29 +1180,49 @@ export function DocumentReadingWorkflow() {
     destination === "masterjob" && pipelineStep === "ready" && masterShipments.length === 0 && hblBatchIndex >= hblTotalBatches && !!mblInfo;
 
   const validateAndCreate = async () => {
-    if (!activeMcz) return toast.warning("No MCZ number available.");
+    if (masterMode === "existing" && !masterMczExisting) return toast.warning("No MCZ number available.");
     const approved = fieldsToLabelValues(masterFields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
+    const house = masterIdx;
     try {
-      const created = await createShipment(baseCreatePayload());
-      let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
-      const newContainers = approved["Container Number"]
-        ? containersAfterReading([], { numbers: approved["Container Number"], addNumbers: true, seals: approved[SEAL_LABEL] })
-        : [];
-      if (newContainers.length > 0) data.containers = newContainers;
-      data = withContainerType(data, approved);
-      data = withCargoLine(data, approved);
-      data = withPackageType(data, approved["Type Of Packages"]);
-      await updateShipment({ id: created.shipment.id, data });
-      const linked = await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
-      if (masterMode === "new") setBatchMcz(activeMcz);
+      let job: { mczNumber: string } | null = masterMode === "existing" ? { mczNumber: masterMczExisting } : batchJob;
+      if (!job) {
+        const { masterJob } = await createMasterJob.mutateAsync();
+        job = { mczNumber: masterJob.mczNumber };
+        setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
+      }
+      const progress = houseShipments.current.get(house) ?? { current: null };
+      houseShipments.current.set(house, progress);
+      const shipment = await createAndWrite(
+        progress,
+        async () => (await createShipment(baseCreatePayload())).shipment,
+        async (created) => {
+          let data = await withPartyLinks(toShipmentUpdate(approved), async () => created, keptPartyDetails);
+          const newContainers = approved["Container Number"]
+            ? containersAfterReading([], { numbers: approved["Container Number"], addNumbers: true, seals: approved[SEAL_LABEL] })
+            : [];
+          if (newContainers.length > 0) data.containers = newContainers;
+          data = withContainerType(data, approved);
+          data = withCargoLine(data, approved);
+          data = withPackageType(data, approved["Type Of Packages"]);
+          await updateShipment({ id: created.id, data });
+        },
+      );
+      // By the number the server gave the master job: its digits are only ever its own.
+      const linked = await linkMasterJob({ shipmentId: shipment.id, mczNumber: job.mczNumber });
+      houseShipments.current.delete(house);
       if (!mblFiled && linked.shipment.masterJobId) await fileMblToMasterJob(linked.shipment.masterJobId);
-      if (await saveReadDocument(created.shipment.id, created.shipment.jobNumber)) setMasterDocsSaved((n) => n + 1);
-      setMasterCreatedJobs((prev) => [...prev, created.shipment.jobNumber]);
+      if (await saveReadDocument(shipment.id, shipment.jobNumber)) setMasterDocsSaved((n) => n + 1);
+      setMasterCreatedJobs((prev) => [...prev, shipment.jobNumber]);
       advanceMaster();
-    } catch {
-      toast.error("Failed to create shipment.");
+    } catch (err) {
+      const made = houseShipments.current.get(house)?.current?.shipment;
+      toast.error(
+        made
+          ? `${made.jobNumber} was created, but could not be finished: ${apiErrorMessage(err)}. Validate & Create again finishes it.`
+          : `The shipment could not be created: ${apiErrorMessage(err)}`,
+      );
     }
   };
 
@@ -1200,6 +1255,7 @@ export function DocumentReadingWorkflow() {
     setExtractionMethod("");
     setShipmentMode("existing");
     setTargetShipment(null);
+    createdShipment.current = null;
     setCommittedJobNumber("");
     quoteReading.reset();
     setCustomsShipment(null);
@@ -1223,8 +1279,8 @@ export function DocumentReadingWorkflow() {
     setSplitDone(null);
     setMasterMode("new");
     setMasterMczExisting("");
-    setBatchMcz("");
-    mblOnlyJobId.current = null;
+    setBatchJob(null);
+    houseShipments.current.clear();
     setPipelineSessionId("");
     setPipelineStep("idle");
     setClassification({});
@@ -1296,8 +1352,8 @@ export function DocumentReadingWorkflow() {
               onChange={(v) => {
                 setDestination(v as Destination);
                 setError(null);
-                setBatchMcz("");
-                mblOnlyJobId.current = null;
+                setBatchJob(null);
+                createdShipment.current = null;
                 setBookingCreated(null);
               }}
               options={DESTINATION_OPTIONS as unknown as { value: string; label: string }[]}
@@ -1427,8 +1483,7 @@ export function DocumentReadingWorkflow() {
                 value={masterMode}
                 onChange={(e) => {
                   setMasterMode(e.target.value);
-                  setBatchMcz("");
-                  mblOnlyJobId.current = null;
+                  setBatchJob(null);
                 }}
                 className="mb-2"
               >
@@ -1621,12 +1676,12 @@ export function DocumentReadingWorkflow() {
             />
           )}
           <div className="flex gap-2 mt-4">
-            <Button onClick={() => setStep("upload")}>Back</Button>
+            <Button disabled={writing} onClick={() => setStep("upload")}>Back</Button>
             <Button
               type="primary"
               disabled={approvedCount === 0 || docNameMissing}
-              onClick={destination === "customs" ? commitCustoms : destination === "booking" ? handleCommitBooking : commitShipment}
-              loading={destination === "booking" && bookingSaving}
+              onClick={destination === "customs" ? whileWriting(commitCustoms) : destination === "booking" ? handleCommitBooking : whileWriting(commitShipment)}
+              loading={destination === "booking" ? bookingSaving : writing}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
               {destination === "booking"
@@ -1984,12 +2039,13 @@ export function DocumentReadingWorkflow() {
                     )}
 
                     <div className="flex gap-2 mt-4">
-                      <Button onClick={() => setStep("upload")}>Back</Button>
-                      <Button onClick={advanceMaster}>Skip</Button>
+                      <Button disabled={writing} onClick={() => setStep("upload")}>Back</Button>
+                      <Button disabled={writing} onClick={advanceMaster}>Skip</Button>
                       <Button
                         type="primary"
                         disabled={masterFields.filter((f) => f.approved).length === 0 || docNameMissing}
-                        onClick={validateAndCreate}
+                        loading={writing}
+                        onClick={whileWriting(validateAndCreate)}
                       >
                         Validate &amp; Create
                         {masterIdx < masterShipments.length - 1 || hblBatchIndex < hblTotalBatches ? " → Next" : ""}
