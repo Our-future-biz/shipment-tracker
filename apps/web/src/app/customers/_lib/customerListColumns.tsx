@@ -166,7 +166,7 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     width: 116,
     align: "right",
     render: (c) => (c.creditLimit > 0 ? money(c.creditLimit, c.currency) : EMPTY_CELL),
-    // Filters match the text as shown ("12 500,00 EUR"), so what the user reads is what they can type.
+    // Filters match the text as shown ("12,500 EUR"), so what the user reads is what they can type.
     text: (c) => (c.creditLimit > 0 ? fmtMoney(c.creditLimit, c.currency) : ""),
   },
   // Revenue / Profit here are the stored rollups (summed from the shipments' selling and buying figures as
