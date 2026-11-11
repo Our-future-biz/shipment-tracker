@@ -54,16 +54,18 @@ export const useGateMovement = (id: string | undefined) => {
     queryClient.invalidateQueries({ queryKey: gateKeys.list(), exact: true });
     queryClient.invalidateQueries({ queryKey: gateKeys.archived(), exact: true });
   };
-  // A gate event (stamp, void, archive, restore) also changes what the server builds from gate
-  // events: stock, the bonded register, KPIs, sections and the shipment's warehouse part.
+  // A gate event (stamp, void, archive, restore), and a change of the record's figures or customs,
+  // also changes what the server builds from gate records: stock, the bonded register, KPIs,
+  // sections and the shipment's warehouse part.
   const onGateEvent = (res: controllers.GateMovementResponse) => {
     onRow(res);
     void invalidateAfterGateEvent(queryClient);
   };
 
+  // The server builds the stock line and the bonded entry again from the changed record.
   const update = useMutation({
     mutationFn: (data: controllers.GateMovementUpdateRequest) => api.warehouseConcept.gateMovementUpdate(id!, data),
-    onSuccess: onRow,
+    onSuccess: onGateEvent,
   });
   const stamp = useMutation({
     mutationFn: (kind: GateStampKind) => api.warehouseConcept.gateMovementStamp(id!, { kind }),
@@ -120,17 +122,18 @@ export const useGateMovement = (id: string | undefined) => {
     onSuccess: onGateEvent,
   });
   // Customs status read from the shipment now (instead of after the 30 s cache): the follow
-  // writes it on the server, then the row is read back.
+  // writes it on the server (opening or discharging the bonded entry), then the row is read back.
   const refreshCustoms = useMutation({
     mutationFn: async () => {
       await api.warehouseConcept.gateMovementFollow({ id: id!, force: true });
       return api.warehouseConcept.gateMovementGet(id!);
     },
-    onSuccess: onRow,
+    onSuccess: onGateEvent,
   });
+  // The shipment's figures and customs copied again: the stock line and bonded entry follow.
   const refreshFromShipment = useMutation({
     mutationFn: () => api.warehouseConcept.gateMovementRefreshFromShipment(id!),
-    onSuccess: onRow,
+    onSuccess: onGateEvent,
   });
   const retryShipmentUpdate = useMutation({
     mutationFn: () => api.warehouseConcept.gateMovementShipmentUpdateRetry(id!),
@@ -146,9 +149,10 @@ export const useGateMovement = (id: string | undefined) => {
     onSuccess: onGateEvent,
   });
   // Gate figures (pieces, kg, cbm) from the position's saved remeasured lines — never the shipment.
+  // The stock line takes the new figures.
   const applyRemeasured = useMutation({
     mutationFn: (sectionVersion: number) => api.warehouseConcept.gateMovementUseRemeasured(id!, { sectionVersion }),
-    onSuccess: onRow,
+    onSuccess: onGateEvent,
   });
   // Damage / short / over: an open exception holds the release until resolved with a note.
   const createException = useMutation({
