@@ -317,6 +317,16 @@ export interface GateFacts {
 const stampOf = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
 
 /**
+ * Whether a gate stamp (gateIn / gateOut at `at`) was taken back already: a void of that stamp made at
+ * or after it was received before it (a redelivery or a resend can bring the stamp after its void).
+ * Such a stamp is recorded but not applied - the void is the last word, as on the gate.
+ */
+export function stampVoidedLater(kind: "gateIn" | "gateOut", at: Date, voids: readonly { stampKind: string; at: Date }[]): boolean {
+  const stamp = kind === "gateIn" ? "gatein" : "gateout";
+  return voids.some((v) => stampOf(v.stampKind) === stamp && v.at.getTime() >= at.getTime());
+}
+
+/**
  * What a gate event changes on one LTL consignment of the job, or null when nothing:
  * gate-in → the gate-in time (a consignment brought by the customer, or with its pick-up still
  * open); gate-out → the gate-out time (after the gate-in, before the delivery); voided → the

@@ -36,6 +36,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
     renameJobNumber: vi.fn(),
     markJobNumberFinal: vi.fn(),
     writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
+    moveSalesNumber: vi.fn(async () => true),
   },
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
@@ -1235,10 +1236,23 @@ describe("moveQuoteReference", () => {
       { id: "s-2", jobNumber: "CZ00000102" },
     ]);
     await expect(shipmentService.moveQuoteReference(COMPANY, USER, REF, `${REF}-R1`)).resolves.toEqual(["CZ00000101", "CZ00000102"]);
-    expect(repository.updateForCompany).toHaveBeenCalledWith("s-1", COMPANY, { salesNumber: `${REF}-R1` });
-    expect(repository.updateForCompany).toHaveBeenCalledWith("s-2", COMPANY, { salesNumber: `${REF}-R1` });
-    expect(vi.mocked(shipmentAuditRepository.create)).toHaveBeenCalledWith({ companyId: COMPANY, shipmentId: "s-1", userId: USER, field: "salesNumber", oldValue: REF, newValue: `${REF}-R1` });
+    // Each in its write turn, only while it still names the quote; the history line in the same transaction.
+    expect(repository.moveSalesNumber).toHaveBeenCalledWith(TX, "s-1", COMPANY, REF, `${REF}-R1`);
+    expect(repository.moveSalesNumber).toHaveBeenCalledWith(TX, "s-2", COMPANY, REF, `${REF}-R1`);
+    expect(vi.mocked(shipmentAuditRepository.create)).toHaveBeenCalledWith({ companyId: COMPANY, shipmentId: "s-1", userId: USER, field: "salesNumber", oldValue: REF, newValue: `${REF}-R1` }, TX);
     expect(links.syncReference.mock.calls.map((c) => c[1])).toEqual([`${REF}-R1`, REF]);
+  });
+
+  it("leaves a shipment whose Sales Number a user changed meanwhile, with no history line", async () => {
+    repository.liveBySalesNumber.mockResolvedValue([
+      { id: "s-1", jobNumber: "CZ00000101" },
+      { id: "s-2", jobNumber: "CZ00000102" },
+    ]);
+    // s-1 was moved to another quote by hand between the read and its turn.
+    repository.moveSalesNumber.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await expect(shipmentService.moveQuoteReference(COMPANY, USER, REF, `${REF}-R1`)).resolves.toEqual(["CZ00000102"]);
+    expect(vi.mocked(shipmentAuditRepository.create)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(shipmentAuditRepository.create)).toHaveBeenCalledWith(expect.objectContaining({ shipmentId: "s-2" }), TX);
   });
 
   it("leaves an invoiced shipment with the offer it was invoiced from", async () => {
@@ -1247,8 +1261,8 @@ describe("moveQuoteReference", () => {
       { id: "s-2", jobNumber: "CZ00000102", invoicingStatus: "Not Invoiced" },
     ]);
     await expect(shipmentService.moveQuoteReference(COMPANY, USER, REF, `${REF}-R1`)).resolves.toEqual(["CZ00000102"]);
-    expect(repository.updateForCompany).toHaveBeenCalledTimes(1);
-    expect(repository.updateForCompany).toHaveBeenCalledWith("s-2", COMPANY, { salesNumber: `${REF}-R1` });
+    expect(repository.moveSalesNumber).toHaveBeenCalledTimes(1);
+    expect(repository.moveSalesNumber).toHaveBeenCalledWith(TX, "s-2", COMPANY, REF, `${REF}-R1`);
   });
 
   it("leaves a shipment with an issued invoice with its offer, whatever its Invoicing Status says", async () => {
@@ -1258,14 +1272,14 @@ describe("moveQuoteReference", () => {
     ]);
     vi.mocked(invoicing.openInvoiceCount).mockImplementation(async ({ shipmentId }) => ({ count: shipmentId === "s-1" ? 1 : 0 }));
     await expect(shipmentService.moveQuoteReference(COMPANY, USER, REF, `${REF}-R1`)).resolves.toEqual(["CZ00000102"]);
-    expect(repository.updateForCompany).toHaveBeenCalledTimes(1);
-    expect(repository.updateForCompany).toHaveBeenCalledWith("s-2", COMPANY, { salesNumber: `${REF}-R1` });
+    expect(repository.moveSalesNumber).toHaveBeenCalledTimes(1);
+    expect(repository.moveSalesNumber).toHaveBeenCalledWith(TX, "s-2", COMPANY, REF, `${REF}-R1`);
   });
 
   it("moves nothing and tells nobody when no shipment names the quote", async () => {
     repository.liveBySalesNumber.mockResolvedValue([]);
     await expect(shipmentService.moveQuoteReference(COMPANY, USER, REF, `${REF}-R1`)).resolves.toEqual([]);
-    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(repository.moveSalesNumber).not.toHaveBeenCalled();
     expect(links.syncReference).not.toHaveBeenCalled();
   });
 });

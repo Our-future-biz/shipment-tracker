@@ -14,6 +14,7 @@ vi.mock("~encore/clients", () => ({
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
 vi.mock("../../topics", () => ({ quoteRenamed: { publish: vi.fn() } }));
+vi.mock("../../services/quoteEvents.service", () => ({ deliverQuoteEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
 vi.mock("../../repositories/quoteRename.repository", () => ({ quoteRenameRepository: { rename: vi.fn() } }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
@@ -51,7 +52,7 @@ import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.re
 import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
 import { quoteRenameRepository } from "../../repositories/quoteRename.repository";
-import { quoteRenamed } from "../../topics";
+import { deliverQuoteEvents } from "../../services/quoteEvents.service";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
 import type { QuoteRoadInput } from "../../interfaces/interfaces";
@@ -489,7 +490,8 @@ describe("create and duplicate", () => {
 
 describe("the reference takes the letters of the Freight Mode", () => {
   const rename = vi.mocked(quoteRenameRepository.rename);
-  const publish = vi.mocked(quoteRenamed.publish);
+  // The rename writes its event (the outbox row, in the rename's transaction); then it is published.
+  const publish = vi.mocked(deliverQuoteEvents);
   const LCL = "QCZLCL20261010001";
   // The fixture's document with a Freight Mode.
   const withMode = (serviceType: string) => ({ ...(quote().data as Record<string, unknown>), serviceType });
@@ -499,7 +501,7 @@ describe("the reference takes the letters of the Freight Mode", () => {
     rename.mockResolvedValue(quote({ quoteNumber: LCL, dataVersion: 4 }));
     const item = await salesQuoteService.save(martin, REF, { serviceType: "Sea LCL" }, 3);
     expect(rename).toHaveBeenCalledWith(martin.companyID, REF, LCL);
-    expect(publish).toHaveBeenCalledWith({ companyId: martin.companyID, from: REF, to: LCL });
+    expect(publish).toHaveBeenCalledWith(quote().id);
     expect(item.quoteNumber).toBe(LCL);
   });
 

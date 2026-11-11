@@ -385,6 +385,24 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     });
   }
 
+  /**
+   * In the shipment's write turn: its Sales Number becomes `next` only while it still names the quote
+   * `previous` (compared without the Freight Mode letters) - a change made meanwhile stays. Whether it moved.
+   */
+  async moveSalesNumber(tx: Tx, id: string, companyId: string, previous: string, next: string): Promise<boolean> {
+    const rows = await tx
+      .update(shipmentTable)
+      .set({ salesNumber: next, updatedAt: new Date() })
+      .where(and(
+        eq(shipmentTable.id, id),
+        eq(shipmentTable.companyId, companyId),
+        isNull(shipmentTable.deletedAt),
+        sql`${plainSalesReferenceSql(sql`btrim(${shipmentTable.salesNumber})`)} = ${plainSalesReference(previous)}`,
+      ))
+      .returning({ id: shipmentTable.id });
+    return rows.length > 0;
+  }
+
   /** The base update - inside a write turn when `tx` is given. */
   override async updateForCompany(id: string, companyId: string, data: Partial<NewShipmentRecord>, tx?: Tx): Promise<ShipmentRecord | null> {
     if (!tx) return super.updateForCompany(id, companyId, data);

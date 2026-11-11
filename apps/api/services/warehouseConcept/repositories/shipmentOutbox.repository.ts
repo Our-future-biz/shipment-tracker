@@ -12,7 +12,9 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
   constructor() {
     // Updates of one shipment go out in order; a row cancelled by a voided stamp while it was on
     // its way is recorded as sent with this note.
-    super(db, shipmentOutboxTable, "warehouse_shipment_outbox", { orderKey: "shipment_id", sentAfterCancelNote: "sent just before the stamp was voided" });
+    // The received and released dates and the plate are whole values of the shipment: a newer one sent
+    // makes an older failed one obsolete.
+    super(db, shipmentOutboxTable, "warehouse_shipment_outbox", { orderKey: "shipment_id", sentAfterCancelNote: "sent just before the stamp was voided", wholeValueKinds: ["received", "released", "plate"] });
   }
 
   // Written in the stamp's own transaction, so the stamp and what it owes the shipment are

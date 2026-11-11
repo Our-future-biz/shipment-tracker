@@ -155,6 +155,20 @@ describe("Not sent — Send again", () => {
     expect(await db.select().from(eo).where(and(eq(eo.movementId, m.id), eq(eo.status, "sent")))).toHaveLength(1);
   });
 
+  it("does not send an old value over a newer one that went out since: the failed one is cancelled", async () => {
+    const c = randomUUID();
+    const m = await record(c);
+    const shipmentId = randomUUID();
+    // Plate 1AB failed for good; 2CD, written after it, was sent.
+    const old = await owesShipment(c, m.id, shipmentId, { status: "failed", attempts: MAX_ATTEMPTS, createdAt: past(60_000) });
+    await owesShipment(c, m.id, shipmentId, { status: "sent", payload: { plate: "2CD 3456" }, createdAt: past(30_000) });
+    shipmentUpdate.mockClear();
+    await gateSendAgain(m.id, c, user, "manager").catch(() => undefined);
+    expect(shipmentUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ plate: "1AB 2345" }), expect.anything());
+    const [row] = await db.select().from(so).where(eq(so.id, old.id));
+    expect(row).toMatchObject({ status: "cancelled", lastError: "Not sent again: a later update of the same value was sent since" });
+  });
+
   it("reports what still failed afterwards", async () => {
     const c = randomUUID();
     const m = await record(c);

@@ -83,6 +83,28 @@ async function announceLogged(companyId: string, row: CustomerRecord, deleted: b
   }
 }
 
+/**
+ * A customer brought back: each of its contacts is announced again (deleted: false), so the copies
+ * that let go of them when the customer was deleted - open quotes keep them as typed text - link
+ * them again. The restore is done, so nothing here fails it: it is only logged.
+ */
+async function announceContactsBack(companyId: string, customerId: string): Promise<void> {
+  let contacts: Awaited<ReturnType<typeof contactRepository.findByCustomer>>;
+  try {
+    contacts = await contactRepository.findByCustomer(customerId, companyId);
+  } catch (err) {
+    log.error(err, "contacts of a restored customer not read", { companyId, customerId });
+    return;
+  }
+  for (const contact of contacts) {
+    try {
+      await contactChanged.publish({ companyId, customerId, contactId: contact.id, name: contact.name, email: contact.email, phone: contact.phone, deleted: false });
+    } catch (err) {
+      log.error(err, "contact restore not published", { companyId, customerId, contactId: contact.id });
+    }
+  }
+}
+
 /** What a user may change on a customer (the rollups belong to the shipments service). */
 export interface CustomerPatch {
   companyName?: string;
@@ -570,6 +592,7 @@ class CustomerService {
     const row = await bringBack(id, deleted, companyId, "restore");
     if (!row) throw APIError.notFound("Deleted customer not found");
     await announceLogged(companyId, row, false);
+    await announceContactsBack(companyId, row.id);
     return toCustomerItem(row);
   }
 
@@ -584,6 +607,7 @@ class CustomerService {
     const row = await bringBack(id, deleted, companyId, "undoDecline");
     if (!row) throw APIError.failedPrecondition(NOT_DECLINED);
     await announceLogged(companyId, row, false);
+    await announceContactsBack(companyId, row.id);
   }
 
   async uploadLogo(id: string, companyId: string, dataUrl: string): Promise<CustomerItem> {

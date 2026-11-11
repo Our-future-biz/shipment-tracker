@@ -46,6 +46,7 @@ import {
   ltlStatus,
   ltlTripStatus,
   neededBy,
+  stampVoidedLater,
   TRIP_KIND_LABEL,
   tripOpenForLegs,
   type Place,
@@ -837,6 +838,11 @@ class LtlService {
         userId: event.userId ?? "",
       });
       if (!fresh || !shipmentId) return;
+      // A stamp whose void came first (a redelivery, a resend) stays taken back.
+      if (event.kind !== "voided" && stampVoidedLater(event.kind as "gateIn" | "gateOut", at, await legRepository.gateVoids(tx, companyId, event.positionId))) {
+        log.info("trucking: a gate stamp received after its void is not applied", { positionId: event.positionId, kind: event.kind });
+        return;
+      }
       const consignments = await consignmentRepository.ltlForShipmentLocked(tx, companyId, shipmentId);
       if (!consignments.length) return;
       const { legs, tripOf } = await consignmentService.ltlContext(companyId, consignments.map((c) => c.id), tx);

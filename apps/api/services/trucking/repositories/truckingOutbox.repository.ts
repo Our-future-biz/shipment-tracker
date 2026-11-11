@@ -14,7 +14,8 @@ class TruckingOutboxRepository extends OutboxRepository<typeof truckingOutboxTab
   constructor() {
     // Updates of one job go out in the order they were made; a row cancelled while on its way
     // (the job was deleted) is recorded as sent with this note.
-    super(db, truckingOutboxTable, "trucking_outbox", { orderKey: "shipment_id", sentAfterCancelNote: "sent just before the job was deleted" });
+    // Dates and the plate are whole values of the job: a newer one sent makes an older failed one obsolete.
+    super(db, truckingOutboxTable, "trucking_outbox", { orderKey: "shipment_id", sentAfterCancelNote: "sent just before the job was deleted", wholeValueKinds: ["planned", "plate", "delivered"] });
   }
 
   /** Written in the transaction of the change that owes it. */

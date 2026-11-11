@@ -121,6 +121,22 @@ describe.skipIf(!url)("quote customer links (database)", () => {
     expect((await row("Q-DRAFT")).updated_at.toISOString()).toBe(PAST);
   });
 
+  it("links a contact again on the quotes that let go of it when its customer comes back, unless a name was typed over it", async () => {
+    await repo.unlinkContact(writer, company, ACME, PETR, { name: "Petr Masák", email: "petr@acme.cz", phone: "" });
+    expect((await row("Q-DRAFT")).data).toMatchObject({ customerContactId: "", customerContactGoneId: PETR, customerContact: "Petr Masák" });
+    // Meanwhile somebody typed another contact on one of them.
+    await client!.query(`UPDATE quote SET data = data || '{"customerContact":"Jana Nová"}'::jsonb WHERE company_id = $1 AND quote_number = 'Q-READY'`, [company]);
+    const ids = await repo.relinkContact(writer, company, ACME, PETR, { name: "Petr Masák", email: "petr@acme.cz", phone: "+420 601 000 001" });
+    // The open quotes of ACME but the one typed over: draft, revised, the Won quote's revision.
+    expect(ids).toHaveLength(3);
+    const back = (await row("Q-DRAFT")).data;
+    expect(back).toMatchObject({ customerContactId: PETR, customerContact: "Petr Masák", customerPhone: "+420 601 000 001" });
+    expect(back).not.toHaveProperty("customerContactGoneId");
+    expect((await row("Q-READY")).data).toMatchObject({ customerContactId: "", customerContact: "Jana Nová" });
+    // Sent and decided quotes stay as they were.
+    expect((await row("Q-QUOTED")).data).toMatchObject({ customerContactId: PETR, customerContact: "Petr" });
+  });
+
   it("unlinks a deleted contact without a last name, keeping the text the quotes have", async () => {
     expect(await repo.unlinkContact(writer, company, ACME, PETR, { name: "", email: "", phone: "" })).toHaveLength(5);
     expect((await row("Q-DRAFT")).data).toMatchObject({ customerContactId: "", customerContact: "Petr", customerEmail: "old@acme.cz" });

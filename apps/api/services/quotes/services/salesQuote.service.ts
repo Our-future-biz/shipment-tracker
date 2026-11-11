@@ -9,7 +9,7 @@ import { canApproveMargin, canDecideQuoteInquiry, canSetOwner, quoteDeletePermis
 import { baseReference, formatReference, nextRevision, nextSequence, nextVariant, quoteThreadOf, revisionRoot, salesPrefix, salesReferenceFor } from "../../../lib/salesReference";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { quoteRenameRepository } from "../repositories/quoteRename.repository";
-import { quoteRenamed } from "../topics";
+import { deliverQuoteEvents } from "./quoteEvents.service";
 import { isUuid } from "../../../lib/uuid";
 import type { RateLevelResult, ServiceLevelCode } from "../../trucking/interfaces/interfaces";
 import type {
@@ -493,7 +493,8 @@ async function followLetters(companyId: string, quote: SalesQuoteRecord, at: Dat
     return quote;
   }
   if (!renamed) return quote;
-  await quoteRenamed.publish({ companyId, from: quote.quoteNumber, to });
+  // Owed with the rename (its outbox row): published now, and again by the cron when that fails.
+  await deliverQuoteEvents(renamed.id);
   return renamed;
 }
 

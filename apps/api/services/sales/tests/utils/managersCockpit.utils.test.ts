@@ -196,6 +196,13 @@ describe("buildSalesCockpit", () => {
     ]);
   });
 
+  it("adds a task to its quote also when the task names it as it read before its letters changed", () => {
+    const lettered = [fact({ quoteNumber: "QCZAIR20261103002", validUntil: "2026-11-05", serviceType: "Air" })];
+    const cockpit = buildSalesCockpit({ quotes: lettered, tasks: [task({ id: "a", quoteNumber: "QCZ20261103002" })], capped: false, mode: "air", now: NOW });
+    expect(cockpit.attention.rows.find((r) => r.id === "QCZAIR20261103002")!.tags.map((t) => t.text)).toContain("Call overdue 4 days");
+    expect(cockpit.attention.rows.some((r) => r.kind === "task")).toBe(false);
+  });
+
   it("adds a task to the quote it names, lists other tasks in All only, and filters by freight mode", () => {
     const tasks = [task({ id: "a", quoteNumber: "QCZ2" }), task({ id: "b" })];
     const all = buildSalesCockpit({ quotes, tasks, capped: false, mode: "all", now: NOW });

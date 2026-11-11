@@ -1393,15 +1393,22 @@ class ShipmentService {
     for (const shipment of await shipmentRepository.liveBySalesNumber(companyId, previous)) {
       if (shipment.invoicingStatus !== INVOICED_STATUS && !(await this.isInvoiced(shipment.id))) naming.push(shipment);
     }
+    // Each in the shipment's write turn, and only while it still names the quote: a Sales Number
+    // a user changed meanwhile stays. The history line goes with the move, in the same transaction.
+    const moved: NamingShipment[] = [];
     for (const shipment of naming) {
-      await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next });
-      await shipmentRepository.updateForCompany(shipment.id, companyId, { salesNumber: next });
+      const done = await shipmentRepository.writeTurn(shipment.id, companyId, async (tx) => {
+        if (!(await shipmentRepository.moveSalesNumber(tx, shipment.id, companyId, previous, next))) return false;
+        await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next }, tx);
+        return true;
+      });
+      if (done) moved.push(shipment);
     }
-    if (naming.length > 0) {
+    if (moved.length > 0) {
       await this.tellQuote(companyId, next);
       await this.tellQuote(companyId, previous);
     }
-    return naming.map((shipment) => shipment.jobNumber);
+    return moved.map((shipment) => shipment.jobNumber);
   }
 
   /**

@@ -111,6 +111,14 @@ class LegRepository {
     return rows.length > 0;
   }
 
+  /** The voids received for the warehouse position: which stamp each took back and when. */
+  async gateVoids(tx: Tx, companyId: string, positionId: string): Promise<{ stampKind: string; at: Date }[]> {
+    return tx
+      .select({ stampKind: truckingGateEventTable.stampKind, at: truckingGateEventTable.at })
+      .from(truckingGateEventTable)
+      .where(and(eq(truckingGateEventTable.companyId, companyId), eq(truckingGateEventTable.positionId, positionId), eq(truckingGateEventTable.kind, "voided")));
+  }
+
   /** Whether a gate event of `kind` was received for the warehouse position (applied or not). */
   async hasGateEvent(tx: Tx, companyId: string, positionId: string, kind: "gateIn" | "gateOut" | "voided"): Promise<boolean> {
     const rows = await tx

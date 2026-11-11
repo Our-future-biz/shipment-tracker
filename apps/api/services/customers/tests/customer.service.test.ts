@@ -17,6 +17,7 @@ const contacts = vi.hoisted(() => ({
   getByIdForCompany: vi.fn(),
   updateForCompany: vi.fn(),
   hiddenWithCustomer: vi.fn(async () => []),
+  findByCustomer: vi.fn(async (): Promise<{ id: string; name: string; email: string; phone: string }[]> => []),
 }));
 // Logo links are signed with a secret, which needs the Encore runtime.
 vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
@@ -295,6 +296,15 @@ describe("deleted customers", () => {
     expect(customers.findByIco).toHaveBeenCalledWith("12345678", COMPANY);
     expect(customers.restoreWithChildren).toHaveBeenCalledWith("c1", COMPANY, "restore");
     expect(item.id).toBe("c1");
+  });
+
+  it("announce their contacts again once restored, so the copies that let go of them link them again", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(deletedRow());
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockResolvedValue(deletedRow({ deletedAt: null }));
+    contacts.findByCustomer.mockResolvedValueOnce([{ id: "k1", name: "Petr Masák", email: "petr@acme.cz", phone: "" }]);
+    await customerService.restore("c1", COMPANY);
+    expect(topics.contactChanged.publish).toHaveBeenCalledWith({ companyId: COMPANY, customerId: "c1", contactId: "k1", name: "Petr Masák", email: "petr@acme.cz", phone: "", deleted: false });
   });
 
   it("can't be restored when they are not deleted (or of another company)", async () => {
