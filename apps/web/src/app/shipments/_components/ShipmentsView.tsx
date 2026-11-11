@@ -113,7 +113,6 @@ export const ShipmentsView = () => {
         onClose={closeCreate}
         createShipment={createShipment}
         isCreating={isCreating}
-        existingShipments={shipments}
         fromQuote={fromQuote}
         anotherFromQuote={anotherFromQuote}
       />

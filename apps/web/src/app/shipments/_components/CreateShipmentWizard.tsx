@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Select, Button, Checkbox, Segmented } from "antd";
+import { useEffect, useState } from "react";
+import { Alert, Button, Checkbox, Segmented } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/AppModal";
 import { Badge } from "@/components/Badge";
@@ -12,7 +12,6 @@ import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { COLUMN_MAP } from "@/lib/columnConfig";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useNextJobNumber } from "@/hooks/useNextJobNumber";
-import { compareJobNumbers } from "@/lib/jobNumber";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { invalidateQuoteLists } from "@/hooks/useSalesQuotes";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -21,6 +20,7 @@ import { toSalesQuote, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ExchangeRatesError } from "@/app/sales/_components/ExchangeRatesError";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
+import { ShipmentPicker } from "@/app/sales/quote/[ref]/_components/CopyFromModal";
 import { SHIPMENT_SOURCE_STATUSES, shipmentFromQuoteBlockedText } from "@/app/sales/_lib/shipmentLink";
 import { quoteToCreateRequest, quotePreview } from "./quoteToShipment";
 import { copiedLinks } from "@/app/shipments/_lib/parties";
@@ -36,7 +36,6 @@ interface CreateShipmentWizardProps {
   onClose: (openShipmentId?: string) => void;
   createShipment: (params: controllers.ShipmentCreateRequest) => Promise<controllers.ShipmentCreateResponse>;
   isCreating: boolean;
-  existingShipments: ShipmentItem[];
   /** The reference of the sales quote the wizard is opened for ("Create shipment" on the quote page). */
   fromQuote?: string | null;
   /** Opened to book another shipment under that quote: "Create another shipment" starts ticked. */
@@ -86,7 +85,6 @@ export const CreateShipmentWizard = ({
   onClose,
   createShipment,
   isCreating,
-  existingShipments,
   fromQuote = null,
   anotherFromQuote = false,
 }: CreateShipmentWizardProps) => {
@@ -98,7 +96,9 @@ export const CreateShipmentWizard = ({
 
   const [step, setStep] = useState<WizardStep>("ask-copy");
   const [copyMode, setCopyMode] = useState<"shipment" | "quote">("shipment");
-  const [copyFromId, setCopyFromId] = useState<string>("");
+  // The shipment picked in "Copy from Shipment", whole, as the picker found it on the server: any
+  // shipment of the company, not only the newest the list has loaded.
+  const [source, setSource] = useState<ShipmentItem | null>(null);
   // The sales quote picked in "Copy from Quote", whole, as the picker found it: an open, expired or
   // Won quote of the company, or the one the wizard was opened for.
   const [selectedQuote, setSelectedQuote] = useState<SalesQuote | null>(null);
@@ -150,23 +150,13 @@ export const CreateShipmentWizard = ({
   // is shown with.
   const blocked = selectedQuote ? shipmentFromQuoteBlockedText(selectedQuote.status) : null;
 
-  const jobOptions = useMemo(
-    () =>
-      existingShipments
-        .filter((s) => s.jobNumber)
-        .sort((a, b) => compareJobNumbers(b.jobNumber ?? "", a.jobNumber ?? ""))
-        .map((s) => ({ value: s.id, label: s.jobNumber })),
-    [existingShipments],
-  );
-
-  const source = existingShipments.find((s) => s.id === copyFromId);
   const sourceJob = source?.jobNumber ?? "";
 
   // Back to what a newly opened wizard shows.
   const reset = () => {
     setStep("ask-copy");
     setCopyMode("shipment");
-    setCopyFromId("");
+    setSource(null);
     pickQuote(null);
     setCreated(null);
     setSelectedFields(new Set(COPYABLE_FIELDS));
@@ -262,16 +252,19 @@ export const CreateShipmentWizard = ({
         failed.push("setting the origin");
       }
     }
+    // The server copies the source's estimates in one go, each row as it is (its quantity, words
+    // and vendor), all of them or none.
+    let copiedCosts: number | null = null;
     if (copyEstimatedCosts) {
       try {
-        await copyEstimates(source.id, newId);
-      } catch {
-        failed.push("copying estimated costs");
+        copiedCosts = (await api.invoicing.invoicingCopyEstimates(newId, { fromShipmentId: source.id })).copied;
+      } catch (err) {
+        failed.push(`copying estimated costs (${apiErrorMessage(err)})`);
       }
     }
     setSubmitting(false);
     if (failed.length) toast.error(`Shipment created, but ${failed.join(" and ")} failed`);
-    else toast.success("Shipment created");
+    else toast.success(copiedCosts === null ? "Shipment created" : `Shipment created - ${copiedCosts} estimated cost line${copiedCosts === 1 ? "" : "s"} copied`);
     closeAndOpen(newId);
   };
 
@@ -331,32 +324,6 @@ export const CreateShipmentWizard = ({
     setRetrying(false);
   };
 
-  const copyEstimates = async (sourceId: string, targetId: string) => {
-    const invoicing = await api.invoicing.invoicingGet(sourceId);
-
-    // estAmount/realAmount are numeric columns — only send them when they hold a
-    // real value, never an empty string (Postgres rejects "" as numeric).
-    for (const cost of invoicing.costs) {
-      if (!cost.estAmount) continue;
-      await api.invoicing.invoicingUpsertCost(targetId, {
-        category: cost.category,
-        estAmount: cost.estAmount,
-        estCurrency: cost.estCurrency || "CZK",
-      });
-    }
-
-    for (const charge of invoicing.additionalCharges) {
-      if (!charge.estAmount && !charge.description) continue;
-      const params: controllers.AddChargeRequest = {
-        description: charge.description || "",
-        estCurrency: charge.estCurrency || "CZK",
-        sortOrder: charge.sortOrder,
-      };
-      if (charge.estAmount) params.estAmount = charge.estAmount;
-      await api.invoicing.invoicingAddCharge(targetId, params);
-    }
-  };
-
   const toggleField = (key: string) => {
     setSelectedFields((prev) => {
       const next = new Set(prev);
@@ -383,7 +350,7 @@ export const CreateShipmentWizard = ({
       : step === "select-fields"
         ? `From ${sourceJob} → ${nextJobNumber}`
         : step === "confirm-costs"
-          ? `From ${sourceJob} to Invoicing`
+          ? `From ${sourceJob} to Costs Breakdown`
           : `Job Number: ${created?.shipment.jobNumber ?? ""}`;
 
   // What worked of a create from a quote; the result step lists the rest.
@@ -397,7 +364,7 @@ export const CreateShipmentWizard = ({
         <Button onClick={handleCreateBlank} loading={busy}>
           Create Blank
         </Button>
-        {copyMode === "shipment" && copyFromId && (
+        {copyMode === "shipment" && source && (
           <Button type="primary" onClick={() => setStep("select-fields")}>
             Next &mdash; Select Fields
           </Button>
@@ -447,7 +414,7 @@ export const CreateShipmentWizard = ({
             value={copyMode}
             onChange={(v) => {
               setCopyMode(v as "shipment" | "quote");
-              setCopyFromId("");
+              setSource(null);
               pickQuote(null);
             }}
             options={[
@@ -459,16 +426,8 @@ export const CreateShipmentWizard = ({
           {copyMode === "shipment" ? (
             <>
               <label className={`block ${LABEL_TEXT} mb-1`}>Copy from Job Number</label>
-              <Select
-                showSearch
-                allowClear
-                className="w-full"
-                placeholder="Search or select..."
-                value={copyFromId || undefined}
-                onChange={(value) => setCopyFromId(value ?? "")}
-                options={jobOptions}
-                optionFilterProp="label"
-              />
+              {/* Searched on the server, so an old shipment can be copied too. */}
+              <ShipmentPicker value={source} onChange={setSource} />
             </>
           ) : (
             <>
@@ -609,8 +568,8 @@ export const CreateShipmentWizard = ({
       {step === "confirm-costs" && (
         <>
           <p className="text-[13px] text-slate-700 mb-4">
-            Would you like to also copy the estimated costs from <strong className="text-slate-900">{sourceJob}</strong>{" "}
-            to the Invoicing tab of the new shipment?
+            Would you like to also copy the estimated buying costs from <strong className="text-slate-900">{sourceJob}</strong>{" "}
+            to the Costs Breakdown of the new shipment?
           </p>
           <label className="flex items-start gap-3 px-3 py-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
             <Checkbox
@@ -621,7 +580,7 @@ export const CreateShipmentWizard = ({
             <span>
               <span className="block text-[13px] font-medium text-slate-900">Yes, copy estimated costs</span>
               <span className={`block ${HINT} mt-0.5`}>
-                Estimated amounts will be copied to the new shipment&apos;s Invoicing tab
+                Each estimated buying cost becomes a row of its own, with its quantity, description and vendor. Real costs and selling costs are not copied.
               </span>
             </span>
           </label>

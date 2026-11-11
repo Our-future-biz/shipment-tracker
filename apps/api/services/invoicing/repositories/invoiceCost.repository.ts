@@ -6,6 +6,7 @@ import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecor
 import type { ExpectedGroupRow, ReceivedTotalsRow } from "../lib/supplierCosts";
 import { invoiceNumberKey, ontoEstimates, type OpenEstimateRow } from "../lib/invoiceLines";
 import { truckingLinesLock } from "./truckingLines.repository";
+import type { EstimateCopyRow } from "../utils/estimateCopy.utils";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Reader = typeof db | Tx;
@@ -239,6 +240,25 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
       .where(lineOf(id, companyId, shipmentId))
       .returning({ id: t.id });
     return rows.length > 0;
+  }
+
+  /**
+   * Another shipment's estimates added to a shipment with no live buying row yet, all of them or none, under
+   * the shipment's lock: a second copy at the same moment (or a Trucking push) finds the rows written first,
+   * and nothing is added. Answers whether they were added.
+   */
+  async addCopiedEstimates(companyId: string, shipmentId: string, rows: EstimateCopyRow[]): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      await truckingLinesLock(tx, shipmentId);
+      const [existing] = await tx
+        .select({ id: t.id })
+        .from(t)
+        .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
+        .limit(1);
+      if (existing) return false;
+      if (rows.length) await tx.insert(t).values(rows.map((row) => ({ ...row, companyId, shipmentId })));
+      return true;
+    });
   }
 
   /**

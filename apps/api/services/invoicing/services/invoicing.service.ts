@@ -26,7 +26,7 @@ import { startBilling, startingBillingCurrency } from "./billingStart.service";
 import { quoteFixedChanged } from "../utils/quoteCostImport.utils";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { sameCostCodes } from "../utils/truckingLines.utils";
-import { quoteLinesToCostRows, type QuoteBuyingRow } from "../utils/quoteCostImport.utils";
+import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
 import type { InvoiceCostRecord, NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { InvoiceSellingCostRecord, NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import type {
@@ -234,10 +234,11 @@ type CompanyRole = Parameters<typeof customers._internalCompaniesWithRole>[0]["r
 const SUPPLIER_ROLES: readonly CompanyRole[] = ["haulier", "rail_operator", "first_last_mile_haulier", "shipping_line", "co_loader"];
 
 /**
- * A quote's buying rows with only the links that name a live supplier of the Customer Database (C-7): the quote's
- * document comes from browsers, so an id that is no supplier of this company is dropped and the name stays, typed.
+ * Buying rows with only the links that name a live supplier of the Customer Database (C-7): a quote's document
+ * comes from browsers, and a supplier linked on another shipment may have been deleted or lost its supplier role
+ * since, so an id that is no supplier of this company is dropped and the name stays, typed.
  */
-async function withLiveSuppliers(rows: QuoteBuyingRow[]): Promise<QuoteBuyingRow[]> {
+export async function withLiveSuppliers<T extends { supplierCustomerId: string | null }>(rows: T[]): Promise<T[]> {
   const ids = [...new Set(rows.flatMap((r) => (r.supplierCustomerId ? [r.supplierCustomerId.toLowerCase()] : [])))];
   if (!ids.length) return rows;
   const found = await Promise.all(SUPPLIER_ROLES.map((role) => customers._internalCompaniesWithRole({ role, ids })));

@@ -1453,6 +1453,7 @@ export namespace invoicing {
             this.invoicingAddBuyingCost = this.invoicingAddBuyingCost.bind(this)
             this.invoicingAddCharge = this.invoicingAddCharge.bind(this)
             this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
+            this.invoicingCopyEstimates = this.invoicingCopyEstimates.bind(this)
             this.invoicingDeleteBuyingCost = this.invoicingDeleteBuyingCost.bind(this)
             this.invoicingDeleteCharge = this.invoicingDeleteCharge.bind(this)
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
@@ -1599,6 +1600,17 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/selling`, JSON.stringify(params))
             return await resp.json() as controllers.SellingResponse
+        }
+
+        /**
+         * "Copy estimated costs" of the New Shipment wizard: another shipment's estimated buying costs
+         * copied onto a new one in one go, one row per row with its quantity, words and vendor - all of
+         * them or none (services/estimateCopy).
+         */
+        public async invoicingCopyEstimates(shipmentId: string, params: controllers.CopyEstimatesRequest): Promise<controllers.CopyEstimatesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/copy-estimates`, JSON.stringify(params))
+            return await resp.json() as controllers.CopyEstimatesResponse
         }
 
         public async invoicingDeleteBuyingCost(shipmentId: string, costId: string): Promise<controllers.DeleteBuyingResponse> {
@@ -7367,6 +7379,20 @@ export namespace controllers {
          * Set when shipments were already updated from what was voided (they are not changed back).
          */
         notice: string
+    }
+
+    export interface CopyEstimatesRequest {
+        /**
+         * the shipment whose estimated buying costs are copied
+         */
+        fromShipmentId: string
+    }
+
+    export interface CopyEstimatesResponse {
+        /**
+         * how many buying rows were copied (0 when the other shipment has no estimate)
+         */
+        copied: number
     }
 
     /**
