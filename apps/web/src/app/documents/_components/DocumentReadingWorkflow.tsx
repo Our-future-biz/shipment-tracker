@@ -22,11 +22,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { fileToBase64, formatFileSize } from "@/lib/files";
-import { CANCELLED_STATUS, CURRENCIES, FULL_LOAD } from "@/lib/enums";
+import { CANCELLED_STATUS, FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber, sameMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
+import { invoicingKey } from "@/hooks/useInvoicing";
 import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/lib/documentTypes";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
@@ -62,9 +63,9 @@ import {
   type InputMode,
   INVOICE_FIELD_LABELS,
   type InvoiceExtracted,
-  normalizeCurrency,
   normalizeExtracted,
   parseContainerNumbers,
+  readCurrency,
   MBL_CONTAINERS_LABEL,
   MBL_SEALS_LABEL,
   MBL_TO_MASTER_JOB,
@@ -90,6 +91,7 @@ import { mergeReads } from "../_lib/mergeReads";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
+import { InvoiceHeaderFields } from "./InvoiceHeaderFields";
 import { anyToSplit, creditAmount, creditLines, invoiceLinesInvalid, invoicePostLines, lineAmount, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
 import { shipmentFreight } from "@/lib/freightTons";
 
@@ -332,11 +334,12 @@ export function DocumentReadingWorkflow() {
   const invoiceMissingWm = splitMethod ? missingWm(invoiceRows, invoiceTicked, splitMethod) : [];
   // Typed or read with thousands or a decimal comma ("1,177.20"); 0 when it is no amount.
   const invoiceTotal = lineAmount(invoiceData.total_amount) ?? 0;
-  const invoiceCurrency = normalizeCurrency(invoiceData.currency);
+  // As read, or as the user chose it: "" while there is none to post.
+  const invoiceCurrency = readCurrency(invoiceData.currency);
   // The split as the server will post it; asked as a dry run while the user reviews.
   const splitRequest = useMemo(
     () =>
-      splitMethod && invoiceCategory && invoiceTotal > 0 && invoiceData.invoice_number?.trim() && invoiceTicked.size > 0
+      splitMethod && invoiceCategory && invoiceTotal > 0 && invoiceCurrency && invoiceData.invoice_number?.trim() && invoiceTicked.size > 0
         ? {
             category: invoiceCategory,
             total: invoiceTotal.toFixed(2),
@@ -352,8 +355,11 @@ export function DocumentReadingWorkflow() {
   // An invoice whose lines name a B/L goes line by line; W/M or per shipment is only for what can't be placed.
   const invoiceByBl = invoiceToMaster && namesBls(invoiceLines);
   const creditNote = destination === "invoicing" && invoiceCreditNote;
-  // What goes line by line, each a new buying row: one sorted by its B/Ls, and any credit note.
-  const postsLines = invoiceByBl || creditNote;
+  const invoiceToShipment = destination === "invoicing" && !invoiceToMaster;
+  // What goes line by line, each a new buying row (or onto the shipment's open estimate of the charge),
+  // so a second invoice never overwrites the first: one sorted by its B/Ls, any credit note, and an
+  // invoice for one shipment.
+  const postsLines = invoiceByBl || creditNote || invoiceToShipment;
   const docWord = creditNote ? "Credit note" : "Invoice";
   const blShipments = useMemo<BlShipment[]>(
     () =>
@@ -386,17 +392,27 @@ export function DocumentReadingWorkflow() {
       const lines = invoicePostLines(invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency);
       return lines ? { invoiceNumber, vendor, lines, creditNote, ...onMaster } : null;
     }
-    // A credit note without B/Ls is one line, on its shipment or shared out as an invoice would be.
-    const amount = creditAmount(invoiceData.total_amount);
-    if (!creditNote || !invoiceCategory || !(Number(amount) < 0)) return null;
+    // An invoice for one shipment, or a credit note without B/Ls, is one line: on its shipment, or a
+    // credit note's shared out as an invoice would be. Its amount goes as the plain decimal the server
+    // takes ("1,177.20" as 1177.20).
+    const amount = creditNote ? creditAmount(invoiceData.total_amount) : invoiceTotal > 0 ? invoiceTotal.toFixed(2) : "";
+    if (!invoiceCategory || !invoiceCurrency || !(creditNote ? Number(amount) < 0 : Number(amount) > 0)) return null;
     const line = { category: invoiceCategory, amount, currency: invoiceCurrency, item: invoiceData.description?.trim().slice(0, 300) || undefined };
     if (!invoiceToMaster) return invoiceTargetShipmentId ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, shipmentId: invoiceTargetShipmentId }] } : null;
+    // A master job's invoice without B/Ls is split by splitRequest.
+    if (!creditNote) return null;
     const split = splitMethod ? splitLines(lineRows, lineTicked, splitMethod) : [];
     return split.some((l) => l.weight > 0) ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, split }], ...onMaster } : null;
-  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceMasterJobId, invoiceTargetShipmentId, invoiceCategory, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency]);
+  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceMasterJobId, invoiceTargetShipmentId, invoiceCategory, invoiceTotal, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency]);
   const linesReady = !!linesRequest && !linesInvalid && (!linesToSplit || lineMissingWm.length === 0);
   const linesRepeated = !!linesPreview?.some((r) => r.repeated);
   const postShipments = new Set(linesPreview?.map((r) => r.shipmentId)).size;
+  const editInvoiceData = (patch: Partial<InvoiceExtracted>) => setInvoiceData((d) => ({ ...d, ...patch }));
+  const invoiceTotalValid = creditNote ? invoiceTotal !== 0 : invoiceTotal > 0;
+  // What one shipment's review shows of the reading beside the fields the user corrects.
+  const invoiceReadOnly = Object.entries(invoiceData)
+    .filter(([key, value]) => value && !INVOICE_EDITED_FIELDS.has(key))
+    .map(([key, value]) => ({ key, label: INVOICE_FIELD_LABELS[key] || key, children: key === "service_type" ? chargeLabel(String(value)) : String(value) }));
   const tickInvoiceShipment = (shipmentId: string, ticked: boolean) =>
     setInvoiceUnticked((prev) => {
       const next = new Set(prev);
@@ -460,7 +476,7 @@ export function DocumentReadingWorkflow() {
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
     }
     if (creditNote && splitDone) return `Credit note deducted from ${splitDone.written.join(", ")}`;
-    if (destination === "invoicing" && splitDone)
+    if (invoiceToMaster && splitDone)
       return `Invoice split over ${splitDone.written.length} shipment${splitDone.written.length !== 1 ? "s" : ""} of ${invoiceMcz}`;
     if (destination === "invoicing") return `Invoice data written to ${committedJobNumber || "shipment"}`;
     if (destination === "booking")
@@ -625,7 +641,8 @@ export function DocumentReadingWorkflow() {
         // Each line's charge as suggested, and only one the picker offers.
         const readLines = (result.invoiceLines ?? []).map((l) => {
             const code = toChargeCode(l.serviceType);
-            return { bl: l.bl, item: l.item, amount: l.amount, currency: l.currency, category: chargeOptions().some((c) => c.value === code) ? code : "" };
+            // A line's currency that is no code goes by the invoice's.
+            return { bl: l.bl, item: l.item, amount: l.amount, currency: readCurrency(l.currency), category: chargeOptions().some((c) => c.value === code) ? code : "" };
           });
         setInvoiceLines(creditNote ? creditLines(readLines) : readLines);
         setInvoiceLinesSkipped(!!result.invoiceLinesSkipped);
@@ -797,27 +814,6 @@ export function DocumentReadingWorkflow() {
     }
   };
 
-  // ─── Commit: invoicing ───────────────────────────────────────────
-  const commitInvoice = async () => {
-    if (!invoiceCategory) return toast.warning("Please select a cost category.");
-    if (!invoiceTargetShipmentId) return toast.warning("Please select a target shipment.");
-    try {
-      const params: Parameters<typeof api.invoicing.invoicingUpsertCost>[1] = {
-        category: invoiceCategory,
-        realCurrency: normalizeCurrency(invoiceData.currency),
-        invoiceNumber: invoiceData.invoice_number || "",
-        vendor: invoiceData.vendor || "",
-      };
-      // realAmount is a numeric column — only send it when non-empty.
-      if (invoiceData.total_amount) params.realAmount = invoiceData.total_amount;
-      await api.invoicing.invoicingUpsertCost(invoiceTargetShipmentId, params);
-      setCommittedJobNumber(shipments.find((s) => s.id === invoiceTargetShipmentId)?.jobNumber || "");
-      setStep("committed");
-    } catch {
-      toast.error("Failed to save invoicing data.");
-    }
-  };
-
   // While the user reviews a master job's invoice: each ticked shipment's part, and the real
   // cost it already has under the charge (asked of the server without writing anything).
   useEffect(() => {
@@ -869,7 +865,8 @@ export function DocumentReadingWorkflow() {
     try {
       const { rows } = await api.invoicing.invoicingPostInvoiceLines({ ...linesRequest, allowRepeat });
       const posted = [...new Set(rows.map((r) => r.shipmentId))];
-      for (const id of posted) queryClient.invalidateQueries({ queryKey: ["invoicing", id] });
+      for (const id of posted) queryClient.invalidateQueries({ queryKey: invoicingKey(id) });
+      if (invoiceToShipment) setCommittedJobNumber(jobOf(invoiceTargetShipmentId));
       // The invoice goes to the documents of each shipment it was posted to.
       let docs = 0;
       for (const id of posted) if (await saveReadDocument(id, jobOf(id))) docs += 1;
@@ -891,7 +888,7 @@ export function DocumentReadingWorkflow() {
       const { lines } = await api.invoicing.invoicingSplitCost({ ...splitRequest, overwriteShipmentIds: [...splitOverwrite] });
       const jobOf = (id: string) => invoiceRows.find((r) => r.shipmentId === id)?.jobNumber ?? id;
       const written = lines.filter((l) => l.written);
-      for (const l of written) queryClient.invalidateQueries({ queryKey: ["invoicing", l.shipmentId] });
+      for (const l of written) queryClient.invalidateQueries({ queryKey: invoicingKey(l.shipmentId) });
       // The invoice goes to the documents of each shipment it was posted to.
       let docs = 0;
       for (const l of written) if (await saveReadDocument(l.shipmentId, jobOf(l.shipmentId))) docs += 1;
@@ -1693,42 +1690,7 @@ export function DocumentReadingWorkflow() {
         <SectionCard title={`${docWord} for master job ${invoiceMcz}`}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           {linesSkippedAlert}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_110px_1fr_1fr] gap-3 mb-4">
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>
-                {docWord} total <span className="text-red-500">*</span>
-              </div>
-              <Input
-                aria-label={`${docWord} total`}
-                value={invoiceData.total_amount ?? ""}
-                onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value }))}
-                status={invoiceTotal > 0 || (creditNote && invoiceTotal < 0) ? undefined : "error"}
-              />
-            </div>
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>Currency</div>
-              <Select
-                className="w-full"
-                value={invoiceCurrency}
-                onChange={(v) => setInvoiceData((d) => ({ ...d, currency: v }))}
-                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-              />
-            </div>
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>
-                {docWord} number <span className="text-red-500">*</span>
-              </div>
-              <Input
-                value={invoiceData.invoice_number ?? ""}
-                onChange={(e) => setInvoiceData((d) => ({ ...d, invoice_number: e.target.value }))}
-                status={invoiceData.invoice_number?.trim() ? undefined : "error"}
-              />
-            </div>
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>Vendor</div>
-              <Input value={invoiceData.vendor ?? ""} onChange={(e) => setInvoiceData((d) => ({ ...d, vendor: e.target.value }))} />
-            </div>
-          </div>
+          <InvoiceHeaderFields docWord={docWord} data={invoiceData} onChange={editInvoiceData} totalValid={invoiceTotalValid} className="mb-4" />
           {invoiceByBl ? (
             <>
               <InvoiceLinesTable
@@ -1847,27 +1809,13 @@ export function DocumentReadingWorkflow() {
         </SectionCard>
       )}
 
-      {step === "review" && destination === "invoicing" && !invoiceToMaster && (
+      {step === "review" && invoiceToShipment && (
         <SectionCard title={creditNote ? "Credit note data extracted" : "Invoice data extracted"}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           {linesSkippedAlert}
-          <Descriptions
-            bordered
-            size="small"
-            column={2}
-            items={Object.entries(invoiceData)
-              .filter(([, v]) => v)
-              .map(([key, value]) => ({
-                key,
-                label: INVOICE_FIELD_LABELS[key] || key,
-                children:
-                  key === "service_type"
-                    ? chargeLabel(String(value))
-                    : key === "total_amount" && invoiceData.currency
-                      ? `${value} ${invoiceData.currency}`
-                      : String(value),
-              }))}
-          />
+          {invoiceReadOnly.length > 0 && <Descriptions bordered size="small" column={2} className="mb-4" items={invoiceReadOnly} />}
+          <InvoiceHeaderFields docWord={docWord} data={invoiceData} onChange={editInvoiceData} totalValid={invoiceTotalValid} />
+          {creditNote && <p className={`mt-1.5 mb-0 ${HINT}`}>Deducted from buying as a minus, however it is printed.</p>}
           <div className="mt-4">
             <div className={`${LABEL_TEXT} mb-1.5`}>
               Cost Category <span className="text-red-500">*</span>
@@ -1886,66 +1834,21 @@ export function DocumentReadingWorkflow() {
               }))}
             />
           </div>
-          {creditNote && (
-            <div className="mt-4">
-              <div className="grid grid-cols-1 sm:grid-cols-[180px_110px_288px] gap-3">
-                <div>
-                  <div className={`${LABEL_TEXT} mb-1.5`}>
-                    Credit note total <span className="text-red-500">*</span>
-                  </div>
-                  <Input
-                    aria-label="Credit note total"
-                    value={invoiceData.total_amount ?? ""}
-                    onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value }))}
-                    status={invoiceTotal !== 0 ? undefined : "error"}
-                  />
-                </div>
-                <div>
-                  <div className={`${LABEL_TEXT} mb-1.5`}>Currency</div>
-                  <Select
-                    className="w-full"
-                    aria-label="Credit note currency"
-                    value={invoiceCurrency}
-                    onChange={(v) => setInvoiceData((d) => ({ ...d, currency: v }))}
-                    options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-                  />
-                </div>
-                <div>
-                  <div className={`${LABEL_TEXT} mb-1.5`}>
-                    Credit note number <span className="text-red-500">*</span>
-                  </div>
-                  <Input
-                    aria-label="Credit note number"
-                    value={invoiceData.invoice_number ?? ""}
-                    onChange={(e) => setInvoiceData((d) => ({ ...d, invoice_number: e.target.value }))}
-                    status={invoiceData.invoice_number?.trim() ? undefined : "error"}
-                  />
-                </div>
-              </div>
-              <p className={`mt-1.5 mb-0 ${HINT}`}>Deducted from buying as a minus, however it is printed.</p>
-              <div className="mt-4">
-                {linesPreview && <InvoiceLinesPreview rows={linesPreview} jobOf={jobOf} />}
-                {repeatedAlert}
-                {splitError && <Alert className="mb-3" type="error" showIcon message={splitError} />}
-              </div>
-            </div>
-          )}
+          <div className="mt-4">
+            {linesPreview && <InvoiceLinesPreview rows={linesPreview} jobOf={jobOf} />}
+            {repeatedAlert}
+            {splitError && <Alert className="mb-3" type="error" showIcon message={splitError} />}
+          </div>
           <div className="flex gap-2 mt-4">
             <Button onClick={() => setStep("upload")}>Back</Button>
-            {creditNote ? (
-              <Button
-                type="primary"
-                disabled={!linesReady || !linesPreview?.length || !!splitError || (linesRepeated && !allowRepeat)}
-                loading={splitSaving}
-                onClick={commitInvoiceLines}
-              >
-                Deduct from buying (Real Cost)
-              </Button>
-            ) : (
-              <Button type="primary" disabled={!invoiceCategory} onClick={commitInvoice}>
-                Write to invoicing (Real Cost)
-              </Button>
-            )}
+            <Button
+              type="primary"
+              disabled={!linesReady || !linesPreview?.length || !!splitError || (linesRepeated && !allowRepeat)}
+              loading={splitSaving}
+              onClick={commitInvoiceLines}
+            >
+              {creditNote ? "Deduct from buying (Real Cost)" : "Write to invoicing (Real Cost)"}
+            </Button>
           </div>
         </SectionCard>
       )}
@@ -2167,6 +2070,9 @@ export function DocumentReadingWorkflow() {
     </div>
   );
 }
+
+// The fields of an invoice its review lets the user correct (InvoiceHeaderFields).
+const INVOICE_EDITED_FIELDS = new Set(["total_amount", "currency", "invoice_number", "vendor"]);
 
 // The server accepts 100 MB per request and the files travel base64-encoded
 // (a third larger), so this is the most one batch can carry.

@@ -3,7 +3,6 @@
 import { Alert, Input, Select } from "antd";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import type { interfaces } from "@/lib/api/client";
-import { CURRENCIES } from "@/lib/enums";
 import { HINT, TD, TD_TOTAL, TH } from "@/styles/ui";
 import {
   creditLinesAbove0,
@@ -17,6 +16,7 @@ import {
   type InvoiceLineDraft,
   type LineMatch,
 } from "../_lib/invoiceLines";
+import { currencyOptions } from "../_lib/extraction";
 
 const money = (cents: number, currency: string) => `${(cents / 100).toFixed(2)} ${currency}`;
 
@@ -45,8 +45,6 @@ export function InvoiceLinesTable({ lines, matches, shipments, currency, total, 
   const off = totals.size === 1 && total !== 0 && lineCents !== Math.round(total * 100);
   const flagged = lines.filter((l, i) => lineFlagged(l, matches[i]!)).length;
   const addsBuying = creditNote ? creditLinesAbove0(lines, matches, currency) : new Set<number>();
-  // A line's own currency may be one the list doesn't have; it stays offered.
-  const currencyOptions = (own: string) => [...new Set([...CURRENCIES, own].filter(Boolean))].map((c) => ({ value: c, label: c }));
 
   return (
     <div className="mb-4">
@@ -115,7 +113,11 @@ export function InvoiceLinesTable({ lines, matches, shipments, currency, total, 
                       className="w-full"
                       showSearch
                       aria-label={`Currency of ${l.item || "this line"}`}
-                      value={l.currency || currency}
+                      // A line's own currency may be one the list doesn't have; it stays offered. With
+                      // none of its own and none on the invoice, one is chosen before anything is posted.
+                      placeholder="Choose"
+                      status={l.currency || currency ? undefined : "error"}
+                      value={l.currency || currency || undefined}
                       options={currencyOptions(l.currency || currency)}
                       onChange={(c: string) => onLine(i, { currency: c })}
                     />
