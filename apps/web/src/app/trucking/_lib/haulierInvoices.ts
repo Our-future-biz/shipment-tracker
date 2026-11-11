@@ -107,6 +107,19 @@ export function vatBlockers(profile: ProfileChecks, bankAccount: string): { prob
   return out;
 }
 
+/**
+ * What the Approve dialog says of the invoice: how far it is off, or why an exact match waits for a
+ * manager (never "differs by Exact"), then what approving does.
+ */
+export function approveHint(invoice: Pick<HaulierInvoice, "difference" | "currency" | "holdReasons">): string {
+  const effect = "Approving puts the invoiced amounts on the jobs as their real cost; your name, the time and the reason are kept.";
+  if (round2(invoice.difference) !== 0) return `The invoice differs from the expected cost by ${differenceText(invoice.difference, invoice.currency)}. ${effect}`;
+  if (invoice.holdReasons.length) {
+    return `The invoice matches the expected cost exactly but was held for a manager, for the ${invoice.holdReasons.length === 1 ? "reason" : "reasons"} shown on the invoice. ${effect}`;
+  }
+  return `The invoice's total matches the expected cost, but not line by line. ${effect}`;
+}
+
 /** Who may approve or reject an invoice now, and why not. */
 export function invoiceDecisionState(invoice: Pick<HaulierInvoice, "status">, manager: boolean): { approve: string | null; reject: string | null } {
   const notManager = "Only a manager approves or rejects a haulier invoice";

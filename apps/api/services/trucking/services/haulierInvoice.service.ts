@@ -141,6 +141,7 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
     blockReasons,
     holdReasons: open || r.status === "APPROVED" ? (r.holdReasons ?? []) : [],
     approval: r.approvedAt ? { byName: r.approvedBy ?? "", at: r.approvedAt.toISOString(), reason: r.approvalReason ?? "" } : null,
+    rejection: r.rejectedAt ? { byName: r.rejectedBy ?? "", at: r.rejectedAt.toISOString(), reason: r.rejectReason ?? "" } : null,
     payment: r.paidOn ? { paidOn: r.paidOn, byName: r.paidBy ?? "", at: r.paidAt ? r.paidAt.toISOString() : "" } : null,
     paymentTracked: paymentTracked(r, trackingSince),
     fileName: r.fileName,

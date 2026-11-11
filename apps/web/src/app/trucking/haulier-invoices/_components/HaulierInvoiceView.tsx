@@ -21,7 +21,7 @@ import { formatBankAccount } from "../../_lib/bankAccounts";
 import { tripHref } from "../../_lib/consignments";
 import { truckingFileSource } from "../../_lib/fileSource";
 import { TERMS } from "../../_lib/glossary";
-import { INVOICE_STATUS_CHIP, TARGET_KIND_LABELS, differenceText, haulierVatCardHref, invoiceDecisionState, paymentState, vatBlockers } from "../../_lib/haulierInvoices";
+import { INVOICE_STATUS_CHIP, TARGET_KIND_LABELS, approveHint, differenceText, haulierVatCardHref, invoiceDecisionState, paymentState, vatBlockers } from "../../_lib/haulierInvoices";
 import { isTruckingManager } from "../../_lib/roles";
 import { formatMoney } from "../../_lib/tariffs";
 import { fileDataUrl } from "../../_lib/tariffUpload";
@@ -218,9 +218,17 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
         {inv.approval && (
           <Alert
             className="mt-3"
-            type={inv.status === "REJECTED" ? "error" : "success"}
+            type="success"
             showIcon
-            message={`${inv.status === "REJECTED" ? "Rejected" : "Approved"} by ${inv.approval.byName} on ${businessDateTime(inv.approval.at)}${inv.approval.reason ? `: “${inv.approval.reason}”` : ""}`}
+            message={`Approved by ${inv.approval.byName} on ${businessDateTime(inv.approval.at)}${inv.approval.reason ? `: “${inv.approval.reason}”` : ""}`}
+          />
+        )}
+        {inv.rejection && (
+          <Alert
+            className="mt-3"
+            type="error"
+            showIcon
+            message={`Rejected by ${inv.rejection.byName} on ${businessDateTime(inv.rejection.at)}${inv.rejection.reason ? `: “${inv.rejection.reason}”` : ""}`}
           />
         )}
         {inv.payment && (
@@ -315,7 +323,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
       {dialog === "approve" && (
         <TruckingTextModal
           title={`Approve ${inv.invoiceNumber}`}
-          hint={`The invoice differs from the expected cost by ${differenceText(inv.difference, inv.currency)}. Approving puts the invoiced amounts on the jobs as their real cost; your name, the time and the reason are kept.`}
+          hint={approveHint(inv)}
           placeholder="Reason (required)"
           okText="Approve invoice"
           onClose={() => setDialog(null)}

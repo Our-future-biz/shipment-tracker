@@ -453,7 +453,9 @@ describe("approve and reject", () => {
     const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 12000, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 12000, note: "" }] }));
     await expect(haulierInvoiceService.reject(user, inv.id, "Wrong price")).rejects.toMatchObject({ code: "permission_denied" });
     await expect(haulierInvoiceService.reject(manager, inv.id, " ")).rejects.toMatchObject({ code: "invalid_argument" });
-    expect((await haulierInvoiceService.reject(manager, inv.id, "Wrong price")).status).toBe("REJECTED");
+    const rejected = await haulierInvoiceService.reject(manager, inv.id, "Wrong price");
+    expect(rejected).toMatchObject({ status: "REJECTED", approval: null, rejection: { byName: "Jana Nováková", at: expect.any(String), reason: "Wrong price" } });
+    expect((await haulierInvoiceService.get(user, inv.id)).rejection).toEqual(rejected.rejection);
     expect((await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/102" }))).status).toBe("APPROVED");
   });
 

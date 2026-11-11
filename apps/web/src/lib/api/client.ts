@@ -15688,6 +15688,15 @@ export namespace interfaces {
             reason: string
         } | null
         /**
+         * Who rejected it (REJECTED), when and why; null otherwise
+         */
+        rejection: {
+            byName: string
+            at: string
+            reason: string
+        } | null
+
+        /**
          * When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid.
          */
         payment: {
