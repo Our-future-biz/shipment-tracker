@@ -24,10 +24,11 @@ export interface UserPickerProps
 }
 
 export function UserPicker({ value, onChange, placeholder = "Pick a user", "aria-label": ariaLabel, ...rest }: UserPickerProps) {
-  const { users, isLoading } = useUsers();
+  const { users, isLoading, loaded } = useUsers();
   const current = (value ?? "").trim();
   const picked = userByEmail(current, users);
-  const unlinked = !isLoading && isUnlinkedPerson(current, users);
+  // Marked only against a list that was read: a failed read is no proof nobody is a user.
+  const unlinked = loaded && isUnlinkedPerson(current, users);
 
   const options = sortedUsers(users).map((u) => ({
     value: u.email,
