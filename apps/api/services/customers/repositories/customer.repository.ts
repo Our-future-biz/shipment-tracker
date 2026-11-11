@@ -41,7 +41,6 @@ const LIST_COLUMNS = {
   lastContactAt: sql<Date | null>`(select max(note.created_at) from customer_note as note where note.customer_id = "customer"."id" and note.company_id = "customer"."company_id" and note.deleted_at is null)`.mapWith(customerNoteTable.createdAt),
 };
 
-/** The companies of a view of the list (and of its count): customers have the customer role, suppliers any other. */
 /** What the Customer Database list searches in a company's own fields (listFiltered). */
 const CUSTOMER_SEARCHED_TEXT = [customerTable.companyName, customerTable.ico, customerTable.dic, customerTable.city];
 /** What the main search looks in for a contact of a company. */
@@ -58,6 +57,7 @@ export interface CustomerSearchRow {
   ownMatch: boolean;
 }
 
+/** The companies of a view of the list (and of its count): customers have the customer role, suppliers any other. */
 export const kindClause = (kind: CustomerListKind) =>
   kind === "customers" ? arrayContains(customerTable.roles, ["customer"]) : arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES]);
 
@@ -284,7 +284,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     }
     // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
-      const match = containsAllWords([customerTable.companyName, customerTable.ico, customerTable.dic, customerTable.city], f.search);
+      const match = containsAllWords(CUSTOMER_SEARCHED_TEXT, f.search);
       if (match) clauses.push(match);
     }
     const where = and(...clauses);

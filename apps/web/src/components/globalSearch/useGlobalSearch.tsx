@@ -11,6 +11,8 @@ import { Pill } from "@/components/Pill";
 import { formatDate } from "@/lib/date";
 import { money } from "@/lib/money";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
+import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
+import type { QuoteStatus } from "@/app/sales/_lib/types";
 import { matchPages, menuPages } from "./searchPages";
 import type { SearchGroup, SearchHit, SearchKind } from "./searchTypes";
 
@@ -69,7 +71,8 @@ const masterJobs: Source<interfaces.SearchMasterJobItem> = {
       `${m.shipmentCount} ${m.shipmentCount === 1 ? "shipment" : "shipments"}`,
     ),
   }),
-  allHref: (q) => withQ("/master-jobs", q),
+  // No "Show all" in Master Jobs: its grid searches the jobs' own columns, not the containers and
+  // house job numbers this search also finds them by, so it would list fewer than the count says.
 };
 
 const customers: Source<interfaces.SearchCustomerItem> = {
@@ -85,7 +88,8 @@ const customers: Source<interfaces.SearchCustomerItem> = {
       ? line(`Contact: ${c.matchedContact.name}`, c.matchedContact.email)
       : line(c.ico && `IČO ${c.ico}`, [c.city, c.country].filter(Boolean).join(", ")),
   }),
-  allHref: (q) => withQ("/customers", q),
+  // No "Show all" in the Customer Database: its list opens on customers only and searches the
+  // companies' own fields, while this finds suppliers too and companies through their contacts.
 };
 
 const quotes: Source<interfaces.SearchQuoteItem> = {
@@ -98,7 +102,8 @@ const quotes: Source<interfaces.SearchQuoteItem> = {
     title: x.quoteNumber,
     isRef: true,
     subtitle: line(x.customerName, route(x.pol, x.pod), x.validUntil && `Valid until ${formatDate(x.validUntil)}`),
-    mark: x.status ? <Pill tone="slate">{x.status}</Pill> : undefined,
+    // In the Sales colours and words ("Ready to Send", not ready_to_send), as in the Quotes list.
+    mark: x.status ? <QuoteStatusPill status={x.status as QuoteStatus} /> : undefined,
   }),
   allHref: (q) => withQ("/sales/quotes", q),
 };

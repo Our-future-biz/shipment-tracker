@@ -3,7 +3,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { masterJobTable, type MasterJobRecord } from "../schemas/masterJob.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
-import { masterJobNumberForms } from "../lib/masterJobNumber";
+import { MASTER_JOB_LETTERS_PATTERN, masterJobNumberForms } from "../lib/masterJobNumber";
 import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
 import { masterJobContainerTable } from "../schemas/masterJobContainer.schema";
 import { containerTable } from "../schemas/container.schema";
@@ -32,8 +32,9 @@ const MASTER_JOB_SEARCHED_TEXT: SQL[] = [
 // A word typed as an MCZ reference also finds the job by its number, whatever its letters are now
 // (the letters follow the Load Type): mcz00000007 finds MCZCONSOL00000007. Digits still being
 // typed find the numbers they start.
+const MCZ_WORD = new RegExp(`^mcz${MASTER_JOB_LETTERS_PATTERN.toLowerCase()}([0-9]+)$`);
 const sameMczNumber = (word: string): SQL | undefined => {
-  const digits = /^mcz(?:project|consol|full)?([0-9]+)$/.exec(word)?.[1];
+  const digits = MCZ_WORD.exec(word)?.[1];
   return digits === undefined ? undefined : sql`substring(${masterJobTable.mczNumber} from '^MCZ[A-Z]*([0-9]+)$') LIKE ${`${digits}%`}`;
 };
 

@@ -295,11 +295,6 @@ async function insertUnique<T>(insert: () => Promise<T>, what: string): Promise<
 
 class CustomerService {
   /**
-   * The list as a user asks for it: their own companies for "mine", the supplier types and the rating filter
-   * as the repository takes them. Filtered here, on the server, so they cover every company and not only the
-   * newest 2000 the list holds.
-   */
-  /**
    * The main search (the top bar): the newest live companies these words find by their own fields
    * or through a contact, and how many in all. A company found only through a contact names the
    * first contact that matched.
@@ -322,6 +317,11 @@ class CustomerService {
     };
   }
 
+  /**
+   * The list as a user asks for it: their own companies for "mine", the supplier types and the rating filter
+   * as the repository takes them. Filtered here, on the server, so they cover every company and not only the
+   * newest 2000 the list holds.
+   */
   async listFor(
     companyId: string,
     userId: string,

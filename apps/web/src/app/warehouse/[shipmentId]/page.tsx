@@ -10,7 +10,8 @@ import { WAREHOUSE_SECTIONS, type WarehouseSection } from "../_components/wareho
 export default function OldWarehouseShipmentPage() {
   const { shipmentId } = useParams<{ shipmentId: string }>();
   const from = useSearchParams().get("from") ?? "";
-  const section: WarehouseSection = from in WAREHOUSE_SECTIONS ? (from as WarehouseSection) : "in";
+  // Own keys only: "toString" is "in" any object too.
+  const section: WarehouseSection = Object.hasOwn(WAREHOUSE_SECTIONS, from) ? (from as WarehouseSection) : "in";
   const router = useRouter();
   useEffect(() => {
     router.replace(`/warehouse/${section}/${shipmentId}`);
