@@ -83,13 +83,29 @@ describe("roles", () => {
 
   it("make a new company a customer unless others are given", async () => {
     repository.findByIco.mockResolvedValue(null);
-    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "" } as never);
+    // ARES always answers a country (the seat's, CZ when it gives none).
+    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "", country: "CZ" } as never);
     repository.createWithContact.mockResolvedValue(customerRow());
     await customerService.createFromAres(COMPANY, "user", "12345678", CONTACT);
     expect(repository.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roles: ["customer"] }), expect.anything(), expect.anything());
 
     await customerService.createFromAres(COMPANY, "manager", "12345678", CONTACT, ["haulier"]);
     expect(repository.createWithContact).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ roles: ["haulier"] }), expect.anything(), expect.anything());
+  });
+
+  it("from ARES are looked for among the Czech customers before ARES is asked, and in the seat's country it gives", async () => {
+    repository.findByIco.mockResolvedValue(null);
+    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "", country: "CZ" } as never);
+    repository.createWithContact.mockResolvedValue(customerRow());
+    await customerService.createFromAres(COMPANY, "user", "12345678", CONTACT);
+    expect(repository.findByIco.mock.calls).toEqual([["12345678", "CZ", COMPANY]]);
+
+    // A Czech-registered company seated abroad is stored with that country: a duplicate there is refused too.
+    repository.findByIco.mockReset();
+    repository.findByIco.mockResolvedValueOnce(null).mockResolvedValueOnce(customerRow() as never);
+    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "", country: "SK" } as never);
+    await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT)).rejects.toMatchObject({ code: "already_exists" });
+    expect(repository.findByIco.mock.calls).toEqual([["12345678", "CZ", COMPANY], ["12345678", "SK", COMPANY]]);
   });
 
   // A change of roles is worked out with the row locked: `current` is the row as the lock reads it, and the

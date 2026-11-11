@@ -9,6 +9,7 @@ import { customerNoteTable } from "../schemas/customerNote.schema";
 import { customerDocumentTable } from "../schemas/customerDocument.schema";
 import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
 import { customerSiteTable } from "../schemas/customerSite.schema";
+import { registerCountry } from "../lib/registerNumber";
 import { SUPPLIER_ROLES, type CustomerLabel, type CustomerListKind, type CustomerRole, type CustomerStatus } from "../interfaces/interfaces";
 
 export interface CustomerListFilters {
@@ -230,8 +231,22 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     return row ? row.logoData : null;
   }
 
-  async findByIco(ico: string, companyId: string): Promise<CustomerRecord | null> {
-    return this.getByColumnForCompany(customerTable.ico, ico, companyId);
+  /**
+   * The live customer of the company with this registration number in this country (lib/registerNumber):
+   * the same number of another country's register is another company.
+   */
+  async findByIco(ico: string, country: string, companyId: string): Promise<CustomerRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(customerTable)
+      .where(and(
+        eq(customerTable.companyId, companyId),
+        eq(customerTable.country, registerCountry(country)),
+        eq(customerTable.ico, ico),
+        isNull(customerTable.deletedAt),
+      ))
+      .limit(1);
+    return row ?? null;
   }
 
   // Server-side filtered list, always scoped to the company: the newest `limit` (2000) rows, and

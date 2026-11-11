@@ -166,6 +166,14 @@ describe("registering", () => {
     expect(repository.addMember).toHaveBeenCalledWith(COMPANY, "44444444-4444-4444-8444-444444444444", USER, null);
   });
 
+  it("matches a company already there in the registrant's own country only, never another country's same number", async () => {
+    await service.submit(token, foreign, NOW);
+    expect(customerRepository.findByIco).toHaveBeenCalledWith("HRB 1", "DE", COMPANY);
+    vi.mocked(customerRepository.findByIco).mockClear();
+    await service.submit(token, czech, NOW);
+    expect(customerRepository.findByIco).toHaveBeenCalledWith("12345678", "CZ", COMPANY);
+  });
+
   it("registers once: a link somebody else just took is refused", async () => {
     repository.claim.mockResolvedValue(null as never);
     await expect(service.submit(token, czech, NOW)).rejects.toMatchObject({ code: "not_found" });

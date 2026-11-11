@@ -265,6 +265,13 @@ describe("customerService.createManual", () => {
     expect(customers.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ ico: "" }), expect.anything(), expect.anything());
   });
 
+  it("looks for a duplicate in the company's own country only: a German HRB 12345 is no Austrian company's", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
+    await customerService.createManual(COMPANY, "user", SIEMENS);
+    expect(customers.findByIco).toHaveBeenCalledWith("HRB 12345", "DE", COMPANY);
+  });
+
   it("refuses a registration number the company already has, and a Czech company", async () => {
     customers.findByIco.mockResolvedValue({ id: "c1" });
     await expect(customerService.createManual(COMPANY, "user", SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
@@ -291,7 +298,7 @@ describe("customerService.createManual", () => {
 
 describe("deleted customers", () => {
   const deletedRow = (over: Record<string, unknown> = {}) => ({
-    id: "c1", companyId: COMPANY, ico: "12345678", companyName: "Alfa s.r.o.", roles: ["customer"], registrationDate: null,
+    id: "c1", companyId: COMPANY, ico: "12345678", country: "CZ", companyName: "Alfa s.r.o.", roles: ["customer"], registrationDate: null,
     lastActivityDate: null, logoData: "", createdAt: now, updatedAt: now, deletedAt: now, ...over,
   });
 
@@ -310,7 +317,8 @@ describe("deleted customers", () => {
     customers.findByIco.mockResolvedValue(null);
     customers.restoreWithChildren.mockResolvedValue(deletedRow({ deletedAt: null }));
     const item = await customerService.restore("c1", COMPANY);
-    expect(customers.findByIco).toHaveBeenCalledWith("12345678", COMPANY);
+    // Compared in its own country's register.
+    expect(customers.findByIco).toHaveBeenCalledWith("12345678", "CZ", COMPANY);
     expect(customers.restoreWithChildren).toHaveBeenCalledWith("c1", COMPANY, "restore");
     expect(item.id).toBe("c1");
   });
@@ -461,7 +469,7 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
     vi.clearAllMocks();
     customers.getDeletedForCompany.mockResolvedValue(saved({ ico: "12345678", deletedAt: now }));
     customers.findByIco.mockResolvedValue(null);
-    customers.restoreWithChildren.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_company_ico_unique" } }));
+    customers.restoreWithChildren.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_company_country_ico_unique" } }));
     await expect(customerService.restore("c1", COMPANY)).rejects.toThrow("A customer with this registration number already exists");
     expect(topics.customerChanged.publish).not.toHaveBeenCalled();
   });
