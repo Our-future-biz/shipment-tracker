@@ -3,7 +3,7 @@
 import { Spin } from "antd";
 import { Badge } from "@/components/Badge";
 import { isNotFound, apiErrorMessage } from "@/lib/api";
-import { formatDate } from "@/lib/date";
+import { businessDateTime, formatDate } from "@/lib/date";
 import { usePublicTransportOrder } from "@/hooks/useTruckingConsignments";
 import { formatMoney, formatQty } from "@/app/trucking/_lib/tariffs";
 import { HINT, KPI_VALUE, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
@@ -72,8 +72,8 @@ export const HaulierOrderView = ({ token }: HaulierOrderViewProps) => {
           </div>
         )}
 
-        <HaulierStopCard title={{ cs: "Nakládka", en: "Pick-up" }} stop={order.pickup} />
-        <HaulierStopCard title={{ cs: "Vykládka", en: "Delivery" }} stop={order.delivery} />
+        <HaulierStopCard title={{ cs: "Nakládka", en: "Pick-up" }} stop={order.pickup} windowText={order.windowText.pickup} />
+        <HaulierStopCard title={{ cs: "Vykládka", en: "Delivery" }} stop={order.delivery} windowText={order.windowText.delivery} />
 
         <PortalCard title={<Bi text={{ cs: "Zboží", en: "Goods" }} />}>
           <div className="grid grid-cols-2 gap-2 text-[14px] text-slate-900">
@@ -113,7 +113,8 @@ export const HaulierOrderView = ({ token }: HaulierOrderViewProps) => {
         )}
 
         <footer className={`pb-6 text-center ${HINT}`}>
-          <Bi text={{ cs: `Odkaz platí do ${formatDate(order.linkExpiresAt)}`, en: `Link valid until ${formatDate(order.linkExpiresAt)}` }} />
+          {/* The moment the link ends, on our clock (Prague), not the phone's. */}
+          <Bi text={{ cs: `Odkaz platí do ${businessDateTime(order.linkExpiresAt)}`, en: `Link valid until ${businessDateTime(order.linkExpiresAt)}` }} />
         </footer>
       </div>
     </main>

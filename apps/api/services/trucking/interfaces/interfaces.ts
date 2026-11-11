@@ -884,6 +884,8 @@ export interface PublicTransportOrder {
   plannedPickupDate: string;
   pickup: Omit<Stop, "id" | "siteId">;
   delivery: Omit<Stop, "id" | "siteId">;
+  /** The stops' windows in our words and in Prague time, as the transport order prints them ("16 Oct 2026, 08:00–12:00"; "" for none) */
+  windowText: { pickup: string; delivery: string };
   load: LoadInput;
   /** The BUY price only */
   agreedPrice: { total: number; currency: string } | null;

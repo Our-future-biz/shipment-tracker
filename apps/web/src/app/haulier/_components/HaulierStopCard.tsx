@@ -1,5 +1,4 @@
 import type { PublicTransportOrder } from "@/hooks/useTruckingConsignments";
-import { formatDateTime } from "@/lib/date";
 import { formatPsc } from "@/app/trucking/_lib/hauliers";
 import { LABEL_TEXT } from "@/styles/ui";
 import type { BiText } from "../_lib/publicOrder";
@@ -9,6 +8,8 @@ import { PortalCard } from "./PortalCard";
 interface HaulierStopCardProps {
   title: BiText;
   stop: PublicTransportOrder["pickup"];
+  /** The stop's window as the server words it, in Prague time (the phone may be set to another zone). */
+  windowText: string;
 }
 
 const Row = ({ label, value }: { label: BiText; value: string }) =>
@@ -22,14 +23,13 @@ const Row = ({ label, value }: { label: BiText; value: string }) =>
   ) : null;
 
 // One stop of the order as the driver needs it: where, when, whom to call.
-export const HaulierStopCard = ({ title, stop }: HaulierStopCardProps) => {
+export const HaulierStopCard = ({ title, stop, windowText }: HaulierStopCardProps) => {
   const address = [stop.street, [stop.country === "CZ" ? formatPsc(stop.postcode) : stop.postcode, stop.city].filter(Boolean).join(" "), stop.country].filter(Boolean).join(", ");
-  const window = stop.windowFrom || stop.windowTo ? `${formatDateTime(stop.windowFrom) || "…"} – ${formatDateTime(stop.windowTo) || "…"}` : "";
   return (
     <PortalCard title={<Bi text={title} />}>
       <div className="text-[14px] font-semibold text-slate-900">{stop.name}</div>
       <Row label={{ cs: "Adresa", en: "Address" }} value={address} />
-      <Row label={{ cs: "Časové okno", en: "Time window" }} value={window} />
+      <Row label={{ cs: "Časové okno", en: "Time window" }} value={windowText} />
       <Row label={{ cs: "Kontakt", en: "Contact" }} value={[stop.contactName, stop.contactPhone].filter(Boolean).join(" · ")} />
       {stop.avizaceRequired && (
         <div className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-[13px] font-semibold text-amber-800">
