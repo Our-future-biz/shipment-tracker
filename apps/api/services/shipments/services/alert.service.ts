@@ -31,7 +31,7 @@ class AlertService {
    * Cover of. New until they open the shipment's Alerts, the same moment the tab's count goes.
    */
   async customsVerdicts(companyId: string, userId: string, now = Date.now()): Promise<CustomsVerdictNotice[]> {
-    const email = (await userEmailOf(userId)).trim().toLowerCase();
+    const email = (await userEmailOf(userId).catch(() => "")).trim().toLowerCase();
     if (!email) return [];
     const rows = await shipmentAttachmentRepository.customsVerdictsFor(
       companyId,

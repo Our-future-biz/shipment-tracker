@@ -43,6 +43,12 @@ describe("a supplier's rating", () => {
     expect(customer).toMatchObject({ supplierRating: 4, supplierRatingReason: "On time all summer", supplierRatingBy: "martin@ourfuture.biz", supplierRatingAt: now.toISOString() });
   });
 
+  it("is refused, not saved as set by nobody, when who is rating can't be read", async () => {
+    userLookup.mockRejectedValueOnce(new Error("auth down"));
+    await expect(supplierRatingService.set("co", "c1", MANAGER, { rating: 4, reason: "x" })).rejects.toMatchObject({ code: "unavailable" });
+    expect(ratings.setRating).not.toHaveBeenCalled();
+  });
+
   it("may be 0, the worst, which is not the same as not rated", async () => {
     const zero = await supplierRatingService.set("co", "c1", MANAGER, { rating: 0, reason: "Two lost pallets" });
     expect(zero.supplierRating).toBe(0);

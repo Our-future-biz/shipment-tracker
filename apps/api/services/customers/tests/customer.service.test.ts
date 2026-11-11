@@ -12,10 +12,9 @@ const customers = vi.hoisted(() => ({
   createWithContact: vi.fn(),
 }));
 const contacts = vi.hoisted(() => ({
-  createForCompany: vi.fn(),
-  clearMainFlag: vi.fn(),
+  createInCustomer: vi.fn(),
   getByIdForCompany: vi.fn(),
-  updateForCompany: vi.fn(),
+  updateInCustomer: vi.fn(),
   hiddenWithCustomer: vi.fn(async () => []),
   findByCustomer: vi.fn(async (): Promise<{ id: string; name: string; email: string; phone: string }[]> => []),
 }));
@@ -38,6 +37,7 @@ vi.mock("encore.dev/api", () => ({
     alreadyExists: (msg: string) => new Error(msg),
     permissionDenied: (msg: string) => new Error(msg),
     failedPrecondition: (msg: string) => Object.assign(new Error(msg), { code: "failed_precondition" }),
+    aborted: (msg: string) => Object.assign(new Error(msg), { code: "aborted" }),
   },
 }));
 
@@ -76,23 +76,23 @@ describe("contacts of a customer", () => {
     await expect(contactService.create(COMPANY, "c1", { firstName: "Aleš", lastName: "Petrák", phone: "+420 774237000000" })).rejects.toThrow(
       "A Czech phone number (+420) must have exactly 9 digits",
     );
-    expect(contacts.createForCompany).not.toHaveBeenCalled();
+    expect(contacts.createInCustomer).not.toHaveBeenCalled();
     contacts.getByIdForCompany.mockResolvedValue(contactRow());
     await expect(contactService.update("k1", COMPANY, { phone: "+420 774 23" })).rejects.toThrow("exactly 9 digits");
-    expect(contacts.updateForCompany).not.toHaveBeenCalled();
+    expect(contacts.updateInCustomer).not.toHaveBeenCalled();
   });
 
   it("can't be added under a customer that isn't live in the company", async () => {
     customers.getByIdForCompany.mockResolvedValue(null);
     await expect(contactService.create(COMPANY, "other-company-customer", { firstName: "X", lastName: "Y" })).rejects.toThrow("Customer not found");
-    expect(contacts.createForCompany).not.toHaveBeenCalled();
+    expect(contacts.createInCustomer).not.toHaveBeenCalled();
   });
 
   it("are added with defaults, and the API item carries no company or deleted fields", async () => {
     customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
-    contacts.createForCompany.mockResolvedValue(contactRow());
+    contacts.createInCustomer.mockResolvedValue(contactRow());
     const item = await contactService.create(COMPANY, "c1", { firstName: " Jana ", lastName: "Nováková", role: "Sales" });
-    expect(contacts.createForCompany).toHaveBeenCalledWith(COMPANY, {
+    expect(contacts.createInCustomer).toHaveBeenCalledWith(COMPANY, {
       customerId: "c1", name: "Jana Nováková", firstName: "Jana", lastName: "Nováková", email: "", phone: "", role: "Sales", isMain: false,
     });
     expect(item).not.toHaveProperty("companyId");
@@ -100,25 +100,44 @@ describe("contacts of a customer", () => {
     expect(item.createdAt).toBe(now.toISOString());
   });
 
-  it("making one main clears the flag on its own customer's contacts, not a client-sent one", async () => {
+  // Changed: the flag used to be cleared by a call of its own before the write; now the repository
+  // clears it in the write's transaction, on the customer the contact is stored under.
+  it("making one main clears the flag on its own customer's contacts, not a client-sent one, in the write itself", async () => {
     contacts.getByIdForCompany.mockResolvedValue(contactRow({ customerId: "c1" }));
-    contacts.updateForCompany.mockResolvedValue(contactRow({ isMain: true }));
+    contacts.updateInCustomer.mockResolvedValue(contactRow({ isMain: true }));
     await contactService.update("k1", COMPANY, { isMain: true });
-    expect(contacts.clearMainFlag).toHaveBeenCalledWith("c1", COMPANY);
+    expect(contacts.updateInCustomer).toHaveBeenCalledWith("k1", COMPANY, "c1", { isMain: true });
+  });
+
+  it("a new main contact is made in one write with the old one's flag cleared", async () => {
+    customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
+    contacts.createInCustomer.mockResolvedValue(contactRow({ isMain: true }));
+    await contactService.create(COMPANY, "c1", { firstName: "Jana", lastName: "Nováková", isMain: true });
+    expect(contacts.createInCustomer).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ customerId: "c1", isMain: true }));
+  });
+
+  it("two contacts made main at the same moment: the second is told to reload, never two main contacts", async () => {
+    customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
+    const oneMain = Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "contact_one_main_per_customer" } });
+    contacts.createInCustomer.mockRejectedValueOnce(oneMain);
+    await expect(contactService.create(COMPANY, "c1", { firstName: "Jana", lastName: "Nováková", isMain: true })).rejects.toThrow(/made the main one at the same moment/);
+    contacts.getByIdForCompany.mockResolvedValue(contactRow());
+    contacts.updateInCustomer.mockRejectedValueOnce(oneMain);
+    await expect(contactService.update("k1", COMPANY, { isMain: true })).rejects.toThrow(/made the main one at the same moment/);
   });
 
   it("keeps the full name in step when only one part of it changes", async () => {
     contacts.getByIdForCompany.mockResolvedValue(contactRow());
-    contacts.updateForCompany.mockResolvedValue(contactRow());
+    contacts.updateInCustomer.mockResolvedValue(contactRow());
     await contactService.update("k1", COMPANY, { lastName: "Svobodová" });
-    expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { firstName: "Jana", lastName: "Svobodová", name: "Jana Svobodová" });
+    expect(contacts.updateInCustomer).toHaveBeenCalledWith("k1", COMPANY, "c1", { firstName: "Jana", lastName: "Svobodová", name: "Jana Svobodová" });
   });
 
   it("leaves the name alone when neither part is sent", async () => {
     contacts.getByIdForCompany.mockResolvedValue(contactRow());
-    contacts.updateForCompany.mockResolvedValue(contactRow());
+    contacts.updateInCustomer.mockResolvedValue(contactRow());
     await contactService.update("k1", COMPANY, { email: "jana@example.cz" });
-    expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { email: "jana@example.cz" });
+    expect(contacts.updateInCustomer).toHaveBeenCalledWith("k1", COMPANY, "c1", { email: "jana@example.cz" });
   });
 
   it("need a first and a last name on add, as a new customer's first contact does", async () => {
@@ -129,8 +148,7 @@ describe("contacts of a customer", () => {
     await expect(contactService.create(COMPANY, "c1", { firstName: "Jana", lastName: " ", isMain: true })).rejects.toThrow(
       "The contact person needs a first and a last name",
     );
-    expect(contacts.clearMainFlag).not.toHaveBeenCalled();
-    expect(contacts.createForCompany).not.toHaveBeenCalled();
+    expect(contacts.createInCustomer).not.toHaveBeenCalled();
   });
 
   it("a rename that blanks either part is refused before anything is written or sent", async () => {
@@ -141,18 +159,17 @@ describe("contacts of a customer", () => {
     await expect(contactService.update("k1", COMPANY, { firstName: "", lastName: "Svobodová" })).rejects.toThrow(
       "The contact person needs a first and a last name",
     );
-    expect(contacts.clearMainFlag).not.toHaveBeenCalled();
-    expect(contacts.updateForCompany).not.toHaveBeenCalled();
+    expect(contacts.updateInCustomer).not.toHaveBeenCalled();
     expect(topics.contactChanged.publish).not.toHaveBeenCalled();
   });
 
   it("an old one-word contact is renamed only with a last name, and keeps its name through other edits", async () => {
     contacts.getByIdForCompany.mockResolvedValue(contactRow({ name: "Jana", lastName: "" }));
-    contacts.updateForCompany.mockResolvedValue(contactRow({ name: "Jana", lastName: "" }));
+    contacts.updateInCustomer.mockResolvedValue(contactRow({ name: "Jana", lastName: "" }));
     await expect(contactService.update("k1", COMPANY, { firstName: "Janička" })).rejects.toThrow("The contact person needs a first and a last name");
-    expect(contacts.updateForCompany).not.toHaveBeenCalled();
+    expect(contacts.updateInCustomer).not.toHaveBeenCalled();
     await contactService.update("k1", COMPANY, { email: "jana@example.cz" });
-    expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { email: "jana@example.cz" });
+    expect(contacts.updateInCustomer).toHaveBeenCalledWith("k1", COMPANY, "c1", { email: "jana@example.cz" });
     expect(topics.contactChanged.publish).toHaveBeenCalledWith(expect.objectContaining({ name: "Jana", deleted: false }));
   });
 });
@@ -248,6 +265,13 @@ describe("customerService.createManual", () => {
     expect(customers.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ ico: "" }), expect.anything(), expect.anything());
   });
 
+  it("looks for a duplicate in the company's own country only: a German HRB 12345 is no Austrian company's", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
+    await customerService.createManual(COMPANY, "user", SIEMENS);
+    expect(customers.findByIco).toHaveBeenCalledWith("HRB 12345", "DE", COMPANY);
+  });
+
   it("refuses a registration number the company already has, and a Czech company", async () => {
     customers.findByIco.mockResolvedValue({ id: "c1" });
     await expect(customerService.createManual(COMPANY, "user", SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
@@ -274,7 +298,7 @@ describe("customerService.createManual", () => {
 
 describe("deleted customers", () => {
   const deletedRow = (over: Record<string, unknown> = {}) => ({
-    id: "c1", companyId: COMPANY, ico: "12345678", companyName: "Alfa s.r.o.", roles: ["customer"], registrationDate: null,
+    id: "c1", companyId: COMPANY, ico: "12345678", country: "CZ", companyName: "Alfa s.r.o.", roles: ["customer"], registrationDate: null,
     lastActivityDate: null, logoData: "", createdAt: now, updatedAt: now, deletedAt: now, ...over,
   });
 
@@ -293,7 +317,8 @@ describe("deleted customers", () => {
     customers.findByIco.mockResolvedValue(null);
     customers.restoreWithChildren.mockResolvedValue(deletedRow({ deletedAt: null }));
     const item = await customerService.restore("c1", COMPANY);
-    expect(customers.findByIco).toHaveBeenCalledWith("12345678", COMPANY);
+    // Compared in its own country's register.
+    expect(customers.findByIco).toHaveBeenCalledWith("12345678", "CZ", COMPANY);
     expect(customers.restoreWithChildren).toHaveBeenCalledWith("c1", COMPANY, "restore");
     expect(item.id).toBe("c1");
   });
@@ -444,7 +469,7 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
     vi.clearAllMocks();
     customers.getDeletedForCompany.mockResolvedValue(saved({ ico: "12345678", deletedAt: now }));
     customers.findByIco.mockResolvedValue(null);
-    customers.restoreWithChildren.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_company_ico_unique" } }));
+    customers.restoreWithChildren.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_company_country_ico_unique" } }));
     await expect(customerService.restore("c1", COMPANY)).rejects.toThrow("A customer with this registration number already exists");
     expect(topics.customerChanged.publish).not.toHaveBeenCalled();
   });

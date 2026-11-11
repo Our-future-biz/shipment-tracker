@@ -13,7 +13,7 @@ const SHOWN = 100;
 class TrackingBellService {
   /** What the bell tells this user about the dates of their shipments, the newest first. */
   async notices(companyId: string, userId: string, now = Date.now()): Promise<TrackingBellNotice[]> {
-    const email = (await userEmailOf(userId)).trim().toLowerCase();
+    const email = (await userEmailOf(userId).catch(() => "")).trim().toLowerCase();
     if (!email) return [];
     const [moved, proposed, told, names] = await Promise.all([
       trackingBellRepository.datesMoved(companyId, userId, email, BELL_DATE_FIELDS, new Date(now - BELL_KEEP_DAYS * DAY_MS), new Date(now - BELL_READ_KEEP_DAYS * DAY_MS), LIMIT),

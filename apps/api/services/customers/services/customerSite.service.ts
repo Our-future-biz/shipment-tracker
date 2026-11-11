@@ -1,8 +1,7 @@
 import { APIError } from "encore.dev/api";
 import { customerAddressRepository, type SiteDetails } from "../repositories/customerAddress.repository";
-import { customerSiteRepository } from "../repositories/customerSite.repository";
+import { customerSiteRepository, type SitePatch } from "../repositories/customerSite.repository";
 import type { NewCustomerAddressRecord } from "../schemas/customerAddress.schema";
-import type { NewCustomerSiteRecord } from "../schemas/customerSite.schema";
 import type { CustomerSiteItem, CustomerSiteKind } from "../interfaces/interfaces";
 import { toCustomerSiteItem } from "../lib/mappers";
 import { normaliseCountry, normalisePostcode } from "../lib/postcode";
@@ -99,7 +98,7 @@ class CustomerSiteService {
     requireCoordinate(input.lng, 180, "Longitude");
     const details = siteDetails(input);
     await customerService.requireLive(customerId, companyId);
-    if (input.isDefault) await customerSiteRepository.clearDefaultFlag(customerId, companyId);
+    // Made the default, the customer's other default site stops being it in the same transaction.
     const address = await oneDefault(() =>
       customerAddressRepository.createWithSeat(
         companyId,
@@ -147,18 +146,16 @@ class CustomerSiteService {
       if (input.street !== undefined) change.street = input.street.trim();
       if (input.city !== undefined) change.city = input.city.trim();
       if (input.kind !== undefined) change.types = addressTypes(typesForKind(address.types, input.kind));
-      if (input.isDefault) await customerSiteRepository.clearDefaultFlag(existing.customerId, companyId);
       const row = await oneDefault(() => customerAddressRepository.updateWithSeat(address.id, companyId, change, details));
       if (!row) throw APIError.notFound(SITE_GONE);
       return this.siteOf(address.id, companyId);
     }
-    const patch: Partial<NewCustomerSiteRecord> = {};
+    const patch: SitePatch = {};
     if (input.country !== undefined || input.postcode !== undefined) {
       const country = normaliseCountry(input.country ?? existing.country);
       patch.country = country;
       patch.postcode = requirePostcode(country, input.postcode ?? existing.postcode);
     }
-    if (input.isDefault) await customerSiteRepository.clearDefaultFlag(existing.customerId, companyId);
     if (input.label !== undefined) patch.label = input.label;
     if (input.kind !== undefined) patch.kind = input.kind;
     if (input.street !== undefined) patch.street = input.street;
@@ -172,7 +169,8 @@ class CustomerSiteService {
     if (input.loadingNotes !== undefined) patch.loadingNotes = input.loadingNotes;
     if (input.tailLiftNeeded !== undefined) patch.tailLiftNeeded = input.tailLiftNeeded;
     if (input.isDefault !== undefined) patch.isDefault = input.isDefault;
-    const row = await oneDefault(() => customerSiteRepository.updateForCompany(id, companyId, patch));
+    // Made the default, the customer's other default site stops being it in the same transaction.
+    const row = await oneDefault(() => customerSiteRepository.updateInCustomer(id, companyId, existing.customerId, patch));
     if (!row) throw APIError.notFound(SITE_GONE);
     return toCustomerSiteItem(row);
   }

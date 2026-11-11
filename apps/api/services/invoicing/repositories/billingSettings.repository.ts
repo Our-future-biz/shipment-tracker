@@ -23,12 +23,14 @@ class BillingSettingsRepository extends TenantRepository<typeof t> {
       .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), isNull(t.deletedAt)));
   }
 
-  /** Billing currency of every live shipment setting in the company (for the billing queue). */
-  async listByCompany(companyId: string): Promise<{ shipmentId: string; billingCurrency: string }[]> {
+  /** Billing currency of the shipments an Invoicing queue view lists (only those, not the company's every one). */
+  async listByShipments(shipmentIds: string[], companyId: string): Promise<{ shipmentId: string; billingCurrency: string }[]> {
+    const ids = [...new Set(shipmentIds)];
+    if (!ids.length) return [];
     return this.db
       .select({ shipmentId: t.shipmentId, billingCurrency: t.billingCurrency })
       .from(t)
-      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt)));
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, ids), isNull(t.deletedAt)));
   }
 
   // One statement on the (company, shipment) key, so two saves at once can't both insert.

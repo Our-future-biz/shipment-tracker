@@ -260,6 +260,16 @@ const portsPending = (pending: number): TariffFinding => ({
   rows: [],
 });
 
+/**
+ * A draft's findings after a port is picked: the "ports pending" one follows what is left to pick, every
+ * other one (errors included) stays as stored.
+ */
+export function findingsAfterPick(stored: TariffFinding[], pending: number): { findings: TariffFinding[]; totals: { errors: number; warnings: number } } {
+  const others = stored.filter((f) => f.code !== "ports_pending");
+  const findings = pending ? [...others, portsPending(pending)] : others;
+  return { findings, totals: findingTotals(findings) };
+}
+
 // What a layout reads from the file, with its ports matched, and what a draft is saved with besides it.
 async function convertDraft(sheets: Sheet[], layout: OceanLayout, picks: Map<string, { code: string | null; status: OceanPort["status"] }>): Promise<{ data: OceanData; fields: ReadFields }> {
   const problem = oceanLayoutProblem(layout, sheets);
@@ -392,18 +402,14 @@ class OceanTariffService {
       const { byCode } = await auth.placeLookup({ codes: [code], names: [] });
       if (!byCode.length) throw APIError.invalidArgument(`${code} is not a place of the UN/LOCODE list`);
     }
-    const picked = await tariffRepository.setOceanPort(companyId, v.id, req.side, req.name, code);
+    // Written with the pick, from the findings stored when the version is locked (not those read above,
+    // before the place list was asked): a relayout meanwhile keeps its own.
+    const picked = await tariffRepository.setOceanPort(companyId, v.id, req.side, req.name, code, findingsAfterPick);
     if (!picked.ok) {
       // A version approved or thrown away since it was read above.
       if (picked.reason === "not_draft") throw APIError.failedPrecondition(PORTS_OF_DRAFT_ONLY);
       throw APIError.notFound("This version has no such port name");
     }
-    // The "ports pending" finding follows what is left to pick.
-    const pending = await tariffRepository.pendingOceanPorts(companyId, v.id);
-    const others = v.findings.filter((f) => f.code !== "ports_pending");
-    const findings = pending ? [...others, portsPending(pending)] : others;
-    const totals = findingTotals(findings);
-    await tariffRepository.replaceFindings(companyId, v.id, findings, totals);
     return this.version(companyId, versionId);
   }
 

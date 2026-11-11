@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-// The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
-vi.mock("encore.dev/api", () => ({ APIError: {} }));
+// The Encore runtime isn't loaded under vitest; APIError carries the code the API answers with.
+vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { parseAres, registerEntryFrom, type AresResponse } from "../services/ares.service";
@@ -98,5 +98,79 @@ describe("ARES name search guards", () => {
     expect(searchAllowed("company-a", t0 + 100)).toBe(false);
     expect(searchAllowed("company-b", t0 + 100)).toBe(true);
     expect(searchAllowed("company-a", t0 + 61_000)).toBe(true);
+  });
+});
+
+// A fetch whose answer has its headers at once and a body that comes only when `body` is called, or
+// never: it fails as the real fetch does when the call's signal is aborted while the body is read.
+function stalledFetch(ready: { body?: string }) {
+  return vi.fn(async (_url: string, init: RequestInit) => ({
+    status: 200,
+    ok: true,
+    text: () =>
+      new Promise<string>((resolve, reject) => {
+        if (ready.body !== undefined) resolve(ready.body);
+        init.signal!.addEventListener("abort", () => reject(Object.assign(new Error("This operation was aborted"), { name: "AbortError" })));
+      }),
+  }));
+}
+
+describe("calls to ARES", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("keep their deadline while the body is read: an answer that stalls after its headers fails in time", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", stalledFetch({}));
+    const { fetchAres } = await import("../services/ares.service");
+    const call = fetchAres("https://ares.example/x", 50);
+    const failed = expect(call).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(50);
+    await failed;
+  });
+
+  it("answer the status and the whole body when it comes in time", async () => {
+    vi.stubGlobal("fetch", stalledFetch({ body: '{"ico":"27082440"}' }));
+    const { fetchAres } = await import("../services/ares.service");
+    await expect(fetchAres("https://ares.example/x", 50)).resolves.toEqual({ status: 200, ok: true, body: '{"ico":"27082440"}' });
+  });
+
+  it("a look-up whose record stalls after its headers says ARES is unavailable, not that it hangs", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", stalledFetch({}));
+    const { aresService } = await import("../services/ares.service");
+    const lookup = aresService.lookup("27082440");
+    const failed = expect(lookup).rejects.toMatchObject({ code: "unavailable" });
+    await vi.advanceTimersByTimeAsync(8000);
+    await failed;
+  });
+});
+
+describe("ARES look-ups by IČO", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("are braked per company like the name search", async () => {
+    const { aresLookupAllowed, LOOKUPS_PER_MINUTE } = await import("../services/ares.service");
+    const t0 = 2_000_000;
+    for (let i = 0; i < LOOKUPS_PER_MINUTE; i++) expect(aresLookupAllowed("company-a", t0 + i)).toBe(true);
+    expect(aresLookupAllowed("company-a", t0 + 100)).toBe(false);
+    expect(aresLookupAllowed("company-b", t0 + 100)).toBe(true);
+    expect(aresLookupAllowed("company-a", t0 + 61_000)).toBe(true);
+  });
+
+  it("past the limit are refused before ARES is called", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { aresService, LOOKUPS_PER_MINUTE } = await import("../services/ares.service");
+    const json = (body: unknown) => ({ status: 200, ok: true, text: async () => JSON.stringify(body) });
+    fetchMock.mockImplementation(async (url: string) => (url.includes("-vr/") ? json({ zaznamy: [] }) : json(alza)));
+    for (let i = 0; i < LOOKUPS_PER_MINUTE; i++) await aresService.lookup("27082440", "company-limited");
+    fetchMock.mockClear();
+    await expect(aresService.lookup("27082440", "company-limited")).rejects.toMatchObject({ code: "resource_exhausted" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    // Not counted without a bucket: a customer created from ARES.
+    await expect(aresService.lookup("27082440")).resolves.toMatchObject({ companyName: "Alza.cz a.s." });
   });
 });

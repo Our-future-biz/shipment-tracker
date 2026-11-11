@@ -134,6 +134,9 @@ export interface OceanPortRefusal {
 
 export type SetOceanPortResult = OceanPortPicked | OceanPortRefusal;
 
+/** A draft's findings worked out again from those it has stored and the port names still to match. */
+export type OceanFindingsAfterPick = (stored: TariffFinding[], pending: number) => { findings: TariffFinding[]; totals: { errors: number; warnings: number } };
+
 /** A page of rows with how many match in all. */
 export interface RowPage<T> {
   rows: T[];
@@ -645,24 +648,46 @@ class TariffRepository {
   }
 
   /**
-   * Sets what a port name of the company's draft means: a place a user picked, or none (left out).
+   * Sets what a port name of the company's draft means: a place a user picked, or none (left out),
+   * and the draft's findings with it (`findingsAfter`: the port names left to match change them).
    * The version is locked as a live draft first, so a pick cannot land on a version approved or
-   * discarded meanwhile; the refusal says which of the two went wrong.
+   * discarded meanwhile; the refusal says which of the two went wrong. The findings are worked out
+   * from the version as stored under that lock, in the same transaction: a layout read again by
+   * another user meanwhile (relayout, which writes the version) has its findings - errors too -
+   * kept, never overwritten from what was read before.
    */
-  async setOceanPort(companyId: string, versionId: string, side: "pol" | "pod", name: string, code: string | null): Promise<SetOceanPortResult> {
+  async setOceanPort(
+    companyId: string,
+    versionId: string,
+    side: "pol" | "pod",
+    name: string,
+    code: string | null,
+    findingsAfter: OceanFindingsAfterPick,
+  ): Promise<SetOceanPortResult> {
     return db.transaction(async (tx): Promise<SetOceanPortResult> => {
       const [draft] = await tx
-        .select({ id: tariffVersionTable.id })
+        .select({ id: tariffVersionTable.id, findings: tariffVersionTable.findings })
         .from(tariffVersionTable)
         .where(and(eq(tariffVersionTable.id, versionId), live(companyId), eq(tariffVersionTable.status, "draft")))
-        .for("share");
+        .for("update");
       if (!draft) return { ok: false, reason: "not_draft" };
       const [port] = await tx
         .update(oceanPortTable)
         .set({ code, status: code ? "manual" : "skipped" })
         .where(and(eq(oceanPortTable.companyId, companyId), eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.side, side), eq(oceanPortTable.name, name)))
         .returning();
-      return port ? { ok: true, port } : { ok: false, reason: "no_such_name" };
+      if (!port) return { ok: false, reason: "no_such_name" };
+      const [{ pending }] = await tx
+        .select({ pending: count() })
+        .from(oceanPortTable)
+        .where(and(eq(oceanPortTable.companyId, companyId), eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.status, "pending")));
+      const { findings, totals } = findingsAfter(draft.findings, pending);
+      await tx
+        .update(tariffVersionTable)
+        .set({ findings, errorCount: totals.errors, warningCount: totals.warnings, updatedAt: new Date() })
+        .where(and(eq(tariffVersionTable.id, versionId), eq(tariffVersionTable.companyId, companyId)))
+        .returning({ id: tariffVersionTable.id });
+      return { ok: true, port };
     });
   }
 
@@ -681,14 +706,6 @@ class TariffRepository {
         ),
       )
       .orderBy(desc(tariffVersionTable.versionNo));
-  }
-
-  /** Replaces a draft's findings and their counts (a port picked changes what is left to pick). */
-  async replaceFindings(companyId: string, versionId: string, findings: TariffFinding[], totals: { errors: number; warnings: number }): Promise<void> {
-    await db
-      .update(tariffVersionTable)
-      .set({ findings, errorCount: totals.errors, warningCount: totals.warnings, updatedAt: new Date() })
-      .where(and(eq(tariffVersionTable.id, versionId), live(companyId), eq(tariffVersionTable.status, "draft")));
   }
 
   /** A page of an ocean version's rates in table and sheet order, searched by port names and transshipment port. */

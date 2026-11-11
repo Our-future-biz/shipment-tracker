@@ -68,6 +68,14 @@ describe("creating a link", () => {
     await expect(service.createLink(actor, { roles: ["customer"] })).rejects.toMatchObject({ code: "failed_precondition" });
   });
 
+  it("is not made, rather than made by nobody, when who is making it can't be read", async () => {
+    const { userEmailOf } = await import("../../../../lib/companyUsers");
+    const { APIError } = await import("../../../../lib/tests/encoreApi.stub");
+    vi.mocked(userEmailOf).mockRejectedValueOnce(APIError.unavailable("Who you are could not be read just now — try again in a moment"));
+    await expect(service.createLink(actor, { roles: ["customer"] })).rejects.toMatchObject({ code: "unavailable" });
+    expect(repository.createLink).not.toHaveBeenCalled();
+  });
+
   it("can be cancelled by the one who made it or a manager, nobody else", async () => {
     const id = "66666666-6666-4666-8666-666666666666";
     repository.linkById.mockResolvedValue(link());
@@ -156,6 +164,14 @@ describe("registering", () => {
     expect(customerService.createFromAres).not.toHaveBeenCalled();
     expect(repository.insert).toHaveBeenCalledWith(expect.objectContaining({ alreadyInDatabase: true, customerId: "88888888-8888-4888-8888-888888888888" }));
     expect(repository.addMember).toHaveBeenCalledWith(COMPANY, "44444444-4444-4444-8444-444444444444", USER, null);
+  });
+
+  it("matches a company already there in the registrant's own country only, never another country's same number", async () => {
+    await service.submit(token, foreign, NOW);
+    expect(customerRepository.findByIco).toHaveBeenCalledWith("HRB 1", "DE", COMPANY);
+    vi.mocked(customerRepository.findByIco).mockClear();
+    await service.submit(token, czech, NOW);
+    expect(customerRepository.findByIco).toHaveBeenCalledWith("12345678", "CZ", COMPANY);
   });
 
   it("registers once: a link somebody else just took is refused", async () => {

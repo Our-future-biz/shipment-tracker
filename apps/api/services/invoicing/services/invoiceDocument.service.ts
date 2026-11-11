@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
 import { getAuthData } from "~encore/auth";
 import { customers, fx, shipments } from "~encore/clients";
@@ -39,7 +39,6 @@ import { invoiceBucket } from "../storage/invoiceBucket";
 import { BILLING_CURRENCY_UNKNOWN, startBilling } from "./billingStart.service";
 import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
 import { deliverInvoiceFollowups, followupsOfCreditNote, followupsOfInvoice, type FollowupActor } from "./invoiceFollowups.service";
-import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 
 /**
@@ -197,7 +196,11 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
       };
     } catch (err) {
       log.warn("invoice customer lookup failed", { customerId, error: err instanceof Error ? err.message : String(err) });
-      problems.push("The chosen customer was not found");
+      // Only Customers' own answer says the customer is gone; Customers down or slow is no reason to
+      // pick another customer, only to try again.
+      problems.push(err instanceof APIError && err.code === ErrCode.NotFound
+        ? "The chosen customer was not found"
+        : "The customer could not be read — try again");
     }
     // The customer's Billing address (one at most), printed instead of the seat. Not knowing it
     // blocks issuing: the invoice would go to the seat without anybody noticing.
@@ -325,13 +328,20 @@ function actorOf(userId: string): FollowupActor {
 async function replayed(companyId: string, key: string, matches: (r: InvoiceRecord) => boolean): Promise<InvoiceDocItem | null> {
   const existing = await invoiceRepository.getByIdempotencyKey(companyId, key);
   if (!existing) return null;
+  return earlierDocument(existing, await invoiceRepository.getLines(existing.id, companyId), matches);
+}
+
+// The document made under the same idempotency key, when it is the document this request asks for.
+function earlierDocument(existing: InvoiceRecord, lines: InvoiceLineRecord[], matches: (r: InvoiceRecord) => boolean): InvoiceDocItem {
   if (!matches(existing)) throw APIError.alreadyExists("This request was already used for another document — reload and try again");
-  return toDocItem(existing, await invoiceRepository.getLines(existing.id, companyId));
+  return toDocItem(existing, lines);
 }
 
 /**
- * Runs an issue; when a retry with the same key raced it and won, its document is returned
- * instead of the unique-key error.
+ * Runs an issue once per idempotency key: a request whose key has made a document already gets that
+ * document back. Two requests with one key at once (a double click): the second finds the first's
+ * document under the series lock (invoiceRepository.issue answers it as `replayed`); refused before
+ * that - the rows it would bill are billed already, or the unique key - it is answered the same.
  */
 async function issueOnce(
   companyId: string,
@@ -346,7 +356,7 @@ async function issueOnce(
   try {
     return await issue();
   } catch (err) {
-    if (key && isUniqueViolation(err)) {
+    if (key) {
       const winner = await replayed(companyId, key, matches);
       if (winner) return winner;
     }
@@ -487,7 +497,7 @@ class InvoiceDocumentService {
         quoteNumber: ctx.quoteNumber,
       };
       const billed = ctx.calc.lines.map((l) => l.sourceSellingCostId);
-      const { invoice, lines } = await invoiceRepository.issue(
+      const { invoice, lines, replayed: again } = await invoiceRepository.issue(
         invoiceSeriesPrefix("INV", shipmentSnapshot.jobYear, shipmentSnapshot.jobNumber),
         {
           companyId,
@@ -540,6 +550,8 @@ class InvoiceDocumentService {
           },
         },
       );
+      // The request this one repeats issued it while this one waited for the lock.
+      if (again) return earlierDocument(invoice, lines, sameRequest);
       // Sent straight away; what a service does not take now is sent again by the followups cron.
       await deliverInvoiceFollowups(invoice.id);
       const stored = await storePdfQuietly(invoice, lines, companyId);
@@ -581,7 +593,7 @@ class InvoiceDocumentService {
       const totals = creditTotals(original);
       const issueDate = pragueToday();
 
-      const { invoice, lines } = await invoiceRepository.issue(
+      const { invoice, lines, replayed: again } = await invoiceRepository.issue(
         // the credit note belongs to the same job and job year as the invoice it corrects
         invoiceSeriesPrefix("CN", original.shipment.jobYear, original.shipment.jobNumber),
         {
@@ -620,6 +632,8 @@ class InvoiceDocumentService {
           },
         },
       );
+      // The request this one repeats issued it while this one waited for the lock.
+      if (again) return earlierDocument(invoice, lines, sameRequest);
       // Sent straight away; what a service does not take now is sent again by the followups cron.
       await deliverInvoiceFollowups(invoice.id);
       const stored = await storePdfQuietly(invoice, lines, companyId);
@@ -643,6 +657,11 @@ class InvoiceDocumentService {
   /** Issued, not credited invoices of a job (its tax date is final while there is one). */
   async openInvoiceCount(shipmentId: string, companyId: string): Promise<number> {
     return invoiceRepository.countOpenInvoices(shipmentId, companyId);
+  }
+
+  /** Of the shipments, those with an issued, not credited invoice: openInvoiceCount for many at once. */
+  async shipmentsWithOpenInvoices(shipmentIds: string[], companyId: string): Promise<string[]> {
+    return [...(await invoiceRepository.billedShipmentIds(shipmentIds.filter(isUuid), companyId))];
   }
 
   /** The official PDF: the stored copy, or made and stored now if issuing could not store it. */
@@ -695,10 +714,12 @@ class InvoiceDocumentService {
     // Shown oldest first, as before.
     listed.reverse();
 
+    // Only the listed shipments' rows, invoices and settings are read: the view shows no other.
+    const shipmentIds = listed.map((s) => s.id);
     const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced, unbilledArrivals] = await Promise.all([
-      sellingCostRepository.listLiveByCompany(companyId),
-      invoiceRepository.listOpenInvoicesWithSources(companyId),
-      billingSettingsRepository.listByCompany(companyId),
+      sellingCostRepository.listLiveByShipments(shipmentIds, companyId),
+      invoiceRepository.listOpenInvoicesWithSources(shipmentIds, companyId),
+      billingSettingsRepository.listByShipments(shipmentIds, companyId),
       ratesForDuzp(pragueToday(), pragueToday()),
       countOf(QUEUE_VIEWS.all),
       countOf(QUEUE_VIEWS.to_bill),

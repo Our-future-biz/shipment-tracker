@@ -35,10 +35,11 @@ class UserRepository extends BaseRepository<typeof userTable> {
       .limit(limit);
   }
 
-  // Live admins and superadmins across all companies — recipients of system alerts.
-  async listAdmins(): Promise<{ email: string; displayName: string }[]> {
+  // Live admins and superadmins across all companies, each with their company and role — recipients
+  // of system alerts, which are written to each company apart.
+  async listAdmins(): Promise<{ email: string; displayName: string; companyId: string; role: string }[]> {
     return this.db
-      .select({ email: userTable.email, displayName: userTable.displayName })
+      .select({ email: userTable.email, displayName: userTable.displayName, companyId: userTable.companyId, role: userTable.role })
       .from(userTable)
       .where(and(sql`${userTable.role} IN ('admin', 'superadmin')`, isNull(userTable.deletedAt)));
   }

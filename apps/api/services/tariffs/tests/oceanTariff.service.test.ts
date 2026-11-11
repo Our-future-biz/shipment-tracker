@@ -20,7 +20,6 @@ vi.mock("../repositories/tariff.repository", () => ({
     pendingOceanPorts: vi.fn(),
     setOceanPort: vi.fn(),
     oceanPicks: vi.fn(),
-    replaceFindings: vi.fn(),
     oceanCandidates: vi.fn(),
     oceanRoute: vi.fn(),
   },
@@ -31,7 +30,7 @@ import type { OceanData, OceanLayout, OceanPlace } from "../interfaces/interface
 import { tariffRepository, type OceanRateWithPorts } from "../repositories/tariff.repository";
 import type { OceanPortRecord, TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
 import { readOceanLayout } from "../services/oceanLayoutReader.service";
-import { oceanTariffService } from "../services/oceanTariff.service";
+import { findingsAfterPick, oceanTariffService } from "../services/oceanTariff.service";
 
 const COMPANY = "company-1";
 const ACTOR = { userID: "user-1", companyID: COMPANY, role: "manager" };
@@ -154,15 +153,26 @@ describe("upload", () => {
 });
 
 describe("ports and approval", () => {
-  it("sets a port a user picked, when the place list has it, and recounts what is left", async () => {
+  // Changed: the findings used to be worked out here from the version read before the place list was
+  // asked, and written apart; now the pick's own transaction works them out from the version it locks.
+  it("sets a port a user picked, when the place list has it, and recounts what is left in the pick's own write", async () => {
     repo.setOceanPort.mockResolvedValue({ ok: true, port: port() });
     repo.getVersion.mockResolvedValue(version({ findings: [{ level: "warning", code: "ports_pending", message: "1", count: 1, rows: [] }] }));
     await oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: "cnfoc" });
-    expect(repo.setOceanPort).toHaveBeenCalledWith(COMPANY, VERSION_ID, "pod", "Fuzhou", "CNFOC");
-    expect(repo.pendingOceanPorts).toHaveBeenCalledWith(COMPANY, VERSION_ID);
+    expect(repo.setOceanPort).toHaveBeenCalledWith(COMPANY, VERSION_ID, "pod", "Fuzhou", "CNFOC", findingsAfterPick);
+    expect(repo.pendingOceanPorts).not.toHaveBeenCalled();
     expect(repo.oceanPorts).toHaveBeenCalledWith(COMPANY, VERSION_ID);
-    expect(repo.replaceFindings).toHaveBeenCalledWith(COMPANY, VERSION_ID, [], { errors: 0, warnings: 0 });
     await expect(oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: "XXXXX" })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("works the findings out from those stored: a relayout's errors stay, only the ports-pending one follows the count", async () => {
+    const error = { level: "error" as const, code: "bad_price", message: "A price is not a number", count: 2, rows: [4, 9] };
+    const pendingBefore = { level: "warning" as const, code: "ports_pending", message: "3", count: 3, rows: [] };
+    // The totals count problem rows: the error's two, the port names left.
+    expect(findingsAfterPick([error, pendingBefore], 0)).toEqual({ findings: [error], totals: { errors: 2, warnings: 0 } });
+    const after = findingsAfterPick([error, pendingBefore], 1);
+    expect(after.findings).toEqual([error, expect.objectContaining({ code: "ports_pending", count: 1 })]);
+    expect(after.totals).toEqual({ errors: 2, warnings: 1 });
   });
 
   it("refuses a code that is no UN/LOCODE without asking the place list", async () => {
@@ -175,7 +185,7 @@ describe("ports and approval", () => {
   it("leaves a port out with no code, but only on a draft", async () => {
     repo.setOceanPort.mockResolvedValue({ ok: true, port: port({ code: null, status: "skipped" }) });
     await oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: null });
-    expect(repo.setOceanPort).toHaveBeenCalledWith(COMPANY, VERSION_ID, "pod", "Fuzhou", null);
+    expect(repo.setOceanPort).toHaveBeenCalledWith(COMPANY, VERSION_ID, "pod", "Fuzhou", null, findingsAfterPick);
     repo.getVersion.mockResolvedValue(version({ status: "active" }));
     await expect(oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: null })).rejects.toMatchObject({ code: "failed_precondition" });
   });
@@ -191,7 +201,6 @@ describe("ports and approval", () => {
       code: "not_found",
       message: "This version has no such port name",
     });
-    expect(repo.replaceFindings).not.toHaveBeenCalled();
   });
 
   it("waits with approval while a port is still to pick", async () => {

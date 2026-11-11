@@ -138,18 +138,34 @@ const stampValues = (bankChange: { at: Date; byUserId: string | null; by: string
 // manager. A haulier's are copied to Trucking in the same save, before they are stored here, so a save
 // Trucking cannot take is not kept either. Saves of one company run one after the other (its row is
 // locked), so Trucking gets them in the order they are stored here.
+//
+// Why that one call is made with the row locked (the only call to another service that is): Trucking's
+// copy must be the one stored here. Sent before the lock, two saves at once could reach Trucking in the
+// other order than they are stored here, and Trucking would pay by the older terms; sent after the commit
+// (an outbox), a save Trucking refuses - a currency it does not pay in - would already be kept here, and
+// the manager would not be told. The lock is the one supplier's row, held for that one call; what waits
+// for it is another write of the same supplier. Everything else from other services - who saves, and
+// Trucking's copy a first save starts from - is read before the lock and re-checked under it.
 class SupplierTermsService {
   async set(companyId: string, customerId: string, actor: TermsActor, input: SupplierTermsInput): Promise<CustomerItem> {
     if (!canManageSupplierTerms(actor.role)) throw APIError.permissionDenied("Only a manager can change a supplier's payment terms and VAT / bank details");
     const terms = cleanTerms(input, businessDay(new Date()));
     const by = await userEmailOf(actor.userID);
+    // A haulier's first save here starts from what Trucking holds (K1): an account Trucking already lists is
+    // not new, and when it was added there stays known. Read before the row is locked (see above).
+    const unlocked = await customerRepository.getByIdForCompany(customerId, companyId);
+    if (!unlocked) throw APIError.notFound("Customer not found");
+    const copyRead = unlocked.roles.includes("haulier") && unsetHere(unlocked);
+    const readCopy = copyRead ? await truckingTermsOf(customerId) : null;
     const row = await customerRepository.updateLocked(customerId, companyId, async (customer) => {
       if (!isSupplier(customer.roles)) throw APIError.invalidArgument("Only a supplier has supplier terms: give the company a role other than Customer first");
       const haulier = customer.roles.includes("haulier");
       const sent = haulier ? haulierTerms(terms) : null;
-      // A haulier's first save here starts from what Trucking holds (K1): an account Trucking already lists is
-      // not new, and when it was added there stays known.
-      const truckingCopy = haulier && unsetHere(customer) ? await truckingTermsOf(customerId) : null;
+      // Re-checked under the lock: saved meanwhile, it no longer starts from Trucking's copy; made a haulier
+      // with nothing saved meanwhile, Trucking's copy was not read for it - the save is tried again.
+      const firstSave = haulier && unsetHere(customer);
+      if (firstSave && !copyRead) throw APIError.aborted("This supplier was changed while it was saved: reload it and save again");
+      const truckingCopy = firstSave ? readCopy : null;
       // An editor that started from empty terms while Trucking held some (it could not be read then) would
       // wipe Trucking's VAT and bank details with this save.
       if (truckingCopy && !input.fromTrucking) {
@@ -158,6 +174,7 @@ class SupplierTermsService {
       const before = truckingCopy ? truckingCopy.bankAccounts : customer.supplierBankAccounts;
       // An added account starts Trucking's 30-day hold on its exact-match invoices; removing one changes nothing a payment could go to.
       const bankChange = bankAccountAdded(before, terms.bankAccounts) ? { at: new Date(), byUserId: actor.userID || null, by } : null;
+      // With the row locked, on purpose: Trucking gets the saves in the order they are stored (see above).
       if (sent) {
         await trucking._internalHaulierTermsSet({
           customerId,
@@ -217,9 +234,11 @@ class SupplierTermsService {
    * the roles are stored (K3), every account on Trucking's 30-day hold (none of them was checked there);
    * terms set here but not enough for a haulier refuse the change. Gives the values to store with the roles:
    * the hold's stamp. Nothing to do otherwise. Called with the company's row locked (customerService.update),
-   * so it runs one after the other with a save of the terms.
+   * so it runs one after the other with a save of the terms - which is why the call to Trucking is made
+   * under that lock (see the class comment). Who changes the roles (`actor.by`, their e-mail) is read
+   * before the lock, by the caller.
    */
-  async beforeRolesChange(current: CustomerRecord, roles: CustomerRole[], actorUserId: string): Promise<Partial<NewCustomerRecord>> {
+  async beforeRolesChange(current: CustomerRecord, roles: CustomerRole[], actor: { userId: string; by: string }): Promise<Partial<NewCustomerRecord>> {
     if (current.roles.includes("haulier") || !roles.includes("haulier") || unsetHere(current)) return {};
     let sent;
     try {
@@ -228,8 +247,8 @@ class SupplierTermsService {
       if (err instanceof APIError) throw APIError.invalidArgument(`${err.message}. Set them in Finance → Terms and checks first, then add the Haulier role`);
       throw err;
     }
-    const by = await userEmailOf(actorUserId);
-    const bankChange = current.supplierBankAccounts.length ? { at: new Date(), byUserId: actorUserId || null, by } : null;
+    const { by } = actor;
+    const bankChange = current.supplierBankAccounts.length ? { at: new Date(), byUserId: actor.userId || null, by } : null;
     await trucking._internalHaulierTermsSet({
       customerId: current.id,
       terms: sent,

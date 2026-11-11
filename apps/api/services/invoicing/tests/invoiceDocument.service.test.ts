@@ -12,6 +12,7 @@ const repo = vi.hoisted(() => ({
   listOpenInvoicesWithSources: vi.fn(),
   invoicedSellingRowIds: vi.fn(),
   shipmentIdsWithInvoices: vi.fn(),
+  billedShipmentIds: vi.fn(),
 }));
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
 const trucking = vi.hoisted(() => ({
@@ -21,8 +22,8 @@ const trucking = vi.hoisted(() => ({
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
-const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listLiveByCompany: vi.fn() }));
-const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi.fn(), createIfMissing: vi.fn() }));
+const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listLiveByShipments: vi.fn() }));
+const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByShipments: vi.fn(), createIfMissing: vi.fn() }));
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 // The follow-up outbox, in memory: rows written in the issue's transaction, claimed and settled.
 const outbox = vi.hoisted(() => {
@@ -86,16 +87,21 @@ vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn() } })
 vi.mock("../storage/invoiceBucket", () => ({ invoiceBucket: bucket }));
 vi.mock("../lib/pdfFonts", () => ({ loadPdfFonts: async () => ({ regular: new Uint8Array(), bold: new Uint8Array() }) }));
 vi.mock("../lib/invoicePdf", () => ({ renderInvoicePdf: pdf.render }));
-// The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
-vi.mock("encore.dev/api", () => ({
-  APIError: {
-    notFound: (msg: string) => new Error(msg),
-    invalidArgument: (msg: string) => new Error(msg),
-    failedPrecondition: (msg: string) => new Error(msg),
-    internal: (msg: string) => new Error(msg),
-    alreadyExists: (msg: string) => new Error(msg),
-  },
-}));
+// The Encore runtime isn't loaded under vitest; APIError carries its message and the code it answers with.
+vi.mock("encore.dev/api", () => {
+  class APIError extends Error {
+    constructor(readonly code: string, message: string) {
+      super(message);
+    }
+    static notFound = (msg: string) => new APIError("not_found", msg);
+    static invalidArgument = (msg: string) => new APIError("invalid_argument", msg);
+    static failedPrecondition = (msg: string) => new APIError("failed_precondition", msg);
+    static internal = (msg: string) => new APIError("internal", msg);
+    static alreadyExists = (msg: string) => new APIError("already_exists", msg);
+    static unavailable = (msg: string) => new APIError("unavailable", msg);
+  }
+  return { APIError, ErrCode: { NotFound: "not_found" } };
+});
 
 import { invoiceDocumentService, pragueToday } from "../services/invoiceDocument.service";
 
@@ -229,6 +235,16 @@ describe("ČNB rates", () => {
     const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
     expect(p.problems).toContain("The customer's default currency could not be read — try again in a moment");
     expect(settings.createIfMissing).not.toHaveBeenCalled();
+  });
+
+  it("says the chosen customer was not found only when Customers says so; Customers down is to try again", async () => {
+    const { APIError } = await import("encore.dev/api");
+    clients.customerGet.mockRejectedValueOnce(APIError.notFound("customer not found"));
+    expect((await invoiceDocumentService.preview(SHIPMENT, COMPANY, {})).problems).toContain("The chosen customer was not found");
+    clients.customerGet.mockRejectedValueOnce(APIError.unavailable("customers is down"));
+    const down = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(down.problems).toContain("The customer could not be read — try again");
+    expect(down.problems).not.toContain("The chosen customer was not found");
   });
 
   it("does not hold a CZK invoice of CZK rows for the ČNB rate: nothing is converted", async () => {
@@ -393,6 +409,14 @@ describe("issue", () => {
     expect(repo.issue).not.toHaveBeenCalled();
   });
 
+  it("refuses to issue an invoice for a deleted shipment, before anything is numbered", async () => {
+    const { APIError } = await import("encore.dev/api");
+    clients.shipmentGet.mockRejectedValue(APIError.notFound("Shipment not found"));
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" })).rejects.toMatchObject({ code: "not_found" });
+    expect(clients.shipmentReferenceFinal).not.toHaveBeenCalled();
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
   it("refuses to issue while anything is missing", async () => {
     profiles.getByCompany.mockResolvedValue(null);
     await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoicing details/);
@@ -428,6 +452,38 @@ describe("issue", () => {
     repo.issue.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
     const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" });
     expect(inv.id).toBe("inv0");
+  });
+
+  it("answers the invoice of a double click's first request, found under the series lock, instead of refusing its rows", async () => {
+    repo.getLines.mockResolvedValue([]);
+    // Both clicks found no document for the key; the second waited for the lock while the first issued.
+    repo.issue.mockImplementation(async () => ({ invoice: issuedEarlier, lines: [], replayed: true }));
+    const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" });
+    expect(inv.id).toBe("inv0");
+    expect(repo.issue.mock.calls[0]![1]).toMatchObject({ idempotencyKey: "k1" });
+    // Nothing is owed or stored twice for it.
+    expect(outbox.enqueue).not.toHaveBeenCalled();
+    expect(bucket.upload).not.toHaveBeenCalled();
+  });
+
+  it("refuses a key found under the lock on another shipment's invoice", async () => {
+    repo.issue.mockImplementation(async () => ({ invoice: { ...issuedEarlier, shipmentId: "other" }, lines: [], replayed: true }));
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" })).rejects.toThrow(/another document/);
+  });
+
+  it("answers the first request's invoice when the repeat was refused because that request billed the rows", async () => {
+    // Issued while the repeat was being prepared: its rows are invoiced by the time the repeat checks them.
+    repo.getByIdempotencyKey.mockResolvedValueOnce(null).mockResolvedValueOnce(issuedEarlier);
+    repo.getLines.mockResolvedValue([]);
+    repo.issue.mockRejectedValue(new Error("Some of these selling rows were invoiced a moment ago — reload and check the invoice"));
+    const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" });
+    expect(inv.id).toBe("inv0");
+  });
+
+  it("still refuses rows invoiced a moment ago by another request, without a key or with a key nobody used", async () => {
+    repo.issue.mockRejectedValue(new Error("Some of these selling rows were invoiced a moment ago — reload and check the invoice"));
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoiced a moment ago/);
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k-new" })).rejects.toThrow(/invoiced a moment ago/);
   });
 
   it("does not bill a selling row that is on an open invoice already", async () => {
@@ -519,6 +575,17 @@ describe("shipmentsEverInvoiced", () => {
   });
 });
 
+describe("shipmentsWithOpenInvoices", () => {
+  const A = "00000000-0000-0000-0000-0000000000a1";
+  const B = "00000000-0000-0000-0000-0000000000b1";
+
+  it("answers, for several jobs at once, those with an issued, not credited invoice in the caller's company", async () => {
+    repo.billedShipmentIds.mockResolvedValue(new Set([B]));
+    await expect(invoiceDocumentService.shipmentsWithOpenInvoices([A, B, "not-an-id"], COMPANY)).resolves.toEqual([B]);
+    expect(repo.billedShipmentIds).toHaveBeenCalledWith([A, B], COMPANY);
+  });
+});
+
 describe("credit", () => {
   const original = {
     id: "inv1", kind: "invoice", status: "issued", number: "INV2026CZ00000028-001", shipmentId: SHIPMENT, customerId: CUSTOMER,
@@ -572,6 +639,17 @@ describe("credit", () => {
     await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
     expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] }, expect.anything());
     expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "failed"], ["mark_credited", "sent"], ["status_after_credit", "sent"]]);
+  });
+
+  it("answers the credit note of a double click's first request, found under the series lock", async () => {
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue([line]);
+    const earlierCn = { ...original, id: "cn0", kind: "credit_note", number: "CN2026CZ00000028-001", correctsInvoiceId: "inv1", creditReason: "x", createdAt: new Date(), pdfKey: "" };
+    repo.issue.mockImplementation(async () => ({ invoice: earlierCn, lines: [], replayed: true }));
+    const cn = await invoiceDocumentService.credit("inv1", COMPANY, USER, "x", "k1");
+    expect(cn.id).toBe("cn0");
+    expect(repo.markCredited).not.toHaveBeenCalled();
+    expect(outbox.enqueue).not.toHaveBeenCalled();
   });
 
   it("refuses a key that was used for issuing an invoice", async () => {
@@ -653,9 +731,9 @@ describe("queue", () => {
       const oldestFirst = [listed({}), listed({ id: "s2", jobNumber: "CZ00000030" })];
       return { pagination: { total: 2 }, data: req.sortDirection === "desc" ? oldestFirst.reverse() : oldestFirst };
     });
-    selling.listLiveByCompany.mockResolvedValue([{ id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true }]);
+    selling.listLiveByShipments.mockResolvedValue([{ id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true }]);
     repo.listOpenInvoicesWithSources.mockResolvedValue([]);
-    settings.listByCompany.mockResolvedValue([{ shipmentId: SHIPMENT, billingCurrency: "CZK" }]);
+    settings.listByShipments.mockResolvedValue([{ shipmentId: SHIPMENT, billingCurrency: "CZK" }]);
   };
 
   it("lists the shipments of the view and adds the amount still to bill from the selling lines", async () => {
@@ -671,6 +749,10 @@ describe("queue", () => {
       ["CZ00000030", "Billing [EXP]", "none", 0],
     ]);
     expect(r.queue[0]).toMatchObject({ customerId: "cust1", department: "Operation Department", houseBolType: "", masterBolType: "OBL" });
+    // Only the listed shipments' selling rows, open invoices and settings are read, not the company's every one.
+    for (const read of [selling.listLiveByShipments, repo.listOpenInvoicesWithSources, settings.listByShipments]) {
+      expect(read).toHaveBeenCalledWith([SHIPMENT, "s2"], COMPANY);
+    }
   });
 
   it("the All shipments view lists every shipment but cancelled ones through the list filter 'all'", async () => {
@@ -701,9 +783,9 @@ describe("queue", () => {
       const ordered = req.sortDirection === "desc" ? [...all].reverse() : all;
       return { pagination: { total: 1200 }, data: ordered.slice(req.offset ?? 0, (req.offset ?? 0) + req.limit) };
     });
-    selling.listLiveByCompany.mockResolvedValue([]);
+    selling.listLiveByShipments.mockResolvedValue([]);
     repo.listOpenInvoicesWithSources.mockResolvedValue([]);
-    settings.listByCompany.mockResolvedValue([]);
+    settings.listByShipments.mockResolvedValue([]);
 
     const r = await invoiceDocumentService.queue(COMPANY, "not_invoiced");
     expect(r.truncated).toBe(true);

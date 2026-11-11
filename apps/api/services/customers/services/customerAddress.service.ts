@@ -5,6 +5,7 @@ import type { NewCustomerAddressRecord } from "../schemas/customerAddress.schema
 import { ADDRESS_TYPES, type AddressItem, type AddressType } from "../interfaces/interfaces";
 import { toAddressItem } from "../lib/mappers";
 import { SITE_RACE, isSiteRace } from "../lib/addressSite";
+import { CUSTOMER_ICO_UNIQUE } from "../lib/registerNumber";
 import { customerService } from "./customer.service";
 
 export interface AddressInput {
@@ -58,6 +59,10 @@ async function oneRegistered<T>(write: () => Promise<T>, as: keyof typeof SECOND
   } catch (err) {
     if (isSiteRace(err)) throw APIError.aborted(SITE_RACE);
     if (isUniqueViolation(err) && constraintOf(err) === "customer_address_one_billing") throw APIError.alreadyExists(SECOND_BILLING[as]);
+    // The seat moved to another country, where another customer has the same registration number.
+    if (isUniqueViolation(err) && constraintOf(err) === CUSTOMER_ICO_UNIQUE) {
+      throw APIError.alreadyExists("Another customer in that country has the same registration number");
+    }
     if (isUniqueViolation(err)) throw APIError.alreadyExists("The customer already has a registered address — edit that one");
     throw err;
   }

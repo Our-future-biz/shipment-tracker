@@ -31,7 +31,7 @@ export interface Caller {
  */
 export async function withCaller<P extends People>(people: P, caller?: Caller): Promise<P> {
   if (!caller || caller.role !== "superadmin" || people.emails.has(caller.userID)) return people;
-  const email = await userEmailOf(caller.userID);
+  const email = await userEmailOf(caller.userID).catch(() => "");
   return email ? { ...people, emails: new Map(people.emails).set(caller.userID, email) } : people;
 }
 

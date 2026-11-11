@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // service handing a whole set to the repository (which replaces it in one transaction).
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("../repositories/truckingLines.repository", () => ({ truckingLinesRepository: { replace: vi.fn(async () => ({ buying: 0, selling: 0, sellingKept: 0 })) } }));
+// The shipment a push is for, as Shipments answers it (company-scoped, live only).
+const shipments = vi.hoisted(() => ({ shipmentGet: vi.fn(async (_req: { shipmentId: string }) => ({ shipment: { jobNumber: "CZ00000028" } })) }));
+vi.mock("~encore/clients", () => ({ shipments }));
 
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { truckingLinesService } from "../services/truckingLines.service";
@@ -109,6 +112,18 @@ describe("Trucking lines in Costs Breakdown", () => {
         { sourceRef: `${ref}:diff:1`, currency: "CZK", amount: -1240 },
       ]);
     });
+  });
+
+  it("refuses a push for a shipment deleted meanwhile, whose rows were retired with it", async () => {
+    const { APIError } = await import("../../../lib/tests/encoreApi.stub");
+    shipments.shipmentGet.mockRejectedValueOnce(APIError.notFound("Shipment not found"));
+    await expect(truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:trip:${TRIP}`, buying: [line()], selling: [] })).rejects.toMatchObject({ code: "not_found" });
+    expect(shipments.shipmentGet).toHaveBeenCalledWith({ shipmentId: S });
+    expect(truckingLinesRepository.replace).not.toHaveBeenCalled();
+    // Shipments down is not "deleted": the push fails as it is, and Trucking's outbox tries again.
+    shipments.shipmentGet.mockRejectedValueOnce(APIError.unavailable("shipments is down"));
+    await expect(truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:trip:${TRIP}`, buying: [line()], selling: [] })).rejects.toMatchObject({ code: "unavailable" });
+    expect(truckingLinesRepository.replace).not.toHaveBeenCalled();
   });
 
   it("refuses a bad shipment id, currency or amount before writing", async () => {

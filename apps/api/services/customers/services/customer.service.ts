@@ -28,6 +28,7 @@ import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { isSalesReference } from "../../../lib/salesReference";
 import { storedEmail } from "../../../lib/personPick";
+import { userEmailOf } from "../../../lib/companyUsers";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { companyOfLogoToken } from "../lib/logoUrl";
@@ -37,6 +38,7 @@ import { assertCzechPhone } from "../../../lib/phone";
 import { contactChanged, customerChanged } from "../topics";
 import { contactRepository } from "../repositories/contact.repository";
 import { seatText } from "../lib/seat";
+import { CUSTOMER_ICO_UNIQUE, registerCountry } from "../lib/registerNumber";
 import { billingCurrencies } from "../lib/billingCurrencies";
 import { supplierTermsService } from "./supplierTerms.service";
 
@@ -207,7 +209,7 @@ const NOT_DECLINED = "This supplier is no longer declined: another manager took 
  * any more: somebody brought it back in this very moment.
  */
 async function bringBack(id: string, deleted: CustomerRecord, companyId: string, as: "restore" | "undoDecline"): Promise<CustomerRecord | null> {
-  const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, companyId) : null;
+  const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, deleted.country, companyId) : null;
   if (clash) {
     throw APIError.alreadyExists(
       `${clash.companyName} already has the registration number ${deleted.ico}, so ${deleted.companyName} can't be restored`,
@@ -221,7 +223,7 @@ async function bringBack(id: string, deleted: CustomerRecord, companyId: string,
       throw APIError.failedPrecondition(`${deleted.companyName} can't be restored: two of its addresses are its billing address`);
     }
     // Another customer with the same registration number was added in the meantime.
-    if (isUniqueViolation(err) && constraintOf(err) === "customer_company_ico_unique") {
+    if (isUniqueViolation(err) && constraintOf(err) === CUSTOMER_ICO_UNIQUE) {
       throw APIError.alreadyExists("A customer with this registration number already exists");
     }
     // Another one-per-customer rule its addresses or sites would break (one seat, one billing address, …).
@@ -383,10 +385,15 @@ class CustomerService {
     if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, roles, !!supplierRequest);
     const checkedRoles = requireRoles(roles);
     const mainContact = firstContact(contact);
-    if (await customerRepository.findByIco(ico, companyId)) {
+    // An IČO is a number of the Czech register: refused before ARES is asked when a Czech customer has it,
+    // and again for the country ARES gives the company's seat in, which the customer is stored with.
+    if (await customerRepository.findByIco(ico, "CZ", companyId)) {
       throw APIError.alreadyExists("A customer with this IČO already exists");
     }
     const ares = await aresService.lookup(ico);
+    if (registerCountry(ares.country) !== "CZ" && (await customerRepository.findByIco(ares.ico, ares.country, companyId))) {
+      throw APIError.alreadyExists("A customer with this IČO already exists");
+    }
     const approval = await approvalOf(actorRole, supplierRequest);
     const values: Omit<NewCustomerRecord, "companyId"> = {
       ...approval,
@@ -423,7 +430,8 @@ class CustomerService {
     if (!companyName) throw APIError.invalidArgument("The company name can't be empty");
     if (country === "CZ") throw APIError.invalidArgument("A Czech company is added from ARES by its IČO");
     const registrationNumber = (input.registrationNumber ?? "").trim();
-    if (registrationNumber && (await customerRepository.findByIco(registrationNumber, companyId))) {
+    // Unique in its own country's register only: another country's same number is another company.
+    if (registrationNumber && (await customerRepository.findByIco(registrationNumber, country, companyId))) {
       throw APIError.alreadyExists("A customer with this registration number already exists");
     }
     const street = input.street.trim();
@@ -481,6 +489,10 @@ class CustomerService {
     // What depends on the row as it is now is worked out with the row locked, after every check above: a change
     // of roles may write to Trucking first (K3), and it then runs one after the other with a save of the terms.
     const fromCurrent = values.roles !== undefined || addRoles.length > 0 || values.currency !== undefined || values.secondaryCurrencies !== undefined;
+    // Who changes the roles, for a supplier made a haulier (its terms go to Trucking with the e-mail): read
+    // before the row is locked, so no other service is asked while the lock is held but Trucking itself.
+    const makesHaulier = !!values.roles?.includes("haulier") || addRoles.includes("haulier");
+    const rolesBy = makesHaulier ? await userEmailOf(actorUserId) : "";
     const row = fromCurrent
       ? await customerRepository.updateLocked(id, companyId, async (current) => {
           const locked = { ...values };
@@ -502,7 +514,7 @@ class CustomerService {
             // in use as one - its Inactive said nothing of its supply - unless a status comes with the change.
             if (wasCustomer && !isCustomer && current.status === "Inactive" && patch.status === undefined) locked.status = "Active";
             // A supplier with terms set here that becomes a haulier: Trucking gets them first (K3), the last step.
-            Object.assign(locked, await supplierTermsService.beforeRolesChange(current, locked.roles, actorUserId));
+            Object.assign(locked, await supplierTermsService.beforeRolesChange(current, locked.roles, { userId: actorUserId, by: rolesBy }));
           }
           return locked;
         })

@@ -106,6 +106,14 @@ describe("customer addresses", () => {
     await expect(customerAddressService.makeBilling("a1", COMPANY)).rejects.toThrow("changed by someone else at the same moment");
   });
 
+  it("says so when the seat moved to a country where another customer has the same registration number", async () => {
+    requireLive.mockResolvedValue({ id: "c1" });
+    addresses.createWithSeat.mockRejectedValueOnce(Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_company_country_ico_unique" } }));
+    await expect(
+      customerAddressService.create(COMPANY, "c1", { types: ["Registered"], street: "Weg 1", city: "Wien", postalCode: "1010", country: "AT" }),
+    ).rejects.toThrow("Another customer in that country has the same registration number");
+  });
+
   it("makes an address the billing address through the write that moves Billing, and reports one that is gone", async () => {
     addresses.moveBilling.mockResolvedValueOnce(row({ types: ["Billing", "Pickup"] }));
     const item = await customerAddressService.makeBilling("a1", COMPANY);

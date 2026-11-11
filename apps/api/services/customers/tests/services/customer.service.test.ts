@@ -83,13 +83,29 @@ describe("roles", () => {
 
   it("make a new company a customer unless others are given", async () => {
     repository.findByIco.mockResolvedValue(null);
-    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "" } as never);
+    // ARES always answers a country (the seat's, CZ when it gives none).
+    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "", country: "CZ" } as never);
     repository.createWithContact.mockResolvedValue(customerRow());
     await customerService.createFromAres(COMPANY, "user", "12345678", CONTACT);
     expect(repository.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roles: ["customer"] }), expect.anything(), expect.anything());
 
     await customerService.createFromAres(COMPANY, "manager", "12345678", CONTACT, ["haulier"]);
     expect(repository.createWithContact).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ roles: ["haulier"] }), expect.anything(), expect.anything());
+  });
+
+  it("from ARES are looked for among the Czech customers before ARES is asked, and in the seat's country it gives", async () => {
+    repository.findByIco.mockResolvedValue(null);
+    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "", country: "CZ" } as never);
+    repository.createWithContact.mockResolvedValue(customerRow());
+    await customerService.createFromAres(COMPANY, "user", "12345678", CONTACT);
+    expect(repository.findByIco.mock.calls).toEqual([["12345678", "CZ", COMPANY]]);
+
+    // A Czech-registered company seated abroad is stored with that country: a duplicate there is refused too.
+    repository.findByIco.mockReset();
+    repository.findByIco.mockResolvedValueOnce(null).mockResolvedValueOnce(customerRow() as never);
+    ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "", country: "SK" } as never);
+    await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT)).rejects.toMatchObject({ code: "already_exists" });
+    expect(repository.findByIco.mock.calls).toEqual([["12345678", "CZ", COMPANY], ["12345678", "SK", COMPANY]]);
   });
 
   // A change of roles is worked out with the row locked: `current` is the row as the lock reads it, and the
@@ -107,6 +123,20 @@ describe("roles", () => {
     expect(repository.updateLocked).toHaveBeenCalledWith("customer-1", COMPANY, expect.any(Function));
     expect(written).toEqual({ roles: ["haulier", "customer"] });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("made a haulier, read who changes them before the row is locked: no other service is asked under the lock but Trucking", async () => {
+    const USER = "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f";
+    vi.mocked(auth.userLookup).mockClear();
+    vi.mocked(auth.userLookup).mockResolvedValue({ users: [{ id: USER, email: "Rep@Firm.cz" }] } as never);
+    lockedOn({ roles: ["haulier"] });
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer"] }, USER);
+    expect(auth.userLookup).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(auth.userLookup).mock.invocationCallOrder[0]).toBeLessThan(repository.updateLocked.mock.invocationCallOrder.at(-1)!);
+    // A change that makes nobody a haulier asks nobody.
+    vi.mocked(auth.userLookup).mockClear();
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["customer"] }, USER);
+    expect(auth.userLookup).not.toHaveBeenCalled();
   });
 
   it("make a supplier only that becomes a customer a Prospect, unless a status is sent with them (K14)", async () => {
