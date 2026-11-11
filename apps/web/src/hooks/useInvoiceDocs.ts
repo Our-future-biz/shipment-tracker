@@ -72,7 +72,11 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     previewLoading: preview.isFetching,
     previewError: preview.error,
     docs: docs.data?.invoices ?? [],
-    docsLoading: docs.isLoading,
+    // Until the list is in, "no invoices" is not known: which rows are billed already is not either.
+    docsLoaded: docs.data !== undefined,
+    // The list could not be loaded (and none was before): not an empty one.
+    docsError: docs.isLoadingError,
+    refetchDocs: docs.refetch,
     issue: issue.mutateAsync,
     isIssuing: issue.isPending,
     credit: credit.mutateAsync,

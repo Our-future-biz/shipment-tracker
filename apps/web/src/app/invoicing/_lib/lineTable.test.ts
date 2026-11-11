@@ -42,6 +42,10 @@ describe("lineTableRows", () => {
     expect(shape(lineTableRows([selling("a")], [], []))).toEqual([["a", true, "row"]]);
   });
 
+  it("offers no row while the job's invoices are not known: a billed one would come back as one to invoice", () => {
+    expect(lineTableRows([selling("a"), selling("b", { invoice: false })], [line("a")], undefined)).toEqual([]);
+  });
+
   it("leaves out rows on an open invoice, ticked or not", () => {
     const rows = [selling("a"), selling("b", { invoice: false })];
     expect(lineTableRows(rows, [], [issued(["a", "b"])])).toEqual([]);

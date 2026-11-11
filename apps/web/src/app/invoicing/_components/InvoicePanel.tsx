@@ -166,7 +166,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
 
   // the preview is recomputed whenever the rows it is built from change
   const previewKey = useMemo(() => JSON.stringify([billingCur, data?.sellingCosts ?? []]), [billingCur, data?.sellingCosts]);
-  const { preview, previewLoading, previewError, docs, docsLoading, issue, isIssuing, credit, isCrediting } = useInvoiceDocs(shipment.id, {
+  const { preview, previewLoading, previewError, docs, docsLoaded, docsError, refetchDocs, issue, isIssuing, credit, isCrediting } = useInvoiceDocs(shipment.id, {
     customerId,
     duzp,
     previewKey,
@@ -338,12 +338,19 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   // (and the server issues no other total than the one confirmed).
   const invoicingFetching = useIsFetching({ queryKey: invoicingKey(shipment.id) }) > 0;
   const savingChanges = billingCurrency.isPending || lineVat.isPending || lineText.isPending || lineTick.isPending || invoicingFetching;
-  const canIssue = !!p && problems.length === 0 && !previewLoading && !savingChanges;
+  // The lines are shown only with the job's invoices (see tableRows): nothing is issued unseen.
+  const canIssue = !!p && problems.length === 0 && !previewLoading && !savingChanges && docsLoaded;
   const hasLines = !!p && p.lines.length > 0;
   // The table: the invoice's lines (ticked selling rows) and, greyed, the selling rows left unticked,
-  // so a line can be put back. Kept in the Costs Breakdown order (see lineTableRows).
+  // so a line can be put back. Kept in the Costs Breakdown order (see lineTableRows). Built only once the
+  // job's invoices are in: without them a row billed already would be offered again.
   const sellingRows = data?.sellingCosts ?? [];
-  const tableRows: TableRow[] = p ? lineTableRows(sellingRows, p.lines, docs) : [];
+  const tableRows: TableRow[] = p ? lineTableRows(sellingRows, p.lines, docsLoaded ? docs : undefined) : [];
+  const docsRetry = (
+    <Button size="small" onClick={() => void refetchDocs()}>
+      Retry
+    </Button>
+  );
   // as the server names a line: its own text, else the row's Description, else the category
   const rowDescription = (t: TableRow) =>
     t.line ? t.line.description : t.row!.customer.trim() || t.row!.description.trim() || chargeLabel(t.row!.category) || "Service";
@@ -539,7 +546,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
               {(
                 [
                   { key: "to_invoice", label: "To invoice", count: p ? p.lines.length : undefined },
-                  { key: "invoiced", label: "Invoiced", count: docsLoading ? undefined : issuedInvoices.length },
+                  { key: "invoiced", label: "Invoiced", count: docsLoaded ? issuedInvoices.length : undefined },
                 ] as const
               ).map((t) => {
                 const active = linesView === t.key;
@@ -777,7 +784,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                   )}
                 </table>
               </div>
-            ) : previewError ? null : !p && previewLoading ? (
+            ) : previewError ? null : docsError ? (
+              <Alert type="error" showIcon message="The job's invoices could not be loaded, so what is still to invoice is not known." action={docsRetry} />
+            ) : (!p && previewLoading) || !docsLoaded ? (
               <p className="text-[13px] text-slate-500 m-0 py-2">Loading the invoice preview…</p>
             ) : (
               <div className="border border-dashed border-slate-300 rounded-xl px-4 py-4 flex items-center gap-3 flex-wrap">
@@ -879,7 +888,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                   {shownInvoices.length === 0 && (
                     <tr>
                       <td colSpan={6} className={`${TD} text-center !text-slate-500 !py-6`}>
-                        {docsLoading
+                        {docsError ? (
+                          <span className="inline-flex items-center gap-2">
+                            The job&apos;s invoices could not be loaded. {docsRetry}
+                          </span>
+                        ) : !docsLoaded
                           ? "Loading the invoices…"
                           : issuedInvoices.length === 0
                             ? "No invoice issued for this job yet."
@@ -979,7 +992,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
       {/* ── Issued documents ── */}
       {section === "documents" && (
         <SectionCard title="Invoices & credit notes">
-          {docs.length === 0 ? (
+          {docsError ? (
+            <Alert type="error" showIcon message="The invoices and credit notes of this shipment could not be loaded." action={docsRetry} />
+          ) : !docsLoaded ? (
+            <p className="text-[13px] text-slate-500 m-0">Loading the invoices…</p>
+          ) : docs.length === 0 ? (
             <p className="text-[13px] text-slate-500 m-0">None issued for this shipment yet.</p>
           ) : (
             <div className="overflow-x-auto">

@@ -20,13 +20,16 @@ export interface LineTableRow {
  * selling rows, so each row shows once even while the preview is a step behind a tick (it is
  * refetched after the rows): a ticked row shows its preview line, an unticked one its own values.
  * Rows on an open invoice (billed already) and rows with no value (never invoiced) are left out.
- * Preview lines of no current row (e.g. just deleted) follow at the end.
+ * Preview lines of no current row (e.g. just deleted) follow at the end. `docs` is undefined while
+ * the job's invoices are not known (loading, or they could not be loaded): which rows are billed is
+ * not known then either, so no row is offered.
  */
 export function lineTableRows(
   sellingRows: readonly interfaces.SellingCostItem[],
   previewLines: readonly interfaces.InvoiceDocLineItem[],
-  docs: readonly Pick<interfaces.InvoiceDocItem, "kind" | "status" | "lines">[],
+  docs: readonly Pick<interfaces.InvoiceDocItem, "kind" | "status" | "lines">[] | undefined,
 ): LineTableRow[] {
+  if (!docs) return [];
   const lineOf = new Map(previewLines.filter((l) => l.sourceSellingCostId).map((l) => [l.sourceSellingCostId!, l]));
   const billed = openInvoiceRowIds(docs);
   const rows: LineTableRow[] = [];
