@@ -60,7 +60,10 @@ class CustomerLinkService {
     const shipment = await this.assertMayChange(shipmentId, actor);
     if (!linkMayOpen(shipment, businessDay(now))) throw APIError.failedPrecondition("This job is cancelled or was delivered too long ago for a link");
     const { token, hash } = newLinkToken();
-    await shipmentCustomerLinkRepository.replace({ companyId: actor.companyID, shipmentId, tokenHash: hash, createdById: actor.userID });
+    // In the shipment's write turn: a second click at the same moment waits, then replaces this link.
+    await shipmentRepository.writeTurn(shipmentId, actor.companyID, (tx) =>
+      shipmentCustomerLinkRepository.replace(tx, { companyId: actor.companyID, shipmentId, tokenHash: hash, createdById: actor.userID }),
+    );
     return { url: customerLinkUrl(appUrl(), token), link: (await this.get(shipmentId, actor.companyID, now))! };
   }
 

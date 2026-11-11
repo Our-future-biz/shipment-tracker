@@ -5,8 +5,9 @@ import { shipmentDeleted } from "../topics";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
 
 // The `shipment-deleted` topic, published after commit. A delete writes its event to
-// shipment_event_outbox in its own transaction (shipmentRepository.softDeleteWithEvent); after the
-// commit the delete publishes it (deliverShipmentEvents with the shipment's id). What could not be
+// shipment_event_outbox in its own transaction - the shipment's write turn (shipmentRepository
+// .softDeleteWithEvent); after the commit the delete publishes it (deliverShipmentEvents with the
+// shipment's id). What could not be
 // published then is retried by the shipments-event-outbox cron (and the local minute timer).
 
 const handlers: OutboxHandlers<ShipmentEventOutboxRecord> = {

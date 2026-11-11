@@ -228,6 +228,48 @@ describe("createWithJobNumber", () => {
     expect(fake.state.allocations).toEqual([[COMPANY, "CZ"]]);
     expect(fake.state.inserted).toEqual([{ jobNumber: "CZ00000102", pol: "Hamburg", companyId: COMPANY }]);
   });
+
+  it("writes what comes with the new shipment in that transaction, handed the row, before the commit", async () => {
+    const handed: { onTx: boolean; id: string }[] = [];
+    await shipmentRepository.createWithJobNumber(COMPANY, { pol: "Hamburg" } as never, async (tx, created) => {
+      // The transaction's own handle: a read through it is a step of the transaction.
+      await tx.execute(sql`select 1`);
+      handed.push({ onTx: fake.state.steps.at(-1) === "tx lock", id: created.id });
+    });
+    expect(handed).toEqual([{ onTx: true, id: "shipment-new" }]);
+    expect(fake.state.steps).toEqual(["begin", "tx job number", "tx insert", "tx lock", "commit"]);
+  });
+
+  it("is not committed when what comes with it fails, and fails as that did", async () => {
+    const failure = new Error("container rejected");
+    await expect(
+      shipmentRepository.createWithJobNumber(COMPANY, { pol: "Hamburg" } as never, async () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+    expect(fake.state.steps).toEqual(["begin", "tx job number", "tx insert"]);
+  });
+});
+
+describe("softDeleteWithEvent", () => {
+  const ID = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
+  const actor = { userId: "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c01", role: "manager" };
+
+  it("deletes and owes the event in the write turn it is handed, opening no transaction of its own", async () => {
+    fake.state.updatedRows = 1;
+    const deleted = await fake.db.transaction((tx) => shipmentRepository.softDeleteWithEvent(ID, COMPANY, actor, tx as never));
+    expect(deleted).toBe(true);
+    expect(fake.state.steps).toEqual(["begin", "tx update", "commit"]);
+    expect(fake.state.updates[0]!.values).toMatchObject({ deletedAt: expect.any(Date) });
+  });
+
+  it("opens a transaction of its own without one, and owes nothing for a shipment that wasn't live", async () => {
+    fake.state.updatedRows = 1;
+    await expect(shipmentRepository.softDeleteWithEvent(ID, COMPANY, actor)).resolves.toBe(true);
+    expect(fake.state.steps).toEqual(["begin", "tx update", "commit"]);
+    fake.state.updatedRows = 0;
+    await expect(shipmentRepository.softDeleteWithEvent(ID, COMPANY, actor)).resolves.toBe(false);
+  });
 });
 
 describe("customerFacts", () => {

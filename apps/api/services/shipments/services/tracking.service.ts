@@ -111,6 +111,25 @@ export interface RecordEventInput {
 /** An event the app stored from a date alone, with nothing added by anyone yet: no source's own. */
 const isBareFact = (e: ShipmentTrackingEventRecord) => !e.note && !e.place && !e.containerNumber && !e.occurredAt && !e.externalId;
 
+/** What a person records of a fact, as record() stores it. */
+type RecordedFact = Pick<
+  ShipmentTrackingEventRecord,
+  "occurredOn" | "place" | "containerNumber" | "note" | "source" | "recordedById" | "effect" | "effectField" | "effectValue"
+> & { occurredAt: Date | null };
+
+/** The same record of the same person once more - a double submit: everything it gives is already stored. */
+const isRepeat = (e: ShipmentTrackingEventRecord, r: RecordedFact) =>
+  e.occurredOn === r.occurredOn &&
+  (e.occurredAt?.getTime() ?? null) === (r.occurredAt?.getTime() ?? null) &&
+  e.place === r.place &&
+  e.containerNumber === r.containerNumber &&
+  e.note === r.note &&
+  e.source === r.source &&
+  e.recordedById === r.recordedById &&
+  e.effect === r.effect &&
+  e.effectField === r.effectField &&
+  e.effectValue === r.effectValue;
+
 class TrackingService {
   /** The shipment's Tracking tab: read from what it already holds. */
   async get(shipmentId: string, actor: TrackingActor, now = new Date()): Promise<ShipmentTracking> {
@@ -175,22 +194,31 @@ class TrackingService {
       effectField: effect.field,
       effectValue: effect.value,
     };
-    // The write above stored the bare fact: this is the same fact with its details. The app dates a
-    // customs clearance by the day it was written, so that fact takes the day the person gives.
-    const same =
-      effect.mode !== "apply"
-        ? null
-        : effect.field === "customsStatus"
-          ? await shipmentTrackingEventRepository.latestOfKind(shipmentId, companyId, kind)
-          : await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, kind, input.occurredOn);
-    const row =
-      (same && isBareFact(same) ? await shipmentTrackingEventRepository.change(same.id, companyId, { ...details, occurredOn: input.occurredOn }) : null) ??
-      (await shipmentTrackingEventRepository.add({ ...details, companyId, shipmentId, kind, occurredOn: input.occurredOn }));
-
-    const closes = EXCEPTIONS_CLOSED_BY[kind];
-    if (closes) await shipmentTrackingEventRepository.resolveOpen(shipmentId, companyId, closes, actor.userID);
-    if (input.taskKey) await shipmentTaskRepository.upsert(shipmentId, companyId, input.taskKey, true, actor.userID);
-    if (isExceptionKind(kind)) await this.tellChat(shipment, companyId, actor.userID, { label: TRACKING_KINDS[kind].label, day: input.occurredOn, note });
+    // The event is looked for and stored in the shipment's write turn, so of two requests recording
+    // it at the same moment (a double submit) the second finds what the first stored. The write
+    // above stored the bare fact: this is the same fact with its details. The app dates a customs
+    // clearance by the day it was written, so that fact takes the day the person gives.
+    const recorded = { ...details, occurredOn: input.occurredOn };
+    const { row, added } = await shipmentRepository.writeTurn(shipmentId, companyId, async (tx) => {
+      const same =
+        effect.mode === "apply" && effect.field === "customsStatus"
+          ? await shipmentTrackingEventRepository.latestOfKind(shipmentId, companyId, kind, tx)
+          : await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, kind, input.occurredOn, tx);
+      let stored: { row: ShipmentTrackingEventRecord; added: boolean };
+      if (same && isRepeat(same, recorded)) stored = { row: same, added: false };
+      else {
+        const changed = effect.mode === "apply" && same && isBareFact(same) ? await shipmentTrackingEventRepository.change(same.id, companyId, recorded, tx) : null;
+        stored = changed
+          ? { row: changed, added: false }
+          : { row: await shipmentTrackingEventRepository.add({ ...recorded, companyId, shipmentId, kind }, tx), added: true };
+      }
+      const closes = EXCEPTIONS_CLOSED_BY[kind];
+      if (closes) await shipmentTrackingEventRepository.resolveOpen(shipmentId, companyId, closes, actor.userID, tx);
+      if (input.taskKey) await shipmentTaskRepository.upsert(shipmentId, companyId, input.taskKey, true, actor.userID, tx);
+      return stored;
+    });
+    // Told once: the same exception sent again is the one already in the chat.
+    if (added && isExceptionKind(kind)) await this.tellChat(shipment, companyId, actor.userID, { label: TRACKING_KINDS[kind].label, day: input.occurredOn, note });
     return row;
   }
 
@@ -380,13 +408,25 @@ class TrackingService {
     await shipmentTrackingEventRepository.softDeleteByExternalId(shipmentId, companyId, source, externalId);
   }
 
-  /** A person confirms the date a source proposed: only now does it reach the shipment. */
+  /**
+   * A person confirms the date a source proposed: only now does it reach the shipment. The decision
+   * is taken first, only while the date still waits, so of a confirm and a dismiss (or two confirms)
+   * at the same moment one wins and the other is told it was already decided; it is given back when
+   * the shipment can't take the date (the edit rule, the invoice lock, the master job's houses).
+   */
   async confirm(shipmentId: string, eventId: string, actor: TrackingActor): Promise<void> {
     const { shipment, event } = await this.proposal(shipmentId, eventId, actor);
     const kind = event.kind as TrackingKind;
     const day = event.effectValue ?? event.occurredOn;
-    if (shipment[event.effectField as keyof ShipmentRecord] !== day) await this.applyField(shipment, event.effectField, day, actor);
-    await shipmentTrackingEventRepository.change(event.id, actor.companyID, { effect: "applied", decidedById: actor.userID, decidedAt: new Date() });
+    await this.decide(event.id, actor, "applied");
+    try {
+      if (shipment[event.effectField as keyof ShipmentRecord] !== day) await this.applyField(shipment, event.effectField, day, actor);
+    } catch (err) {
+      await shipmentTrackingEventRepository
+        .reopenProposal(event.id, actor.companyID, actor.userID)
+        .catch((reopenErr: unknown) => log.warn(reopenErr, "tracking: a refused confirmation was not given back", { shipmentId, eventId }));
+      throw err;
+    }
     const closes = EXCEPTIONS_CLOSED_BY[kind];
     if (closes) await shipmentTrackingEventRepository.resolveOpen(shipmentId, actor.companyID, closes, actor.userID);
   }
@@ -394,7 +434,13 @@ class TrackingService {
   /** A person turns a proposed date down: the event stays on record, the shipment doesn't change. */
   async dismiss(shipmentId: string, eventId: string, actor: TrackingActor): Promise<void> {
     const { event } = await this.proposal(shipmentId, eventId, actor);
-    await shipmentTrackingEventRepository.change(event.id, actor.companyID, { effect: "dismissed", decidedById: actor.userID, decidedAt: new Date() });
+    await this.decide(event.id, actor, "dismissed");
+  }
+
+  // Stores the decision on a proposed date while it is still waiting; refused once somebody else's came first.
+  private async decide(eventId: string, actor: TrackingActor, effect: "applied" | "dismissed"): Promise<void> {
+    const decided = await shipmentTrackingEventRepository.decideProposal(eventId, actor.companyID, { effect, decidedById: actor.userID, decidedAt: new Date() });
+    if (!decided) throw APIError.failedPrecondition("This date has already been decided: it was confirmed or turned down meanwhile");
   }
 
   /** Closes an exception by hand. */

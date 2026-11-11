@@ -27,7 +27,10 @@ vi.mock("../../repositories/documentChangeRequest.repository", () => ({ document
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: attachments }));
 vi.mock("../../storage/attachmentBucket", () => ({ attachmentBucket: bucket }));
 vi.mock("../../services/comment.service", () => ({ commentService: comments }));
+const shipments = vi.hoisted(() => ({ requireLive: vi.fn() }));
+vi.mock("../../services/shipment.service", () => ({ shipmentService: shipments }));
 
+import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { documentChangeRequestService as requests } from "../../services/documentChangeRequest.service";
 
 const SHIPMENT = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
@@ -64,6 +67,7 @@ const request = (over = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  shipments.requireLive.mockResolvedValue(undefined);
   attachments.getForShipment.mockResolvedValue(doc());
   repo.isWaiting.mockResolvedValue(false);
   repo.create.mockImplementation(async (values) => request(values));
@@ -89,9 +93,26 @@ describe("asking to change an approved document", () => {
     expect(comments.postDocumentChangeNotice).toHaveBeenCalledWith(SHIPMENT, "c1", user.userID, expect.objectContaining({ newFileName: "new.pdf" }));
   });
 
+  it("records the size of the file stored, not the one the browser said", async () => {
+    // "ABC" as base64 is three bytes; the browser said ten.
+    await requests.ask(user, SHIPMENT, DOC, input);
+    expect(bucket.upload).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`^${SHIPMENT}/`)), Buffer.from("ABC"), { contentType: "application/pdf" });
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ newFileSize: 3 }));
+  });
+
+  it("asks nothing about a deleted shipment's document, before anything is stored", async () => {
+    shipments.requireLive.mockRejectedValueOnce(APIError.notFound("Shipment not found"));
+    await expect(requests.ask(user, SHIPMENT, DOC, input)).rejects.toMatchObject({ code: "not_found" });
+    expect(shipments.requireLive).toHaveBeenCalledWith(SHIPMENT, "c1");
+    expect(bucket.upload).not.toHaveBeenCalled();
+    expect(repo.create).not.toHaveBeenCalled();
+  });
+
   it("wants a reason and a file, for an approved document", async () => {
     await expect(requests.ask(user, SHIPMENT, DOC, { ...input, reason: " " })).rejects.toThrow("Say why");
     await expect(requests.ask(user, SHIPMENT, DOC, { ...input, contentBase64: "" })).rejects.toThrow("Attach the new file");
+    // Text that decodes to no bytes is no file either.
+    await expect(requests.ask(user, SHIPMENT, DOC, { ...input, contentBase64: "====" })).rejects.toThrow("Attach the new file");
     attachments.getForShipment.mockResolvedValueOnce(doc({ customsStatus: "declined" }));
     await expect(requests.ask(user, SHIPMENT, DOC, input)).rejects.toThrow("Only a document customs has approved");
     expect(bucket.upload).not.toHaveBeenCalled();

@@ -23,6 +23,21 @@ const MAX_REFS_PER_RUN = 100;
 const SYNC_EVERY_MS = 60 * 60 * 1000;
 // After a run that failed nothing is tried for this long.
 const RETRY_AFTER_MS = 60 * 1000;
+/** How long a quote is waited for while the lock on its reference is held: well inside the pool's 60 s for an idle transaction. */
+export const QUOTE_ANSWER_MS = 15 * 1000;
+
+// The answer of `call`, or unavailable once `ms` have passed without one.
+async function withinTime<T>(call: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(APIError.unavailable(message)), ms);
+  });
+  try {
+    return await Promise.race([call, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // What this process knows about the links of one company.
 interface LinkSync {
@@ -63,15 +78,26 @@ class QuoteLinksService {
     opts: { wonByShipmentId?: string; automatic?: boolean } = {},
   ): Promise<QuoteSyncResult | null> {
     if (!isSalesReference(reference)) return null;
-    // The quote is told while the lock on its reference is held: a list read earlier cannot
-    // reach it after this one.
+    // The quote is told while the lock on its reference is held - a call to another service with a
+    // transaction open, on purpose: the quote takes its link from the list it was told last, so a
+    // list read earlier must not reach it after this one. Told after the lock is let go, two
+    // reports could overtake each other on the way and the older list win; there is nothing to
+    // read before the transaction instead, as the list itself is what the lock guards. The quotes
+    // service doesn't call back here while it answers, so the wait can't come round to this lock.
+    // It is bounded (QUOTE_ANSWER_MS): a quote that doesn't answer in time lets the lock and the
+    // connection go, the caller hears it failed (and marks the company for the reconcile, which
+    // tells the quote again), rather than holding them until the pool's own limit.
     return shipmentRepository.withLiveBySalesNumber(companyId, reference, async (shipments) => {
-      const { results } = await quotes._internalSalesQuoteShipmentSync({
-        items: [{ quoteNumber: reference, shipments, wonByShipmentId: opts.wonByShipmentId }],
-        automatic: opts.automatic,
-        // Used only by a call without a login (the hourly reconcile); a login names its own company.
-        companyId,
-      });
+      const { results } = await withinTime(
+        quotes._internalSalesQuoteShipmentSync({
+          items: [{ quoteNumber: reference, shipments, wonByShipmentId: opts.wonByShipmentId }],
+          automatic: opts.automatic,
+          // Used only by a call without a login (the hourly reconcile); a login names its own company.
+          companyId,
+        }),
+        QUOTE_ANSWER_MS,
+        `quote ${reference} did not answer in time`,
+      );
       return results[0];
     });
   }

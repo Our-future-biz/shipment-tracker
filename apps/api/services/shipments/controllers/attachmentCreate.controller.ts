@@ -7,9 +7,11 @@ import type { AttachmentItem } from "../interfaces/interfaces";
 interface AttachmentCreateRequest {
   shipmentId: string;
   fileName: string & MinLen<1>;
-  fileSize: number & Min<0>;
+  /** Not used: the size stored is that of the file received. Kept so a client that still sends it is accepted. */
+  fileSize?: number & Min<0>;
   fileType: string;
-  contentBase64?: string;
+  /** The file, base64. Required: a document without its file is one nobody can open. */
+  contentBase64: string;
   /** Optional business document type set right at upload. */
   documentType?: string;
 }
@@ -28,9 +30,8 @@ export const attachmentCreate = api(
       auth.companyID,
       {
         fileName: req.fileName,
-        fileSize: req.fileSize,
         fileType: req.fileType,
-        contentBase64: req.contentBase64 ?? "",
+        contentBase64: req.contentBase64,
         documentType: req.documentType ?? "",
       },
       auth.userID,

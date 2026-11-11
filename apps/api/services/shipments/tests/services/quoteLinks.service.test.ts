@@ -17,7 +17,7 @@ import log from "encore.dev/log";
 import { quotes } from "~encore/clients";
 import { SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
 import { shipmentRepository } from "../../repositories/shipment.repository";
-import { quoteLinksService } from "../../services/quoteLinks.service";
+import { QUOTE_ANSWER_MS, quoteLinksService } from "../../services/quoteLinks.service";
 
 const repository = vi.mocked(shipmentRepository);
 const syncCall = vi.mocked(quotes._internalSalesQuoteShipmentSync);
@@ -231,6 +231,37 @@ describe("syncReference", () => {
       syncCall.mockRejectedValueOnce(new Error("quotes is unreachable"));
       await expect(quoteLinksService.syncReference(company, ref(1))).rejects.toThrow("quotes is unreachable");
       await expect(quoteLinksService.syncReference(company, ref(1))).resolves.toMatchObject({ shipmentId: "shipment-1" });
+    });
+  });
+
+  describe("a quote that doesn't answer", () => {
+    beforeEach(() => {
+      // The clock of the outer beforeEach, with the timers this time.
+      vi.useRealTimers();
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      vi.setSystemTime(NOW);
+    });
+
+    it("is waited for a bounded time with the lock held, then the lock goes and the caller hears it failed", async () => {
+      links.set(ref(1), null);
+      shipments = [shipment(1, ref(1))];
+      syncCall.mockImplementationOnce(() => new Promise(() => {}));
+      const late = quoteLinksService.syncReference(company, ref(1));
+      const outcome = expect(late).rejects.toMatchObject({ code: "unavailable", message: `quote ${ref(1)} did not answer in time` });
+      await vi.advanceTimersByTimeAsync(QUOTE_ANSWER_MS - 1);
+      // Still within its time: the next report about the quote waits behind it.
+      const next = quoteLinksService.syncReference(company, ref(1));
+      expect(syncCall).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await outcome;
+      await expect(next).resolves.toMatchObject({ shipmentId: "shipment-1" });
+      expect(syncCall).toHaveBeenCalledTimes(2);
+    });
+
+    it("leaves no timer behind once the quote answered in time", async () => {
+      links.set(ref(1), null);
+      await quoteLinksService.syncReference(company, ref(1));
+      expect(vi.getTimerCount()).toBe(0);
     });
   });
 });
