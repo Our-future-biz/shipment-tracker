@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Input, Select } from "antd";
 import { CloseOutlined, PlusOutlined } from "@ant-design/icons";
 import { newFilterId, type GridFilter, type GridFilterColumn } from "./gridFilters";
-import { HINT, ICON_BTN_GHOST } from "@/styles/ui";
+import { ICON_BTN_GHOST } from "@/styles/ui";
 
 interface ColumnFilterRowsProps {
   rows: GridFilter[];
@@ -19,18 +20,19 @@ interface ColumnFilterRowsProps {
 
 // The rows of a "Filter by column" panel (column + value, remove) and the "Add filter" button,
 // shared by AppGrid and the Customer Database list.
-export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst, maxRows, maxLength }: ColumnFilterRowsProps) {
-  const full = maxRows !== undefined && rows.length >= maxRows;
+export function ColumnFilterRows({ rows: filters, columns, onChange, autoFocusFirst, maxRows, maxLength }: ColumnFilterRowsProps) {
+  // With no filters the panel still opens on one empty row (column + value), ready to fill in; it
+  // becomes a filter once edited. Its id is kept for the panel's lifetime, so the inputs don't remount.
+  const [blankId] = useState(newFilterId);
+  const rows: GridFilter[] = filters.length > 0 ? filters : [{ id: blankId, key: "", value: "" }];
+  const full = maxRows !== undefined && filters.length >= maxRows;
   const columnByKey = new Map(columns.map((c) => [c.key, c]));
   const columnOptions = columns.map((c) => ({ value: c.key, label: c.title }));
   const update = (id: string, patch: Partial<GridFilter>) => onChange(rows.map((f) => (f.id === id ? { ...f, ...patch } : f)));
 
   return (
     <>
-      {rows.length === 0 ? (
-        <div className={`${HINT} text-center py-4 bg-slate-50 rounded-lg`}>No filters yet — add one to narrow the list.</div>
-      ) : (
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2">
           {rows.map((f, i) => {
             const options = columnByKey.get(f.key)?.options;
             return (
@@ -81,8 +83,7 @@ export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst, maxR
               </div>
             );
           })}
-        </div>
-      )}
+      </div>
       <button
         type="button"
         onClick={() => onChange([...rows, { id: newFilterId(), key: "", value: "" }])}

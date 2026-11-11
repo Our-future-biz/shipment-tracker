@@ -368,10 +368,13 @@ export const ShipmentsTable = ({
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const addFilter = () => applyFilters([...filters, { key: "", value: "" }]);
+  // With no filters the panel still opens on one empty row (column + value), ready to fill in; it
+  // becomes a filter once edited, as everywhere in the app (ColumnFilterRows).
+  const shownFilters: ColFilter[] = filters.length > 0 ? filters : [{ key: "", value: "" }];
+  const addFilter = () => applyFilters([...shownFilters, { key: "", value: "" }]);
   const updateFilter = (i: number, patch: Partial<ColFilter>) =>
-    applyFilters(filters.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
-  const removeFilter = (i: number) => applyFilters(filters.filter((_, idx) => idx !== i));
+    applyFilters(shownFilters.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
+  const removeFilter = (i: number) => applyFilters(shownFilters.filter((_, idx) => idx !== i));
 
   const activeFilters = useMemo(() => filters.filter((f) => f.key && f.value.trim()), [filters]);
 
@@ -866,13 +869,8 @@ export const ShipmentsTable = ({
                     Clear all
                   </button>
                 </div>
-                {filters.length === 0 ? (
-                  <div className={`${HINT} text-center py-4 bg-slate-50 rounded-lg`}>
-                    No filters yet — add one to narrow the list.
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {filters.map((f, i) => {
+                <div className="flex flex-col gap-2">
+                    {shownFilters.map((f, i) => {
                       const col = COLUMN_MAP.get(f.key);
                       const isDropdown = col?.type === "dropdown" && !!col.options;
                       return (
@@ -922,7 +920,6 @@ export const ShipmentsTable = ({
                       );
                     })}
                   </div>
-                )}
                 <button
                   onClick={addFilter}
                   className={`${BTN} mt-2.5 w-full border-dashed`}
