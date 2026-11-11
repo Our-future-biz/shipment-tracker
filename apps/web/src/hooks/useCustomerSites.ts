@@ -47,6 +47,7 @@ export const useCustomerSites = (customerId: string) => {
   return {
     sites: query.data?.data ?? [],
     isLoading: query.isLoading,
+    isError: query.isError,
     createSite: createMutation.mutateAsync,
     updateSite: updateMutation.mutateAsync,
     deleteSite: deleteMutation.mutateAsync,

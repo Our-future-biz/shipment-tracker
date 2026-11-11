@@ -6,7 +6,7 @@ import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
-import { EMPTY } from "@/styles/ui";
+import { EMPTY, EMPTY_STATE } from "@/styles/ui";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
 import { formatDateTime } from "@/lib/date";
@@ -19,7 +19,7 @@ import type { CustomerNoteFormValues } from "../_components/CustomerNoteDialog";
 const ALL_TYPES = "all";
 
 export function CommunicationTab({ customerId }: { customerId: string }) {
-  const { notes, isLoading, createNote, deleteNote } = useCustomerNotes(customerId);
+  const { notes, isLoading, isError, createNote, deleteNote } = useCustomerNotes(customerId);
   const toast = useToast();
   const [typeFilter, setTypeFilter] = useState<string>(ALL_TYPES);
   const [addOpen, setAddOpen] = useState(false);
@@ -84,10 +84,10 @@ export function CommunicationTab({ customerId }: { customerId: string }) {
       );
     }
 
+    if (isError) return <div className={EMPTY_STATE}>Could not load the communication history.</div>;
+
     if (visibleNotes.length === 0) {
-      return (
-        <div className="py-8 text-center text-[13px] text-slate-400">{notes.length === 0 ? "No activity yet" : "No entries of this type"}</div>
-      );
+      return <div className={EMPTY_STATE}>{notes.length === 0 ? "No activity yet" : "No entries of this type"}</div>;
     }
 
     return (

@@ -53,6 +53,8 @@ export interface AttentionInput {
   rates: Rates;
   // Today's rates could not be loaded, so `rates` knows only CZK.
   ratesUnavailable?: boolean;
+  // The invoices could not be loaded, so `invoices` is empty: nothing overdue is not known then.
+  invoicesUnavailable?: boolean;
   // The viewer's clock in milliseconds; given explicitly in tests.
   now?: number;
 }
@@ -96,7 +98,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, contacts, documents, notes, rates, ratesUnavailable = false, now = Date.now() } = input;
+  const { customer, invoices, contacts, documents, notes, rates, ratesUnavailable = false, invoicesUnavailable = false, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
   // A supplier only is no customer: no owner, credit, customer papers or prepayment advice is asked of it
@@ -133,6 +135,17 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   }
 
   // Warnings.
+  // Invoices that could not be loaded are not "nothing overdue": the checks above had nothing to go on.
+  if (invoicesUnavailable) {
+    items.push({
+      key: "invoices-not-checked",
+      severity: "warning",
+      title: "Invoices not checked",
+      detail: "The invoices could not be loaded, so overdue invoices and the credit limit are not checked.",
+      tab: "finance",
+    });
+  }
+
   // Invoices in a currency without a ČNB rate can't be added to the outstanding sum, so the credit-limit
   // check above leaves them out; that is said, not hidden - and why: ČNB has no rate, or today's rates
   // could not be loaded.

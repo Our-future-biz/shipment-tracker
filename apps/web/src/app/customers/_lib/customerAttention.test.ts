@@ -46,6 +46,12 @@ describe("buildCustomerAttention", () => {
     expect(keys(customer(), [invoice])).toContain("invoices-not-counted");
   });
 
+  it("says the invoices were not checked when they could not be loaded, rather than nothing about them", () => {
+    const input = { customer: customer(), invoices: [], contacts: [], documents: [], notes: [], rates: { CZK: 1, EUR: 25 }, now: NOW };
+    expect(buildCustomerAttention({ ...input, invoicesUnavailable: true }).map((i) => i.key)).toContain("invoices-not-checked");
+    expect(buildCustomerAttention(input).map((i) => i.key)).not.toContain("invoices-not-checked");
+  });
+
   it("says today's rates could not be loaded, not that ČNB publishes no rate, when only CZK is known for that", () => {
     const invoice = {
       id: "i", customerId: "c", invoiceNumber: "X", amount: 500, currency: "EUR", dueDate: "2026-10-30", status: "Open",
