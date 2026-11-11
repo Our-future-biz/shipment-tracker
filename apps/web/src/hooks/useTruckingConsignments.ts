@@ -230,6 +230,7 @@ export function useTrip(id: string | null) {
     trip: query.data?.trip ?? null,
     isLoading: query.isLoading,
     error: query.error,
+    reload: query.refetch,
     save: update.mutateAsync,
     isSaving: update.isPending,
     cancel: cancel.mutateAsync,
