@@ -1,173 +1,117 @@
-# 🛢️ Encore PostgreSQL — Monitoring & Operations
+# Databases, Backups and Scheduled Jobs
 
-This page documents the operational dashboards and scheduled cron jobs used for monitoring, maintenance, and cost tracking of **Encore PostgreSQL databases** hosted on GCP.
+## Databases
 
-All cron jobs are scheduled on the monitoring host under the user **`chyadav`**.
+Each service has its own Postgres database, declared with `new SQLDatabase("<name>", …)` in `apps/api/services/<service>/db/db.ts`. The `extraction` service has none.
 
-## Table of Contents
+| Database | Service directory |
+|---|---|
+| `auth` | `auth` (companies, users, login throttle, notices) |
+| `automation` | `automation` |
+| `customers` | `customers` |
+| `fx` | `fx` (ČNB rates, import runs, alerts) |
+| `holidays` | `holidays` |
+| `invoicing` | `invoicing` |
+| `quotes` | `quotes` |
+| `sales` | `sales` |
+| `shipments` | `shipments` |
+| `tariffs` | `tariffs` |
+| `trucking` | `trucking` |
+| `warehouse` | `warehouseConcept` (Warehouse Concept) |
+| `warehouse_basic` | `warehouse` (the normal Warehouse) |
 
-- [Dashboards](#dashboards)
-  - [Backup Dashboard](#backup-dashboard)
-  - [pgBadger Report Dashboard](#pgbadger-report-dashboard)
-  - [Cost Monitoring Dashboard](#cost-monitoring-dashboard)
-  - [Grafana Monitoring Dashboard](#grafana-monitoring-dashboard)
-- [Scheduled Cron Jobs](#scheduled-cron-jobs)
-  - [Bloat Monitoring](#bloat-monitoring)
-  - [Cost Monitoring Data Collector](#cost-monitoring-data-collector)
-  - [Sequence Utilisation Monitor](#sequence-utilisation-monitor)
-  - [Invalid Index Checker](#invalid-index-checker)
-  - [Inactive Replication Slot Monitor](#inactive-replication-slot-monitor)
-  - [Replication Slot Size Monitor](#replication-slot-size-monitor)
-  - [Monthly Backup](#monthly-backup)
-- [Cron Schedule Summary](#cron-schedule-summary)
+How to connect, from `apps/api` (add `--env=<environment>` for the cloud):
 
----
+- `encore db shell <db>` opens psql. In the cloud it is read-only unless you add `--write`.
+- `encore db conn-uri <db>` prints a connection string.
+- `encore db proxy` opens a local tunnel.
 
-## Dashboards
+The connection pool (`lib/db/pool.ts`) has these limits:
 
-### Backup Dashboard
+- At most 10 connections per service, and a request waits at most 10 s for a free one.
+- A statement runs at most 60 s, and a transaction left idle for 60 s is ended by the server.
+- When Postgres drops an idle connection (for example after Docker or the machine slept), the pool logs "an idle database connection was dropped…" and opens a new one. This is harmless.
 
-| Field | Value |
-|-------|-------|
-| **URL** | [Backup Dashboard](http://db-catalog-dashboard.gds.prod.gcp.groupondev.com:5000/backups?engine=PG_ENCORE) |
-| **Refresh Cadence** | Monthly (post-backup execution) |
+Migrations:
 
-Provides a consolidated view of all **monthly manual backups** taken for Encore PostgreSQL databases, including the corresponding backup location on the GCP Cloud Storage bucket. This is the single source of truth for backup audit and recovery reference.
+- Generate them with `pnpm --filter api db:generate:<service>`.
+- The files live in `services/<service>/db/migrations`. Encore applies them at start-up or deploy and records them in `schema_migrations`.
 
----
+Uploaded files are not in Postgres. They are kept in Encore object storage buckets (`new Bucket(…)` under `services/*/storage`).
 
-### pgBadger Report Dashboard
+`docker-compose.yml` starts a separate Postgres 16 container (`shipment-tracker-db`, port 5432). Nothing in the app or the scripts uses it: `encore run` starts its own databases in Docker.
 
-| Field | Value |
-|-------|-------|
-| **URL** | [pgBadger Dashboard](http://db-catalog-dashboard.gds.prod.gcp.groupondev.com/pgbadger/encore/) |
-| **Refresh Cadence** | Monthly |
+## Local backups: `zaloha.sh`
 
-Hosts **pgBadger** analysis reports generated monthly for all Encore database instances. Reports provide detailed query performance insights — including slow queries, query distributions, wait events, and lock statistics — to aid in **query optimisation and performance tuning**.
+| Command | What it does |
+|---|---|
+| `./zaloha.sh` | Dumps each database to `~/Documents/Shipment Tracker/zalohy/<YYYY-MM-DD_HH-MM>/<db>.sql`, one file per database. |
+| `./zaloha.sh seznam` | Lists the backups, with the number of files and the size of each. |
+| `./zaloha.sh obnov <folder>` | Restores a backup with `psql`. It **overwrites** every database and asks you to type `ano` first. Reload the browser afterwards. |
 
----
+- The dump uses `pg_dump --clean --if-exists --no-owner --no-privileges`. It ends with "Hotovo: N z 13".
+- The app must be running, because the script asks `encore db conn-uri` for each database. It also needs `pg_dump` (`brew install libpq`; the script adds Homebrew's libpq to `PATH` itself).
+- `./run-local.sh` makes one backup a day automatically, once the API answers. It skips the backup when one from today already exists. The log is `/tmp/shipment-zaloha.log`.
+- It saves the 13 databases listed in `DBS` in the script, and only the local ones. When you add a database, add its name to `DBS`.
+- It does **not** save uploaded files (the buckets) or `.secrets.local.cue`.
+- Backups of the cloud databases are not set up in this repo. Check what Encore Cloud provides for the environment in its dashboard.
 
-### Cost Monitoring Dashboard
+## Scheduled jobs
 
-| Field | Value |
-|-------|-------|
-| **URL** | [Cost Monitoring Dashboard](http://db-catalog-dashboard.gds.prod.gcp.groupondev.com:5010/costs) |
-| **Refresh Cadence** | Daily |
+Cron jobs are declared with `new CronJob(...)` from `encore.dev/cron`. Their schedules are in UTC.
 
-Tracks and displays the **daily cost** of Encore database instances on GCP. Provides both an **aggregate cost summary** across all instances and a **per-instance cost breakdown**, enabling cost attribution, trend analysis, and budget forecasting.
+| Cron job | Service | Runs | What it does | Locally |
+|---|---|---|---|---|
+| `shipments-event-outbox` | shipments | every 1 min | Publishes shipment-deleted events not yet published | Timer |
+| `shipments-quote-links-reconcile` | shipments | every 1 h | Repairs links between sales quotes and shipments | None: `POST /shipment-quote-links/sync`, or the Shipments list starts it |
+| `quotes-event-outbox` | quotes | every 1 min | Publishes quote-renamed events not yet published | Timer |
+| `quotes-tariff-check` | quotes | `0 2 * * *` (02:00 UTC) | Checks the tariffs of quotes not yet sent | Timer, 03:00 Prague |
+| `fx-cnb-import` | fx | `0,30 13-15 * * 1-5` | ČNB pull at 15:00, 15:30 and 16:00 Prague time (the code picks the slot that is due) | Timer |
+| `trucking-shipment-outbox` | trucking | every 1 min | Sends what consignments and trips owe their jobs, with retries | Timer |
+| `warehouse-shipment-outbox` | warehouseConcept | every 1 min | Sends shipment updates from gate stamps, and publishes gate-stamped events | Timer |
+| `warehouse-customs-follow` | warehouseConcept | every 5 min | Reads the customs status of linked, open gate records from Shipments | Timer |
+| `warehouse-storage-settled` | warehouseConcept | every 1 h | Sets "Storage settled" back to Pending when storage becomes chargeable | Timer |
+| `invoicing-followups` | invoicing | every 1 min | Sends what issued invoices and credit notes owe the customers and shipments services | Timer |
 
----
+- Encore does not run cron jobs under `encore run`; the timers listed in [Start-up](service_startup_handler_onstart.md) do that work.
+- Apart from fx and the tariff check, the timers also run in the cloud, next to the cron. Rows are claimed with `SKIP LOCKED`, so the two never take the same row.
 
-### Grafana Monitoring Dashboard
+### Checking them
 
-| Field | Value |
-|-------|-------|
-| **URL** | [PostgreSQL Encore Grafana Dashboard](https://prod-grafana.us-central1.logging.prod.gcp.groupondev.com/d/df40dtj6ancaoc/postgresql-encore-dashboard?orgId=1&refresh=30s) |
-| **Refresh Cadence** | Auto-refresh every 30 seconds (configurable) |
+- **In the cloud:** each cron run is a call to its endpoint (`_cronShipmentEventOutbox`, `_cronQuoteLinksReconcile`, `_cronQuoteEventOutbox`, `_cronTariffCheck`, `_cronFxImport`, `_cronTruckingOutbox`, `_cronShipmentOutbox`, `_cronCustomsFollow`, `_cronStorageSettled`, `_cronInvoiceFollowups`). Filter the traces in the Encore Cloud dashboard by that endpoint to see the recent runs and their errors.
+- **Outbox tables:**
 
-Provides **real-time and historical observability** into the health and performance of all Encore PostgreSQL instances. Surfaces key metrics including:
+  | Database | Tables |
+  |---|---|
+  | `shipments` | `shipment_event_outbox` |
+  | `quotes` | `quote_event_outbox` |
+  | `trucking` | `trucking_outbox` |
+  | `warehouse` | `warehouse_shipment_outbox`, `warehouse_gate_event_outbox` |
+  | `invoicing` | `invoice_followup_outbox` |
 
-- CPU utilisation & memory usage
-- Active connections & replication lag
-- Transactions per second (TPS)
-- Cache hit ratios & disk I/O
-- WAL generation rate
+  ```sql
+  SELECT status, count(*) AS rows, min(next_attempt_at) AS oldest_due, max(attempts) AS most_attempts
+  FROM trucking_outbox WHERE deleted_at IS NULL GROUP BY status;
 
-This is the **primary operational dashboard** for on-call engineers and DBAs to detect anomalies, troubleshoot performance degradation, and validate the impact of configuration changes.
+  SELECT id, attempts, next_attempt_at, last_error
+  FROM trucking_outbox WHERE status = 'failed' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 20;
+  ```
 
----
+  The statuses (`lib/outbox`) are:
 
-## Scheduled Cron Jobs
+  - `pending`: waiting or retrying. The wait between tries is 2, 4, 8 … minutes, up to 1 hour.
+  - `sent`
+  - `failed`: a permanent error, or all 15 attempts used. A manager can **Send again** where the screen offers it.
+  - `cancelled`
 
-### Bloat Monitoring
+  A `pending` row whose `next_attempt_at` is well in the past, and whose `locked_until` is empty, means no delivery is running.
+- **ČNB import:**
 
-| Field | Value |
-|-------|-------|
-| **Schedule** | `11 18 7 * *` — 7th of every month at 18:11 UTC |
-| **Script** | `/var/groupon/data/pg_scripts/encore/pg_encore_bloat.sh` |
+  ```sql
+  SELECT started_at, trigger, status, rows_added, latest_valid_date, error
+  FROM cnb_import_run ORDER BY started_at DESC LIMIT 10;
 
-Detects **table and index bloat** across all Encore PostgreSQL instances. Bloat occurs when dead tuples accumulate due to `UPDATE`/`DELETE` operations and are not reclaimed efficiently by autovacuum. Left unchecked, excessive bloat degrades query performance, increases storage consumption, and leads to index inefficiency. This job identifies candidates for `VACUUM FULL` or `pg_repack`.
+  SELECT fixing_date, reason, raised_at FROM fx_alert WHERE resolved_at IS NULL;
+  ```
 
----
-
-### Cost Monitoring Data Collector
-
-| Field | Value |
-|-------|-------|
-| **Schedule** | `30 7 * * *` — Daily at 07:30 UTC |
-| **Script** | `/var/groupon/data/pg_scripts/encore_dashboard/gcloud_cost_collector.py` |
-
-Fetches daily billing and cost data from the **GCP Billing API** for all Encore database instances and persists it for the [Cost Monitoring Dashboard](#cost-monitoring-dashboard). Enables historical cost tracking and daily spend visibility.
-
----
-
-### Sequence Utilisation Monitor
-
-| Field | Value |
-|-------|-------|
-| **Schedule** | `30 6 * * *` — Daily at 06:30 UTC |
-| **Script** | `/var/groupon/data/pg_scripts/encore/pg_encore_sequence_util.sh` |
-
-Monitors the **utilisation percentage of all PostgreSQL sequences** across Encore instances. Sequences approaching their `max_value` cause application-level insert failures. This job provides early warning so sequences can be resized or cycled proactively before exhaustion.
-
----
-
-### Invalid Index Checker
-
-| Field | Value |
-|-------|-------|
-| **Schedule** | `30 7 * * *` — Daily at 07:30 UTC |
-| **Script** | `/var/groupon/data/pg_scripts/encore/PG_ENCORE_Invalid_Index_Checker.sh` |
-
-Scans all Encore instances for indexes marked as `INVALID` in `pg_index`. Indexes can become invalid due to failed `CREATE INDEX CONCURRENTLY` or `REINDEX` operations. Invalid indexes are not used by the query planner but still consume storage and incur write overhead. Corrective action: `REINDEX CONCURRENTLY` or `DROP INDEX`.
-
----
-
-### Inactive Replication Slot Monitor
-
-| Field | Value |
-|-------|-------|
-| **Schedule** | `*/30 * * * *` — Every 30 minutes |
-| **Scripts** | `inactive_rep_slot_enocore_na_v1.sh` (NA) / `inactive_rep_slot_enocore_emea_v1.sh` (EMEA) |
-
-Checks for **inactive replication slots** across both NA (`us-central1`) and EMEA (`europe-west1`) regions. An inactive replication slot prevents PostgreSQL from recycling WAL segments, which can lead to **unbounded WAL accumulation**, disk exhaustion, and ultimately instance downtime. High-frequency check ensures early detection and alerting.
-
----
-
-### Replication Slot Size Monitor
-
-| Field | Value |
-|-------|-------|
-| **Schedule** | `*/30 * * * *` — Every 30 minutes |
-| **Scripts** | `slot_size_final_v1_na.sh` (NA) / `slot_size_final_v1_emea.sh` (EMEA) |
-
-Monitors the **retained WAL size per replication slot** in both NA and EMEA regions. Even active slots can accumulate significant WAL if a subscriber falls behind. Tracks slot lag in bytes retained and triggers alerts when thresholds are breached, helping prevent disk pressure on the primary instance.
-
----
-
-### Monthly Backup
-
-| Field | Value |
-|-------|-------|
-| **Schedule** | `16 11 4 * *` — 4th of every month at 11:16 UTC |
-| **Script** | `/var/groupon/data/pg_scripts/encore/pg_encore_backup.sh` |
-
-Executes a **full logical/physical backup** of all Encore PostgreSQL databases and uploads the backup artifacts to a GCP Cloud Storage bucket. Backup metadata is reflected on the [Backup Dashboard](#backup-dashboard). This monthly backup is a **point-in-time recovery safeguard** supplementing GCP's automated backups.
-
----
-
-## Cron Schedule Summary
-
-| # | Job | Cron Schedule | Frequency | Region |
-|---|-----|--------------|-----------|--------|
-| 3.1 | Bloat Monitoring | `11 18 7 * *` | Monthly (7th) | All |
-| 3.2 | Cost Data Collector | `30 7 * * *` | Daily | All |
-| 3.3 | Sequence Utilisation | `30 6 * * *` | Daily | All |
-| 3.4 | Invalid Index Checker | `30 7 * * *` | Daily | All |
-| 3.5 | Inactive Replication Slot | `*/30 * * * *` | Every 30 min | NA / EMEA |
-| 3.6 | Replication Slot Size | `*/30 * * * *` | Every 30 min | NA / EMEA |
-| 3.7 | Monthly Backup | `16 11 4 * *` | Monthly (4th) | All |
-
----
-
-> **Maintained by:** [GDS (Global Database Services)](https://chat.google.com/room/AAAAIGlgIi0?cls=7) — reach out on GChat for questions or escalations.
+  The same runs are shown on the Exchange page (Import log tab).
