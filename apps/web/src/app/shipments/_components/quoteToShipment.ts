@@ -11,6 +11,7 @@ import { DIRECTIONS, type PackageLine, type QuoteAdr, type QuoteContainerLine, t
 import type { controllers, interfaces } from "@/lib/api/client";
 import { NOT_STACKABLE, STACKABLE, hasAllSizes, num } from "@/lib/cargo";
 import type { ExchangeRates } from "@/lib/exchangeRates";
+import { businessToday } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
 
 const s = (v: unknown): string => (v == null || v === 0 ? "" : String(v));
@@ -68,10 +69,11 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
   set("deliveryAddress", data.delivery ?? "");
   if (isIsoDate(data.readyDate)) set("cargoReadinessDate", data.readyDate);
 
-  // Quote block
+  // Quote block. Valid through its last day on the company's calendar (Prague's), as the server
+  // counts validity - not the UTC day, which is still yesterday in the first hours of a Prague day.
   set("quoteValidity", data.validUntil ?? "");
   if (isIsoDate(data.validUntil)) {
-    set("validityStatus", data.validUntil >= new Date().toISOString().slice(0, 10) ? "Ok" : "Check");
+    set("validityStatus", data.validUntil >= businessToday() ? "Ok" : "Check");
   }
   // The shipment's own selling and buying are one figure each: the quote's totals, converted
   // into the quote's currency. A total that leaves a line out for want of an exchange rate is
