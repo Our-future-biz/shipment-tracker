@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { actingCompanyId } from "@/lib/actingCompany";
 import { useToast } from "@/lib/toast";
 import { gateKeys, invalidateAfterGateEvent, useGateRowCache, type GateMovement } from "@/hooks/useGateLog";
 import { fileToBase64 } from "@/lib/files";
@@ -112,6 +113,9 @@ const withTimeout = <T,>(p: Promise<T>, ms: number) =>
 
 export function FloorQueueProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  // The company this page works as (a superadmin's choice; null: the user's own). Items made as
+  // another company wait here until the phone works as that company again (queue.ts itemStatus).
+  const companyId = actingCompanyId();
   const toast = useToast();
   // The toast helpers are new on every render; read them through a ref so the sender stays put.
   const toastRef = useRef(toast);
@@ -327,7 +331,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
       // Items put off this round (an exception waiting for its photos) are skipped, not retried in a loop.
       const skip = new Set<string>();
       for (let guard = 0; guard < 200; guard++) {
-        const next = nextSendable(itemsRef.current, new Date(), user.id, skip);
+        const next = nextSendable(itemsRef.current, new Date(), user.id, companyId, skip);
         if (!next) break;
         commit(itemsRef.current.map((i) => (i.id === next.id ? { ...i, state: "sending" as const } : i)));
         const result = await send(next, false);
@@ -342,7 +346,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
       flushing.current = false;
       setSending(false);
     }
-  }, [commit, send, sawResult, user]);
+  }, [commit, send, sawResult, user, companyId]);
 
   // One tab sends at a time where the browser can tell (Web Locks); the server ignores repeats anyway.
   const flush = useCallback(() => {
@@ -399,6 +403,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
         id: uuid(),
         userId: user.id,
         userName: user.displayName || user.email,
+        actingCompanyId: companyId,
         movementId: target.movementId,
         ...(target.containerId ? { containerId: target.containerId } : {}),
         ref: target.ref,
@@ -439,7 +444,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
       if (!saved) setNotSaved(true);
       return { type: "queued", id: item.id, recordedAt: at, ...(saved ? {} : { notSaved: true }) };
     },
-    [commit, flush, netDown, send, sawResult, user],
+    [commit, flush, netDown, send, sawResult, user, companyId],
   );
 
   const retry = useCallback(
@@ -465,8 +470,8 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
     },
     [commit],
   );
-  const statusOf = useCallback((item: QueueItem) => itemStatus(itemsRef.current, item, now, user?.id), [now, user?.id]);
-  const waiting = useMemo(() => waitingCount(items, now, user?.id), [items, now, user?.id]);
+  const statusOf = useCallback((item: QueueItem) => itemStatus(itemsRef.current, item, now, user?.id, companyId), [now, user?.id, companyId]);
+  const waiting = useMemo(() => waitingCount(items, now, user?.id, companyId), [items, now, user?.id, companyId]);
   // Once everything is sent, nothing is left that only lives in memory.
   useEffect(() => {
     if (!items.length) setNotSaved(false);

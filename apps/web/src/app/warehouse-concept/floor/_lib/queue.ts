@@ -6,13 +6,15 @@ import { surveyPhaseKey } from "@/app/warehouse-concept/gate-log/_lib/gate";
 // tally ticks, stuffed marks and gate-in / start of stripping made on the phone while
 // there is no connection wait here and are sent, in the order they were made, once the phone is
 // back online. Each carries the time it was made (`recordedAt`) and an id of its own (`id`, sent
-// as `clientRequestId`), so the server applies it once however often it is sent. Pure helpers
-// (tested in queue.test.ts); storage is queueStore.ts, sending useFloorQueue.
+// as `clientRequestId`), so the server applies it once however often it is sent. Each is sent
+// only by the user who made it, working as the company they made it as (a superadmin may switch
+// company on the same phone). Pure helpers (tested in queue.test.ts); storage is queueStore.ts,
+// sending useFloorQueue.
 
 type Movement = interfaces.GateMovementItem;
 type Container = interfaces.WarehouseContainerItem;
 
-/** The server refuses a queued write older than this (apps/api/services/warehouse/services/offline.ts). */
+/** The server refuses a queued write older than this (apps/api/services/warehouseConcept/services/offline.ts). */
 export const QUEUE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 /** Photo ids an exception refers to before the photo is uploaded. */
 export const LOCAL_PHOTO = "local:";
@@ -39,6 +41,11 @@ type Base = {
   id: string;
   userId: string;
   userName: string;
+  /**
+   * The company a superadmin was working as when it was made (lib/actingCompany); null for the
+   * user's own. Missing on items queued before it was kept: the user's own.
+   */
+  actingCompanyId?: string | null;
   /** The position (gate movement) it is for; a container's own stamp: containerChain(id). */
   movementId: string;
   /** The container it is done in (tally, stuffed, container stamp): its writes keep their order too. */
@@ -72,6 +79,8 @@ export type ItemStatus =
   | { state: "failed"; why: string }
   | { state: "too_old"; why: string }
   | { state: "held_user"; why: string }
+  /** Made while working as another company than this page's: sent, retried or discarded only there. */
+  | { state: "held_company"; why: string }
   /** An earlier item of the same position failed or is too old: this one waits for it. */
   | { state: "blocked"; why: string };
 
@@ -90,8 +99,17 @@ export const enqueue = (items: QueueItem[], item: QueueItem): QueueItem[] => (it
 export const sameChain = (a: Pick<QueueItem, "movementId" | "containerId">, b: Pick<QueueItem, "movementId" | "containerId">) =>
   a.movementId === b.movementId || (!!a.containerId && a.containerId === b.containerId);
 
-/** How an item stands now, for the list and the sender. */
-export function itemStatus(items: QueueItem[], item: QueueItem, now: Date, userId: string | undefined): ItemStatus {
+/** Made while working as another company than `companyId` (the page's; null: the user's own). */
+export const otherCompany = (item: Pick<QueueItem, "actingCompanyId">, companyId: string | null) => (item.actingCompanyId ?? null) !== companyId;
+
+/**
+ * How an item stands now, for the list and the sender. `companyId` is the company this page works
+ * as (null: the user's own). Another company's item is held first of all: sending, retrying or
+ * discarding it here would go to this company (its record is not found there, and the note that
+ * the write was lost would be logged there).
+ */
+export function itemStatus(items: QueueItem[], item: QueueItem, now: Date, userId: string | undefined, companyId: string | null): ItemStatus {
+  if (otherCompany(item, companyId)) return { state: "held_company", why: "Recorded while working as another company — switch back to it to send" };
   if (item.state === "failed") return { state: "failed", why: item.error || "Refused" };
   if (isTooOld(item, now)) return { state: "too_old", why: "Made more than 12 hours ago — too old to send. Record it again and discard this one." };
   if (item.userId !== userId) return { state: "held_user", why: `Waiting for ${item.userName || "the user who made it"} to sign in` };
@@ -101,22 +119,28 @@ export function itemStatus(items: QueueItem[], item: QueueItem, now: Date, userI
 }
 
 /**
- * The next item to send: the oldest one still waiting, of the signed-in user, not too old, and
- * not behind a failed or too old item of the same position (the order of one position's steps
- * matters; other positions go on).
+ * The next item to send: the oldest one still waiting, of the signed-in user working as the same
+ * company, not too old, and not behind a failed or too old item of the same position (the order of
+ * one position's steps matters; other positions go on).
  */
-export function nextSendable(items: QueueItem[], now: Date, userId: string | undefined, skip: ReadonlySet<string> = new Set()): QueueItem | undefined {
-  return items.find((i) => i.state === "waiting" && !skip.has(i.id) && itemStatus(items, i, now, userId).state === "waiting");
+export function nextSendable(
+  items: QueueItem[],
+  now: Date,
+  userId: string | undefined,
+  companyId: string | null,
+  skip: ReadonlySet<string> = new Set(),
+): QueueItem | undefined {
+  return items.find((i) => i.state === "waiting" && !skip.has(i.id) && itemStatus(items, i, now, userId, companyId).state === "waiting");
 }
 
 /**
- * Items this phone will still send (all but failed, too old and another user's held ones), for
- * "Waiting to send (n)". Those others stay in the list, where each says why it waits.
+ * Items this phone will still send (all but failed, too old and another user's or company's held
+ * ones), for "Waiting to send (n)". Those others stay in the list, where each says why it waits.
  */
-export const waitingCount = (items: QueueItem[], now: Date, userId: string | undefined) =>
+export const waitingCount = (items: QueueItem[], now: Date, userId: string | undefined, companyId: string | null) =>
   items.filter((i) => {
-    const s = itemStatus(items, i, now, userId).state;
-    return s !== "failed" && s !== "too_old" && s !== "held_user";
+    const s = itemStatus(items, i, now, userId, companyId).state;
+    return s !== "failed" && s !== "too_old" && s !== "held_user" && s !== "held_company";
   }).length;
 
 // ─── Sending ───────────────────────────────────────────────────

@@ -25,6 +25,7 @@ const STATE_TEXT: Record<ItemStatus["state"], { text: string; tone: Tone }> = {
   failed: { text: "Not sent", tone: "r" },
   too_old: { text: "Too old to send", tone: "r" },
   held_user: { text: "Another user's", tone: "" },
+  held_company: { text: "Another company's", tone: "" },
   blocked: { text: "Waiting for an earlier one", tone: "" },
 };
 
