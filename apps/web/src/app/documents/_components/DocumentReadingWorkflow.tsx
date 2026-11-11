@@ -89,6 +89,7 @@ import {
 import { useQuoteReading } from "../_lib/useQuoteReading";
 import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentType } from "../_lib/savedDocument";
 import { mergeReads } from "../_lib/mergeReads";
+import { readEachFile, readFileProblem } from "../_lib/fileReads";
 import { createAndWrite, type ShipmentProgress } from "../_lib/resumeShipment";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
@@ -200,6 +201,12 @@ export function DocumentReadingWorkflow() {
   // one review, and each file is saved to the shipment's documents.
   const [shipmentFiles, setShipmentFiles] = useState<UploadedFile[]>([]);
   const [shipmentDocs, setShipmentDocs] = useState<ShipmentDoc[]>([]);
+  // What each file of a Shipments read gave (by its uid), and the files that could not be read: the
+  // review holds the others, and a retry reads only the files that failed.
+  const shipmentReads = useRef(new Map<string, ShipmentRead>());
+  const [shipmentReadFailures, setShipmentReadFailures] = useState<{ file: UploadedFile; error: unknown }[]>([]);
+  // Files refused as they were added (too large to read), named until the next read starts.
+  const [refusedFiles, setRefusedFiles] = useState<string[]>([]);
   // Several invoices can be dropped at once: each is read, reviewed and posted on its own, one
   // after another, to the same shipment or master job. Done: posted or skipped.
   const [invoiceFiles, setInvoiceFiles] = useState<UploadedFile[]>([]);
@@ -525,6 +532,12 @@ export function DocumentReadingWorkflow() {
 
   // ─── Input handling ──────────────────────────────────────────────
   const beforeUpload = (file: File) => {
+    // Each file is read in a request of its own; a pre-alert's files go in one, whose total is checked (MASTER_FILES_MAX_BYTES).
+    const tooLarge = destination === "masterjob" ? null : readFileProblem(file);
+    if (tooLarge) {
+      setRefusedFiles((prev) => (prev.includes(tooLarge) ? prev : [...prev, tooLarge]));
+      return false;
+    }
     if (destination === "masterjob" || destination === "shipment" || destination === "invoicing") {
       const setFiles = destination === "masterjob" ? setMasterFiles : destination === "invoicing" ? setInvoiceFiles : setShipmentFiles;
       fileToBase64(file)
@@ -607,10 +620,12 @@ export function DocumentReadingWorkflow() {
   };
 
   // ─── Extraction ──────────────────────────────────────────────────
-  // `invoiceFile`: the invoice of the queue to read; else the first one not done yet.
-  const handleExtract = async (invoiceFile?: UploadedFile) => {
+  // `invoiceFile`: the invoice of the queue to read; else the first one not done yet. `retryFailed`: a
+  // Shipments read again for the files that failed, keeping what the others gave.
+  const handleExtract = async ({ invoiceFile, retryFailed = false }: { invoiceFile?: UploadedFile; retryFailed?: boolean } = {}) => {
     setStep("extracting");
     setError(null);
+    setRefusedFiles([]);
     // A new read starts from its own name and type, not ones edited for an earlier file.
     setSaveDocument(true);
     setDocNameEdit(null);
@@ -621,18 +636,29 @@ export function DocumentReadingWorkflow() {
     setSplitDone(null);
     try {
       if (destination === "shipment") {
-        // Each file is read on its own, then all of them are merged into one review.
+        // Each file is read on its own, then all of them are merged into one review. A file that can't
+        // be read leaves the others to review (each read is a paid call), and is named with a retry.
         const reads: { file?: UploadedFile; values: Record<string, string>; method: string }[] = [];
         if (inputMode === "file") {
-          for (const file of shipmentFiles) {
-            try {
+          const { reads: byFile, failed } = await readEachFile(
+            shipmentFiles,
+            async (file): Promise<ShipmentRead> => {
               const result = await api.extraction.extractDocument({ fileBase64: file.base64, fileName: file.name });
-              reads.push({ file, values: normalizeExtracted(result.extracted), method: result.method });
-            } catch (err) {
-              throw new Error(`${file.name} could not be read: ${apiErrorMessage(err)}`);
-            }
+              return { values: normalizeExtracted(result.extracted), method: result.method };
+            },
+            retryFailed ? shipmentReads.current : undefined,
+          );
+          shipmentReads.current = byFile;
+          if (byFile.size === 0) {
+            throw new Error(failed.map((f) => `${f.file.name} could not be read: ${apiErrorMessage(f.error)}`).join(" "));
+          }
+          setShipmentReadFailures(failed);
+          for (const file of shipmentFiles) {
+            const read = byFile.get(file.uid);
+            if (read) reads.push({ file, ...read });
           }
         } else {
+          setShipmentReadFailures([]);
           const result = await api.extraction.extractText({ text: textInput.trim(), destination: "shipment" });
           reads.push({ values: normalizeExtracted(result.extracted), method: result.method });
         }
@@ -754,7 +780,7 @@ export function DocumentReadingWorkflow() {
   // the same shipment or master job, with the same split.
   const readNextInvoice = (file: UploadedFile) => {
     setInvoiceFilesDone((prev) => new Set(prev).add(invoiceFileUid));
-    void handleExtract(file);
+    void handleExtract({ invoiceFile: file });
   };
 
   // ─── Field toggles ───────────────────────────────────────────────
@@ -1300,6 +1326,9 @@ export function DocumentReadingWorkflow() {
     setMasterFiles([]);
     setShipmentFiles([]);
     setShipmentDocs([]);
+    shipmentReads.current = new Map();
+    setShipmentReadFailures([]);
+    setRefusedFiles([]);
     setInvoiceFiles([]);
     setInvoiceFilesDone(new Set());
     setInvoiceFileUid("");
@@ -1388,6 +1417,7 @@ export function DocumentReadingWorkflow() {
               onChange={(v) => {
                 setDestination(v as Destination);
                 setError(null);
+                setRefusedFiles([]);
                 setBatchJob(null);
                 createdShipment.current = null;
                 setBookingCreated(null);
@@ -1631,6 +1661,18 @@ export function DocumentReadingWorkflow() {
 
           {error && <Alert className="mt-3" type="error" showIcon message={error} />}
 
+          {refusedFiles.length > 0 && (
+            <Alert
+              className="mt-3"
+              type="warning"
+              showIcon
+              message={refusedFiles.length === 1 ? "A file was not added" : `${refusedFiles.length} files were not added`}
+              description={refusedFiles.map((text) => (
+                <div key={text}>{text}</div>
+              ))}
+            />
+          )}
+
           <Button type="primary" className="mt-4" disabled={!canExtract} onClick={() => handleExtract()}>
             {destination === "masterjob" ? "Extract Pre-Alert" : "Extract Data"}
           </Button>
@@ -1679,6 +1721,32 @@ export function DocumentReadingWorkflow() {
           }
         >
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+          {destination === "shipment" && shipmentReadFailures.length > 0 && (
+            <Alert
+              className="mb-3"
+              type="warning"
+              showIcon
+              message={`${shipmentReadFailures.map((f) => f.file.name).join(", ")} could not be read`}
+              description={
+                <>
+                  {shipmentReadFailures.map((f) => (
+                    <div key={f.file.uid}>
+                      {f.file.name}: {apiErrorMessage(f.error)}
+                    </div>
+                  ))}
+                  <div className="mt-1">
+                    The fields below are from the other files, and only they are saved to the documents. Retry reads only{" "}
+                    {shipmentReadFailures.length === 1 ? "this file" : "these files"} and sets the review up again.
+                  </div>
+                </>
+              }
+              action={
+                <Button size="small" disabled={writing} onClick={() => handleExtract({ retryFailed: true })}>
+                  Retry
+                </Button>
+              }
+            />
+          )}
           <FieldReviewTable
             fields={fields}
             onToggle={toggleField}
@@ -2167,6 +2235,12 @@ const INVOICE_EDITED_FIELDS = new Set(["total_amount", "currency", "invoice_numb
 // The server accepts 100 MB per request and the files travel base64-encoded
 // (a third larger), so this is the most one batch can carry.
 const MASTER_FILES_MAX_BYTES = 70 * 1024 * 1024;
+
+// What one file of a Shipments read gave.
+interface ShipmentRead {
+  values: Record<string, string>;
+  method: string;
+}
 
 interface UploadedFile {
   uid: string;
