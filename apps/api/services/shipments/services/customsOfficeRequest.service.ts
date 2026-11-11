@@ -51,6 +51,13 @@ async function nameOf(userId: string): Promise<string> {
 
 const isT1 = (procedure: string) => procedure.trim().toUpperCase() === "T1";
 
+// A request is answered for the shipment as it was asked about: a T1 one with the office it named.
+function assertStillAsked(shipment: { customsProcedure: string; customsOffice: string }, fromOffice: string): void {
+  if (!isT1(shipment.customsProcedure) || shipment.customsOffice !== fromOffice) {
+    throw APIError.failedPrecondition("The shipment's Customs Office or procedure has changed since this was asked: reject the request instead");
+  }
+}
+
 class CustomsOfficeRequestService {
   /** Anyone of the company asks: the request goes to the managers. */
   async ask(actor: Actor, shipmentId: string, input: { toOffice: string; reason: string }): Promise<CustomsOfficeRequestItem> {
@@ -118,9 +125,7 @@ class CustomsOfficeRequestService {
     if (input.approve) {
       const shipment = await shipmentRepository.getByIdForCompany(request.shipmentId, actor.companyID);
       if (!shipment) throw APIError.notFound("Shipment not found");
-      if (!isT1(shipment.customsProcedure) || shipment.customsOffice !== request.fromOffice) {
-        throw APIError.failedPrecondition("The shipment's Customs Office or procedure has changed since this was asked: reject the request instead");
-      }
+      assertStillAsked(shipment, request.fromOffice);
       // asked before the office left the list
       if (!isListedCustomsOffice(request.toOffice)) throw APIError.failedPrecondition("That office is no longer on the list: reject the request instead");
     }
@@ -136,7 +141,12 @@ class CustomsOfficeRequestService {
 
     if (input.approve) {
       try {
-        await shipmentService.update(request.shipmentId, actor.companyID, { customsOffice: request.toOffice }, actor.userID);
+        // Only while the shipment still has the office that was asked about: checked again in its
+        // write turn, as an edit made since the check above (or since the look-up of who answers)
+        // would otherwise be overwritten by an answer to a question that no longer stands.
+        await shipmentService.update(request.shipmentId, actor.companyID, { customsOffice: request.toOffice }, actor.userID, undefined, undefined, (current) =>
+          assertStillAsked(current, request.fromOffice),
+        );
       } catch (err) {
         await requests.reopen(id, actor.companyID);
         throw err;

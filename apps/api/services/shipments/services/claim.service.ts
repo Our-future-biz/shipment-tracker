@@ -49,6 +49,8 @@ class ClaimService {
 
   async update(shipmentId: string, id: string, companyId: string, input: ClaimInput): Promise<ClaimItem> {
     check(input);
+    // A deleted shipment's claims are not shown, so they are not changed either (nor its Claim field).
+    await shipmentService.requireLive(shipmentId, companyId);
     const row = await shipmentClaimRepository.updateClaim(id, shipmentId, companyId, fields(input));
     if (!row) throw APIError.notFound("Claim not found");
     await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
@@ -56,6 +58,7 @@ class ClaimService {
   }
 
   async delete(shipmentId: string, id: string, companyId: string): Promise<void> {
+    await shipmentService.requireLive(shipmentId, companyId);
     if (!(await shipmentClaimRepository.deleteClaim(id, shipmentId, companyId))) throw APIError.notFound("Claim not found");
     await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
   }

@@ -527,40 +527,59 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   }
 
   /**
-   * Inserts a shipment under the company's next CZ job number. The number is taken in the
-   * same transaction as the insert, so two creates at the same moment never get the same one.
-   */
-  /**
    * Soft-deletes a live shipment and writes the shipment-deleted event it owes in the same
    * transaction: both commit, or neither (services/shipmentEvents publishes it after the commit).
-   * False when the shipment was not live any more.
+   * In `tx` when given - the shipment's write turn, so the delete takes its turn with whatever
+   * else writes the shipment - else in a transaction of its own. False when the shipment was not
+   * live any more.
    */
-  async softDeleteWithEvent(id: string, companyId: string, actor: { userId: string; role: string }): Promise<boolean> {
-    return this.db.transaction(async (tx) => {
-      const now = new Date();
-      const [row] = await tx
-        .update(shipmentTable)
-        .set({ deletedAt: now, updatedAt: now })
-        .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
-        .returning({ id: shipmentTable.id });
-      if (!row) return false;
-      await tx.insert(shipmentEventOutboxTable).values({
-        companyId,
-        shipmentId: id,
-        event: { shipmentId: id, companyId },
-        actingUserId: actor.userId,
-        actingRole: actor.role,
-      });
-      return true;
+  async softDeleteWithEvent(id: string, companyId: string, actor: { userId: string; role: string }, tx?: Tx): Promise<boolean> {
+    if (!tx) return db.transaction((own) => this.softDeleteWithEvent(id, companyId, actor, own));
+    const now = new Date();
+    const [row] = await tx
+      .update(shipmentTable)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
+      .returning({ id: shipmentTable.id });
+    if (!row) return false;
+    await tx.insert(shipmentEventOutboxTable).values({
+      companyId,
+      shipmentId: id,
+      event: { shipmentId: id, companyId },
+      actingUserId: actor.userId,
+      actingRole: actor.role,
+    });
+    return true;
+  }
+
+  /**
+   * Inserts a shipment under the company's next CZ job number. The number is taken in the
+   * same transaction as the insert, so two creates at the same moment never get the same one.
+   * `alongside` writes what comes with the new shipment (its containers and cargo lines) in that
+   * transaction too, handed the row just inserted: the shipment is stored with them or not at all,
+   * so a failure there leaves no shipment behind for a retry to duplicate. Nobody else can see the
+   * row before the commit, so no write turn is needed for it.
+   */
+  async createWithJobNumber(
+    companyId: string,
+    data: NewShipmentData,
+    alongside?: (tx: Tx, created: ShipmentRecord) => Promise<void>,
+  ): Promise<ShipmentRecord> {
+    return db.transaction(async (tx) => {
+      const jobNumber = await nextJobNumber(tx, companyId, data);
+      const [created] = await tx.insert(shipmentTable).values({ ...data, jobNumber, companyId }).returning();
+      if (alongside) await alongside(tx, created!);
+      return created!;
     });
   }
 
-  async createWithJobNumber(companyId: string, data: NewShipmentData): Promise<ShipmentRecord> {
-    return this.db.transaction(async (tx) => {
-      const jobNumber = await nextJobNumber(tx, companyId, data);
-      const [created] = await tx.insert(shipmentTable).values({ ...data, jobNumber, companyId }).returning();
-      return created!;
-    });
+  /** A live shipment as it is inside its write turn: what every write before the turn was taken left. Null when there is none. */
+  async getInTurn(tx: Tx, id: string, companyId: string): Promise<ShipmentRecord | null> {
+    const [row] = await tx
+      .select()
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
+    return row ?? null;
   }
 
   /**

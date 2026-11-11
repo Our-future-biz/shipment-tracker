@@ -9,7 +9,8 @@ vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAtt
 vi.mock("../../storage/attachmentBucket", () => ({ attachmentBucket: {} }));
 vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
 vi.mock("../../lib/contentToken", () => ({ attachmentContentUrl: () => "/file", companyOfContentToken: () => null }));
-vi.mock("../../services/shipment.service", () => ({ shipmentService: {} }));
+// The shipment is live (a deleted one's documents: attachment.service.test).
+vi.mock("../../services/shipment.service", () => ({ shipmentService: { requireLive: vi.fn() } }));
 
 import { attachmentService } from "../../services/attachment.service";
 

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The bell's mentions: unread ones, and read ones written in the last 7 days, each saying which it
 // is. The service is run for real against a stand-in repository.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { unreadMentions: vi.fn(), createForCompany: vi.fn() } }));
 vi.mock("../repositories/shipmentAttachment.repository", () => ({
   shipmentAttachmentRepository: { linkToComment: vi.fn(), listChatFilesByShipmentId: vi.fn(async () => []) },
@@ -52,6 +53,27 @@ describe("a message's tags", () => {
     repo.createForCompany.mockImplementation(async (companyId, c) => ({ id: "c1", companyId, createdAt: new Date(), ...c }) as never);
     await commentService.create("s1", "c1", "u-me", { message: "@Eva look", attachmentIds: [], mentionedUserIds: ["u-me", "u-eva", "u-eva", "u-stranger"] });
     expect(repo.createForCompany).toHaveBeenCalledWith("c1", expect.objectContaining({ authorId: "u-me", mentionedUserIds: ["u-eva"] }));
+  });
+
+  it("refuses a message that tags somebody when the colleagues can't be read, rather than save it without its tags", async () => {
+    repo.createForCompany.mockClear();
+    vi.mocked(companyUsers).mockRejectedValueOnce(new Error("auth is away"));
+    await expect(
+      commentService.create("s1", "c1", "u-me", { message: "@Eva look", attachmentIds: [], mentionedUserIds: ["u-eva"] }),
+    ).rejects.toMatchObject({ code: "unavailable", message: expect.stringContaining("send the message again") });
+    expect(repo.createForCompany).not.toHaveBeenCalled();
+  });
+
+  it("doesn't need the colleagues for a message that tags nobody, or only its writer", async () => {
+    repo.createForCompany.mockClear();
+    vi.mocked(companyUsers).mockClear();
+    repo.createForCompany.mockImplementation(async (companyId, c) => ({ id: "c1", companyId, createdAt: new Date(), ...c }) as never);
+    for (const mentionedUserIds of [[], ["u-me"]]) {
+      await commentService.create("s1", "c1", "u-me", { message: "Booked", attachmentIds: [], mentionedUserIds });
+    }
+    expect(companyUsers).not.toHaveBeenCalled();
+    expect(repo.createForCompany).toHaveBeenCalledTimes(2);
+    for (const [, saved] of repo.createForCompany.mock.calls) expect(saved).toMatchObject({ mentionedUserIds: [] });
   });
 });
 

@@ -33,6 +33,8 @@ vi.mock("../../repositories/shipment.repository", () => ({
     setTruckPlate: vi.fn(),
     referencesOf: vi.fn(),
     referenceInTurn: vi.fn(),
+    getInTurn: vi.fn(),
+    listFiltered: vi.fn(),
     renameJobNumber: vi.fn(),
     markJobNumberFinal: vi.fn(),
     writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
@@ -45,14 +47,20 @@ vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepos
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({
   shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), supersede: vi.fn(), settle: vi.fn(), latestPerShipment: vi.fn(async () => new Map()) },
 }));
-vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
+vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: { mczNumbersByIds: vi.fn(), getByIdForCompany: vi.fn() } }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({
-  containerRepository: { syncForShipment: vi.fn(async () => new Map()), listByShipmentId: vi.fn() },
+  containerRepository: { syncForShipment: vi.fn(async () => new Map()), listByShipmentId: vi.fn(), listByShipmentIds: vi.fn() },
 }));
-vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() } }));
-vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() } }));
-vi.mock("../../repositories/commercialInvoice.repository", () => ({ commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), replaceForShipment: vi.fn() } }));
+vi.mock("../../repositories/cargoItem.repository", () => ({
+  cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), listByShipmentIds: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() },
+}));
+vi.mock("../../repositories/cargoDimension.repository", () => ({
+  cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), listByShipmentIds: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() },
+}));
+vi.mock("../../repositories/commercialInvoice.repository", () => ({
+  commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), listByShipmentIds: vi.fn(), replaceForShipment: vi.fn() },
+}));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 vi.mock("../../services/shipmentEvents.service", () => ({ deliverShipmentEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
@@ -140,7 +148,13 @@ beforeEach(() => {
     stored.set(created.id, created);
     return created;
   };
-  repository.createWithJobNumber.mockImplementation(async (_companyId, data) => insert(data as Record<string, unknown>));
+  // What comes with the new shipment is written in the create's own transaction, handed the row.
+  repository.createWithJobNumber.mockImplementation(async (_companyId, data, alongside) => {
+    const created = insert(data as Record<string, unknown>);
+    if (alongside) await alongside(TX as never, created);
+    return created;
+  });
+  repository.getInTurn.mockImplementation(async (_tx, id) => stored.get(id) ?? null);
   repository.createFromQuote.mockImplementation(async (_companyId, reference, data) => ({ created: insert({ ...(data as Record<string, unknown>), salesNumber: reference }) }));
   repository.getByIdForCompany.mockImplementation(async (id) => stored.get(id) ?? null);
   repository.updateForCompany.mockImplementation(async (id, _companyId, data) => {
@@ -413,6 +427,27 @@ describe("create without a quote", () => {
     await create({ fromQuoteNumber: "   " });
     expect(salesQuoteGet).not.toHaveBeenCalled();
     expect(repository.createWithJobNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes the containers and cargo lines in the shipment's own transaction, not in a second one", async () => {
+    const result = await create({ containers: [{ containerNumber: "MSKU1234567" }], cargoItems: [{ cargoDescription: "Shoes" }] });
+    expect(result).toEqual({ shipment: expect.objectContaining({ id: SHIPMENT }) });
+    expect(containerRepository.syncForShipment).toHaveBeenCalledWith(SHIPMENT, COMPANY, [expect.objectContaining({ containerNumber: "MSKU1234567" })], TX);
+    expect(cargoItemRepository.replaceForShipment).toHaveBeenCalledWith(SHIPMENT, COMPANY, [expect.objectContaining({ cargoDescription: "Shoes" })], TX);
+    expect(repository.writeTurn).not.toHaveBeenCalled();
+  });
+
+  it("fails as a whole when a line can't be written: no shipment is left to tell anybody of, nor for a retry to duplicate", async () => {
+    vi.mocked(containerRepository.syncForShipment).mockRejectedValueOnce(DATABASE_FAILURE);
+    await expect(create({ salesNumber: REF, containers: [{ containerNumber: "MSKU1234567" }] })).rejects.toBe(DATABASE_FAILURE);
+    expect(links.syncReference).not.toHaveBeenCalled();
+    expect(repository.customerRollups).not.toHaveBeenCalled();
+  });
+
+  it("opens nothing more for a shipment sent without lines", async () => {
+    await create({ pol: "Hamburg" });
+    expect(repository.createWithJobNumber.mock.calls[0]![2]).toBeUndefined();
+    expect(containerRepository.syncForShipment).not.toHaveBeenCalled();
   });
 });
 
@@ -925,6 +960,33 @@ describe("people are users of the company, stored by e-mail", () => {
     expect(auth.usersList).not.toHaveBeenCalled();
   });
 
+  it("refuses a second House BoL release, naming the first: the stamp is never rewritten", async () => {
+    stored.set(SHIPMENT, row({ houseBolRelease: "jana@firma.cz — 10. 11. 2026 9:00:00" }));
+    await expect(shipmentService.releaseHouseBol(SHIPMENT, COMPANY, USER)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "The House BoL was already released (jana@firma.cz — 10. 11. 2026 9:00:00)",
+    });
+    expect(repository.writeTurn).not.toHaveBeenCalled();
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("refuses the release that finds another one's stamp in the write turn - two at once - and writes nothing of it", async () => {
+    stored.set(SHIPMENT, row({ houseBolRelease: "" }));
+    // Released by the other request between this one's read and its turn.
+    repository.getInTurn.mockResolvedValueOnce(row({ houseBolRelease: "jana@firma.cz — 11. 11. 2026 10:00:00" }));
+    await expect(shipmentService.releaseHouseBol(SHIPMENT, COMPANY, USER)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("already released") });
+    expect(repository.getInTurn).toHaveBeenCalledWith(TX, SHIPMENT, COMPANY);
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+    expect(shipmentTrackingEventRepository.add).not.toHaveBeenCalled();
+  });
+
+  it("reads the shipment in the turn only for a write decided on what it read (a plain edit doesn't)", async () => {
+    stored.set(SHIPMENT, row({ pol: "Hamburg" }));
+    await update({ pol: "Bremen" });
+    expect(repository.getInTurn).not.toHaveBeenCalled();
+  });
+
   it("makes a user's credit approval their own: an approver sent with it is replaced by the stamp", async () => {
     stored.set(SHIPMENT, row({ creditCheck: "Red", approvedBy: "" }));
     await shipmentService.update(SHIPMENT, COMPANY, { creditCheck: "Green", approvedBy: "jana@firma.cz" } as never, USER, "user");
@@ -1125,13 +1187,33 @@ describe("softDelete", () => {
     expect(repository.softDeleteWithEvent.mock.invocationCallOrder[0]).toBeLessThan(links.syncReference.mock.invocationCallOrder[0]!);
   });
 
-  it("writes the shipment-deleted event with the delete, then publishes it", async () => {
+  it("writes the shipment-deleted event with the delete, in the shipment's write turn, then publishes it", async () => {
     stored.set(SHIPMENT, row({ salesNumber: "" }));
     await shipmentService.softDelete(SHIPMENT, COMPANY, USER, "manager");
     // The event is owed in the delete's own transaction (the outbox row), so it can't be lost.
-    expect(repository.softDeleteWithEvent).toHaveBeenCalledWith(SHIPMENT, COMPANY, { userId: USER, role: "manager" });
+    expect(repository.writeTurn).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.any(Function));
+    expect(repository.softDeleteWithEvent).toHaveBeenCalledWith(SHIPMENT, COMPANY, { userId: USER, role: "manager" }, TX);
     expect(deliverShipmentEvents).toHaveBeenCalledWith(SHIPMENT);
     expect(repository.softDeleteWithEvent.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(deliverShipmentEvents).mock.invocationCallOrder[0]!);
+  });
+
+  it("asks Invoicing inside the write turn Invoicing numbers an invoice under, and writes the history line there too", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: "" }));
+    await shipmentService.softDelete(SHIPMENT, COMPANY, USER);
+    const turn = repository.writeTurn.mock.invocationCallOrder[0]!;
+    expect(turn).toBeLessThan(vi.mocked(invoicing.openInvoiceCount).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(invoicing.openInvoiceCount).mock.invocationCallOrder[0]).toBeLessThan(repository.softDeleteWithEvent.mock.invocationCallOrder[0]!);
+    expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ shipmentId: SHIPMENT, field: "deletedAt", oldValue: null }), TX);
+  });
+
+  it("refuses an invoiced shipment in the turn: nothing deleted, no history line, no event, nobody told", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: REF }));
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 1 });
+    await expect(shipmentService.softDelete(SHIPMENT, COMPANY, USER)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("credit its invoices first") });
+    expect(repository.softDeleteWithEvent).not.toHaveBeenCalled();
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+    expect(deliverShipmentEvents).not.toHaveBeenCalled();
+    expect(links.syncReference).not.toHaveBeenCalled();
   });
 
   it("says not found when the shipment went meanwhile, and owes no event", async () => {
@@ -1954,5 +2036,45 @@ describe("who may change a shipment's details", () => {
     await expect(shipmentService.requireDetailsEditor(SHIPMENT, actor)).resolves.toBeUndefined();
     named(MARTIN.email);
     await expect(shipmentService.requireDetailsEditor(SHIPMENT, { ...actor, role: "manager" })).resolves.toBeUndefined();
+  });
+});
+
+describe("list", () => {
+  const MASTER = "3c1d5e7f-0a2b-4c6d-8e0f-1a2b3c4d5e01";
+  const OTHER_MASTER = "3c1d5e7f-0a2b-4c6d-8e0f-1a2b3c4d5e02";
+  const page = (rows: ShipmentRecord[]) => repository.listFiltered.mockResolvedValue({ data: rows, total: rows.length } as never);
+  const filters = { limit: 50, offset: 0, sortDirection: "desc" as const };
+
+  beforeEach(() => {
+    for (const lines of [containerRepository, cargoItemRepository, cargoDimensionRepository, commercialInvoiceRepository]) vi.mocked(lines.listByShipmentIds).mockResolvedValue([]);
+    vi.mocked(masterJobRepository.mczNumbersByIds).mockResolvedValue(new Map([[MASTER, "MCZ00000007"]]));
+  });
+
+  it("reads the master jobs of the whole page in one query, each once, and names each house's", async () => {
+    page([
+      row({ id: "s-1", masterJobId: MASTER }),
+      row({ id: "s-2", masterJobId: MASTER }),
+      row({ id: "s-3", masterJobId: OTHER_MASTER }),
+      row({ id: "s-4", masterJobId: null }),
+    ]);
+    const { data } = await shipmentService.list(COMPANY, filters);
+    expect(masterJobRepository.mczNumbersByIds).toHaveBeenCalledTimes(1);
+    expect(masterJobRepository.mczNumbersByIds).toHaveBeenCalledWith([MASTER, OTHER_MASTER], COMPANY);
+    expect(masterJobRepository.getByIdForCompany).not.toHaveBeenCalled();
+    // A master job the query doesn't find (deleted meanwhile, another company's) names none.
+    expect(data.map((s) => s.masterJobMczNumber)).toEqual(["MCZ00000007", "MCZ00000007", null, null]);
+  });
+});
+
+describe("requireLive", () => {
+  it("finds a live shipment of the company, and refuses one that is deleted or no id without asking SQL", async () => {
+    stored.set(SHIPMENT, row());
+    await expect(shipmentService.requireLive(SHIPMENT, COMPANY)).resolves.toBeUndefined();
+    stored.clear();
+    await expect(shipmentService.requireLive(SHIPMENT, COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    repository.getByIdForCompany.mockClear();
+    await expect(shipmentService.requireLive("s1", COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    await expect(shipmentService.isLive("s1", COMPANY)).resolves.toBe(false);
+    expect(repository.getByIdForCompany).not.toHaveBeenCalled();
   });
 });

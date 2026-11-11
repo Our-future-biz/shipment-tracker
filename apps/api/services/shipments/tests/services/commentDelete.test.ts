@@ -3,15 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const comments = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), softDeleteForCompany: vi.fn(), updateForCompany: vi.fn() }));
 const files = vi.hoisted(() => ({ listIdsByCommentId: vi.fn(), unlinkFromComment: vi.fn() }));
 const attachmentService = vi.hoisted(() => ({ delete: vi.fn() }));
+const shipmentService = vi.hoisted(() => ({ requireLive: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../../../../lib/companyUsers", () => ({ companyUsers: vi.fn(), companyUsersWithRoles: vi.fn() }));
 vi.mock("../../lib/userEmails", () => ({ userEmails: vi.fn() }));
 vi.mock("../../lib/contentToken", () => ({ attachmentContentUrl: vi.fn() }));
 vi.mock("../../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: comments }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: files }));
 vi.mock("../../services/attachment.service", () => ({ attachmentService }));
-vi.mock("../../services/shipment.service", () => ({ shipmentService: {} }));
+vi.mock("../../services/shipment.service", () => ({ shipmentService }));
 
+import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { commentService } from "../../services/comment.service";
 
 const secondsAgo = (seconds: number) => new Date(Date.now() - seconds * 1000);
@@ -19,8 +22,21 @@ const line = (over: object = {}) => ({ id: "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c91
 
 beforeEach(() => {
   vi.clearAllMocks();
+  shipmentService.requireLive.mockResolvedValue(undefined);
   comments.getByIdForCompany.mockResolvedValue(line());
   files.listIdsByCommentId.mockResolvedValue(["f1"]);
+});
+
+describe("a deleted shipment's chat", () => {
+  it("has no message deleted or crossed out, and no file taken along", async () => {
+    shipmentService.requireLive.mockRejectedValue(APIError.notFound("Shipment not found"));
+    await expect(commentService.delete("s1", "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c91", "c1", "u1", "superadmin")).rejects.toMatchObject({ code: "not_found" });
+    await expect(commentService.strike("s1", "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c91", "c1", "u1")).rejects.toMatchObject({ code: "not_found" });
+    expect(shipmentService.requireLive).toHaveBeenCalledWith("s1", "c1");
+    expect(comments.softDeleteForCompany).not.toHaveBeenCalled();
+    expect(comments.updateForCompany).not.toHaveBeenCalled();
+    expect(attachmentService.delete).not.toHaveBeenCalled();
+  });
 });
 
 describe("deleting a chat message with a file", () => {

@@ -52,7 +52,8 @@ class ShipmentClaimRepository extends TenantRepository<typeof shipmentClaimTable
   /**
    * Keeps the shipment's "Claim" field in step with its claims: Yes while at
    * least one claim row has something filled in, No otherwise. A row freshly
-   * added with "+" is still blank and does not count.
+   * added with "+" is still blank and does not count. A deleted shipment is
+   * left as it was deleted.
    */
   async syncShipmentFlag(shipmentId: string, companyId: string): Promise<void> {
     await this.db
@@ -66,7 +67,7 @@ class ShipmentClaimRepository extends TenantRepository<typeof shipmentClaimTable
             AND btrim(c.cargo_state || c.note || c.supplier || c.invoice_number || c.reason || c.amount) <> ''
         ) THEN 'Yes' ELSE 'No' END`,
       })
-      .where(and(eq(shipmentTable.id, shipmentId), eq(shipmentTable.companyId, companyId)));
+      .where(and(eq(shipmentTable.id, shipmentId), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
   }
 }
 

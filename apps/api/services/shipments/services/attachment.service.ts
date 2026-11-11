@@ -8,6 +8,7 @@ import { APPROVED_DOCUMENT_REFUSAL, canManageDocuments, documentReviewRefusal } 
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken";
 import { iso, isoOrNull } from "../../../lib/db/serialize";
+import { isUuid } from "../../../lib/uuid";
 import type { FileContent } from "../../../lib/fileContent";
 import type { AttachmentCustomsStatus, AttachmentItem } from "../interfaces/interfaces";
 import { shipmentService } from "./shipment.service";
@@ -33,7 +34,6 @@ function toItem(row: ShipmentAttachmentRecord, emails: Map<string, string>): Att
 
 export interface NewAttachment {
   fileName: string;
-  fileSize: number;
   fileType: string;
   contentBase64: string;
   documentType: string;
@@ -49,25 +49,32 @@ class AttachmentService {
     return rows.map((r) => toItem(r, emails));
   }
 
+  /** Stores the bytes, then the record; when the record can't be written, the stored bytes go again. */
   async create(shipmentId: string, companyId: string, file: NewAttachment, uploadedById: string): Promise<AttachmentItem> {
     await shipmentService.requireLive(shipmentId, companyId);
-    let storageKey = "";
-    if (file.contentBase64) {
-      storageKey = `${shipmentId}/${randomUUID()}`;
-      await attachmentBucket.upload(storageKey, Buffer.from(file.contentBase64, "base64"), {
-        contentType: file.fileType || "application/octet-stream",
+    // Every document comes with its file: a row without one would list a document nobody can open.
+    const bytes = Buffer.from(file.contentBase64, "base64");
+    if (bytes.length === 0) throw APIError.invalidArgument("The file is empty");
+    const storageKey = `${shipmentId}/${randomUUID()}`;
+    await attachmentBucket.upload(storageKey, bytes, { contentType: file.fileType || "application/octet-stream" });
+    try {
+      const row = await shipmentAttachmentRepository.createForCompany(companyId, {
+        shipmentId,
+        fileName: file.fileName,
+        // The size of what was stored, not what the browser said.
+        fileSize: bytes.length,
+        fileType: file.fileType,
+        storageKey,
+        documentType: file.documentType,
+        uploadedById,
       });
+      return toItem(row, await userEmails());
+    } catch (err) {
+      await attachmentBucket
+        .remove(storageKey)
+        .catch((removeErr: unknown) => log.warn(removeErr, "an attachment's bytes were left after a failed save", { storageKey }));
+      throw err;
     }
-    const row = await shipmentAttachmentRepository.createForCompany(companyId, {
-      shipmentId,
-      fileName: file.fileName,
-      fileSize: file.fileSize,
-      fileType: file.fileType,
-      storageKey,
-      documentType: file.documentType,
-      uploadedById,
-    });
-    return toItem(row, await userEmails());
   }
 
   /**
@@ -102,11 +109,12 @@ class AttachmentService {
 
   /**
    * The bytes of a file for the public content endpoint. Served only with a valid token for
-   * this file, and only from the company and shipment the token and the path name.
+   * this file, and only from the company and live shipment the token and the path name: a
+   * deleted shipment's files are no longer handed out, as its documents are no longer listed.
    */
   async getContent(shipmentId: string, id: string, token: string | null): Promise<FileContent | null> {
     const companyId = companyOfContentToken(token, id);
-    if (!companyId) return null;
+    if (!companyId || !isUuid(id) || !(await shipmentService.isLive(shipmentId, companyId))) return null;
     const row = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
     if (!row?.storageKey) return null;
     try {
@@ -124,6 +132,8 @@ class AttachmentService {
    * status reads the approvals per type.
    */
   async classify(shipmentId: string, id: string, companyId: string, documentType: string, role?: string): Promise<AttachmentItem> {
+    // A deleted shipment's documents are not shown, so they are not changed either.
+    await shipmentService.requireLive(shipmentId, companyId);
     const guarded = role !== undefined && !canManageDocuments(role);
     const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, { documentType }, { unlessApproved: guarded });
     if (!row) {
@@ -147,6 +157,7 @@ class AttachmentService {
     userId: string,
     role?: string,
   ): Promise<AttachmentItem> {
+    await shipmentService.requireLive(shipmentId, companyId);
     // A regular user leaves an approved document as it is: no undoing it, and approving it again
     // would only put their name and a new time on customs' approval (and a new note in the bell).
     const guarded = role !== undefined && !canManageDocuments(role);
@@ -176,18 +187,20 @@ class AttachmentService {
     return toItem(row, await userEmails());
   }
 
+  /**
+   * The record goes first, so the list never shows a document whose file is gone; the stored
+   * bytes follow (a failure there is only logged: the object may already be gone).
+   */
   async delete(shipmentId: string, id: string, companyId: string): Promise<void> {
+    await shipmentService.requireLive(shipmentId, companyId);
     const row = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
     if (!row) throw APIError.notFound("Attachment not found");
-    if (row.storageKey) {
-      try {
-        await attachmentBucket.remove(row.storageKey);
-      } catch (err) {
-        // The stored object may already be gone; the record is removed either way.
-        log.warn(err, "attachment file could not be removed from storage", { attachmentId: id });
-      }
-    }
     await shipmentAttachmentRepository.softDeleteForCompany(id, companyId);
+    if (row.storageKey) {
+      await attachmentBucket
+        .remove(row.storageKey)
+        .catch((err: unknown) => log.warn(err, "attachment file could not be removed from storage", { attachmentId: id }));
+    }
   }
 }
 

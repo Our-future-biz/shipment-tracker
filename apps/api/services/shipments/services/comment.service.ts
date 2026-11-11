@@ -1,6 +1,7 @@
 import { exceptionNotice } from "../lib/trackingChatNotice";
 import { isUuid } from "../../../lib/uuid";
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
@@ -112,8 +113,9 @@ class CommentService {
     await shipmentService.requireLive(shipmentId, companyId);
     // Only real colleagues from the same company can be tagged, and never yourself (the @ list never
     // offers the writer; the warehouse's notice, which may tag its writer, is postRemeasureNotice).
-    const colleagues = await userEmails();
-    const mentions = [...new Set(input.mentionedUserIds)].filter((id) => id !== authorId && colleagues.has(id));
+    const tagged = [...new Set(input.mentionedUserIds)].filter((id) => id !== authorId);
+    const colleagues = tagged.length ? await this.colleaguesToTag() : await userEmails();
+    const mentions = tagged.filter((id) => colleagues.has(id));
     const comment = await shipmentCommentRepository.createForCompany(companyId, {
       shipmentId,
       authorId,
@@ -123,6 +125,19 @@ class CommentService {
     await shipmentAttachmentRepository.linkToComment(input.attachmentIds, comment.id, shipmentId, companyId);
     const files = await shipmentAttachmentRepository.listChatFilesByShipmentId(shipmentId, companyId);
     return this.toItem(comment, files, null, colleagues, authorId);
+  }
+
+  // The company's users by id, for a message that tags somebody: they decide who is tagged, so when
+  // they can't be read the message is refused (it can be sent again) rather than saved with its
+  // tags quietly dropped - nobody would hear of it. A message that tags nobody reads them with
+  // userEmails, which only shows the author.
+  private async colleaguesToTag(): Promise<Map<string, string>> {
+    try {
+      return new Map((await companyUsers()).map((u) => [u.id, u.email]));
+    } catch (err) {
+      log.warn(err, "chat: the colleagues a message tags could not be read");
+      throw APIError.unavailable("The colleagues you tagged can't be checked right now - send the message again in a moment");
+    }
   }
 
   /**
@@ -211,7 +226,9 @@ class CommentService {
     });
   }
 
+  // A message of a live shipment: a deleted shipment's chat is not shown, so it is not changed either.
   private async line(shipmentId: string, id: string, companyId: string): Promise<ShipmentCommentRecord> {
+    await shipmentService.requireLive(shipmentId, companyId);
     const comment = isUuid(id) ? await shipmentCommentRepository.getByIdForCompany(id, companyId) : null;
     if (comment?.shipmentId !== shipmentId) throw APIError.notFound("Message not found");
     return comment;
