@@ -123,26 +123,22 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
   // Every page is read by Claude: counted against the user's hourly reading budget.
   chargeReading(owner.userId, rawPages.length);
 
-  // Classify pages in chunks so we never send an unbounded request.
+  // Classify pages in chunks so we never send an unbounded request, each page's class taken by its
+  // number (a reply that skips a page shifts no other). A chunk the AI does not answer ends the
+  // reading as unavailable: its pages would be filed under guessed types, and every chunk after it
+  // would wait out the same timeout before failing too.
   const types: string[] = [];
   const refs: string[] = [];
   for (let i = 0; i < rawPages.length; i += CLASSIFY_CHUNK) {
     const chunk = rawPages
       .slice(i, i + CLASSIFY_CHUNK)
       .map((p, j) => ({ pageNum: i + j + 1, base64: p.base64, mediaType: p.mediaType, fileName: p.fileName }));
-    try {
-      const classified = await classifyPages(chunk);
-      for (let j = 0; j < chunk.length; j++) {
-        types.push((classified[j]?.type || "HBL").toUpperCase());
-        refs.push(String(classified[j]?.ref ?? ""));
-      }
-    } catch (err) {
-      // Unclassified pages are read as House B/Ls, the most common kind.
-      log.warn("pipeline: page classification failed", { error: err instanceof Error ? err.message : String(err), pages: chunk.length });
-      for (let j = 0; j < chunk.length; j++) {
-        types.push("HBL");
-        refs.push("");
-      }
+    const classified = new Map((await classifyPages(chunk)).map((c) => [c.page, c]));
+    for (const page of chunk) {
+      // A page the classifier gave no class is read as a House B/L, the most common kind.
+      const found = classified.get(page.pageNum);
+      types.push(found?.type || "HBL");
+      refs.push(found?.ref ?? "");
     }
   }
 
@@ -199,15 +195,14 @@ export async function extractMbl(sessionId: string, who: SessionOwner): Promise<
   // The first pages carry the B/L's head, containers and seals; the rest are mostly its cargo
   // lines continued and copies of the same B/L.
   const pages = mblPages.slice(0, MBL_PAGES_READ).map((p) => ({ base64: p.base64, mediaType: p.mediaType }));
-  const results = await extractFromPages(
+  // Null when nothing was read from them: no Master B/L details to share with the House B/Ls.
+  const mblInfo = await extractFromPages(
     pages,
     MBL_PROMPT,
     `These ${pages.length} page(s) are one Master Bill of Lading. Return a single JSON object with the fields that are on it.`,
     MBL_FIELDS,
     2048,
   );
-
-  const mblInfo = results[0] || null;
   if (mblInfo) {
     await canonicalizeRecords([mblInfo]);
     applyTradeDirection(mblInfo);
@@ -260,11 +255,12 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
       ),
     ),
   );
-  // Exactly one shipment per House B/L, even if the model split it; each keeps its own pages.
+  // At most one shipment per House B/L (extractFromPages reads one object), each with its own pages;
+  // a House B/L nothing was read from makes none.
   const read = await Promise.all(
-    perHbl.map(async (rows, i) => ({ shipment: rows[0], document: rows[0] ? await hblDocument(batch[i]) : null })),
+    perHbl.map(async (shipment, i) => ({ shipment, document: shipment ? await hblDocument(batch[i]) : null })),
   );
-  const found = read.filter((r): r is { shipment: Record<string, string>; document: HblDocument | null } => !!r.shipment);
+  const found = read.filter((r): r is { shipment: Record<string, string>; document: HblDocument | null } => r.shipment !== null);
   const shipments = found.map((r) => r.shipment);
 
   await canonicalizeRecords(shipments);

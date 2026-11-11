@@ -114,6 +114,19 @@ export function parseJsonObjectFromResponse(text: string): Record<string, unknow
   }
 }
 
+/**
+ * ONE JSON object from a reply that must be one but may still come as a list (the pages of one
+ * House B/L read as two shipments): the object read first, as parseJsonObjectFromResponse does, so
+ * a "[3]" inside a value is not taken for the whole reply; else the list's first object.
+ */
+export function parseFirstObjectFromResponse(text: string): Record<string, unknown> | null {
+  const one = parseJsonObjectFromResponse(text);
+  if (one) return one;
+  const list = parseJsonFromResponse(text);
+  const first: unknown = Array.isArray(list) ? list[0] : null;
+  return first && typeof first === "object" && !Array.isArray(first) ? (first as Record<string, unknown>) : null;
+}
+
 export function parseJsonFromResponse(text: string): unknown {
   // Try array first
   const arrMatch = text.match(/\[[\s\S]*\]/);
