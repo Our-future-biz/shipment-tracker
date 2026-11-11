@@ -155,12 +155,27 @@ describe("moving Received in warehouse later is storage given away: a manager's 
     const c = randomUUID();
     const { movement } = await warehouseImportService.createPosition(c, user, { handling: "Export", customsStatus: "Customs Cleared/Released", colli: 4, weightKg: 400, measureCbm: 1 });
     const id = movement.id;
-    expect((await gateMovementService.update(id, c, user, { loadInDate: "2026-11-02" }, "user")).loadInDate).toBe("2026-11-02");
-    expect((await gateMovementService.update(id, c, user, { loadInDate: "2026-11-01" }, "user")).loadInDate).toBe("2026-11-01");
-    await expect(gateMovementService.update(id, c, user, { loadInDate: "2026-11-11" }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    const today = pragueDate(new Date());
+    const [received, earlier, later] = [addDays(today, -10), addDays(today, -11), addDays(today, -1)];
+    expect((await gateMovementService.update(id, c, user, { loadInDate: received }, "user")).loadInDate).toBe(received);
+    expect((await gateMovementService.update(id, c, user, { loadInDate: earlier }, "user")).loadInDate).toBe(earlier);
+    await expect(gateMovementService.update(id, c, user, { loadInDate: later }, "user")).rejects.toMatchObject({ code: "permission_denied" });
     await expect(gateMovementService.update(id, c, user, { loadInDate: "" }, "user")).rejects.toMatchObject({ code: "permission_denied" });
-    expect((await gateMovementService.get(id, c)).loadInDate).toBe("2026-11-01");
-    expect((await gateMovementService.update(id, c, user, { loadInDate: "2026-11-11" }, "manager")).loadInDate).toBe("2026-11-11");
+    expect((await gateMovementService.get(id, c)).loadInDate).toBe(earlier);
+    expect((await gateMovementService.update(id, c, user, { loadInDate: later }, "manager")).loadInDate).toBe(later);
+  });
+
+  it("refuses a user a received date still to come, also the first time it is set", async () => {
+    const c = randomUUID();
+    const { movement } = await warehouseImportService.createPosition(c, user, { handling: "Export", customsStatus: "Customs Cleared/Released", colli: 4, weightKg: 400, measureCbm: 1 });
+    const ahead = addDays(pragueDate(new Date()), 60);
+    await expect(gateMovementService.update(movement.id, c, user, { loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect((await gateMovementService.get(movement.id, c)).loadInDate).toBe("");
+    // Nor when the record is created with one.
+    await expect(gateMovementService.create(c, user, { gateRef: `G-${randomUUID().slice(0, 6)}`, loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    // Today is fine.
+    const today = pragueDate(new Date());
+    expect((await gateMovementService.update(movement.id, c, user, { loadInDate: today }, "user")).loadInDate).toBe(today);
   });
 });
 

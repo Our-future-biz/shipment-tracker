@@ -372,11 +372,13 @@ function assertFreeDaysAllowed(freeDays: number | null | undefined, role: string
 }
 // "Received in warehouse" starts the storage clock of outbound cargo: moved later or cleared, the
 // days in between are storage given away too, so only a manager does it (as free days above the
-// default); setting it the first time or earlier is anyone's. Once the cargo is released its
-// storage is settled: only a manager corrects the date then.
-function assertReceivedDateAllowed(before: string | null | undefined, after: string | null | undefined, released: boolean, role: string) {
+// default); setting it the first time or earlier is anyone's - but never a day still to come: the
+// cargo was received today at the latest, and a date ahead would give the storage away as well.
+// Once the cargo is released its storage is settled: only a manager corrects the date then.
+function assertReceivedDateAllowed(before: string | null | undefined, after: string | null | undefined, released: boolean, role: string, today: string) {
   if (isManagerRole(role)) return;
   if (released) throw APIError.permissionDenied("The cargo was released: only a manager changes Received in warehouse now");
+  if (after && after > today) throw APIError.permissionDenied("Received in warehouse can't be a day still to come: the cargo was received today at the latest");
   if (before && (!after || after > before)) {
     throw APIError.permissionDenied("Only a manager moves Received in warehouse later or clears it: the days in between are storage given away");
   }
@@ -716,6 +718,8 @@ class GateMovementService {
 
   async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }, role = "user") {
     assertFreeDaysAllowed(input.freeDays, role);
+    // A new record's received date: no day still to come either (nothing was stored before it).
+    if (input.loadInDate) assertReceivedDateAllowed("", input.loadInDate, false, role, pragueDate(new Date()));
     const record = await this.buildRecord(companyId, userId, input);
     const id = await db.transaction(async (tx) => {
       const row = await gateMovementRepository.create(record, tx);
@@ -813,7 +817,7 @@ class GateMovementService {
           `Received in warehouse is set by the stripping tally${house ? ` of container ${house.container.number}` : ""} — tick the house off there`,
         );
       }
-      assertReceivedDateAllowed(m.loadInDate, patch.loadInDate, !!m.impRelease, role);
+      assertReceivedDateAllowed(m.loadInDate, patch.loadInDate, !!m.impRelease, role, pragueDate(new Date()));
       clockEvents.push({ kind: "storageClockChanged", label: `Received in warehouse: ${patch.loadInDate || "cleared"}`, at: clockAt, by: patch.updatedBy, detail: `was ${m.loadInDate || "—"}` });
     }
     if (patch.freeDays !== undefined && patch.freeDays !== m.freeDays) {
