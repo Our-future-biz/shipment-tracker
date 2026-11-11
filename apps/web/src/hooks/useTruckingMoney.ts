@@ -44,7 +44,15 @@ export function useHaulierInvoices(filters: HaulierInvoiceListRequest = {}, { en
     placeholderData: keepPreviousData,
     enabled,
   });
-  return { invoices: query.data?.invoices ?? NO_INVOICES, isLoading: query.isLoading, isError: query.isError };
+  return {
+    invoices: query.data?.invoices ?? NO_INVOICES,
+    /** Every status counted over all the invoices (not only the newest listed); null while loading. */
+    counts: query.data?.counts ?? null,
+    /** The newest invoices read and how many match in all, when more match than were read; else null. */
+    cap: query.data?.truncated ? { listed: query.data.listed, total: query.data.total } : null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
 }
 
 /** The trips and partner legs of a haulier that can go on an invoice; nothing is asked until a haulier is chosen. */

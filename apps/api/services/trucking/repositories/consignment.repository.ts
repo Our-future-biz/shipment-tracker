@@ -19,6 +19,14 @@ import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
 const c = truckingConsignmentTable;
 const MAX_LIST = 1000;
 
+/** What the worklist is narrowed by in SQL: the company, the status, the job. */
+function listClauses(companyId: string, filter: { status?: ConsignmentStatus; shipmentId?: string }): SQL[] {
+  const clauses: SQL[] = [eq(c.companyId, companyId), isNull(c.deletedAt)];
+  if (filter.status) clauses.push(eq(c.status, filter.status));
+  if (filter.shipmentId) clauses.push(eq(c.shipmentId, filter.shipmentId));
+  return clauses;
+}
+
 /** The columns of each stamp. */
 export const STAMP_COLUMNS = {
   confirmed: { at: "confirmedAt", by: "confirmedBy" },
@@ -103,12 +111,15 @@ class ConsignmentRepository {
     return db.select().from(c).where(and(eq(c.companyId, companyId), inArray(c.tripId, tripIds), isNull(c.deletedAt)));
   }
 
-  /** The worklist: by status and / or job, newest pick-up first (at most 1000). */
+  /** The worklist: by status and / or job, newest pick-up first (at most 1000; count says how many there are). */
   async list(companyId: string, filter: { status?: ConsignmentStatus; shipmentId?: string }): Promise<TruckingConsignmentRecord[]> {
-    const clauses: SQL[] = [eq(c.companyId, companyId), isNull(c.deletedAt)];
-    if (filter.status) clauses.push(eq(c.status, filter.status));
-    if (filter.shipmentId) clauses.push(eq(c.shipmentId, filter.shipmentId));
-    return db.select().from(c).where(and(...clauses)).orderBy(desc(c.pickupDate), desc(c.createdAt)).limit(MAX_LIST);
+    return db.select().from(c).where(and(...listClauses(companyId, filter))).orderBy(desc(c.pickupDate), desc(c.createdAt)).limit(MAX_LIST);
+  }
+
+  /** How many consignments the worklist's status and job match, listed or not. */
+  async count(companyId: string, filter: { status?: ConsignmentStatus; shipmentId?: string }): Promise<number> {
+    const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(c).where(and(...listClauses(companyId, filter)));
+    return Number(row?.n ?? 0);
   }
 
   /** The live LTL consignments of a job (not cancelled), locked for the caller's transaction, in id order (as forShipmentLocked). */

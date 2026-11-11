@@ -80,6 +80,8 @@ export function useConsignments(filters: ConsignmentListRequest = {}, { enabled 
   return {
     consignments: query.data?.consignments ?? NO_CONSIGNMENTS,
     counts: query.data?.counts ?? null,
+    /** The newest consignments read and how many match in all, when more match than were read; else null. */
+    cap: query.data?.truncated ? { listed: query.data.listed, total: query.data.total } : null,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,
@@ -174,8 +176,18 @@ export function useTrips(filters: Parameters<typeof api.trucking.truckingTripLis
     queryKey: truckingKeys.tripList({ status: filters.status, search: filters.search }),
     queryFn: () => api.trucking.truckingTripList(filters),
     enabled,
+    // A queue tile lists by status: the tiles keep their counts while the next queue loads.
+    placeholderData: keepPreviousData,
   });
-  return { trips: query.data?.trips ?? NO_TRIPS, isLoading: query.isLoading, isError: query.isError };
+  return {
+    trips: query.data?.trips ?? NO_TRIPS,
+    /** The work queues over every trip (not only the newest listed); null while loading. */
+    counts: query.data?.counts ?? null,
+    /** The newest trips read and how many match in all, when more match than were read; else null. */
+    cap: query.data?.truncated ? { listed: query.data.listed, total: query.data.total } : null,
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
 }
 
 /**

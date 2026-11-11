@@ -8538,6 +8538,25 @@ export namespace controllers {
 
     export interface HaulierInvoiceListResponse {
         invoices: interfaces.HaulierInvoice[]
+        /**
+         * How many of the newest invoices were read (at most 1000)
+         */
+        listed: number
+
+        /**
+         * How many invoices the status and haulier match, listed or not
+         */
+        total: number
+
+        /**
+         * More invoices match than were read: the oldest are not listed
+         */
+        truncated: boolean
+
+        /**
+         * Every status counted over all the haulier's (or all) invoices, not only those listed
+         */
+        counts: interfaces.HaulierInvoiceCounts
     }
 
     export interface HaulierInvoicePaidRequest {
@@ -11110,9 +11129,24 @@ export namespace controllers {
     export interface TruckingConsignmentListResponse {
         consignments: interfaces.ConsignmentListItem[]
         /**
-         * Over the consignments matching status / search / job, whatever the view
+         * Over the consignments matching status / search / job, whatever the view (of those read)
          */
         counts: interfaces.ConsignmentCounts
+
+        /**
+         * How many of the newest consignments of the status and job were read (at most 1000), before the search and the view
+         */
+        listed: number
+
+        /**
+         * How many consignments the status and job match, read or not
+         */
+        total: number
+
+        /**
+         * More consignments match than were read: the oldest are not listed, searched or counted
+         */
+        truncated: boolean
     }
 
     export interface TruckingConsignmentReasonRequest {
@@ -11795,6 +11829,25 @@ export namespace controllers {
 
     export interface TruckingTripListResponse {
         trips: interfaces.TripListItem[]
+        /**
+         * How many of the newest trips of the status were read (at most 1000), before the search
+         */
+        listed: number
+
+        /**
+         * How many trips the status matches, listed or not
+         */
+        total: number
+
+        /**
+         * More trips match than were read: the oldest are not listed
+         */
+        truncated: boolean
+
+        /**
+         * The work queues over every trip, not only those listed
+         */
+        counts: interfaces.TripQueueCounts
     }
 
     export interface TruckingTripRepriceRequest {
@@ -15736,6 +15789,18 @@ export namespace interfaces {
          * Already on another invoice that is not rejected (and not approved yet)
          */
         alreadyInvoiced: boolean
+    }
+
+    /**
+     * How many invoices are in each status, over every invoice (an open one's status as worked out now).
+     */
+    export interface HaulierInvoiceCounts {
+        DRAFT: number
+        MATCHED: number
+        NEEDS_APPROVAL: number
+        APPROVED: number
+        BLOCKED: number
+        REJECTED: number
     }
 
     export interface HaulierInvoiceLine {
@@ -22275,6 +22340,22 @@ export namespace interfaces {
         total: number
         currency: "CZK" | "EUR"
         reason: string
+    }
+
+    /**
+     * The Trips tab's work queues, over every trip (not only the newest listed).
+     */
+    export interface TripQueueCounts {
+        draft: number
+        /**
+         * Ordered, not confirmed by the haulier yet (a rejected order too): the Trips tab's count
+         */
+        notConfirmed: number
+
+        /**
+         * On the road, or ordered or confirmed for pick-up today (the company's day, Prague)
+         */
+        inTransitToday: number
     }
 
     export type TripStatus = "DRAFT" | "ORDERED" | "CONFIRMED" | "IN_TRANSIT" | "DONE" | "CANCELLED"

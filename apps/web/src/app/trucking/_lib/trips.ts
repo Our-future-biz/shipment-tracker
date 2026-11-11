@@ -1,7 +1,8 @@
-import type { TripListItem } from "@/hooks/useTruckingConsignments";
+import type { TripListItem, TripStatus } from "@/hooks/useTruckingConsignments";
 
-// The work queues of the Trips tab (?view=): tiles over the grid, counted and filtered here from
-// the trip list (it carries status, pick-up day and the transport order). Tested in trips.test.ts.
+// The work queues of the Trips tab (?view=): tiles over the grid. The server counts them over every
+// trip (the list holds only the newest 1000) and lists a queue of one status by it; the grid keeps
+// the queue's trips of what it holds. Tested in trips.test.ts.
 
 export type TripView = "draft" | "notConfirmed" | "inTransitToday";
 
@@ -25,14 +26,8 @@ export function inTripView(t: TripFacts, view: TripView, today: string): boolean
   }
 }
 
-export const tripViewCounts = (trips: readonly TripFacts[], today: string): Record<TripView, number> => ({
-  draft: trips.filter((t) => inTripView(t, "draft", today)).length,
-  notConfirmed: trips.filter((t) => inTripView(t, "notConfirmed", today)).length,
-  inTransitToday: trips.filter((t) => inTripView(t, "inTransitToday", today)).length,
-});
-
-/** The Trips tab's count: trips ordered but not confirmed by the haulier yet. */
-export const tripsNotConfirmed = (trips: readonly TripFacts[]) => trips.filter((t) => t.status === "ORDERED").length;
+/** The status the server lists a queue by, when one status is the queue (In transit today is not). */
+export const tripViewStatus = (view: TripView | null): TripStatus | undefined => (view === "draft" ? "DRAFT" : view === "notConfirmed" ? "ORDERED" : undefined);
 
 /** The work queue a ?view= value names, or null. */
 export const tripViewOf = (param: string | null): TripView | null => TRIP_TILES.find((t) => t.id === param)?.id ?? null;

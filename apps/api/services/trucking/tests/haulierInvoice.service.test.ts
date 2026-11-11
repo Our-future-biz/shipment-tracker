@@ -178,6 +178,11 @@ vi.mock("../repositories/haulierInvoice.repository", () => {
         const invoice = mem.invoices.find((i) => i.id === id);
         return invoice ? { invoice, lines: linesOf(id) } : null;
       }),
+      statusCounts: vi.fn(async (_c: string, haulierCustomerId?: string) => {
+        const n = new Map<string, number>();
+        for (const i of mem.invoices.filter((x) => !haulierCustomerId || x.haulierCustomerId === haulierCustomerId)) n.set(i.status, (n.get(i.status) ?? 0) + 1);
+        return [...n].map(([status, count]) => ({ status, n: count }));
+      }),
       list: vi.fn(async (_c: string, f: { statuses?: string[]; haulierCustomerId?: string }) =>
         mem.invoices
           .filter((i) => (!f.statuses || f.statuses.includes(i.status)) && (!f.haulierCustomerId || i.haulierCustomerId === f.haulierCustomerId))
@@ -427,8 +432,8 @@ describe("VAT block: nobody can approve", () => {
     expect(inv.status).toBe("BLOCKED");
     mem.profiles.set(H, profile());
     expect(await haulierInvoiceService.get(user, inv.id)).toMatchObject({ status: "NEEDS_APPROVAL", blockReasons: [], approval: null });
-    expect((await haulierInvoiceService.list(user, { status: "NEEDS_APPROVAL" })).map((i) => i.id)).toEqual([inv.id]);
-    expect(await haulierInvoiceService.list(user, { status: "BLOCKED" })).toEqual([]);
+    expect((await haulierInvoiceService.list(user, { status: "NEEDS_APPROVAL" })).invoices.map((i) => i.id)).toEqual([inv.id]);
+    expect((await haulierInvoiceService.list(user, { status: "BLOCKED" })).invoices).toEqual([]);
     expect(mem.outbox).toEqual([]);
     // Failing the check again blocks it again on read.
     mem.profiles.set(H, profile({ vatUnreliable: true }));
@@ -616,8 +621,30 @@ describe("file and reading", () => {
   it("lists by status and haulier", async () => {
     await haulierInvoiceService.create(user, invoice());
     await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2", totalNet: 1001, lines: [{ targetKind: "TRIP", targetId: LTL, invoiced: 1001, note: "" }] }));
-    expect((await haulierInvoiceService.list(user, { status: "NEEDS_APPROVAL" })).map((i) => i.invoiceNumber)).toEqual(["FV 2"]);
-    expect(await haulierInvoiceService.list(user, { haulierCustomerId: H2 })).toEqual([]);
+    expect((await haulierInvoiceService.list(user, { status: "NEEDS_APPROVAL" })).invoices.map((i) => i.invoiceNumber)).toEqual(["FV 2"]);
+    expect((await haulierInvoiceService.list(user, { haulierCustomerId: H2 })).invoices).toEqual([]);
+  });
+
+  it("counts every status over all the invoices - an open one's as worked out now - and says when the list is cut", async () => {
+    await haulierInvoiceService.create(user, invoice());
+    // Rejected first: its trip may then go on another invoice.
+    const rejected = await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 3", totalNet: 1002, lines: [{ targetKind: "TRIP", targetId: LTL, invoiced: 1002, note: "" }] }));
+    await haulierInvoiceService.reject(manager, rejected.id, "Wrong price");
+    await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2", totalNet: 1001, lines: [{ targetKind: "TRIP", targetId: LTL, invoiced: 1001, note: "" }] }));
+    const zero = { DRAFT: 0, MATCHED: 0, NEEDS_APPROVAL: 0, APPROVED: 0, BLOCKED: 0, REJECTED: 0 };
+    expect(await haulierInvoiceService.list(user, {})).toMatchObject({ listed: 3, total: 3, truncated: false, counts: { ...zero, APPROVED: 1, NEEDS_APPROVAL: 1, REJECTED: 1 } });
+    // The haulier failing the VAT check now blocks its open invoice on reading: the count follows, the stored status does not.
+    mem.profiles.set(H, profile({ vatUnreliable: true }));
+    const blocked = await haulierInvoiceService.list(user, { status: "BLOCKED" });
+    expect(blocked).toMatchObject({ total: 1, truncated: false, counts: { ...zero, APPROVED: 1, BLOCKED: 1, REJECTED: 1 } });
+    expect(blocked.invoices.map((i) => i.invoiceNumber)).toEqual(["FV 2"]);
+    // More invoices than the newest 1000 read: said, and the counts are still over all of them.
+    vi.mocked(haulierInvoiceRepository.statusCounts).mockResolvedValueOnce([
+      { status: "APPROVED", n: 1400 },
+      { status: "NEEDS_APPROVAL", n: 1 },
+      { status: "REJECTED", n: 1 },
+    ]);
+    expect(await haulierInvoiceService.list(user, {})).toMatchObject({ listed: 3, total: 1402, truncated: true, counts: { APPROVED: 1400, BLOCKED: 1, REJECTED: 1 } });
   });
 });
 

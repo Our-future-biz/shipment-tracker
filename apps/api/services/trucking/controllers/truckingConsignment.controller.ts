@@ -26,8 +26,14 @@ interface TruckingConsignmentListRequest {
 
 interface TruckingConsignmentListResponse {
   consignments: ConsignmentListItem[];
-  /** Over the consignments matching status / search / job, whatever the view */
+  /** Over the consignments matching status / search / job, whatever the view (of those read) */
   counts: ConsignmentCounts;
+  /** How many of the newest consignments of the status and job were read (at most 1000), before the search and the view */
+  listed: number;
+  /** How many consignments the status and job match, read or not */
+  total: number;
+  /** More consignments match than were read: the oldest are not listed, searched or counted */
+  truncated: boolean;
 }
 
 // The consignments worklist with its tiles and chips.

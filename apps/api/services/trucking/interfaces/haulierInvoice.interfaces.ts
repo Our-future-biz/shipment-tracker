@@ -60,6 +60,16 @@ export interface HaulierInvoice {
   version: number;
 }
 
+/** How many invoices are in each status, over every invoice (an open one's status as worked out now). */
+export interface HaulierInvoiceCounts {
+  DRAFT: number;
+  MATCHED: number;
+  NEEDS_APPROVAL: number;
+  APPROVED: number;
+  BLOCKED: number;
+  REJECTED: number;
+}
+
 /**
  * An approved invoice not noted as paid, as the Customer Database's What we owe reads it (Council Review 5, C-1):
  * no lines, only what is owed and when.

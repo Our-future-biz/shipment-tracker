@@ -321,9 +321,19 @@ class ConsignmentService {
     );
   }
 
-  async list(actor: Actor, q: ConsignmentListQuery): Promise<{ consignments: ConsignmentListItem[]; counts: ConsignmentCounts }> {
-    if (q.shipmentId && !isUuid(q.shipmentId)) return { consignments: [], counts: emptyCounts() };
-    const found = await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId });
+  /**
+   * The worklist: the newest consignments (at most 1000) of the status and job, with how many
+   * there are in all; searched, its tiles and chips counted and its view filtered over those read.
+   */
+  async list(
+    actor: Actor,
+    q: ConsignmentListQuery,
+  ): Promise<{ consignments: ConsignmentListItem[]; counts: ConsignmentCounts; listed: number; total: number; truncated: boolean }> {
+    if (q.shipmentId && !isUuid(q.shipmentId)) return { consignments: [], counts: emptyCounts(), listed: 0, total: 0, truncated: false };
+    const [found, total] = await Promise.all([
+      consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId }),
+      consignmentRepository.count(actor.companyID, { status: q.status, shipmentId: q.shipmentId }),
+    ]);
     // Before the POD a consignment follows its job's department as Shipments has it now (C7).
     const rows = (await this.refreshDepartments(actor, found, { warn: false }))
       ? await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId })
@@ -364,7 +374,7 @@ class ConsignmentService {
     // Job updates that failed or wait too long need attention too.
     const items = await addUnsentReasons(actor.companyID, listed);
     const counts = countsOf(items, day, flags);
-    return { consignments: q.view ? items.filter((i) => inView(i, q.view!, day, flags)) : items, counts };
+    return { consignments: q.view ? items.filter((i) => inView(i, q.view!, day, flags)) : items, counts, listed: rows.length, total, truncated: total > rows.length };
   }
 
   // ---- pricing -----------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import {
   type TruckingTripRecord,
 } from "../schemas/truckingConsignment.schema";
 import type { TripKind, TripStatus } from "../interfaces/interfaces";
+import type { TripStatusCount } from "../lib/tripQueues";
 
 const t = truckingTripTable;
 const l = truckingHaulierLinkTable;
@@ -54,10 +55,21 @@ class TripRepository {
     return reader.select().from(t).where(and(eq(t.companyId, companyId), inArray(t.id, ids), isNull(t.deletedAt)));
   }
 
+  /** The trips list: by status, newest pick-up first (at most 1000; statusCounts says how many there are). */
   async list(companyId: string, filter: { status?: TripStatus }): Promise<TruckingTripRecord[]> {
     const clauses: SQL[] = [eq(t.companyId, companyId), isNull(t.deletedAt)];
     if (filter.status) clauses.push(eq(t.status, filter.status));
     return db.select().from(t).where(and(...clauses)).orderBy(desc(t.plannedPickupDate), desc(t.createdAt)).limit(MAX_LIST);
+  }
+
+  /** Every trip counted by status, with how many of each are planned for pick-up on `day` (YYYY-MM-DD). */
+  async statusCounts(companyId: string, day: string): Promise<TripStatusCount[]> {
+    const rows = await db
+      .select({ status: t.status, n: sql<number>`count(*)::int`, pickupToday: sql<number>`(count(*) filter (where ${t.plannedPickupDate} = ${day}))::int` })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt)))
+      .groupBy(t.status);
+    return rows.map((r) => ({ status: r.status, n: Number(r.n), pickupToday: Number(r.pickupToday) }));
   }
 
   /**

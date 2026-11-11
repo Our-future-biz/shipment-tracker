@@ -17,6 +17,7 @@ import type { FileDownload, HaulierProfile, PriceSnapshot } from "../interfaces/
 import type {
   HaulierInvoice,
   HaulierInvoiceCandidate,
+  HaulierInvoiceCounts,
   HaulierInvoiceInput,
   HaulierInvoiceLineInput,
   HaulierInvoiceStatus,
@@ -85,6 +86,8 @@ interface ResolvedLine {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+const INVOICE_STATUSES: HaulierInvoiceStatus[] = ["DRAFT", "MATCHED", "NEEDS_APPROVAL", "APPROVED", "BLOCKED", "REJECTED"];
 
 /** At most this many of a haulier's unpaid invoices are handed to What we owe at once. */
 const MAX_UNPAID = 10_000;
@@ -715,19 +718,45 @@ class HaulierInvoiceService {
     return toInvoice(stored, await this.profile(actor.companyID, stored.invoice.haulierCustomerId), await haulierInvoiceRepository.paymentTrackingSince());
   }
 
-  async list(actor: Actor, filter: { status?: HaulierInvoiceStatus; haulierCustomerId?: string }): Promise<HaulierInvoice[]> {
+  /**
+   * The newest invoices (at most 1000) of the status and haulier; with how many there are in all and
+   * every status counted over all of them (the open ones read to work their status out), so a cut
+   * list is said and never counted from.
+   */
+  async list(
+    actor: Actor,
+    filter: { status?: HaulierInvoiceStatus; haulierCustomerId?: string },
+  ): Promise<{ invoices: HaulierInvoice[]; listed: number; total: number; truncated: boolean; counts: HaulierInvoiceCounts }> {
     const status = filter.status || undefined;
-    if (status && !["DRAFT", "MATCHED", "NEEDS_APPROVAL", "APPROVED", "BLOCKED", "REJECTED"].includes(status)) throw bad("Unknown status");
+    if (status && !INVOICE_STATUSES.includes(status)) throw bad("Unknown status");
     const haulierCustomerId = filter.haulierCustomerId || undefined;
     if (haulierCustomerId && !isUuid(haulierCustomerId)) throw bad("Unknown haulier");
+    const companyId = actor.companyID;
     // An open invoice's status is worked out on reading: it is filtered by that, not the stored one.
     const statuses = !status ? undefined : OPEN_STATUSES.includes(status) ? OPEN_STATUSES : [status];
-    const stored = await haulierInvoiceRepository.list(actor.companyID, { statuses, haulierCustomerId });
-    const profiles = await haulierRepository.findMany(actor.companyID, [...new Set(stored.map((s) => s.invoice.haulierCustomerId))]);
+    const [stored, byStored, openRead, since] = await Promise.all([
+      haulierInvoiceRepository.list(companyId, { statuses, haulierCustomerId }),
+      haulierInvoiceRepository.statusCounts(companyId, haulierCustomerId),
+      statuses === OPEN_STATUSES ? Promise.resolve(null) : haulierInvoiceRepository.list(companyId, { statuses: OPEN_STATUSES, haulierCustomerId }),
+      haulierInvoiceRepository.paymentTrackingSince(),
+    ]);
+    const open = openRead ?? stored;
+    const profiles = await haulierRepository.findMany(companyId, [...new Set([...stored, ...open].map((s) => s.invoice.haulierCustomerId))]);
     const profileOf = new Map(profiles.map((p) => [p.profile.customerId, toProfile(p)]));
-    const since = await haulierInvoiceRepository.paymentTrackingSince();
-    const invoices = stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null, since));
-    return status ? invoices.filter((i) => i.status === status) : invoices;
+    const shown = (s: StoredInvoice) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null, since);
+    const invoices = stored.map(shown);
+    const counts: HaulierInvoiceCounts = { DRAFT: 0, MATCHED: 0, NEEDS_APPROVAL: 0, APPROVED: 0, BLOCKED: 0, REJECTED: 0 };
+    for (const r of byStored) if (!OPEN_STATUSES.includes(r.status)) counts[r.status] += r.n;
+    for (const i of open.map(shown)) counts[i.status] += 1;
+    // What the list's own read matches in all: more than it read is a cut list.
+    const matching = byStored.reduce((n, r) => n + (!statuses || statuses.includes(r.status) ? r.n : 0), 0);
+    return {
+      invoices: status ? invoices.filter((i) => i.status === status) : invoices,
+      listed: stored.length,
+      total: status ? counts[status] : matching,
+      truncated: matching > stored.length,
+      counts,
+    };
   }
 
   /**

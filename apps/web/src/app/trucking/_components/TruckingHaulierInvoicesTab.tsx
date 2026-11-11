@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tooltip } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
+import { ListCapNotice } from "@/components/ListCapNotice";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useCreateHaulierInvoice, useHaulierInvoices, type HaulierInvoice, type HaulierInvoiceStatus } from "@/hooks/useTruckingMoney";
@@ -64,23 +65,17 @@ const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
 ];
 
 // The invoices hauliers sent us, matched against their trips and partner deliveries. Status chips
-// filter (?status=); Enter invoice opens the entry dialog; a row opens the invoice.
+// filter (?status=, on the server) with the server's counts over every invoice; Enter invoice opens
+// the entry dialog; a row opens the invoice.
 export const TruckingHaulierInvoicesTab = () => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const toast = useToast();
-  const { invoices, isLoading, isError } = useHaulierInvoices();
+  const status = INVOICE_STATUS_ORDER.find((s) => s === searchParams.get("status")) ?? null;
+  const { invoices, counts, cap, isLoading, isError } = useHaulierInvoices({ status: status ?? undefined });
   const { create } = useCreateHaulierInvoice();
   const [entryOpen, setEntryOpen] = useState(false);
-  const status = INVOICE_STATUS_ORDER.find((s) => s === searchParams.get("status")) ?? null;
-
-  const counts = useMemo(() => {
-    const out = Object.fromEntries(INVOICE_STATUS_ORDER.map((s) => [s, 0])) as Record<HaulierInvoiceStatus, number>;
-    for (const i of invoices) out[i.status] += 1;
-    return out;
-  }, [invoices]);
-  const rows = useMemo(() => (status ? invoices.filter((i) => i.status === status) : invoices), [invoices, status]);
 
   const handleStatus = (next: HaulierInvoiceStatus | null) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -93,30 +88,38 @@ export const TruckingHaulierInvoicesTab = () => {
     <>
       <AppGrid<HaulierInvoice>
         subHeader={
-          <div role="group" aria-label="Status filters" className="mt-3 flex flex-wrap gap-2">
-            {INVOICE_STATUS_ORDER.map((s) => {
-              const on = status === s;
-              const chip = INVOICE_STATUS_CHIP[s];
-              const danger = (s === "BLOCKED" || s === "NEEDS_APPROVAL") && counts[s] > 0;
-              return (
-                <Tooltip key={s} title={chip.hint} mouseEnterDelay={0.4}>
-                  <button
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => handleStatus(on ? null : s)}
-                    className={`${CHIP} ${on ? CHIP_ON : ""}`}
-                  >
-                    {chip.label}
-                    <span className={`font-bold tabular-nums ${danger ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{isLoading ? "—" : counts[s]}</span>
-                  </button>
-                </Tooltip>
-              );
-            })}
-          </div>
+          <>
+            <div role="group" aria-label="Status filters" className="mt-3 flex flex-wrap gap-2">
+              {INVOICE_STATUS_ORDER.map((s) => {
+                const on = status === s;
+                const chip = INVOICE_STATUS_CHIP[s];
+                const n = counts ? counts[s] : null;
+                const danger = (s === "BLOCKED" || s === "NEEDS_APPROVAL") && !!n;
+                return (
+                  <Tooltip key={s} title={chip.hint} mouseEnterDelay={0.4}>
+                    <button
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => handleStatus(on ? null : s)}
+                      className={`${CHIP} ${on ? CHIP_ON : ""}`}
+                    >
+                      {chip.label}
+                      <span className={`font-bold tabular-nums ${danger ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{n ?? "—"}</span>
+                    </button>
+                  </Tooltip>
+                );
+              })}
+            </div>
+            {cap && (
+              <div className="mt-3">
+                <ListCapNotice shown={cap.listed} total={cap.total} noun="invoices" hint="older ones are not listed or searched here; the chips count every invoice" />
+              </div>
+            )}
+          </>
         }
         searchPlaceholder="Search invoice, haulier, trip…"
         columns={COLUMNS}
-        rows={rows}
+        rows={invoices}
         rowKey={(i) => i.id}
         loading={isLoading}
         onRowClick={(i) => router.push(haulierInvoiceHref(i.id))}

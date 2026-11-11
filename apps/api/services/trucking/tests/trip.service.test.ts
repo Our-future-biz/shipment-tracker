@@ -35,8 +35,9 @@ import { tripService } from "../services/trip.service";
 import { haulierService } from "../services/haulier.service";
 import { eurRate, rateService } from "../services/rate.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
+import { tripRepository } from "../repositories/trip.repository";
 import type { HaulierDetail, PricedSide, RateResponse } from "../interfaces/interfaces";
-import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
+import type { TruckingConsignmentRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import { COMPANY, CUSTOMER, HAULIER, HAULIER2, SHIPMENT, TX, eventsOf, load, manager, outboxOf, resetStore, stop, store, user } from "./truckingFakes";
 
 const buySide = (owner: string, name: string, total: number, preferred = false): PricedSide => ({
@@ -122,9 +123,32 @@ describe("FTL trip: haulier and buy price", () => {
   it("lists an FTL trip with its consignment's fill and no warnings", async () => {
     const c = await booked();
     const { trip } = await tripService.createFtl(user, { consignmentId: c.id, haulierCustomerId: null, vehicleTypeCode: "tautliner_136", price: { source: "TARIFF" } });
-    const [item] = await tripService.list(user, {});
+    const [item] = (await tripService.list(user, {})).trips;
     expect(item).toMatchObject({ id: trip.id, consignmentRefs: [c.ref], fill: trip.fill, warnings: [] });
     expect(item!.fill.kgPercent).not.toBeNull();
+  });
+
+  it("counts the work queues over every trip, not the list, and says when the list is cut", async () => {
+    let n = 0;
+    const trip = (status: TruckingTripRecord["status"], plannedPickupDate = "2026-10-20") =>
+      tripRepository.insert(TX as never, { companyId: COMPANY, ref: `LCZ2026${String(++n).padStart(6, "0")}`, kind: "FTL", haulierCustomerId: HAULIER, haulierName: "Bravo Trans", plannedPickupDate, status });
+    await trip("DRAFT");
+    await trip("DRAFT");
+    await trip("ORDERED", "2026-10-15");
+    await trip("ORDERED");
+    await trip("CONFIRMED", "2026-10-15");
+    await trip("CONFIRMED");
+    await trip("IN_TRANSIT", "2026-10-13");
+    await trip("DONE", "2026-10-15");
+    const all = await tripService.list(user, {});
+    // In transit today: on the road, or ordered / confirmed for pick-up today (Prague).
+    expect(all).toMatchObject({ listed: 8, total: 8, truncated: false, counts: { draft: 2, notConfirmed: 2, inTransitToday: 3 } });
+    const drafts = await tripService.list(user, { status: "DRAFT" });
+    expect(drafts).toMatchObject({ listed: 2, total: 2, truncated: false, counts: all.counts });
+    expect(drafts.trips.map((t) => t.status)).toEqual(["DRAFT", "DRAFT"]);
+    // The repository reads at most 1000: fewer rows than the trips there are is a cut list.
+    vi.mocked(tripRepository.list).mockResolvedValueOnce(store.trips.slice(0, 3).map((t) => ({ ...t })));
+    expect(await tripService.list(user, {})).toMatchObject({ listed: 3, total: 8, truncated: true, counts: all.counts });
   });
 
   it("owes the job the planned dates and the buy lines (outbox rows written with the plan)", async () => {

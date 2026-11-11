@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { tripService } from "../services/trip.service";
-import type { ConsignmentDetail, TripDetail, TripListItem, TripPriceInput, TripStatus } from "../interfaces/interfaces";
+import type { ConsignmentDetail, TripDetail, TripListItem, TripPriceInput, TripQueueCounts, TripStatus } from "../interfaces/interfaces";
 
 interface TruckingTripCreateFtlRequest {
   consignmentId: string;
@@ -47,12 +47,20 @@ interface TruckingTripListRequest {
 
 interface TruckingTripListResponse {
   trips: TripListItem[];
+  /** How many of the newest trips of the status were read (at most 1000), before the search */
+  listed: number;
+  /** How many trips the status matches, listed or not */
+  total: number;
+  /** More trips match than were read: the oldest are not listed */
+  truncated: boolean;
+  /** The work queues over every trip, not only those listed */
+  counts: TripQueueCounts;
 }
 
 export const truckingTripList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/trips" },
   async (req: TruckingTripListRequest): Promise<TruckingTripListResponse> => {
-    return { trips: await tripService.list(requireRole(), req) };
+    return tripService.list(requireRole(), req);
   },
 );
 
