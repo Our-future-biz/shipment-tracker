@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Spin } from "antd";
 import { BackLink } from "@/components/BackLink";
 import { useShipments } from "@/hooks/useShipments";
@@ -12,10 +12,9 @@ import { WAREHOUSE_SECTIONS, type WarehouseSection } from "../_components/wareho
 // What a reference on In Warehouse / Stock / Out Warehouse opens: the shipment's Warehouse
 // tab on its own, without the rest of the shipment detail. It is the same component over
 // the same shipment, so what is filled in here shows on the shipment and the other way round.
-export function WarehouseShipmentContent() {
+// Its address is under the list it was opened from (/warehouse/stock/<id>), so the sidebar keeps that list lit.
+export function WarehouseShipmentContent({ section }: { section: WarehouseSection }) {
   const { shipmentId } = useParams<{ shipmentId: string }>();
-  const from = useSearchParams().get("from") ?? "";
-  const section: WarehouseSection = from in WAREHOUSE_SECTIONS ? (from as WarehouseSection) : "in";
   const { shipments, isLoading } = useShipments({ warehouse: section });
   const shipment = shipments.find((s) => s.id === shipmentId);
   const back = <BackLink href={`/warehouse/${section}`}>{WAREHOUSE_SECTIONS[section]}</BackLink>;

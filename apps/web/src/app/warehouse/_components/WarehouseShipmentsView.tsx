@@ -32,7 +32,7 @@ export function WarehouseShipmentsView({
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto">
-        <ShipmentsTable shipments={shipments} cap={{ shown: all.length, total }} isLoading={isLoading} isError={isError} onVisibleColumnsChange={setSearchColumns} view={{ key: `warehouse-${section}`, title: WAREHOUSE_SECTIONS[section], detailHref: `/warehouse/:id?from=${section}`, defaultColumns: WAREHOUSE_DEFAULT_COLUMNS, leadColumn: WAREHOUSE_LEAD_COLUMN[section] }} selectionActions={selectionActions} />
+        <ShipmentsTable shipments={shipments} cap={{ shown: all.length, total }} isLoading={isLoading} isError={isError} onVisibleColumnsChange={setSearchColumns} view={{ key: `warehouse-${section}`, title: WAREHOUSE_SECTIONS[section], detailHref: `/warehouse/${section}/:id`, defaultColumns: WAREHOUSE_DEFAULT_COLUMNS, leadColumn: WAREHOUSE_LEAD_COLUMN[section] }} selectionActions={selectionActions} />
       </div>
     </div>
   );

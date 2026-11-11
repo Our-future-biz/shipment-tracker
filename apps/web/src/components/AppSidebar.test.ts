@@ -38,6 +38,8 @@ describe("the menu", () => {
     expect(warehouse?.path).toBe("/warehouse");
     expect(warehouse?.children?.map((c) => c.label)).toEqual(["In Warehouse", "Stock", "Out Warehouse"]);
     expect(navActiveChild(warehouse!.children!, "/warehouse/stock")?.label).toBe("Stock");
+    // A shipment opened from a list keeps that list lit.
+    expect(navActiveChild(warehouse!.children!, "/warehouse/out/0b7c2e1a-1111-4111-8111-111111111111")?.label).toBe("Out Warehouse");
     expect(navActiveChild(warehouse!.children!, "/warehouse")).toBeUndefined();
   });
 
