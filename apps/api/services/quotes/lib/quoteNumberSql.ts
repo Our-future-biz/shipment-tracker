@@ -8,6 +8,15 @@ import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
 // parameters, and Postgres plans each statement node-postgres sends (an unnamed one) with their
 // values in place - so the query's expression is the index's, whose patterns are written in.
 
+/**
+ * `expression` starts with `prefix`, as a range the plain-number index answers whatever the prefix's
+ * value: a LIKE 'prefix%' uses an index only when the planner sees the pattern as a constant, which a
+ * parameter is not. Compared byte by byte (~>=~ / ~<~, the text_pattern_ops of the index), from the
+ * prefix to the prefix followed by the highest character, which no reference holds.
+ */
+export const startsWithSql = (expression: SQL, prefix: string): SQL =>
+  sql`(${expression} ~>=~ ${prefix} AND ${expression} ~<~ ${`${prefix}\u{10FFFF}`})`;
+
 /** A revision's suffix, as revisionRoot (lib/salesReference) takes it away: QCZ…001-R2 → QCZ…001. */
 export const REVISION_SUFFIX = "-R[0-9]+$";
 

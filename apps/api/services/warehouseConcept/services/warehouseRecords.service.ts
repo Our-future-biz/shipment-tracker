@@ -137,6 +137,11 @@ class WarehouseRecordsService {
     let id: string;
     try {
       id = await db.transaction(async (tx) => {
+        // The position is locked before the container is inserted: the container row points at it
+        // (wh_container_movement_fk), and that insert's key-share lock, taken by two creates at once,
+        // would deadlock their FOR UPDATE of the position. Locked first, the second create waits and
+        // then finds the position taken.
+        if (movement) await gateMovementRepository.lockLive(tx, [movement.id], companyId);
         const row = await containerRepository.insertTx(tx, companyId, fields as Omit<typeof warehouseContainerTable.$inferInsert, "companyId">);
         if (movement) {
           await this.checkRegisterLink(tx, companyId, row.direction, movement);

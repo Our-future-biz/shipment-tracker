@@ -35,7 +35,7 @@ describe.skipIf(!process.env.QUOTES_DB_TESTS)("a quote's number without its lett
   it("answers a lookup by the plain number, a day's numbers and a thread's live quotes from their indexes", async () => {
     const { db } = await import("../../db/db");
     const { quoteTable } = await import("../../schemas/quote.schema");
-    const { plainQuoteNumberSql, quoteThreadSql } = await import("../../lib/quoteNumberSql");
+    const { plainQuoteNumberSql, quoteThreadSql, startsWithSql } = await import("../../lib/quoteNumberSql");
     const { sql } = await import("drizzle-orm");
     const company = randomUUID();
     // Planned as the repositories send them: the patterns and values as parameters.
@@ -46,7 +46,8 @@ describe.skipIf(!process.env.QUOTES_DB_TESTS)("a quote's number without its lett
       const plan = async (query: SQL) => JSON.stringify((await tx.execute(sql`explain (format json) ${query}`)).rows);
       return {
         byNumber: await plan(sql`select 1 from ${quoteTable} where ${quoteTable.companyId} = ${company} and ${plainQuoteNumberSql(quoteTable.quoteNumber)} = ${"QCZ20261111001"}`),
-        byDay: await plan(sql`select 1 from ${quoteTable} where ${quoteTable.companyId} = ${company} and ${plainQuoteNumberSql(quoteTable.quoteNumber)} like ${"QCZ20261111%"}`),
+        // As the day's numbers are read (startsWithSql): a range, which an index answers with the prefix a parameter.
+        byDay: await plan(sql`select 1 from ${quoteTable} where ${quoteTable.companyId} = ${company} and ${startsWithSql(plainQuoteNumberSql(quoteTable.quoteNumber), "QCZ20261111")}`),
         byThread: await plan(
           sql`select 1 from ${quoteTable} where ${quoteTable.companyId} = ${company} and ${quoteTable.deletedAt} is null and ${quoteThreadSql(quoteTable.quoteNumber)} = ${"QCZ20261111001"}`,
         ),

@@ -20,11 +20,11 @@ import {
   type LifecycleState,
   type TimelineEntry,
 } from "../utils/quoteLifecycle.utils";
-import { COMBINING_MARKS, FINAL_SIGMA, FOLD_FROM, FOLD_TO, SIGMA, escapeLike } from "../utils/quoteSearch.utils";
+import { COMBINING_MARKS, FINAL_SIGMA, FOLD_FROM, FOLD_TO, SIGMA } from "../utils/quoteSearch.utils";
 import { foldSql } from "../../../lib/db/textSearch";
 import { plainSalesReference } from "../../../lib/salesReference";
 import { plainSalesReferenceSql as plainNumber } from "../../../lib/db/salesReferenceSql";
-import { plainQuoteNumberSql } from "../lib/quoteNumberSql";
+import { plainQuoteNumberSql, startsWithSql } from "../lib/quoteNumberSql";
 import type { QuoteColumnFilter, QuoteFilterColumn } from "../utils/quoteColumnFilters.utils";
 
 // A quote's reference without the letters of its Freight Mode (lib/salesReference): what a reference
@@ -840,7 +840,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
             .select({ quoteNumber: quoteTable.quoteNumber })
             .from(quoteTable)
             // Without letters: a day's numbers, a quote's variants and revisions are counted across them.
-            .where(and(eq(quoteTable.companyId, companyId), sql`${PLAIN_NUMBER} LIKE ${`${escapeLike(plainSalesReference(prefix))}%`}`));
+            .where(and(eq(quoteTable.companyId, companyId), startsWithSql(PLAIN_NUMBER, plainSalesReference(prefix))));
           return body(tx, used.map((r) => r.quoteNumber));
         });
       } catch (err) {
@@ -933,7 +933,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       filter.family
         ? or(
             eq(PLAIN_NUMBER, plainSalesReference(filter.family)),
-            sql`${PLAIN_NUMBER} LIKE ${`${escapeLike(plainSalesReference(filter.family))}-%`}`,
+            startsWithSql(PLAIN_NUMBER, `${plainSalesReference(filter.family)}-`),
           )
         : undefined,
       filter.hasShipment === undefined ? undefined : filter.hasShipment ? isNotNull(quoteTable.shipmentId) : isNull(quoteTable.shipmentId),
