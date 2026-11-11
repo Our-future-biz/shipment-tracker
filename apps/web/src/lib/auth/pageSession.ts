@@ -52,6 +52,19 @@ export function dropSessionToken(): void {
   }
 }
 
+/** What the check of a stored session (/auth/me) found out. */
+export type SessionCheck = "valid" | "ended" | "unreachable";
+
+/**
+ * What the check's answer says, by its HTTP status (null: no answer came - no connection, or it took
+ * too long). Only a 401 ends the session; a server that does not answer, or answers with an error
+ * of its own (starting up, down, a gateway's error page), says nothing about it.
+ */
+export function sessionCheckOutcome(status: number | null): SessionCheck {
+  if (status === 401) return "ended";
+  return status !== null && status >= 200 && status < 300 ? "valid" : "unreachable";
+}
+
 /**
  * Whether a change another tab made to the storage (a `storage` event's key and new value) changes
  * the session this page works in: another token - a sign-out, a sign-in, another user - or another

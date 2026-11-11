@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
 import type { ReactNode } from "react";
 import { API_BASE } from "@/lib/api";
 import { actingCompanyId, clearActingCompany, withActingCompany } from "@/lib/actingCompany";
-import { dropSessionToken, sessionToken, startSession } from "@/lib/auth/pageSession";
+import { dropSessionToken, sessionCheckOutcome, sessionToken, startSession } from "@/lib/auth/pageSession";
 import { canSeeConcepts } from "@/lib/concepts";
 
 
@@ -32,6 +32,10 @@ interface AuthContextValue {
   company: WorkingCompany | null;
   token: string | null;
   isLoading: boolean;
+  /** The stored session could not be checked (the server did not answer, or answered with an error of its own); it is kept for a retry. */
+  serverUnreachable: boolean;
+  /** Checks the stored session again. */
+  retrySession: () => void;
   loginError: string | null;
   isLoggingIn: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -43,6 +47,8 @@ const AuthContext = createContext<AuthContextValue>({
   company: null,
   token: null,
   isLoading: true,
+  serverUnreachable: false,
+  retrySession: () => {},
   loginError: null,
   isLoggingIn: false,
   login: async () => {},
@@ -63,6 +69,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  const [serverUnreachable, setServerUnreachable] = useState(false);
+  // Counts the tries to restore the session: "Retry" on the unreachable screen asks again.
+  const [restoreTry, setRestoreTry] = useState(0);
+
   // Restore session on mount
   useEffect(() => {
     const savedToken = sessionToken();
@@ -72,8 +82,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
 
     // Safety timeout — don't hang forever if API is down. It aborts the request, so an answer
-    // arriving later can't sign the user in after the token was already dropped (every call
-    // would then go out without one).
+    // arriving later can't sign the user in after the unreachable screen was already shown.
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -85,11 +94,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       headers: withActingCompany(new Headers({ Authorization: `Bearer ${savedToken}` })),
       signal: controller.signal,
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Invalid session");
-        return res.json();
-      })
-      .then((data) => {
+      .then(async (res) => {
+        const outcome = sessionCheckOutcome(res.status);
+        // The server refused the token: the session is over, and the login page opens.
+        if (outcome === "ended") return dropSessionToken();
+        // The server answered with an error of its own (starting up, down): the token is kept.
+        if (outcome === "unreachable") return setServerUnreachable(true);
+        const data = await res.json();
         // A company chosen to work as that is no longer one (or a user who is no superadmin any
         // more): the server answered the user's own, and the choice is dropped.
         if (actingCompanyId() && !data.company?.switched) clearActingCompany();
@@ -100,7 +111,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       .catch(() => {
         // Aborted by the cleanup below (unmount, or React's dev double-run): not a failed session.
         if (controller.signal.aborted && !timedOut) return;
-        dropSessionToken();
+        // No answer in time, no connection, or an answer that was not the API's: nothing says the
+        // session is over, so the token is kept and the user can try again (an API cold start
+        // must not sign everybody out).
+        setServerUnreachable(true);
       })
       .finally(() => {
         clearTimeout(timeout);
@@ -112,6 +126,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       clearTimeout(timeout);
       controller.abort();
     };
+  }, [restoreTry]);
+
+  const retrySession = useCallback(() => {
+    setServerUnreachable(false);
+    setIsLoading(true);
+    setRestoreTry((n) => n + 1);
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -155,7 +175,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, company, token, isLoading, loginError, isLoggingIn, login, logout }}>
+    <AuthContext.Provider value={{ user, company, token, isLoading, serverUnreachable, retrySession, loginError, isLoggingIn, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -59,6 +59,20 @@ describe("the session a page works in", () => {
     expect(localStorage.getItem("auth_token")).toBe("token-of-bob");
   });
 
+  describe("the check of a stored session", () => {
+    it("ends it only when the server refuses the token", async () => {
+      const page = await loadPage();
+      expect(page.sessionCheckOutcome(401)).toBe("ended");
+      expect(page.sessionCheckOutcome(200)).toBe("valid");
+    });
+
+    it("keeps it when the server does not answer, or answers with an error of its own (a cold start)", async () => {
+      const page = await loadPage();
+      expect(page.sessionCheckOutcome(null)).toBe("unreachable");
+      for (const status of [500, 502, 503, 504, 404]) expect(page.sessionCheckOutcome(status)).toBe("unreachable");
+    });
+  });
+
   describe("a change another tab makes to the storage", () => {
     it("changes it when the token is another: a sign-out, a sign-in, another user", async () => {
       localStorage.setItem("auth_token", "token-of-ann");

@@ -5,6 +5,7 @@ import { Spin } from "antd";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { TopNav } from "@/components/TopNav";
 import { AppSidebar } from "@/components/AppSidebar";
+import { ServerUnreachable } from "@/components/ServerUnreachable";
 import { SessionChangedNotice } from "@/components/SessionChangedNotice";
 import { CameFromTracker } from "@/lib/cameFrom";
 import { Suspense, useEffect, useState } from "react";
@@ -23,7 +24,7 @@ interface AppShellProps {
 }
 
 export const AppShell = ({ children }: AppShellProps) => {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, serverUnreachable, retrySession } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [hasRedirected, setHasRedirected] = useState(false);
@@ -32,7 +33,8 @@ export const AppShell = ({ children }: AppShellProps) => {
   const isOpenPath = OPEN_PATHS.some((p) => pathname.startsWith(p));
 
   useEffect(() => {
-    if (isLoading || isOpenPath) return;
+    // A session that could not be checked is no session over: no redirect to the login page.
+    if (isLoading || isOpenPath || serverUnreachable) return;
 
     if (!user && !isPublicPath && !hasRedirected) {
       // Not authenticated on a protected page → go to login
@@ -42,7 +44,7 @@ export const AppShell = ({ children }: AppShellProps) => {
       // Authenticated on login page → go to dashboard
       router.replace("/dashboard");
     }
-  }, [user, isLoading, isPublicPath, isOpenPath, hasRedirected, router]);
+  }, [user, isLoading, serverUnreachable, isPublicPath, isOpenPath, hasRedirected, router]);
 
   // Reset redirect flag when pathname changes
   useEffect(() => {
@@ -53,6 +55,9 @@ export const AppShell = ({ children }: AppShellProps) => {
   if (isOpenPath) return <>{children}</>;
 
   const shell = () => {
+    // The stored session could not be checked: kept, with a retry, on the login page as on any other.
+    if (serverUnreachable) return <ServerUnreachable onRetry={retrySession} />;
+
     // Public paths: render content directly (login page)
     if (isPublicPath) {
       if (isLoading) {
