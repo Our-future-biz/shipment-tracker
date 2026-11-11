@@ -26,6 +26,7 @@ import { CANCELLED_STATUS, FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber, sameMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
+import { ShipmentPicker } from "@/app/sales/quote/[ref]/_components/CopyFromModal";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
 import { invoicingKey } from "@/hooks/useInvoicing";
 import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/lib/documentTypes";
@@ -209,7 +210,9 @@ export function DocumentReadingWorkflow() {
   const [fields, setFields] = useState<ExtractedField[]>([]);
   const [extractionMethod, setExtractionMethod] = useState("");
   const [shipmentMode, setShipmentMode] = useState<TargetMode>("existing");
-  const [targetShipmentId, setTargetShipmentId] = useState("");
+  // The shipments picked as targets, as the server search found them: any of the company's, not
+  // only the newest the cached list holds.
+  const [targetShipment, setTargetShipment] = useState<ShipmentItem | null>(null);
   const [committedJobNumber, setCommittedJobNumber] = useState("");
   // A file read into Shipments is also saved to the shipment's documents, named after its
   // document number. The user approves the name and type on Review; until they edit them
@@ -222,12 +225,12 @@ export function DocumentReadingWorkflow() {
   const [bookingMode, setBookingMode] = useState<TargetMode>("new");
   const [bookingMcz, setBookingMcz] = useState("");
   // Customs reads always go to one existing shipment (by Internal Reference).
-  const [customsShipmentId, setCustomsShipmentId] = useState("");
+  const [customsShipment, setCustomsShipment] = useState<ShipmentItem | null>(null);
 
   // Invoicing review
   const [invoiceData, setInvoiceData] = useState<InvoiceExtracted>({});
   const [invoiceCategory, setInvoiceCategory] = useState("");
-  const [invoiceTargetShipmentId, setInvoiceTargetShipmentId] = useState("");
+  const [invoiceShipment, setInvoiceShipment] = useState<ShipmentItem | null>(null);
   // An invoice can instead cover a master job: it is split over the shipments the user ticks,
   // by W/M or in equal parts, and each part is posted as that shipment's real cost.
   const [invoiceTarget, setInvoiceTarget] = useState<"shipment" | "masterjob">("shipment");
@@ -284,13 +287,9 @@ export function DocumentReadingWorkflow() {
   const [waitingForBatch, setWaitingForBatch] = useState(false);
 
   // Derived
-  const shipmentOptions = useMemo(
-    () =>
-      shipments
-        .filter((s) => s.jobNumber)
-        .map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper || s.consignee || ""}` })),
-    [shipments],
-  );
+  const targetShipmentId = targetShipment?.id ?? "";
+  const customsShipmentId = customsShipment?.id ?? "";
+  const invoiceTargetShipmentId = invoiceShipment?.id ?? "";
   // Only a preview: the server gives the number out when the shipment is stored.
   const { nextJobNumber: newShipmentPreview } = useNextJobNumber(true);
   const { masterJobs } = useMasterJobs();
@@ -595,7 +594,7 @@ export function DocumentReadingWorkflow() {
           reads.push({ values: normalizeExtracted(result.extracted), method: result.method });
         }
         const merged = mergeReads(reads.map((r) => ({ source: r.file?.name ?? "text", values: r.values })));
-        const target = shipmentMode === "existing" ? shipments.find((s) => s.id === targetShipmentId) : undefined;
+        const target = shipmentMode === "existing" ? (targetShipment ?? undefined) : undefined;
         setFields(
           buildFields(merged.values, (label) => {
             if (label === SEAL_LABEL) {
@@ -654,7 +653,7 @@ export function DocumentReadingWorkflow() {
             ? await api.extraction.extractCustoms({ fileBase64, fileName })
             : await api.extraction.extractText({ text: textInput.trim(), destination: "customs" });
         if (Object.keys(result.extracted).length === 0) throw new Error("No customs data found in this document.");
-        const target = shipments.find((s) => s.id === customsShipmentId);
+        const target = customsShipment;
         const targetContainers = (target?.containers ?? []).map((c) => c.containerNumber).filter(Boolean);
         setFields(
           buildFields(result.extracted, (label) => {
@@ -745,21 +744,23 @@ export function DocumentReadingWorkflow() {
     let jobNumber = "";
     try {
       if (shipmentMode === "existing") {
-        const target = shipments.find((s) => s.id === targetShipmentId);
+        // Read as it is now: its containers and cargo lines are sent back whole, so a copy from
+        // before would drop the rows added since.
+        const { shipment: target } = await api.shipments.shipmentGet(targetShipmentId);
         let data = toShipmentUpdate(approved);
-        data = await withPartyLinks(data, async () => target ?? (await api.shipments.shipmentGet(targetShipmentId)).shipment, keptPartyDetails);
+        data = await withPartyLinks(data, async () => target, keptPartyDetails);
         // Extracted containers join the shipment's existing rows (never replace).
-        const after = containersRead ? containersFrom(target?.containers ?? []) : [];
+        const after = containersRead ? containersFrom(target.containers ?? []) : [];
         if (after.length > 0) data.containers = after;
         // An approved package type goes onto all of the shipment's containers and cargo lines.
-        if (approved["Type Of Packages"] && !data.containers?.length && target?.containers?.length) {
+        if (approved["Type Of Packages"] && !data.containers?.length && target.containers?.length) {
           data.containers = target.containers;
         }
         data = withContainerType(data, approved);
-        data = withCargoLine(data, approved, target?.cargoItems ?? []);
-        data = withPackageType(data, approved["Type Of Packages"], target?.cargoItems ?? []);
+        data = withCargoLine(data, approved, target.cargoItems ?? []);
+        data = withPackageType(data, approved["Type Of Packages"], target.cargoItems ?? []);
         await updateShipment({ id: targetShipmentId, data });
-        jobNumber = target?.jobNumber || "";
+        jobNumber = target.jobNumber;
       } else {
         const created = await createShipment(baseCreatePayload());
         shipmentId = created.shipment.id;
@@ -855,7 +856,10 @@ export function DocumentReadingWorkflow() {
 
   // The job number of a shipment a credit note or sorted invoice goes to.
   const jobOf = (id: string) =>
-    blShipments.find((s) => s.shipmentId === id)?.jobNumber ?? shipments.find((s) => s.id === id)?.jobNumber ?? id;
+    blShipments.find((s) => s.shipmentId === id)?.jobNumber ??
+    (invoiceShipment?.id === id ? invoiceShipment.jobNumber : undefined) ??
+    shipments.find((s) => s.id === id)?.jobNumber ??
+    id;
 
   // ─── Commit: invoice sorted by its B/Ls, or a credit note ────────
   const commitInvoiceLines = async () => {
@@ -910,22 +914,19 @@ export function DocumentReadingWorkflow() {
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     try {
-      const target = shipments.find((s) => s.id === customsShipmentId);
-      const data = await withPartyLinks(
-        toShipmentUpdate(approved),
-        async () => target ?? (await api.shipments.shipmentGet(customsShipmentId)).shipment,
-        keptPartyDetails,
-      );
+      // Read as it is now: its containers are sent back whole, so a copy from before would drop the rows added since.
+      const { shipment: target } = await api.shipments.shipmentGet(customsShipmentId);
+      const data = await withPartyLinks(toShipmentUpdate(approved), async () => target, keptPartyDetails);
       if (approved["MRN Number"]) data.mrn = approved["MRN Number"];
       // Add only the containers the shipment doesn't have yet (never replace).
-      const existing = target?.containers ?? [];
+      const existing = target.containers ?? [];
       const known = new Set(existing.map((c) => c.containerNumber));
       const added = containerRowsFromNumbers(
         parseContainerNumbers(approved["Container Number"]).filter((n) => !known.has(n)),
       );
       if (added.length > 0) data.containers = [...existing, ...added];
       await updateShipment({ id: customsShipmentId, data });
-      setCommittedJobNumber(target?.jobNumber || "");
+      setCommittedJobNumber(target.jobNumber);
       setStep("committed");
     } catch {
       toast.error("Failed to write the customs data to the shipment.");
@@ -1198,10 +1199,10 @@ export function DocumentReadingWorkflow() {
     setFields([]);
     setExtractionMethod("");
     setShipmentMode("existing");
-    setTargetShipmentId("");
+    setTargetShipment(null);
     setCommittedJobNumber("");
     quoteReading.reset();
-    setCustomsShipmentId("");
+    setCustomsShipment(null);
     setBookingMode("new");
     setBookingMcz("");
     setBookingCreated(null);
@@ -1211,7 +1212,7 @@ export function DocumentReadingWorkflow() {
     setLinesPreview(null);
     setAllowRepeat(false);
     setInvoiceCategory("");
-    setInvoiceTargetShipmentId("");
+    setInvoiceShipment(null);
     setInvoiceTarget("shipment");
     setInvoiceMcz("");
     setInvoiceUnticked(new Set());
@@ -1316,15 +1317,7 @@ export function DocumentReadingWorkflow() {
                 <Radio value="new">Create new shipment</Radio>
               </Radio.Group>
               {shipmentMode === "existing" ? (
-                <Select
-                  showSearch
-                  className="w-full"
-                  placeholder="Select shipment…"
-                  value={targetShipmentId || undefined}
-                  onChange={(v) => setTargetShipmentId(v || "")}
-                  options={shipmentOptions}
-                  filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-                />
+                <ShipmentPicker value={targetShipment} onChange={setTargetShipment} />
               ) : (
                 <Pill tone="slate" className={REF}>
                   {newShipmentPreview} (will be assigned)
@@ -1350,15 +1343,7 @@ export function DocumentReadingWorkflow() {
               {invoiceTarget === "shipment" ? (
                 <>
                   <div className={`${LABEL_TEXT} mb-1.5`}>Target shipment for invoice costs</div>
-                  <Select
-                    showSearch
-                    className="w-full"
-                    placeholder="Select shipment…"
-                    value={invoiceTargetShipmentId || undefined}
-                    onChange={(v) => setInvoiceTargetShipmentId(v || "")}
-                    options={shipmentOptions}
-                    filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-                  />
+                  <ShipmentPicker value={invoiceShipment} onChange={setInvoiceShipment} />
                 </>
               ) : (
                 <>
@@ -1396,15 +1381,7 @@ export function DocumentReadingWorkflow() {
           {destination === "customs" && (
             <div className="mb-4">
               <div className={`${LABEL_TEXT} mb-1.5`}>Internal Reference (required)</div>
-              <Select
-                showSearch
-                className="w-full"
-                placeholder="Select shipment…"
-                value={customsShipmentId || undefined}
-                onChange={(v) => setCustomsShipmentId(v || "")}
-                options={shipmentOptions}
-                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-              />
+              <ShipmentPicker value={customsShipment} onChange={setCustomsShipment} />
             </div>
           )}
 
@@ -1617,7 +1594,7 @@ export function DocumentReadingWorkflow() {
             editable
             onEdit={editField}
             onPick={pickField}
-            containersOnFile={shipmentMode === "existing" ? containerNumbersOnFile(shipments.find((s) => s.id === targetShipmentId)?.containers ?? []) : []}
+            containersOnFile={shipmentMode === "existing" ? containerNumbersOnFile(targetShipment?.containers ?? []) : []}
           />
           {shipmentDocViews.map((d) => (
             <SaveDocumentBox
@@ -1655,7 +1632,7 @@ export function DocumentReadingWorkflow() {
               {destination === "booking"
                 ? bookingMasterJob?.mczNumber ?? bookingCreated?.mczNumber ?? `${newMcz} (new master job)`
                 : destination === "customs"
-                  ? shipments.find((s) => s.id === customsShipmentId)?.jobNumber || "shipment"
+                  ? customsShipment?.jobNumber || "shipment"
                   : shipmentMode === "new"
                     ? newShipmentPreview
                     : "shipment"}
