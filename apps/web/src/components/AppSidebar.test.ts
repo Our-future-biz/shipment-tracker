@@ -33,6 +33,14 @@ describe("the menu", () => {
     expect(labels("superadmin")).toEqual(expect.arrayContaining(["Warehouse", "Warehouse Concept", "Trucking Concept"]));
   });
 
+  it("puts In Warehouse, Stock and Out Warehouse under Warehouse, which opens its overview", () => {
+    const warehouse = visibleNavItems({ role: "user" }).find((i) => i.label === "Warehouse");
+    expect(warehouse?.path).toBe("/warehouse");
+    expect(warehouse?.children?.map((c) => c.label)).toEqual(["In Warehouse", "Stock", "Out Warehouse"]);
+    expect(navActiveChild(warehouse!.children!, "/warehouse/stock")?.label).toBe("Stock");
+    expect(navActiveChild(warehouse!.children!, "/warehouse")).toBeUndefined();
+  });
+
   it("puts Managers under Warehouse Concept, which opens its own page", () => {
     const concept = visibleNavItems({ role: "superadmin" }).find((i) => i.label === "Warehouse Concept");
     expect(concept?.path).toBe("/warehouse-concept");

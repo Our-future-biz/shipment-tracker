@@ -76,8 +76,19 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { path: "/customs", label: "Customs", icon: SealCheckIcon },
-  // The warehouse and its concept prototype share the package box.
-  { path: "/warehouse", label: "Warehouse", icon: PackageIcon },
+  // The warehouse and its concept prototype share the package box. /warehouse shows its three lists
+  // as tiles to pick from (SectionOverview), as Sales does.
+  {
+    path: "/warehouse",
+    label: "Warehouse",
+    icon: PackageIcon,
+    description: "Shipments on their way in, in stock and released to a truck.",
+    children: [
+      { path: "/warehouse/in", label: "In Warehouse", description: "Shipments expected at the warehouse, to be taken in." },
+      { path: "/warehouse/stock", label: "Stock", description: "Shipments taken in and stored, to be released to a truck." },
+      { path: "/warehouse/out", label: "Out Warehouse", description: "Shipments released from the warehouse, with their truck." },
+    ],
+  },
   // The concept modules are prototypes shown to superadmins only (Gate Log is a tab of Warehouse Concept).
   // Warehouse Concept opens its own page; its Managers cockpit is a page of its own under it.
   {
