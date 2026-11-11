@@ -2,12 +2,23 @@
 
 import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { changeUserPref, readUserPref, userPrefKey } from "./userPrefs";
 
 export interface FilterTemplate {
   id: string;
   name: string;
   filters: { key: string; value: string }[];
+}
+
+/** The saved templates out of the stored JSON; anything that is not a list of templates is none. */
+export function parseFilterTemplates(stored: string | null | undefined): FilterTemplate[] {
+  if (!stored) return [];
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed) ? (parsed as FilterTemplate[]).filter((t) => t && t.id && t.name && Array.isArray(t.filters)) : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -18,46 +29,43 @@ export interface FilterTemplate {
 export function useFilterTemplates(scope?: string) {
   const queryClient = useQueryClient();
   const PREF_KEY = scope ? `${scope}:filter-templates` : "shipment-filter-templates";
-  const QUERY_KEY = useMemo(() => ["user-prefs", PREF_KEY], [PREF_KEY]);
+  const QUERY_KEY = useMemo(() => userPrefKey(PREF_KEY), [PREF_KEY]);
 
   const { data } = useQuery({
     queryKey: QUERY_KEY,
-    queryFn: () => api.shipments.userPrefGet(PREF_KEY),
+    queryFn: () => readUserPref(PREF_KEY),
     staleTime: 5 * 60 * 1000,
   });
 
-  const templates: FilterTemplate[] = useMemo(() => {
-    if (!data?.value) return [];
-    try {
-      const parsed: unknown = JSON.parse(data.value);
-      return Array.isArray(parsed) ? (parsed as FilterTemplate[]).filter((t) => t && t.id && t.name && Array.isArray(t.filters)) : [];
-    } catch {
-      return [];
-    }
-  }, [data?.value]);
+  const templates: FilterTemplate[] = useMemo(() => parseFilterTemplates(data?.value), [data?.value]);
+  // Known once the saved templates were read. Until then - and when the read failed - the list is
+  // only empty, and nothing is saved: a list built on it would replace every saved template.
+  const loaded = data !== undefined;
 
-  const save = useMutation({
-    mutationFn: (next: FilterTemplate[]) => api.shipments.userPrefSet(PREF_KEY, { value: JSON.stringify(next) }),
-    // Show the change straight away; roll back if the server refuses it.
-    onMutate: (next) => {
-      const previous = queryClient.getQueryData(QUERY_KEY);
-      queryClient.setQueryData(QUERY_KEY, { value: JSON.stringify(next) });
-      return { previous };
-    },
-    onError: (_e, _next, context) => queryClient.setQueryData(QUERY_KEY, context?.previous),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY }),
+  // Each change is made to the list as the server holds it now, so a template another tab saved
+  // meanwhile is kept; one change waits for the one before.
+  const change = useMutation({
+    mutationFn: (edit: (current: FilterTemplate[]) => FilterTemplate[]) => changeUserPref(queryClient, PREF_KEY, parseFilterTemplates, edit),
+    scope: { id: `user-prefs:${PREF_KEY}` },
   });
 
   /** Saves the filters under a name; an existing template of that name is overwritten. */
   const saveTemplate = async (name: string, filters: FilterTemplate["filters"]) => {
+    if (!loaded) throw new Error("The saved templates are not loaded yet");
     const trimmed = name.trim();
-    const existing = templates.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
-    const template: FilterTemplate = { id: existing?.id ?? crypto.randomUUID(), name: trimmed, filters };
-    await save.mutateAsync(existing ? templates.map((t) => (t.id === existing.id ? template : t)) : [...templates, template]);
-    return template;
+    const sameName = (t: FilterTemplate) => t.name.toLowerCase() === trimmed.toLowerCase();
+    const next = await change.mutateAsync((current) => {
+      const existing = current.find(sameName);
+      const template: FilterTemplate = { id: existing?.id ?? crypto.randomUUID(), name: trimmed, filters };
+      return existing ? current.map((t) => (t.id === existing.id ? template : t)) : [...current, template];
+    });
+    return next.find(sameName)!;
   };
 
-  const deleteTemplate = (id: string) => save.mutate(templates.filter((t) => t.id !== id));
+  const deleteTemplate = (id: string) => {
+    if (!loaded) return;
+    change.mutate((current) => current.filter((t) => t.id !== id));
+  };
 
-  return { templates, saveTemplate, deleteTemplate, isSaving: save.isPending };
+  return { templates, loaded, saveTemplate, deleteTemplate, isSaving: change.isPending };
 }

@@ -3,7 +3,8 @@
 import { useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/lib/toast";
-import { api } from "@/lib/api";
+import { changeUserPref, readUserPref, userPrefKey } from "@/hooks/userPrefs";
+import { cardWithFieldToggled, cardWithoutChoice, parseCardFields, visibleCardKeys, type CardFieldMap } from "./cardFields";
 
 /**
  * Vyber poli zobrazenych v kartach na zalozce Details.
@@ -21,85 +22,59 @@ import { api } from "@/lib/api";
  */
 
 const PREF_KEY = "detail-card-fields";
-const knownKey = (cardId: string) => `${cardId}#known`;
-
-type CardFieldMap = Record<string, string[]>;
 
 export function useCardFields() {
   const toast = useToast();
   const queryClient = useQueryClient();
 
   const { data } = useQuery({
-    queryKey: ["user-prefs", PREF_KEY],
-    queryFn: () => api.shipments.userPrefGet(PREF_KEY),
+    queryKey: userPrefKey(PREF_KEY),
+    queryFn: () => readUserPref(PREF_KEY),
     staleTime: 5 * 60 * 1000,
   });
 
-  const map: CardFieldMap = useMemo(() => {
-    if (!data?.value) return {};
-    try {
-      const parsed = JSON.parse(data.value);
-      return parsed && typeof parsed === "object" ? (parsed as CardFieldMap) : {};
-    } catch {
-      return {};
-    }
-  }, [data?.value]);
+  const map: CardFieldMap = useMemo(() => parseCardFields(data?.value), [data?.value]);
+  // Known once the saved choices were read. Until then - and when the read failed - every card
+  // only shows all its fields, and nothing is saved: a map built on it would drop every choice.
+  const loaded = data !== undefined;
 
+  // Each change is made to the choices as the server holds them now (another tab may have saved
+  // some since), and one change waits for the one before: two quick toggles both count.
   const save = useMutation({
-    mutationFn: (next: CardFieldMap) =>
-      api.shipments.userPrefSet(PREF_KEY, { value: JSON.stringify(next) }),
-    // Write the new map into the cache straight away. Without this, two quick
-    // toggles both read the stale `map` and the second one undoes the first.
-    onMutate: (next: CardFieldMap) => {
-      const previous = queryClient.getQueryData(["user-prefs", PREF_KEY]);
-      queryClient.setQueryData(["user-prefs", PREF_KEY], { value: JSON.stringify(next) });
-      return { previous };
-    },
-    onError: (_e, _next, context) => {
-      queryClient.setQueryData(["user-prefs", PREF_KEY], context?.previous);
-      toast.error("Could not save the field selection");
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["user-prefs", PREF_KEY] }),
+    mutationFn: (edit: (current: CardFieldMap) => CardFieldMap) => changeUserPref(queryClient, PREF_KEY, parseCardFields, edit),
+    scope: { id: `user-prefs:${PREF_KEY}` },
+    onError: () => toast.error("Could not save the field selection"),
   });
 
   /** Klice poli videtelnych v karte. Bez ulozene volby jsou videt vsechna. */
-  const visibleKeys = useCallback(
-    (cardId: string, allKeys: string[]): string[] => {
-      const chosen = map[cardId];
-      if (!Array.isArray(chosen)) return allKeys;
-      const known = map[knownKey(cardId)];
-      const isNew = (k: string) => Array.isArray(known) && !known.includes(k);
-      // poradi se ridi kartou, ne poradim vyberu
-      return allKeys.filter((k) => chosen.includes(k) || isNew(k));
-    },
-    [map],
-  );
+  const visibleKeys = useCallback((cardId: string, allKeys: string[]): string[] => visibleCardKeys(map, cardId, allKeys), [map]);
+
+  const refuseUnloaded = useCallback(() => {
+    if (loaded) return false;
+    toast.error("Your field selection is not loaded yet - try again in a moment");
+    return true;
+  }, [loaded, toast]);
 
   /** Prepne jedno pole. */
   const toggleField = useCallback(
     (cardId: string, key: string, allKeys: string[]) => {
-      const current = visibleKeys(cardId, allKeys);
-      const next = current.includes(key)
-        ? current.filter((k) => k !== key)
-        : [...current, key];
-      save.mutate({ ...map, [cardId]: next, [knownKey(cardId)]: allKeys });
+      if (refuseUnloaded()) return;
+      save.mutate((current) => cardWithFieldToggled(current, cardId, key, allKeys));
     },
-    [map, save, visibleKeys],
+    [refuseUnloaded, save],
   );
 
   /** Vrati kartu do vychoziho stavu (vsechna pole). */
   const resetCard = useCallback(
     (cardId: string) => {
-      const next = { ...map };
-      delete next[cardId];
-      delete next[knownKey(cardId)];
-      save.mutate(next);
+      if (refuseUnloaded()) return;
+      save.mutate((current) => cardWithoutChoice(current, cardId));
     },
-    [map, save],
+    [refuseUnloaded, save],
   );
 
   /** true = uzivatel si kartu upravil */
   const isCustomised = useCallback((cardId: string) => Array.isArray(map[cardId]), [map]);
 
-  return { visibleKeys, toggleField, resetCard, isCustomised, isSaving: save.isPending };
+  return { visibleKeys, toggleField, resetCard, isCustomised, loaded, isSaving: save.isPending };
 }
