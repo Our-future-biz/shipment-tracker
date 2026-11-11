@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 
 export type BillingQueueView = interfaces.QueueView;
 
@@ -23,6 +24,8 @@ export const INVOICE_KEYS = {
 export function invalidateInvoicingDerived(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.previewAll });
   void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
+  // A customer's Shipments tab values its jobs at their ČNB rates and ROE on the server too.
+  void queryClient.invalidateQueries({ queryKey: customerShipmentFinancialsKeys.all });
 }
 
 /** The Invoicing queue: jobs by view, searched on the server across all shipments. */

@@ -16,7 +16,12 @@ export const useCustomerNotes = (customerId: string) => {
     enabled: !!customerId,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
+  // The Customer Database list shows when the latest entry was made (Last contact): it is marked stale,
+  // not read again now - it is the whole list, and it is not on screen while an entry is written.
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
+    return queryClient.invalidateQueries({ queryKey: key });
+  };
 
   const createMutation = useMutation({
     mutationFn: (params: controllers.NoteCreateRequest) => api.customers.noteCreate(customerId, params),

@@ -35,6 +35,7 @@ import { formatDate } from "@/lib/date";
 import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
+import { customerShipmentFinancialsKeys } from "@/hooks/useCustomerShipmentFinancials";
 import { isTruckingCost } from "@/lib/truckingCosts";
 import { money, round2 } from "@/lib/money";
 import { chargeLabel } from "@/lib/chargeCodes";
@@ -179,9 +180,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   }, [busy, onBusyChange]);
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
-  // The queue's counts (to bill, lines invoiced) come from the same rows, so it is marked stale too.
+  // The queue's counts (to bill, lines invoiced) and the customer's Shipments tab figures come from the
+  // same rows, so they are marked stale too.
   const refreshCosts = () => {
     void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
+    void queryClient.invalidateQueries({ queryKey: customerShipmentFinancialsKeys.all });
     return queryClient.invalidateQueries({ queryKey: invoicingKey(shipment.id) });
   };
 

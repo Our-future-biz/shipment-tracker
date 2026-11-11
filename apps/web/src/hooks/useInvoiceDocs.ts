@@ -6,6 +6,7 @@ import type { interfaces } from "@/lib/api/client";
 import { INVOICE_KEYS } from "./useInvoiceQueue";
 import { invoicingKey } from "./useInvoicing";
 import { FX_KEYS } from "./useFx";
+import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
 import { saveBlob, type PreviewSource } from "./useFilePreview";
 
@@ -42,8 +43,9 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     // …so the views computed from them (tiles, needs-attention, customer pages) move too
     invalidateShipmentDerivedViews(queryClient);
     invalidateShipmentCustomerViews(queryClient);
-    // the customer's invoice list (aging) got a new row
+    // the customer's invoice list (aging) got a new row, and its Shipments tab values an invoiced job by its locked rates
     void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
+    void queryClient.invalidateQueries({ queryKey: customerShipmentFinancialsKeys.all });
     // the costs card, and the job's rate lock, which becomes final once invoiced
     void queryClient.invalidateQueries({ queryKey: invoicingKey(shipmentId) });
     void queryClient.invalidateQueries({ queryKey: FX_KEYS.jobAll(shipmentId) });
