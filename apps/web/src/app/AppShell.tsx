@@ -5,6 +5,7 @@ import { Spin } from "antd";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { TopNav } from "@/components/TopNav";
 import { AppSidebar } from "@/components/AppSidebar";
+import { SessionChangedNotice } from "@/components/SessionChangedNotice";
 import { CameFromTracker } from "@/lib/cameFrom";
 import { Suspense, useEffect, useState } from "react";
 
@@ -51,8 +52,28 @@ export const AppShell = ({ children }: AppShellProps) => {
   // Open paths: the page alone, whoever opens it (no sign-in wait, no app chrome)
   if (isOpenPath) return <>{children}</>;
 
-  // Public paths: render content directly (login page)
-  if (isPublicPath) {
+  const shell = () => {
+    // Public paths: render content directly (login page)
+    if (isPublicPath) {
+      if (isLoading) {
+        return (
+          <div className="flex items-center justify-center h-screen">
+            <Spin size="large" />
+          </div>
+        );
+      }
+      // If user is authenticated on login page, show spinner while redirecting
+      if (user) {
+        return (
+          <div className="flex items-center justify-center h-screen">
+            <Spin size="large" />
+          </div>
+        );
+      }
+      return <>{children}</>;
+    }
+
+    // Protected paths: need authentication
     if (isLoading) {
       return (
         <div className="flex items-center justify-center h-screen">
@@ -60,51 +81,42 @@ export const AppShell = ({ children }: AppShellProps) => {
         </div>
       );
     }
-    // If user is authenticated on login page, show spinner while redirecting
-    if (user) {
+
+    // Not authenticated → show spinner while redirecting to /login
+    if (!user) {
       return (
         <div className="flex items-center justify-center h-screen">
           <Spin size="large" />
         </div>
       );
     }
-    return <>{children}</>;
-  }
 
-  // Protected paths: need authentication
-  if (isLoading) {
+    // Authenticated, full-screen page → no sidebar or top bar
+    if (FULL_SCREEN_PATHS.some((p) => pathname.startsWith(p))) {
+      return <main className="min-h-screen bg-slate-50">{children}</main>;
+    }
+
+    // Authenticated → show app
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Spin size="large" />
+      <div className="flex min-h-screen">
+        <Suspense fallback={null}>
+          <CameFromTracker />
+        </Suspense>
+        <AppSidebar />
+        <div className="flex flex-col flex-1 min-w-0">
+          <TopNav />
+          <main className="flex-1 min-w-0 bg-slate-50 print:bg-white">{children}</main>
+        </div>
       </div>
     );
-  }
+  };
 
-  // Not authenticated → show spinner while redirecting to /login
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  // Authenticated, full-screen page → no sidebar or top bar
-  if (FULL_SCREEN_PATHS.some((p) => pathname.startsWith(p))) {
-    return <main className="min-h-screen bg-slate-50">{children}</main>;
-  }
-
-  // Authenticated → show app
+  // The login page and the signed-in pages work in this browser's session, and are loaded again
+  // when another tab changes it.
   return (
-    <div className="flex min-h-screen">
-      <Suspense fallback={null}>
-        <CameFromTracker />
-      </Suspense>
-      <AppSidebar />
-      <div className="flex flex-col flex-1 min-w-0">
-        <TopNav />
-        <main className="flex-1 min-w-0 bg-slate-50 print:bg-white">{children}</main>
-      </div>
-    </div>
+    <>
+      {shell()}
+      <SessionChangedNotice />
+    </>
   );
 };

@@ -3,7 +3,8 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { ReactNode } from "react";
 import { API_BASE } from "@/lib/api";
-import { actingCompanyId, setActingCompanyId, withActingCompany } from "@/lib/actingCompany";
+import { actingCompanyId, clearActingCompany, withActingCompany } from "@/lib/actingCompany";
+import { dropSessionToken, sessionToken, startSession } from "@/lib/auth/pageSession";
 import { canSeeConcepts } from "@/lib/concepts";
 
 
@@ -64,7 +65,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   // Restore session on mount
   useEffect(() => {
-    const savedToken = localStorage.getItem("auth_token");
+    const savedToken = sessionToken();
     if (!savedToken) {
       setIsLoading(false);
       return;
@@ -91,7 +92,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       .then((data) => {
         // A company chosen to work as that is no longer one (or a user who is no superadmin any
         // more): the server answered the user's own, and the choice is dropped.
-        if (actingCompanyId() && !data.company?.switched) setActingCompanyId(null);
+        if (actingCompanyId() && !data.company?.switched) clearActingCompany();
         setUser(data.user);
         setCompany(data.company ?? null);
         setToken(savedToken);
@@ -99,7 +100,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       .catch(() => {
         // Aborted by the cleanup below (unmount, or React's dev double-run): not a failed session.
         if (controller.signal.aborted && !timedOut) return;
-        localStorage.removeItem("auth_token");
+        dropSessionToken();
       })
       .finally(() => {
         clearTimeout(timeout);
@@ -128,11 +129,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
       const data = await res.json();
       // A new session starts in the user's own company, whatever was chosen in this browser before.
-      setActingCompanyId(null);
+      // This page signs its requests with the new token from now on; other tabs are loaded again.
+      clearActingCompany();
+      startSession(data.token);
       setCompany(null);
       setUser(data.user);
       setToken(data.token);
-      localStorage.setItem("auth_token", data.token);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setLoginError(msg);
@@ -146,8 +148,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setUser(null);
     setCompany(null);
     setToken(null);
-    localStorage.removeItem("auth_token");
-    setActingCompanyId(null);
+    dropSessionToken();
+    clearActingCompany();
     // Navigate to login — use window.location for clean state reset
     window.location.href = "/login";
   }, []);

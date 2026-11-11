@@ -10,8 +10,11 @@ import { platformCompaniesKey } from "@/hooks/useUserAdmin";
 
 // A superadmin's company switcher: superadmins see and change every company, one at a time. The
 // company picked here is the one every page shows and every change goes to, as for one of its own
-// users; the whole app is loaded again from the dashboard, so nothing of the company before stays
-// on screen (a record of one company is no page of another). Shown to superadmins only.
+// users. The choice is stored first and the whole app then loaded again from the dashboard, so
+// nothing of the company before stays on screen (a record of one company is no page of another);
+// the page being left still works as the company before, so the save it sends as it goes (a
+// quote's last change) lands where it was typed. Other tabs of the browser are loaded again too
+// (components/SessionChangedNotice). Shown to superadmins only.
 export function CompanySwitcher() {
   const { user, company } = useAuth();
   const isSuperadmin = user?.role === "superadmin";
@@ -30,6 +33,7 @@ export function CompanySwitcher() {
 
   const choose = (id: string) => {
     if (id === current) return;
+    // Stored for the page loaded next; this one keeps sending the company it shows until it is gone.
     setActingCompanyId(id === user.companyId ? null : id);
     window.location.href = "/dashboard";
   };

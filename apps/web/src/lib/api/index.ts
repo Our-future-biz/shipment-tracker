@@ -1,5 +1,6 @@
 import Client, { ErrCode, isAPIError } from "./client";
 import { withActingCompany } from "@/lib/actingCompany";
+import { dropSessionToken, sessionToken } from "@/lib/auth/pageSession";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
 
@@ -18,16 +19,18 @@ let sessionEnded = false;
 function endSession(): void {
   if (sessionEnded) return;
   sessionEnded = true;
-  localStorage.removeItem("auth_token");
+  dropSessionToken();
   if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
 }
 
 // Attach the logged-in user's bearer token so authenticated endpoints can
 // derive the actor (e.g. who deleted a shipment) server-side - and a superadmin's choice of the
-// company to work as (lib/actingCompany), which the server ignores for anyone else.
-const authFetcher: typeof fetch = async (input, init) => {
+// company to work as (lib/actingCompany), which the server ignores for anyone else. Both are this
+// page's own copies (lib/auth/pageSession), never what another tab stored since: a save of this
+// page goes out as the user, and to the company, it was made by. Exported for its test.
+export const authFetcher: typeof fetch = async (input, init) => {
   const headers = new Headers(init?.headers);
-  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+  const token = sessionToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
     withActingCompany(headers);
