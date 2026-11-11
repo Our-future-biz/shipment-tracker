@@ -13,6 +13,7 @@ import { TERMS } from "../../_lib/glossary";
 import { TRIP_KIND_LABEL, ltlTripOrderActions, type TripOrderActions } from "../../_lib/planning";
 import { isTruckingManager } from "../../_lib/roles";
 import { TruckingHistory } from "../../_components/TruckingHistory";
+import { TruckingLoadError } from "../../_components/TruckingLoadError";
 import { TruckingSendAgain } from "../../_components/TruckingSendAgain";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import { TripDialogs, type TripDialog } from "./TripDialogs";
@@ -35,7 +36,7 @@ export const TripView = ({ tripId }: TripViewProps) => {
   const ftl = trip?.kind === "FTL";
   // An LTL trip has many consignments; none of them speaks for it.
   const consignmentId = ftl ? (trip?.consignmentIds[0] ?? "") : "";
-  const { consignment } = useConsignment(consignmentId);
+  const { consignment, error: consignmentError, reload: reloadConsignment } = useConsignment(consignmentId);
   const { documents } = useConsignmentDocuments(consignmentId);
   const [dialog, setDialog] = useState<TripDialog>(null);
 
@@ -60,6 +61,11 @@ export const TripView = ({ tripId }: TripViewProps) => {
   let actions: TripOrderActions | null = null;
   if (!ftl) actions = ltlTripOrderActions(trip);
   else if (consignment) actions = consignmentActions(consignment, trip, documents.some((d) => d.kind === "POD"));
+  else if (consignmentError) {
+    // What the order allows follows the consignment: unknown while it cannot be read, not "Loading…".
+    const unread = { allowed: false, reason: "The consignment could not be loaded — retry above" };
+    actions = { printOrder: unread, sendOrder: unread, recordConfirmation: unread };
+  }
 
   return (
     <div className="bg-slate-50 min-h-full">
@@ -95,6 +101,8 @@ export const TripView = ({ tripId }: TripViewProps) => {
                   {consignment.jobNumber}
                 </Link>
               </div>
+            ) : consignmentError ? (
+              <TruckingLoadError what="the consignment" error={consignmentError} onRetry={() => reloadConsignment()} />
             ) : (
               <Spin size="small" />
             )}
