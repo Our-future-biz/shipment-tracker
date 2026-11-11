@@ -137,6 +137,20 @@ describe("follow(): the shipment's current parties reach its gate records", () =
     expect((await gateMovementService.get(id, c)).customer).toBe("Ravak");
   });
 
+  // The read is under the shipment's turn (see the stale-event case above), but never without end:
+  // a Shipments that does not answer gives the turn and the connection back, and the event is
+  // delivered again.
+  it("a Shipments that does not answer in time fails the follow and frees the shipment's turn", async () => {
+    const { c, s, id } = await linked();
+    rename(s, { customer: "Ravak 4" });
+    shipmentGet.mockImplementationOnce(() => new Promise(() => undefined));
+    await expect(gatePartiesService.follow(c, s, undefined, 200)).rejects.toMatchObject({ code: "unavailable" });
+    expect((await gateMovementService.get(id, c)).customer).toBe("Ravak");
+    // Delivered again: the turn is free and the name follows.
+    expect((await gatePartiesService.follow(c, s)).changed).toHaveLength(1);
+    expect((await gateMovementService.get(id, c)).customer).toBe("Ravak 4");
+  });
+
   it("does not ask Shipments about a shipment that is not in the warehouse", async () => {
     expect(await gatePartiesService.follow(randomUUID(), randomUUID())).toEqual({ changed: [], shipmentDeleted: false });
     expect(shipmentGet).not.toHaveBeenCalled();

@@ -3,6 +3,7 @@ import type { DockSettings } from "./settingsRules";
 import type { PickupRow } from "./pickupPin";
 import { DOCK_SLOT_DEFAULT_MIN } from "./dockSlots";
 import { isUuid } from "../../../lib/uuid";
+import { isCzechHoliday } from "../../../lib/workingDays";
 
 // What a Trucking trip fills in the warehouse (expect-arrival / expect-departure) carries a
 // `source: { kind: "trucking", tripRef, tripKind?, tripId? }` marker: the IN / OUT transport leg,
@@ -172,8 +173,8 @@ const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.
 
 /**
  * The dock slot a trip's expected time asks for (Prague date and time, the default duration), or
- * why the docks cannot take it then: a day the docks do not work, or outside the opening hours
- * (the slot must end by closing time).
+ * why the docks cannot take it then: a day the docks do not work (not one of their working days,
+ * or a Czech public holiday), or outside the opening hours (the slot must end by closing time).
  */
 export function tripSlotWindow(
   expectedAt: Date,
@@ -185,6 +186,9 @@ export function tripSlotWindow(
   const time = `${p.hour}:${p.minute}`;
   const weekday = new Date(`${date}T12:00:00Z`).getUTCDay() || 7;
   if (!docks.workingDays.includes(weekday)) return { reason: `the docks do not work on ${date}` };
+  // A Czech public holiday is a day off whatever weekday it falls on - the API's one calendar
+  // (lib/workingDays), as for the lead times Trucking promises.
+  if (isCzechHoliday(date)) return { reason: `the docks do not work on ${date} (a public holiday)` };
   const start = minutesOf(time);
   if (start < minutesOf(docks.opensAt) || start + durationMin > minutesOf(docks.closesAt)) {
     return { reason: `${time} is outside the dock hours ${docks.opensAt}–${docks.closesAt}` };

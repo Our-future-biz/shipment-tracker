@@ -103,3 +103,54 @@ describe("one container, many positions", () => {
     expect(b).toBeTruthy();
   });
 });
+
+// The register form's writes are one transaction each, with the container locked first: a race
+// leaves no container without its house, no house lost on a relink, no stamped container deleted.
+describe("register form writes at the same moment", () => {
+  it("two containers registered for one position at once: one wins, the other leaves no container behind", async () => {
+    const c = randomUUID();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ-RACE", handling: "Import", visit: "výdej" });
+    const race = await Promise.allSettled([
+      records.createContainer(c, { movementId: m.id, number: "RACE 1" }, user),
+      records.createContainer(c, { movementId: m.id, number: "RACE 2" }, user),
+    ]);
+    expect(race.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(String((race.find((r) => r.status === "rejected") as PromiseRejectedResult).reason)).toMatch(/already in container|same moment/);
+    // Before, the loser's container was created first and its house refused after: it stayed, empty.
+    const listed = await records.listContainers(c);
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.positions.map((p) => p.movementId)).toEqual([m.id]);
+  });
+
+  it("two relinks to one position at once: the loser keeps its own house", async () => {
+    const c = randomUUID();
+    const [a, b, x] = await Promise.all(
+      ["WCZ-A", "WCZ-B", "WCZ-X"].map((gateRef) => gateMovementService.create(c, user, { gateRef, handling: "Import", visit: "výdej" })),
+    );
+    const boxA = await records.createContainer(c, { movementId: a!.id, number: "BOX A" }, user);
+    const boxB = await records.createContainer(c, { movementId: b!.id, number: "BOX B" }, user);
+    const race = await Promise.allSettled([
+      records.updateContainer(boxA.id, c, { movementId: x!.id }, user),
+      records.updateContainer(boxB.id, c, { movementId: x!.id }, user),
+    ]);
+    expect(race.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const [winner, loser] = race[0]!.status === "fulfilled" ? [boxA, boxB] : [boxB, boxA];
+    const own = loser.id === boxA.id ? a!.id : b!.id;
+    expect((await containerService.detail(winner.id, c)).positions.map((p) => p.movementId)).toEqual([x!.id]);
+    // Before, its old house was taken out and the form saved in transactions of their own, then the
+    // new house refused: the container pointed at the position it never got, with no house at all.
+    const kept = await containerService.detail(loser.id, c);
+    expect(kept).toMatchObject({ movementId: own });
+    expect(kept.positions.map((p) => p.movementId)).toEqual([own]);
+  });
+
+  it("a delete and a gate-in at once: never a deleted container with a stamp", async () => {
+    const c = randomUUID();
+    const box = await records.createContainer(c, { number: "DEL 1", direction: "Unloading" }, user);
+    const [deleted, stamped] = await Promise.allSettled([records.deleteContainer(box.id, c), containerService.stamp(box.id, c, user, "user", "gateIn")]);
+    // One of them goes first; the other sees it (refused as stamped, or finds no container).
+    expect([deleted.status, stamped.status].sort()).toEqual(["fulfilled", "rejected"]);
+    const [row] = await db.select().from(warehouseContainerTable).where(eq(warehouseContainerTable.id, box.id));
+    expect(!!row!.deletedAt && !!row!.gateInAt).toBe(false);
+  });
+});

@@ -3,8 +3,10 @@ import { getAuthData } from "~encore/auth";
 import { sectionItem, warehouseService, type SectionKeyChange } from "../services/warehouse.service";
 import type { WarehouseConceptSectionItem, WarehouseSectionSummaryItem } from "../interfaces/interfaces";
 
-// Sections of a warehouse POSITION (task) — linked to a shipment or stand-alone. Shipments keeps
-// using /warehouse/sections/:shipmentId/:section, which resolves to the same rows.
+// Sections of a warehouse POSITION (task) — linked to a shipment or stand-alone. By shipment,
+// /warehouse-concept/sections/:shipmentId/:section (this service) resolves to the same rows.
+// /warehouse/sections/:shipmentId/:section is the normal Warehouse service's, in its own
+// database (since the concepts were split): what is saved there is not one of these rows.
 
 interface PositionSectionGetRequest {
   taskId: string;

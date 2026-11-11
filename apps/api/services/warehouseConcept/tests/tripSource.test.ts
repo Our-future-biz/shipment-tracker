@@ -98,6 +98,15 @@ describe("dock slot for a trip", () => {
     expect(tripSlotWindow(new Date("2026-10-15T16:30:00.000Z"), DEFAULT_DOCKS)).toMatchObject({ reason: expect.stringContaining("outside") });
     expect(tripSlotWindow(new Date("2026-10-15T16:00:00.000Z"), DEFAULT_DOCKS)).toEqual({ date: "2026-10-15", time: "18:00", durationMin: 60 });
   });
+
+  // Only the weekdays were checked: a trip expected on a Czech public holiday got a slot.
+  it("refuses a Czech public holiday on a working weekday (the API's one calendar)", () => {
+    // Wednesday 28 October (Statehood Day) and Good Friday 2026 (3 April).
+    expect(tripSlotWindow(new Date("2026-10-28T08:00:00.000Z"), DEFAULT_DOCKS)).toMatchObject({ reason: expect.stringContaining("public holiday") });
+    expect(tripSlotWindow(new Date("2026-04-03T08:00:00.000Z"), DEFAULT_DOCKS)).toMatchObject({ reason: expect.stringContaining("public holiday") });
+    // The day after is a working day again.
+    expect(tripSlotWindow(new Date("2026-10-29T08:00:00.000Z"), DEFAULT_DOCKS)).toEqual({ date: "2026-10-29", time: "09:00", durationMin: 60 });
+  });
 });
 
 describe("events a stamp owes", () => {
