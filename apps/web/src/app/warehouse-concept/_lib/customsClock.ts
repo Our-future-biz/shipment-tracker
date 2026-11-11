@@ -2,7 +2,7 @@ import type { interfaces } from "@/lib/api/client";
 import { addDays, businessDayOf, businessToday } from "@/lib/date";
 
 // Days under customs control and the EU temporary-storage deadline (UCC art. 149) of a position.
-// The same rules as the server (apps/api/services/warehouse/services/warehouseStockCustoms.ts),
+// The same rules as the server (apps/api/services/warehouseConcept/services/warehouseStockCustoms.ts),
 // read from the gate record: the regime from its customs mode / status and operation type, the
 // start from the receipt of its lifecycle. Pure (tested in customsClock.test.ts); display only.
 //

@@ -44,7 +44,7 @@ import { positionRemeasurementHref } from "./remeasurementLinks";
 import { reportBulk, runBulk } from "./tabs/shared";
 import { LifecycleChip } from "./LifecycleStrip";
 import { LIFECYCLE_VALUES, lifecycleText, stageOrder } from "../_lib/lifecycle";
-import { BTN, BTN_PRIMARY, BTN_SM, EMPTY, HINT, KPI_VALUE, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, BTN_SM, CHIP, CHIP_ON, EMPTY, HINT, KPI_VALUE, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 
 // The Warehouse module works with its own data: a position (WCZ reference) and the record
 // on its gate movement. "Create new" either copies job or quote values in once (a position
@@ -413,11 +413,7 @@ function QuickChips({ active, counts, onSelect }: { active: ChipId | null; count
               type="button"
               aria-pressed={on}
               onClick={() => onSelect(on ? null : c.id)}
-              className={[
-                // The look of the app's pill toggles (PillTabs).
-                "inline-flex items-center gap-1.5 rounded-lg border px-3 h-8 text-[13px] font-medium transition-colors cursor-pointer",
-                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-              ].join(" ")}
+              className={`${CHIP} ${on ? CHIP_ON : ""}`}
             >
               {c.label}
               <span className={`tabular-nums font-semibold ${c.danger && n > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-500"}`}>{n}</span>

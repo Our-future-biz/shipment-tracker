@@ -60,7 +60,7 @@ export function containerHoldsRelease(m: Pick<interfaces.GateMovementItem, "visi
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 
 // Release-gate line set by the PIN check at the gate, never by hand. Must match the API's
-// PICKUP_PIN_GATE (apps/api/services/warehouse/services/pickupPin.ts).
+// PICKUP_PIN_GATE (apps/api/services/warehouseConcept/services/pickupPin.ts).
 export const PICKUP_PIN_GATE = "Pick-up PIN verified";
 export const MAX_PIN_TRIES = 3;
 

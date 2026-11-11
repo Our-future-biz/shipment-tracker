@@ -1,5 +1,5 @@
 // Supplier e-mail recipients on the Warehouse settings screen — the same rules the server applies
-// (apps/api/services/warehouse/services/settingsRules.ts), so a bad address is shown while typing.
+// (apps/api/services/warehouseConcept/services/settingsRules.ts), so a bad address is shown while typing.
 
 export const MAX_PER_LIST = 20;
 
