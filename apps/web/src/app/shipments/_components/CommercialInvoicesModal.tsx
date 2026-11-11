@@ -7,6 +7,8 @@ import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/cargo";
+import { normaliseAmount } from "@/lib/money";
+import { invoiceLinesToSave, invoiceTotalsByCurrency, isEmptyInvoiceLine } from "@/app/shipments/_lib/commercialInvoices";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 // The Invoice Number(s) / Invoice Value cells open this: the shipment's commercial
@@ -18,12 +20,6 @@ type CommercialInvoiceLine = interfaces.CommercialInvoiceLine;
 const COLS = "grid grid-cols-[1.4fr_1fr_1fr_32px] gap-3 items-center";
 
 const emptyLine = (): CommercialInvoiceLine => ({ invoiceNumber: "", value: "", currency: "" });
-const isEmpty = (l: CommercialInvoiceLine) => !l.invoiceNumber.trim() && !l.value.trim() && !l.currency;
-
-const parseValue = (v: string) => {
-  const n = parseFloat(v.replace(/[^0-9.,-]/g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-};
 
 const currencyOptions = (query: string) => {
   const q = (query ?? "").toLowerCase().trim();
@@ -36,18 +32,6 @@ const currencyOptions = (query: string) => {
     ),
   }));
 };
-
-// "12,500.00 USD · 3,000.00 EUR" — one figure per currency; a value without one stands alone.
-function totalsByCurrency(lines: CommercialInvoiceLine[]): string {
-  const by = new Map<string, number>();
-  for (const l of lines) {
-    const v = parseValue(l.value);
-    if (v) by.set(l.currency, (by.get(l.currency) ?? 0) + v);
-  }
-  return [...by.entries()]
-    .map(([c, v]) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${c}`.trim())
-    .join(" · ");
-}
 
 export function CommercialInvoicesModal({
   shipment,
@@ -63,26 +47,40 @@ export function CommercialInvoicesModal({
 }) {
   const [lines, setLines] = useState<CommercialInvoiceLine[]>([]);
   const [saving, setSaving] = useState(false);
+  // Why the rows were not saved: a value that is no amount.
+  const [error, setError] = useState("");
 
   const shipmentId = shipment?.id;
   useEffect(() => {
     if (!shipment) return;
     const saved = shipment.commercialInvoices ?? [];
     setLines(saved.length ? saved : [emptyLine()]);
+    setError("");
     // Only when another shipment is opened: a refetch must not wipe what is being typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipmentId]);
 
-  const patch = (idx: number, p: Partial<CommercialInvoiceLine>) =>
+  const patch = (idx: number, p: Partial<CommercialInvoiceLine>) => {
+    setError("");
     setLines((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
-  const remove = (idx: number) => setLines((r) => (r.length > 1 ? r.filter((_, j) => j !== idx) : [emptyLine()]));
-  const totals = totalsByCurrency(lines);
+  };
+  const remove = (idx: number) => {
+    setError("");
+    setLines((r) => (r.length > 1 ? r.filter((_, j) => j !== idx) : [emptyLine()]));
+  };
+  const totals = invoiceTotalsByCurrency(lines);
 
   const save = async () => {
     if (!shipment || saving) return;
+    // A value that is no amount is said, not saved as some other number.
+    const toSave = invoiceLinesToSave(lines);
+    if ("error" in toSave) {
+      setError(toSave.error);
+      return;
+    }
     setSaving(true);
     try {
-      await onSave(shipment, lines.filter((l) => !isEmpty(l)));
+      await onSave(shipment, toSave.lines);
       onClose();
     } catch {
       // Nothing more to do here: the dialog stays open and the caller has said what went wrong.
@@ -129,6 +127,9 @@ export function CommercialInvoicesModal({
             inputMode="decimal"
             placeholder="12 500"
             value={l.value}
+            // After a Save refused for it: the value that is no amount.
+            status={error && normaliseAmount(l.value) === null ? "error" : undefined}
+            aria-label="Invoice value"
             onChange={(e) => patch(idx, { value: e.target.value })}
           />
           <AutoComplete
@@ -146,11 +147,16 @@ export function CommercialInvoicesModal({
       {/* The values add up per currency, under the Value column. */}
       <div className={`${COLS} px-1 pt-2.5 mt-1 border-t-2 border-slate-200 text-[13px] font-semibold text-slate-900`}>
         <span className="text-center tabular-nums">
-          {lines.filter((l) => !isEmpty(l)).length} INVOICE{lines.filter((l) => !isEmpty(l)).length === 1 ? "" : "S"}
+          {lines.filter((l) => !isEmptyInvoiceLine(l)).length} INVOICE{lines.filter((l) => !isEmptyInvoiceLine(l)).length === 1 ? "" : "S"}
         </span>
         <span className="col-span-2 text-center tabular-nums">{totals || "—"}</span>
         <span />
       </div>
+      {error && (
+        <div role="alert" className="mt-2 text-[13px] font-semibold text-red-600">
+          {error}
+        </div>
+      )}
     </Modal>
   );
 }

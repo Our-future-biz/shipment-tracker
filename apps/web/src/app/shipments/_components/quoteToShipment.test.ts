@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeCargo } from "@/app/sales/_lib/salesQuote";
 import type { interfaces } from "@/lib/api/client";
 import type { ExchangeRates } from "@/lib/exchangeRates";
@@ -213,5 +213,18 @@ describe("quote → shipment Customer's PIC", () => {
     expect(req).not.toHaveProperty("customerPicContactId");
     const cleared = quoteToCreateRequest("QCZ1", { customerContact: "Petr", customerContactId: null }, NO_RATES);
     expect(cleared).not.toHaveProperty("customerPicContactId");
+  });
+});
+
+describe("quote → shipment Validity Status", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("counts the day on the company's calendar: past midnight in Prague a quote valid until yesterday is to be checked", () => {
+    // 00:30 on 11 November in Prague, still 10 November in UTC
+    vi.useFakeTimers({ now: new Date("2026-11-10T23:30:00Z") });
+    expect(quoteToCreateRequest("QCZ1", { validUntil: "2026-11-10" }, NO_RATES).validityStatus).toBe("Check");
+    expect(quoteToCreateRequest("QCZ1", { validUntil: "2026-11-11" }, NO_RATES).validityStatus).toBe("Ok");
   });
 });

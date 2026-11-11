@@ -1267,14 +1267,18 @@ export function ShipmentDetailContent() {
   const detailsEditable = canChangeShipmentDetails(user, shipment);
   const handleCommit: CommitFn = (fieldKey, value, links) => updateField(shipment.id, fieldKey, value, shipment, links);
 
+  // A write of a field of its own (a party, a contact, opening hours): one that is refused is rolled
+  // back and says why, instead of the value just snapping back.
+  const saveShipment = (data: controllers.ShipmentUpdateRequest) =>
+    updateShipment({ id: shipment.id, data }).catch((err) => toast.error(apiErrorMessage(err)));
+
   // Update a party's name + its CRM customer link together.
   const linkParty = (party: PartyField, name: string, customerId: string | null) => {
-    updateShipment({ id: shipment.id, data: partyUpdate(party, name, customerId) });
+    void saveShipment(partyUpdate(party, name, customerId));
   };
 
   // A shipper's or consignee's Contact: its name with the contact's id (null for one typed by hand).
-  const commitContact = (field: ContactField, name: string, contactId: string | null) =>
-    updateShipment({ id: shipment.id, data: contactUpdate(field, name, contactId) });
+  const commitContact = (field: ContactField, name: string, contactId: string | null) => saveShipment(contactUpdate(field, name, contactId));
 
   const styleFor = makeStyleFor(shipment);
   // The quote the shipment was sold from is the one its Sales Number names, when that is the
@@ -1316,8 +1320,8 @@ export function ShipmentDetailContent() {
       await queryClient.invalidateQueries({ queryKey: ["shipments"] });
       toast.success("House BoL released");
       setReleaseOpen(false);
-    } catch {
-      toast.error("Failed to release the House BoL");
+    } catch (e) {
+      toast.error(`Failed to release the House BoL: ${apiErrorMessage(e)}`);
     } finally {
       setReleasing(false);
     }
@@ -1330,8 +1334,8 @@ export function ShipmentDetailContent() {
       toast.success("Order deleted");
       setDeleteOpen(false);
       router.push("/shipments");
-    } catch {
-      toast.error("Failed to delete order");
+    } catch (e) {
+      toast.error(`Failed to delete order: ${apiErrorMessage(e)}`);
     } finally {
       setDeleting(false);
     }
@@ -1650,7 +1654,7 @@ export function ShipmentDetailContent() {
                       <OpeningHoursRow
                         from={shipment.shipperOpeningFrom}
                         to={shipment.shipperOpeningTo}
-                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { shipperOpeningFrom: f, shipperOpeningTo: t } })}
+                        onChange={(f, t) => saveShipment({ shipperOpeningFrom: f, shipperOpeningTo: t })}
                       />
                     ),
                     consignee: (
@@ -1663,7 +1667,7 @@ export function ShipmentDetailContent() {
                       <OpeningHoursRow
                         from={shipment.consigneeOpeningFrom}
                         to={shipment.consigneeOpeningTo}
-                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { consigneeOpeningFrom: f, consigneeOpeningTo: t } })}
+                        onChange={(f, t) => saveShipment({ consigneeOpeningFrom: f, consigneeOpeningTo: t })}
                       />
                     ),
                   };
@@ -2010,22 +2014,23 @@ export function ShipmentDetailContent() {
         initialSelectedIds={[shipment.id]}
       />
 
-      <Modal
+      {/* The app's confirmation, as Master Jobs asks it when a shipment is removed there. */}
+      <ConfirmModal
         open={unlinkOpen}
-        title="Remove from master job?"
-        okText="Yes, remove"
-        okButtonProps={{ danger: true, loading: unlinking }}
-        cancelText="Cancel"
-        onOk={confirmUnlinkMasterJob}
-        onCancel={() => setUnlinkOpen(false)}
-        destroyOnHidden
-      >
-        <p className="text-[13px] text-slate-700">
-          Do you really want to remove the shipment{" "}
-          <b className={REF}>{shipment.jobNumber ?? shipment.id}</b> from master job{" "}
-          <b className={REF}>{shipment.masterJobMczNumber}</b>?
-        </p>
-      </Modal>
+        danger
+        width={520}
+        title={
+          <>
+            Remove <span className={`${REF} font-bold`}>{shipment.jobNumber ?? shipment.id}</span> from master job{" "}
+            <span className={`${REF} font-bold`}>{shipment.masterJobMczNumber}</span>?
+          </>
+        }
+        description="The shipment keeps the values it got from the master job."
+        confirmLabel="Remove"
+        loading={unlinking}
+        onConfirm={confirmUnlinkMasterJob}
+        onClose={() => setUnlinkOpen(false)}
+      />
 
 
       {/* The app's confirmation: the question once, in the title, and what the release does.
@@ -2046,24 +2051,21 @@ export function ShipmentDetailContent() {
         onClose={() => setReleaseOpen(false)}
       />
 
-      <Modal
+      <ConfirmModal
         open={deleteOpen}
-        title="Delete order"
-        okText="Yes, delete the order"
-        okButtonProps={{ danger: true, loading: deleting }}
-        cancelText="Cancel"
-        onOk={confirmDelete}
-        onCancel={() => setDeleteOpen(false)}
-        destroyOnHidden
-      >
-        <p className="text-[13px] text-slate-700">
-          Do you really want to delete order <b className={REF}>{shipment.jobNumber ?? shipment.id}</b>?
-        </p>
-        <p className="text-[13px] text-slate-500 mt-2">
-          The order is <b>not erased</b> — it is archived with all its details, and its reference can never be reused.
-          This action is recorded against your account.
-        </p>
-      </Modal>
+        danger
+        width={520}
+        title={
+          <>
+            Delete order <span className={`${REF} font-bold`}>{shipment.jobNumber ?? shipment.id}</span>?
+          </>
+        }
+        description="The order is not erased: it is archived with all its details, and its reference can never be reused. This action is recorded against your account."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onClose={() => setDeleteOpen(false)}
+      />
     </div>
   );
   return (

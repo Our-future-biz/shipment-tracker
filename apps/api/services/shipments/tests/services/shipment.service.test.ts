@@ -1597,6 +1597,61 @@ describe("a party linked to a customer carries the customer's current name", () 
   });
 });
 
+describe("the shipment's Customer is a company with the Customer role", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const HAULIER = "00000000-0000-0000-0000-00000000a1a1";
+  const byManager = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, "manager");
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockImplementation(
+      async ({ id }) =>
+        ({
+          customer:
+            id === HAULIER
+              ? { id, companyName: "Rychlá Doprava s.r.o.", roles: ["haulier"], registeredAddress: "", country: "CZ" }
+              : { id, companyName: "Alfa s.r.o.", roles: ["customer", "haulier"], registeredAddress: "", country: "CZ" },
+        }) as never,
+    );
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [] } as never);
+  });
+
+  it("refuses a person's pick of a company without it, and writes nothing", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customer: "" }));
+    await expect(byManager({ customerId: HAULIER, customer: "Rychlá Doprava s.r.o." })).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Not a customer: Rychlá Doprava s.r.o. has no Customer role in the Customer Database",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("links a company with the Customer role, also one that is a supplier too", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customer: "" }));
+    await byManager({ customerId: CUSTOMER, customer: "Alfa" });
+    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ customerId: CUSTOMER, customer: "Alfa s.r.o." });
+  });
+
+  it("keeps the Customer the shipment has, also one that lost the role since", async () => {
+    stored.set(SHIPMENT, row({ customerId: HAULIER, customer: "Rychlá Doprava s.r.o." }));
+    await byManager({ customerId: HAULIER, customer: "Rychlá Doprava s.r.o.", customerReference: "PO-7" });
+    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ customerId: HAULIER, customerReference: "PO-7" });
+  });
+
+  it("lets a shipper be any company", async () => {
+    stored.set(SHIPMENT, row({ shipperId: null, shipper: "" }));
+    await byManager({ shipperId: HAULIER, shipper: "Rychlá Doprava s.r.o." });
+    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ shipperId: HAULIER });
+  });
+
+  it("holds a person's create to it, not the app's own (a Trucking road job)", async () => {
+    await expect(shipmentService.create(COMPANY, { customerId: HAULIER, customer: "x" } as never, undefined, { creatorRole: "manager" })).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: expect.stringMatching(/^Not a customer: /),
+    });
+    await shipmentService.create(COMPANY, { customerId: HAULIER, customer: "x" } as never);
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ customerId: HAULIER, customer: "Rychlá Doprava s.r.o." });
+  });
+});
+
 describe("a shipper's or consignee's Contact", () => {
   const PARTY = "3c1e2f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
   const OTHER = "7d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5c";

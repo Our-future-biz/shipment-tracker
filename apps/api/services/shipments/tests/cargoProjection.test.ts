@@ -112,6 +112,19 @@ describe("invoiceValueByCurrency", () => {
   it("skips zero/empty values", () => {
     expect(invoiceValueByCurrency([{ value: "", currency: "EUR" }])).toBe("");
   });
+
+  it("reads a value with thousands separators as the amount it is, not 12.50", () => {
+    const invoices = [
+      { value: "12,500.00", currency: "USD" },
+      { value: "1.250,50", currency: "EUR" },
+      { value: "2,000", currency: "EUR" },
+    ];
+    expect(invoiceValueByCurrency(invoices)).toBe("12,500 USD, 3,250.5 EUR");
+  });
+
+  it("counts nothing for text that is no amount", () => {
+    expect(invoiceValueByCurrency([{ value: "approx. 5000", currency: "USD" }, { value: "100", currency: "USD" }])).toBe("100 USD");
+  });
 });
 
 describe("projectCargo", () => {

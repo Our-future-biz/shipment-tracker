@@ -5,6 +5,7 @@ import { useMessages } from "@/lib/toast";
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { invalidateQuoteLists } from "./useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
+import { INVOICE_KEYS } from "./useInvoiceQueue";
 import { api } from "@/lib/api";
 import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS, dateTimeUpdate, joinDateTime } from "@/lib/columnConfig";
 import type { interfaces, controllers } from "@/lib/api/client";
@@ -84,7 +85,6 @@ export interface ShipmentQueryParams {
 // Fields that trigger automation when changed
 const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
 
-/** Views computed from shipments (needs-attention list, tiles) — stale after any status change. */
 /** Mutation key of every shipment write, so a reader can wait for writes of shipments only. */
 export const SHIPMENT_WRITE_KEY = ["shipment-write"] as const;
 
@@ -124,6 +124,7 @@ export function relinkCargo<T extends { containerId?: string | null }>(
 /** How many shipments one list holds: the newest this many (the list endpoint's maximum). */
 export const SHIPMENT_LIST_LIMIT = 200;
 
+/** Views computed from shipments (needs-attention list, tiles) — stale after any status change. */
 export function invalidateShipmentDerivedViews(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
   queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
@@ -136,6 +137,36 @@ export function invalidateShipmentCustomerViews(queryClient: QueryClient) {
   // Only marked stale: the shipment page keeps the customers list mounted (CustomerLinkField)
   // and it must not be downloaded again on every cell edit.
   queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
+}
+
+/** The master jobs' views: the list with each one's shipment count, a master job and its houses, where they stand. */
+export function invalidateMasterJobViews(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
+  queryClient.invalidateQueries({ queryKey: ["master-job-tracking"] });
+}
+
+/**
+ * What a saved (or refused) shipment edit leaves stale. The shipments are read again once the last
+ * pending write is done: a refetch between two queued writes would show the first one's data over
+ * the second's optimistic edit.
+ */
+export function invalidateAfterShipmentUpdate(queryClient: QueryClient, data: controllers.ShipmentUpdateRequest) {
+  if (queryClient.isMutating({ mutationKey: SHIPMENT_WRITE_KEY }) <= 1) queryClient.invalidateQueries({ queryKey: ["shipments"] });
+  // An edited date can put the shipment on, or take it off, the Needs Attention list.
+  invalidateShipmentDerivedViews(queryClient);
+  invalidateShipmentCustomerViews(queryClient);
+  // The Invoicing queue lists the jobs with their status, invoicing status, customer and dates.
+  queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
+  // A sales quote remembers the shipment that carries its number.
+  if (data.salesNumber !== undefined) invalidateQuoteLists(queryClient);
+  // A master job shows its houses' container numbers (a Full Load its containers too).
+  if (data.containers !== undefined) queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
+}
+
+/** A shipment linked to a master job or taken off one: the shipments, and what the master jobs show of their houses. */
+export function invalidateAfterMasterJobLink(queryClient: QueryClient) {
+  invalidateMasterJobViews(queryClient);
+  return queryClient.invalidateQueries({ queryKey: ["shipments"] });
 }
 
 /** How long after a customer or contact is saved the server has rewritten the shipments' copies of it. */
@@ -235,25 +266,18 @@ export const useShipmentMutations = () => {
       if (queryClient.isMutating({ mutationKey: SHIPMENT_WRITE_KEY }) > 1) return;
       ctx?.prev?.forEach(([key, value]) => queryClient.setQueryData(key, value));
     },
-    onSettled: (_data, _err, { data }) => {
-      // Refetch once the last pending write is done: a refetch between two queued writes
-      // would show the first one's data over the second's optimistic edit.
-      if (queryClient.isMutating({ mutationKey: SHIPMENT_WRITE_KEY }) <= 1) queryClient.invalidateQueries({ queryKey: ["shipments"] });
-      // An edited date can put the shipment on, or take it off, the Needs Attention list.
-      invalidateDerivedViews();
-      invalidateCustomerViews();
-      if (data.salesNumber !== undefined) invalidateQuoteViews();
-      // A master job shows its houses' container numbers (a Full Load its containers too).
-      if (data.containers !== undefined) queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
-    },
+    onSettled: (_data, _err, { data }) => invalidateAfterShipmentUpdate(queryClient, data),
   });
 
+  // A deleted shipment also leaves its master job (whose houses and costs it was among) and the Invoicing queue.
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.shipments.shipmentDelete(id),
     onSuccess: () => {
       invalidateCustomerViews();
       invalidateDerivedViews();
       invalidateQuoteViews();
+      invalidateMasterJobViews(queryClient);
+      queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
       return queryClient.invalidateQueries({ queryKey: ["shipments"] });
     },
   });
@@ -261,12 +285,12 @@ export const useShipmentMutations = () => {
   const linkMasterJobMutation = useMutation({
     mutationFn: ({ shipmentId, mczNumber }: { shipmentId: string; mczNumber: string }) =>
       api.shipments.shipmentLinkMasterJob(shipmentId, { mczNumber }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSuccess: () => invalidateAfterMasterJobLink(queryClient),
   });
 
   const unlinkMasterJobMutation = useMutation({
     mutationFn: (shipmentId: string) => api.shipments.shipmentUnlinkMasterJob(shipmentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSuccess: () => invalidateAfterMasterJobLink(queryClient),
   });
 
   // Update a single field (handles API field vs extra field routing). `loaded` is the shipment as
@@ -282,26 +306,24 @@ export const useShipmentMutations = () => {
       const shipment = loaded ?? cachedShipment(queryClient, shipmentId);
       const oldValue = shipment ? getFieldValue(shipment, fieldKey) : "";
 
-      if (col.apiField) {
-        updateMutation.mutate(
-          { id: shipmentId, data: { ...dateTimeUpdate(col, value), ...links } as controllers.ShipmentUpdateRequest },
-          // The edit is rolled back on failure; say why (e.g. a customs status the paperwork does not allow yet).
-          { onError: (err) => message.error(err instanceof Error && err.message ? err.message : `Could not save ${col.title}`) },
-        );
-      }
+      if (!col.apiField) return;
 
-      // Fire automation trigger for watched fields
-      if (AUTOMATION_FIELDS.has(fieldKey) && value !== oldValue && shipment) {
-        const shipmentData = buildRowData(shipment);
-        // Actor (triggeredById) is derived server-side from the token.
-        api.automation.automationTrigger({
-          shipmentId,
-          column: col.title,
-          oldValue,
-          newValue: value,
-          shipmentData,
-        }).catch(() => { /* fire and forget */ });
-      }
+      // Each write's own promise: callbacks handed to mutate run for the last write only, so a
+      // second edit made before the first was saved would lose the first one's answer.
+      updateMutation
+        .mutateAsync({ id: shipmentId, data: { ...dateTimeUpdate(col, value), ...links } as controllers.ShipmentUpdateRequest })
+        .then(
+          () => {
+            // The automations of a watched field run on a change that was saved, never on one refused.
+            if (!AUTOMATION_FIELDS.has(fieldKey) || value === oldValue || !shipment) return;
+            // Actor (triggeredById) is derived server-side from the token.
+            api.automation
+              .automationTrigger({ shipmentId, column: col.title, oldValue, newValue: value, shipmentData: buildRowData(shipment) })
+              .catch(() => { /* fire and forget */ });
+          },
+          // The edit is rolled back on failure; say why (e.g. a customs status the paperwork does not allow yet).
+          (err) => message.error(err instanceof Error && err.message ? err.message : `Could not save ${col.title}`),
+        );
     },
     [updateMutation, queryClient, message],
   );

@@ -33,7 +33,7 @@ import { useColumnView } from "@/hooks/useColumnView";
 import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
 import { resizableColumns, useColumnWidths } from "@/hooks/useColumnWidths";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
-import { useToast } from "@/lib/toast";
+import { useMessages, useToast } from "@/lib/toast";
 import { RECEIVED_TICKS, isReceivedTick, receivedFollowsDocuments, receivedValue, toggledReceivedOverride } from "@/lib/customsReceived";
 import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
@@ -165,6 +165,8 @@ export const ShipmentsTable = ({
   const { user, token } = useAuth();
   const canChangeOffice = useCanChangeCustomsOffice();
   const { updateField, updateShipment } = useShipmentMutations();
+  // The columns' own failures (a party refused) are said with this one: it stays the same between renders.
+  const message = useMessages();
   const viewKey = view?.key;
   const viewDefaults = view?.defaultColumns;
   const columnScope = useMemo(
@@ -548,8 +550,10 @@ export const ShipmentsTable = ({
               textStyle={textStyle}
               // Shown the same way (link, card) for a user who may not change it, only not edited.
               locked={!canChangeShipmentField(user, record, col.key)}
+              customersOnly={nameKey === "customer"}
+              // A refused party is rolled back and said (e.g. a company without the Customer role).
               onChange={(name, id) =>
-                updateShipment({ id: record.id, data: partyUpdate(nameKey, name, id) })
+                updateShipment({ id: record.id, data: partyUpdate(nameKey, name, id) }).catch((e) => message.error(apiErrorMessage(e)))
               }
             />
           );
@@ -709,7 +713,7 @@ export const ShipmentsTable = ({
 
     // Each titled column's width can be dragged (not the icon columns).
     return resizableColumns(cols, { widthOf, resizeProps });
-  }, [user, canChangeOffice, visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref, widthOf, resizeProps]);
+  }, [user, canChangeOffice, visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, message, unreadBy, detailHref, widthOf, resizeProps]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;

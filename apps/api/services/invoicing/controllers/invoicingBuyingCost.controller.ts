@@ -5,7 +5,7 @@ import { invoicingService } from "../services/invoicing.service";
 import type { BuyingCostInput, InvoiceCostItem } from "../interfaces/interfaces";
 
 // Buying costs as free lines of the Costs Breakdown (mockup: "Add buying cost"). The older
-// per-category invoicingUpsertCost stays for the shipment wizard.
+// per-category invoicingUpsertCost stays for document reading.
 
 interface AddBuyingRequest extends BuyingCostInput {
   shipmentId: string;
