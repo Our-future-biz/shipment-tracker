@@ -78,6 +78,16 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
     return { rows, total: Number(total) };
   }
 
+  /** The MCZ number of each of the company's live master jobs among `ids`, by id - one query for a whole page of shipments. */
+  async mczNumbersByIds(ids: readonly string[], companyId: string): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .select({ id: masterJobTable.id, mczNumber: masterJobTable.mczNumber })
+      .from(masterJobTable)
+      .where(and(eq(masterJobTable.companyId, companyId), inArray(masterJobTable.id, [...ids]), isNull(masterJobTable.deletedAt)));
+    return new Map(rows.map((r) => [r.id, r.mczNumber]));
+  }
+
   /** Live shipments per master job, for the given ids. */
   async shipmentCounts(masterJobIds: string[], companyId: string): Promise<Map<string, number>> {
     if (masterJobIds.length === 0) return new Map();

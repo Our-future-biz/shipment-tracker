@@ -1,3 +1,4 @@
+import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { auth } from "~encore/clients";
 import { storedEmail, type CompanyUser } from "./personPick";
@@ -16,18 +17,25 @@ export async function companyUsersWithRoles(): Promise<(CompanyUser & { role: st
   return users.map((u) => ({ id: u.id, email: storedEmail(u.email), displayName: u.displayName, role: u.role }));
 }
 
+export const USER_LOOKUP_UNAVAILABLE = "Who you are could not be read just now — try again in a moment";
+
 /**
  * The e-mail of the user `userId` (the signed-in one, typically: who created or decided something) as it
- * is stored; "" when it can't be looked up. A user of the company the request works in - or the signed-in
- * user themself, found in their own company when a superadmin works as another one (auth selfInOwnCompany).
+ * is stored. A user of the company the request works in - or the signed-in user themself, found in their
+ * own company when a superadmin works as another one (auth selfInOwnCompany).
+ *
+ * "" only when there is no such user. When the lookup fails it throws unavailable: a write that records
+ * who approved or created something must not record nobody because auth did not answer - it is refused,
+ * to be tried again. A caller that only shows something catches.
  */
 export async function userEmailOf(userId: string): Promise<string> {
   if (!userId) return "";
+  let found: { id: string; email: string }[];
   try {
-    const { users } = await auth.userLookup({ ids: [userId], selfInOwnCompany: true });
-    return storedEmail(users.find((u) => u.id === userId)?.email ?? "");
+    ({ users: found } = await auth.userLookup({ ids: [userId], selfInOwnCompany: true }));
   } catch (err) {
     log.warn(err, "user e-mail could not be looked up");
-    return "";
+    throw APIError.unavailable(USER_LOOKUP_UNAVAILABLE);
   }
+  return storedEmail(found.find((u) => u.id === userId)?.email ?? "");
 }

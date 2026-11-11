@@ -34,7 +34,16 @@ export interface OutboxRepositoryOptions {
   orderKey: string;
   /** last_error kept on a row delivered after it was cancelled (the target got it anyway). */
   sentAfterCancelNote: string;
+  /**
+   * Kinds (the table's `kind` column) whose payload is the whole value of what it sets - a date, a
+   * plate: one of them that failed is obsolete once a newer row of the same kind and order key was
+   * sent, and "Send again" cancels it instead of sending the older value over the newer one.
+   */
+  wholeValueKinds?: readonly string[];
 }
+
+/** last_error of a failed row "Send again" cancelled because a newer value of it went out. */
+export const SUPERSEDED_NOTE = "Not sent again: a later update of the same value was sent since";
 
 // A claimed row is held this long; a delivery that dies leaves it to the next run after that.
 const LOCK = sql`interval '2 minutes'`;
@@ -122,6 +131,7 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
   async requeueFailed(companyId: string, ids: string[], replace: ReplaceActors | null) {
     if (!ids.length) return [];
     const o = this.table;
+    await this.cancelSuperseded(companyId, ids);
     const gone = replace?.gone.length ? replace.gone : null;
     const actor = (col: string, value: string) =>
       gone ? sql`CASE WHEN acting_user_id IN (${sql.join(gone.map((g) => sql`${g}`), sql`, `)}) THEN ${value} ELSE ${sql.identifier(col)} END` : sql.identifier(col);
@@ -138,6 +148,24 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
       .where(inArray(o.id, requeued))
       .orderBy(asc(o.createdAt), asc(o.id));
     return rows as InferSelectModel<TTable>[];
+  }
+
+  // A failed row of a whole-value kind with a newer row of the same kind and order key already sent:
+  // what it would set is out of date, so it is cancelled rather than sent over the newer value.
+  private async cancelSuperseded(companyId: string, ids: string[]) {
+    const kinds = this.outbox.wholeValueKinds;
+    if (!kinds?.length) return;
+    const o = this.table;
+    const key = sql.identifier(this.outbox.orderKey);
+    await this.db.execute(sql`
+      UPDATE ${o} x SET status = 'cancelled', locked_until = NULL, last_error = ${SUPERSEDED_NOTE}, updated_at = now()
+      WHERE x.company_id = ${companyId} AND x.id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})
+        AND x.status = 'failed' AND x.deleted_at IS NULL
+        AND x.kind IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})
+        AND EXISTS (
+          SELECT 1 FROM ${o} y
+          WHERE y.${key} = x.${key} AND y.kind = x.kind AND y.status = 'sent' AND y.deleted_at IS NULL
+            AND (y.created_at, y.id) > (x.created_at, x.id))`);
   }
 
   // Rows not delivered in time: failed for good, or still pending after `minutes`. Counts and the

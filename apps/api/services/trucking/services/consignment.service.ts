@@ -42,6 +42,7 @@ import { addDays, businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { namesReferenceNumber } from "../../../lib/jobNumber";
 import type { Actor } from "../../../lib/rbac";
+import { sameSalesReference } from "../../../lib/salesReference";
 import {
   cleanFields,
   cleanReason,
@@ -64,6 +65,7 @@ import { cleanLtlChoice, hubPlace, LEG_SEQ, legEnds, legKindsFor, ltlPromise, lt
 import { ltlFactsOf, ltlLegsOf } from "../lib/ltlView";
 import { isPriced, promise, roundToStep, showPostcode } from "../lib/rateEngine";
 import { formatDay } from "../lib/format";
+import { LINK_DAYS_AFTER_PICKUP, linkExpiry } from "../lib/haulierToken";
 import { quoteRefusal, quoteSellLines } from "../lib/quoteRules";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isManager, requireManager } from "../lib/roles";
@@ -110,6 +112,8 @@ interface Priced {
   serviceLevel: ServiceLevelCode | null;
   promisedDate: string | null;
   chargeableKg: number | null;
+  /** The quote priced from, as Sales numbers it now (the one stored: it is what one quote prices once by). */
+  quoteNumber?: string;
 }
 
 /** An outbox row owed by a change, sent as `actor`. */
@@ -457,6 +461,7 @@ class ConsignmentService {
       serviceLevel: level,
       promisedDate: await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime),
       chargeableKg: null,
+      quoteNumber: quote.quoteNumber,
     };
   }
 
@@ -522,6 +527,16 @@ class ConsignmentService {
     return { shipmentId: job.id, jobNumber: job.jobNumber, department: job.department ?? "" };
   }
 
+  // Takes back a job made for a consignment that could then not be saved. Its failure is logged, not
+  // thrown: the user is told why the consignment was not saved, and the job stays for a manager.
+  private async retireJob(actor: Actor, shipmentId: string, jobNumber: string): Promise<void> {
+    try {
+      await shipments._internalShipmentRoadRetire({ shipmentId }, { authData: { userID: actor.userID, companyID: actor.companyID, role: actor.role } });
+    } catch (err) {
+      log.error(err, "trucking: the job made for a consignment that was not saved could not be taken back", { shipmentId, jobNumber });
+    }
+  }
+
   // The job's department now (Shipments may have changed it); the stored one when the job cannot be read.
   private async departmentOf(c: TruckingConsignmentRecord): Promise<string> {
     const { shipments: found } = await shipments._internalShipmentBasics({ ids: [c.shipmentId] });
@@ -558,7 +573,7 @@ class ConsignmentService {
       plannedDeliveryDate: priced.promisedDate,
       cargoDescription: f.load.description,
       customerReference: f.pickup.reference,
-      quoteNumber: f.quoteNumber,
+      quoteNumber: priced.quoteNumber ?? f.quoteNumber,
       createdBy: by ? `Trucking · ${by}` : "Trucking",
       // LTL goes through our warehouse's consolidation: the job (and the warehouse position made from it) says so.
       loadType: f.scope === "LTL" ? "Consolidation" : "Full Load",
@@ -575,7 +590,7 @@ class ConsignmentService {
         jobNumber: job.jobNumber,
         customerId: input.customerId,
         customerName,
-        quoteNumber: f.quoteNumber,
+        quoteNumber: priced.quoteNumber ?? f.quoteNumber,
         scope: ltl ? "LTL" : "FTL",
         selfDelivered: ltl?.selfDelivered ?? false,
         lastMile: ltl?.lastMile ?? null,
@@ -612,9 +627,12 @@ class ConsignmentService {
       if (ltl) await legRepository.insertMany(tx, newLegs(companyId, row, ltl, hub));
       if (!internal) await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, row, "costs", sellCosts(row))]);
       return row;
-    }).catch((err: unknown) => {
+    }).catch(async (err: unknown) => {
+      // The job made for this consignment above (another database) is taken back: no empty job is
+      // left linked to the quote.
+      if (!existingJob) await this.retireJob(actor, job.shipmentId, job.jobNumber);
       // Two bookings from one quote at once: the unique index keeps one (decision 10).
-      if (priced.sell.source === "QUOTE" && isUniqueViolation(err)) throw APIError.alreadyExists(`Quote ${f.quoteNumber} already prices a consignment: one consignment per quote`);
+      if (priced.sell.source === "QUOTE" && isUniqueViolation(err)) throw APIError.alreadyExists(`Quote ${priced.quoteNumber ?? f.quoteNumber} already prices a consignment: one consignment per quote`);
       throw err;
     });
     await deliverDue(created.id);
@@ -654,7 +672,8 @@ class ConsignmentService {
     const department = plan.kind === "refresh" || plan.kind === "fill" ? plan.department : c.department;
     const internal = plan.kind === "refresh" ? plan.internal : c.internal;
     const values: ConsignmentValues = {
-      quoteNumber: f.quoteNumber,
+      // The quote as Sales numbers it now; the same quote sent as it read before a rename keeps the stored number.
+      quoteNumber: priced?.quoteNumber ?? (f.quoteNumber && c.quoteNumber && sameSalesReference(f.quoteNumber, c.quoteNumber) ? c.quoteNumber : f.quoteNumber),
       serviceLevel: level,
       pickupDate: f.pickupDate,
       pickupTime: f.pickupTime,
@@ -685,9 +704,14 @@ class ConsignmentService {
         await legRepository.insertMany(tx, newLegs(companyId, { id, pickup: f.pickup, delivery: f.delivery }, ltl, hub));
       }
       // FTL: the trip is picked up when the consignment is; the job learns the new dates.
+      let linkExpiresAt: Date | null = null;
       if (liveTrip && dateMoved) {
         await tripRepository.update(tx, companyId, liveTrip.id, { plannedPickupDate: f.pickupDate }, { live: true });
         owes.push(owed(actor, row, "planned", { pickupDate: f.pickupDate, ...(promisedDate ? { plannedDeliveryDate: promisedDate } : {}) }));
+        // The haulier's link is valid until LINK_DAYS_AFTER_PICKUP days after the planned pick-up,
+        // as set at the send: a pick-up moved later carries it as far (the haulier uploads the POD
+        // through it); one moved earlier never shortens it.
+        linkExpiresAt = (await tripRepository.extendLink(tx, companyId, liveTrip.id, linkExpiry(f.pickupDate)))?.expiresAt ?? null;
       }
       await appendEvent(tx, companyId, {
         kind: "consignment_updated",
@@ -699,7 +723,8 @@ class ConsignmentService {
           changes,
           summary: priced
             ? `Repriced: ${money(priced.sell.total, priced.sell.currency)} (${priced.sell.source.toLowerCase()})`
-            : `Changed ${Object.keys(changes).join(", ")}`,
+            : `Changed ${Object.keys(changes).join(", ")}${linkExpiresAt ? `; the haulier's link is valid until ${formatDay(addDays(f.pickupDate, LINK_DAYS_AFTER_PICKUP))}` : ""}`,
+          ...(linkExpiresAt ? { facts: { linkExpiresAt: linkExpiresAt.toISOString() } } : {}),
         },
       });
       await truckingOutboxRepository.enqueue(tx, companyId, owes);
@@ -911,6 +936,8 @@ class ConsignmentService {
   ): Promise<boolean> {
     const companyId = actor.companyID;
     const now = new Date();
+    // The job first: the cancel settles the job's Billing again (see lockJob).
+    await this.lockJob(tx, companyId, c.shipmentId);
     const row = await consignmentRepository.update(
       tx,
       companyId,
@@ -1049,6 +1076,9 @@ class ConsignmentService {
     source: "USER" | "HAULIER",
   ): Promise<TruckingConsignmentRecord> {
     const companyId = actor.companyID;
+    // The job first: a POD settles the job's Billing over all its consignments (a no-op when the
+    // caller's transaction holds the job already).
+    await this.lockJob(tx, companyId, c.shipmentId);
     const cols = STAMP_COLUMNS[kind];
     const next: ConsignmentFacts = { ...factsOf(c, trip), [cols.at]: time };
     const status = c.scope === "LTL" ? await this.ltlStatusAfter(tx, companyId, c, { [cols.at]: time }) : consignmentStatus(next);
@@ -1110,6 +1140,18 @@ class ConsignmentService {
   }
 
   /**
+   * The job's lock: every consignment of the job, locked in id order. Every transaction that stamps
+   * a consignment, cancels one or settles the job's Billing takes it first - before it writes a
+   * consignment or inserts a row naming one (a document, a charge: that locks the consignment row
+   * too) - and settleBilling then locks the same rows again, which costs nothing. Without it two
+   * PODs of one job at the same moment each wrote their own consignment and then waited for the
+   * other's in settleBilling: a deadlock.
+   */
+  async lockJob(tx: Tx, companyId: string, shipmentId: string): Promise<void> {
+    await consignmentRepository.forShipmentLocked(tx, companyId, shipmentId);
+  }
+
+  /**
    * The Billing rule: when every live (not cancelled) consignment of the job has its POD and no
    * delivery exception of theirs is open, they become READY_TO_BILL and the job is owed the
    * "Billing" step (once). Runs in the transaction of the change, with the job's consignments
@@ -1154,6 +1196,8 @@ class ConsignmentService {
     const by = await userName(actor.userID);
     const companyId = actor.companyID;
     await inTx(async (tx) => {
+      // The job first: a voided POD takes the job's other consignments out of Billing (see lockJob).
+      await this.lockJob(tx, companyId, c.shipmentId);
       const next: ConsignmentFacts = { ...facts, [cols.at]: null, ...(kind === "podReceived" ? { readyToBillAt: null } : {}) };
       const status =
         c.scope === "LTL"

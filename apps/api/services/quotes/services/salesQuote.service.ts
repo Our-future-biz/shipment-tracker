@@ -9,7 +9,7 @@ import { canApproveMargin, canDecideQuoteInquiry, canSetOwner, quoteDeletePermis
 import { baseReference, formatReference, nextRevision, nextSequence, nextVariant, quoteThreadOf, revisionRoot, salesPrefix, salesReferenceFor } from "../../../lib/salesReference";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { quoteRenameRepository } from "../repositories/quoteRename.repository";
-import { quoteRenamed } from "../topics";
+import { deliverQuoteEvents } from "./quoteEvents.service";
 import { isUuid } from "../../../lib/uuid";
 import type { RateLevelResult, ServiceLevelCode } from "../../trucking/interfaces/interfaces";
 import type {
@@ -71,7 +71,7 @@ import {
   type StatusChange,
 } from "../utils/quoteLifecycle.utils";
 import { searchTokens } from "../utils/quoteSearch.utils";
-import { holdsSending, toItem } from "../utils/salesQuoteItem.utils";
+import { holdsSending, STATES_UNAVAILABLE, toItem, type LinkedStates } from "../utils/salesQuoteItem.utils";
 import { ownerBackfillService } from "./ownerBackfill.service";
 import { companyUsers } from "../../../lib/companyUsers";
 import { companyPeople, peopleOf, withCaller, type People } from "../lib/people";
@@ -403,17 +403,18 @@ async function linkedSupplierStates(ids: string[]): Promise<Map<string, LinkedSu
   return new Map(states.map((s) => [s.id, { companyName: s.companyName, status: s.status, comment: s.comment }]));
 }
 
-// Where the companies the quotes are for stand, for what the quotes are handed out with (sendBlocked
-// says beforehand what customerGate refuses): asked once, for the quotes whose prices are open.
-// Unknown when the Customer Database does not answer - the transition still asks it.
-async function customerStatesOf(rows: readonly SalesQuoteRecord[], at: Date): Promise<Map<string, LinkedSupplierState> | undefined> {
-  const ids = [...new Set(rows.filter((row) => holdsSending(row, at)).flatMap((row) => linkedCustomerIds(row.data)))];
-  if (!ids.length) return undefined;
+// Where the companies the quotes are linked to stand - their customers and their buying lines'
+// suppliers - for what the quotes are handed out with (sendBlocked says beforehand what customerGate
+// and supplierGate refuse; Create shipment trusts it): asked once, for the quotes whose prices are
+// open. STATES_UNAVAILABLE when the Customer Database does not answer: the quotes are held then.
+async function linkedStatesOf(rows: readonly SalesQuoteRecord[], at: Date): Promise<LinkedStates> {
+  const open = rows.filter((row) => holdsSending(row, at));
+  const ids = [...new Set(open.flatMap((row) => [...linkedCustomerIds(row.data), ...linkedSupplierIds(row.data)]))];
   try {
     return await linkedSupplierStates(ids);
   } catch (err) {
-    log.warn("where the quotes' customers stand could not be read", { error: err instanceof Error ? err.message : String(err) });
-    return undefined;
+    log.warn("where the quotes' customers and suppliers stand could not be read", { error: err instanceof Error ? err.message : String(err) });
+    return STATES_UNAVAILABLE;
   }
 }
 
@@ -493,7 +494,8 @@ async function followLetters(companyId: string, quote: SalesQuoteRecord, at: Dat
     return quote;
   }
   if (!renamed) return quote;
-  await quoteRenamed.publish({ companyId, from: quote.quoteNumber, to });
+  // Owed with the rename (its outbox row): published now, and again by the cron when that fails.
+  await deliverQuoteEvents(renamed.id);
   return renamed;
 }
 
@@ -532,8 +534,8 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, [stored], at), customerStatesOf([stored], at)]);
-    return toItem(stored, people.emails, actor, at, margins, customerStates);
+    const [margins, states] = await Promise.all([marginsFor(actor.companyID, [stored], at), linkedStatesOf([stored], at)]);
+    return toItem(stored, people.emails, actor, at, margins, states);
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -555,10 +557,10 @@ class SalesQuoteService {
       { today: businessDay(at), dueBefore: followUpDueBefore(at) },
       people.users,
     );
-    const [margins, customerStates] = await Promise.all([marginsFor(actor.companyID, rows, at), customerStatesOf(rows, at)]);
+    const [margins, states] = await Promise.all([marginsFor(actor.companyID, rows, at), linkedStatesOf(rows, at)]);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
-      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, customerStates)),
+      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, states)),
     };
   }
 
@@ -770,6 +772,7 @@ class SalesQuoteService {
     actor: Actor,
     quoteNumber: string,
     expectedDataVersion?: number,
+    expectedStatus?: string,
   ): Promise<{ quote: SalesQuoteItem; revision: SalesQuoteItem; warning?: string }> {
     const at = new Date();
     const people = await companyPeople(actor);
@@ -782,6 +785,9 @@ class SalesQuoteService {
     let won = false;
     const result = await salesQuoteRepository.revise(actor.companyID, quoteNumber, `${root}-R`, (quote, existing) => {
       if (expectedDataVersion !== undefined && expectedDataVersion !== quote.dataVersion) throw conflict();
+      // The status the user saw: a status change writes no document, so the version alone misses a
+      // Quoted quote made Won meanwhile - revising that would make a Won revision take its shipments.
+      if (expectedStatus !== undefined) ruled(() => expectStatus(stateOf(quote), expectedStatus, ctx.today));
       const reference = salesReferenceFor(
         nextRevision(revisionRoot(quote.quoteNumber), existing),
         isPlainObject(quote.data) ? quote.data.serviceType : undefined,
@@ -1139,7 +1145,13 @@ class SalesQuoteService {
           ctx,
         );
         if (change.changed) {
-          const document = change.becameWon ? fxWriteFor("won", quote.data, today) : undefined;
+          // Won: the rates of a sent quote. Back to a draft status (its shipment went): priced live
+          // again, so the rates of the Won moment are dropped, as on every other way back to a draft.
+          const document = change.becameWon
+            ? fxWriteFor("won", quote.data, today)
+            : change.revertedTo && !mayStampFx(change.revertedTo)
+              ? fxWriteFor(change.revertedTo, quote.data, undefined)
+              : undefined;
           await salesQuoteRepository.writeLifecycle(tx, quote, { state: change.state, entries: change.entries, document });
         }
         return { ...change, customerId: quote.customerId };
@@ -1255,6 +1267,14 @@ class SalesQuoteService {
         // While a shipment is linked nobody may, so it is the request that cannot be met as
         // things stand; otherwise it is this user who may not.
         throw permission.blockedBy === "shipment" ? APIError.failedPrecondition(permission.reason) : APIError.permissionDenied(permission.reason);
+      }
+      // A revision is the offer the quote it replaced handed on to: deleted, it would leave that
+      // quote Replaced for good (Replaced has no way out), its offer never to be Won or Lost.
+      const replaced = await salesQuoteRepository.liveReplacedBy(tx, quote.companyId, quote.quoteNumber);
+      if (replaced) {
+        throw APIError.failedPrecondition(
+          `${quote.quoteNumber} is the revision that replaced ${replaced}: deleted, it would leave ${replaced} Replaced for good - mark it Lost instead, or keep working on it`,
+        );
       }
       await salesQuoteRepository.writeLifecycle(tx, quote, { state, entries: [deletionEntry(ctx)], deleted: { by: actor.userID, at } });
       await quoteAttachmentRepository.deleteForQuote(tx, quote.quoteNumber, quote.companyId, at);

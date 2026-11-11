@@ -5,6 +5,7 @@ import * as quoteSchema from "../schemas/quote.schema";
 import * as quoteRefSequenceSchema from "../schemas/quoteRefSequence.schema";
 import * as quoteAttachmentSchema from "../schemas/quoteAttachment.schema";
 import * as quoteCommentSchema from "../schemas/quoteComment.schema";
+import * as quoteEventOutboxSchema from "../schemas/quoteEventOutbox.schema";
 
 export const DB = new SQLDatabase("quotes", {
   migrations: { path: "migrations", source: "drizzle" },
@@ -18,5 +19,6 @@ export const db = drizzle(pool, {
     ...quoteRefSequenceSchema,
     ...quoteAttachmentSchema,
     ...quoteCommentSchema,
+    ...quoteEventOutboxSchema,
   },
 });

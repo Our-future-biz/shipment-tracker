@@ -56,6 +56,9 @@ const followsCustomers = or(
 // module has no status, so it is never among them.
 const openQuotes = (companyId: string) => and(eq(quoteTable.companyId, companyId), isNull(quoteTable.deletedAt), followsCustomers);
 
+/** Where an open quote keeps the contact it let go of when the contact was deleted (to link it again). */
+const GONE_CONTACT_KEY = "customerContactGoneId";
+
 const differs = (key: string, value: string) => sql`${quoteTable.data}->>${key}::text IS DISTINCT FROM ${value}::text`;
 
 /** The document with `values` set (one jsonb object as one parameter). */
@@ -99,7 +102,9 @@ class QuoteCustomerLinksRepository {
       const found = await current();
       if (!found) return [];
       const { gone, ...contact } = found;
-      return gone ? this.unlinkContact(tx, companyId, customerId, contactId, contact) : this.refreshContact(tx, companyId, customerId, contactId, contact);
+      if (gone) return this.unlinkContact(tx, companyId, customerId, contactId, contact);
+      const relinked = await this.relinkContact(tx, companyId, customerId, contactId, contact);
+      return [...new Set([...relinked, ...(await this.refreshContact(tx, companyId, customerId, contactId, contact))])];
     });
   }
 
@@ -162,7 +167,9 @@ class QuoteCustomerLinksRepository {
    * before the delete is not lost. A blank last name keeps the stored text.
    */
   async unlinkContact(writer: Writer, companyId: string, customerId: string, contactId: string, last: ContactCopies): Promise<string[]> {
-    const unlinked = withValues(sql`${quoteTable.data}`, { [CUSTOMER_KEYS.customerContactId]: HAND_TYPED_CONTACT });
+    // The contact it was is remembered (customerContactGoneId): should it come back - its customer
+    // restored - the quote links it again (relinkContact); the text is the typed contact meanwhile.
+    const unlinked = withValues(sql`${quoteTable.data}`, { [CUSTOMER_KEYS.customerContactId]: HAND_TYPED_CONTACT, [GONE_CONTACT_KEY]: contactId });
     const name = last.name.trim();
     const lastValues = { [CUSTOMER_KEYS.customerContact]: name, [CUSTOMER_KEYS.customerEmail]: last.email, [CUSTOMER_KEYS.customerPhone]: last.phone };
     const data = name ? sql`CASE WHEN ${quoteTable.customerId} = ${customerId}::uuid THEN ${withValues(unlinked, lastValues)} ELSE ${unlinked} END` : unlinked;
@@ -170,6 +177,38 @@ class QuoteCustomerLinksRepository {
       .update(quoteTable)
       .set({ data })
       .where(and(openQuotes(companyId), sql`${quoteTable.data}->>'customerContactId' = ${contactId}::text`))
+      .returning({ id: quoteTable.id });
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * A contact that came back (its customer restored): the open quotes of its customer that let go of
+   * it - and still show it as it was, nobody having picked or typed another since - link it again,
+   * with its details as they are now. Returns the ids of the quotes linked.
+   */
+  async relinkContact(writer: Writer, companyId: string, customerId: string, contactId: string, contact: ContactCopies): Promise<string[]> {
+    const name = contact.name.trim();
+    if (!name) return [];
+    const rows = await writer
+      .update(quoteTable)
+      .set({
+        data: sql`(${withValues(sql`${quoteTable.data}`, {
+          [CUSTOMER_KEYS.customerContactId]: contactId,
+          [CUSTOMER_KEYS.customerContact]: name,
+          [CUSTOMER_KEYS.customerEmail]: contact.email,
+          [CUSTOMER_KEYS.customerPhone]: contact.phone,
+        })}) - ${GONE_CONTACT_KEY}::text`,
+      })
+      .where(
+        and(
+          openQuotes(companyId),
+          eq(quoteTable.customerId, customerId),
+          sql`${quoteTable.data}->>${GONE_CONTACT_KEY}::text = ${contactId}::text`,
+          sql`COALESCE(${quoteTable.data}->>'customerContactId', '') = ''`,
+          // Still the contact it was: a name typed over it since stays.
+          sql`btrim(COALESCE(${quoteTable.data}->>${CUSTOMER_KEYS.customerContact}::text, '')) = ${name}::text`,
+        ),
+      )
       .returning({ id: quoteTable.id });
     return rows.map((r) => r.id);
   }

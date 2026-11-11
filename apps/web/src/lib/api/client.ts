@@ -6780,9 +6780,15 @@ export namespace controllers {
 
     export interface AttachmentCreateRequest {
         fileName: string
-        fileSize: number
+        /**
+         * Ignored: the server stores the decoded file's own size.
+         */
+        fileSize?: number
         fileType: string
-        contentBase64?: string
+        /**
+         * The file's bytes; an empty file is refused.
+         */
+        contentBase64: string
         /**
          * Optional business document type set right at upload.
          */
@@ -9826,6 +9832,12 @@ export namespace controllers {
          * The dataVersion the caller's copy is based on; a quote changed since is not revised (HTTP 409).
          */
         expectedDataVersion?: number
+
+        /**
+         * The status the caller's screen showed - the effective one ("expired" past the validity). When
+         * sent, the quote is not revised if it is in another by now (a colleague made it Won meanwhile).
+         */
+        expectedStatus?: string
     }
 
     export interface SalesQuoteReviseResponse {
@@ -10269,11 +10281,6 @@ export namespace controllers {
          * With fromQuoteNumber: create the shipment although the quote already has one.
          */
         allowSecondShipment?: boolean
-
-        /**
-         * Other
-         */
-        claim?: string
     }
 
     export interface ShipmentCreateResponse {
@@ -10676,10 +10683,6 @@ export namespace controllers {
         quoteValidity?: string
         validityStatus?: string
         salesPerson?: string
-        /**
-         * Other
-         */
-        claim?: string
     }
 
     export interface ShipmentUpdateResponse {
@@ -23637,7 +23640,7 @@ export namespace interfaces {
         usedBays: number
 
         /**
-         * Pieces stored in the zone.
+         * Pallet positions in use: the distinct locations of the zone holding stock.
          */
         occupied: number
 

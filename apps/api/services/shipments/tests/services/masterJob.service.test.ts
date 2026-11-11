@@ -282,3 +282,26 @@ describe("the houses a vendor invoice read by B/L is checked against", () => {
     ]);
   });
 });
+
+describe("attaching a shipment to a master job", () => {
+  const S = "00000000-0000-0000-0000-0000000000s1";
+  const OLD = "00000000-0000-0000-0000-0000000000m0";
+  const NEW = "00000000-0000-0000-0000-0000000000m1";
+  const shipments = shipmentRepository as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  const service = shipmentService as unknown as Record<string, ReturnType<typeof vi.fn>>;
+
+  it("goes back to where it was when the house refuses the master job's values, and the refusal is the answer", async () => {
+    shipments.getByIdForCompany = vi.fn(async () => ({ id: S, masterJobId: OLD }));
+    shipments.updateForCompany = vi.fn(async () => ({ id: S }));
+    service.linkMasterJob = vi.fn(async () => ({ id: S, masterJobId: NEW }));
+    const refused = Object.assign(new Error("tax date can't change"), { code: "failed_precondition" });
+    const sync = vi.spyOn(masterJobService as never, "syncShipment" as never).mockRejectedValue(refused as never);
+    const unassign = vi.spyOn(masterJobService as never, "unassignFromContainers" as never).mockResolvedValue(undefined as never);
+    await expect(masterJobService.attachShipment(S, "c1", "MCZ00000010", "u1")).rejects.toBe(refused);
+    // Not left on the new master job without its values; still on the old one's containers.
+    expect(shipments.updateForCompany).toHaveBeenCalledWith(S, "c1", { masterJobId: OLD });
+    expect(unassign).not.toHaveBeenCalled();
+    sync.mockRestore();
+    unassign.mockRestore();
+  });
+});

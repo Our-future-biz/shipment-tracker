@@ -15,9 +15,18 @@ export interface UserRef {
   /** The user's e-mail: how a person is recorded wherever someone is picked. */
   email: string;
   role: string;
+  /**
+   * Set only for a superadmin found outside the company asked about (userLookup orSuperadmin): the
+   * company their own record is in.
+   */
+  homeCompanyId?: string;
 }
 
 export interface AdminContact {
   email: string;
   displayName: string;
+  /** The admin's own company: an alert goes to each company's admins apart, never in one list. */
+  companyId: string;
+  /** "admin" or "superadmin" (a superadmin works for every company, so is written to on their own). */
+  role: string;
 }

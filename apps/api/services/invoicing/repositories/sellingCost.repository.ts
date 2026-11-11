@@ -51,14 +51,20 @@ class SellingCostRepository extends TenantRepository<typeof t> {
       .orderBy(asc(t.sortOrder), asc(t.createdAt));
   }
 
-  /** Every live selling row in the company, ticked for Invoice or not (for the Invoicing queue). */
-  async listLiveByCompany(
+  /**
+   * The live selling rows of the shipments an Invoicing queue view lists, ticked for Invoice or not:
+   * only those shipments' (at most the view's limit), never every row the company has.
+   */
+  async listLiveByShipments(
+    shipmentIds: string[],
     companyId: string,
   ): Promise<Pick<InvoiceSellingCostRecord, "id" | "shipmentId" | "qty" | "amount" | "currency" | "invoice">[]> {
+    const ids = [...new Set(shipmentIds)];
+    if (!ids.length) return [];
     return this.db
       .select({ id: t.id, shipmentId: t.shipmentId, qty: t.qty, amount: t.amount, currency: t.currency, invoice: t.invoice })
       .from(t)
-      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt)));
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, ids), isNull(t.deletedAt)));
   }
 
   async updateLine(

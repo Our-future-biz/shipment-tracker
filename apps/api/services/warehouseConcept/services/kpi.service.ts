@@ -34,6 +34,8 @@ class KpiService {
     const slotTo = pragueInstant(addDays(period.to, SLOT_MARGIN_DAYS + 1), "00:00");
     const exceptionsFrom = pragueInstant(addDays(period.from, -1), "00:00");
     const [movements, containers, houses, slots, reweighs, exceptions, shipmentUpdates, docks] = await Promise.all([
+      // Every live record (a full read, kept): the period's figures count the stamps of any record,
+      // whenever it was made, and the storage figures all cargo in the warehouse now.
       gateMovementRepository.listAll(companyId),
       kpiRepository.containers(companyId),
       kpiRepository.houses(companyId),

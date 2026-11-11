@@ -199,7 +199,9 @@ class CompanyRegistrationService {
   ): Promise<void> {
     const { companyId } = link;
     const number = czech ? input.ico! : (input.registrationNumber ?? "").trim();
-    const existing = number ? await customerRepository.findByIco(number, companyId) : null;
+    // Matched in the registrant's own country: a foreign register's number is never taken for the same
+    // text of another country's (a German "HRB 12345" is no Austrian company's).
+    const existing = number ? await customerRepository.findByIco(number, country, companyId) : null;
     const viaLink = { userId: link.createdByUserId, quoteNumber: "", viaLink: { requestedBy: link.createdBy } };
 
     let company: Pick<NewCompanyRegistrationRecord, "companyName" | "ico" | "dic" | "registeredAddress" | "city" | "country" | "dataSource">;

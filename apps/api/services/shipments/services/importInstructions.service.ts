@@ -179,7 +179,7 @@ class ImportInstructionsService {
    * Holiday Cover; only those they may answer (a creator who is no longer named doesn't get theirs).
    */
   async waitingFor(actor: Actor): Promise<ImportInstructionWaiting[]> {
-    const email = await userEmailOf(actor.userID);
+    const email = await userEmailOf(actor.userID).catch(() => "");
     const rows = await repository.waitingFor(actor.companyID, actor.userID, email);
     return rows
       .filter((r) => isDetailsManager(actor.role) || isOpenToPerson(r, email))

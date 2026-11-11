@@ -225,6 +225,13 @@
       "when": 1794086202410,
       "tag": "0031_selling_request_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794385326929,
+      "tag": "0032_invoice_followup_outbox",
+      "breakpoints": true
     }
   ]
 }

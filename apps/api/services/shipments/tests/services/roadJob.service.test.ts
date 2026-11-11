@@ -4,13 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
-vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: {} }));
+vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { getByIdForCompany: vi.fn() } }));
 vi.mock("../../services/shipment.service", () => ({
-  shipmentService: { create: vi.fn(async () => ({ shipment: { id: "s1", jobNumber: "CZ00000099" } })) },
+  shipmentService: { create: vi.fn(async () => ({ shipment: { id: "s1", jobNumber: "CZ00000099" } })), softDelete: vi.fn() },
 }));
 
 import { auth } from "~encore/clients";
 import { shipmentService } from "../../services/shipment.service";
+import { shipmentRepository } from "../../repositories/shipment.repository";
 import { roadJobService } from "../../services/roadJob.service";
 import type { RoadJobInput } from "../../interfaces/interfaces";
 
@@ -79,5 +80,25 @@ describe("Created By of a road job", () => {
     vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
     await roadJobService.create("company", input(), JANA);
     expect(created()).toMatchObject({ createdBy: "Trucking" });
+  });
+});
+
+describe("taking back a job Trucking made for a consignment it could not save", () => {
+  const JOB = "00000000-0000-0000-0000-0000000000a1";
+  const COMPANY = "00000000-0000-0000-0000-000000000001";
+  beforeEach(() => vi.clearAllMocks());
+
+  it("deletes a job Trucking created, as any job is deleted", async () => {
+    vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue({ id: JOB, createdBy: "Trucking · jana@firma.cz" } as never);
+    await roadJobService.retire(COMPANY, JOB, "u1", "user");
+    expect(shipmentService.softDelete).toHaveBeenCalledWith(JOB, COMPANY, "u1", "user");
+  });
+
+  it("never deletes a job somebody else created, and leaves one already gone", async () => {
+    vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue({ id: JOB, createdBy: "jana@firma.cz" } as never);
+    await expect(roadJobService.retire(COMPANY, JOB, "u1", "user")).rejects.toMatchObject({ code: "failed_precondition" });
+    vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue(null);
+    await expect(roadJobService.retire(COMPANY, JOB, "u1", "user")).resolves.toBeUndefined();
+    expect(shipmentService.softDelete).not.toHaveBeenCalled();
   });
 });

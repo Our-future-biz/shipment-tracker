@@ -1,5 +1,5 @@
 import { api } from "encore.dev/api";
-import { getAuthData } from "~encore/auth";
+import { requireRole } from "../../../lib/rbac";
 import { holidaysService } from "../services/holidays.service";
 
 interface HolidayDeleteRequest {
@@ -13,7 +13,8 @@ interface HolidayDeleteResponse {
 export const holidayDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/holidays/:id" },
   async (req: HolidayDeleteRequest): Promise<HolidayDeleteResponse> => {
-    await holidaysService.remove(req.id, getAuthData()!.companyID);
+    // Managers only: the company's holidays move every lead time in Trucking.
+    await holidaysService.remove(req.id, requireRole("superadmin", "admin", "manager").companyID);
     return { ok: true };
   },
 );

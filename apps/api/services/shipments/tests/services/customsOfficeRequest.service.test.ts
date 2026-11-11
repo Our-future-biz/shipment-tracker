@@ -121,7 +121,26 @@ describe("answering a request", () => {
     expect(item.status).toBe("approved");
     expect(item.decidedByName).toBe("Jan Novák");
     // No role passed: the lock is for the person's own edits, this is the approval itself.
-    expect(service.update).toHaveBeenCalledWith(SHIPMENT, "c1", { customsOffice: TO }, manager.userID);
+    expect(service.update).toHaveBeenCalledWith(SHIPMENT, "c1", { customsOffice: TO }, manager.userID, undefined, undefined, expect.any(Function));
+  });
+
+  it("writes the new office only while the shipment still has the one asked about, checked in its write turn", async () => {
+    await requests.decide(manager, ID, { approve: true });
+    const stillAsked = service.update.mock.calls[0]![6] as (current: object) => void;
+    expect(() => stillAsked(shipment())).not.toThrow();
+    // Changed since the check before the answer: the write is refused, nothing of it stored.
+    for (const over of [{ customsOffice: "CZ200000 Celní úřad v Liberci, Liberec" }, { customsProcedure: "SCP" }]) {
+      expect(() => stillAsked(shipment(over))).toThrow("has changed since");
+    }
+  });
+
+  it("gives the answer back when the office changed between the check and the write", async () => {
+    service.update.mockImplementationOnce(async (_id, _companyId, _data, _userId, _role, _origin, stillHolds: (current: object) => void) => {
+      stillHolds(shipment({ customsOffice: "CZ200000 Celní úřad v Liberci, Liberec" }));
+      return {};
+    });
+    await expect(requests.decide(manager, ID, { approve: true })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("has changed since") });
+    expect(repo.reopen).toHaveBeenCalledWith(ID, "c1");
   });
 
   it("rejected, needs a reason and leaves the shipment alone", async () => {

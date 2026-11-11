@@ -2,6 +2,8 @@ import { APIError } from "encore.dev/api";
 import { inTx, type Tx } from "../db/db";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
+import { haulierRepository } from "../repositories/haulier.repository";
+import { HAULIER_BLOCKED_LINK } from "../lib/portalRules";
 import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord, TruckingHaulierLinkRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
@@ -117,6 +119,11 @@ class PublicOrderService {
     if (!link || !tokenMatches(link.tokenHash, token) || link.revokedAt || link.expiresAt.getTime() < Date.now()) throw invalid();
     const trip = await tripRepository.find(link.companyId, link.tripId);
     if (!trip || trip.cancelledAt) throw invalid();
+    // A blocked haulier is refused here as in the portal: no view, confirmation or POD (the block
+    // ends its portal sessions; its links answer this until the block is lifted).
+    if (trip.haulierCustomerId && (await haulierRepository.find(link.companyId, trip.haulierCustomerId))?.profile.blocked) {
+      throw APIError.permissionDenied(HAULIER_BLOCKED_LINK);
+    }
     const c = await consignmentRepository.findByTrip(link.companyId, trip.id);
     if (!c || c.cancelledAt) throw invalid();
     return { link, trip, c };
@@ -166,9 +173,16 @@ class PublicOrderService {
     // What the haulier causes is sent to the job as the service identity ("Trucking (system)");
     // the haulier is named in the events.
     const actor = await serviceActor(companyId);
+    // The POD freezes the consignment's department: take the job's as it is now first (C7), as a
+    // POD stamped in the app does.
+    if (!o.c.podReceivedAt) await consignmentService.refreshDepartments(actor, [o.c], { warn: false });
     await withStoredFile(companyId, o.c.id, file, (key) =>
       inTx(async (tx) => {
         await assertNoPod(tx, companyId, o.c.id, POD_ON_FILE_HAULIER);
+        // The job before the first write: the document's row locks the consignment, and the POD
+        // then settles the job's Billing over all its consignments (consignmentService.lockJob).
+        // After the POD's own lock, which an upload takes before its document too.
+        await consignmentService.lockJob(tx, companyId, o.c.shipmentId);
         await insertDocument(tx, companyId, o.c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: receiver ? `${by}, received by ${receiver}` : by });
         // The stamps the POD proves, in order; each one guarded, each on the row the previous one left.
         let c = (await consignmentRepository.find(companyId, o.c.id, tx))!;

@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { db } from "../db/db";
+import { db, type Tx } from "../db/db";
 import { shipmentCustomerLinkTable as t, type NewShipmentCustomerLinkRecord, type ShipmentCustomerLinkRecord } from "../schemas/shipmentCustomerLink.schema";
 
 const live = (shipmentId: string, companyId: string) => and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.revokedAt), isNull(t.deletedAt));
@@ -17,13 +17,16 @@ class ShipmentCustomerLinkRepository {
     return row ?? null;
   }
 
-  /** A new link in place of the live one, in one turn: the old URL stops working as the new one starts. */
-  async replace(row: NewShipmentCustomerLinkRecord): Promise<ShipmentCustomerLinkRecord> {
-    return db.transaction(async (tx) => {
-      await tx.update(t).set({ revokedAt: new Date(), revokedById: row.createdById, updatedAt: new Date() }).where(live(row.shipmentId, row.companyId));
-      const [created] = await tx.insert(t).values(row).returning();
-      return created!;
-    });
+  /**
+   * A new link in place of the live one, in `tx`: the old URL stops working as the new one starts.
+   * `tx` holds the shipment's write turn (shipmentRepository.writeTurn), so two new links of one
+   * shipment at the same moment take turns - the later one ends the earlier one's link - where both
+   * would otherwise find no live link and the second break the one-live-link index.
+   */
+  async replace(tx: Tx, row: NewShipmentCustomerLinkRecord): Promise<ShipmentCustomerLinkRecord> {
+    await tx.update(t).set({ revokedAt: new Date(), revokedById: row.createdById, updatedAt: new Date() }).where(live(row.shipmentId, row.companyId));
+    const [created] = await tx.insert(t).values(row).returning();
+    return created!;
   }
 
   async revoke(shipmentId: string, companyId: string, userId: string): Promise<boolean> {

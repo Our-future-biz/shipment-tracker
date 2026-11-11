@@ -575,6 +575,13 @@
       "when": 1794348817465,
       "tag": "0081_shipment_agent_links",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1794385087048,
+      "tag": "0082_shipment_event_outbox",
+      "breakpoints": true
     }
   ]
 }

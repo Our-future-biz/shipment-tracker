@@ -19,10 +19,10 @@ import { additionalChargeRepository } from "../repositories/additionalCharge.rep
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import { billingOverrideRepository } from "../repositories/billingOverride.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
-import { invoiceRepository } from "../repositories/invoice.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
 import { quoteCostImportRepository } from "../repositories/quoteCostImport.repository";
+import { startBilling, startingBillingCurrency } from "./billingStart.service";
 import { quoteFixedChanged } from "../utils/quoteCostImport.utils";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { sameCostCodes } from "../utils/truckingLines.utils";
@@ -305,25 +305,6 @@ export async function assertNotKeptByTrucking(companyId: string, shipmentIds: st
         `Job ${job.jobNumber} has its ${code.replace(/_/g, " ")} cost from Trucking: enter the haulier's invoice in Trucking (Haulier invoices), not here, or it is counted twice`,
       );
     }
-  }
-}
-
-/**
- * The currency a shipment's billing starts in when its billing settings are first made, while no
- * invoice was issued for it: its customer's default (Customers → Finance). Undefined - CZK, as
- * before - once it was invoiced, without a customer, or when the customer can't be read (which
- * must not stop the write it comes with).
- */
-async function startingBillingCurrency(companyId: string, shipmentId: string): Promise<string | undefined> {
-  if ((await invoiceRepository.listByShipment(shipmentId, companyId)).length) return undefined;
-  try {
-    const { shipment } = await shipments.shipmentGet({ shipmentId });
-    if (!shipment.customerId) return undefined;
-    const { customer } = await customers.customerGet({ id: shipment.customerId });
-    return customer.currency || undefined;
-  } catch (err) {
-    log.warn(err, "the customer's default currency could not be read; billing starts in CZK", { shipmentId });
-    return undefined;
   }
 }
 
@@ -692,16 +673,9 @@ class InvoicingService {
   }
 
   // ── Billing ──
-  /**
-   * A shipment that got its customer (created with one, or linked to one) starts billing in the
-   * customer's default currency: its billing settings are made with it, so the Costs Breakdown,
-   * the invoice, the billing queue and the customer's totals all read the same currency. Only
-   * while it has no billing settings and no invoice - a currency chosen or billed stays.
-   */
+  /** Starts a shipment's billing in its customer's default currency (services/billingStart). */
   async startBilling(companyId: string, shipmentId: string): Promise<void> {
-    if (await billingSettingsRepository.getByShipmentId(shipmentId, companyId)) return;
-    const billingCurrency = await startingBillingCurrency(companyId, shipmentId);
-    if (billingCurrency) await billingSettingsRepository.createIfMissing(shipmentId, companyId, { billingCurrency });
+    await startBilling(companyId, shipmentId);
   }
 
   async upsertBillingSettings(shipmentId: string, companyId: string, input: BillingSettingsInput): Promise<BillingSettingsItem> {

@@ -706,7 +706,8 @@ export function QuoteWorkflow() {
   const reviseQuote = async () => {
     let revision: string | null = null;
     const refused = await act(async (expectedDataVersion) => {
-      const answer = await api.quotes.salesQuoteRevise(ref, { expectedDataVersion });
+      // The status this page shows: a quote made Won meanwhile (a colleague's shipment) is not revised.
+      const answer = await api.quotes.salesQuoteRevise(ref, { expectedDataVersion, expectedStatus: quote?.effectiveStatus });
       revision = answer.revision.quoteNumber;
       // A Won quote's shipments could not be moved to the revision: what to do by hand.
       if (answer.warning) toast.warning(answer.warning);

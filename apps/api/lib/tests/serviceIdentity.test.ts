@@ -41,7 +41,7 @@ describe("the service identity", () => {
 
   it("tells which acting users are gone (nobody included)", async () => {
     expect(await goneUsers("c1", ["u1", "left", "", "u1"])).toEqual(["left", ""]);
-    expect(authClient.userLookup).toHaveBeenCalledWith({ ids: ["u1", "left"] }, { authData: { userID: "", companyID: "c1", role: "user" } });
+    expect(authClient.userLookup).toHaveBeenCalledWith({ ids: ["u1", "left"], orSuperadmin: true }, { authData: { userID: "", companyID: "c1", role: "user" } });
     expect(await goneUsers("c1", [""])).toEqual([""]);
   });
 });

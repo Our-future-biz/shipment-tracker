@@ -8,6 +8,7 @@ vi.mock("encore.dev/api", () => ({
     permissionDenied: (msg: string) => new Error(msg),
     unauthenticated: (msg: string) => new Error(msg),
     resourceExhausted: (msg: string) => new Error(msg),
+    alreadyExists: (msg: string) => new Error(msg),
   },
 }));
 vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
@@ -22,9 +23,14 @@ const users = vi.hoisted(() => ({
   updateInCompany: vi.fn(),
   create: vi.fn(),
   listByIdsInCompany: vi.fn(),
+  listLiveSuperadminsByIds: vi.fn(async (_ids: string[]): Promise<{ id: string; displayName: string; email: string; role: string; companyId: string }[]> => []),
 }));
 vi.mock("../repositories/user.repository", () => ({ userRepository: users }));
-const companies = vi.hoisted(() => ({ getById: vi.fn(async () => null) }));
+const companies = vi.hoisted(() => ({
+  getById: vi.fn(async () => null),
+  findBySlug: vi.fn(async (_slug: string): Promise<{ id: string } | null> => null),
+  createWithAdmin: vi.fn(),
+}));
 vi.mock("../repositories/company.repository", () => ({ companyRepository: companies }));
 vi.mock("../repositories/orgUnit.repository", () => ({ departmentRepository: {}, branchRepository: {} }));
 const throttle = vi.hoisted(() => ({
@@ -42,6 +48,9 @@ describe("deactivating users", () => {
   it("never lets someone deactivate their own account", async () => {
     expect(() => assertNotSelf("u1", "u1")).toThrow("You cannot deactivate your own account");
     expect(() => assertNotSelf("u2", "u1")).not.toThrow();
+    // The same uuid in capitals is still the caller (the database compares them without case).
+    const me = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a02";
+    expect(() => assertNotSelf(me.toUpperCase(), me)).toThrow("You cannot deactivate your own account");
     await expect(authService.deactivateUser("u1", "c1", { userID: "u1", role: "admin" })).rejects.toThrow("own account");
     expect(users.getByIdInCompany).not.toHaveBeenCalled();
   });
@@ -143,6 +152,10 @@ describe("password rules", () => {
   it("refuses a password shorter than 12 characters for a new user and for a new password", async () => {
     users.findByEmail.mockResolvedValue(null);
     await expect(authService.createUser("c1", { role: "admin" }, { email: "new@example.com", password: "short" })).rejects.toThrow("at least 12 characters");
+    // The service identities' domain is nobody's: taken, it would stop the company's being made.
+    await expect(
+      authService.createUser("c1", { role: "admin" }, { email: "trucking-system+c1@System.Invalid", password: "a-long-enough-passphrase-1" }),
+    ).rejects.toThrow("reserved for the system");
     users.getByIdInCompany.mockResolvedValue({ id: "u2", email: "u2@example.com", role: "user" });
     await expect(authService.updateUser("u2", "c1", { userID: "u1", role: "admin" }, { password: "short" })).rejects.toThrow("at least 12 characters");
     expect(users.create).not.toHaveBeenCalled();
@@ -215,5 +228,68 @@ describe("looking users up for a stamp of who did something", () => {
     await expect(authService.userRefsWithSelf({ userID: JANA, companyID: TENANT, homeCompanyID: TENANT }, [ROOT])).resolves.toEqual([]);
     expect(users.listByIdsInCompany).toHaveBeenCalledTimes(1);
     expect(users.listByIdsInCompany).toHaveBeenCalledWith([ROOT], TENANT);
+  });
+
+  it("finds who an outbox row is owed by: a user of the company, or a live superadmin with their own company", async () => {
+    users.listByIdsInCompany.mockImplementation(async (ids: string[], companyId: string) => (byCompany[companyId] ?? []).filter((u) => ids.includes(u.id)));
+    users.listLiveSuperadminsByIds.mockImplementation(async (ids: string[]) =>
+      ids.includes(ROOT) ? [{ ...row(ROOT, "root@platform.cz", "superadmin"), companyId: PLATFORM }] : [],
+    );
+    await expect(authService.actorRefs(TENANT, [JANA, ROOT])).resolves.toEqual([
+      { id: JANA, name: "jana@tenant.cz", email: "jana@tenant.cz", role: "user" },
+      { id: ROOT, name: "root@platform.cz", email: "root@platform.cz", role: "superadmin", homeCompanyId: PLATFORM },
+    ]);
+    // Only the ids not found in the company are looked for among the superadmins.
+    expect(users.listLiveSuperadminsByIds).toHaveBeenLastCalledWith([ROOT]);
+  });
+});
+
+describe("provisioning a company with its first admin", () => {
+  const request = { companyName: "Acme s.r.o.", companySlug: "acme", adminEmail: " Admin@Acme.cz ", adminPassword: "a-long-enough-passphrase-1", adminName: "Ada" };
+
+  it("refuses an e-mail already taken before the company is created, so its slug stays free", async () => {
+    companies.createWithAdmin.mockClear();
+    users.findByEmail.mockResolvedValue({ id: "u-taken" });
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A user with this email already exists");
+    expect(companies.createWithAdmin).not.toHaveBeenCalled();
+  });
+
+  it("refuses a weak password and a reserved e-mail before anything is written", async () => {
+    companies.createWithAdmin.mockClear();
+    users.findByEmail.mockResolvedValue(null);
+    await expect(authService.provisionCompany({ ...request, adminPassword: "short" })).rejects.toThrow("at least 12 characters");
+    await expect(authService.provisionCompany({ ...request, adminEmail: "x@system.invalid" })).rejects.toThrow("reserved for the system");
+    expect(companies.createWithAdmin).not.toHaveBeenCalled();
+  });
+
+  it("creates the company and its admin in one write", async () => {
+    users.findByEmail.mockResolvedValue(null);
+    companies.findBySlug.mockResolvedValueOnce(null);
+    companies.createWithAdmin.mockImplementationOnce(async (company: { name: string; slug: string }, admin: { email: string; displayName: string; role: string }) => ({
+      company: { id: "c-new", ...company },
+      admin: { id: "u-new", companyId: "c-new", departmentId: null, branchId: null, reportsToUserId: null, ...admin },
+    }));
+    const result = await authService.provisionCompany(request);
+    expect(result.companyId).toBe("c-new");
+    expect(result.admin).toMatchObject({ id: "u-new", email: "admin@acme.cz", displayName: "Ada", role: "admin" });
+    const [company, admin] = companies.createWithAdmin.mock.calls[0];
+    expect(company).toEqual({ name: "Acme s.r.o.", slug: "acme" });
+    expect(admin).toMatchObject({ email: "admin@acme.cz", role: "admin" });
+    expect(admin.passwordHash).not.toBe(request.adminPassword);
+  });
+
+  it("answers already exists when the slug or the e-mail was taken a moment before the insert", async () => {
+    users.findByEmail.mockResolvedValue(null);
+    const unique = (constraint: string) => Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint } });
+    companies.createWithAdmin.mockRejectedValueOnce(unique("company_slug_unique"));
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A company with this slug already exists");
+    companies.createWithAdmin.mockRejectedValueOnce(unique("app_user_email_unique"));
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A user with this email already exists");
+  });
+
+  it("refuses a slug a live company already has", async () => {
+    users.findByEmail.mockResolvedValue(null);
+    companies.findBySlug.mockResolvedValueOnce({ id: "c-other" });
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A company with this slug already exists");
   });
 });

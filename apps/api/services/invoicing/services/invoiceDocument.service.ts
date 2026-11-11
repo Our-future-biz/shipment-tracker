@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
 import { getAuthData } from "~encore/auth";
 import { customers, fx, shipments } from "~encore/clients";
@@ -36,9 +36,10 @@ import type {
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
-import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
-import { isUniqueViolation } from "../../../lib/db/errors";
+import { BILLING_CURRENCY_UNKNOWN, startBilling } from "./billingStart.service";
+import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
+import { deliverInvoiceFollowups, followupsOfCreditNote, followupsOfInvoice, type FollowupActor } from "./invoiceFollowups.service";
 import { isUuid } from "../../../lib/uuid";
 
 /**
@@ -150,15 +151,29 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const { shipment } = await shipments.shipmentGet({ shipmentId });
   const profileRow = await invoiceProfileRepository.getByCompany(companyId);
   const profile = profileRow ? normaliseProfile(profileRow) : null;
-  const [allRows, settings, alreadyInvoiced] = await Promise.all([
+  const [allRows, storedSettings, alreadyInvoiced] = await Promise.all([
     sellingCostRepository.listByShipmentId(shipmentId, companyId),
     billingSettingsRepository.getByShipmentId(shipmentId, companyId),
     invoiceRepository.invoicedSellingRowIds(shipmentId, companyId),
   ]);
+  // A job whose billing never started (its customer could not be read then) starts it now, in the
+  // customer's default currency: an invoice is never drawn up in CZK only because of that.
+  let settings = storedSettings;
+  let currencyUnknown = false;
+  if (!settings) {
+    try {
+      await startBilling(companyId, shipmentId);
+      settings = await billingSettingsRepository.getByShipmentId(shipmentId, companyId);
+    } catch (err) {
+      log.warn(err, "the shipment's billing could not be started before the invoice", { shipmentId });
+      currencyUnknown = true;
+    }
+  }
   // A row on an issued, not credited invoice is billed already; after a credit note it is open again.
   const rows = allRows.filter((r) => !alreadyInvoiced.has(r.id));
 
   const problems: string[] = [];
+  if (currencyUnknown) problems.push(BILLING_CURRENCY_UNKNOWN);
   const issueDate = pragueToday();
   const duzp = params.duzp?.trim() || defaultDuzp(shipment, issueDate);
   if (!isIsoDate(duzp)) problems.push("DUZP is not a valid date");
@@ -182,7 +197,11 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
       };
     } catch (err) {
       log.warn("invoice customer lookup failed", { customerId, error: err instanceof Error ? err.message : String(err) });
-      problems.push("The chosen customer was not found");
+      // Only Customers' own answer says the customer is gone; Customers down or slow is no reason to
+      // pick another customer, only to try again.
+      problems.push(err instanceof APIError && err.code === ErrCode.NotFound
+        ? "The chosen customer was not found"
+        : "The customer could not be read — try again");
     }
     // The customer's Billing address (one at most), printed instead of the seat. Not knowing it
     // blocks issuing: the invoice would go to the seat without anybody noticing.
@@ -213,7 +232,10 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
     warnings.push(`No bank account in ${currency} (Settings → Organization): the invoice has no payment details or QR payment`);
   }
   const picked = await ratesForDuzp(isIsoDate(duzp) ? duzp : issueDate, issueDate);
-  if (picked.problem) problems.push(picked.problem);
+  // The ČNB rate of the tax date only matters when something is converted: a CZK invoice of CZK
+  // rows needs none, so it is not held for the 15:00 import or a fixing that is missing.
+  const converts = currency !== "CZK" || rows.some((r) => r.invoice && (r.currency || currency).toUpperCase() !== "CZK");
+  if (picked.problem && converts) problems.push(picked.problem);
   const calc = calculateInvoice({
     rows: rows.map((r) => ({
       // the selling row's "customer" column is the line's own text (Issue invoice); else its Description is printed
@@ -294,26 +316,9 @@ const money = (calc: Pick<InvoiceCalc, "net" | "vat" | "gross" | "netCzk" | "vat
   grossCzk: calc.grossCzk.toFixed(2),
 });
 
-/**
- * Adds the document to the customer's invoice list (aging / credit). A credit note goes in as
- * Credited and turns the invoice it reverses into Credited too: the two cancel out and
- * neither counts as owed. Never blocks issuing.
- */
-async function postToCustomer(inv: InvoiceRecord, corrects?: InvoiceRecord) {
-  try {
-    await customers.invoiceCreate({
-      customerId: inv.customerId,
-      invoiceNumber: inv.number,
-      amount: Number(inv.gross),
-      currency: inv.currency,
-      dueDate: inv.dueDate,
-      status: corrects ? "Credited" : "Open",
-      issuedAt: inv.issueDate,
-    });
-    if (corrects) await customers.invoiceMarkCredited({ invoiceNumbers: [corrects.number] });
-  } catch (err) {
-    log.error(err, "could not update the customer's invoice list", { number: inv.number });
-  }
+// Who an issued document's follow-ups are sent as: the user who issued it, with their role then.
+function actorOf(userId: string): FollowupActor {
+  return { userId, role: getAuthData()?.role ?? "" };
 }
 
 /**
@@ -324,13 +329,20 @@ async function postToCustomer(inv: InvoiceRecord, corrects?: InvoiceRecord) {
 async function replayed(companyId: string, key: string, matches: (r: InvoiceRecord) => boolean): Promise<InvoiceDocItem | null> {
   const existing = await invoiceRepository.getByIdempotencyKey(companyId, key);
   if (!existing) return null;
+  return earlierDocument(existing, await invoiceRepository.getLines(existing.id, companyId), matches);
+}
+
+// The document made under the same idempotency key, when it is the document this request asks for.
+function earlierDocument(existing: InvoiceRecord, lines: InvoiceLineRecord[], matches: (r: InvoiceRecord) => boolean): InvoiceDocItem {
   if (!matches(existing)) throw APIError.alreadyExists("This request was already used for another document — reload and try again");
-  return toDocItem(existing, await invoiceRepository.getLines(existing.id, companyId));
+  return toDocItem(existing, lines);
 }
 
 /**
- * Runs an issue; when a retry with the same key raced it and won, its document is returned
- * instead of the unique-key error.
+ * Runs an issue once per idempotency key: a request whose key has made a document already gets that
+ * document back. Two requests with one key at once (a double click): the second finds the first's
+ * document under the series lock (invoiceRepository.issue answers it as `replayed`); refused before
+ * that - the rows it would bill are billed already, or the unique key - it is answered the same.
  */
 async function issueOnce(
   companyId: string,
@@ -345,7 +357,7 @@ async function issueOnce(
   try {
     return await issue();
   } catch (err) {
-    if (key && isUniqueViolation(err)) {
+    if (key) {
       const winner = await replayed(companyId, key, matches);
       if (winner) return winner;
     }
@@ -422,22 +434,6 @@ async function storePdfQuietly(inv: InvoiceRecord, lines: InvoiceLineRecord[], c
   }
 }
 
-/**
- * Moves the shipment's statuses after issuing / crediting (Billing -> Billed, Invoiced ...).
- * Goes through the shipments service, so the change is in the shipment's audit history.
- * Never fails the invoice: the document is already issued.
- */
-async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: string) {
-  if (!patch.status && !patch.invoicingStatus) return;
-  try {
-    // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
-    const authData = getAuthData();
-    await shipments.shipmentUpdate({ shipmentId, ...patch }, authData ? { authData: { ...authData, appWrite: true } } : undefined);
-  } catch (err) {
-    log.error(err, "could not update the shipment statuses after invoicing", { number });
-  }
-}
-
 /** Queue views and the shipments-list filter behind each. */
 export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced", unbilled_arrivals: "unbilled-arrivals" };
 
@@ -502,7 +498,7 @@ class InvoiceDocumentService {
         quoteNumber: ctx.quoteNumber,
       };
       const billed = ctx.calc.lines.map((l) => l.sourceSellingCostId);
-      const { invoice, lines } = await invoiceRepository.issue(
+      const { invoice, lines, replayed: again } = await invoiceRepository.issue(
         invoiceSeriesPrefix("INV", shipmentSnapshot.jobYear, shipmentSnapshot.jobNumber),
         {
           companyId,
@@ -549,10 +545,16 @@ class InvoiceDocumentService {
               throw APIError.failedPrecondition("Some of these selling rows were changed a moment ago — reload and check the invoice");
             }
           },
+          // What the invoice owes the customer's list and the shipment's statuses commits with it.
+          afterInsert: async (tx, inserted) => {
+            await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfInvoice(inserted, actorOf(userId)));
+          },
         },
       );
-      await postToCustomer(invoice);
-      await applyStatusPatch(shipmentId, statusesAfterIssue(ctx.shipment), invoice.number);
+      // The request this one repeats issued it while this one waited for the lock.
+      if (again) return earlierDocument(invoice, lines, sameRequest);
+      // Sent straight away; what a service does not take now is sent again by the followups cron.
+      await deliverInvoiceFollowups(invoice.id);
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };
     });
@@ -592,7 +594,7 @@ class InvoiceDocumentService {
       const totals = creditTotals(original);
       const issueDate = pragueToday();
 
-      const { invoice, lines } = await invoiceRepository.issue(
+      const { invoice, lines, replayed: again } = await invoiceRepository.issue(
         // the credit note belongs to the same job and job year as the invoice it corrects
         invoiceSeriesPrefix("CN", original.shipment.jobYear, original.shipment.jobNumber),
         {
@@ -624,20 +626,17 @@ class InvoiceDocumentService {
         },
         lineRows(calcLines).map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId || null })),
         {
-          afterInsert: async (tx) => {
+          afterInsert: async (tx, inserted) => {
             const ok = await invoiceRepository.markCredited(tx, original.id, companyId);
             if (!ok) throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
+            await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCreditNote(inserted, original, actorOf(userId)));
           },
         },
       );
-      await postToCustomer(invoice, original);
-      try {
-        const { shipment } = await shipments.shipmentGet({ shipmentId: original.shipmentId });
-        const openLeft = await invoiceRepository.countOpenInvoices(original.shipmentId, companyId);
-        await applyStatusPatch(original.shipmentId, statusesAfterCredit(shipment, openLeft), invoice.number);
-      } catch (err) {
-        log.error(err, "could not read the shipment after the credit note", { number: invoice.number });
-      }
+      // The request this one repeats issued it while this one waited for the lock.
+      if (again) return earlierDocument(invoice, lines, sameRequest);
+      // Sent straight away; what a service does not take now is sent again by the followups cron.
+      await deliverInvoiceFollowups(invoice.id);
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };
     });
@@ -659,6 +658,11 @@ class InvoiceDocumentService {
   /** Issued, not credited invoices of a job (its tax date is final while there is one). */
   async openInvoiceCount(shipmentId: string, companyId: string): Promise<number> {
     return invoiceRepository.countOpenInvoices(shipmentId, companyId);
+  }
+
+  /** Of the shipments, those with an issued, not credited invoice: openInvoiceCount for many at once. */
+  async shipmentsWithOpenInvoices(shipmentIds: string[], companyId: string): Promise<string[]> {
+    return [...(await invoiceRepository.billedShipmentIds(shipmentIds.filter(isUuid), companyId))];
   }
 
   /** The official PDF: the stored copy, or made and stored now if issuing could not store it. */
@@ -711,10 +715,12 @@ class InvoiceDocumentService {
     // Shown oldest first, as before.
     listed.reverse();
 
+    // Only the listed shipments' rows, invoices and settings are read: the view shows no other.
+    const shipmentIds = listed.map((s) => s.id);
     const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced, unbilledArrivals] = await Promise.all([
-      sellingCostRepository.listLiveByCompany(companyId),
-      invoiceRepository.listOpenInvoicesWithSources(companyId),
-      billingSettingsRepository.listByCompany(companyId),
+      sellingCostRepository.listLiveByShipments(shipmentIds, companyId),
+      invoiceRepository.listOpenInvoicesWithSources(shipmentIds, companyId),
+      billingSettingsRepository.listByShipments(shipmentIds, companyId),
       ratesForDuzp(pragueToday(), pragueToday()),
       countOf(QUEUE_VIEWS.all),
       countOf(QUEUE_VIEWS.to_bill),

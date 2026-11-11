@@ -209,8 +209,7 @@ interface ShipmentCreateRequest {
   /** With fromQuoteNumber: create the shipment although the quote already has one. */
   allowSecondShipment?: boolean;
 
-  // Other
-  claim?: string;
+  // No claim: it is derived from the shipment's claims (shipmentClaim.repository), never set here.
   // No createdBy: the server stamps who created the shipment from the signed-in user.
 }
 

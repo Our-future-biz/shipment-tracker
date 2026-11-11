@@ -1,9 +1,9 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIError } from "encore.dev/api";
-import { getClient, MODEL, replyText } from "../lib/anthropic";
+import { askAi, MODEL, replyText } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
 import { textReadingUsable } from "../lib/fields";
-import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, INVOICE_HEADER_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS, TRACKING_FIELDS } from "../lib/fields";
+import { filterExtracted, parseFirstObjectFromResponse, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, INVOICE_HEADER_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS, TRACKING_FIELDS } from "../lib/fields";
 import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, INVOICE_HEADER_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT, TRACKING_PROMPT } from "../lib/prompts";
 import { normalizeQuoteFields } from "../lib/quoteFields";
 import { withInvoiceLines } from "../lib/invoiceLines";
@@ -62,8 +62,7 @@ async function extractViaVision(
   userPrompt: string,
   maxTokens = 2048,
 ): Promise<Reply> {
-  const client = getClient();
-  const response = await client.messages.create({
+  const response = await askAi({
     model: MODEL,
     max_tokens: maxTokens,
     system: withFieldList(systemPrompt, validFields),
@@ -71,7 +70,7 @@ async function extractViaVision(
       role: "user",
       content: [mediaBlock(fileBase64, mediaType), { type: "text", text: userPrompt }],
     }],
-  });
+  }, "document reading");
   return replyFields(response, validFields);
 }
 
@@ -82,8 +81,7 @@ async function extractViaText(
   userPrompt: string,
   maxTokens = 2048,
 ): Promise<Reply> {
-  const client = getClient();
-  const response = await client.messages.create({
+  const response = await askAi({
     model: MODEL,
     max_tokens: maxTokens,
     system: withFieldList(systemPrompt, validFields),
@@ -91,7 +89,7 @@ async function extractViaText(
       role: "user",
       content: `${userPrompt}\n\n---\n${documentText.substring(0, 15000)}\n---\n\nReturn ONLY a JSON object with the extracted fields.`,
     }],
-  });
+  }, "text reading");
   return replyFields(response, validFields);
 }
 
@@ -326,13 +324,50 @@ function fileHints(pages: Array<{ fileName?: string }>): string {
   return `Files the pages come from:\n${named.join("\n")}\n\n`;
 }
 
+/** What the classifier says a page is: its type, and on a House B/L the B/L number printed on it ("" when none). */
+export interface PageClass {
+  /** The page's number in the pre-alert: the pageNum it was sent with */
+  page: number;
+  type: string;
+  ref: string;
+}
+
+/** A page number as the model gives it: 3 or "3". Anything else names no page. */
+function pageNumberOf(value: unknown): number | null {
+  if (typeof value === "number") return Number.isInteger(value) ? value : null;
+  if (typeof value === "string" && /^[0-9]+$/.test(value.trim())) return Number(value.trim());
+  return null;
+}
+
+/**
+ * The class of every page sent, matched to the reply by the page number the model gives (1 to n,
+ * as the request numbers them) - never by place in the list, so a reply that leaves a page out,
+ * repeats one or lists them out of order moves no other page's type or House B/L number. A page
+ * the reply does not name is read as a House B/L, the most common kind.
+ */
+export function classesByPage(pages: Array<{ pageNum: number }>, reply: unknown): PageClass[] {
+  const named = new Map<number, Record<string, unknown>>();
+  for (const item of Array.isArray(reply) ? reply : []) {
+    if (!item || typeof item !== "object") continue;
+    const entry = item as Record<string, unknown>;
+    const page = pageNumberOf(entry.page);
+    // The first answer for a page counts; one repeated later is not read over it.
+    if (page !== null && !named.has(page)) named.set(page, entry);
+  }
+  return pages.map((p, i) => {
+    const entry = named.get(i + 1);
+    const type = typeof entry?.type === "string" && entry.type.trim() ? entry.type.trim().toUpperCase() : "HBL";
+    const ref = typeof entry?.ref === "string" || typeof entry?.ref === "number" ? String(entry.ref).trim() : "";
+    return { page: p.pageNum, type, ref };
+  });
+}
+
 export async function classifyPages(
   pages: Array<{ pageNum: number; base64: string; mediaType: string; fileName?: string }>,
-): Promise<Array<{ page: number; type: string; ref?: string }>> {
-  const client = getClient();
+): Promise<PageClass[]> {
   const pageBlocks: Anthropic.ContentBlockParam[] = pages.map((p) => mediaBlock(p.base64, p.mediaType));
 
-  const response = await client.messages.create({
+  const response = await askAi({
     model: MODEL,
     max_tokens: 2048,
     messages: [{
@@ -345,30 +380,27 @@ export async function classifyPages(
         },
       ],
     }],
-  });
+  }, "page classification");
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-
-  const parsed = parseJsonFromResponse(text);
-  if (!Array.isArray(parsed)) return pages.map((p) => ({ page: p.pageNum, type: "HBL" }));
-  return parsed as Array<{ page: number; type: string; ref?: string }>;
+  return classesByPage(pages, parseJsonFromResponse(replyText(response)));
 }
 
-// For pipeline: extract from multiple pages (HBL batch, MBL) sent as document blocks
+/**
+ * ONE record read from pages sent together - the pages of one House B/L, or of the Master B/L - or
+ * null when the reply holds none of the fields: an empty answer is nothing read, not a shipment.
+ * The reply is read as one object, so a "[3]" inside a value is not taken for the whole reply; one
+ * that still splits the document into a list gives its first object.
+ */
 export async function extractFromPages(
   pages: Array<{ base64: string; mediaType: string }>,
   systemPrompt: string,
   userPrompt: string,
   validFields: string[],
   maxTokens = 8192,
-): Promise<Record<string, string>[]> {
-  const client = getClient();
+): Promise<Record<string, string> | null> {
   const pageBlocks: Anthropic.ContentBlockParam[] = pages.map((p) => mediaBlock(p.base64, p.mediaType));
 
-  const response = await client.messages.create({
+  const response = await askAi({
     model: MODEL,
     max_tokens: maxTokens,
     system: withFieldList(systemPrompt, validFields),
@@ -379,16 +411,9 @@ export async function extractFromPages(
         { type: "text", text: userPrompt },
       ],
     }],
-  });
+  }, "pre-alert reading");
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-
-  const parsed = parseJsonFromResponse(text);
-  if (!parsed) return [];
-
-  const arr = Array.isArray(parsed) ? parsed : [parsed];
-  return arr.map((item) => filterExtracted(item as Record<string, unknown>, validFields));
+  const parsed = parseFirstObjectFromResponse(replyText(response));
+  const extracted = parsed ? filterExtracted(parsed, validFields) : {};
+  return Object.keys(extracted).length > 0 ? extracted : null;
 }

@@ -27,10 +27,14 @@ export async function reopenStorageLine(m: GateMovementRow, now = new Date()): P
   return !!row;
 }
 
-/** One run over a company's open records; returns how many lines went back to Pending. */
+/**
+ * One run over a company's open records; returns how many lines went back to Pending. Only the
+ * records whose line can still go back are read (picked in SQL, every hour), not every record;
+ * storageLineToReopen judges each of them again.
+ */
 export async function reopenChargeableStorage(companyId: string, now = new Date()): Promise<number> {
   let n = 0;
-  for (const m of await gateMovementRepository.listAll(companyId)) if (await reopenStorageLine(m, now)) n++;
+  for (const m of await gateMovementRepository.storageReopenCandidates(companyId)) if (await reopenStorageLine(m, now)) n++;
   return n;
 }
 

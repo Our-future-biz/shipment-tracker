@@ -11,6 +11,7 @@ import * as exchangeRateSchema from "../schemas/exchangeRate.schema";
 import * as customsInvoiceSchema from "../schemas/customsInvoice.schema";
 import * as invoiceProfileSchema from "../schemas/invoiceProfile.schema";
 import * as invoiceSchema from "../schemas/invoice.schema";
+import * as invoiceFollowupOutboxSchema from "../schemas/invoiceFollowupOutbox.schema";
 import * as masterJobCostSchema from "../schemas/masterJobCost.schema";
 import * as sellingAmountRequestSchema from "../schemas/sellingAmountRequest.schema";
 
@@ -32,6 +33,7 @@ export const db = drizzle(pool, {
     ...customsInvoiceSchema,
     ...invoiceProfileSchema,
     ...invoiceSchema,
+    ...invoiceFollowupOutboxSchema,
     ...masterJobCostSchema,
     ...sellingAmountRequestSchema,
   },

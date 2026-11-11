@@ -17,6 +17,10 @@ const BY = "Shipment";
 const LABEL = "Customer updated from the shipment";
 // Shipments the backfill reads at once.
 const PARALLEL = 4;
+// How long Shipments may take to answer while the shipment's turn is held. A slower answer is given
+// up - the follow fails and the event is delivered again - so the turn and the database connection
+// are let go instead of waiting on another service without end.
+export const PARTIES_READ_BUDGET_MS = 5_000;
 // Names listed in one line of the backfill report.
 const REPORT_NAMES = 20;
 
@@ -35,13 +39,20 @@ const takeTurn = (tx: Tx, companyId: string, shipmentId: string) =>
   tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`gate-parties:${companyId}:${shipmentId}`}))`);
 
 // The shipment's Customer and Customer's PIC as Shipments holds them now; null when it is deleted.
-async function currentParties(shipmentId: string, authData: ServiceActor): Promise<GateParties | null> {
+// Thrown (unavailable) when Shipments does not answer within `budgetMs`.
+async function currentParties(shipmentId: string, authData: ServiceActor, budgetMs: number): Promise<GateParties | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(APIError.unavailable("Shipments did not answer in time: the customer is read again when the event is delivered again")), budgetMs);
+  });
   try {
-    const { shipment } = await shipments.shipmentGet({ shipmentId }, { authData });
+    const { shipment } = await Promise.race([shipments.shipmentGet({ shipmentId }, { authData }), late]);
     return { customer: shipment.customer ?? "", customerContact: shipment.customerPic ?? "" };
   } catch (err) {
     if (err instanceof APIError && err.code === "not_found") return null;
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -84,8 +95,15 @@ class GatePartiesService {
    * Shipments under the shipment's turn. A deleted shipment changes nothing; a failed read is
    * thrown (the event is delivered again).
    * `authData`: who reads Shipments (the company's service identity unless given).
+   *
+   * Shipments is read inside the transaction, on purpose: the read is what the turn orders. Read
+   * before the turn, a slow read of the older names could be applied after a newer one (there is
+   * no version to compare them by). What is held during the read is only the shipment's turn (an
+   * advisory lock no other work takes) and the connection - no row is locked yet (lockLive comes
+   * after) - and the read is bounded by `readBudgetMs`, so a Shipments that does not answer frees
+   * both and the event is delivered again.
    */
-  async follow(companyId: string, shipmentId: string, authData?: ServiceActor): Promise<FollowResult> {
+  async follow(companyId: string, shipmentId: string, authData?: ServiceActor, readBudgetMs = PARTIES_READ_BUDGET_MS): Promise<FollowResult> {
     // Before the transaction: no lock is held while auth answers.
     const reader = authData ?? (await serviceActor(companyId));
     return db.transaction(async (tx) => {
@@ -93,7 +111,7 @@ class GatePartiesService {
       const ids = await gateMovementRepository.liveIdsForShipment(tx, shipmentId, companyId);
       // Most shipments are not in the warehouse: Shipments is not asked about them.
       if (!ids.length) return { changed: [], shipmentDeleted: false };
-      const shipment = await currentParties(shipmentId, reader);
+      const shipment = await currentParties(shipmentId, reader, readBudgetMs);
       if (!shipment) return { changed: [], shipmentDeleted: true };
       const changed: GateMovementRecord[] = [];
       for (const row of await gateMovementRepository.lockLive(tx, ids, companyId)) {

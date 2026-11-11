@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { warehouseRecordsService as svc } from "../services/warehouseRecords.service";
 import { gateMovementService } from "../services/gateMovement.service";
+import { gateAdminService } from "../services/gateAdmin.service";
 import { pragueInstant } from "../services/dockSlots";
 
 const user = randomUUID();
@@ -129,5 +130,27 @@ describe("dock slots linked to positions", () => {
     expect(pragueInstant("2026-07-15", "08:00").toISOString()).toBe("2026-07-15T06:00:00.000Z");
     expect(pragueInstant("2026-10-25", "08:00").toISOString()).toBe("2026-10-25T07:00:00.000Z");
     expect(pragueInstant("2026-03-29", "00:30").toISOString()).toBe("2026-03-28T23:30:00.000Z");
+  });
+});
+
+describe("a gate record taken out of the Gate Log frees its door", () => {
+  it("cancels its booked slots when it is deleted, so the door and time can be booked again", async () => {
+    const c = randomUUID();
+    const m = await position(c);
+    const slot = await svc.createDockSlot(c, { movementId: m.id, date: DAY, time: "14:00", dock: "Dock 3" });
+    await gateMovementService.remove(m.id, c, user);
+    const other = await position(c);
+    // Free again: the deleted record's slot no longer holds Dock 3 at 14:00.
+    await expect(svc.createDockSlot(c, { movementId: other.id, date: DAY, time: "14:00", dock: "Dock 3" })).resolves.toMatchObject({ status: "Booked" });
+    expect(slot.status).toBe("Booked");
+  });
+
+  it("cancels them when a manager archives it too", async () => {
+    const c = randomUUID();
+    const m = await position(c);
+    await svc.createDockSlot(c, { movementId: m.id, date: DAY, time: "15:00", dock: "Dock 3" });
+    await gateAdminService.archive(m.id, c, user, "manager", "Booked twice");
+    const other = await position(c);
+    await expect(svc.createDockSlot(c, { movementId: other.id, date: DAY, time: "15:00", dock: "Dock 3" })).resolves.toMatchObject({ status: "Booked" });
   });
 });

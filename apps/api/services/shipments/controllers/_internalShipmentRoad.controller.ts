@@ -17,6 +17,22 @@ export const _internalShipmentCreateRoad = api(
   },
 );
 
+interface RoadJobRetireRequest {
+  shipmentId: string;
+}
+
+/**
+ * Internal API of the trucking service: takes back a job it created for a consignment that could
+ * then not be saved (roadJob.service retire).
+ */
+export const _internalShipmentRoadRetire = api(
+  { expose: false, auth: true, method: "POST", path: "/internal/shipments/road/:shipmentId/retire" },
+  async ({ shipmentId }: RoadJobRetireRequest): Promise<void> => {
+    const auth = getAuthData()!;
+    await roadJobService.retire(auth.companyID, shipmentId, auth.userID, auth.role);
+  },
+);
+
 interface RoadJobBasicsRequest {
   ids: string[];
 }

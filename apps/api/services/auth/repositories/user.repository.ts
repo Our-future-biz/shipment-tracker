@@ -35,10 +35,11 @@ class UserRepository extends BaseRepository<typeof userTable> {
       .limit(limit);
   }
 
-  // Live admins and superadmins across all companies — recipients of system alerts.
-  async listAdmins(): Promise<{ email: string; displayName: string }[]> {
+  // Live admins and superadmins across all companies, each with their company and role — recipients
+  // of system alerts, which are written to each company apart.
+  async listAdmins(): Promise<{ email: string; displayName: string; companyId: string; role: string }[]> {
     return this.db
-      .select({ email: userTable.email, displayName: userTable.displayName })
+      .select({ email: userTable.email, displayName: userTable.displayName, companyId: userTable.companyId, role: userTable.role })
       .from(userTable)
       .where(and(sql`${userTable.role} IN ('admin', 'superadmin')`, isNull(userTable.deletedAt)));
   }
@@ -50,6 +51,16 @@ class UserRepository extends BaseRepository<typeof userTable> {
       .select({ id: userTable.id, displayName: userTable.displayName, email: userTable.email, role: userTable.role })
       .from(userTable)
       .where(and(eq(userTable.companyId, companyId), inArray(userTable.id, ids), isNull(userTable.deletedAt)));
+  }
+
+  // Live superadmins by id, whatever their company: they work in every company (X-Acting-Company),
+  // so a write one of them caused in another company is theirs there too (lib/outbox).
+  async listLiveSuperadminsByIds(ids: string[]): Promise<{ id: string; displayName: string; email: string; role: string; companyId: string }[]> {
+    if (!ids.length) return [];
+    return this.db
+      .select({ id: userTable.id, displayName: userTable.displayName, email: userTable.email, role: userTable.role, companyId: userTable.companyId })
+      .from(userTable)
+      .where(and(inArray(userTable.id, ids), eq(userTable.role, "superadmin"), isNull(userTable.deletedAt), person));
   }
 
   // User-management writes are always scoped to the admin's own company.

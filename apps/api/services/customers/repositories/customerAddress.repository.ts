@@ -47,9 +47,28 @@ export type SiteDetails = Partial<
   Pick<NewCustomerSiteRecord, "lat" | "lng" | "openingHours" | "avizaceName" | "avizacePhone" | "avizaceEmail" | "loadingNotes" | "tailLiftNeeded" | "isDefault">
 >;
 
+/**
+ * The customer's other live default site made an ordinary one, in the transaction of the write that
+ * makes `exceptSiteId` (or a site still to be added) the default: a write refused after it never
+ * leaves the customer without its default site (customer_site_one_default allows one).
+ */
+export async function clearOtherDefaultSites(tx: Tx, companyId: string, customerId: string, exceptSiteId?: string): Promise<void> {
+  await tx
+    .update(customerSiteTable)
+    .set({ isDefault: false, updatedAt: new Date() })
+    .where(and(
+      eq(customerSiteTable.companyId, companyId),
+      eq(customerSiteTable.customerId, customerId),
+      eq(customerSiteTable.isDefault, true),
+      isNull(customerSiteTable.deletedAt),
+      ...(exceptSiteId ? [ne(customerSiteTable.id, exceptSiteId)] : []),
+    ));
+}
+
 // The address's site written again from it: added when it is Pickup or Delivery and has none,
 // updated when it has one (its map position cleared when the address moved), removed when it is
-// neither any more or is deleted. `details` are the Sites tab's own fields, written with it.
+// neither any more or is deleted. `details` are the Sites tab's own fields, written with it; made
+// the default, the customer's other default site stops being it here, in the same transaction.
 async function syncSite(tx: Tx, companyId: string, address: CustomerAddressRecord, details: SiteDetails = {}): Promise<void> {
   const [site] = await tx
     .select()
@@ -62,6 +81,7 @@ async function syncSite(tx: Tx, companyId: string, address: CustomerAddressRecor
     if (site) await tx.update(customerSiteTable).set({ deletedAt: now, updatedAt: now }).where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.id, site.id)));
     return;
   }
+  if (details.isDefault) await clearOtherDefaultSites(tx, companyId, address.customerId, site?.id);
   const fields = siteFieldsOf(address, kind);
   if (site) {
     const moved = siteMoved(site, fields) ? { lat: null, lng: null } : {};

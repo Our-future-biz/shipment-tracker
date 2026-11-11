@@ -27,7 +27,9 @@ export const warehouseSectionUpsert = api(
       throw APIError.failedPrecondition("Reload the page — Shipment Details now save field by field");
     }
     if (section !== "pickup") {
-      throw APIError.failedPrecondition(`The ${section} section is saved field by field (PATCH /warehouse/sections/:shipmentId/${section})`);
+      // This service's own PATCH (warehouseSectionPatch); /warehouse/sections/… is the normal
+      // Warehouse service, another database.
+      throw APIError.failedPrecondition(`The ${section} section is saved field by field (PATCH /warehouse-concept/sections/:shipmentId/${section})`);
     }
     // Pick-up: only the rows are saved; the PIN is made by the server (pickupPinGenerate).
     const row = await warehouseService.upsertPickupRows(req.shipmentId, getAuthData()!.companyID, req.data);

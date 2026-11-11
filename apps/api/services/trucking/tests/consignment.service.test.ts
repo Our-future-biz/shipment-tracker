@@ -6,7 +6,7 @@ vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   customers: { customerGet: vi.fn() },
-  shipments: { _internalShipmentBasics: vi.fn(), _internalShipmentCreateRoad: vi.fn() },
+  shipments: { _internalShipmentBasics: vi.fn(), _internalShipmentCreateRoad: vi.fn(), _internalShipmentRoadRetire: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
   holidays: { _internalHolidaysCzNational: vi.fn(async () => ({ dates: [] })) },
 }));
@@ -274,6 +274,27 @@ describe("create and price sources", () => {
       expect((await consignmentService.create(user, input(asQuote))).sell).toMatchObject({ source: "QUOTE" });
     });
 
+    it("stores the quote as Sales numbers it now, and prices one consignment whatever spelling of it is sent", async () => {
+      // The quote has taken its Freight Mode letters; the user typed it without them.
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ quoteNumber: "QCZROAD20261010001", status: "won", effectiveStatus: "won" }) as never);
+      const first = await consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }));
+      expect(store.consignments[0]!.quoteNumber).toBe("QCZROAD20261010001");
+      // The job made for it names the quote as Sales does now too.
+      expect(shipments._internalShipmentCreateRoad).toHaveBeenCalledWith(expect.objectContaining({ quoteNumber: "QCZROAD20261010001" }));
+      await expect(consignmentService.create(user, input({ ...asQuote, quoteNumber: "QCZROAD20261010001" }))).rejects.toMatchObject({
+        code: "already_exists",
+        message: `Quote QCZROAD20261010001 already prices consignment ${first.ref}: one consignment per quote`,
+      });
+    });
+
+    it("takes back the job it made when the consignment can't be saved (two bookings of one quote at once)", async () => {
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ status: "won", effectiveStatus: "won" }) as never);
+      vi.mocked(consignmentRepository.insert).mockRejectedValueOnce(Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "trucking_consignment_quote_unique" } }));
+      await expect(consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }))).rejects.toMatchObject({ code: "already_exists" });
+      expect(shipments._internalShipmentRoadRetire).toHaveBeenCalledWith({ shipmentId: SHIPMENT }, { authData: { userID: user.userID, companyID: user.companyID, role: user.role } });
+      expect(store.consignments).toEqual([]);
+    });
+
     it("takes the total from the trucking lines as they stand (an amount edited by hand), not the tariff's", async () => {
       const edited = { ...data, sellingLines: [
         { chargeCode: "road_freight", description: "Freight", qty: 1, unit: "trip", unitPrice: 15000, amount: 13500, currency: "CZK", tariffRef: "trucking:v1:D2" },
@@ -412,6 +433,33 @@ describe("stamps", () => {
     ]);
   });
 
+  // Two PODs of one job at the same moment each wrote their own consignment and then, in
+  // settleBilling, locked all of the job's - each waiting for the other's: a deadlock. The job's
+  // consignments are locked first now, in every transaction that stamps, voids or cancels.
+  it("locks the job's consignments before it writes the stamp, the void or the cancel", async () => {
+    const a = await seed(delivered, { trip: true, sent: true });
+    await seed(delivered);
+    const lockedBefore = (written: (values: Record<string, unknown>) => boolean) => {
+      const writes = vi.mocked(consignmentRepository.update).mock;
+      const at = writes.calls.findIndex((call) => written(call[3] as Record<string, unknown>));
+      const locks = vi.mocked(consignmentRepository.forShipmentLocked).mock;
+      return at >= 0 && locks.calls.some((call, i) => call[2] === SHIPMENT && locks.invocationCallOrder[i]! < writes.invocationCallOrder[at]!);
+    };
+    await consignmentService.stamp(manager, a.c.id, "podReceived", null);
+    expect(lockedBefore((v) => !!v.podReceivedAt)).toBe(true);
+    vi.clearAllMocks();
+    await consignmentService.voidStamp(manager, a.c.id, "podReceived", "Wrong file");
+    expect(lockedBefore((v) => "podReceivedAt" in v && v.podReceivedAt === null)).toBe(true);
+    vi.clearAllMocks();
+    // A plain stamp too: in one transaction the haulier's POD stamps the pick-up and delivery first.
+    const open = await seed({}, { trip: true, sent: true });
+    await consignmentService.stamp(user, open.c.id, "pickedUp", null);
+    expect(lockedBefore((v) => !!v.pickedUpAt)).toBe(true);
+    vi.clearAllMocks();
+    await consignmentService.cancel(manager, (await seed()).c.id, "Not needed");
+    expect(lockedBefore((v) => !!v.cancelledAt)).toBe(true);
+  });
+
   it("a voided POD takes its fact off the job's timeline (the file stays in its Documents); a corrected one is a new fact", async () => {
     const { c } = await seed(delivered, { trip: true, sent: true });
     store.documents.push({ consignmentId: c.id, kind: "POD", fileName: "pod.pdf", contentType: "application/pdf", sha256: "abc", storageKey: "k/1" } as never);
@@ -518,6 +566,27 @@ describe("update", () => {
     expect(row(c.id).sellCzk).toBe(13000);
     expect(outboxOf("costs")).toHaveLength(1);
   });
+
+  // The link was set at the send to run 30 days past the planned pick-up and only a new send moved
+  // it: a pick-up moved later left the haulier with a link that ran out before the POD was due.
+  it("a pick-up moved later carries the haulier's link as far, by the send's rule; one moved earlier keeps it", async () => {
+    const { c, trip } = await seed({}, { trip: true, sent: true });
+    const sent = { id: "l1", companyId: COMPANY, tripId: trip!.id, tokenHash: "h", revokedAt: null, createdAt: new Date(), updatedAt: new Date(), deletedAt: null };
+    store.links.push({ ...sent, expiresAt: new Date("2026-11-15T22:59:59Z") } as never);
+    await consignmentService.update(user, c.id, fields({ pickupDate: "2026-10-30" }));
+    expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-30");
+    expect(store.links[0]!).toMatchObject({ tokenHash: "h", revokedAt: null });
+    expect(store.links[0]!.expiresAt.toISOString()).toBe("2026-11-29T22:59:59.000Z");
+    expect(eventsOf("consignment_updated").at(-1)!.payload).toMatchObject({
+      summary: expect.stringContaining("the haulier's link is valid until"),
+      facts: { linkExpiresAt: "2026-11-29T22:59:59.000Z" },
+    });
+    // Moved back: the link is never shortened.
+    await consignmentService.update(user, c.id, fields({ version: 2, pickupDate: "2026-10-20" }));
+    expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-20");
+    expect(store.links[0]!.expiresAt.toISOString()).toBe("2026-11-29T22:59:59.000Z");
+    expect(eventsOf("consignment_updated").at(-1)!.payload).not.toHaveProperty("facts");
+  });
 });
 
 describe("the job was deleted in Shipments", () => {
@@ -602,6 +671,14 @@ describe("a price change after the customer invoice (decision 9, C8)", () => {
     expect((await consignmentService.list(user, { view: "attention" })).consignments.map((x) => x.id)).toEqual([c.id]);
     await consignmentService.clearNotice(manager, c.id, `${diff.sourceRef}|CZK`, "Invoiced on 2026100123");
     expect((await consignmentService.get(user, c.id)).needsAttention.some((r) => r.startsWith("Price change after invoice"))).toBe(false);
+    // The next reprice: Invoicing answers every difference line of the set again. Only the new one is
+    // noticed; the cleared one (invoiced already) never comes back.
+    const second = { sourceRef: `trucking:consignment:${c.id}:diff:2`, currency: "CZK", amount: 500 };
+    expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [diff, second])).toBe(1);
+    expect((await consignmentService.get(user, c.id)).needsAttention.filter((r) => r.startsWith("Price change after invoice"))).toEqual([
+      "Price change after invoice: +500 CZK added to job CZ00000042 as its own line — invoice it",
+    ]);
+    expect(eventsOf("selling_difference_pushed")).toHaveLength(2);
   });
 
   it("a cancel after invoicing: the negative difference keeps the cancelled consignment in Needs attention", async () => {

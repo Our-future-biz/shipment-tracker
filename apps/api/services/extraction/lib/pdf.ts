@@ -2,13 +2,23 @@ import log from "encore.dev/log";
 import { PDFParse } from "pdf-parse";
 import { PDFDocument } from "pdf-lib";
 
+/** A PDF with more pages than may be split (splitPdfToPages `maxPages`): nothing was split. */
+export class TooManyPagesError extends Error {
+  constructor(readonly pageCount: number) {
+    super(`The PDF has ${pageCount} pages`);
+  }
+}
+
 // Split a multi-page PDF (base64) into an array of single-page PDFs (base64).
 // Each page is a standalone PDF so it can be sent to Claude as its own document
-// block, letting the pipeline classify and extract one page at a time.
-export async function splitPdfToPages(fileBase64: string): Promise<string[]> {
+// block, letting the pipeline classify and extract one page at a time. A PDF with more
+// than `maxPages` pages is refused (TooManyPagesError) before any page is copied: splitting
+// is the costly part, and a small file can hold tens of thousands of blank pages.
+export async function splitPdfToPages(fileBase64: string, maxPages = Number.POSITIVE_INFINITY): Promise<string[]> {
   const bytes = Buffer.from(fileBase64, "base64");
   const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const count = src.getPageCount();
+  if (count > maxPages) throw new TooManyPagesError(count);
   const pages: string[] = [];
   for (let i = 0; i < count; i++) {
     const doc = await PDFDocument.create();

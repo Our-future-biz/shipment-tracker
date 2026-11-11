@@ -540,6 +540,19 @@ describe("the warehouse's gate", () => {
     expect(detail).toMatchObject({ gateInAt: "2026-10-15T11:00:00.000Z", promisedFinal: true });
   });
 
+  it("a gate-in that arrives after its void stays taken back; a new stamp after the void counts", async () => {
+    const a = await ltl({ promisedDate: "2026-10-16" });
+    await pickupRun([legOf(a.id, "PICKUP")]);
+    // The void (made at 11:30) is handled first; the gate-in (stamped 11:00) comes again after it.
+    await ltlService.handleGateStamped({ ...gate("voided", "2026-10-15T11:30:00.000Z"), stampKind: "gateIn" });
+    await ltlService.handleGateStamped(gate("gateIn", "2026-10-15T11:00:00.000Z"));
+    expect(cOf(a.id).gateInAt).toBeNull();
+    expect(cOf(a.id).status).not.toBe("AT_HUB");
+    // Stamped again at 12:00, after the void: applied.
+    await ltlService.handleGateStamped(gate("gateIn", "2026-10-15T12:00:00.000Z"));
+    expect(cOf(a.id).gateInAt!.toISOString()).toBe("2026-10-15T12:00:00.000Z");
+  });
+
   it("gate-in without a stamping user: the promised date still goes to the job, as the service identity", async () => {
     const a = await ltl({ promisedDate: "2026-10-16" });
     await pickupRun([legOf(a.id, "PICKUP")]);

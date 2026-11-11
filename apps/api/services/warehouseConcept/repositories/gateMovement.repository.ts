@@ -4,6 +4,8 @@ import { db } from "../db/db";
 import { gateMovementTable, type GateEvent, type GateMovementRecord, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
 import { dropPickupLineSql, hasPickupLineSql, linkedOutboundCond, linkedToShipmentCond, pickupPinLine, setPickupLineSql } from "../services/pickupPin";
+import { DOMESTIC } from "../services/direction";
+import { STORAGE_REOPENED_EVENT, STORAGE_SETTLED_GATE } from "../services/storageSettled";
 import type { Tx } from "./warehouseSection.repository";
 import { isUuid } from "../../../lib/uuid";
 
@@ -84,8 +86,66 @@ class GateMovementRepository {
     return rows.map((r) => r.companyId);
   }
 
+  /**
+   * Every live record of the company, newest first - a full read, kept only where the whole set
+   * is what is shown or counted: the Gate Log list (the client filters and searches it), the
+   * reports' throughput and storage, the KPIs and the managers' cockpit (each judges every open
+   * record by rules too rich for SQL). Work that needs a few records reads them by their own
+   * query: the customs follow (dueForShipmentFollow), the storage clock
+   * (storageReopenCandidates), the dock slots' labels (findByIds).
+   */
   async listAll(companyId: string): Promise<GateMovementRow[]> {
     const rows = await this.select().where(liveRow(companyId)).orderBy(desc(gateMovementTable.createdAt));
+    return rows.map(toRow);
+  }
+
+  /**
+   * The records the customs follow reads next, picked in SQL: live, linked to a shipment, not
+   * released or left, whose shipment was not deleted (`goneEvent` in their log), and not read
+   * since `checkedBefore` - never read first, then the longest ago (ties newest first), at most `limit`.
+   */
+  async dueForShipmentFollow(companyId: string, opts: { checkedBefore: Date; limit: number; goneEvent: string }): Promise<GateMovementRow[]> {
+    const t = gateMovementTable;
+    const rows = await this.select()
+      .where(
+        and(
+          liveRow(companyId),
+          isNotNull(warehouseTaskTable.shipmentId),
+          isNull(t.impRelease),
+          isNull(t.leftAt),
+          sql`NOT (${t.events} @> ${JSON.stringify([{ kind: opts.goneEvent }])}::jsonb)`,
+          sql`(${t.shipmentCheckedAt} IS NULL OR ${t.shipmentCheckedAt} <= ${opts.checkedBefore})`,
+        ),
+      )
+      .orderBy(sql`${t.shipmentCheckedAt} ASC NULLS FIRST`, desc(t.createdAt))
+      .limit(opts.limit);
+    return rows.map(toRow);
+  }
+
+  /**
+   * The records whose "Storage settled" line may still go back to Pending (storageSettled.ts):
+   * live outbound or Domestic cargo not released or left, the line OK, never set back before. The
+   * storage clock and a tick by hand are judged on these by the caller.
+   */
+  async storageReopenCandidates(companyId: string): Promise<GateMovementRow[]> {
+    const t = gateMovementTable;
+    const rows = await this.select().where(
+      and(
+        liveRow(companyId),
+        isNull(t.impRelease),
+        isNull(t.leftAt),
+        sql`(${t.visit} = ${"výdej"} OR ${t.handling} = ${DOMESTIC})`,
+        sql`${t.releaseGates} @> ${JSON.stringify([{ g: STORAGE_SETTLED_GATE, s: "OK" }])}::jsonb`,
+        sql`NOT (${t.events} @> ${JSON.stringify([{ kind: STORAGE_REOPENED_EVENT }])}::jsonb)`,
+      ),
+    );
+    return rows.map(toRow);
+  }
+
+  // Live records by id (those a list names, e.g. the dock slots); archived ones are left out.
+  async findByIds(ids: string[], companyId: string): Promise<GateMovementRow[]> {
+    if (!ids.length) return [];
+    const rows = await this.select().where(and(inArray(gateMovementTable.id, ids), liveRow(companyId)));
     return rows.map(toRow);
   }
 

@@ -14,6 +14,7 @@ vi.mock("~encore/clients", () => ({
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
 vi.mock("../../topics", () => ({ quoteRenamed: { publish: vi.fn() } }));
+vi.mock("../../services/quoteEvents.service", () => ({ deliverQuoteEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
 vi.mock("../../repositories/quoteRename.repository", () => ({ quoteRenameRepository: { rename: vi.fn() } }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
@@ -40,6 +41,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     customerFacts: vi.fn(),
     openCustomerQuotes: vi.fn(),
     openQuotes: vi.fn(async () => []),
+    liveReplacedBy: vi.fn(async (): Promise<string | null> => null),
   },
 }));
 
@@ -50,7 +52,7 @@ import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.re
 import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
 import { quoteRenameRepository } from "../../repositories/quoteRename.repository";
-import { quoteRenamed } from "../../topics";
+import { deliverQuoteEvents } from "../../services/quoteEvents.service";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
 import type { QuoteRoadInput } from "../../interfaces/interfaces";
@@ -488,7 +490,8 @@ describe("create and duplicate", () => {
 
 describe("the reference takes the letters of the Freight Mode", () => {
   const rename = vi.mocked(quoteRenameRepository.rename);
-  const publish = vi.mocked(quoteRenamed.publish);
+  // The rename writes its event (the outbox row, in the rename's transaction); then it is published.
+  const publish = vi.mocked(deliverQuoteEvents);
   const LCL = "QCZLCL20261010001";
   // The fixture's document with a Freight Mode.
   const withMode = (serviceType: string) => ({ ...(quote().data as Record<string, unknown>), serviceType });
@@ -498,7 +501,7 @@ describe("the reference takes the letters of the Freight Mode", () => {
     rename.mockResolvedValue(quote({ quoteNumber: LCL, dataVersion: 4 }));
     const item = await salesQuoteService.save(martin, REF, { serviceType: "Sea LCL" }, 3);
     expect(rename).toHaveBeenCalledWith(martin.companyID, REF, LCL);
-    expect(publish).toHaveBeenCalledWith({ companyId: martin.companyID, from: REF, to: LCL });
+    expect(publish).toHaveBeenCalledWith(quote().id);
     expect(item.quoteNumber).toBe(LCL);
   });
 
@@ -612,6 +615,16 @@ describe("revise", () => {
         revision: { ...stored, ...planned.row, quoteNumber: planned.reference } as SalesQuoteRecord,
       };
     });
+  });
+
+  it("is refused when the quote is no longer in the status the user saw (made Won meanwhile)", async () => {
+    stored = sent();
+    // The page showed Feedback; a colleague's shipment has made it Won since - no document key moved.
+    stored = { ...stored, status: "won" } as SalesQuoteRecord;
+    await expect(salesQuoteService.revise(martin, REF, undefined, "feedback")).rejects.toMatchObject({ message: expect.stringContaining("the quote is now Won") });
+    // As shown, it goes.
+    stored = sent();
+    await expect(salesQuoteService.revise(martin, REF, undefined, "feedback")).resolves.toMatchObject({ revision: { quoteNumber: `${REF}-R2` } });
   });
 
   it("makes the next revision with everything the quote holds, Revised, and replaces the quote", async () => {
@@ -1099,6 +1112,27 @@ describe("syncShipments", () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
 
+  it("drops the rates of the Won moment when the quote goes back to a draft status: it is priced live again", async () => {
+    stored = quote({
+      status: "won",
+      decidedAt: SENT,
+      shipmentId: FIRST.id,
+      shipmentJobNumber: "CZ00000101",
+      data: {
+        reference: REF,
+        quoteStatus: "won",
+        fx: { date: "2026-10-01", fixingDate: "2026-10-01", roePct: 100, rates: { EUR: 24 }, lockedAt: SENT.toISOString() },
+        timeline: [
+          { ...linkedLine(FIRST), at: SENT.toISOString() },
+          { kind: "status", status: "won", from: "draft", shipmentId: FIRST.id, jobNumber: "CZ00000101", at: SENT.toISOString() },
+        ],
+      },
+    });
+    const [result] = await salesQuoteService.syncShipments(martin, [{ quoteNumber: REF, shipments: [] }]);
+    expect(result).toMatchObject({ revertedTo: "draft" });
+    expect(written()).toMatchObject({ state: { status: "draft" }, document: { fx: null } });
+  });
+
   it("takes the link away, and a Won a shipment had made, when no shipment names the quote any more", async () => {
     stored = quoted({
       status: "won",
@@ -1361,6 +1395,16 @@ describe("delete", () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
     expect(attachments.deleteForQuote).not.toHaveBeenCalled();
   };
+
+  it("refuses to delete the revision a Replaced quote handed its offer on to", async () => {
+    vi.mocked(repository.liveReplacedBy).mockResolvedValueOnce("QCZ20261010001");
+    await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringContaining("is the revision that replaced QCZ20261010001"),
+    });
+    expect(repository.liveReplacedBy).toHaveBeenCalledWith(TX, stored!.companyId, stored!.quoteNumber);
+    nothingDeleted();
+  });
 
   it("deletes under the lock: the row stamped with who and when, a last history line, the attachments - one transaction, one moment", async () => {
     await expect(salesQuoteService.delete(martin, REF)).resolves.toBeUndefined();

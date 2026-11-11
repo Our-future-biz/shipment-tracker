@@ -97,6 +97,18 @@ describe("outbox delivery", () => {
     expect(invoicing._internalInvoicingTruckingLines).toHaveBeenCalledWith({ shipmentId: S, ...costs }, { authData });
   });
 
+  it("sends a row a superadmin caused while working as the company as them, with their own company", async () => {
+    const ROOT = "00000000-0000-0000-0000-0000000000aa";
+    const PLATFORM = "00000000-0000-0000-0000-0000000000bb";
+    vi.mocked(auth.userLookup).mockResolvedValue({ users: [{ id: ROOT, name: "Root", role: "superadmin", homeCompanyId: PLATFORM }] } as never);
+    await sendRow({ ...row("plate", { plateNumber: "1AB 2345" }), actingUserId: ROOT, actingRole: "superadmin" });
+    expect(auth.userLookup).toHaveBeenCalledWith({ ids: [ROOT], orSuperadmin: true }, { authData: { userID: ROOT, companyID: C, role: "superadmin" } });
+    expect(shipments.shipmentUpdate).toHaveBeenCalledWith(
+      { shipmentId: S, plateNumber: "1AB 2345" },
+      { authData: { userID: ROOT, companyID: C, role: "superadmin", homeCompanyID: PLATFORM, appWrite: true } },
+    );
+  });
+
   it("refuses for good when the acting user is gone", async () => {
     vi.mocked(auth.userLookup).mockResolvedValue({ users: [] } as never);
     await expect(sendRow(row("billing", {}))).rejects.toMatchObject({ code: "permission_denied" });

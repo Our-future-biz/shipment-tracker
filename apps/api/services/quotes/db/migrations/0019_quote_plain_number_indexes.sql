@@ -1,0 +1,2 @@
+CREATE INDEX "quote_company_plain_number_idx" ON "quote" USING btree ("company_id",regexp_replace("quote_number", '^QCZ(RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})', 'QCZ\2') text_pattern_ops);--> statement-breakpoint
+CREATE INDEX "quote_company_thread_idx" ON "quote" USING btree ("company_id",regexp_replace(regexp_replace("quote_number", '^QCZ(RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})', 'QCZ\2'), '-R[0-9]+$', '')) WHERE deleted_at IS NULL;

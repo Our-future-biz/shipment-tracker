@@ -77,7 +77,8 @@ describe("followContact", () => {
       return { name: "Petr Masák", email: "petr@acme.cz", phone: "", gone: false };
     });
     await expect(repo.followContact(COMPANY, ACME, PETR, read)).resolves.toEqual(["q1"]);
-    expect(fake.state.steps).toEqual(["begin", "lock", "read", "update", "commit"]);
+    // Linked again where a delete had let go of it, then its details: both inside the turn.
+    expect(fake.state.steps).toEqual(["begin", "lock", "read", "update", "update", "commit"]);
     expect(sent(fake.state.executed[0]).params).toEqual([`quotes-contact:${COMPANY}:${PETR}`]);
   });
 
@@ -88,7 +89,7 @@ describe("followContact", () => {
     await expect(repo.followContact(COMPANY, ACME, PETR, async () => ({ name: "", email: "", phone: "", gone: true }))).resolves.toEqual(["q1"]);
     const { sql, params } = sent(fake.state.updates[0]!.values.data);
     expect(sql).not.toContain("CASE");
-    expect(params).toEqual([JSON.stringify({ customerContactId: "" })]);
+    expect(params).toEqual([JSON.stringify({ customerContactId: "", customerContactGoneId: PETR })]);
   });
 
   it("unlinks a gone contact and gives its customer's quotes its last details in the same statement", async () => {

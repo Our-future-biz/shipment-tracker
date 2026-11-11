@@ -13,6 +13,7 @@ import { DocumentNoLongerApproved, documentChangeRequestRepository as requests, 
 import { shipmentAttachmentRepository as attachments } from "../repositories/shipmentAttachment.repository";
 import { attachmentBucket } from "../storage/attachmentBucket";
 import { commentService } from "./comment.service";
+import { shipmentService } from "./shipment.service";
 
 const MAX_TEXT = 1000;
 const MIN_REASON = 3;
@@ -69,7 +70,6 @@ async function discard(storageKey: string, id: string): Promise<void> {
 
 export interface DocumentChangeInput {
   fileName: string;
-  fileSize: number;
   fileType: string;
   contentBase64: string;
   reason: string;
@@ -81,7 +81,10 @@ class DocumentChangeRequestService {
     const reason = input.reason.trim();
     if (reason.length < MIN_REASON) throw APIError.invalidArgument("Say why the document has to change");
     if (reason.length > MAX_TEXT) throw APIError.invalidArgument(`The reason is too long (at most ${MAX_TEXT} characters)`);
-    if (!input.contentBase64) throw APIError.invalidArgument("Attach the new file");
+    const bytes = Buffer.from(input.contentBase64, "base64");
+    if (bytes.length === 0) throw APIError.invalidArgument("Attach the new file");
+    // A deleted shipment's documents are not shown, so nothing is asked about them either.
+    await shipmentService.requireLive(shipmentId, actor.companyID);
     const document = isUuid(attachmentId) ? await attachments.getForShipment(attachmentId, shipmentId, actor.companyID) : null;
     if (!document) throw APIError.notFound("Document not found");
     if (document.customsStatus !== "approved") throw APIError.failedPrecondition("Only a document customs has approved needs a request");
@@ -89,9 +92,7 @@ class DocumentChangeRequestService {
     if (await requests.isWaiting(attachmentId, actor.companyID)) throw APIError.alreadyExists(waiting);
 
     const newStorageKey = `${shipmentId}/${randomUUID()}`;
-    await attachmentBucket.upload(newStorageKey, Buffer.from(input.contentBase64, "base64"), {
-      contentType: input.fileType || "application/octet-stream",
-    });
+    await attachmentBucket.upload(newStorageKey, bytes, { contentType: input.fileType || "application/octet-stream" });
     // The file goes up first; a request that then can't be stored takes it away again.
     const created = await requests.create({
       companyId: actor.companyID,
@@ -101,7 +102,8 @@ class DocumentChangeRequestService {
       documentType: document.documentType,
       newFileName: input.fileName,
       newFileType: input.fileType,
-      newFileSize: input.fileSize,
+      // The size of what was stored, not what the browser said.
+      newFileSize: bytes.length,
       newStorageKey,
       reason,
       requestedById: actor.userID,

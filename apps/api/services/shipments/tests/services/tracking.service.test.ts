@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const shipments = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), findByMasterJobId: vi.fn() }));
+// A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
+const TX = vi.hoisted(() => ({ fake: "tx" }));
+const shipments = vi.hoisted(() => ({
+  getByIdForCompany: vi.fn(),
+  findByMasterJobId: vi.fn(),
+  writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
+}));
 const auditRows = vi.hoisted(() => ({ listByShipmentId: vi.fn(), create: vi.fn() }));
 const taskRows = vi.hoisted(() => ({ listByShipmentId: vi.fn(), upsert: vi.fn() }));
 const service = vi.hoisted(() => ({ isInvoiced: vi.fn(), customsStatusOf: vi.fn(), customsStatusesOf: vi.fn(), mayChangeDetails: vi.fn(), update: vi.fn() }));
@@ -17,6 +23,8 @@ const events = vi.hoisted(() => ({
   latestPerShipment: vi.fn(),
   add: vi.fn(),
   change: vi.fn(),
+  decideProposal: vi.fn(),
+  reopenProposal: vi.fn(),
   resolveOpen: vi.fn(),
   softDeleteForCompany: vi.fn(),
   addOnce: vi.fn(),
@@ -70,7 +78,10 @@ const change = (id: number) => ({ id: `a${id}`, field: "vessel", oldValue: "", n
 
 beforeEach(() => {
   vi.clearAllMocks();
+  shipments.writeTurn.mockImplementation(async (_shipmentId, _companyId, work) => work(TX));
   shipments.getByIdForCompany.mockResolvedValue(shipment);
+  events.decideProposal.mockImplementation(async (id: string, _companyId: string, decision: object) => ({ id, ...decision }));
+  events.reopenProposal.mockResolvedValue(undefined);
   auditRows.listByShipmentId.mockResolvedValue([]);
   taskRows.listByShipmentId.mockResolvedValue([]);
   service.isInvoiced.mockResolvedValue(false);
@@ -120,7 +131,7 @@ describe("recording an event", () => {
   it("sets the shipment's field through the normal update, under the person's role", async () => {
     await record({ note: "On the berth" });
     expect(service.update).toHaveBeenCalledWith("s1", "c1", { actualArrival: "2026-11-05" }, "u1", "user");
-    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", occurredOn: "2026-11-05", effect: "applied", effectField: "actualArrival", effectValue: "2026-11-05", source: "user", note: "On the berth" }));
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", occurredOn: "2026-11-05", effect: "applied", effectField: "actualArrival", effectValue: "2026-11-05", source: "user", note: "On the berth" }), TX);
   });
 
   it("leaves no event when the update refuses, as it does on an invoiced job", async () => {
@@ -148,18 +159,18 @@ describe("recording an event", () => {
     events.findSameDay.mockResolvedValue({ id: "doc", note: "", place: "", containerNumber: "", occurredAt: null, source: "document", externalId: "document:arrived:2026-11-05:" });
     await record({ place: "Charleston" });
     expect(events.change).not.toHaveBeenCalled();
-    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", source: "user", place: "Charleston" }));
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", source: "user", place: "Charleston" }), TX);
   });
 
   it("puts customs clearance on the day the person gives, as the one fact the write stored", async () => {
     events.latestOfKind.mockResolvedValue({ id: "bare", kind: "customs_released", occurredOn: "2026-11-06", note: "", place: "", containerNumber: "", occurredAt: null, externalId: "" });
     await record({ kind: "customs_released", occurredOn: "2026-11-05" });
     expect(service.update).toHaveBeenCalledWith("s1", "c1", { customsStatus: CUSTOMS_CLEARED }, "u1", "user");
-    expect(events.latestOfKind).toHaveBeenCalledWith("s1", "c1", "customs_released");
+    expect(events.latestOfKind).toHaveBeenCalledWith("s1", "c1", "customs_released", TX);
     expect(events.findSameDay).not.toHaveBeenCalled();
-    expect(events.change).toHaveBeenCalledWith("bare", "c1", expect.objectContaining({ occurredOn: "2026-11-05", source: "user", effect: "applied" }));
+    expect(events.change).toHaveBeenCalledWith("bare", "c1", expect.objectContaining({ occurredOn: "2026-11-05", source: "user", effect: "applied" }), TX);
     expect(events.add).not.toHaveBeenCalled();
-    expect(events.resolveOpen).toHaveBeenCalledWith("s1", "c1", ["hold"], "u1");
+    expect(events.resolveOpen).toHaveBeenCalledWith("s1", "c1", ["hold"], "u1", TX);
   });
 
   it("adds its details to the bare fact the write just stored, rather than a second one", async () => {
@@ -167,7 +178,7 @@ describe("recording an event", () => {
     const row = await record({ occurredTime: "14:30", place: "Charleston" });
     expect(row.id).toBe("bare");
     expect(events.add).not.toHaveBeenCalled();
-    expect(events.change).toHaveBeenCalledWith("bare", "c1", expect.objectContaining({ place: "Charleston", occurredAt: new Date("2026-11-05T13:30:00Z"), source: "user" }));
+    expect(events.change).toHaveBeenCalledWith("bare", "c1", expect.objectContaining({ place: "Charleston", occurredAt: new Date("2026-11-05T13:30:00Z"), source: "user" }), TX);
   });
 
   it("keeps a fact somebody already gave details of, and adds another", async () => {
@@ -187,12 +198,12 @@ describe("recording an event", () => {
   it("writes nothing on the shipment for a fact it has no column for", async () => {
     await record({ kind: "discharged" });
     expect(service.update).not.toHaveBeenCalled();
-    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "discharged", effect: "none", effectField: "" }));
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "discharged", effect: "none", effectField: "" }), TX);
   });
 
   it("closes the exceptions the fact ends", async () => {
     await record();
-    expect(events.resolveOpen).toHaveBeenCalledWith("s1", "c1", ["delayed", "rolled"], "u1");
+    expect(events.resolveOpen).toHaveBeenCalledWith("s1", "c1", ["delayed", "rolled"], "u1", TX);
   });
 
   it("refuses who may not change the details, before anything is written", async () => {
@@ -228,8 +239,47 @@ describe("recording an event", () => {
 
   it("ticks the task it comes with, and only one that goes with it", async () => {
     await record({ taskKey: "imp_cargo_shipped", kind: "departed" });
-    expect(taskRows.upsert).toHaveBeenCalledWith("s1", "c1", "imp_cargo_shipped", true, "u1");
+    expect(taskRows.upsert).toHaveBeenCalledWith("s1", "c1", "imp_cargo_shipped", true, "u1", TX);
     await expect(record({ taskKey: "imp_billed" })).rejects.toThrow("doesn't go with");
+  });
+
+  it("looks for the fact and stores it in the shipment's write turn, after the field's own write", async () => {
+    await record({ place: "Charleston" });
+    expect(shipments.writeTurn).toHaveBeenCalledWith("s1", "c1", expect.any(Function));
+    expect(events.findSameDay).toHaveBeenCalledWith("s1", "c1", "arrived", "2026-11-05", TX);
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", place: "Charleston" }), TX);
+    expect(service.update.mock.invocationCallOrder[0]).toBeLessThan(shipments.writeTurn.mock.invocationCallOrder[0]!);
+  });
+
+  it("adds nothing for the same record sent again (a double submit), and tells the chat once", async () => {
+    // What the first of the two stored, found by the second in its turn.
+    const first = {
+      id: "first",
+      kind: "rolled",
+      occurredOn: "2026-11-05",
+      occurredAt: null,
+      place: "",
+      containerNumber: "",
+      note: "No space",
+      source: "user",
+      recordedById: "u1",
+      effect: "none",
+      effectField: "",
+      effectValue: null,
+      externalId: "",
+    };
+    events.findSameDay.mockResolvedValue(first);
+    await expect(record({ kind: "rolled", note: "No space" })).resolves.toMatchObject({ id: "first" });
+    expect(events.add).not.toHaveBeenCalled();
+    expect(events.change).not.toHaveBeenCalled();
+    expect(comments.postExceptionNotice).not.toHaveBeenCalled();
+    // Somebody else's record, or another note, is a record of its own.
+    for (const other of [{ ...first, recordedById: "u2" }, { ...first, note: "Overbooked" }]) {
+      events.findSameDay.mockResolvedValueOnce(other);
+      await record({ kind: "rolled", note: "No space" });
+    }
+    expect(events.add).toHaveBeenCalledTimes(2);
+    expect(comments.postExceptionNotice).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -243,18 +293,31 @@ describe("a proposed date", () => {
     expect(masterJobs.update).toHaveBeenCalledWith("m1", "c1", { actualArrival: "2026-11-05" }, "u1", EDITOR);
   });
 
-  it("reaches the shipment only when confirmed, through the normal update", async () => {
+  it("reaches the shipment only when confirmed, through the normal update - the decision taken first, while it waits", async () => {
     events.getLive.mockResolvedValue(proposal);
     await trackingService.confirm("s1", "e1", ACTOR);
     expect(service.update).toHaveBeenCalledWith("s1", "c1", { actualArrival: "2026-11-05" }, "u1", "user");
-    expect(events.change).toHaveBeenCalledWith("e1", "c1", expect.objectContaining({ effect: "applied", decidedById: "u1" }));
+    expect(events.decideProposal).toHaveBeenCalledWith("e1", "c1", expect.objectContaining({ effect: "applied", decidedById: "u1" }));
+    expect(events.decideProposal.mock.invocationCallOrder[0]).toBeLessThan(service.update.mock.invocationCallOrder[0]!);
+    expect(events.reopenProposal).not.toHaveBeenCalled();
   });
 
-  it("stays proposed when the update refuses the confirmation", async () => {
+  it("stays proposed when the update refuses the confirmation: the decision is given back", async () => {
     events.getLive.mockResolvedValue(proposal);
     service.update.mockRejectedValueOnce(new Error("credit the invoice first"));
     await expect(trackingService.confirm("s1", "e1", ACTOR)).rejects.toThrow("credit the invoice first");
-    expect(events.change).not.toHaveBeenCalled();
+    expect(events.reopenProposal).toHaveBeenCalledWith("e1", "c1", "u1");
+    expect(events.resolveOpen).not.toHaveBeenCalled();
+  });
+
+  it("is refused as already decided when another confirm or dismiss got there first, and writes nothing", async () => {
+    events.getLive.mockResolvedValue(proposal);
+    events.decideProposal.mockResolvedValue(null);
+    await expect(trackingService.confirm("s1", "e1", ACTOR)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("already been decided") });
+    await expect(trackingService.dismiss("s1", "e1", ACTOR)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("already been decided") });
+    expect(service.update).not.toHaveBeenCalled();
+    expect(masterJobs.update).not.toHaveBeenCalled();
+    expect(events.reopenProposal).not.toHaveBeenCalled();
   });
 
   it("takes the details rule to confirm or dismiss", async () => {
@@ -268,7 +331,7 @@ describe("a proposed date", () => {
     events.getLive.mockResolvedValue(proposal);
     await trackingService.dismiss("s1", "e1", ACTOR);
     expect(service.update).not.toHaveBeenCalled();
-    expect(events.change).toHaveBeenCalledWith("e1", "c1", expect.objectContaining({ effect: "dismissed" }));
+    expect(events.decideProposal).toHaveBeenCalledWith("e1", "c1", expect.objectContaining({ effect: "dismissed", decidedById: "u1" }));
   });
 
   it("can't be confirmed once it isn't waiting", async () => {

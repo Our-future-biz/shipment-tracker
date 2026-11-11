@@ -12,14 +12,18 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
   constructor() {
     // Updates of one shipment go out in order; a row cancelled by a voided stamp while it was on
     // its way is recorded as sent with this note.
-    super(db, shipmentOutboxTable, "warehouse_shipment_outbox", { orderKey: "shipment_id", sentAfterCancelNote: "sent just before the stamp was voided" });
+    // The received and released dates and the plate are whole values of the shipment: a newer one sent
+    // makes an older failed one obsolete.
+    super(db, shipmentOutboxTable, "warehouse_shipment_outbox", { orderKey: "shipment_id", sentAfterCancelNote: "sent just before the stamp was voided", wholeValueKinds: ["received", "released", "plate"] });
   }
 
   // Written in the stamp's own transaction, so the stamp and what it owes the shipment are
   // committed together (or not at all).
   async enqueue(tx: Tx, rows: NewShipmentOutboxRecord[]) {
     if (!rows.length) return [];
-    return tx.insert(o).values(rows).returning();
+    // Each row stamped with the clock as it is written (not the transaction's start, as now() would):
+    // rows written together go out in the order they were made (the outbox orders by created_at).
+    return tx.insert(o).values(rows.map((r) => ({ ...r, createdAt: sql`clock_timestamp()` }))).returning();
   }
 
   // Takes up to `limit` due rows for delivery (see OutboxRepository.claimDueRows). Updates of one

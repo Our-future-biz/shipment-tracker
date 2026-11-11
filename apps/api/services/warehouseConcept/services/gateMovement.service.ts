@@ -21,7 +21,7 @@ import { remeasureTotals, type RemeasureTotals } from "./remeasure";
 import { warehouseSectionTable } from "../schemas/warehouseSection.schema";
 import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } from "./customs";
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
-import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
+import { dueForListFollow, FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
 import { ownerFromRequest } from "./shipmentOwner";
 import { companyUsers } from "../../../lib/companyUsers";
@@ -370,6 +370,19 @@ function assertFreeDaysAllowed(freeDays: number | null | undefined, role: string
     throw APIError.permissionDenied(`Only a manager gives more than ${DEFAULT_FREE_DAYS} free days`);
   }
 }
+// "Received in warehouse" starts the storage clock of outbound cargo: moved later or cleared, the
+// days in between are storage given away too, so only a manager does it (as free days above the
+// default); setting it the first time or earlier is anyone's - but never a day still to come: the
+// cargo was received today at the latest, and a date ahead would give the storage away as well.
+// Once the cargo is released its storage is settled: only a manager corrects the date then.
+function assertReceivedDateAllowed(before: string | null | undefined, after: string | null | undefined, released: boolean, role: string, today: string) {
+  if (isManagerRole(role)) return;
+  if (released) throw APIError.permissionDenied("The cargo was released: only a manager changes Received in warehouse now");
+  if (after && after > today) throw APIError.permissionDenied("Received in warehouse can't be a day still to come: the cargo was received today at the latest");
+  if (before && (!after || after > before)) {
+    throw APIError.permissionDenied("Only a manager moves Received in warehouse later or clears it: the days in between are storage given away");
+  }
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a
 // gate-out of its own would skip the release gates.
@@ -490,6 +503,9 @@ function groupByMovement<R extends { movementId: string | null }>(rows: R[]): Ma
 class GateMovementService {
   // The Gate Log. `archived` lists archived records only. Reads only — the customs status of
   // linked records is brought up to date by followShipments (its own POST endpoint).
+  // Every record, with its related rows read for exactly those ids (itemsFor): a full read, kept
+  // as it is - the Gate Log is one list the client filters, searches and counts as a whole (its
+  // chips and totals), so a page of it would show other numbers. Paging it is a change of screen.
   async list(companyId: string, opts: { archived?: boolean } = {}) {
     const movements = opts.archived ? await gateMovementRepository.listArchived(companyId) : await gateMovementRepository.listAll(companyId);
     return this.itemsFor(movements, companyId);
@@ -571,9 +587,8 @@ class GateMovementService {
   // `asService`: no user is calling (the customs follow cron) — Shipments is read as the company's
   // service identity.
   async followShipments(companyId: string, opts: { id?: string; force?: boolean; asService?: boolean } = {}): Promise<number> {
-    const movements = opts.id
-      ? [await this.load(opts.id, companyId)]
-      : await gateMovementRepository.listAll(companyId);
+    // A list call reads only the records due (picked in SQL); followCustoms checks them again.
+    const movements = opts.id ? [await this.load(opts.id, companyId)] : await dueForListFollow(companyId);
     const authData = opts.asService ? await serviceActor(companyId) : undefined;
     const changed = opts.id
       ? await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_GET_MS, limit: 1, force: opts.force, authData })
@@ -654,9 +669,14 @@ class GateMovementService {
 
   // The new record as it will be stored (checked and filled in), not saved yet — so callers can
   // insert it in a transaction of their own (a new position and its gate row together).
-  async buildRecord(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }): Promise<NewGateMovementRecord> {
+  // Every new record is built here (a gate record, a position of its own): the storage rules -
+  // free days above the default, a received date still to come - are checked on the values as
+  // they will be stored (trimmed and parsed), for whatever path creates it.
+  async buildRecord(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }, role = "user"): Promise<NewGateMovementRecord> {
     const { walkIn, ...rest } = input;
     const data = await this.fields(rest, companyId);
+    assertFreeDaysAllowed(data.freeDays, role);
+    if (data.loadInDate) assertReceivedDateAllowed("", data.loadInDate, false, role, pragueDate(new Date()));
     const handling = data.handling ?? "Import";
     const operationType = data.operationType ?? "LCL consolidation";
     const customsMode = data.customsMode ?? "SCP";
@@ -704,8 +724,8 @@ class GateMovementService {
   }
 
   async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }, role = "user") {
-    assertFreeDaysAllowed(input.freeDays, role);
-    const record = await this.buildRecord(companyId, userId, input);
+    // The storage rules are checked on the record as built (buildRecord).
+    const record = await this.buildRecord(companyId, userId, input, role);
     const id = await db.transaction(async (tx) => {
       const row = await gateMovementRepository.create(record, tx);
       // A record saved as already received (an outbound record with a typed received date and no
@@ -802,6 +822,7 @@ class GateMovementService {
           `Received in warehouse is set by the stripping tally${house ? ` of container ${house.container.number}` : ""} — tick the house off there`,
         );
       }
+      assertReceivedDateAllowed(m.loadInDate, patch.loadInDate, !!m.impRelease, role, pragueDate(new Date()));
       clockEvents.push({ kind: "storageClockChanged", label: `Received in warehouse: ${patch.loadInDate || "cleared"}`, at: clockAt, by: patch.updatedBy, detail: `was ${m.loadInDate || "—"}` });
     }
     if (patch.freeDays !== undefined && patch.freeDays !== m.freeDays) {
@@ -1020,6 +1041,9 @@ class GateMovementService {
         if (!archived) throw notDeleted;
         // Outbound cargo received by its typed date only has no stamp: its stock line closes here.
         await syncStockForMovement(tx, companyId, id, { by, why: "position deleted" });
+        // Its booked dock slots stop holding the door, its open exceptions are closed (as when a position is removed).
+        await dockSlotRepository.cancelForMovements(tx, [id], companyId, "gate record deleted");
+        await gateExceptionRepository.closeForMovements(tx, [id], companyId, by, "Closed: the gate record was deleted");
         return archived;
       });
     } catch (err) {

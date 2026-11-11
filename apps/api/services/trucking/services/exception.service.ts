@@ -259,6 +259,8 @@ class ExceptionService {
     const { c } = await consignmentService.load(companyId, e.consignmentId);
     const by = await userName(actor.userID);
     const row = await inTx(async (tx) => {
+      // The job first, as every transaction that settles its Billing (consignmentService.lockJob).
+      if (c.podReceivedAt && !c.cancelledAt) await consignmentService.lockJob(tx, companyId, c.shipmentId);
       const closed = await exceptionRepository.update(tx, companyId, e.id, { closedAt: new Date(), closedBy: by, closeNote: text }, { version: e.version, open: true });
       if (!closed) throw APIError.aborted(EXCEPTION_CONFLICT);
       await appendEvent(tx, companyId, {

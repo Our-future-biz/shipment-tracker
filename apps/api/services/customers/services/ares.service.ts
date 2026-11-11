@@ -113,11 +113,23 @@ export function parseAresSearch(json: AresSearchResponse): AresSearchHit[] {
     }));
 }
 
-async function fetchJson(url: string, timeoutMs: number, body?: unknown): Promise<Response> {
+/** What ARES answered: its status and the whole body, read within the call's deadline. */
+export interface AresAnswer {
+  status: number;
+  ok: boolean;
+  body: string;
+}
+
+/**
+ * One call to ARES with a deadline over all of it - the headers and the body. The timer runs until the
+ * body is read (aborting stops its stream too), so an answer that stalls after its headers can't hold
+ * the request: it fails as the call does. Throws when ARES can't be reached or answer in time.
+ */
+export async function fetchAres(url: string, timeoutMs: number, body?: unknown): Promise<AresAnswer> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, {
+    const res = await fetch(url, {
       method: body === undefined ? "GET" : "POST",
       headers: {
         Accept: "application/json",
@@ -127,6 +139,7 @@ async function fetchJson(url: string, timeoutMs: number, body?: unknown): Promis
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
     });
+    return { status: res.status, ok: res.ok, body: await res.text() };
   } finally {
     clearTimeout(timeout);
   }
@@ -135,8 +148,8 @@ async function fetchJson(url: string, timeoutMs: number, body?: unknown): Promis
 /** Register entry, or "" - sole traders have none, and a slow register must not block the lookup. */
 async function lookupRegisterEntry(ico: string): Promise<string> {
   try {
-    const res = await fetchJson(`${ARES_VR}/${ico}`, 5000);
-    return res.ok ? registerEntryFrom((await res.json()) as AresVrResponse) : "";
+    const answer = await fetchAres(`${ARES_VR}/${ico}`, 5000);
+    return answer.ok ? registerEntryFrom(JSON.parse(answer.body) as AresVrResponse) : "";
   } catch (err) {
     log.warn("ARES register lookup failed", { ico, error: err instanceof Error ? err.message : String(err) });
     return "";
@@ -152,24 +165,31 @@ export function isTooManyAnswer(body: string): boolean {
   return /PRILIS_MNOHO|p[řr][íi]li[šs]\s+mnoho|too many/i.test(body);
 }
 
-/**
- * Registry searches per bucket per minute: a company's users share one, a registration link has its
- * own (so a public link can't use up the company's). Kept in this process only: with several
- * instances each allows this many - a brake on runaway typing loops, not an exact quota.
- */
-export const SEARCHES_PER_MINUTE = 30;
-const searchLog = new Map<string, number[]>();
-
-export function searchAllowed(bucket: string, now = Date.now()): boolean {
-  const recent = (searchLog.get(bucket) ?? []).filter((t) => now - t < 60_000);
-  if (recent.length >= SEARCHES_PER_MINUTE) {
-    searchLog.set(bucket, recent);
-    return false;
-  }
-  recent.push(now);
-  searchLog.set(bucket, recent);
-  return true;
+// Registry calls per bucket per minute, counted the same way for searches and look-ups: a company's
+// users share one bucket, a registration link has its own (so a public link can't use up the
+// company's). Kept in this process only: with several instances each allows this many - a brake on
+// runaway loops, not an exact quota.
+function perMinute(limit: number): (bucket: string, now?: number) => boolean {
+  const seen = new Map<string, number[]>();
+  return (bucket, now = Date.now()) => {
+    const recent = (seen.get(bucket) ?? []).filter((t) => now - t < 60_000);
+    if (recent.length >= limit) {
+      seen.set(bucket, recent);
+      return false;
+    }
+    recent.push(now);
+    seen.set(bucket, recent);
+    return true;
+  };
 }
+
+/** Name searches per bucket per minute. */
+export const SEARCHES_PER_MINUTE = 30;
+export const searchAllowed = perMinute(SEARCHES_PER_MINUTE);
+
+/** Look-ups by IČO per bucket per minute; each one is two calls to ARES (the record and the register). */
+export const LOOKUPS_PER_MINUTE = 30;
+export const aresLookupAllowed = perMinute(LOOKUPS_PER_MINUTE);
 
 class AresService {
   // Companies whose name contains the text, to pick one before its record is read by IČO. `bucket` is
@@ -178,9 +198,9 @@ class AresService {
     const text = name.trim();
     if (text.length < 3) throw APIError.invalidArgument("Type at least 3 characters of the company name");
     if (!searchAllowed(bucket)) throw APIError.resourceExhausted("Too many registry searches — wait a minute and try again");
-    let res: Response;
+    let res: AresAnswer;
     try {
-      res = await fetchJson(`${ARES_BASE}/vyhledat`, 8000, { obchodniJmeno: text, pocet: ARES_SEARCH_LIMIT, start: 0 });
+      res = await fetchAres(`${ARES_BASE}/vyhledat`, 8000, { obchodniJmeno: text, pocet: ARES_SEARCH_LIMIT, start: 0 });
     } catch (err) {
       log.warn("ARES search failed", { name: text, error: err instanceof Error ? err.message : String(err) });
       throw APIError.unavailable("ARES registry unavailable");
@@ -188,9 +208,8 @@ class AresService {
     if (res.status === 400) {
       // A name too general for ARES (over 1,000 companies) is refused with 400 rather than listed;
       // any other 400 (e.g. characters ARES does not take) is not "too many".
-      const body = await res.text().catch(() => "");
-      if (isTooManyAnswer(body)) return { companies: [], tooMany: true };
-      log.warn("ARES search refused the name", { name: text, body: body.slice(0, 300) });
+      if (isTooManyAnswer(res.body)) return { companies: [], tooMany: true };
+      log.warn("ARES search refused the name", { name: text, body: res.body.slice(0, 300) });
       throw APIError.invalidArgument("The registry cannot search for this name — try other words");
     }
     if (!res.ok) {
@@ -199,7 +218,7 @@ class AresService {
     }
     let json: AresSearchResponse;
     try {
-      json = (await res.json()) as AresSearchResponse;
+      json = JSON.parse(res.body) as AresSearchResponse;
     } catch (err) {
       log.error(err, "ARES search response is not JSON", { name: text });
       throw APIError.internal("Failed to parse ARES response");
@@ -207,15 +226,24 @@ class AresService {
     return { companies: parseAresSearch(json), tooMany: false };
   }
 
-  async lookup(ico: string): Promise<AresResult> {
+  /**
+   * A company's record by IČO, with its register entry. `bucket`, when given, is what the look-up is
+   * counted in (aresLookupAllowed): the company id for the users' own look-ups. A registration link
+   * counts its own (lib/registrationLink lookupAllowed); a customer created from ARES is not counted
+   * here - each such call writes a customer, and its IČO is looked up (and counted) on the way.
+   */
+  async lookup(ico: string, bucket?: string): Promise<AresResult> {
     if (!/^\d{8}$/.test(ico)) {
       throw APIError.invalidArgument("ICO must be exactly 8 digits");
     }
+    if (bucket !== undefined && !aresLookupAllowed(bucket)) {
+      throw APIError.resourceExhausted("Too many registry look-ups — wait a minute and try again");
+    }
 
     const registerEntry = lookupRegisterEntry(ico);
-    let res: Response;
+    let res: AresAnswer;
     try {
-      res = await fetchJson(`${ARES_BASE}/${ico}`, 8000);
+      res = await fetchAres(`${ARES_BASE}/${ico}`, 8000);
     } catch (err) {
       log.warn("ARES lookup failed", { ico, error: err instanceof Error ? err.message : String(err) });
       throw APIError.unavailable("ARES registry unavailable");
@@ -231,7 +259,7 @@ class AresService {
 
     let json: AresResponse;
     try {
-      json = (await res.json()) as AresResponse;
+      json = JSON.parse(res.body) as AresResponse;
     } catch (err) {
       log.error(err, "ARES response is not JSON", { ico });
       throw APIError.internal("Failed to parse ARES response");

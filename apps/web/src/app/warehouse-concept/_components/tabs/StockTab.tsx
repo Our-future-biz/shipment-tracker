@@ -470,7 +470,8 @@ function Locations() {
                   <tr key={z.id} onClick={() => setEditing({ zone: z })} className="cursor-pointer hover:bg-slate-50">
                     <td className={`${TD} !px-4`}>{mono(z.code)}</td>
                     <td className={`${TD} !px-4`}>{dim(z.name)}</td>
-                    <td className={`${TD} !px-4 text-right tabular-nums`}>{dim(z.capacity ? `${z.occupied} / ${z.capacity}` : `${z.usedBays} / ${z.bays} bays`)}</td>
+                    {/* Positions in use (locations holding stock) out of the pallet positions; floor zones by bays. */}
+                    <td className={`${TD} !px-4 text-right tabular-nums`}>{dim(z.capacity ? `${z.occupied} / ${z.capacity} positions` : `${z.usedBays} / ${z.bays} bays`)}</td>
                     <td className={`${TD} !px-4 text-right`}>
                       {/* A full zone is the problem, not the goal. */}
                       <StatusTag value={`${z.fullPercent} %`} tones={{ [`${z.fullPercent} %`]: z.fullPercent >= 90 ? "r" : z.fullPercent >= 70 ? "a" : "g" }} />

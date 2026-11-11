@@ -355,10 +355,17 @@ class MasterJobService {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber, userId);
+    try {
+      await this.syncShipment(shipmentId, companyId, userId);
+    } catch (err) {
+      // The house refused the master job's values (an invoiced job's ATA / ATD): it is not left
+      // linked without them - it goes back to where it was, and the refusal is the answer.
+      await shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: shipment.masterJobId });
+      throw err;
+    }
     if (shipment.masterJobId && shipment.masterJobId !== linked?.masterJobId) {
       await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
     }
-    await this.syncShipment(shipmentId, companyId, userId);
     // It carries nothing of a master job it left; the new one's costs reach it when its split is processed.
     if (dropShares && shipment.masterJobId !== linked?.masterJobId) await dropSharesOfLeftShipments([shipment.masterJobId]);
   }
@@ -493,13 +500,7 @@ class MasterJobService {
   }
 
   private async unassignFromContainers(id: string, companyId: string, shipmentId: string): Promise<void> {
-    const containers = await masterJobContainerRepository.listByMasterJobId(id, companyId);
-    if (!containers.some((c) => c.shipmentIds.includes(shipmentId))) return;
-    await masterJobContainerRepository.replaceForMasterJob(
-      id,
-      companyId,
-      containers.map((c) => ({ ...toMasterContainerLine(c), shipmentIds: c.shipmentIds.filter((s) => s !== shipmentId) })),
-    );
+    await masterJobContainerRepository.unassignShipment(id, companyId, shipmentId, toMasterContainerLine);
   }
 
   private async require(id: string, companyId: string): Promise<MasterJobRecord> {

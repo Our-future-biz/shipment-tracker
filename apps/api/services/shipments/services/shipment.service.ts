@@ -49,6 +49,7 @@ import type {
   SearchShipmentsResponse,
 } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
@@ -59,7 +60,8 @@ import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../l
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { AGENT_CONTACT, CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
-import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
+import { shipmentPartiesChanged } from "../topics";
+import { deliverShipmentEvents } from "./shipmentEvents.service";
 import { INVOICED_STATUS, jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
 import { jobNumberDigits } from "../../../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
@@ -146,6 +148,14 @@ const reasonOf = (err: unknown): string => (err instanceof APIError ? err.messag
  * reference is final is not one of them: only Invoicing marks it (finalizeReference).
  */
 export type ShipmentUpdateData = Partial<Omit<NewShipmentRecord, "customsPriority" | "jobNumberFinal">> & BlankablePriority & DetailRows;
+
+/**
+ * What an update was decided on, checked again on the shipment as its write turn finds it, before
+ * anything is written: it throws to refuse the write, and then nothing of it is stored. For an
+ * action that reads the shipment, decides and only then writes (releasing the House BoL, an
+ * approved Customs Office): a write of the shipment made in between is seen here.
+ */
+export type StillHolds = (current: ShipmentRecord) => void;
 
 // Project table rows down to the API line shapes (drop internal
 // shipmentId/companyId/timestamps; containers keep their id — cargo lines
@@ -541,7 +551,7 @@ class ShipmentService {
   // in the auth service, which this database cannot join against; an unresolvable user must not
   // fail the write - the stamp just records the time without who.
   private async actorOf(userId: string): Promise<string> {
-    const email = await userEmailOf(userId);
+    const email = await userEmailOf(userId).catch(() => "");
     if (email) return email;
     try {
       return (await companyUsers()).find((u) => u.id === userId)?.email ?? "";
@@ -556,7 +566,7 @@ class ShipmentService {
   // that name fits. Empty when the owner is nobody, no user of the company now, or can't be told:
   // a name that is no user is never copied.
   private async quoteOwnerEmail(quote: QuoteOwner, users: UsersOnce): Promise<string> {
-    if (quote.ownerUserId) return userEmailOf(quote.ownerUserId);
+    if (quote.ownerUserId) return userEmailOf(quote.ownerUserId).catch(() => "");
     if (!quote.ownerName.trim()) return "";
     try {
       return matchUser(quote.ownerName, await users())?.email ?? "";
@@ -651,21 +661,9 @@ class ShipmentService {
   ): Promise<{ pagination: { total: number; offset: number; limit: number }; data: ShipmentItem[] }> {
     const result = await shipmentRepository.listFiltered(companyId, filters);
 
-    // Enrich with master job MCZ numbers
-    const masterJobIds = result.data
-      .map((s) => s.masterJobId)
-      .filter((id): id is string => !!id);
-
-    const mczMap = new Map<string, string>();
-    if (masterJobIds.length > 0) {
-      const uniqueIds = [...new Set(masterJobIds)];
-      const masterJobs = await Promise.all(
-        uniqueIds.map((id) => masterJobRepository.getByIdForCompany(id, companyId))
-      );
-      for (const mj of masterJobs) {
-        if (mj) mczMap.set(mj.id, mj.mczNumber);
-      }
-    }
+    // The MCZ numbers of the page's master jobs, read in one query.
+    const masterJobIds = [...new Set(result.data.flatMap((s) => (s.masterJobId ? [s.masterJobId] : [])))];
+    const mczMap = await masterJobRepository.mczNumbersByIds(masterJobIds, companyId);
 
     // Enrich with detail rows (one query per table for the whole page, grouped by shipment)
     const shipmentIds = result.data.map((s) => s.id);
@@ -762,9 +760,14 @@ class ShipmentService {
     return { within24h: window(0, 1), within48h: window(2, 2) };
   }
 
+  /** Whether this is a live shipment of the company. What is not an id is none, and is kept from SQL. */
+  async isLive(id: string, companyId: string): Promise<boolean> {
+    return isUuid(id) && !!(await shipmentRepository.getByIdForCompany(id, companyId));
+  }
+
   /** Refuses work on a shipment that isn't a live shipment of the company (child rows hang off it). */
   async requireLive(id: string, companyId: string): Promise<void> {
-    if (!(await shipmentRepository.getByIdForCompany(id, companyId))) throw APIError.notFound("Shipment not found");
+    if (!(await this.isLive(id, companyId))) throw APIError.notFound("Shipment not found");
   }
 
   // What a change of the shipment is worth on the Tracking tab, in its write turn, whoever wrote it:
@@ -1109,8 +1112,15 @@ class ShipmentService {
       const owner = quote && !(shipmentData.salesPerson ?? "").trim() ? await this.quoteOwnerEmail(quote, users) : "";
       if (owner) shipmentData.salesPerson = owner;
     }
-    const shipment = await shipmentRepository.createWithJobNumber(companyId, shipmentData);
-    await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
+    // The shipment and its containers and cargo lines are one transaction: a line that can't be
+    // written leaves no shipment behind, so the request fails as a whole and a retry can't make a
+    // second one. (One made from a quote reports such a failure instead - see createFromQuote.)
+    const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
+    const shipment = await shipmentRepository.createWithJobNumber(
+      companyId,
+      shipmentData,
+      hasDetailRows(rows) ? (tx, created) => this.writeDetailRows(tx, created.id, companyId, rows) : undefined,
+    );
     await this.recalcCustomerRollups(shipment.customerId, companyId);
     // Billed in its customer's default currency from the start.
     if (shipment.customerId) await startShipmentBilling(shipment.id);
@@ -1135,7 +1145,7 @@ class ShipmentService {
 
   /** Whether this person may change the shipment's details (lib/shipmentEditRule). */
   async mayChangeDetails(shipment: { personInCharge: string; holidayCover: string }, userId: string, role: string): Promise<boolean> {
-    return isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId));
+    return isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId).catch(() => ""));
   }
 
   /** For the actions that aren't a field edit but change the shipment: its master job, releasing its BoL. */
@@ -1147,8 +1157,17 @@ class ShipmentService {
 
   // `role`: of the person editing, whose edit is held to what their role may change. Left out by
   // the app's own writes (a master job's sync, an approved request). `origin`: where the write comes
-  // from, when the fields alone don't say, for the tracking events it causes.
-  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string, role?: string, origin?: TrackingSource): Promise<ShipmentItem> {
+  // from, when the fields alone don't say, for the tracking events it causes. `stillHolds`: what the
+  // write was decided on, checked again in the write turn (StillHolds).
+  async update(
+    id: string,
+    companyId: string,
+    data: ShipmentUpdateData,
+    userId: string,
+    role?: string,
+    origin?: TrackingSource,
+    stillHolds?: StillHolds,
+  ): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
     const locked = role === undefined ? null : (customsOfficeLockRefusal(existing, data, role) ?? creditCheckLockRefusal(existing, data, role) ?? approvedByLockRefusal(existing, data, role));
@@ -1291,6 +1310,11 @@ class ShipmentService {
     // and detail-row lists, the detail rows and the shipment row land together or not at all.
     const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
     const updated = await shipmentRepository.writeTurn(id, companyId, async (tx) => {
+      if (stillHolds) {
+        const current = await shipmentRepository.getInTurn(tx, id, companyId);
+        if (!current) throw APIError.notFound("Shipment not found");
+        stillHolds(current);
+      }
       const audit = (field: string, oldValue: string | null, newValue: string | null) =>
         shipmentAuditRepository.create({ companyId, shipmentId: id, userId, field, oldValue, newValue }, tx);
       for (const [key, newValue] of Object.entries(shipmentData)) {
@@ -1413,15 +1437,22 @@ class ShipmentService {
     for (const shipment of await shipmentRepository.liveBySalesNumber(companyId, previous)) {
       if (shipment.invoicingStatus !== INVOICED_STATUS && !(await this.isInvoiced(shipment.id))) naming.push(shipment);
     }
+    // Each in the shipment's write turn, and only while it still names the quote: a Sales Number
+    // a user changed meanwhile stays. The history line goes with the move, in the same transaction.
+    const moved: NamingShipment[] = [];
     for (const shipment of naming) {
-      await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next });
-      await shipmentRepository.updateForCompany(shipment.id, companyId, { salesNumber: next });
+      const done = await shipmentRepository.writeTurn(shipment.id, companyId, async (tx) => {
+        if (!(await shipmentRepository.moveSalesNumber(tx, shipment.id, companyId, previous, next))) return false;
+        await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next }, tx);
+        return true;
+      });
+      if (done) moved.push(shipment);
     }
-    if (naming.length > 0) {
+    if (moved.length > 0) {
       await this.tellQuote(companyId, next);
       await this.tellQuote(companyId, previous);
     }
-    return naming.map((shipment) => shipment.jobNumber);
+    return moved.map((shipment) => shipment.jobNumber);
   }
 
   /**
@@ -1493,44 +1524,55 @@ class ShipmentService {
     return shipmentIds.length > 0;
   }
 
-  async softDelete(id: string, companyId: string, userId?: string): Promise<void> {
+  async softDelete(id: string, companyId: string, userId?: string, role?: string): Promise<void> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
-    // Its invoices would stay open in the queue and the customer's balance with no job.
-    if (await this.isInvoiced(id)) {
-      throw APIError.failedPrecondition("An invoiced shipment can't be deleted — credit its invoices first");
-    }
 
-    if (userId) {
-      await shipmentAuditRepository.create({
-        companyId,
-        shipmentId: id,
-        userId,
-        field: "deletedAt",
-        oldValue: null,
-        newValue: new Date().toISOString(),
-      });
-    }
-
-    await shipmentRepository.softDeleteForCompany(id, companyId);
+    // The invoice check, the history line, the delete and the shipment-deleted event it owes are
+    // one write turn. Invoicing takes the same turn right before it numbers an invoice of the job
+    // (finalizeReference), so an invoice can't be started while the delete looks: Invoicing then
+    // waits, finds the shipment gone and issues nothing. (One whose number Invoicing took just
+    // before the turn and has not stored yet is not seen - Invoicing's own write, not ours.)
+    // Invoicing is asked with the transaction open - the one remote call that has to be inside it
+    // for that; the pool ends a transaction left waiting too long (lib/db/pool), so it is bounded.
+    // The event is published once the delete is committed, and retried by the event outbox cron
+    // when that fails, so the services that keep rows for the shipment always hear of it.
+    const deleted = await shipmentRepository.writeTurn(id, companyId, async (tx) => {
+      // Its invoices would stay open in the queue and the customer's balance with no job.
+      if (await this.isInvoiced(id)) {
+        throw APIError.failedPrecondition("An invoiced shipment can't be deleted — credit its invoices first");
+      }
+      if (userId) {
+        await shipmentAuditRepository.create(
+          { companyId, shipmentId: id, userId, field: "deletedAt", oldValue: null, newValue: new Date().toISOString() },
+          tx,
+        );
+      }
+      return shipmentRepository.softDeleteWithEvent(id, companyId, { userId: userId ?? "", role: role ?? "" }, tx);
+    });
+    if (!deleted) throw APIError.notFound("Shipment not found");
+    await deliverShipmentEvents(id);
     await this.recalcCustomerRollups(existing.customerId, companyId);
-    await shipmentDeleted.publish({ shipmentId: id, companyId });
     // The quote the shipment named loses it - and with its last shipment a Won it owed to one.
     await this.tellQuote(companyId, existing.salesNumber.trim());
     // It carries nothing of its master job any more; the others keep theirs until the split is processed.
     if (existing.masterJobId) await dropSharesOfLeftShipments([existing.masterJobId]);
   }
 
-  // Release the house bill of lading, recording who released it and when.
-  // A release is a one-off act: once stamped, the record stands — re-releasing
-  // returns the shipment untouched rather than rewriting who did it.
+  // Release the house bill of lading, recording who released it and when. A release is a one-off
+  // act: once stamped, the record stands - a second release is refused rather than rewriting who
+  // did it. Checked again in the shipment's write turn, so of two releases at the same moment the
+  // second finds the first one's stamp.
   async releaseHouseBol(id: string, companyId: string, userId: string): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
-    if (existing.houseBolRelease.trim()) return (await this.getById(id, companyId))!;
+    const notReleasedYet: StillHolds = ({ houseBolRelease }) => {
+      if (houseBolRelease.trim()) throw APIError.failedPrecondition(`The House BoL was already released (${houseBolRelease.trim()})`);
+    };
+    notReleasedYet(existing);
 
     const stamp = actionStamp(await this.actorOf(userId), new Date());
-    return this.update(id, companyId, { houseBolRelease: stamp }, userId);
+    return this.update(id, companyId, { houseBolRelease: stamp }, userId, undefined, undefined, notReleasedYet);
   }
 
   /**
@@ -1602,10 +1644,18 @@ class ShipmentService {
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string, userId?: string): Promise<ShipmentRecord | null> {
     let masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
     if (!masterJob) {
-      // A master job made by linking (Create new in the Master Job dialog) records who made it. It
-      // has no Load Type yet, so its reference has no letters (lib/masterJobNumber), whatever was typed.
+      // A master job made by linking to a number typed in records who made it. It has no Load Type
+      // yet, so its reference has no letters (lib/masterJobNumber), whatever was typed. ("Create new"
+      // in the Master Job dialog creates the job first, under the next free number, then links.)
       const createdBy = userId ? await this.actorOf(userId) : "";
-      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber: masterJobNumberFor(mczNumber, null), createdBy });
+      try {
+        masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber: masterJobNumberFor(mczNumber, null), createdBy });
+      } catch (err) {
+        // Another link to the same new number at the same moment created it first: this one joins it.
+        if (!(isUniqueViolation(err) && constraintOf(err) === "master_job_company_mcz_unique")) throw err;
+        masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
+        if (!masterJob) throw err;
+      }
     }
     return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id });
   }

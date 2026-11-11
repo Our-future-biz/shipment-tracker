@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import {
@@ -32,21 +32,48 @@ const be = warehouseBondedEntryTable;
 const gm = gateMovementTable;
 const task = warehouseTaskTable;
 
+/** A stock line that left the warehouse (Picked) or was voided: closed (warehouseStock.service isClosedLine). */
+export const CLOSED_LINE_STATUSES = ["Picked", "Voided"];
+// How many of the closed lines / discharged entries a list shows, newest first. Open ones are never left out.
+const CLOSED_SHOWN = 5000;
+
 class StockLineRepository extends TenantRepository<typeof warehouseStockLineTable> {
   constructor() {
     super(db, warehouseStockLineTable, "warehouse_stock_line");
   }
 
-  /** Live lines with the WCZ ref of their position (archived positions keep their ref). */
-  async listWithPosition(companyId: string, limit = 5000): Promise<(StockLineRecord & PositionLink)[]> {
-    const rows = await db
+  private openLine = (companyId: string) =>
+    and(eq(sl.companyId, companyId), isNull(sl.deletedAt), notInArray(sl.status, CLOSED_LINE_STATUSES), isNull(sl.closedAt));
+
+  /** The company's open lines (stock on hand): every one, however many lines there are. */
+  async listOpen(companyId: string): Promise<StockLineRecord[]> {
+    return db.select().from(sl).where(this.openLine(companyId));
+  }
+
+  /**
+   * Live lines with the WCZ ref of their position (archived positions keep their ref): every open
+   * line, and the newest closed ones (a long-stored line is never cut off by newer closed ones).
+   * With `id`, that one line.
+   */
+  async listWithPosition(companyId: string, opts: { id?: string } = {}): Promise<(StockLineRecord & PositionLink)[]> {
+    const live = and(eq(sl.companyId, companyId), isNull(sl.deletedAt));
+    if (opts.id) return this.withPosition(and(live, eq(sl.id, opts.id))!);
+    const [open, closed] = await Promise.all([
+      this.withPosition(this.openLine(companyId)!),
+      this.withPosition(and(live, or(inArray(sl.status, CLOSED_LINE_STATUSES), isNotNull(sl.closedAt)))!, CLOSED_SHOWN),
+    ]);
+    return [...open, ...closed];
+  }
+
+  private async withPosition(where: SQL, limit?: number): Promise<(StockLineRecord & PositionLink)[]> {
+    const q = db
       .select({ line: sl, positionRef: task.taskId, gateRef: gm.gateRef, jobNumber: gm.jobNumber, movementDeletedAt: gm.deletedAt, movementId: gm.id })
       .from(sl)
       .leftJoin(gm, and(eq(gm.id, sl.movementId), eq(gm.companyId, sl.companyId)))
       .leftJoin(task, eq(task.id, gm.warehouseTaskId))
-      .where(and(eq(sl.companyId, companyId), isNull(sl.deletedAt)))
-      .orderBy(desc(sl.createdAt))
-      .limit(limit);
+      .where(where)
+      .orderBy(desc(sl.createdAt));
+    const rows = limit === undefined ? await q : await q.limit(limit);
     return rows.map((r) => ({
       ...r.line,
       positionRef: r.positionRef,
@@ -122,15 +149,29 @@ class BondedEntryRepository extends TenantRepository<typeof warehouseBondedEntry
     super(db, warehouseBondedEntryTable, "warehouse_bonded_entry");
   }
 
-  async listWithPosition(companyId: string, limit = 5000): Promise<(BondedEntryRecord & PositionLink)[]> {
-    const rows = await db
+  /**
+   * Live entries with their position: every open one (not voided, not discharged, pieces left under
+   * customs - a customs-warehouse entry may sit for months), and the newest of the others. With
+   * `id`, that one entry.
+   */
+  async listWithPosition(companyId: string, opts: { id?: string } = {}): Promise<(BondedEntryRecord & PositionLink)[]> {
+    const live = and(eq(be.companyId, companyId), isNull(be.deletedAt));
+    if (opts.id) return this.withPosition(and(live, eq(be.id, opts.id))!);
+    const open = and(live, eq(be.voidedReason, ""), isNull(be.dischargedAt), sql`${be.balance} > 0`)!;
+    const rest = and(live, or(sql`${be.voidedReason} <> ''`, isNotNull(be.dischargedAt), sql`${be.balance} <= 0`))!;
+    const [o, r] = await Promise.all([this.withPosition(open), this.withPosition(rest, CLOSED_SHOWN)]);
+    return [...o, ...r];
+  }
+
+  private async withPosition(where: SQL, limit?: number): Promise<(BondedEntryRecord & PositionLink)[]> {
+    const q = db
       .select({ entry: be, positionRef: task.taskId, gateRef: gm.gateRef, jobNumber: gm.jobNumber, movementDeletedAt: gm.deletedAt, movementId: gm.id })
       .from(be)
       .leftJoin(gm, and(eq(gm.id, be.movementId), eq(gm.companyId, be.companyId)))
       .leftJoin(task, eq(task.id, gm.warehouseTaskId))
-      .where(and(eq(be.companyId, companyId), isNull(be.deletedAt)))
-      .orderBy(desc(be.createdAt))
-      .limit(limit);
+      .where(where)
+      .orderBy(desc(be.createdAt));
+    const rows = limit === undefined ? await q : await q.limit(limit);
     return rows.map((r) => ({
       ...r.entry,
       positionRef: r.positionRef,

@@ -33,6 +33,16 @@ export interface PaginationOptions {
   defaultLimit: number;
 }
 
+// What an update never writes, whatever the data it is given holds: the row's identity, its tenant,
+// when it was made and whether it is deleted (soft-delete and restore have their own methods). A
+// request object passed straight through can't move a row to another company or bring it back.
+const PROTECTED_ON_UPDATE = ["id", "companyId", "createdAt", "deletedAt"] as const;
+function updatable<T extends object>(data: T): T {
+  const out = { ...data } as Record<string, unknown>;
+  for (const key of PROTECTED_ON_UPDATE) delete out[key];
+  return out as T;
+}
+
 export abstract class BaseRepository<TTable extends TableWithDefaults> {
   protected readonly db: AnyDb;
   protected readonly table: TTable;
@@ -97,7 +107,7 @@ export abstract class BaseRepository<TTable extends TableWithDefaults> {
 
   async update(id: string, data: Partial<InferInsertModel<TTable>>): Promise<InferSelectModel<TTable> | null> {
     const rows = (await this.db.update(this.table)
-      .set({ ...data, updatedAt: new Date() } as never)
+      .set({ ...updatable(data), updatedAt: new Date() } as never)
       .where(and(eq(this.table.id, id), isNull(this.table.deletedAt)))
       .returning()) as InferSelectModel<TTable>[];
     return rows[0] ?? null;
@@ -168,7 +178,7 @@ export abstract class TenantRepository<TTable extends TenantTable> extends BaseR
     data: Partial<InferInsertModel<TTable>>,
   ): Promise<InferSelectModel<TTable> | null> {
     const rows = (await this.db.update(this.table)
-      .set({ ...data, updatedAt: new Date() } as never)
+      .set({ ...updatable(data), updatedAt: new Date() } as never)
       .where(and(eq(this.table.id, id), eq(this.table.companyId, companyId), isNull(this.table.deletedAt)))
       .returning()) as InferSelectModel<TTable>[];
     return rows[0] ?? null;

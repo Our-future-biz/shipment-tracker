@@ -82,6 +82,20 @@ describe("resolveGeo", () => {
     expect(await resolveGeo([{ text: "Aurora, il, us", kind: "place" }])).toEqual(["Aurora (USAUZ)"]);
   });
 
+  it("asks for the AI's charge only when the database leaves an item open", async () => {
+    const beforeAi = vi.fn();
+    placeLookup.mockResolvedValueOnce({ byCode: [], candidates: [[place("DEHAM", "Hamburg")], [place("DEHAM", "Hamburg")], []] });
+    await resolveGeo([{ text: "Hamburg, DE", kind: "place" }], { beforeAi });
+    expect(beforeAi).not.toHaveBeenCalled();
+    // Nothing found by name: the AI would be asked, so the charge comes first - and may refuse it.
+    placeLookup.mockResolvedValue({ byCode: [], candidates: [[], [], []] });
+    const refuse = vi.fn(() => {
+      throw new Error("Reading limit reached");
+    });
+    await expect(resolveGeo([{ text: "Xyzzy Port", kind: "place" }], { beforeAi: refuse })).rejects.toThrow("Reading limit reached");
+    expect(refuse).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a place that exists in the country its two letters also name", async () => {
     placeLookup.mockResolvedValueOnce({ byCode: [], candidates: [[place("DEHAM", "Hamburg")], [place("DEHAM", "Hamburg")], []] });
     expect(await resolveGeo([{ text: "Hamburg, DE", kind: "place" }])).toEqual(["Hamburg (DEHAM)"]);

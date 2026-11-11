@@ -131,6 +131,24 @@ describe("Storage settled goes back to Pending when storage becomes chargeable (
     expect(await settled(id, c)).toMatchObject({ s: "OK" });
   });
 
+  // The hourly run read every record of every company; now only the ones whose line can still go
+  // back (picked in SQL), and the rule judges those.
+  it("the clock reads only the records whose line can still go back", async () => {
+    const c = randomUUID();
+    const due = await chargeable(c);
+    const reopened = await chargeable(c);
+    await gateMovementRepository.appendEvents(reopened, c, [{ kind: "storageSettledReopened", label: "", at: new Date().toISOString(), by: "Warehouse" }]);
+    const inbound = await gateMovementService.create(c, user, { gateRef: "IN-STORAGE", handling: "Export", visit: "příjem" });
+    const released = await chargeable(c);
+    await gateMovementRepository.update(released, c, { impRelease: new Date() });
+    const pending = await chargeable(c);
+    const m = await gateMovementService.get(pending, c);
+    await gateMovementRepository.update(pending, c, { releaseGates: m.releaseGates.map((g) => (g.g === "Storage settled" ? { ...g, s: "Pending" as const } : g)) });
+    expect((await gateMovementRepository.storageReopenCandidates(c)).map((r) => r.id)).toEqual([due]);
+    expect(inbound.id).toBeTruthy();
+    expect(await reopenChargeableStorage(c)).toBe(1);
+  });
+
   it("the WH release reopens it first and is refused", async () => {
     const c = randomUUID();
     const id = await chargeable(c);
@@ -147,6 +165,41 @@ describe("only a manager gives more than 7 free days (decision 19)", () => {
     expect((await gateMovementService.update(id, c, user, { freeDays: 5 }, "user")).freeDays).toBe(5);
     expect((await gateMovementService.update(id, c, user, { freeDays: 14 }, "manager")).freeDays).toBe(14);
     await expect(gateMovementService.create(c, user, { gateRef: `G-${randomUUID().slice(0, 6)}`, freeDays: 30 }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+  });
+});
+
+describe("moving Received in warehouse later is storage given away: a manager's call", () => {
+  it("lets anyone set it or move it earlier, and only a manager move it later or clear it", async () => {
+    const c = randomUUID();
+    const { movement } = await warehouseImportService.createPosition(c, user, { handling: "Export", customsStatus: "Customs Cleared/Released", colli: 4, weightKg: 400, measureCbm: 1 });
+    const id = movement.id;
+    const today = pragueDate(new Date());
+    const [received, earlier, later] = [addDays(today, -10), addDays(today, -11), addDays(today, -1)];
+    expect((await gateMovementService.update(id, c, user, { loadInDate: received }, "user")).loadInDate).toBe(received);
+    expect((await gateMovementService.update(id, c, user, { loadInDate: earlier }, "user")).loadInDate).toBe(earlier);
+    await expect(gateMovementService.update(id, c, user, { loadInDate: later }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(gateMovementService.update(id, c, user, { loadInDate: "" }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect((await gateMovementService.get(id, c)).loadInDate).toBe(earlier);
+    expect((await gateMovementService.update(id, c, user, { loadInDate: later }, "manager")).loadInDate).toBe(later);
+  });
+
+  it("refuses a user a received date still to come, also the first time it is set", async () => {
+    const c = randomUUID();
+    const { movement } = await warehouseImportService.createPosition(c, user, { handling: "Export", customsStatus: "Customs Cleared/Released", colli: 4, weightKg: 400, measureCbm: 1 });
+    const ahead = addDays(pragueDate(new Date()), 60);
+    await expect(gateMovementService.update(movement.id, c, user, { loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect((await gateMovementService.get(movement.id, c)).loadInDate).toBe("");
+    // Nor when the record is created with one - checked on the date as stored, so padding it does not slip it through.
+    await expect(gateMovementService.create(c, user, { gateRef: `G-${randomUUID().slice(0, 6)}`, loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(gateMovementService.create(c, user, { gateRef: `G-${randomUUID().slice(0, 6)}`, loadInDate: ` ${ahead}` }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    // A position of its own is held to the same rules as a gate record (free days too).
+    const position = { handling: "Export" as const, customsStatus: "Customs Cleared/Released" as const, colli: 1, weightKg: 10, measureCbm: 1 };
+    await expect(warehouseImportService.createPosition(c, user, { ...position, loadInDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(warehouseImportService.createPosition(c, user, { ...position, freeDays: 30 }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect((await warehouseImportService.createPosition(c, user, { ...position, freeDays: 30 }, "manager")).movement.freeDays).toBe(30);
+    // Today is fine.
+    const today = pragueDate(new Date());
+    expect((await gateMovementService.update(movement.id, c, user, { loadInDate: today }, "user")).loadInDate).toBe(today);
   });
 });
 

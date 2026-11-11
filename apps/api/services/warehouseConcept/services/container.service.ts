@@ -102,6 +102,22 @@ function needReason(reason: string | undefined, what: string, max = MAX_REASON):
   return r;
 }
 
+// The positions an add asks for: each once, at least one and not too many.
+function housesToAdd(movementIds: string[] | undefined): string[] {
+  const ids = [...new Set((movementIds ?? []).filter(Boolean))];
+  if (!ids.length) throw APIError.invalidArgument("Pick at least one position");
+  if (ids.length > MAX_HOUSES) throw APIError.invalidArgument(`At most ${MAX_HOUSES} positions at once`);
+  return ids;
+}
+
+/**
+ * What a write that adds houses throws: the one-container index refusing a position added to
+ * another container at the same moment becomes a message; anything else is thrown as it was.
+ */
+export function houseRaceError(err: unknown): unknown {
+  return isUniqueViolation(err) ? APIError.failedPrecondition("A position was added to another container at the same moment — reload and try again") : err;
+}
+
 const text = (v: string | undefined, max: number, label: string) => {
   const s = (v ?? "").trim();
   if (s.length > max) throw APIError.invalidArgument(`${label} is too long (at most ${max} characters)`);
@@ -276,74 +292,83 @@ class ContainerService {
   // left, not on hold); import: outbound (výdej) positions not received yet. A position is in at
   // most one container: one in another container is refused, naming it.
   async addPositions(id: string, companyId: string, userId: string, movementIds: string[], opts: { fromRegister?: boolean } = {}) {
-    const ids = [...new Set((movementIds ?? []).filter(Boolean))];
-    if (!ids.length) throw APIError.invalidArgument("Pick at least one position");
-    if (ids.length > MAX_HOUSES) throw APIError.invalidArgument(`At most ${MAX_HOUSES} positions at once`);
+    const ids = housesToAdd(movementIds);
     const by = await userName(userId);
     try {
       await db.transaction(async (tx) => {
         const c = await this.lockContainer(tx, id, companyId);
-        const kind = containerKind(c.direction);
-        if (c.gateOutAt) throw APIError.failedPrecondition(`Container ${c.number} has gone out — nothing can be added`);
-        if (c.closedAt) throw APIError.failedPrecondition(`Container ${c.number} is closed — void the close first`);
-        const movements = await gateMovementRepository.lockLive(tx, ids, companyId);
-        if (movements.length !== ids.length) throw APIError.invalidArgument("Position not found — it may be archived");
-        const current = await containerPositionRepository.listForContainers([id], companyId, tx);
-        const others = await containerPositionRepository.liveForMovements(ids, companyId, tx);
-        const otherContainers = await containerRepository.findByIds(
-          [...new Set(others.filter((o) => o.containerId !== id).map((o) => o.containerId))],
-          companyId,
-          tx,
-        );
-        let seq = current.reduce((a, l) => Math.max(a, l.sequence), 0);
-        const rows: (typeof cp.$inferInsert)[] = [];
-        const at = new Date().toISOString();
-        const movementEvents = new Map<string, GateEvent[]>();
-        for (const m of movements.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id))) {
-          if (current.some((l) => l.movementId === m.id)) continue;
-          const elsewhere = others.find((o) => o.movementId === m.id && o.containerId !== id);
-          if (elsewhere) {
-            const n = otherContainers.find((x) => x.id === elsewhere.containerId)?.number ?? "another container";
-            throw APIError.failedPrecondition(`${ref(m)} is already in container ${n} — take it out there first`);
-          }
-          if (!directionFits(c.direction, m.visit)) {
-            throw APIError.failedPrecondition(
-              kind === "export"
-                ? `${ref(m)} is outgoing cargo (výdej) — an export container is stuffed with inbound (příjem) cargo`
-                : `${ref(m)} is inbound cargo (příjem) — an import container holds outgoing (výdej) cargo`,
-            );
-          }
-          if (!opts.fromRegister) {
-            if (kind === "export") {
-              if (!m.expReceipt) throw APIError.failedPrecondition(`${ref(m)} is not received in the warehouse yet (no WH receipt)`);
-              if (m.impRelease || m.leftAt) throw APIError.failedPrecondition(`${ref(m)} has already left the warehouse`);
-              if (m.status === "Refused") throw APIError.failedPrecondition(`${ref(m)} is refused`);
-              const open = await gateExceptionRepository.openForMovement(tx, m.id, companyId);
-              if (open.length && !m.overridden) throw APIError.failedPrecondition(`${ref(m)} is on hold — an open damage / short / over exception must be resolved first`);
-            } else if (m.receivedAt || m.impRelease) {
-              throw APIError.failedPrecondition(`${ref(m)} is already received — it cannot be added to a stripping tally`);
-            }
-          }
-          rows.push({ companyId, containerId: id, movementId: m.id, taskId: m.warehouseTaskId, sequence: ++seq, addedBy: by || "—" });
-          movementEvents.set(m.id, [
-            {
-              kind: "addedToContainer",
-              label: `Added to container ${c.number} (${kind === "export" ? "stuffing plan" : "stripping tally"})`,
-              at,
-              by,
-            },
-          ]);
-        }
-        if (!rows.length) return;
-        await containerPositionRepository.add(tx, rows);
-        const refs = movements.filter((m) => movementEvents.has(m.id)).map(ref);
-        await this.log(tx, c, companyId, [{ kind: "positionsAdded", label: `Added: ${refs.join(", ")}`.slice(0, 500), at, by }], movementEvents);
+        await this.addPositionsInTx(tx, c, companyId, by, ids, opts);
       });
     } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      throw APIError.failedPrecondition("A position was added to another container at the same moment — reload and try again");
+      throw houseRaceError(err);
     }
     return this.detail(id, companyId);
+  }
+
+  /**
+   * addPositions in the caller's transaction, which has locked the container (`c`) first: the
+   * positions are locked here (in id order) and every rule is checked under those locks. The
+   * register form creates or relinks a container and its house through it, in one transaction.
+   * The caller answers a unique violation with houseRaceError.
+   */
+  async addPositionsInTx(tx: Tx, c: WarehouseContainerRecord, companyId: string, by: string, movementIds: string[], opts: { fromRegister?: boolean } = {}): Promise<void> {
+    const ids = housesToAdd(movementIds);
+    const id = c.id;
+    const kind = containerKind(c.direction);
+    if (c.gateOutAt) throw APIError.failedPrecondition(`Container ${c.number} has gone out — nothing can be added`);
+    if (c.closedAt) throw APIError.failedPrecondition(`Container ${c.number} is closed — void the close first`);
+    const movements = await gateMovementRepository.lockLive(tx, ids, companyId);
+    if (movements.length !== ids.length) throw APIError.invalidArgument("Position not found — it may be archived");
+    const current = await containerPositionRepository.listForContainers([id], companyId, tx);
+    const others = await containerPositionRepository.liveForMovements(ids, companyId, tx);
+    const otherContainers = await containerRepository.findByIds(
+      [...new Set(others.filter((o) => o.containerId !== id).map((o) => o.containerId))],
+      companyId,
+      tx,
+    );
+    let seq = current.reduce((a, l) => Math.max(a, l.sequence), 0);
+    const rows: (typeof cp.$inferInsert)[] = [];
+    const at = new Date().toISOString();
+    const movementEvents = new Map<string, GateEvent[]>();
+    for (const m of movements.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id))) {
+      if (current.some((l) => l.movementId === m.id)) continue;
+      const elsewhere = others.find((o) => o.movementId === m.id && o.containerId !== id);
+      if (elsewhere) {
+        const n = otherContainers.find((x) => x.id === elsewhere.containerId)?.number ?? "another container";
+        throw APIError.failedPrecondition(`${ref(m)} is already in container ${n} — take it out there first`);
+      }
+      if (!directionFits(c.direction, m.visit)) {
+        throw APIError.failedPrecondition(
+          kind === "export"
+            ? `${ref(m)} is outgoing cargo (výdej) — an export container is stuffed with inbound (příjem) cargo`
+            : `${ref(m)} is inbound cargo (příjem) — an import container holds outgoing (výdej) cargo`,
+        );
+      }
+      if (!opts.fromRegister) {
+        if (kind === "export") {
+          if (!m.expReceipt) throw APIError.failedPrecondition(`${ref(m)} is not received in the warehouse yet (no WH receipt)`);
+          if (m.impRelease || m.leftAt) throw APIError.failedPrecondition(`${ref(m)} has already left the warehouse`);
+          if (m.status === "Refused") throw APIError.failedPrecondition(`${ref(m)} is refused`);
+          const open = await gateExceptionRepository.openForMovement(tx, m.id, companyId);
+          if (open.length && !m.overridden) throw APIError.failedPrecondition(`${ref(m)} is on hold — an open damage / short / over exception must be resolved first`);
+        } else if (m.receivedAt || m.impRelease) {
+          throw APIError.failedPrecondition(`${ref(m)} is already received — it cannot be added to a stripping tally`);
+        }
+      }
+      rows.push({ companyId, containerId: id, movementId: m.id, taskId: m.warehouseTaskId, sequence: ++seq, addedBy: by || "—" });
+      movementEvents.set(m.id, [
+        {
+          kind: "addedToContainer",
+          label: `Added to container ${c.number} (${kind === "export" ? "stuffing plan" : "stripping tally"})`,
+          at,
+          by,
+        },
+      ]);
+    }
+    if (!rows.length) return;
+    await containerPositionRepository.add(tx, rows);
+    const refs = movements.filter((m) => movementEvents.has(m.id)).map(ref);
+    await this.log(tx, c, companyId, [{ kind: "positionsAdded", label: `Added: ${refs.join(", ")}`.slice(0, 500), at, by }], movementEvents);
   }
 
   // Takes a house out (any user): refused once it is stuffed (un-stuff it first) or tallied (a
@@ -352,22 +377,27 @@ class ContainerService {
     const by = await userName(userId);
     await db.transaction(async (tx) => {
       const c = await this.lockContainer(tx, id, companyId);
-      const link = await containerPositionRepository.findInContainer(tx, id, movementId, companyId);
-      if (!link) throw APIError.notFound("This position is not in the container");
-      if (link.stuffedAt) throw APIError.failedPrecondition("The house is stuffed — un-stuff it first");
-      if (link.tallyOutcome) throw APIError.failedPrecondition("The house is tallied — a manager can void the tally first");
-      await containerPositionRepository.softRemove(tx, [link.id], companyId);
-      const [m] = await gateMovementRepository.findByIdsAny([movementId], companyId);
-      const at = new Date().toISOString();
-      await this.log(
-        tx,
-        c,
-        companyId,
-        [{ kind: "positionRemoved", label: `Taken out: ${m ? ref(m) : movementId}`, at, by }],
-        new Map([[movementId, [{ kind: "removedFromContainer", label: `Taken out of container ${c.number}`, at, by }]]]),
-      );
+      await this.removePositionInTx(tx, c, companyId, by, movementId);
     });
     return this.detail(id, companyId);
+  }
+
+  /** removePosition in the caller's transaction, which has locked the container (`c`) first. */
+  async removePositionInTx(tx: Tx, c: WarehouseContainerRecord, companyId: string, by: string, movementId: string): Promise<void> {
+    const link = await containerPositionRepository.findInContainer(tx, c.id, movementId, companyId);
+    if (!link) throw APIError.notFound("This position is not in the container");
+    if (link.stuffedAt) throw APIError.failedPrecondition("The house is stuffed — un-stuff it first");
+    if (link.tallyOutcome) throw APIError.failedPrecondition("The house is tallied — a manager can void the tally first");
+    await containerPositionRepository.softRemove(tx, [link.id], companyId);
+    const [m] = await gateMovementRepository.findByIdsAny([movementId], companyId);
+    const at = new Date().toISOString();
+    await this.log(
+      tx,
+      c,
+      companyId,
+      [{ kind: "positionRemoved", label: `Taken out: ${m ? ref(m) : movementId}`, at, by }],
+      new Map([[movementId, [{ kind: "removedFromContainer", label: `Taken out of container ${c.number}`, at, by }]]]),
+    );
   }
 
   // The order of the houses (the stuffing order / the tally list): every house, in the new order.
@@ -973,31 +1003,28 @@ class ContainerService {
   // ---------- register form ----------
 
   // A plate entered after the export container went out goes to the shipments of the positions
-  // that left in it (as a plate after a WH release does).
-  async plateChanged(c: WarehouseContainerRecord, plate: string, companyId: string, userId: string, role: string) {
+  // that left in it (as a plate after a WH release does). In the register form's transaction,
+  // which has locked the container (`c`, as stored before the save) first; answers the shipments
+  // owed an update, for the caller to deliver once the transaction is committed.
+  async plateChangedInTx(tx: Tx, c: WarehouseContainerRecord, plate: string, companyId: string, userId: string, role: string): Promise<string[]> {
     const p = plate.trim();
-    if (!p || p === c.plate || !c.gateOutAt || containerKind(c.direction) !== "export") return;
+    if (!p || p === c.plate || !c.gateOutAt || containerKind(c.direction) !== "export") return [];
     const shipmentIds = new Set<string>();
-    await db.transaction(async (tx) => {
-      const locked = await this.lockContainer(tx, c.id, companyId);
-      const movements = await this.leftWith(tx, locked, companyId);
-      const owed: NewShipmentOutboxRecord[] = [];
-      for (const m of movements) {
-        if (!m.shipmentId) continue;
-        owed.push(outboxRow(m, "plate", CONTAINER_GATE_OUT_STAMP, { plateNumber: p }, userId, role));
-        shipmentIds.add(m.shipmentId);
-      }
-      await shipmentOutboxRepository.enqueue(tx, owed);
-    });
-    if (shipmentIds.size) await deliverDue({ shipmentIds: [...shipmentIds] });
+    const owed: NewShipmentOutboxRecord[] = [];
+    for (const m of await this.leftWith(tx, c, companyId)) {
+      if (!m.shipmentId) continue;
+      owed.push(outboxRow(m, "plate", CONTAINER_GATE_OUT_STAMP, { plateNumber: p }, userId, role));
+      shipmentIds.add(m.shipmentId);
+    }
+    await shipmentOutboxRepository.enqueue(tx, owed);
+    return [...shipmentIds];
   }
 
-  // Whether the container's houses let it be deleted: nothing stuffed or tallied, no stamp.
-  async deleteBlocked(id: string, companyId: string): Promise<string | null> {
-    const c = await containerRepository.findById(id, companyId);
-    if (!c) return null;
+  // Why the container may not be deleted, or null: nothing stuffed or tallied, no stamp. Read from
+  // the locked container and its houses read in the same transaction, so a stamp or a tally made
+  // at the same moment is either seen here or waits for the delete (and then finds no container).
+  deleteBlocked(c: WarehouseContainerRecord, links: ContainerPositionRecord[]): string | null {
     if (c.gateInAt || c.gateOutAt || c.closedAt || c.strippingStartedAt) return "The container has stamps — a manager can void them first";
-    const links = await containerPositionRepository.listForContainers([id], companyId);
     if (links.some((l) => l.stuffedAt || l.tallyOutcome)) return "Houses of this container are stuffed or tallied";
     return null;
   }

@@ -1,4 +1,4 @@
-import { and, desc, eq, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, or, sql, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import { truckingEventTable, type NewTruckingEventRecord } from "../schemas/truckingEvent.schema";
 
@@ -22,6 +22,18 @@ export async function hasEvent(reader: Tx | typeof db, companyId: string, consig
     .where(and(eq(e.companyId, companyId), eq(e.consignmentId, consignmentId), eq(e.kind, kind)))
     .limit(1);
   return !!row;
+}
+
+/**
+ * The notice keys the consignment's events of this kind recorded (payload.facts.noticeKey): what was
+ * noticed once stays known after a manager clears the notice, so it is never noticed again.
+ */
+export async function recordedNoticeKeys(reader: Tx | typeof db, companyId: string, consignmentId: string, kind: NewTruckingEventRecord["kind"]): Promise<Set<string>> {
+  const rows = await reader
+    .select({ key: sql<string | null>`${e.payload}->'facts'->>'noticeKey'` })
+    .from(e)
+    .where(and(eq(e.companyId, companyId), eq(e.consignmentId, consignmentId), eq(e.kind, kind)));
+  return new Set(rows.map((r) => r.key).filter((k): k is string => !!k));
 }
 
 /** The events of a consignment and / or a trip, newest first (at most 200). */

@@ -20,6 +20,8 @@ vi.mock("../lib/anthropic", () => ({
   MODEL: "test",
   replyText: (response: { content: { text: string }[] }) => response.content.map((block) => block.text).join(""),
   getClient: () => ({ messages: { create } }),
+  // The readings ask through askAi (its timeout and error mapping are tested in anthropic.test).
+  askAi: (params: unknown) => create(params),
 }));
 vi.mock("../lib/pdf", () => ({
   detectMediaType: (name: string) => (name.endsWith(".png") ? "image/png" : "application/pdf"),

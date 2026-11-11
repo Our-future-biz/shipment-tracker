@@ -56,6 +56,9 @@ export const truckingHaulierInvoiceTable = pgTable(
     fileStorageKey: text("file_storage_key"),
     createdByUserId: uuid("created_by_user_id"),
     createdBy: text("created_by").notNull().default(""),
+    // Everyone who entered or saved the invoice since: none of them may approve its payment (four
+    // eyes), as none of them lets it approve itself while they changed the haulier's bank accounts.
+    enteredByUserIds: uuid("entered_by_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
     version: integer("version").notNull().default(1),
   },
   (table) => [

@@ -853,11 +853,13 @@ describe("list", () => {
 
   it("finds a family: the base and whatever continues it with a dash - the reference taken literally, without its letters", async () => {
     // Compared without the letters of the Freight Mode (lib/salesReference): an AIR and a LCL variant are one family.
-    expect(await added({ family: "QCZLCL20261010001" })).toEqual({
-      sql: '(regexp_replace("quote"."quote_number", $2, $3) = $4 or regexp_replace("quote"."quote_number", $5, $6) LIKE $7)',
-      params: ["^QCZ(RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})", "QCZ\\2", "QCZ20261010001", "^QCZ(RAIL|ROAD|AIR|FCL|LCL|BB)([0-9]{8})", "QCZ\\2", "QCZ20261010001-%"],
-    });
-    expect((await added({ family: "Q_1%" })).params.filter((p) => !String(p).startsWith("^QCZ") && p !== "QCZ\\2")).toEqual(["Q_1%", "Q\\_1\\%-%"]);
+    // The dash and what follows as a range of the plain number (lib/quoteNumberSql startsWithSql), which its index answers.
+    const { sql, params } = await added({ family: "QCZLCL20261010001" });
+    expect(sql).toMatch(/^\(regexp_replace\("quote"\."quote_number", \$2, \$3\) = \$4 or \(regexp_replace\("quote"\."quote_number", \$5, \$6\) ~>=~ \$7 AND regexp_replace\("quote"\."quote_number", \$8, \$9\) ~<~ \$10\)\)$/);
+    const values = (p: unknown[]) => p.filter((x) => !String(x).startsWith("^QCZ") && x !== "QCZ\\2");
+    expect(values(params)).toEqual(["QCZ20261010001", "QCZ20261010001-", `QCZ20261010001-${String.fromCodePoint(0x10ffff)}`]);
+    // Taken literally: _ and % are no wildcards in a range.
+    expect(values((await added({ family: "Q_1%" })).params)).toEqual(["Q_1%", "Q_1%-", `Q_1%-${String.fromCodePoint(0x10ffff)}`]);
   });
 
   it("searches one folded text per quote for every word: the document unpacked once, the constants of foldDiacritics as parameters", async () => {

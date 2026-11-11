@@ -18,7 +18,7 @@ export const shipmentDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId" },
   async (req: ShipmentDeleteRequest): Promise<ShipmentDeleteResponse> => {
     const auth = requireRole("superadmin", "admin", "manager");
-    await shipmentService.softDelete(req.shipmentId, auth.companyID, auth.userID);
+    await shipmentService.softDelete(req.shipmentId, auth.companyID, auth.userID, auth.role);
     return { ok: true };
   },
 );

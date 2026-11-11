@@ -13,7 +13,8 @@ interface DocumentChangeAskRequest {
   shipmentId: string;
   attachmentId: string;
   fileName: string & MinLen<1>;
-  fileSize: number & Min<0>;
+  /** Not used: the size stored is that of the file received. Kept so a client that still sends it is accepted. */
+  fileSize?: number & Min<0>;
   fileType: string;
   contentBase64: string;
   reason: string & MaxLen<1000>;

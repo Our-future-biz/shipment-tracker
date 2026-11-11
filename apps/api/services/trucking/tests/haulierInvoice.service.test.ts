@@ -200,7 +200,8 @@ vi.mock("../repositories/haulierInvoice.repository", () => {
 });
 
 import { customers, shipments } from "~encore/clients";
-import { haulierInvoiceService } from "../services/haulierInvoice.service";
+import { haulierInvoiceService, TARGETS_CHANGED } from "../services/haulierInvoice.service";
+import { haulierInvoiceRepository } from "../repositories/haulierInvoice.repository";
 import { setClaimsSource, noClaims } from "../lib/haulierClaims";
 import { FIGURES_CHANGED, FOUR_EYES } from "../lib/haulierInvoiceRules";
 import type { HaulierInvoiceInput } from "../interfaces/haulierInvoice.interfaces";
@@ -563,6 +564,20 @@ describe("real cost and internal jobs", () => {
     ]);
   });
 
+  it("follows the side the consignment froze at its POD, not the job's department today (decision 8)", async () => {
+    // Billed to the customer (Road) when its POD came; the job has moved to Operations since.
+    const ftl = mem.consignments.find((c) => c.tripId === FTL)!;
+    Object.assign(ftl, { internal: false });
+    vi.mocked(shipments._internalShipmentBasics).mockImplementation((async ({ ids }: { ids: string[] }) => ({
+      shipments: ids.map((id) => ({ id, jobNumber: id.slice(-4), department: "Operations" })),
+    })) as never);
+    const inv = await haulierInvoiceService.create(user, invoice());
+    expect(inv.status).toBe("APPROVED");
+    // The real cost replaces the Road estimate on the job's Costs, where the estimate is.
+    expect(mem.outbox).toEqual([expect.objectContaining({ kind: "real_costs", shipmentId: S_ROAD })]);
+    expect(mem.lines[0]!.allocations).toEqual([expect.objectContaining({ shipmentId: S_ROAD, internal: false })]);
+  });
+
   it("a partner delivery of an internal consignment: no job line at all, the cost stays in Trucking's ledger", async () => {
     const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 800, lines: [{ targetKind: "PARTNER_LEG", targetId: LEG, invoiced: 800, note: "" }] }));
     expect(inv).toMatchObject({ status: "APPROVED", lines: [{ target: { ref: "TCZ2026000003 partner delivery" } }] });
@@ -610,6 +625,15 @@ describe("four eyes and today's figures on approval", () => {
     await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "permission_denied", message: FOUR_EYES });
   });
 
+  it("nor whoever changed the invoice after it was entered", async () => {
+    // Entered by a user and held; a manager then rewrites the figures and would approve them himself.
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    expect(inv.status).toBe("NEEDS_APPROVAL");
+    const changed = await haulierInvoiceService.update(manager, inv.id, { ...invoice({ totalNet: 10300, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10300, note: "" }] }), version: 1 });
+    expect(changed.status).toBe("NEEDS_APPROVAL");
+    await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "permission_denied", message: FOUR_EYES });
+  });
+
   it("nor who last changed the haulier's bank accounts", async () => {
     mem.profiles.set(H, profile({ bankAccountsChangedByUserId: M, bankAccountsChangedAt: new Date(Date.now() - 60 * 86_400_000) }));
     const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
@@ -622,6 +646,28 @@ describe("four eyes and today's figures on approval", () => {
     await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "failed_precondition", message: FIGURES_CHANGED });
   });
 
+  // The plan asked Shipments for the jobs' departments inside the transaction holding the
+  // haulier's lock: a slow Shipments held every save and approval of the haulier's invoices.
+  it("asks Shipments for the jobs before it takes the haulier's lock", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    vi.mocked(shipments._internalShipmentBasics).mockClear();
+    vi.mocked(haulierInvoiceRepository.lockHaulier).mockClear();
+    expect(await haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).toMatchObject({ status: "APPROVED" });
+    expect(vi.mocked(shipments._internalShipmentBasics).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(haulierInvoiceRepository.lockHaulier).mock.invocationCallOrder[0]!);
+    expect(mem.outbox).toEqual([expect.objectContaining({ kind: "real_costs", shipmentId: S_ROAD })]);
+  });
+
+  it("refuses when a target changed between the plan and the lock, and sends nothing", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    // Planned on the trip's job; by the time the lock is held its consignment went to another job.
+    vi.mocked(haulierInvoiceRepository.lockHaulier).mockImplementationOnce(async () => {
+      mem.consignments.find((c) => c.tripId === FTL)!.shipmentId = S_ROAD2;
+    });
+    await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "aborted", message: TARGETS_CHANGED });
+    expect(mem.invoices[0]!.status).toBe("NEEDS_APPROVAL");
+    expect(mem.outbox).toEqual([]);
+  });
+
   it("refuses a gross total that is not net plus VAT", async () => {
     await expect(haulierInvoiceService.create(user, invoice({ totalGross: 12000 }))).rejects.toMatchObject({ code: "invalid_argument" });
   });
@@ -630,6 +676,23 @@ describe("four eyes and today's figures on approval", () => {
     const inv = await haulierInvoiceService.create(user, invoice({ vatAmount: 0 }));
     expect(inv.status).toBe("NEEDS_APPROVAL");
     expect(inv.holdReasons).toEqual([expect.stringContaining("No VAT on a Czech VAT payer")]);
+  });
+
+  it("refuses a save while the Customer Database does not answer, rather than skip the VAT check", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ vatAmount: 0 }));
+    expect(inv.status).toBe("NEEDS_APPROVAL");
+    vi.mocked(customers._internalHaulierList).mockRejectedValueOnce(Object.assign(new Error("customers is down"), { code: "unavailable" }));
+    await expect(haulierInvoiceService.update(user, inv.id, { ...invoice({ vatAmount: 0 }), version: 1 })).rejects.toMatchObject({ code: "unavailable" });
+    // Nothing was saved: still held, never approved by itself.
+    expect((await haulierInvoiceService.get(user, inv.id)).status).toBe("NEEDS_APPROVAL");
+  });
+
+  it("holds a save for a haulier no longer in the Customer Database (its VAT unknown)", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ vatAmount: 0 }));
+    vi.mocked(customers._internalHaulierList).mockResolvedValueOnce({ hauliers: [] } as never);
+    const saved = await haulierInvoiceService.update(user, inv.id, { ...invoice({ vatAmount: 0 }), version: inv.version });
+    expect(saved.status).toBe("NEEDS_APPROVAL");
+    expect(saved.holdReasons).toEqual(expect.arrayContaining([expect.stringContaining("VAT details could not be read")]));
   });
 });
 

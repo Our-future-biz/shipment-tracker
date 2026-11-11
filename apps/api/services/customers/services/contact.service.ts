@@ -1,7 +1,8 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { contactRepository } from "../repositories/contact.repository";
+import { contactRepository, type ContactPatch } from "../repositories/contact.repository";
 import type { NewContactRecord } from "../schemas/contact.schema";
+import { isUniqueViolation } from "../../../lib/db/errors";
 import type { ContactItem, ContactRole } from "../interfaces/interfaces";
 import { toContactItem } from "../lib/mappers";
 import { customerService } from "./customer.service";
@@ -37,6 +38,17 @@ async function announceDeleted(companyId: string, row: ContactRecord): Promise<v
   }
 }
 
+// Two saves making different contacts the main one at the same moment: the one-main index refuses the second.
+const MAIN_RACE = "Another contact of this customer was made the main one at the same moment - reload and try again";
+const oneMain = async <T>(write: () => Promise<T>): Promise<T> => {
+  try {
+    return await write();
+  } catch (err) {
+    if (isUniqueViolation(err)) throw APIError.aborted(MAIN_RACE);
+    throw err;
+  }
+};
+
 export const fullName = (firstName: string, lastName: string) => [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
 
 /** The trimmed name parts and the full name; both parts are required, as for a new customer's first contact. */
@@ -57,7 +69,6 @@ class ContactService {
     const names = contactNames(input.firstName, input.lastName);
     assertCzechPhone(input.phone);
     await customerService.requireLive(customerId, companyId);
-    if (input.isMain) await contactRepository.clearMainFlag(customerId, companyId);
     const values: Omit<NewContactRecord, "companyId"> = {
       customerId,
       ...names,
@@ -66,7 +77,8 @@ class ContactService {
       role: input.role ?? "Logistics Manager",
       isMain: input.isMain ?? false,
     };
-    const row = await contactRepository.createForCompany(companyId, values);
+    // Made the main contact, the customer's other main one stops being it in the same transaction.
+    const row = await oneMain(() => contactRepository.createInCustomer(companyId, values));
     return toContactItem(row);
   }
 
@@ -75,7 +87,7 @@ class ContactService {
   async update(id: string, companyId: string, input: Partial<ContactInput>): Promise<ContactItem> {
     const existing = await contactRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Contact not found");
-    const patch: Partial<NewContactRecord> = {};
+    const patch: ContactPatch = {};
     // A rename needs both parts; an old one-word contact keeps its name through other edits.
     if (input.firstName !== undefined || input.lastName !== undefined) {
       Object.assign(patch, contactNames(input.firstName ?? existing.firstName, input.lastName ?? existing.lastName));
@@ -87,9 +99,9 @@ class ContactService {
     }
     if (input.role !== undefined) patch.role = input.role;
     if (input.isMain !== undefined) patch.isMain = input.isMain;
-    // Only after the checks above, so a refused edit changes nothing.
-    if (input.isMain) await contactRepository.clearMainFlag(existing.customerId, companyId);
-    const row = await contactRepository.updateForCompany(id, companyId, patch);
+    // Made the main contact, the customer's other main one stops being it in the same transaction,
+    // so a refused or failed edit changes nothing.
+    const row = await oneMain(() => contactRepository.updateInCustomer(id, companyId, existing.customerId, patch));
     if (!row) throw APIError.notFound("Contact not found");
     await announce(companyId, row, false);
     return toContactItem(row);

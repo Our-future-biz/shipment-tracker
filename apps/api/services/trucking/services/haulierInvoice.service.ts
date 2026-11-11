@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import log from "encore.dev/log";
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import { customers, shipments } from "~encore/clients";
 import { inTx, type Tx } from "../db/db";
 import { haulierInvoiceRepository, type LineValues, type StoredInvoice } from "../repositories/haulierInvoice.repository";
@@ -98,6 +98,15 @@ const paymentTracked = (r: Pick<TruckingHaulierInvoiceRecord, "paidOn" | "approv
 
 const targetKey = (kind: HaulierInvoiceTargetKind, id: string) => `${kind}:${id}`;
 
+export const TARGETS_CHANGED = "A trip or delivery of the invoice changed while it was being approved. Reload and try again.";
+
+/** Whether the targets read again are the ones the real cost was planned on (the jobs in any order). */
+function sameRealTargets(planned: (RealTarget | null)[], now: (RealTarget | null)[]): boolean {
+  const key = (t: RealTarget | null) =>
+    t ? JSON.stringify({ ...t, jobs: [...t.jobs].sort((a, b) => a.shipmentId.localeCompare(b.shipmentId) || a.consignmentId.localeCompare(b.consignmentId)) }) : "none";
+  return planned.length === now.length && planned.every((t, i) => key(t) === key(now[i]!));
+}
+
 /** The invoice as shown: an open one with its status and block reasons worked out against the haulier's profile now. */
 function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile | null, trackingSince: Date | null): HaulierInvoice {
   const open = OPEN_STATUSES.includes(r.status);
@@ -148,6 +157,10 @@ function paidOnDay(value: unknown): string {
   return day;
 }
 
+/** Who entered or saved the invoice (and `also`, saving it now): none of them may approve its payment. */
+const savers = (inv: Pick<TruckingHaulierInvoiceRecord, "createdByUserId" | "enteredByUserIds">, also?: string): string[] =>
+  [...new Set([inv.createdByUserId, ...inv.enteredByUserIds, also].filter((id): id is string => !!id))];
+
 class HaulierInvoiceService {
   /** The haulier's name in the Customer Database; not found when it is not a live haulier there. */
   /** The haulier's name and VAT party; notFound when the customer is not a live haulier. */
@@ -159,13 +172,18 @@ class HaulierInvoiceService {
     return { name: found.companyName, party: { dic: found.dic, country: found.country } };
   }
 
-  /** The haulier's VAT party for a later save; null (no VAT check) when it can't be read. */
+  /**
+   * The haulier's VAT party for a later save. Null - held for a manager, never approved by itself -
+   * when the haulier is no longer in the Customer Database; a Customer Database that does not answer
+   * refuses the save, as on create, rather than skip the VAT check.
+   */
   private async vatParty(customerId: string): Promise<HaulierVatParty | null> {
     try {
       return (await this.haulier(customerId)).party;
     } catch (err) {
+      if (err instanceof APIError && err.code === ErrCode.NotFound) return null;
       log.warn(err, "trucking: haulier VAT party not read", { customerId });
-      return null;
+      throw APIError.unavailable("The haulier's VAT details could not be read from the Customer Database: try again in a moment");
     }
   }
 
@@ -229,13 +247,13 @@ class HaulierInvoiceService {
       const leg = await legRepository.find(companyId, id);
       if (!leg?.buy) return null;
       const [c] = await consignmentRepository.findMany(companyId, [leg.consignmentId]);
-      return { kind, id, tripKind: null, ref: partnerLegRef(c?.ref ?? ""), buy: leg.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
+      return { kind, id, tripKind: null, ref: partnerLegRef(c?.ref ?? ""), buy: leg.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1, internal: c.internal }] : [] };
     }
     const trip = await tripRepository.find(companyId, id);
     if (!trip?.buy) return null;
     if (trip.kind === "FTL") {
       const c = await consignmentRepository.findByTrip(companyId, trip.id);
-      return { kind, id, tripKind: "FTL", ref: trip.ref, buy: trip.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
+      return { kind, id, tripKind: "FTL", ref: trip.ref, buy: trip.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1, internal: c.internal }] : [] };
     }
     // LTL: each job weighs its part of the estimate (Σ its legs' cost shares).
     const legs = await legRepository.forTrips(companyId, [trip.id]);
@@ -245,22 +263,37 @@ class HaulierInvoiceService {
     for (const l of legs) {
       const c = byId.get(l.consignmentId);
       if (!c) continue;
-      const job = jobs.get(c.shipmentId) ?? { shipmentId: c.shipmentId, consignmentId: c.id, weight: 0 };
+      const job = jobs.get(c.shipmentId) ?? { shipmentId: c.shipmentId, consignmentId: c.id, weight: 0, internal: c.internal };
       job.weight = round2(job.weight + (l.costShareCzk ?? 0));
       jobs.set(c.shipmentId, job);
     }
     return { kind, id, tripKind: trip.kind, ref: trip.ref, buy: trip.buy, jobs: [...jobs.values()] };
   }
 
+  /** Each line's target as the real cost is planned on it (null when it has no price). */
+  private realTargets(companyId: string, lines: Pick<TruckingHaulierInvoiceLineRecord, "targetKind" | "targetId">[]): Promise<(RealTarget | null)[]> {
+    return Promise.all(lines.map((l) => this.realTarget(companyId, l.targetKind, l.targetId)));
+  }
+
   /**
    * The real cost of an approved invoice's lines: per line, the allocations (written on the line)
-   * and the outbox rows owed to Road Department jobs. The jobs' departments are read first.
+   * and the outbox rows owed to Road Department jobs. The jobs' departments are read first (from
+   * Shipments: call it before the transaction). `known`: the lines' targets when already read.
    */
-  private async planReal(companyId: string, invoice: Pick<TruckingHaulierInvoiceRecord, "currency" | "invoiceNumber">, lines: Pick<TruckingHaulierInvoiceLineRecord, "id" | "targetKind" | "targetId" | "invoiced">[], actor: Actor) {
-    const targets = await Promise.all(lines.map((l) => this.realTarget(companyId, l.targetKind, l.targetId)));
+  private async planReal(
+    companyId: string,
+    invoice: Pick<TruckingHaulierInvoiceRecord, "currency" | "invoiceNumber">,
+    lines: Pick<TruckingHaulierInvoiceLineRecord, "id" | "targetKind" | "targetId" | "invoiced">[],
+    actor: Actor,
+    known?: (RealTarget | null)[],
+  ) {
+    const targets = known ?? (await this.realTargets(companyId, lines));
     const shipmentIds = [...new Set(targets.flatMap((t) => t?.jobs.map((j) => j.shipmentId) ?? []))];
     const { shipments: jobs } = shipmentIds.length ? await shipments._internalShipmentBasics({ ids: shipmentIds }) : { shipments: [] };
     const departmentOf = new Map(jobs.map((j) => [j.id, j.department]));
+    // Each job's side as its consignment froze it at the POD (decision 8): the estimate's side too, so
+    // the real cost replaces the estimate where it is - not wherever the job's department is today.
+    const internalOf = new Map(targets.flatMap((t) => t?.jobs.filter((j) => j.internal !== undefined).map((j) => [j.shipmentId, j.internal!] as const) ?? []));
     const plans = lines.map((line, n) => {
       const t = targets[n];
       if (!t) return { lineId: line.id, allocations: [], owed: [] as TruckingOutboxInput[] };
@@ -269,7 +302,7 @@ class HaulierInvoiceService {
         line.invoiced,
         invoice.currency,
         invoice.invoiceNumber,
-        (shipmentId) => isInternalDepartment(departmentOf.get(shipmentId)),
+        (shipmentId) => internalOf.get(shipmentId) ?? isInternalDepartment(departmentOf.get(shipmentId)),
         (shipmentId) => departmentOf.has(shipmentId),
       );
       const owed = pushes.map(
@@ -467,6 +500,7 @@ class HaulierInvoiceService {
             ...this.fileValues(file),
             createdByUserId: actor.userID || null,
             createdBy: by,
+            enteredByUserIds: actor.userID ? [actor.userID] : [],
             version: 1,
           },
           this.lineValues(resolved),
@@ -494,7 +528,7 @@ class HaulierInvoiceService {
     const profile = await this.profile(companyId, haulierId);
     const resolved = await this.resolve(companyId, haulierId, clean.currency, clean.lines);
     const party = await this.vatParty(haulierId);
-    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null, cur.invoice.createdByUserId], party);
+    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null, cur.invoice.createdByUserId, ...cur.invoice.enteredByUserIds], party);
     const by = await userName(actor.userID);
     const approved = match.status === "APPROVED";
     const plans = approved
@@ -515,6 +549,8 @@ class HaulierInvoiceService {
           difference: match.difference,
           ...this.autoApproval(match.status, actor),
           ...this.fileValues(file),
+          // Whoever saves it is one of those who entered it (the version read keeps two saves apart).
+          enteredByUserIds: savers(cur.invoice, actor.userID),
         });
         if (!row) throw APIError.aborted(INVOICE_CONFLICT);
         const lines = await haulierInvoiceRepository.replaceLines(tx, companyId, row.id, this.lineValues(resolved));
@@ -543,6 +579,12 @@ class HaulierInvoiceService {
     if (!cur.lines.length) throw APIError.failedPrecondition("The invoice has no lines");
     const haulierId = cur.invoice.haulierCustomerId;
     const by = await userName(actor.userID);
+    // The real cost is planned before the transaction: the plan asks Shipments for the jobs'
+    // departments, and the haulier's lock is not held while another service answers. What it is
+    // planned on here - each line's target, its price and the jobs sharing it - is read again under
+    // the lock below, so a change in between is refused rather than sent as a stale real cost.
+    const targets = await this.realTargets(companyId, cur.lines);
+    const plans = await this.planReal(companyId, cur.invoice, cur.lines, actor, targets);
     let profile: HaulierProfile | null = null;
     const owed = await inTx(async (tx) => {
       await haulierInvoiceRepository.lockHaulier(tx, companyId, haulierId);
@@ -554,7 +596,7 @@ class HaulierInvoiceService {
         throw APIError.failedPrecondition(`Payment cannot be approved (Czech VAT joint liability): ${blockReasons.join("; ")}`).withDetails({ blockReasons });
       }
       // Four eyes: who entered the invoice, or last changed the haulier's bank accounts, can't approve its payment.
-      if (actor.userID && (actor.userID === cur.invoice.createdByUserId || actor.userID === profile?.bankAccountsChangedByUserId)) {
+      if (actor.userID && (savers(cur.invoice).includes(actor.userID) || actor.userID === profile?.bankAccountsChangedByUserId)) {
         throw APIError.permissionDenied(FOUR_EYES);
       }
       const now = await this.resolve(
@@ -564,7 +606,9 @@ class HaulierInvoiceService {
         cur.lines.map((l) => ({ targetKind: l.targetKind, targetId: l.targetId, invoiced: l.invoiced, note: l.note })),
       );
       if (figuresChanged(cur.lines, now)) throw APIError.failedPrecondition(FIGURES_CHANGED);
-      const plans = await this.planReal(companyId, cur.invoice, cur.lines, actor);
+      // The jobs' departments came from Shipments before the lock and are not read again (another
+      // service's data is never locked here); the targets are ours, and must still be as planned.
+      if (!sameRealTargets(targets, await this.realTargets(companyId, cur.lines))) throw APIError.aborted(TARGETS_CHANGED);
       const row = await haulierInvoiceRepository.update(tx, companyId, cur.invoice.id, cur.invoice.version, APPROVABLE, {
         status: "APPROVED",
         blockReasons: [],

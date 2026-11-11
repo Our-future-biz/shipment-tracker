@@ -6,6 +6,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { isLocked, passwordRefusal, throttleKey, type FailureRule } from "../../../lib/loginRules";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { loginThrottleRepository } from "../repositories/loginThrottle.repository";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
@@ -95,10 +96,17 @@ export function assertSuperadminTouchedBySuperadmin(targetRole: string, actorRol
   if (targetRole === "superadmin" && actorRole !== "superadmin") throw APIError.permissionDenied("Only a superadmin can change a superadmin's account");
 }
 
+// The same user: ids compared as the database compares uuids (without regard to case), so an id typed
+// in capitals is still the caller's own.
+const sameUser = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 // Nobody deactivates their own account, so a company can't lock out its last admin this way.
 export function assertNotSelf(targetId: string, actorId: string): void {
-  if (targetId === actorId) throw APIError.invalidArgument("You cannot deactivate your own account");
+  if (sameUser(targetId, actorId)) throw APIError.invalidArgument("You cannot deactivate your own account");
 }
+
+// The domain of the service identities ("Trucking (system)", one per company): no person signs up with it.
+const SYSTEM_EMAIL_DOMAIN = "@system.invalid";
 
 /** What #toInfo reads of a user row. */
 type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId" | "reportsToUserId">;
@@ -107,6 +115,8 @@ type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName
 export type SessionUser = AuthUserInfo;
 
 const userNotFound = () => APIError.notFound("User not found");
+const EMAIL_TAKEN = "A user with this email already exists";
+const SLUG_TAKEN = "A company with this slug already exists";
 // Who a user may report to: the company's managers and admins.
 const MANAGES: readonly string[] = ["superadmin", "admin", "manager"];
 
@@ -166,22 +176,7 @@ class AuthService {
     actor: { role: string },
     input: { email: string; password: string; displayName?: string; role?: string } & OrgPlacement,
   ): Promise<AuthUserInfo> {
-    const email = input.email.toLowerCase().trim();
-    if (!email || !input.password) {
-      throw APIError.invalidArgument("email and password are required");
-    }
-    assertPassword(input.password, email);
-    const role = input.role ?? "user";
-    // superadmin is never assignable through the API — only the platform provisioning script.
-    if (!isCompanyRole(role)) {
-      throw APIError.invalidArgument("role must be admin, manager or user");
-    }
-    if (role !== "user" && !isAdminLevel(actor.role)) {
-      throw APIError.permissionDenied("Only admins can assign the admin or manager role");
-    }
-    if (await userRepository.findByEmail(email)) {
-      throw APIError.alreadyExists("A user with this email already exists");
-    }
+    const { email, role } = await this.#checkNewUser(actor, input);
     const placement = await this.#checkPlacement(companyId, input);
     const passwordHash = await hash(input.password);
     const created = await userRepository.create({
@@ -193,6 +188,30 @@ class AuthService {
       role,
     } as never);
     return this.#toInfo(created);
+  }
+
+  // What a new user is checked for before anything is written (the company's placement apart):
+  // the address normalised and still free, the password, and a role the actor may give.
+  async #checkNewUser(actor: { role: string }, input: { email: string; password: string; role?: string }): Promise<{ email: string; role: string }> {
+    const email = input.email.toLowerCase().trim();
+    if (!email || !input.password) {
+      throw APIError.invalidArgument("email and password are required");
+    }
+    assertPassword(input.password, email);
+    // Taken by a person, it would stop the company's service identity from being made (ensureSystemUser).
+    if (email.endsWith(SYSTEM_EMAIL_DOMAIN)) throw APIError.invalidArgument("This e-mail address is reserved for the system");
+    const role = input.role ?? "user";
+    // superadmin is never assignable through the API — only the platform provisioning script.
+    if (!isCompanyRole(role)) {
+      throw APIError.invalidArgument("role must be admin, manager or user");
+    }
+    if (role !== "user" && !isAdminLevel(actor.role)) {
+      throw APIError.permissionDenied("Only admins can assign the admin or manager role");
+    }
+    if (await userRepository.findByEmail(email)) {
+      throw APIError.alreadyExists(EMAIL_TAKEN);
+    }
+    return { email, role };
   }
 
   // Authorization rules:
@@ -209,7 +228,7 @@ class AuthService {
     if (patch.role !== undefined) {
       if (!isAdminLevel(actor.role)) throw APIError.permissionDenied("Only admins can change roles");
       if (!isCompanyRole(patch.role)) throw APIError.invalidArgument("role must be admin, manager or user");
-      if (id === actor.userID) throw APIError.invalidArgument("You cannot change your own role");
+      if (sameUser(id, actor.userID)) throw APIError.invalidArgument("You cannot change your own role");
     }
     const target = await userRepository.getByIdInCompany(id, companyId);
     if (!target) throw userNotFound();
@@ -256,23 +275,30 @@ class AuthService {
     adminPassword: string;
     adminName?: string;
   }): Promise<{ companyId: string; admin: AuthUserInfo }> {
-    // Checked before anything is created: a refused password must not leave a company without its admin.
-    assertPassword(input.adminPassword, input.adminEmail.toLowerCase().trim());
+    // Everything about the admin is checked before anything is written, and the company and its admin
+    // are then created together: a refused e-mail or password never leaves a company without its admin,
+    // holding its slug. Platform provisioning acts with admin authority to seat the first admin.
+    const displayName = input.adminName ?? "Admin";
+    const { email, role } = await this.#checkNewUser({ role: "admin" }, { email: input.adminEmail, password: input.adminPassword, role: "admin" });
     if (await companyRepository.findBySlug(input.companySlug)) {
-      throw APIError.alreadyExists("A company with this slug already exists");
+      throw APIError.alreadyExists(SLUG_TAKEN);
     }
-    const company = await companyRepository.create({
-      name: input.companyName,
-      slug: input.companySlug,
-    } as never);
-    // Platform provisioning acts with admin authority to seat the first admin.
-    const admin = await this.createUser(company.id, { role: "admin" }, {
-      email: input.adminEmail,
-      password: input.adminPassword,
-      displayName: input.adminName ?? "Admin",
-      role: "admin",
-    });
-    return { companyId: company.id, admin };
+    const passwordHash = await hash(input.adminPassword);
+    try {
+      const { company, admin } = await companyRepository.createWithAdmin(
+        { name: input.companyName, slug: input.companySlug },
+        { email, passwordHash, displayName, role },
+      );
+      return { companyId: company.id, admin: this.#toInfo(admin) };
+    } catch (err) {
+      // The slug or the e-mail taken between the checks above and the insert (two provisionings at once).
+      if (isUniqueViolation(err)) {
+        const constraint = constraintOf(err);
+        if (constraint === "company_slug_unique") throw APIError.alreadyExists(SLUG_TAKEN);
+        if (constraint === "app_user_email_unique") throw APIError.alreadyExists(EMAIL_TAKEN);
+      }
+      throw err;
+    }
   }
 
   // The signed-in user behind a token; a token of a user since removed is no longer valid.
@@ -422,8 +448,9 @@ class AuthService {
   }
 
   /**
-   * Admins of every company: the ČNB rates are shared by all companies, so a missing
-   * fixing concerns all of them. Internal only — never exposed to the web.
+   * Admins of every company, each with their company and role: the ČNB rates are shared by all
+   * companies, so a missing fixing concerns all of them - but each company is written to apart.
+   * Internal only — never exposed to the web.
    */
   async adminContacts(): Promise<AdminContact[]> {
     return userRepository.listAdmins();
@@ -453,6 +480,22 @@ class AuthService {
     const refs = await this.userRefs(caller.companyID, ids);
     const own = ownCompanyToLookIn(caller, ids, refs);
     return own ? [...refs, ...(await this.userRefs(own, [caller.userID]))] : refs;
+  }
+
+  /**
+   * userRefs in the company, and of the ids not found there the live superadmins (with their own
+   * company): who a write owed by an outbox row is made as. A superadmin working as the company
+   * (X-Acting-Company) caused it there, though their record is in their own company; anybody else
+   * outside the company is nobody here.
+   */
+  async actorRefs(companyId: string, ids: string[]): Promise<UserRef[]> {
+    const refs = await this.userRefs(companyId, ids);
+    const missing = [...new Set(ids)].filter((id) => !refs.some((u) => u.id === id));
+    const supers = await userRepository.listLiveSuperadminsByIds(missing);
+    return [
+      ...refs,
+      ...supers.map((u) => ({ id: u.id, name: u.displayName || u.email || "", email: u.email, role: u.role, homeCompanyId: u.companyId })),
+    ];
   }
 }
 

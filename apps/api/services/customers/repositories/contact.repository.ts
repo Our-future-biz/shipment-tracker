@@ -1,7 +1,27 @@
-import { and, eq, asc, inArray, isNull } from "drizzle-orm";
+import { and, eq, asc, inArray, isNull, ne } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { contactTable } from "../schemas/contact.schema";
+import { contactTable, type ContactRecord, type NewContactRecord } from "../schemas/contact.schema";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** What an edit of a contact may change. */
+export type ContactPatch = Partial<Pick<NewContactRecord, "firstName" | "lastName" | "name" | "email" | "phone" | "role" | "isMain">>;
+
+// The customer's other live main contact made an ordinary one, in the write's own transaction: a
+// write refused after it never leaves the customer without its main contact.
+async function clearMain(tx: Tx, customerId: string, companyId: string, exceptId?: string): Promise<void> {
+  await tx
+    .update(contactTable)
+    .set({ isMain: false, updatedAt: new Date() })
+    .where(and(
+      eq(contactTable.companyId, companyId),
+      eq(contactTable.customerId, customerId),
+      eq(contactTable.isMain, true),
+      isNull(contactTable.deletedAt),
+      ...(exceptId ? [ne(contactTable.id, exceptId)] : []),
+    ));
+}
 
 class ContactRepository extends TenantRepository<typeof contactTable> {
   constructor() {
@@ -22,15 +42,32 @@ class ContactRepository extends TenantRepository<typeof contactTable> {
       .orderBy(asc(contactTable.createdAt));
   }
 
-  async clearMainFlag(customerId: string, companyId: string) {
-    await this.db
-      .update(contactTable)
-      .set({ isMain: false, updatedAt: new Date() })
-      .where(and(
-        eq(contactTable.companyId, companyId),
-        eq(contactTable.customerId, customerId),
-        isNull(contactTable.deletedAt),
-      ));
+  /**
+   * A new contact of the customer; made the main one, the customer's other main contact stops being
+   * it in the same transaction (contact_one_main_per_customer allows one).
+   */
+  async createInCustomer(companyId: string, values: Omit<NewContactRecord, "companyId">): Promise<ContactRecord> {
+    return this.db.transaction(async (tx) => {
+      if (values.isMain) await clearMain(tx, values.customerId, companyId);
+      const [row] = await tx.insert(contactTable).values({ ...values, companyId }).returning();
+      return row!;
+    });
+  }
+
+  /**
+   * An edit of a live contact of the customer; null when there is none. Made the main one, the
+   * customer's other main contact stops being it in the same transaction. The contact is locked
+   * first, so one deleted meanwhile changes nobody else.
+   */
+  async updateInCustomer(id: string, companyId: string, customerId: string, patch: ContactPatch): Promise<ContactRecord | null> {
+    return this.db.transaction(async (tx) => {
+      const live = and(eq(contactTable.id, id), eq(contactTable.companyId, companyId), eq(contactTable.customerId, customerId), isNull(contactTable.deletedAt));
+      const [found] = await tx.select({ id: contactTable.id }).from(contactTable).where(live).limit(1).for("update");
+      if (!found) return null;
+      if (patch.isMain) await clearMain(tx, customerId, companyId, id);
+      const [row] = await tx.update(contactTable).set({ ...patch, updatedAt: new Date() }).where(live).returning();
+      return row ?? null;
+    });
   }
 
   /** The contacts hidden together with their customer (the same deleted_at as the customer's). */

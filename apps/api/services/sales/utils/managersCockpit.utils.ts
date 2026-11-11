@@ -1,4 +1,5 @@
 import { addDays, businessDay } from "../../../lib/businessDate";
+import { plainSalesReference } from "../../../lib/salesReference";
 import { workingDaysAfter } from "../../../lib/workingDays";
 import type { SalesManagersFacts, SalesManagersQuoteFact } from "../../quotes/interfaces/interfaces";
 import type {
@@ -292,14 +293,17 @@ export function buildSalesCockpit(input: SalesCockpitInput): SalesManagersCockpi
 
   // A task naming a quote of the list adds to that quote. Any other task is a row of its own, in
   // "All" only: it has no freight mode to be filtered by.
-  const byQuote = new Set(quotes.map((q) => q.quoteNumber));
+  // Matched without the Freight Mode letters: a task that still names the quote as it read before
+  // its letters changed is that quote's (lib/salesReference).
+  const byPlainQuote = new Map(quotes.map((q) => [plainSalesReference(q.quoteNumber), q.quoteNumber]));
   const taskTags = new Map<string, Signal[]>();
   const taskRows: Ranked[] = [];
   for (const t of input.tasks) {
     const signals = taskSignals(t, today);
     if (!signals.length) continue;
-    if (t.quoteNumber && byQuote.has(t.quoteNumber)) {
-      taskTags.set(t.quoteNumber, [...(taskTags.get(t.quoteNumber) ?? []), ...signals]);
+    const quoteNumber = t.quoteNumber ? byPlainQuote.get(plainSalesReference(t.quoteNumber)) : undefined;
+    if (quoteNumber) {
+      taskTags.set(quoteNumber, [...(taskTags.get(quoteNumber) ?? []), ...signals]);
     } else if (mode === "all") {
       const r = ranked(taskRow(t), signals);
       if (r) taskRows.push(r);

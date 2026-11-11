@@ -4,6 +4,7 @@ import { quoteTable, type SalesQuoteRecord } from "../schemas/quote.schema";
 import { quoteCommentTable } from "../schemas/quoteComment.schema";
 import { quoteInquiryTable } from "../schemas/quoteInquiry.schema";
 import { quoteRefSequenceTable } from "../schemas/quoteRefSequence.schema";
+import { quoteEventOutboxTable } from "../schemas/quoteEventOutbox.schema";
 
 // A quote's reference takes the letters of its Freight Mode (lib/salesReference) while it is open.
 // This moves a live quote from one reference to the other, in one transaction, with what this
@@ -45,6 +46,8 @@ class QuoteRenameRepository {
         .update(quoteRefSequenceTable)
         .set({ quoteNumber: to })
         .where(and(eq(quoteRefSequenceTable.companyId, companyId), eq(quoteRefSequenceTable.quoteNumber, from)));
+      // The event the other services follow, owed with the rename (published after the commit).
+      await tx.insert(quoteEventOutboxTable).values({ companyId, quoteId: renamed.id, event: { companyId, from, to }, actingUserId: "", actingRole: "", createdAt: sql`clock_timestamp()` });
       return renamed as SalesQuoteRecord;
     });
   }

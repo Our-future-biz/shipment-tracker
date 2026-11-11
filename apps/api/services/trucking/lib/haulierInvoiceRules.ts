@@ -67,7 +67,7 @@ export function autoApprovalHolds(p: BankChange | null, enteredBy: (string | nul
   return out;
 }
 
-export const FOUR_EYES = "Who entered this invoice or last changed the haulier's bank accounts cannot approve its payment: another manager must";
+export const FOUR_EYES = "Who entered or changed this invoice, or last changed the haulier's bank accounts, cannot approve its payment: another manager must";
 export const FIGURES_CHANGED = "The expected amounts changed since the invoice was saved (a claim was decided or a price changed): open the invoice and save it again";
 
 /** The expected and claimed amounts a line was saved with, against those worked out now. */
@@ -96,7 +96,9 @@ export interface HaulierVatParty {
  * charges none; a VAT payer from another country invoices under reverse charge (no VAT).
  */
 export function vatRegimeHolds(party: HaulierVatParty | null, vatAmount: number): string[] {
-  if (!party) return [];
+  // Unknown (the haulier is no longer in the Customer Database): nobody has checked its VAT, so the
+  // invoice can't approve itself.
+  if (!party) return ["The haulier's VAT details could not be read: a manager must check the VAT before the payment"];
   const vat = cents(vatAmount);
   const dic = party.dic.trim().toUpperCase();
   const country = (party.country.trim().toUpperCase() || dic.slice(0, 2) || "CZ").slice(0, 2);

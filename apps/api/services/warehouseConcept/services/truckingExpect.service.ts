@@ -34,7 +34,7 @@ import {
 } from "./tripSource";
 import { cargoLeg } from "./direction";
 import { houseContexts } from "./houses";
-import { isExclusionViolation } from "../../../lib/db/errors";
+import { isDeadlock, isExclusionViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 
 // Trucking's trips through our warehouse (the hub). Trucking calls these internal endpoints as the
@@ -180,6 +180,9 @@ class TruckingExpectService {
     }
     const { startsAt, endsAt } = slotWindow(want.date, want.time, want.durationMin);
     for (const dock of docks.docks) {
+      // The door is taken for the trip's transaction first (in the docks' order): the check then
+      // answers, and a booking of it at the same moment waits instead of meeting this one.
+      await dockSlotRepository.lockDock(tx, companyId, dock);
       if (await dockSlotRepository.findOverlap(companyId, dock, startsAt, endsAt, undefined, tx)) continue;
       try {
         // A savepoint: a booking made meanwhile on this door (the EXCLUDE constraint) only skips the door.
@@ -204,7 +207,7 @@ class TruckingExpectService {
         );
         return row.id;
       } catch (err) {
-        if (!isExclusionViolation(err)) throw err;
+        if (!isExclusionViolation(err) && !isDeadlock(err)) throw err;
       }
     }
     log.warn("warehouse: no dock slot free for a trip — every dock is booked then", { tripRef, movementId: m.id, direction, date: want.date, time: want.time });

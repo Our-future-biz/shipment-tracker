@@ -101,9 +101,9 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
     return row ?? null;
   }
 
-  /** The newest standing event of a kind, whatever its day: the last one written. */
-  async latestOfKind(shipmentId: string, companyId: string, kind: string): Promise<ShipmentTrackingEventRecord | null> {
-    const [row] = await this.db
+  /** The newest standing event of a kind, whatever its day: the last one written. In `tx` when given. */
+  async latestOfKind(shipmentId: string, companyId: string, kind: string, tx?: Tx): Promise<ShipmentTrackingEventRecord | null> {
+    const [row] = await (tx ?? this.db)
       .select()
       .from(t)
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.kind, kind), inArray(t.effect, STANDING), isNull(t.deletedAt)))
@@ -176,13 +176,38 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.source, source), eq(t.externalId, externalId), isNull(t.deletedAt)));
   }
 
-  async change(id: string, companyId: string, data: Partial<NewShipmentTrackingEventRecord>): Promise<ShipmentTrackingEventRecord | null> {
-    const [row] = await this.db
+  async change(id: string, companyId: string, data: Partial<NewShipmentTrackingEventRecord>, tx?: Tx): Promise<ShipmentTrackingEventRecord | null> {
+    const [row] = await (tx ?? this.db)
       .update(t)
       .set({ ...data, updatedAt: new Date() })
       .where(and(eq(t.id, id), eq(t.companyId, companyId), isNull(t.deletedAt)))
       .returning();
     return row ?? null;
+  }
+
+  /**
+   * Decides a date a source proposed - confirmed (applied) or turned down (dismissed) - only while
+   * it is still waiting: of two decisions at the same moment one is stored, the other gets null.
+   */
+  async decideProposal(
+    id: string,
+    companyId: string,
+    decision: { effect: "applied" | "dismissed"; decidedById: string; decidedAt: Date },
+  ): Promise<ShipmentTrackingEventRecord | null> {
+    const [row] = await this.db
+      .update(t)
+      .set({ ...decision, updatedAt: new Date() })
+      .where(and(eq(t.id, id), eq(t.companyId, companyId), eq(t.effect, "proposed"), isNull(t.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
+  /** Takes back a confirmation `decidedById` made, when the shipment could not take the date: it waits again. */
+  async reopenProposal(id: string, companyId: string, decidedById: string): Promise<void> {
+    await this.db
+      .update(t)
+      .set({ effect: "proposed", decidedById: null, decidedAt: null, updatedAt: new Date() })
+      .where(and(eq(t.id, id), eq(t.companyId, companyId), eq(t.effect, "applied"), eq(t.decidedById, decidedById), isNull(t.deletedAt)));
   }
 
   /** Closes the shipment's open exceptions of the given kinds. */

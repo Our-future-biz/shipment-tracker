@@ -1,5 +1,5 @@
 import { api } from "encore.dev/api";
-import type { Min } from "encore.dev/validate";
+import type { MaxLen, Min } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { salesQuoteService } from "../services/salesQuote.service";
 import type { SalesQuoteItem } from "../interfaces/interfaces";
@@ -9,6 +9,11 @@ interface SalesQuoteReviseRequest {
   quoteNumber: string;
   /** The dataVersion the caller's copy is based on; a quote changed since is not revised (HTTP 409). */
   expectedDataVersion?: number & Min<1>;
+  /**
+   * The status the caller's screen showed - the effective one ("expired" past the validity). When
+   * sent, the quote is not revised if it is in another by now (a colleague made it Won meanwhile).
+   */
+  expectedStatus?: string & MaxLen<40>;
 }
 
 interface SalesQuoteReviseResponse {
@@ -26,6 +31,6 @@ interface SalesQuoteReviseResponse {
 export const salesQuoteRevise = api(
   { expose: true, auth: true, method: "POST", path: "/sales-quotes/:quoteNumber/revise" },
   async (req: SalesQuoteReviseRequest): Promise<SalesQuoteReviseResponse> => {
-    return salesQuoteService.revise(getAuthData()!, req.quoteNumber, req.expectedDataVersion);
+    return salesQuoteService.revise(getAuthData()!, req.quoteNumber, req.expectedDataVersion, req.expectedStatus);
   },
 );

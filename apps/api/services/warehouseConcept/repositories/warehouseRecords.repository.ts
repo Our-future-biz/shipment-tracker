@@ -72,6 +72,33 @@ class WarehouseContainerRepository extends TenantRepository<typeof warehouseCont
     return row ?? null;
   }
 
+  // The register form's writes, in its transaction (with the container's house written in the same one).
+  async insertTx(tx: Tx, companyId: string, values: Omit<typeof ct.$inferInsert, "companyId">) {
+    const [row] = await tx.insert(ct).values({ ...values, companyId }).returning();
+    return row!;
+  }
+
+  // As updateForCompany: the id, company, creation and deletion are never changed by a form.
+  async updateTx(tx: Tx, id: string, companyId: string, set: PgUpdateSetSource<typeof warehouseContainerTable>) {
+    const { id: _id, companyId: _c, createdAt: _ca, deletedAt: _d, ...rest } = set as Record<string, unknown>;
+    const [row] = await tx
+      .update(ct)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
+  async softDeleteTx(tx: Tx, id: string, companyId: string) {
+    const now = new Date();
+    const [row] = await tx
+      .update(ct)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
   // One conditional UPDATE that appends `events` in SQL, only while `cond` holds; null otherwise.
   async conditionalUpdate(tx: Tx | typeof db, id: string, companyId: string, set: PgUpdateSetSource<typeof warehouseContainerTable>, events: GateEvent[], cond?: SQL) {
     const [row] = await tx
@@ -171,9 +198,27 @@ class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockS
     return rows.length;
   }
 
+  // Takes the door for the caller's transaction: bookings of one door (by hand or by a Trucking
+  // trip) check and write one after the other, so the overlap check below is the answer and two
+  // bookings never meet inside the EXCLUDE constraint (where Postgres can only break the tie with a
+  // deadlock). A trip taking several doors takes them in the docks' order, so locks never cross.
+  async lockDock(tx: Tx, companyId: string, dock: string): Promise<void> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_dock:${companyId}:${dock}`}))`);
+  }
+
+  // A slot changed in the caller's transaction (the door taken first); null when it is gone.
+  async updateTx(tx: Tx, id: string, companyId: string, values: Partial<typeof warehouseDockSlotTable.$inferInsert>) {
+    const [row] = await tx
+      .update(ds)
+      .set({ ...values, updatedAt: new Date() })
+      .where(and(eq(ds.id, id), eq(ds.companyId, companyId), isNull(ds.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
   // A live slot of the company that holds `dock` at some time in [startsAt, endsAt), other
-  // than `exceptId`; null when the door is free. The EXCLUDE constraint is the guarantee — this
-  // only names the clash in the message.
+  // than `exceptId`; null when the door is free. With the door taken (lockDock) it is the answer;
+  // the EXCLUDE constraint stays the guarantee.
   async findOverlap(companyId: string, dock: string, startsAt: Date, endsAt: Date, exceptId?: string, tx: Tx | typeof db = db) {
     const [row] = await tx
       .select()

@@ -4,6 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
+import { sameSalesReference } from "../../../lib/salesReference";
 import type {
   TruckingConsignmentRecord,
   TruckingDocumentRecord,
@@ -216,7 +217,8 @@ export const consignmentRepository = {
       .map(copy),
   ),
   liveByQuote: vi.fn(async (companyId: string, quoteNumber: string) =>
-    copy(store.consignments.find((c) => c.companyId === companyId && c.quoteNumber === quoteNumber && !c.cancelledAt && c.sell?.source === "QUOTE") ?? null),
+    // As the SQL compares: the reference without the letters of the quote's Freight Mode.
+    copy(store.consignments.find((c) => c.companyId === companyId && !!c.quoteNumber && sameSalesReference(c.quoteNumber, quoteNumber) && !c.cancelledAt && c.sell?.source === "QUOTE") ?? null),
   ),
 };
 
@@ -295,6 +297,13 @@ export const tripRepository = {
   revokeLinks: vi.fn(async (_tx: unknown, _companyId: string, tripId: string) => {
     for (const l of store.links.filter((x) => x.tripId === tripId && !x.revokedAt)) l.revokedAt = new Date();
   }),
+  extendLink: vi.fn(async (_tx: unknown, _companyId: string, tripId: string, expiresAt: Date) => {
+    // (Some tests push a bare link with no expiry.)
+    const live = store.links.find((x) => x.tripId === tripId && !x.revokedAt && !!x.expiresAt && x.expiresAt.getTime() < expiresAt.getTime());
+    if (!live) return null;
+    Object.assign(live, { expiresAt, updatedAt: new Date() });
+    return copy(live);
+  }),
   liveLink: vi.fn(async (_companyId: string, tripId: string) => copy(store.links.find((l) => l.tripId === tripId && !l.revokedAt) ?? null)),
   linkByHash: vi.fn(async (hash: string) => copy(store.links.find((l) => l.tokenHash === hash) ?? null)),
 };
@@ -360,14 +369,23 @@ export const legRepository = {
   retire: vi.fn(async (_tx: unknown, companyId: string, ids: string[]) => {
     for (const l of store.ltlLegs.filter(liveLeg(companyId)).filter((x) => ids.includes(x.id))) l.deletedAt = new Date();
   }),
-  recordGateEvent: vi.fn(async (_tx: unknown, v: { positionId: string; kind: string; at: Date }) => {
-    const key = `${v.positionId}|${v.kind}|${v.at.toISOString()}`;
-    if (store.gateEvents.has(key)) return false;
-    store.gateEvents.add(key);
+  // Keyed "position|kind|at|", the stamp a void took back after it.
+  recordGateEvent: vi.fn(async (_tx: unknown, v: { positionId: string; kind: string; at: Date; stampKind?: string }) => {
+    const key = `${v.positionId}|${v.kind}|${v.at.toISOString()}|`;
+    if ([...store.gateEvents].some((k) => k.startsWith(key))) return false;
+    store.gateEvents.add(`${key}${v.stampKind ?? ""}`);
     return true;
   }),
   hasGateEvent: vi.fn(async (_tx: unknown, _companyId: string, positionId: string, kind: string) =>
     [...store.gateEvents].some((key) => key.startsWith(`${positionId}|${kind}|`)),
+  ),
+  gateVoids: vi.fn(async (_tx: unknown, _companyId: string, positionId: string) =>
+    [...store.gateEvents]
+      .filter((key) => key.startsWith(`${positionId}|voided|`))
+      .map((key) => {
+        const [, , at, stampKind] = key.split("|");
+        return { stampKind: stampKind ?? "", at: new Date(at!) };
+      }),
   ),
 };
 
@@ -411,6 +429,14 @@ export const eventModule = {
   }),
   hasEvent: vi.fn(async (_reader: unknown, companyId: string, consignmentId: string, kind: string) =>
     store.events.some((e) => e.companyId === companyId && e.consignmentId === consignmentId && e.kind === kind),
+  ),
+  recordedNoticeKeys: vi.fn(async (_reader: unknown, companyId: string, consignmentId: string, kind: string) =>
+    new Set(
+      store.events
+        .filter((e) => e.companyId === companyId && e.consignmentId === consignmentId && e.kind === kind)
+        .map((e) => ((e.payload as { facts?: { noticeKey?: string } } | undefined)?.facts?.noticeKey ?? ""))
+        .filter(Boolean),
+    ),
   ),
   listEvents: vi.fn(async (_companyId: string, about: { consignmentId?: string | null; tripId?: string | null }) =>
     store.events

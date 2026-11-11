@@ -22,12 +22,17 @@ vi.mock("../services/settings.service", async () => ({ settingsService: { get: v
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
 vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), download: vi.fn() } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "") }));
+const hauliers = vi.hoisted(() => ({ find: vi.fn(async (): Promise<{ profile: { blocked: boolean } } | null> => null) }));
+vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: hauliers }));
 
 import { publicOrderService, LINK_INVALID } from "../services/publicOrder.service";
+import { consignmentService } from "../services/consignment.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
+import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
 import { truckingDocumentBucket } from "../storage/documentBucket";
 import { newToken } from "../lib/haulierToken";
+import { HAULIER_BLOCKED_LINK } from "../lib/portalRules";
 import { COMPANY, CUSTOMER, HAULIER, SERVICE_USER, SHIPMENT, TX, eventsOf, load, outboxOf, resetStore, stop, store } from "./truckingFakes";
 
 const SENDER = "00000000-0000-0000-0000-000000000003";
@@ -81,6 +86,14 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("the link", () => {
+  it("is refused to a blocked haulier, as the portal is: no view, no answer", async () => {
+    const { token } = await ordered();
+    hauliers.find.mockResolvedValueOnce({ profile: { blocked: true } }).mockResolvedValueOnce({ profile: { blocked: true } });
+    await expect(publicOrderService.get(token)).rejects.toMatchObject({ code: "permission_denied", message: HAULIER_BLOCKED_LINK });
+    await expect(publicOrderService.respond(token, { action: "confirm", name: "Petr", reason: "" })).rejects.toMatchObject({ code: "permission_denied" });
+    expect(hauliers.find).toHaveBeenCalledWith(COMPANY, HAULIER);
+  });
+
   it("shows the order without the customer's price: the buy price only, no site ids", async () => {
     const { token } = await ordered();
     const order = await publicOrderService.get(token);
@@ -137,6 +150,15 @@ describe("confirm or reject, once", () => {
 });
 
 describe("POD through the link", () => {
+  it("takes the job's department as it is now before the POD freezes it, as a POD stamped in the app does (C7)", async () => {
+    const { token, c } = await ordered({ confirmed: true });
+    const refresh = vi.spyOn(consignmentService, "refreshDepartments");
+    await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: "2026-10-15T08:30:00Z", receiverName: "" });
+    expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ companyID: COMPANY }), [expect.objectContaining({ id: c.id, podReceivedAt: null })], { warn: false });
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(truckingDocumentBucket.upload).mock.invocationCallOrder[0]!);
+    refresh.mockRestore();
+  });
+
   it("stores the file and stamps picked up, delivered and POD received (source HAULIER); owes the job its dates and Billing", async () => {
     const { token, c } = await ordered({ confirmed: true });
     const order = await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: "2026-10-15T08:30:00Z", receiverName: "K. Malá" });
@@ -153,6 +175,19 @@ describe("POD through the link", () => {
     expect(outboxOf("delivered")).toEqual([expect.objectContaining({ payload: { actualDeliveryDate: "2026-10-15" }, actingUserId: SERVICE_USER, actingRole: "user" })]);
     expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT, actingUserId: SERVICE_USER })]);
     expect(eventsOf("stamp_set").map((e) => (e.payload as { facts: { kind: string } }).facts.kind)).toEqual(["pickedUp", "delivered", "podReceived"]);
+  });
+
+  // The document's row locks the consignment, and the POD then settles the job's Billing over all
+  // its consignments: the job is locked first (after the POD's own lock), or two PODs of one job at
+  // the same moment deadlock.
+  it("locks the job's consignments before the document and the stamps are written", async () => {
+    const { token } = await ordered({ confirmed: true });
+    await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: "2026-10-15T08:30:00Z", receiverName: "" });
+    const lock = vi.mocked(consignmentRepository.forShipmentLocked).mock.invocationCallOrder[0]!;
+    expect(vi.mocked(consignmentRepository.forShipmentLocked).mock.calls[0]![2]).toBe(SHIPMENT);
+    expect(lock).toBeGreaterThan(vi.mocked(truckingDocumentRepository.lockPod).mock.invocationCallOrder[0]!);
+    expect(lock).toBeLessThan(vi.mocked(truckingDocumentRepository.insert).mock.invocationCallOrder[0]!);
+    expect(lock).toBeLessThan(vi.mocked(consignmentRepository.update).mock.invocationCallOrder[0]!);
   });
 
   it("one POD per stop: a second is refused before anything is stored (a manager replaces it in the app)", async () => {

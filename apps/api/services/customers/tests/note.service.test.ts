@@ -31,10 +31,12 @@ describe("a communication entry", () => {
     expect(note.author).toBe("martin@ourfuture.biz");
   });
 
-  it("is saved without an author when the user can't be looked up", async () => {
+  // Changed: it used to be saved without an author (lib/companyUsers userEmailOf answered "" when auth
+  // did not); an entry nobody wrote is not kept - it is refused, to be saved again.
+  it("is refused, not saved without an author, when the user can't be looked up", async () => {
     userLookup.mockRejectedValue(new Error("auth down"));
-    await noteService.create("co", "c1", "u1", { content: "x" });
-    expect(notes.createForCompany).toHaveBeenCalledWith("co", expect.objectContaining({ author: "" }));
+    await expect(noteService.create("co", "c1", "u1", { content: "x" })).rejects.toMatchObject({ code: "unavailable" });
+    expect(notes.createForCompany).not.toHaveBeenCalled();
   });
 
   it("names the colleagues who took part, by e-mail, each once and never the author", async () => {

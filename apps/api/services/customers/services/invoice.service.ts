@@ -37,6 +37,24 @@ class InvoiceService {
     return toInvoiceItem(row);
   }
 
+  /**
+   * An invoice Invoicing issued, in the customer's list (the outbox after issuing): added once, and
+   * only brought up to date when it is sent again.
+   */
+  async postIssued(companyId: string, customerId: string, input: InvoiceInput): Promise<InvoiceItem> {
+    await customerService.requireLive(customerId, companyId);
+    const row = await customerInvoiceRepository.upsertIssued(companyId, {
+      customerId,
+      invoiceNumber: input.invoiceNumber,
+      amount: input.amount ?? 0,
+      currency: (input.currency || "CZK").toUpperCase(),
+      dueDate: dateInput(input.dueDate, "dueDate") ?? null,
+      status: input.status ?? "Open",
+      issuedAt: dateInput(input.issuedAt, "issuedAt") ?? null,
+    });
+    return toInvoiceItem(row);
+  }
+
   async update(id: string, companyId: string, input: Partial<InvoiceInput>): Promise<InvoiceItem> {
     const patch: Partial<NewCustomerInvoiceRecord> = {};
     if (input.invoiceNumber !== undefined) patch.invoiceNumber = input.invoiceNumber;
