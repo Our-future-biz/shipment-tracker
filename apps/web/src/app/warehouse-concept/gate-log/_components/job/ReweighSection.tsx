@@ -11,6 +11,7 @@ import { formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { pctText } from "@/app/warehouse-concept/_lib/cargoCompare";
+import { writeIdFor, type WriteId } from "@/app/warehouse-concept/_lib/writeId";
 import { fileToBase64 } from "@/lib/files";
 import { Badge, errorMessage, nf } from "../../_lib/gate";
 import { FileLink } from "./ExceptionsPanel";
@@ -153,16 +154,16 @@ export function ReweighModal({
   const [kg, setKg] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [fileIds, setFileIds] = useState<string[]>([]);
-  // One id per opening, sent with the weighing: a second send of it (Enter pressed again, a retry
-  // after a lost answer) adds no second weighing.
-  const [requestId, setRequestId] = useState("");
+  // The id the weighing is sent with: the same weighing sent again (a retry after a lost answer)
+  // adds no second one; a corrected one is a new weighing (writeId.ts).
+  const sent = useRef<WriteId | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!open) return;
     setKg(null);
     setNote("");
     setFileIds([]);
-    setRequestId(uuid());
+    sent.current = null;
   }, [open]);
   const valid = kg != null && Number.isFinite(kg) && kg > 0 && kg <= MAX_KG;
   const photos = files.filter(isImage);
@@ -170,8 +171,10 @@ export function ReweighModal({
   const submit = async () => {
     // Enter in the kg field calls this too, past the OK button's loading state.
     if (!valid || reweigh.isPending) return;
+    const weighing = { weighedKg: kg!, note: note.trim(), fileIds };
+    sent.current = writeIdFor(sent.current, JSON.stringify(weighing), uuid);
     try {
-      const res = await reweigh.mutateAsync({ weighedKg: kg!, note: note.trim(), fileIds, clientRequestId: requestId || undefined });
+      const res = await reweigh.mutateAsync({ ...weighing, clientRequestId: sent.current.id });
       if (res.notice) toast.notify({ type: /variance|5 %/.test(res.notice) ? "warning" : "info", title: `Re-weighed ${kgText(kg!)}`, description: res.notice });
       else toast.success(`Re-weighed ${kgText(kg!)} — logged on the position`);
       onDone?.(res);
