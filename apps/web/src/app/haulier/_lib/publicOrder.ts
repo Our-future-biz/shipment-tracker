@@ -44,14 +44,17 @@ export function podProblem(hasFile: boolean, receiverName: string, deliveredAt: 
   return null;
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
+/** What a delivery-time field says while it is left empty. */
+export const DELIVERED_NOW_HINT: BiText = { cs: "Prázdné = teď (čas odeslání)", en: "Empty = now (the time you send it)" };
 
-/** A moment as a datetime-local field shows it ("2026-10-15T14:05"), in the phone's own time. */
-export const toLocalInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-
-/** What a datetime-local field holds, as an ISO time; null when empty or not a time. */
-export function localInputToIso(value: string): string | null {
-  if (!value) return null;
-  const d = new Date(value);
+/**
+ * The delivery time a driver's form sends from its datetime-local field (the phone's own time):
+ * null while the field is left empty, which the server stamps as the moment it receives it (also
+ * for what is not a time); otherwise the time the driver set, as ISO. Never a time filled in when
+ * the page opened: on a run of several stops that would record every stop delivered then.
+ */
+export function deliveredAtToSend(fieldValue: string): string | null {
+  if (!fieldValue) return null;
+  const d = new Date(fieldValue);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }

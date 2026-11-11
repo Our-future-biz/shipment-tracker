@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { apiErrorMessage } from "@/lib/api";
-import { localInputToIso, toLocalInput } from "../_lib/publicOrder";
+import { DELIVERED_NOW_HINT, deliveredAtToSend } from "../_lib/publicOrder";
 import { receiverProblem } from "../_lib/portal";
 import { PORTAL_INPUT, PORTAL_LABEL, PORTAL_PRIMARY } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
@@ -12,10 +12,11 @@ interface PortalDeliveredFormProps {
   onDelivered: (req: { at: string | null; receiverName: string }) => Promise<unknown>;
 }
 
-// Stamps one stop delivered: who took the goods and when (now by default).
+// Stamps one stop delivered: who took the goods and when. The time is left empty for now (the
+// moment it is sent), so a stop delivered hours after the page was opened is not stamped back then.
 export const PortalDeliveredForm = ({ busy, onDelivered }: PortalDeliveredFormProps) => {
   const [receiver, setReceiver] = useState("");
-  const [at, setAt] = useState(() => toLocalInput(new Date()));
+  const [at, setAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const problem = receiverProblem(receiver);
 
@@ -23,7 +24,7 @@ export const PortalDeliveredForm = ({ busy, onDelivered }: PortalDeliveredFormPr
     if (problem) return;
     setError(null);
     try {
-      await onDelivered({ at: localInputToIso(at), receiverName: receiver.trim() });
+      await onDelivered({ at: deliveredAtToSend(at), receiverName: receiver.trim() });
     } catch (e) {
       setError(apiErrorMessage(e));
     }
@@ -41,8 +42,11 @@ export const PortalDeliveredForm = ({ busy, onDelivered }: PortalDeliveredFormPr
         <span className={PORTAL_LABEL}>
           <Bi text={{ cs: "Doručeno", en: "Delivered at" }} />
         </span>
-        <input type="datetime-local" className={PORTAL_INPUT} value={at} onChange={(e) => setAt(e.target.value)} />
+        <input type="datetime-local" className={`${PORTAL_INPUT} min-h-11`} value={at} onChange={(e) => setAt(e.target.value)} />
       </label>
+      <p className="mb-0 mt-1 text-[13px] text-slate-500">
+        <Bi text={DELIVERED_NOW_HINT} />
+      </p>
       {error && <p className="mb-0 mt-2 text-[13px] text-red-600">{error}</p>}
       <button type="button" disabled={busy || !!problem} onClick={handleSubmit} className={`${PORTAL_PRIMARY} mt-3`}>
         <Bi text={{ cs: "Doručeno", en: "Delivered" }} />
