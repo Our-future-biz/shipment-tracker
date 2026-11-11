@@ -229,7 +229,8 @@ describe("scope: a portal user sees and acts on its own haulier's orders only", 
     const own = await ftl();
     const p = await partner();
     for (const out of [await portalOrderService.list(eva, "open"), await portalOrderService.get(eva, own.trip.id), await portalOrderService.get(eva, p.leg.id)]) {
-      const json = JSON.stringify(out);
+      // Ids are random uuids, which may hold "12345" or "7777" by chance: they are masked first.
+      const json = JSON.stringify(out).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<id>");
       for (const secret of ["12345", "7777", "sell", "margin", "pickupPin", "pinPrinted", "customerName", "jobNumber"]) expect(json).not.toContain(secret);
     }
   });

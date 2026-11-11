@@ -16,7 +16,9 @@ class InvoiceFollowupOutboxRepository extends OutboxRepository<typeof invoiceFol
   // Written in the issue's own transaction: the document and what it owes commit together, or neither.
   async enqueue(tx: Tx, rows: NewInvoiceFollowupOutboxRecord[]) {
     if (!rows.length) return [];
-    return tx.insert(o).values(rows).returning();
+    // Each row stamped with the clock as it is written (not the transaction's start, as now() would):
+    // rows written together go out in the order they were made (the outbox orders by created_at).
+    return tx.insert(o).values(rows.map((r) => ({ ...r, createdAt: sql`clock_timestamp()` }))).returning();
   }
 
   // Takes up to `limit` due rows; with `invoiceId`, only that document's (the send straight after issuing).

@@ -543,6 +543,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .returning({ id: shipmentTable.id });
     if (!row) return false;
     await tx.insert(shipmentEventOutboxTable).values({
+      createdAt: sql`clock_timestamp()`,
       companyId,
       shipmentId: id,
       event: { shipmentId: id, companyId },

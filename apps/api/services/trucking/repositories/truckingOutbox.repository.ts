@@ -21,7 +21,9 @@ class TruckingOutboxRepository extends OutboxRepository<typeof truckingOutboxTab
   /** Written in the transaction of the change that owes it. */
   async enqueue(tx: Tx, companyId: string, rows: TruckingOutboxInput[]): Promise<void> {
     if (!rows.length) return;
-    await tx.insert(o).values(rows.map((r) => ({ ...r, companyId })));
+    // Each row stamped with the clock as it is written (not the transaction's start, as now() would):
+    // rows written together go out in the order they were made (the outbox orders by created_at).
+    await tx.insert(o).values(rows.map((r) => ({ ...r, companyId, createdAt: sql`clock_timestamp()` })));
   }
 
   /** Due rows (see OutboxRepository.claimDueRows); with a consignment, only its rows (the delivery right after a change). */

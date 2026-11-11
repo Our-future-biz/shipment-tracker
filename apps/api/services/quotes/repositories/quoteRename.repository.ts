@@ -47,7 +47,7 @@ class QuoteRenameRepository {
         .set({ quoteNumber: to })
         .where(and(eq(quoteRefSequenceTable.companyId, companyId), eq(quoteRefSequenceTable.quoteNumber, from)));
       // The event the other services follow, owed with the rename (published after the commit).
-      await tx.insert(quoteEventOutboxTable).values({ companyId, quoteId: renamed.id, event: { companyId, from, to }, actingUserId: "", actingRole: "" });
+      await tx.insert(quoteEventOutboxTable).values({ companyId, quoteId: renamed.id, event: { companyId, from, to }, actingUserId: "", actingRole: "", createdAt: sql`clock_timestamp()` });
       return renamed as SalesQuoteRecord;
     });
   }

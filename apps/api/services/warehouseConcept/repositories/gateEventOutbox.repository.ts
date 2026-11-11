@@ -17,7 +17,9 @@ class GateEventOutboxRepository extends OutboxRepository<typeof gateEventOutboxT
   // Written in the stamp's own transaction: the stamp and its event commit together, or neither.
   async enqueue(tx: Tx, rows: NewGateEventOutboxRecord[]) {
     if (!rows.length) return [];
-    return tx.insert(o).values(rows).returning();
+    // Each row stamped with the clock as it is written (not the transaction's start, as now() would):
+    // rows written together go out in the order they were made (the outbox orders by created_at).
+    return tx.insert(o).values(rows.map((r) => ({ ...r, createdAt: sql`clock_timestamp()` }))).returning();
   }
 
   // Takes up to `limit` due rows (OutboxRepository.claimDueRows); with `movementId`, only that
