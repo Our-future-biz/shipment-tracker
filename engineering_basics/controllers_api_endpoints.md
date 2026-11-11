@@ -1,1065 +1,194 @@
 # Controllers & API Endpoints
 
-## Overview
+A controller declares an Encore endpoint and hands the work to a service. Controllers live in `apps/api/services/<service>/controllers/`. There are about 320 controller files across 14 services.
 
-Controllers in Encore.ts define API endpoints that serve as the entry point for all HTTP requests. They are responsible for receiving requests, validating inputs, performing authorization checks, and delegating business logic to the service layer. Controllers must remain thin and focused solely on HTTP-level concerns.
-
----
-
-## Core Principles
-
-1. **Single Responsibility**: Controllers handle HTTP requests and delegate to services
-2. **No Business Logic**: Business rules belong in the service layer
-3. **No Direct Database Access**: Use repositories through services
-4. **Type Safety**: All inputs and outputs are strongly typed
-5. **Authorization First**: Check permissions before processing requests
-6. **Fail Fast**: Validate early and throw clear errors
+Related: [Code Standards](code_standards_in_encore.md), [DTO](dto.md), [Errors](errors.md), [API Pagination](api_pagination_standards.md), [Naming](naming_convention.md).
 
 ---
 
-## File Structure & Naming
+## What a controller does
 
-### Public API Controllers
+1. Declares the request and response interfaces, as plain types.
+2. Reads the actor: `requireRole(...)` from `apps/api/lib/rbac.ts` when only some roles may call it, otherwise `getAuthData()!` from `~encore/auth`.
+3. Calls one service method, passing the actor's `companyID` (and `userID`/`role` when the service needs them).
+4. Returns the result.
 
-**File naming:** `{model}{Operation}.controller.ts`
-
-**Examples:**
-- `userCreate.controller.ts`
-- `dealUpdate.controller.ts`
-- `orderGet.controller.ts`
-
-**Location (Small Service):**
-```
-/services/{service-name}/
-  └── controllers/
-      ├── userCreate.controller.ts
-      ├── userUpdate.controller.ts
-      └── userGet.controller.ts
-```
-
-**Location (Large Service with Modules):**
-```
-/services/{service-name}/
-  └── modules/
-      └── {module-name}/
-          └── controllers/
-              ├── {model}Create.controller.ts
-              ├── {model}Get.controller.ts
-              └── {model}Update.controller.ts
-```
-
-### Private API Controllers
-
-**File naming:** `_{model}{Operation}.controller.ts`
-
-**Examples:**
-- `_internalUserCreate.controller.ts`
-- `_internalDealSync.controller.ts`
-- `_systemHealthCheck.controller.ts`
-
-**The underscore prefix (`_`) is mandatory** and signals:
-- Internal use only
-- Cannot be called from outside Encore services
-- Not exposed to external APIs
-- Service-to-service communication
-
-**Location (Small Service):**
-```
-/services/{service-name}/
-  └── controllers/
-      ├── _internalUserCreate.controller.ts
-      ├── _internalUserUpdate.controller.ts
-      └── _systemHealthCheck.controller.ts
-```
-
-**Location (Large Service with Modules):**
-```
-/services/{service-name}/
-  └── modules/
-      └── {module-name}/
-          └── controllers/
-              ├── _internal{model}{operation}.controller.ts
-              └── _{model}Get.controller.ts
-```
-
-### Request/Response Interface Placement
-
-Keep endpoint contracts close to the controller by default.
-
-- Define controller-specific request/response interfaces in the controller file.
-- If the contract is shared across multiple endpoints/services, move it to a shared interface/DTO file and import it.
-- Reused domain models (for example `User`) may be returned directly when appropriate.
+It does not run queries, hold business rules, or import schemas or Drizzle types. See [Code Standards](code_standards_in_encore.md) for the few controllers that read a repository directly.
 
 ---
 
-## API Path Structure
+## Kinds of endpoints
 
-### Standard Service Paths
+| Kind | Config | Name and file | Path | Called by |
+|---|---|---|---|---|
+| App endpoint | `expose: true, auth: true` | `customerGet` in `customerGet.controller.ts` | `/customers/:id` | The web app |
+| Internal | `expose: false, auth: true` | `_internalCustomerRefs` in `_internalCustomerRefs.controller.ts` | `/internal/customers/refs` | Other services, through `~encore/clients` |
+| Cron | `expose: false` (no login) | `_cronFxImport` in `_cronFxImport.controller.ts` | `/fx/cron/import` | A `CronJob` |
+| Public link page | `expose: true, auth: false` | `publicTransportOrderGet`, `portalSetPassword` | `/public/...`, `/portal/...` | A customer or haulier from a link |
 
-For services without modules:
+Notes:
+- `auth: true` on an internal endpoint means it runs as a user. A call made inside a request carries that request's user automatically. A Pub/Sub handler or a cron, which has no user, passes the company explicitly: `asCompany(companyId)` from `apps/api/lib/internalCall.ts`, or `{ authData }`.
+- Internal endpoints are named `_internal…`. The exceptions are tariffs' `_quoteTariffOffers` and `_quoteTariffRefs`, and a few with no prefix: `customerActivate`, `customerRollupsUpdate`, `invoiceMarkCredited` (customers), `openInvoiceCount` (invoicing), `adminContacts`, `placeLookup`, `userLookup` (auth).
+- Internal paths mostly start with `/internal/<area>/` (the auth service uses `/auth/internal/...`). Cron paths are `/<service>/cron/...` or `/internal/<service>/.../deliver`.
+- `auth: false` endpoints must check something else (signed file token, link token, portal session). See [Code Standards §3](code_standards_in_encore.md#3-authentication-and-roles).
 
-```
-/service-name/endpoint-logic
-```
+---
 
-**Examples:**
-- `/user/core/me`
-- `/user/core/user`
-- `/user/core/users/search`
-
-### Module-Based Service Paths
-
-For large services with modules, API paths include the module name in the second position:
-
-```
-/service-name/module-name/endpoint-logic
-```
-
-**Examples:**
-- `/ai-common-management/agent-catalog/ai-agent`
-- `/ai-common-management/gcp-keys/gcp-key`
-- `/ai-common-management/oauth-feeder/oauth-credential`
-
-**Benefits:**
-- ✅ Clear logical grouping of endpoints
-- ✅ Easy to identify which module handles the request
-- ✅ Better API organization for large services
-- ✅ Supports multiple teams working on different modules
-
-**Configuration Requirement:**
-
-To use module-based paths, you must enable `supportModules: true` in your `encore.service.ts`:
+## Endpoint options in use
 
 ```typescript
-registerService(appMeta(), () =>
-  service_management._encoreServiceAdd(
-    new GrouponServiceProvider("ai_common_management", {
-      name: "AI Common Management",
-      description: "Manages shared AI configs and onboarding.",
-
-      // IMPORTANT: Enable module support for module-based paths
-      supportModules: true,
-    }).init()
-  )
-);
-```
-
-### Resource Path Convention for CRUD-Style Endpoints
-
-Use predictable resource nouns inside the endpoint path so API shape stays consistent across services.
-
-- The first path segment is the microservice name (kebab-case, usually singular).
-- In module-based services, the next segment is the module name.
-- Use a **singular** resource noun for single-resource operations.
-- Use a **plural** resource noun for list/filter endpoints.
-- For list/filter endpoints, use standardized pagination in both request and response (see [API Pagination Standards](api_pagination_standards.md)).
-
-Examples (small service with `core` namespace):
-
-- `POST /user/core/user` - create one user
-- `GET /user/core/user/:id` - get one user
-- `PUT /user/core/user` - update one user
-- `DELETE /user/core/user/:id` - delete one user
-- `PUT /user/core/users` - list/filter users with request-body pagination (legacy pattern used in some services)
-
-If a service already uses a different list-path style (for example `GET /.../search`), keep the style consistent within that service.
-
----
-
-## Public API Endpoints
-
-Public APIs are exposed to external clients and must be secured.
-
-### Requirements
-
-- ✅ **Must** use `expose: true`
-- ✅ **Must** use `auth: true`
-- ✅ **Must** implement authorization checks for sensitive operations
-- ✅ **Must** validate all inputs
-- ✅ **Must** return typed responses
-- ✅ File name: `{model}{Operation}.controller.ts`
-- ✅ Endpoint name: No underscore prefix
-
-### Basic Public API Template
-
-```typescript
-import { api } from "encore.dev/api";
-import { authorization } from "~encore/clients";
-import { UserRole } from "@groupon/lib/types";
-import { userService } from "../services/user.service";
-
-/**
- * Get current authenticated user profile
- *
- * Returns the complete user profile for the authenticated user.
- * Requires valid authentication token.
- *
- * @returns User profile data
- * @throws {APIError} Unauthenticated if token is invalid
- */
-export const me = api(
+api(
   {
-    method: "GET",
-    path: "/user/core/me",
-    expose: true,
-    auth: true,
-  },
-  async (): Promise<GetMeResponse> => {
-    return await userService.getUser();
-  }
-);
-
-export interface GetMeResponse {
-  user: User;
-}
-```
-
-### Public API with Authorization
-
-```typescript
-import { api } from "encore.dev/api";
-import { authorization } from "~encore/clients";
-import { UserRole } from "@groupon/lib/types";
-import type { IsEmail } from "encore.dev/validate";
-import { userService } from "../services/user.service";
-
-/**
- * Create a new user (Admin only)
- *
- * Creates a new user account. Requires ADMIN or USER_ADMIN role.
- *
- * @param params - User creation parameters
- * @returns Created user object
- * @throws {APIError} PermissionDenied if user lacks required role
- * @throws {APIError} InvalidArgument if validation fails
- */
-export const userCreate = api(
-  {
+    expose: true,            // reachable from outside Encore
+    auth: true,              // runs the auth handler (lib/auth.handler.ts)
     method: "POST",
-    path: "/user/core/user",
-    expose: true,
-    auth: true,
-    tags: ["ADMIN", "USER_ADMIN"],
+    path: "/holidays/read",
+    sensitive: true,         // optional: payload left out of Encore's traces (login, user passwords, link tokens)
+    bodyLimit: 50 * 1024 * 1024, // optional: raised for base64 file uploads (extraction, attachments)
   },
-  async (params: UserCreateRequest): Promise<UserCreateResponse> => {
-    // Authorization check
-    await authorization.validatePermission({
-      requiredRoles: [UserRole.ADMIN, UserRole.USER_ADMIN],
-    });
-
-    // Delegate to service
-    return await userService.createUser(params);
-  }
+  handler,
 );
-
-export interface UserCreateRequest {
-  name: string;
-  email: string & IsEmail;
-  roles?: UserRole[];
-}
-
-export interface UserCreateResponse {
-  user: User;
-}
 ```
 
-### Public API with Query Parameters
+`api.raw(...)` is used for endpoints that stream file bytes (for example `shipments/controllers/attachmentContent.controller.ts`, which uses `writeFileResponse` from `apps/api/lib/fileContent.ts`).
+
+---
+
+## Paths and methods
+
+- Paths use kebab-case resource nouns, mostly plural, with the id as a path parameter: `/shipments/:shipmentId`, `/customers/:id`, `/customer-contacts/:id`, `/master-jobs/:masterJobId`, `/sales-quotes/:quoteNumber`, `/trucking/trips`, `/warehouse-concept/gate/...`.
+- Actions that are not plain create/update use POST to a verb path: `POST /holidays/import`, `POST /holidays/read`.
+- Methods, roughly by use: POST (create and actions, about 325), GET (reads, 221), DELETE (soft deletes, 52), PATCH (partial updates, 45), PUT (set or replace a whole value, 28).
+
+---
+
+## Parameters
+
+- **Path parameters** are fields of the request interface with the same name (`id` for `:id`).
+- **Query string** on GET endpoints: `Query<...>` from `encore.dev/api`.
+- **Headers**: `Header<"...">`. Used by the auth handler (`Authorization`, `X-Acting-Company`), `/auth/me`, and the haulier portal (`X-Portal-Session`).
+- Validators go on the field type, including query fields:
 
 ```typescript
-import { api } from "encore.dev/api";
-import type { Query } from "encore.dev/api";
-import { userService } from "../services/user.service";
-
-/**
- * Search users by filters
- *
- * @param params - Search filters (email, name, role)
- * @returns Paginated list of users
- */
-export const usersSearch = api(
-  {
-    method: "GET",
-    path: "/user/core/users/search",
-    expose: true,
-    auth: true,
-  },
-  async (params: UserSearchRequest): Promise<UserSearchResponse> => {
-    return await userService.searchUsers(params);
-  }
-);
-
-export interface UserSearchRequest {
-  email?: Query<string>;
-  name?: Query<string>;
-  role?: Query<string>;
-  page?: Query<number>;
-  limit?: Query<number>;
-}
-
-export interface UserSearchResponse {
-  users: User[];
-  total: number;
-  page: number;
-  limit: number;
-}
-```
-
-### Public API with Path Parameters
-
-```typescript
-import { api } from "encore.dev/api";
-import { userService } from "../services/user.service";
-
-/**
- * Get user by ID
- *
- * @param params - User ID in URL path
- * @returns User object if found
- * @throws {APIError} NotFound if user doesn't exist
- */
-export const userGet = api(
-  {
-    method: "GET",
-    path: "/user/core/user/:id",
-    expose: true,
-    auth: true,
-  },
-  async (params: UserGetRequest): Promise<UserGetResponse> => {
-    return await userService.getUserById(params.id);
-  }
-);
-
-export interface UserGetRequest {
-  id: string; // From URL path
-}
-
-export interface UserGetResponse {
-  user: User;
-}
-```
-
-### Public API with Module-Based Path
-
-For large services using modules:
-
-```typescript
-import { api } from "encore.dev/api";
-import { aiAgentCatalogService } from "../services/ai_agents.service";
-
-/**
- * Get AI Agent from catalog
- *
- * This endpoint is part of the agent_catalog module.
- * Path structure: /service-name/module-name/endpoint-logic
- *
- * @param params - Agent ID or unique alias
- * @returns AI Agent configuration
- * @throws {APIError} NotFound if agent doesn't exist
- */
-export const aiAgentInCatalogGet = api(
-  {
-    method: "GET",
-    path: "/ai-common-management/agent-catalog/ai-agent",
-    expose: true,
-    auth: true,
-    tags: ["agent_catalog"],
-  },
-  async (params: AIModelGetRequest): Promise<IAIAgentInCatalogPublic> => {
-    return aiAgentCatalogService.get(params);
-  }
-);
-
-export interface AIModelGetRequest {
-  id: string; // ID or unique alias
-}
+// services/fx/controllers/fxRead.controller.ts
+currencies?: Query<string & MatchesRegexp<"^([A-Za-z]{3}(,[A-Za-z]{3}){0,49})?$">>;
+base?: Query<string & MatchesRegexp<"^[A-Za-z]{3}$">>;
 ```
 
 ---
 
-## Private API Endpoints
+## Templates from the code
 
-Private APIs are internal-only and used for service-to-service communication within the Encore ecosystem.
-
-### Requirements
-
-- ✅ **Must** start with underscore `_` in filename and endpoint name
-- ✅ **Must** use `expose: false`
-- ✅ **Typically** use `auth: false` (service-to-service trusted)
-- ✅ **Cannot** be called from outside Encore
-- ✅ File name: `_{model}{Operation}.controller.ts`
-- ✅ Endpoint name: Starts with `_`
-- ✅ Prefer `/internal/` path segment for new private endpoints (for example `/user/core/internal/create`)
-
-**Path note:** Some older services/docs use `/private/` in private endpoint paths. Keep existing services consistent, but prefer `/internal/` for new endpoints and don't mix both styles within one service.
-
-### Basic Private API Template
+### List for the company
 
 ```typescript
-import { api } from "encore.dev/api";
-import type { IsEmail } from "encore.dev/validate";
-import { userService } from "../services/user.service";
+// services/holidays/controllers/holidayList.controller.ts
+interface HolidayListResponse {
+  holidays: HolidayItem[];
+}
 
-/**
- * Internal API: Create user
- *
- * This endpoint is for internal service-to-service communication only.
- * NOT accessible from outside the Encore ecosystem.
- * Used by authentication service during OAuth flow.
- *
- * @param params - User creation parameters
- * @returns Created user object
- */
-export const _internalUserCreate = api(
-  {
-    method: "POST",
-    path: "/user/core/internal/create",
-    expose: false,
-    auth: false,
+export const holidayList = api(
+  { expose: true, auth: true, method: "GET", path: "/holidays" },
+  async (): Promise<HolidayListResponse> => {
+    return { holidays: await holidaysService.list(getAuthData()!.companyID) };
   },
-  async (params: UserCreateRequest): Promise<UserCreateResponse> => {
-    return await userService.createUser(params);
-  }
 );
-
-export interface UserCreateRequest {
-  id?: string;
-  googleId?: string;
-  name: string;
-  email: string & IsEmail;
-  profileUrl?: string;
-  roles?: UserRole[];
-}
-
-export interface UserCreateResponse {
-  user: User;
-}
 ```
 
-### Private API for Bulk Operations
+### Partial update with validators
 
 ```typescript
-import { api } from "encore.dev/api";
-import { userService } from "../services/user.service";
+// services/customers/controllers/contactUpdate.controller.ts
+interface ContactUpdateRequest {
+  id: string;
+  firstName?: string & MinLen<1> & MaxLen<100>;
+  lastName?: string & MinLen<1> & MaxLen<100>;
+  email?: string & MaxLen<320>;
+  phone?: string & MaxLen<50>;
+  role?: ContactRole;
+  isMain?: boolean;
+}
 
-/**
- * Internal API: Bulk user sync
- *
- * Used by sync service to batch update users from external system.
- * NOT exposed to external clients.
- *
- * @param params - Array of users to sync
- * @returns Sync results with success/failure counts
- */
-export const _bulkUserSync = api(
-  {
-    method: "POST",
-    path: "/user/core/internal/sync",
-    expose: false,
-    auth: false,
+export const contactUpdate = api(
+  { expose: true, auth: true, method: "PATCH", path: "/customer-contacts/:id" },
+  async ({ id, customerId: _ignored, ...input }: ContactUpdateRequest): Promise<ContactUpdateResponse> => {
+    return { contact: await contactService.update(id, getAuthData()!.companyID, input) };
   },
-  async (params: BulkUserSyncRequest): Promise<BulkUserSyncResponse> => {
-    return await userService.bulkSync(params.users);
-  }
-);
-
-export interface BulkUserSyncRequest {
-  users: UserSyncData[];
-}
-
-export interface BulkUserSyncResponse {
-  synced: number;
-  failed: number;
-  errors?: string[];
-}
-```
-
----
-
-## HTTP Methods
-
-### GET - Retrieve Resources
-
-Use for read-only operations that don't modify state.
-
-```typescript
-export const userGet = api(
-  { method: "GET", path: "/user/:id", expose: true, auth: true },
-  async (params: { id: string }): Promise<UserResponse> => {
-    return await userService.getUser(params.id);
-  }
 );
 ```
 
-### POST - Create Resources
-
-Use for creating new resources.
+### Role-gated action
 
 ```typescript
-export const userCreate = api(
-  { method: "POST", path: "/user", expose: true, auth: true },
-  async (params: UserCreateRequest): Promise<UserCreateResponse> => {
-    return await userService.createUser(params);
-  }
+// services/shipments/controllers/shipmentDelete.controller.ts
+export const shipmentDelete = api(
+  { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId" },
+  async (req: ShipmentDeleteRequest): Promise<ShipmentDeleteResponse> => {
+    const auth = requireRole("superadmin", "admin", "manager");
+    await shipmentService.softDelete(req.shipmentId, auth.companyID, auth.userID, auth.role);
+    return { ok: true };
+  },
 );
 ```
 
-### PUT - Update Resources (Full)
-
-Use for complete resource updates.
+### Internal endpoint for other services
 
 ```typescript
-export const userUpdate = api(
-  { method: "PUT", path: "/user/:id", expose: true, auth: true },
-  async (params: UserUpdateRequest): Promise<UserUpdateResponse> => {
-    return await userService.updateUser(params.id, params);
-  }
+// services/holidays/controllers/_internalHolidaysCzNational.controller.ts
+export const _internalHolidaysCzNational = api(
+  { expose: false, auth: true, method: "GET", path: "/internal/holidays/cz-national" },
+  async (req: HolidaysCzNationalRequest): Promise<HolidaysCzNationalResponse> => {
+    return { dates: await holidaysService.czNationalDates(getAuthData()!.companyID, req.from, req.to) };
+  },
 );
+
+// called from services/trucking/lib/czHolidays.ts
+const { dates } = await holidays._internalHolidaysCzNational({ from, to }, { authData });
 ```
 
-### PATCH - Partial Update
-
-Use for partial resource updates.
+### Cron endpoint
 
 ```typescript
-export const userPatch = api(
-  { method: "PATCH", path: "/user/:id", expose: true, auth: true },
-  async (params: UserPatchRequest): Promise<UserPatchResponse> => {
-    return await userService.patchUser(params.id, params);
-  }
+// services/fx/controllers/_cronFxImport.controller.ts
+export const _cronFxImport = api(
+  { expose: false, method: "POST", path: "/fx/cron/import" },
+  async (): Promise<void> => {
+    await pullTick();
+  },
 );
-```
 
-### DELETE - Remove Resources
-
-Use for soft or hard deletes.
-
-```typescript
-export const userDelete = api(
-  { method: "DELETE", path: "/user/:id", expose: true, auth: true },
-  async (params: { id: string }): Promise<void> => {
-    await userService.softDeleteUser(params.id);
-  }
-);
-```
-
----
-
-## Input Validation
-
-### Encore Native Validators
-
-Encore provides built-in validators for common patterns:
-
-```typescript
-import type {
-  Min, Max, MinLen, MaxLen,
-  IsEmail, IsURL
-} from "encore.dev/validate";
-
-export interface UserCreateRequest {
-  // Email validation
-  email: string & IsEmail;
-
-  // Number range
-  age: number & Min<18> & Max<120>;
-
-  // String length
-  username: string & MinLen<3> & MaxLen<20>;
-
-  // Array size
-  tags: Array<string> & MaxLen<10>;
-
-  // Combined validators
-  website: string & (IsURL | IsEmail);
-}
-```
-
-### Zod Validation (Advanced)
-
-For complex validation logic:
-
-```typescript
-import { z } from "zod";
-import { APIError, ErrCode } from "encore.dev/api";
-
-export const UserCreateRequestValidator = z.object({
-  email: z.string().email(),
-  age: z.number().int().min(18).max(120),
-  username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/),
-  tags: z.array(z.string()).max(10),
-  metadata: z.record(z.any()).optional(),
-});
-
-export const userCreate = api(
-  { method: "POST", path: "/user", expose: true, auth: true },
-  async (params: UserCreateRequest): Promise<UserCreateResponse> => {
-    // Validate with Zod
-    const validation = UserCreateRequestValidator.safeParse(params);
-
-    if (!validation.success) {
-      throw new APIError(ErrCode.InvalidArgument, "Validation failed")
-        .withDetails({ errors: validation.error.errors });
-    }
-
-    return await userService.createUser(validation.data);
-  }
-);
-```
-
----
-
-## Authorization Patterns
-
-### Single Role Check
-
-```typescript
-import { authorization } from "~encore/clients";
-import { UserRole } from "@groupon/lib/types";
-
-await authorization.validatePermission({
-  requiredRoles: [UserRole.ADMIN],
+// services/fx/crons/fxImport.cron.ts
+export const fxCnbImport = new CronJob("fx-cnb-import", {
+  title: "Import ČNB exchange rates",
+  schedule: "0,30 13-15 * * 1-5",
+  endpoint: _cronFxImport,
 });
 ```
 
-### Multiple Role Check (OR)
-
-```typescript
-await authorization.validatePermission({
-  requiredRoles: [UserRole.ADMIN, UserRole.USER_ADMIN],
-});
-```
-
-### Custom Authorization Logic
-
-```typescript
-import { getAuthData } from "~encore/auth";
-
-const authData = getAuthData();
-if (!authData) {
-  throw APIError.unauthenticated("Not authenticated");
-}
-
-// Check if user owns the resource
-const resource = await resourceService.get(params.id);
-if (resource.ownerId !== authData.userID) {
-  throw APIError.permissionDenied("Not authorized to access this resource");
-}
-```
+Cron jobs do not fire under `encore run`. Locally, a minute timer in the service does the same job (for example `fxScheduler`, `startShipmentEventTimer`).
 
 ---
 
-## Error Handling
+## Responses
 
-### Throwing Errors
-
-```typescript
-import { APIError, ErrCode } from "encore.dev/api";
-
-// Not found
-throw APIError.notFound("User not found");
-
-// Invalid argument
-throw APIError.invalidArgument("Email is required");
-
-// Permission denied
-throw APIError.permissionDenied("Insufficient permissions");
-
-// Internal error
-throw APIError.internal("Failed to process request");
-
-// With details
-throw new APIError(ErrCode.InvalidArgument, "Validation failed")
-  .withDetails({
-    field: "email",
-    message: "Invalid format"
-  });
-```
-
-### Try-Catch in Controllers
-
-```typescript
-export const userCreate = api(
-  { method: "POST", path: "/user", expose: true, auth: true },
-  async (params: UserCreateRequest): Promise<UserCreateResponse> => {
-    try {
-      return await userService.createUser(params);
-    } catch (error) {
-      log.error(error, "User creation failed", { params });
-
-      if (error instanceof APIError) {
-        throw error; // Re-throw APIError as-is
-      }
-
-      throw APIError.internal("Failed to create user");
-    }
-  }
-);
-```
+- Most endpoints return an object: `{ ok: true }`, `{ holidays: [...] }`, `{ contact }`. Some actions return nothing (`Promise<void>`).
+- The web app imports response types by name from `apps/web/src/lib/api/client.ts`. So a response interface keeps its name even when it only wraps a shared type: `interface CustomerGetResponse extends CustomerDetail {}`.
+- Some long lists are capped and say so (the trucking lists return the newest 1000 with a `truncated` flag). See [API Pagination](api_pagination_standards.md).
 
 ---
 
-## Response Patterns
+## Changing an endpoint
 
-### Success Response
-
-```typescript
-export interface UserCreateResponse {
-  user: User;
-  message?: string;
-}
-
-return {
-  user: createdUser,
-  message: "User created successfully",
-};
-```
-
-### Paginated Response
-
-```typescript
-export interface UserListResponse {
-  users: User[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    hasMore: boolean;
-  };
-}
-
-return {
-  users: results,
-  pagination: {
-    page: params.page || 1,
-    limit: params.limit || 10,
-    total: totalCount,
-    hasMore: (params.page || 1) * (params.limit || 10) < totalCount,
-  },
-};
-```
-
-### Empty Success Response
-
-```typescript
-export const userDelete = api(
-  { method: "DELETE", path: "/user/:id", expose: true, auth: true },
-  async (params: { id: string }): Promise<void> => {
-    await userService.softDeleteUser(params.id);
-    // No return value needed
-  }
-);
-```
+`apps/web/src/lib/api/client.ts` was generated by Encore once (`pnpm gen`, which runs `encore gen client`) and has since been edited by hand. When you add or change an endpoint, update the matching method and types in that file too.
 
 ---
 
-## Documentation Standards
+## Checklist
 
-### Controller Documentation Template
-
-```typescript
-/**
- * Short one-line description
- *
- * Detailed explanation of what this endpoint does.
- * Include important notes about permissions, side effects, etc.
- *
- * @param params - Description of parameters
- * @returns Description of return value
- * @throws {APIError} NotFound - When resource doesn't exist
- * @throws {APIError} PermissionDenied - When user lacks permissions
- * @throws {APIError} InvalidArgument - When validation fails
- *
- * @example
- * ```typescript
- * const result = await userCreate({
- *   name: "John Doe",
- *   email: "john@example.com",
- * });
- * ```
- */
-export const userCreate = api(/*...*/);
-```
-
-### Controller Documentation Quality
-
-Write controller descriptions so someone unfamiliar with the service can find the correct endpoint quickly.
-
-- Be explicit about purpose, permissions, and side effects.
-- Prefer concrete wording over vague descriptions.
-- This improves onboarding and endpoint discoverability in tooling/search.
-
----
-
-## Best Practices
-
-### ✅ DO
-
-- Keep controllers thin - delegate to services
-- Validate all inputs using types or validators
-- Check authorization before processing
-- Use clear, descriptive endpoint paths
-- Document all endpoints with JSDoc
-- Return typed responses
-- Log important operations
-- Use appropriate HTTP methods and status codes
-
-### ❌ DON'T
-
-- Include business logic in controllers
-- Make direct database queries
-- Transform complex data in controllers
-- Use anonymous types for requests/responses
-- Skip authorization checks
-- Return inconsistent response formats
-- Expose internal implementation details
-- Mix public and private logic
-
----
-
-## Testing Controllers
-
-```typescript
-import { describe, it, expect, beforeEach } from "vitest";
-import { userCreate } from "./userCreate.controller";
-
-describe("userCreate controller", () => {
-  it("should create user successfully", async () => {
-    const result = await userCreate({
-      name: "Test User",
-      email: "test@example.com",
-    });
-
-    expect(result.user).toBeDefined();
-    expect(result.user.email).toBe("test@example.com");
-  });
-
-  it("should throw error for invalid email", async () => {
-    await expect(
-      userCreate({
-        name: "Test",
-        email: "invalid-email",
-      })
-    ).rejects.toThrow("Invalid email");
-  });
-
-  it("should require authentication", async () => {
-    // Test without auth token
-    await expect(
-      userCreate({
-        name: "Test",
-        email: "test@example.com",
-      })
-    ).rejects.toThrow("Unauthenticated");
-  });
-});
-```
-
----
-
-## Module-Based Services
-
-### When to Use Modules
-
-Use module-based organization for large services when:
-- ✅ Service handles multiple distinct domains (e.g., agent_catalog, gcp_keys, oauth)
-- ✅ Service has > 30 files
-- ✅ Different teams work on different modules
-- ✅ You want clear API path structure with module names
-
-### Module Structure
-
-```
-/services/ai-common-management/
-├── modules/
-│   ├── agent_catalog/
-│   │   ├── controllers/
-│   │   │   ├── aiAgentCreate.controller.ts
-│   │   │   └── aiAgentGet.controller.ts
-│   │   ├── services/
-│   │   ├── repository/
-│   │   ├── schemas/
-│   │   └── interfaces/
-│   │
-│   ├── gcp_keys/
-│   │   └── controllers/
-│   │       └── gcpKeyGetOwn.controller.ts
-│   │           # path: /ai-common-management/gcp-keys/gcp-key
-│   │
-│   └── oauth_feeder/
-│       └── controllers/
-│           └── oauthCreate.controller.ts
-│               # path: /ai-common-management/oauth-feeder/oauth-credential
-│
-├── common/               # Shared across modules
-│   └── interfaces/
-│
-└── encore.service.ts     # supportModules: true
-```
-
-### Module Controller Example
-
-```typescript
-// File: modules/gcp_keys/controllers/gcpKeyGetOwn.controller.ts
-import { api } from "encore.dev/api";
-import { gcpService } from "../services/gcp.service";
-
-/**
- * Get GCP credentials for authenticated user
- *
- * Module: gcp_keys
- * Path pattern: /service-name/module-name/endpoint
- */
-export const gcpTokenGetOwn = api(
-  {
-    method: "GET",
-    path: "/ai-common-management/gcp-keys/gcp-key",
-    expose: true,
-    auth: true,
-    tags: ["gcp_keys"],
-  },
-  async (): Promise<IGetGCPTokenCredentialResponse> => {
-    return await gcpService.getOwn();
-  }
-);
-
-export interface IGetGCPTokenCredentialResponse {
-  user_owner_email: string;
-  name: string;
-  uniqueId: string;
-  email: string;
-  credentials: IGetGCPTokenCredentialRecord[];
-}
-```
-
-### Enabling Module Support
-
-In your `encore.service.ts`:
-
-```typescript
-import { Service } from "encore.dev/service";
-import { appMeta } from "encore.dev";
-import { service_management } from "~encore/clients";
-import { GrouponServiceProvider } from "@core/service_management/models/models";
-
-export default new Service("ai_common_management", {
-  middlewares: [errorMiddleware],
-});
-
-registerService(appMeta(), () =>
-  service_management._encoreServiceAdd(
-    new GrouponServiceProvider("ai_common_management", {
-      name: "AI Common Management",
-      description: "Manages shared AI configs and onboarding.",
-
-      // CRITICAL: Enable module support for module-based paths
-      supportModules: true,
-
-    }).init()
-  )
-);
-```
-
----
-
-## Common Patterns
-
-### Pagination
-
-```typescript
-import { PAGINATION_DEFAULTS } from "@groupon/lib/consts";
-
-export interface PaginatedRequest {
-  page?: Query<number>;
-  limit?: Query<number>;
-}
-
-export const userList = api(
-  { method: "GET", path: "/users", expose: true, auth: true },
-  async (params: PaginatedRequest): Promise<UserListResponse> => {
-    const page = params.page || PAGINATION_DEFAULTS.PAGE;
-    const limit = Math.min(
-      params.limit || PAGINATION_DEFAULTS.LIMIT,
-      PAGINATION_DEFAULTS.MAX_LIMIT
-    );
-
-    return await userService.list({ page, limit });
-  }
-);
-```
-
-### Filtering
-
-```typescript
-export interface UserFilterRequest {
-  email?: Query<string>;
-  role?: Query<string>;
-  isActive?: Query<boolean>;
-  createdAfter?: Query<string>; // ISO date string
-}
-
-export const usersFilter = api(
-  { method: "GET", path: "/users", expose: true, auth: true },
-  async (params: UserFilterRequest): Promise<UserListResponse> => {
-    return await userService.filter(params);
-  }
-);
-```
-
-### Batch Operations
-
-```typescript
-export interface UserBatchGetRequest {
-  ids: string[];
-}
-
-export interface UserBatchGetResponse {
-  users: Record<string, User>;
-  notFound: string[];
-}
-
-export const userBatchGet = api(
-  { method: "POST", path: "/users/batch", expose: true, auth: true },
-  async (params: UserBatchGetRequest): Promise<UserBatchGetResponse> => {
-    return await userService.batchGet(params.ids);
-  }
-);
-```
-
----
-
-## Summary
-
-Controllers are the HTTP interface layer of your Encore service. They must:
-
-1. **Remain thin** - Delegate to services
-2. **Validate inputs** - Use types and validators
-3. **Check authorization** - Verify permissions first
-4. **Handle errors gracefully** - Throw appropriate APIErrors
-5. **Document thoroughly** - Clear JSDoc comments
-6. **Follow conventions** - Public vs private, naming, structure
-7. **Use correct path structure**:
-   - Standard services: `/service-name/endpoint-logic`
-   - Module-based services: `/service-name/module-name/endpoint-logic`
-8. **Enable module support** - Set `supportModules: true` when using modules
-
-### Path Structure Quick Reference
-
-| Service Type | Path Pattern | Configuration |
-|--------------|--------------|---------------|
-| **Small Service** | `/service-name/endpoint` | No special config needed |
-| **Large Service with Modules** | `/service-name/module/endpoint` | `supportModules: true` |
-
-**Examples:**
-
-```typescript
-// Small service (no modules)
-path: "/user/core/me"
-path: "/user/core/user/:id"
-
-// Large service with modules
-path: "/ai-common-management/agent-catalog/ai-agent"
-path: "/ai-common-management/gcp-keys/gcp-key"
-path: "/ai-common-management/oauth-feeder/oauth-credential"
-```
-
-**Remember: A controller's job is to translate HTTP requests into service calls, nothing more.**
+- [ ] The request and response are named plain interfaces; there are no schema imports.
+- [ ] The actor comes from `requireRole(...)` or `getAuthData()!`, and its `companyID` is passed to the service.
+- [ ] The name and file follow the kind: `entityAction`, `_internal…`, `_cron…`.
+- [ ] Field limits are Encore validators.
+- [ ] `sensitive: true` is set when the payload holds a password or a link token.
+- [ ] `bodyLimit` is set only when the request carries files.
+- [ ] The web client in `apps/web/src/lib/api/client.ts` is updated.

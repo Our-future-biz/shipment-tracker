@@ -1,396 +1,112 @@
-# Encore TypeScript Engineering Standards
+# Shipment Tracker Engineering Docs
 
-## Overview
+Shipment Tracker is the freight-forwarding app of a small Czech forwarder: shipments, quotes, customers, invoicing, trucking, the warehouse and exchange rates. One backend serves several companies (multi-tenant), and every row belongs to exactly one company.
 
-This directory contains the **complete engineering standards and best practices** for developing Encore TypeScript microservices at Groupon. These standards are **mandatory** for all developers and ensure consistency, quality, and maintainability across the entire platform.
+It is a pnpm monorepo:
 
----
+- **`apps/api`**: the Encore.ts backend. It has 14 services, each with its own Postgres database through Drizzle ORM. A service lives in `apps/api/services/<service>/` (controllers, services, repositories, schemas, interfaces, db/migrations, lib, tests). Shared code is in `apps/api/lib`.
+- **`apps/web`**: the Next 15 single-page app (React 19, antd 5, Tailwind v4, @tanstack/react-query). Its API client is `apps/web/src/lib/api/client.ts`, which Encore generated once and which is now edited by hand.
 
-## 🚨 Important
-
-**These standards are non-negotiable.** They represent the collective knowledge and experience of building scalable microservices at Groupon. Following these standards ensures:
-
-- **Consistency** across 100+ services
-- **Quality** in code and architecture
-- **Maintainability** for long-term success
-- **Security** by default
-- **Performance** and scalability
+These docs describe how this codebase is written. Each one is checked against the code; when the code and a doc disagree, fix the doc.
 
 ---
 
-## Documentation Structure
+## Start here
 
-### 📘 Core Standards
+1. [How Encore Works Here](encore_how_its_working.md): what Encore provides, how a request runs, running it locally.
+2. [Code Standards in Encore](code_standards_in_encore.md): the rules: layers, company scoping, roles, plain interfaces, validation, errors.
+3. [Service Architecture & Patterns](service_architecture_patterns.md): services, their databases, calls between them, events, outboxes, transactions, cron jobs.
+4. [Request Flow Layers](request_flow_layers/README.md): one request from the browser to the database.
 
-1. **[Code Standards in Encore](code_standards_in_encore.md)**
-   - Core principles (non-negotiable)
-   - Single responsibility per layer
-   - Fail fast, security by default
-   - **Start here if you're new**
+## API layer
 
-2. **[Naming Conventions](naming_convention.md)**
-   - File naming rules
-   - Code element naming (types, functions, variables)
-   - Database naming (tables, columns)
-   - Public vs private API naming
+- [Controllers & API Endpoints](controllers_api_endpoints.md): kinds of endpoints, paths, parameters, templates.
+- [DTO: Request and Response Types](dto.md): where API types live, validation, rows to responses.
+- [Error Handling](errors.md): `APIError` codes and when to use each, messages, database errors.
+- [API Pagination Standards](api_pagination_standards.md)
 
-3. **[Folder Structure & Naming](folder_structure_and_naming.md)**
-   - Small microservice pattern
-   - Large microservice pattern (with modules)
-   - Folder organization rules
-   - Where each file type belongs
+## Data layer
 
----
+- [Database Standards](database_standards.md)
+- [Database & Repository Standards](database_repository_standards.md)
+- [Repository Patterns](repository_patterns.md)
+- [Local Drizzle Helpers](../LOCAL_DRIZZLE_HELPERS.md): the shared helpers in `apps/api/lib/db`
 
-### 🏗️ Architecture & Patterns
+## Events and background work
 
-Quick orientation for layer boundaries (Controller -> Service -> Repository):
+- [Event Processing Patterns](event_processing_patterns.md)
 
-- [Request Flow Layers](request_flow_layers/README.md)
+## Configuration and service lifecycle
 
-4. **[Service Architecture & Patterns](service_architecture_patterns.md)**
-   - Layered architecture (Controller → Service → Repository)
-   - Service communication patterns
-   - Data flow patterns
-   - Middleware patterns
-   - Caching strategies
-   - Transaction patterns
-   - **Read this to understand the big picture**
+- [Secrets and Configuration](secrets_environment_management.md)
+- [Start-up](service_startup_handler_onstart.md)
+- [Shutdown](graceful_shutdown_handler.md)
 
-5. **[Controllers & API Endpoints](controllers_api_endpoints.md)**
-   - Public vs Private APIs
-   - Controller responsibilities
-   - HTTP methods (GET, POST, PUT, DELETE)
-   - Input validation (Encore validators, Zod)
-   - Authorization patterns
-   - Error handling
-   - Response patterns
-   - **Essential for API development**
+## Testing
 
----
+- [Testing Standards](testing_standards.md)
+- [How to Add New API Tests](how_to_add_new_api_tests.md)
 
-### 💾 Data Layer
+## Operations
 
-6. **[Database & Repository Standards](database_repository_standards.md)**
-   - Drizzle ORM usage
-   - Schema design (UUIDs, timestamps, soft deletes)
-   - Migrations (creating, managing, reverting)
-   - Repository pattern
-   - Query patterns
-   - Transaction management
-   - Performance optimization
-   - **Read this before touching the database**
+- [Debugging](debugging_production_services.md)
+- [Incident Checklist](encore_cloud_incident_runbook.md)
+- [Databases, Backups and Scheduled Jobs](encore_db_monitoring_operations.md)
+
+## Layout and names
+
+- [Folder Structure](folder_structure_and_naming.md): the repository, a service's folders, `apps/api/lib`, where new code goes.
+- [Naming Convention](naming_convention.md): files, TypeScript, database objects, Encore resources, paths.
+
+## Rules
+
+- [Encore TS Standards](../rules/encore-ts-standards.md): backend rules
+- [Frontend (web)](../rules/frontend-web.md): `apps/web` rules
+- [Code Quality](../rules/code-quality.md): rules for all code
 
 ---
 
-### 🔐 Configuration & Security
+## Quick reference
 
-7. **[Secrets & Environment Management](secrets_environment_management.md)**
-   - Secret definition and usage
-   - Environment detection
-   - Service configuration (`encore.service.ts`)
-   - Security best practices
-   - Secret rotation
-   - **Critical for security and deployment**
-
----
-
-### ✅ Testing
-
-8. **[Testing Standards](testing_standards.md)**
-   - Vitest framework usage
-   - Test file organization (dedicated test directories)
-   - Testing controllers, services, repositories
-   - Mocking patterns
-   - Async testing
-   - Integration testing
-   - Test coverage goals
-   - **Required for quality assurance**
-
----
-
-### 🚀 Operational Standards
-
-9. **[Service Startup Handler (onStart)](service_startup_handler_onstart.md)**
-   - Service initialization patterns
-   - Health checks
-   - Resource warmup
-   - Startup validation
-
-10. **[Graceful Shutdown Handler](graceful_shutdown_handler.md)**
-    - Graceful shutdown patterns
-    - Resource cleanup
-    - Connection draining
-    - Signal handling
-
-11. **[DTO Standards](dto.md)**
-    - Data Transfer Object patterns
-    - Validation strategies
-    - Interface design
-    - Request/Response patterns
-
----
-
-## Quick Start Guide
-
-### For New Developers
-
-1. **Read in this order:**
-   - [Code Standards](code_standards_in_encore.md) - Core principles
-   - [Service Architecture](service_architecture_patterns.md) - Big picture
-   - [Controllers](controllers_api_endpoints.md) - API development
-   - [Database](database_repository_standards.md) - Data access
-
-2. **Reference as needed:**
-   - [Naming Conventions](naming_convention.md)
-   - [Folder Structure](folder_structure_and_naming.md)
-   - [Secrets](secrets_environment_management.md)
-   - [Testing](testing_standards.md)
-
-3. **Explore existing services:**
-   - `apps/encore-ts/services/_core_operations/user` - User service example
-   - `apps/encore-ts/services/_core_system/ai-gateway` - AI Gateway example
-   - `apps/encore-ts/services/_core_system/auditlog` - Audit log example
-
-### For Creating a New Service
-
-**Step-by-step:**
-
-1. **Create service structure** following [Folder Structure](folder_structure_and_naming.md)
-2. **Configure `encore.service.ts`** following [Secrets Management](secrets_environment_management.md)
-3. **Define database schema** following [Database Standards](database_repository_standards.md)
-4. **Create controllers** following [Controller Standards](controllers_api_endpoints.md)
-5. **Implement services** following [Architecture Patterns](service_architecture_patterns.md)
-6. **Add repositories** following [Repository Standards](database_repository_standards.md)
-7. **Write tests** following [Testing Standards](testing_standards.md)
-8. **Document in README.md**
-
----
-
-## Architecture Quick Reference
-
-### Layered Architecture
+### Layers
 
 ```
-HTTP Request
-     ↓
-CONTROLLER (validate, authorize, delegate)
-     ↓
-SERVICE (business logic, orchestration)
-     ↓
-REPOSITORY (database queries only)
-     ↓
-DATABASE (PostgreSQL)
+controller   reads the actor (requireRole / getAuthData), passes companyID on
+   ↓
+service      rules, APIError, ~encore/clients, topics/outbox, transactions
+   ↓
+repository   Drizzle queries, every one filtered by company_id (TenantRepository)
+   ↓
+the service's own Postgres database
 ```
 
-### Rules
+- Queries belong in repositories. A service may open a transaction and hand its `tx` to repository methods.
+- Controllers and `interfaces/` never import Drizzle types.
+- Another service's data comes only through `~encore/clients`.
 
-- **Controllers**: NO business logic, NO database access
-- **Services**: NO direct database access
-- **Repositories**: NO business logic
-
----
-
-## API Quick Reference
-
-### Public API
-
-```typescript
-// File: userCreate.controller.ts
-export const userCreate = api(
-  {
-    method: "POST",
-    path: "/user",
-    expose: true,   // ✅ Public
-    auth: true,     // ✅ Requires auth
-  },
-  async (params: UserCreateRequest): Promise<UserCreateResponse> => {
-    await authorization.validatePermission({ requiredRoles: [UserRole.ADMIN] });
-    return await userService.createUser(params);
-  }
-);
-```
-
-### Private API (Internal)
-
-```typescript
-// File: _internalUserCreate.controller.ts
-export const _internalUserCreate = api(
-  {
-    method: "POST",
-    path: "/user/internal/create",
-    expose: false,  // ✅ Internal only
-    auth: false,    // ✅ No auth (trusted)
-  },
-  async (params: UserCreateRequest): Promise<UserCreateResponse> => {
-    return await userService.createUser(params);
-  }
-);
-```
-
----
-
-## Database Quick Reference
-
-### Schema
-
-```typescript
-export const userTable = pgTable(
-  "user",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    name: text("name").notNull(),
-    email: text("email").notNull().unique(),
-
-    // Standard timestamps
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-    deletedAt: timestamp("deleted_at"), // Soft delete
-  },
-  (table) => ({
-    emailIdx: index("user_email_idx").on(table.email),
-  })
-);
-```
-
-### Repository
-
-```typescript
-class UserRepository {
-  async findById(id: string): Promise<User | null> {
-    const [user] = await db
-      .select()
-      .from(userTable)
-      .where(and(
-        eq(userTable.id, id),
-        isNull(userTable.deletedAt) // Soft delete check
-      ))
-      .limit(1);
-
-    return user || null;
-  }
-}
-```
-
----
-
-## Testing Quick Reference
-
-```typescript
-describe("UserService", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("should create user successfully", async () => {
-    // Arrange
-    vi.mocked(userRepository.create).mockResolvedValue(mockUser);
-
-    // Act
-    const result = await userService.createUser(userData);
-
-    // Assert
-    expect(result.user).toEqual(mockUser);
-  });
-});
-```
-
----
-
-## Naming Quick Reference
-
-### Files
-
-- Controllers: `userCreate.controller.ts` (public) or `_internalUserCreate.controller.ts` (private)
-- Services: `user.service.ts`
-- Repositories: `user.repository.ts`
-- Tests: `tests/services/user.service.test.ts` (in dedicated test directory)
-
-### Code
-
-- Types/Interfaces: `PascalCase` → `UserCreateRequest`
-- Functions/Variables: `camelCase` → `createUser`
-- Constants: `UPPER_SNAKE_CASE` → `MAX_PAGE_SIZE`
-- Private fields: `#fieldName` → `#cache`
-- Tables/Columns: `snake_case` → `user`, `created_at`
-
----
-
-## Common Commands
+### Commands
 
 ```bash
-# Development
-pnpm backend                           # Start all services
-encore run                             # Alternative
-
-# Database
-npx drizzle-kit generate              # Generate migration
-encore db shell service_name          # Open database shell
-
-# Testing
-pnpm encore:test                      # Run tests (watch)
-CI=1 pnpm encore:test                 # Run tests (CI)
-VITEST_DIR=services/user pnpm encore:test  # Specific tests
-
-# Secrets
-encore secret set --type local SECRET_NAME
-encore secret set --type production SECRET_NAME
+./run-local.sh                                   # start web (:3001) and API (:4001) locally
+pnpm dev                                         # both apps, without the checks
+pnpm typecheck && pnpm test                      # all packages
+cd apps/api && encore gen wrappers && npx tsc --noEmit   # API type check with fresh encore.gen
+pnpm --filter api db:generate:<service>          # migration from the Drizzle schema
+encore db conn-uri <database>                    # connection string of a local database
+SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db   # database tests (see Testing Standards)
 ```
 
----
+### Roles
 
-## Resources
-
-### Internal Documentation
-
-- **This Directory**: `/_documentation/engineering_basics/`
-- **Main README**: `/apps/encore-ts/README.md`
-- **Service Examples**: `/apps/encore-ts/services/`
-
-### External Documentation
-
-- [Encore.ts Documentation](https://encore.dev/docs)
-- [Drizzle ORM Documentation](https://orm.drizzle.team/)
-- [TypeScript Documentation](https://www.typescriptlang.org/docs/)
-- [Vitest Documentation](https://vitest.dev/)
+`superadmin` (platform, works as any company through the company switcher), `admin`, `manager`, `user`. Checked with `requireRole(...)` from `apps/api/lib/rbac.ts`.
 
 ---
 
-## Getting Help
+## External documentation
 
-1. **Read the relevant documentation** in this directory
-2. **Check existing services** for patterns and examples
-3. **Consult Encore docs** at [encore.dev/docs](https://encore.dev/docs)
-4. **Ask in GChat** - [Encore Hub](https://chat.google.com/room/AAQAQEAUoTo?cls=7)
-
----
-
-## Contributing to Documentation
-
-### When to Update
-
-Update documentation when:
-- ✅ Adding new patterns or best practices
-- ✅ Discovering common pitfalls
-- ✅ Clarifying existing standards
-- ✅ Adding examples
-
-### How to Update
-
-1. **Edit the relevant `.md` file**
-2. **Follow the existing format and style**
-3. **Add examples where helpful**
-4. **Update this README if adding new files**
-5. **Submit a PR for review**
-
----
-
-## Document Changelog
-
-| Date | Change | Author |
-|------|--------|--------|
-| 2025-11-20 | Initial comprehensive documentation | AI Assistant |
-
----
-
-**Remember: These standards exist to help us build better software together. Follow them, improve them, and help others understand them.**
+- Encore.ts: https://encore.dev/docs/ts
+- Drizzle ORM: https://orm.drizzle.team/
+- Vitest: https://vitest.dev/
+- Next.js: https://nextjs.org/docs
+- Ant Design: https://ant.design/
+- TanStack Query: https://tanstack.com/query/latest
