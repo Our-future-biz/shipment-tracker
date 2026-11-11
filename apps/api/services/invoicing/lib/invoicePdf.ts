@@ -115,19 +115,27 @@ export function czIbanFromAccount(account: string): string | null {
   return `CZ${String(98 - rest).padStart(2, "0")}${bban}`;
 }
 
+// The SPD amount field holds at most 10 characters ("9999999.99"): a longer one is refused or misread
+// by banking apps, so such an invoice has no QR code (its payment details are printed all the same).
+const SPD_AMOUNT_MAX_LENGTH = 10;
+
 /**
  * The Czech "QR Platba" payment string (Short Payment Descriptor, as banking apps read it),
- * or null when the account has no IBAN to pay to.
+ * or null when the account has no IBAN to pay to, or the amount does not fit the format
+ * (above 9,999,999.99).
  */
 export function spdPayment(p: { iban: string; swift?: string; amount: number; currency: string; vs: string; message: string }): string | null {
   const iban = p.iban.replace(/\s+/g, "").toUpperCase();
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(iban) || !(p.amount > 0)) return null;
+  // Measured as written, so an amount that rounds up to 10,000,000.00 is left out too.
+  const amount = p.amount.toFixed(2);
+  if (amount.length > SPD_AMOUNT_MAX_LENGTH) return null;
   // "*" separates the fields, so it may not appear inside one; keep the message plain ASCII
   const clean = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, "").replace(/\*/g, "").trim();
   const parts = [
     "SPD*1.0",
     `ACC:${iban}${p.swift ? `+${clean(p.swift).toUpperCase()}` : ""}`,
-    `AM:${p.amount.toFixed(2)}`,
+    `AM:${amount}`,
     `CC:${p.currency.toUpperCase()}`,
     p.vs ? `X-VS:${p.vs}` : "",
     `MSG:${clean(p.message).slice(0, 60)}`,

@@ -59,8 +59,8 @@ class InvoiceRepository extends TenantRepository<typeof t> {
       .orderBy(desc(t.createdAt));
   }
 
-  async getLines(invoiceId: string, companyId: string): Promise<InvoiceLineRecord[]> {
-    return this.db
+  async getLines(invoiceId: string, companyId: string, reader: Reader = db): Promise<InvoiceLineRecord[]> {
+    return reader
       .select()
       .from(lineT)
       .where(and(eq(lineT.invoiceId, invoiceId), eq(lineT.companyId, companyId), isNull(lineT.deletedAt)))
@@ -68,23 +68,31 @@ class InvoiceRepository extends TenantRepository<typeof t> {
   }
 
   /**
-   * Issued, not credited invoices of the company, with the selling rows their lines were
-   * made from (for the "Ready to bill" queue).
+   * Issued, not credited invoices of the shipments an Invoicing queue view lists, with the selling
+   * rows their lines were made from. Only those shipments' are read, and the lines through a join on
+   * the same shipments - never a list of every invoice id, which Postgres refuses past 65,535.
    */
-  async listOpenInvoicesWithSources(companyId: string): Promise<OpenInvoiceWithSources[]> {
+  async listOpenInvoicesWithSources(shipmentIds: string[], companyId: string): Promise<OpenInvoiceWithSources[]> {
+    const ids = [...new Set(shipmentIds)];
+    if (!ids.length) return [];
+    const ofShipments = and(openInvoice(companyId), inArray(t.shipmentId, ids));
     const invoices = await this.db
       .select({ id: t.id, shipmentId: t.shipmentId, number: t.number, currency: t.currency, gross: t.gross, duzp: t.duzp })
       .from(t)
-      .where(openInvoice(companyId));
+      .where(ofShipments);
     if (!invoices.length) return [];
     const lines = await this.db
       .select({ invoiceId: lineT.invoiceId, source: lineT.sourceSellingCostId })
       .from(lineT)
-      .where(and(eq(lineT.companyId, companyId), inArray(lineT.invoiceId, invoices.map((i) => i.id))));
-    return invoices.map((i) => ({
-      ...i,
-      sourceSellingCostIds: lines.filter((l) => l.invoiceId === i.id).map((l) => l.source),
-    }));
+      .innerJoin(t, eq(lineT.invoiceId, t.id))
+      .where(and(ofShipments, eq(lineT.companyId, companyId)));
+    const sources = new Map<string, (string | null)[]>();
+    for (const l of lines) {
+      const list = sources.get(l.invoiceId) ?? [];
+      list.push(l.source);
+      sources.set(l.invoiceId, list);
+    }
+    return invoices.map((i) => ({ ...i, sourceSellingCostIds: sources.get(i.id) ?? [] }));
   }
 
   /**
@@ -126,8 +134,8 @@ class InvoiceRepository extends TenantRepository<typeof t> {
     return row?.n ?? 0;
   }
 
-  async getByIdempotencyKey(companyId: string, key: string): Promise<InvoiceRecord | null> {
-    const [row] = await this.db
+  async getByIdempotencyKey(companyId: string, key: string, reader: Reader = db): Promise<InvoiceRecord | null> {
+    const [row] = await reader
       .select()
       .from(t)
       .where(and(eq(t.companyId, companyId), eq(t.idempotencyKey, key)))
@@ -140,15 +148,25 @@ class InvoiceRepository extends TenantRepository<typeof t> {
    * lines in one transaction. The advisory lock serialises issuing within a series (one per
    * job and document type), so two clicks at the same moment can never get the same number,
    * leave a gap, or bill the same selling rows twice (checked in `beforeInsert`).
+   *
+   * `replayed`: a document with the header's idempotency key exists already - the request this one
+   * repeats (a double click) held the lock first. That document is given back as it is, nothing is
+   * written; the caller checks it is the same kind of document.
    */
   async issue(
     seriesPrefix: string,
     header: InvoiceHeaderInput,
     lines: InvoiceLineInput[],
     hooks: IssueHooks = {},
-  ): Promise<{ invoice: InvoiceRecord; lines: InvoiceLineRecord[] }> {
+  ): Promise<{ invoice: InvoiceRecord; lines: InvoiceLineRecord[]; replayed: boolean }> {
     return this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`invoice-number:${header.companyId}:${seriesPrefix}`}))`);
+      // Looked up again under the lock, before beforeInsert: the request this one repeats billed the
+      // same rows a moment ago, so beforeInsert would refuse them instead of answering its document.
+      if (header.idempotencyKey) {
+        const earlier = await this.getByIdempotencyKey(header.companyId, header.idempotencyKey, tx);
+        if (earlier) return { invoice: earlier, lines: await this.getLines(earlier.id, header.companyId, tx), replayed: true };
+      }
       if (hooks.beforeInsert) await hooks.beforeInsert(tx);
       const used = await tx
         .select({ number: t.number })
@@ -165,7 +183,7 @@ class InvoiceRepository extends TenantRepository<typeof t> {
             .returning()
         : [];
       if (hooks.afterInsert) await hooks.afterInsert(tx, invoice!);
-      return { invoice: invoice!, lines: saved };
+      return { invoice: invoice!, lines: saved, replayed: false };
     });
   }
 

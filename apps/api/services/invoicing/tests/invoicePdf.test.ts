@@ -126,6 +126,14 @@ describe("QR Platba", () => {
       "SPD*1.0*ACC:CZ6508000000192000145399*AM:1.00*CC:EUR*MSG:Faktura c. 1",
     );
   });
+
+  it("leaves the QR off above 9,999,999.99: the SPD amount holds 10 characters at most", () => {
+    const pay = (amount: number) => spdPayment({ iban: "CZ6508000000192000145399", amount, currency: "CZK", vs: "1", message: "x" });
+    expect(pay(9_999_999.99)).toContain("*AM:9999999.99*");
+    expect(pay(10_000_000)).toBeNull();
+    // Rounds up to 10000000.00 when written: too long as well.
+    expect(pay(9_999_999.996)).toBeNull();
+  });
 });
 
 describe("renderInvoicePdf", () => {

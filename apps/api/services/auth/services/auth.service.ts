@@ -6,6 +6,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { isLocked, passwordRefusal, throttleKey, type FailureRule } from "../../../lib/loginRules";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { loginThrottleRepository } from "../repositories/loginThrottle.repository";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
@@ -114,6 +115,8 @@ type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName
 export type SessionUser = AuthUserInfo;
 
 const userNotFound = () => APIError.notFound("User not found");
+const EMAIL_TAKEN = "A user with this email already exists";
+const SLUG_TAKEN = "A company with this slug already exists";
 // Who a user may report to: the company's managers and admins.
 const MANAGES: readonly string[] = ["superadmin", "admin", "manager"];
 
@@ -173,6 +176,23 @@ class AuthService {
     actor: { role: string },
     input: { email: string; password: string; displayName?: string; role?: string } & OrgPlacement,
   ): Promise<AuthUserInfo> {
+    const { email, role } = await this.#checkNewUser(actor, input);
+    const placement = await this.#checkPlacement(companyId, input);
+    const passwordHash = await hash(input.password);
+    const created = await userRepository.create({
+      ...placement,
+      companyId,
+      email,
+      passwordHash,
+      displayName: input.displayName ?? "",
+      role,
+    } as never);
+    return this.#toInfo(created);
+  }
+
+  // What a new user is checked for before anything is written (the company's placement apart):
+  // the address normalised and still free, the password, and a role the actor may give.
+  async #checkNewUser(actor: { role: string }, input: { email: string; password: string; role?: string }): Promise<{ email: string; role: string }> {
     const email = input.email.toLowerCase().trim();
     if (!email || !input.password) {
       throw APIError.invalidArgument("email and password are required");
@@ -189,19 +209,9 @@ class AuthService {
       throw APIError.permissionDenied("Only admins can assign the admin or manager role");
     }
     if (await userRepository.findByEmail(email)) {
-      throw APIError.alreadyExists("A user with this email already exists");
+      throw APIError.alreadyExists(EMAIL_TAKEN);
     }
-    const placement = await this.#checkPlacement(companyId, input);
-    const passwordHash = await hash(input.password);
-    const created = await userRepository.create({
-      ...placement,
-      companyId,
-      email,
-      passwordHash,
-      displayName: input.displayName ?? "",
-      role,
-    } as never);
-    return this.#toInfo(created);
+    return { email, role };
   }
 
   // Authorization rules:
@@ -265,23 +275,30 @@ class AuthService {
     adminPassword: string;
     adminName?: string;
   }): Promise<{ companyId: string; admin: AuthUserInfo }> {
-    // Checked before anything is created: a refused password must not leave a company without its admin.
-    assertPassword(input.adminPassword, input.adminEmail.toLowerCase().trim());
+    // Everything about the admin is checked before anything is written, and the company and its admin
+    // are then created together: a refused e-mail or password never leaves a company without its admin,
+    // holding its slug. Platform provisioning acts with admin authority to seat the first admin.
+    const displayName = input.adminName ?? "Admin";
+    const { email, role } = await this.#checkNewUser({ role: "admin" }, { email: input.adminEmail, password: input.adminPassword, role: "admin" });
     if (await companyRepository.findBySlug(input.companySlug)) {
-      throw APIError.alreadyExists("A company with this slug already exists");
+      throw APIError.alreadyExists(SLUG_TAKEN);
     }
-    const company = await companyRepository.create({
-      name: input.companyName,
-      slug: input.companySlug,
-    } as never);
-    // Platform provisioning acts with admin authority to seat the first admin.
-    const admin = await this.createUser(company.id, { role: "admin" }, {
-      email: input.adminEmail,
-      password: input.adminPassword,
-      displayName: input.adminName ?? "Admin",
-      role: "admin",
-    });
-    return { companyId: company.id, admin };
+    const passwordHash = await hash(input.adminPassword);
+    try {
+      const { company, admin } = await companyRepository.createWithAdmin(
+        { name: input.companyName, slug: input.companySlug },
+        { email, passwordHash, displayName, role },
+      );
+      return { companyId: company.id, admin: this.#toInfo(admin) };
+    } catch (err) {
+      // The slug or the e-mail taken between the checks above and the insert (two provisionings at once).
+      if (isUniqueViolation(err)) {
+        const constraint = constraintOf(err);
+        if (constraint === "company_slug_unique") throw APIError.alreadyExists(SLUG_TAKEN);
+        if (constraint === "app_user_email_unique") throw APIError.alreadyExists(EMAIL_TAKEN);
+      }
+      throw err;
+    }
   }
 
   // The signed-in user behind a token; a token of a user since removed is no longer valid.
@@ -431,8 +448,9 @@ class AuthService {
   }
 
   /**
-   * Admins of every company: the ČNB rates are shared by all companies, so a missing
-   * fixing concerns all of them. Internal only — never exposed to the web.
+   * Admins of every company, each with their company and role: the ČNB rates are shared by all
+   * companies, so a missing fixing concerns all of them - but each company is written to apart.
+   * Internal only — never exposed to the web.
    */
   async adminContacts(): Promise<AdminContact[]> {
     return userRepository.listAdmins();

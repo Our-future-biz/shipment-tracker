@@ -25,4 +25,8 @@ export interface UserRef {
 export interface AdminContact {
   email: string;
   displayName: string;
+  /** The admin's own company: an alert goes to each company's admins apart, never in one list. */
+  companyId: string;
+  /** "admin" or "superadmin" (a superadmin works for every company, so is written to on their own). */
+  role: string;
 }

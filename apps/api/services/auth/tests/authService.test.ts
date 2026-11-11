@@ -8,6 +8,7 @@ vi.mock("encore.dev/api", () => ({
     permissionDenied: (msg: string) => new Error(msg),
     unauthenticated: (msg: string) => new Error(msg),
     resourceExhausted: (msg: string) => new Error(msg),
+    alreadyExists: (msg: string) => new Error(msg),
   },
 }));
 vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
@@ -25,7 +26,11 @@ const users = vi.hoisted(() => ({
   listLiveSuperadminsByIds: vi.fn(async (_ids: string[]): Promise<{ id: string; displayName: string; email: string; role: string; companyId: string }[]> => []),
 }));
 vi.mock("../repositories/user.repository", () => ({ userRepository: users }));
-const companies = vi.hoisted(() => ({ getById: vi.fn(async () => null) }));
+const companies = vi.hoisted(() => ({
+  getById: vi.fn(async () => null),
+  findBySlug: vi.fn(async (_slug: string): Promise<{ id: string } | null> => null),
+  createWithAdmin: vi.fn(),
+}));
 vi.mock("../repositories/company.repository", () => ({ companyRepository: companies }));
 vi.mock("../repositories/orgUnit.repository", () => ({ departmentRepository: {}, branchRepository: {} }));
 const throttle = vi.hoisted(() => ({
@@ -236,5 +241,55 @@ describe("looking users up for a stamp of who did something", () => {
     ]);
     // Only the ids not found in the company are looked for among the superadmins.
     expect(users.listLiveSuperadminsByIds).toHaveBeenLastCalledWith([ROOT]);
+  });
+});
+
+describe("provisioning a company with its first admin", () => {
+  const request = { companyName: "Acme s.r.o.", companySlug: "acme", adminEmail: " Admin@Acme.cz ", adminPassword: "a-long-enough-passphrase-1", adminName: "Ada" };
+
+  it("refuses an e-mail already taken before the company is created, so its slug stays free", async () => {
+    companies.createWithAdmin.mockClear();
+    users.findByEmail.mockResolvedValue({ id: "u-taken" });
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A user with this email already exists");
+    expect(companies.createWithAdmin).not.toHaveBeenCalled();
+  });
+
+  it("refuses a weak password and a reserved e-mail before anything is written", async () => {
+    companies.createWithAdmin.mockClear();
+    users.findByEmail.mockResolvedValue(null);
+    await expect(authService.provisionCompany({ ...request, adminPassword: "short" })).rejects.toThrow("at least 12 characters");
+    await expect(authService.provisionCompany({ ...request, adminEmail: "x@system.invalid" })).rejects.toThrow("reserved for the system");
+    expect(companies.createWithAdmin).not.toHaveBeenCalled();
+  });
+
+  it("creates the company and its admin in one write", async () => {
+    users.findByEmail.mockResolvedValue(null);
+    companies.findBySlug.mockResolvedValueOnce(null);
+    companies.createWithAdmin.mockImplementationOnce(async (company: { name: string; slug: string }, admin: { email: string; displayName: string; role: string }) => ({
+      company: { id: "c-new", ...company },
+      admin: { id: "u-new", companyId: "c-new", departmentId: null, branchId: null, reportsToUserId: null, ...admin },
+    }));
+    const result = await authService.provisionCompany(request);
+    expect(result.companyId).toBe("c-new");
+    expect(result.admin).toMatchObject({ id: "u-new", email: "admin@acme.cz", displayName: "Ada", role: "admin" });
+    const [company, admin] = companies.createWithAdmin.mock.calls[0];
+    expect(company).toEqual({ name: "Acme s.r.o.", slug: "acme" });
+    expect(admin).toMatchObject({ email: "admin@acme.cz", role: "admin" });
+    expect(admin.passwordHash).not.toBe(request.adminPassword);
+  });
+
+  it("answers already exists when the slug or the e-mail was taken a moment before the insert", async () => {
+    users.findByEmail.mockResolvedValue(null);
+    const unique = (constraint: string) => Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint } });
+    companies.createWithAdmin.mockRejectedValueOnce(unique("company_slug_unique"));
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A company with this slug already exists");
+    companies.createWithAdmin.mockRejectedValueOnce(unique("app_user_email_unique"));
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A user with this email already exists");
+  });
+
+  it("refuses a slug a live company already has", async () => {
+    users.findByEmail.mockResolvedValue(null);
+    companies.findBySlug.mockResolvedValueOnce({ id: "c-other" });
+    await expect(authService.provisionCompany(request)).rejects.toThrow("A company with this slug already exists");
   });
 });
