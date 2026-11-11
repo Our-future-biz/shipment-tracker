@@ -6686,9 +6686,15 @@ export namespace controllers {
 
     export interface AttachmentCreateRequest {
         fileName: string
-        fileSize: number
+        /**
+         * Ignored: the server stores the decoded file's own size.
+         */
+        fileSize?: number
         fileType: string
-        contentBase64?: string
+        /**
+         * The file's bytes; an empty file is refused.
+         */
+        contentBase64: string
         /**
          * Optional business document type set right at upload.
          */
