@@ -38,6 +38,16 @@ export interface InvoiceFx {
   rates: Rates;
 }
 
+/**
+ * Why the `unconverted` invoices are left out of the totals: ČNB publishes no rate for their currency -
+ * or, when today's rates could not be loaded (only CZK is known then), that they could not be.
+ */
+export function unconvertedReason(unconverted: InvoiceSummary["unconverted"], ratesUnavailable: boolean): string {
+  return ratesUnavailable
+    ? "Today's exchange rates could not be loaded"
+    : `ČNB publishes no rate for ${unconverted.map((u) => u.currency).join(", ")}`;
+}
+
 // An invoice without a currency was entered by hand in the customer's currency.
 const invoiceCurrency = (invoice: InvoiceItem, fx: InvoiceFx) => invoice.currency || fx.currency;
 

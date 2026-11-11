@@ -7,7 +7,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
 import { getNaceInfo, isNewCompany, parseNaceCodes } from "./companyAnalysis";
 import { daysSince } from "./customerDates";
-import { daysOverdue, summarizeInvoices } from "./customerInvoices";
+import { daysOverdue, summarizeInvoices, unconvertedReason } from "./customerInvoices";
 import type { Rates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "./customerMoney";
 
@@ -51,6 +51,8 @@ export interface AttentionInput {
   notes: NoteItem[];
   // Today's exchange rates: invoices in another currency are compared with the limit in the customer's currency.
   rates: Rates;
+  // Today's rates could not be loaded, so `rates` knows only CZK.
+  ratesUnavailable?: boolean;
   // The viewer's clock in milliseconds; given explicitly in tests.
   now?: number;
 }
@@ -94,7 +96,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, contacts, documents, notes, rates, now = Date.now() } = input;
+  const { customer, invoices, contacts, documents, notes, rates, ratesUnavailable = false, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
   // A supplier only is no customer: no owner, credit, customer papers or prepayment advice is asked of it
@@ -132,13 +134,14 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
 
   // Warnings.
   // Invoices in a currency without a ČNB rate can't be added to the outstanding sum, so the credit-limit
-  // check above leaves them out; that is said, not hidden.
+  // check above leaves them out; that is said, not hidden - and why: ČNB has no rate, or today's rates
+  // could not be loaded.
   if (summary.unconverted.length > 0) {
     items.push({
       key: "invoices-not-counted",
       severity: "warning",
       title: "Invoices not counted",
-      detail: `No ČNB rate for ${summary.unconverted.map((u) => u.currency).join(", ")}; those open invoices are left out of the outstanding sum and the credit check.`,
+      detail: `${unconvertedReason(summary.unconverted, ratesUnavailable)}; the open invoices in ${summary.unconverted.map((u) => u.currency).join(", ")} are left out of the outstanding sum and the credit check.`,
       meta: summary.unconverted.map((u) => fmtMoney(u.amount, u.currency)).join(" + "),
       tab: "finance",
     });

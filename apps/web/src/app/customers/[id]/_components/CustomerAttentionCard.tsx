@@ -77,7 +77,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const supplier = !!customer && hasSupplierRole(customer.roles);
   const { usage, isLoading: usageLoading, isError: usageError } = useSupplierUsage(customerId, { enabled: supplier });
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
-  const { rates, isLoading: ratesLoading } = useLatestRates();
+  const { rates, isLoading: ratesLoading, isError: ratesError } = useLatestRates();
   const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
@@ -111,6 +111,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
       documents,
       notes,
       rates,
+      ratesUnavailable: ratesError,
     });
     // For contacts, documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
@@ -130,7 +131,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     // Most serious first across both: every critical row, then every warning, each side in its own order.
     const all = [...customerItems, ...supplierItems];
     return [...all.filter((item) => item.severity === "critical"), ...all.filter((item) => item.severity === "warning")];
-  }, [isLoading, customer, invoices, contacts, documents, notes, rates, contactsError, documentsError, notesError, haulier, tariffs.isError, tariffs.summaries, canRateSupplier, usage, usageError]);
+  }, [isLoading, customer, invoices, contacts, documents, notes, rates, ratesError, contactsError, documentsError, notesError, haulier, tariffs.isError, tariffs.summaries, canRateSupplier, usage, usageError]);
 
   if (items.length === 0) return null;
 

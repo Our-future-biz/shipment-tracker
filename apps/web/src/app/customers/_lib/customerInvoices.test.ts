@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import { convert } from "@/lib/fx";
-import { summarizeInvoices } from "./customerInvoices";
+import { summarizeInvoices, unconvertedReason } from "./customerInvoices";
 
 const NOW = new Date("2026-10-13T12:00:00").getTime();
 const rates = { CZK: 1, EUR: 25, USD: 22 };
@@ -82,6 +82,18 @@ describe("summarizeInvoices", () => {
       NOW,
     );
     expect(s.outstanding).toBe(70);
+  });
+});
+
+describe("unconvertedReason", () => {
+  const unconverted = [{ currency: "EUR", amount: 100, count: 1 }, { currency: "GBP", amount: 5, count: 1 }];
+
+  it("names the currencies ČNB has no rate for", () => {
+    expect(unconvertedReason(unconverted, false)).toBe("ČNB publishes no rate for EUR, GBP");
+  });
+
+  it("says the rates could not be loaded when only CZK is known for that", () => {
+    expect(unconvertedReason(unconverted, true)).toBe("Today's exchange rates could not be loaded");
   });
 });
 

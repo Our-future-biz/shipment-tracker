@@ -45,6 +45,18 @@ describe("buildCustomerAttention", () => {
     } as InvoiceItem;
     expect(keys(customer(), [invoice])).toContain("invoices-not-counted");
   });
+
+  it("says today's rates could not be loaded, not that ČNB publishes no rate, when only CZK is known for that", () => {
+    const invoice = {
+      id: "i", customerId: "c", invoiceNumber: "X", amount: 500, currency: "EUR", dueDate: "2026-10-30", status: "Open",
+      issuedAt: "2026-10-01", createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z",
+    } as InvoiceItem;
+    const input = { customer: customer(), invoices: [invoice], contacts: [], documents: [], notes: [], rates: { CZK: 1 }, now: NOW };
+    const failed = buildCustomerAttention({ ...input, ratesUnavailable: true }).find((i) => i.key === "invoices-not-counted");
+    expect(failed?.detail).toBe("Today's exchange rates could not be loaded; the open invoices in EUR are left out of the outstanding sum and the credit check.");
+    const noRate = buildCustomerAttention(input).find((i) => i.key === "invoices-not-counted");
+    expect(noRate?.detail).toBe("ČNB publishes no rate for EUR; the open invoices in EUR are left out of the outstanding sum and the credit check.");
+  });
 });
 
 describe("buildCustomerAttention for a supplier only", () => {
