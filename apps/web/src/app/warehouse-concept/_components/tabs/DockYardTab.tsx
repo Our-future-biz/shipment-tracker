@@ -403,7 +403,7 @@ function YardPark() {
     ...(expiryFromJob ? [] : [{ name: "detentionExpiry", label: "Detention expiry (the job's free time wins)", type: "date" } as FieldDef]),
     { name: "yardStatus", label: "Status", type: "select", options: YARD_STATUSES },
   ];
-  // One object per opening: the form fills itself again whenever its initial values change.
+  // One object per opening (the form fills itself from it as it opens).
   const initial = useMemo<Partial<interfaces.WarehouseContainerInput>>(() => {
     if (!editing?.container) return { gatedIn: businessToday(), yardStatus: "On site" };
     return editing.container.detentionFromJob ? { ...editing.container, detentionExpiry: undefined } : editing.container;

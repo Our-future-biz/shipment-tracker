@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, Button, Form, Input, InputNumber, Modal, Select } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { Badge, type Tone } from "@/components/Badge";
@@ -12,6 +12,7 @@ import { errorMessage } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { formatNumber } from "@/lib/number";
 import { businessToday } from "@/lib/date";
 import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
+import { formOpensNow } from "@/app/warehouse-concept/_lib/formReset";
 
 // Shared pieces of the Warehouse module tabs (Containers, Dock & Yard, Reports):
 // sub-tab pills, cards, KPI tiles, callouts, status marks and a record form - in the app's one
@@ -214,8 +215,13 @@ export function RecordFormModal<V extends object>({
   // The server's refusal stays in the form (e.g. a dock door already booked) until the next try.
   const [error, setError] = useState("");
 
+  // Filled only as the dialog opens: callers pass a new `initial` on every render, and a refused
+  // save or a background poll renders them again while the dialog is open (formReset.ts).
+  const wasOpen = useRef(false);
   useEffect(() => {
-    if (!open) return;
+    const opening = formOpensNow(wasOpen.current, open);
+    wasOpen.current = open;
+    if (!opening) return;
     form.resetFields();
     setError("");
     if (initial) form.setFieldsValue(initial as never);
