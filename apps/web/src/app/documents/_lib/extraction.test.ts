@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containerNumbersOnFile, containersAfterReading, customerNamed, fieldName, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, normalizeExtracted, partyLinks, sealNote, sealsOf, sealsOnFileThatDiffer, withMblSeals, type ShipmentPartyDetails } from "./extraction";
+import { containerNumbersOnFile, containersAfterReading, currencyOptions, currencyProblem, customerNamed, fieldName, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, normalizeExtracted, partyLinks, readCurrency, sealNote, sealsOf, sealsOnFileThatDiffer, withMblSeals, type ShipmentPartyDetails } from "./extraction";
 
 const acme = { id: "k1", companyName: "Acme Logistics s.r.o." };
 const zelezny = { id: "k2", companyName: "Železný a syn" };
@@ -235,5 +235,25 @@ describe("seal numbers read with containers", () => {
 describe("fieldName", () => {
   it("names the ports in full and keeps every other label as read", () => {
     expect(["POL", "POD", "Vessel"].map(fieldName)).toEqual(["Port of Loading", "Port of Discharge", "Vessel"]);
+  });
+});
+
+describe("an invoice's currency", () => {
+  it("is the code read, also one that isn't among the usual ones", () => {
+    expect(readCurrency("PLN")).toBe("PLN");
+    expect(readCurrency(" eur ")).toBe("EUR");
+    expect(currencyProblem("PLN")).toBeNull();
+  });
+
+  it("is none, never CZK, when nothing or no code was read", () => {
+    for (const raw of [undefined, "", " ", "€", "Kč", "EURO", "US$"]) expect(readCurrency(raw)).toBe("");
+    expect(currencyProblem(undefined)).toBe("No currency was read: choose the currency.");
+    expect(currencyProblem("€")).toBe('"€" is no currency code: choose the currency.');
+  });
+
+  it("is offered beside the usual ones when it is another", () => {
+    expect(currencyOptions("PLN").map((o) => o.value)).toEqual(["CZK", "USD", "EUR", "GBP", "CHF", "CNY", "JPY", "PLN"]);
+    expect(currencyOptions("EUR")).toHaveLength(7);
+    expect(currencyOptions("")).toHaveLength(7);
   });
 });

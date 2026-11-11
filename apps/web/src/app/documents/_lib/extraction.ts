@@ -407,10 +407,25 @@ export function keptPartyDetails(
   return out as Partial<controllers.ShipmentUpdateRequest>;
 }
 
-export function normalizeCurrency(raw?: string): string {
-  const c = (raw || "").toUpperCase();
-  return (CURRENCIES as readonly string[]).includes(c) ? c : "CZK";
+/**
+ * The currency an invoice was read in, as its code ("pln" is PLN), or "" when none was read or it is no
+ * three-letter code ("€", "Kč"). It is never guessed: a PLN invoice posted as CZK is a wrong cost, so
+ * without a code the user chooses the currency.
+ */
+export function readCurrency(raw?: string): string {
+  const c = (raw ?? "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(c) ? c : "";
 }
+
+/** Why the currency read can't be posted as it is, for the user to choose one; null when it can. */
+export function currencyProblem(raw?: string): string | null {
+  if (readCurrency(raw)) return null;
+  const read = (raw ?? "").trim();
+  return read ? `"${read}" is no currency code: choose the currency.` : "No currency was read: choose the currency.";
+}
+
+/** The currencies offered: the usual ones, and the one read or chosen when it is another (PLN). */
+export const currencyOptions = (own: string) => [...new Set([...CURRENCIES, own].filter(Boolean))].map((c) => ({ value: c, label: c }));
 
 // No job number and no Created By: the server gives the next job number when it stores the
 // shipment, and stamps who created it. No Trade Direction or status either: a direction read from

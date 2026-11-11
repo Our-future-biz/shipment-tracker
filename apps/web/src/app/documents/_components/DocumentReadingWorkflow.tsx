@@ -22,11 +22,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { fileToBase64, formatFileSize } from "@/lib/files";
-import { CANCELLED_STATUS, CURRENCIES, FULL_LOAD } from "@/lib/enums";
+import { CANCELLED_STATUS, FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber, sameMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
+import { ShipmentPicker } from "@/app/sales/quote/[ref]/_components/CopyFromModal";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
+import { invoicingKey } from "@/hooks/useInvoicing";
 import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/lib/documentTypes";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
@@ -62,9 +64,9 @@ import {
   type InputMode,
   INVOICE_FIELD_LABELS,
   type InvoiceExtracted,
-  normalizeCurrency,
   normalizeExtracted,
   parseContainerNumbers,
+  readCurrency,
   MBL_CONTAINERS_LABEL,
   MBL_SEALS_LABEL,
   MBL_TO_MASTER_JOB,
@@ -87,9 +89,12 @@ import {
 import { useQuoteReading } from "../_lib/useQuoteReading";
 import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentType } from "../_lib/savedDocument";
 import { mergeReads } from "../_lib/mergeReads";
+import { readEachFile, readFileProblem } from "../_lib/fileReads";
+import { createAndWrite, type ShipmentProgress } from "../_lib/resumeShipment";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
+import { InvoiceHeaderFields } from "./InvoiceHeaderFields";
 import { anyToSplit, creditAmount, creditLines, invoiceLinesInvalid, invoicePostLines, lineAmount, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
 import { shipmentFreight } from "@/lib/freightTons";
 
@@ -196,6 +201,12 @@ export function DocumentReadingWorkflow() {
   // one review, and each file is saved to the shipment's documents.
   const [shipmentFiles, setShipmentFiles] = useState<UploadedFile[]>([]);
   const [shipmentDocs, setShipmentDocs] = useState<ShipmentDoc[]>([]);
+  // What each file of a Shipments read gave (by its uid), and the files that could not be read: the
+  // review holds the others, and a retry reads only the files that failed.
+  const shipmentReads = useRef(new Map<string, ShipmentRead>());
+  const [shipmentReadFailures, setShipmentReadFailures] = useState<{ file: UploadedFile; error: unknown }[]>([]);
+  // Files refused as they were added (too large to read), named until the next read starts.
+  const [refusedFiles, setRefusedFiles] = useState<string[]>([]);
   // Several invoices can be dropped at once: each is read, reviewed and posted on its own, one
   // after another, to the same shipment or master job. Done: posted or skipped.
   const [invoiceFiles, setInvoiceFiles] = useState<UploadedFile[]>([]);
@@ -207,7 +218,11 @@ export function DocumentReadingWorkflow() {
   const [fields, setFields] = useState<ExtractedField[]>([]);
   const [extractionMethod, setExtractionMethod] = useState("");
   const [shipmentMode, setShipmentMode] = useState<TargetMode>("existing");
-  const [targetShipmentId, setTargetShipmentId] = useState("");
+  // The shipments picked as targets, as the server search found them: any of the company's, not
+  // only the newest the cached list holds.
+  const [targetShipment, setTargetShipment] = useState<ShipmentItem | null>(null);
+  // The shipment "Create new shipment" made: a retry after a failed write writes to it, not to another new one.
+  const createdShipment = useRef<ShipmentProgress<ShipmentItem> | null>(null);
   const [committedJobNumber, setCommittedJobNumber] = useState("");
   // A file read into Shipments is also saved to the shipment's documents, named after its
   // document number. The user approves the name and type on Review; until they edit them
@@ -220,12 +235,12 @@ export function DocumentReadingWorkflow() {
   const [bookingMode, setBookingMode] = useState<TargetMode>("new");
   const [bookingMcz, setBookingMcz] = useState("");
   // Customs reads always go to one existing shipment (by Internal Reference).
-  const [customsShipmentId, setCustomsShipmentId] = useState("");
+  const [customsShipment, setCustomsShipment] = useState<ShipmentItem | null>(null);
 
   // Invoicing review
   const [invoiceData, setInvoiceData] = useState<InvoiceExtracted>({});
   const [invoiceCategory, setInvoiceCategory] = useState("");
-  const [invoiceTargetShipmentId, setInvoiceTargetShipmentId] = useState("");
+  const [invoiceShipment, setInvoiceShipment] = useState<ShipmentItem | null>(null);
   // An invoice can instead cover a master job: it is split over the shipments the user ticks,
   // by W/M or in equal parts, and each part is posted as that shipment's real cost.
   const [invoiceTarget, setInvoiceTarget] = useState<"shipment" | "masterjob">("shipment");
@@ -249,11 +264,15 @@ export function DocumentReadingWorkflow() {
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
   const [masterMczExisting, setMasterMczExisting] = useState("");
-  // The new MCZ a batch was started under. "Next free number" moves on as soon as the
-  // first shipment is linked, so the batch keeps the number it began with.
-  const [batchMcz, setBatchMcz] = useState("");
-  // The master job made for an MBL filed on its own: a retry after a failed filing files to it, not to another new one.
-  const mblOnlyJobId = useRef<string | null>(null);
+  // The master job "Create new Master Job" made for the batch: the server creates it under its next
+  // free number before the batch's first shipment (or its MBL filed alone), and every house of the
+  // batch, and a retry after a failure, goes to it. The number shown before then is only a preview:
+  // linking a house by it would join whatever master job has that number by then.
+  const [batchJob, setBatchJob] = useState<{ id: string; mczNumber: string } | null>(null);
+  // The shipment made from each House B/L of the batch (by its place in the batch) until it is
+  // linked: a retry after a failed write or link carries on with it instead of creating another
+  // shipment, which would be left behind with a job number used.
+  const houseShipments = useRef(new Map<number, { current: ShipmentProgress<ShipmentItem> | null }>());
   // The master job a booking save created, so a retry after a failed save reuses it.
   const [bookingCreated, setBookingCreated] = useState<{ id: string; mczNumber: string } | null>(null);
   const [bookingSaving, setBookingSaving] = useState(false);
@@ -280,15 +299,16 @@ export function DocumentReadingWorkflow() {
   const [hblTotalBatches, setHblTotalBatches] = useState(0);
   const [hblLoading, setHblLoading] = useState(false);
   const [waitingForBatch, setWaitingForBatch] = useState(false);
+  // The Master B/L could not be read (not: the pre-alert has none): said, with a retry.
+  const [mblReadError, setMblReadError] = useState<string | null>(null);
+  // The pre-alert read and House B/L batch an answer is for, as they are now: a batch that arrives
+  // for a read left behind (a new pre-alert, a new extraction) or asked for twice is dropped.
+  const pipelineRun = useRef({ sessionId: "", batchIndex: 0 });
 
   // Derived
-  const shipmentOptions = useMemo(
-    () =>
-      shipments
-        .filter((s) => s.jobNumber)
-        .map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper || s.consignee || ""}` })),
-    [shipments],
-  );
+  const targetShipmentId = targetShipment?.id ?? "";
+  const customsShipmentId = customsShipment?.id ?? "";
+  const invoiceTargetShipmentId = invoiceShipment?.id ?? "";
   // Only a preview: the server gives the number out when the shipment is stored.
   const { nextJobNumber: newShipmentPreview } = useNextJobNumber(true);
   const { masterJobs } = useMasterJobs();
@@ -297,9 +317,16 @@ export function DocumentReadingWorkflow() {
   const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
   const newMcz = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
   const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
-  const activeMcz = masterMode === "existing" ? masterMczExisting : batchMcz || newMcz;
-  // The master job the batch goes to, once it exists ("Add to existing", or after the first shipment).
-  const currentMasterJob = masterJobs.find((m) => sameMczNumber(m.mczNumber, activeMcz));
+  // The master job the batch goes to, once it exists ("Add to existing", or once the batch made its new one).
+  const currentMasterJob =
+    masterMode === "existing"
+      ? masterJobs.find((m) => sameMczNumber(m.mczNumber, masterMczExisting))
+      : batchJob
+        ? masterJobs.find((m) => m.id === batchJob.id)
+        : undefined;
+  const activeMcz = masterMode === "existing" ? masterMczExisting : (currentMasterJob?.mczNumber ?? batchJob?.mczNumber ?? newMcz);
+  // A new master job's number is only a preview until the server has created it.
+  const mczShown = masterMode === "new" && !batchJob ? `${newMcz} (will be assigned)` : activeMcz;
   // Load Type is chosen once per master job; a different one on the MBL can't be filed.
   const mblLoadTypeLocked =
     !!currentMasterJob?.loadType && !!mblInfo?.["Load Type"] && currentMasterJob.loadType !== mblInfo["Load Type"];
@@ -332,11 +359,12 @@ export function DocumentReadingWorkflow() {
   const invoiceMissingWm = splitMethod ? missingWm(invoiceRows, invoiceTicked, splitMethod) : [];
   // Typed or read with thousands or a decimal comma ("1,177.20"); 0 when it is no amount.
   const invoiceTotal = lineAmount(invoiceData.total_amount) ?? 0;
-  const invoiceCurrency = normalizeCurrency(invoiceData.currency);
+  // As read, or as the user chose it: "" while there is none to post.
+  const invoiceCurrency = readCurrency(invoiceData.currency);
   // The split as the server will post it; asked as a dry run while the user reviews.
   const splitRequest = useMemo(
     () =>
-      splitMethod && invoiceCategory && invoiceTotal > 0 && invoiceData.invoice_number?.trim() && invoiceTicked.size > 0
+      splitMethod && invoiceCategory && invoiceTotal > 0 && invoiceCurrency && invoiceData.invoice_number?.trim() && invoiceTicked.size > 0
         ? {
             category: invoiceCategory,
             total: invoiceTotal.toFixed(2),
@@ -352,8 +380,11 @@ export function DocumentReadingWorkflow() {
   // An invoice whose lines name a B/L goes line by line; W/M or per shipment is only for what can't be placed.
   const invoiceByBl = invoiceToMaster && namesBls(invoiceLines);
   const creditNote = destination === "invoicing" && invoiceCreditNote;
-  // What goes line by line, each a new buying row: one sorted by its B/Ls, and any credit note.
-  const postsLines = invoiceByBl || creditNote;
+  const invoiceToShipment = destination === "invoicing" && !invoiceToMaster;
+  // What goes line by line, each a new buying row (or onto the shipment's open estimate of the charge),
+  // so a second invoice never overwrites the first: one sorted by its B/Ls, any credit note, and an
+  // invoice for one shipment.
+  const postsLines = invoiceByBl || creditNote || invoiceToShipment;
   const docWord = creditNote ? "Credit note" : "Invoice";
   const blShipments = useMemo<BlShipment[]>(
     () =>
@@ -386,17 +417,27 @@ export function DocumentReadingWorkflow() {
       const lines = invoicePostLines(invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency);
       return lines ? { invoiceNumber, vendor, lines, creditNote, ...onMaster } : null;
     }
-    // A credit note without B/Ls is one line, on its shipment or shared out as an invoice would be.
-    const amount = creditAmount(invoiceData.total_amount);
-    if (!creditNote || !invoiceCategory || !(Number(amount) < 0)) return null;
+    // An invoice for one shipment, or a credit note without B/Ls, is one line: on its shipment, or a
+    // credit note's shared out as an invoice would be. Its amount goes as the plain decimal the server
+    // takes ("1,177.20" as 1177.20).
+    const amount = creditNote ? creditAmount(invoiceData.total_amount) : invoiceTotal > 0 ? invoiceTotal.toFixed(2) : "";
+    if (!invoiceCategory || !invoiceCurrency || !(creditNote ? Number(amount) < 0 : Number(amount) > 0)) return null;
     const line = { category: invoiceCategory, amount, currency: invoiceCurrency, item: invoiceData.description?.trim().slice(0, 300) || undefined };
     if (!invoiceToMaster) return invoiceTargetShipmentId ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, shipmentId: invoiceTargetShipmentId }] } : null;
+    // A master job's invoice without B/Ls is split by splitRequest.
+    if (!creditNote) return null;
     const split = splitMethod ? splitLines(lineRows, lineTicked, splitMethod) : [];
     return split.some((l) => l.weight > 0) ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, split }], ...onMaster } : null;
-  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceMasterJobId, invoiceTargetShipmentId, invoiceCategory, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency]);
+  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceMasterJobId, invoiceTargetShipmentId, invoiceCategory, invoiceTotal, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency]);
   const linesReady = !!linesRequest && !linesInvalid && (!linesToSplit || lineMissingWm.length === 0);
   const linesRepeated = !!linesPreview?.some((r) => r.repeated);
   const postShipments = new Set(linesPreview?.map((r) => r.shipmentId)).size;
+  const editInvoiceData = (patch: Partial<InvoiceExtracted>) => setInvoiceData((d) => ({ ...d, ...patch }));
+  const invoiceTotalValid = creditNote ? invoiceTotal !== 0 : invoiceTotal > 0;
+  // What one shipment's review shows of the reading beside the fields the user corrects.
+  const invoiceReadOnly = Object.entries(invoiceData)
+    .filter(([key, value]) => value && !INVOICE_EDITED_FIELDS.has(key))
+    .map(([key, value]) => ({ key, label: INVOICE_FIELD_LABELS[key] || key, children: key === "service_type" ? chargeLabel(String(value)) : String(value) }));
   const tickInvoiceShipment = (shipmentId: string, ticked: boolean) =>
     setInvoiceUnticked((prev) => {
       const next = new Set(prev);
@@ -460,7 +501,7 @@ export function DocumentReadingWorkflow() {
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
     }
     if (creditNote && splitDone) return `Credit note deducted from ${splitDone.written.join(", ")}`;
-    if (destination === "invoicing" && splitDone)
+    if (invoiceToMaster && splitDone)
       return `Invoice split over ${splitDone.written.length} shipment${splitDone.written.length !== 1 ? "s" : ""} of ${invoiceMcz}`;
     if (destination === "invoicing") return `Invoice data written to ${committedJobNumber || "shipment"}`;
     if (destination === "booking")
@@ -493,6 +534,12 @@ export function DocumentReadingWorkflow() {
 
   // ─── Input handling ──────────────────────────────────────────────
   const beforeUpload = (file: File) => {
+    // Each file is read in a request of its own; a pre-alert's files go in one, whose total is checked (MASTER_FILES_MAX_BYTES).
+    const tooLarge = destination === "masterjob" ? null : readFileProblem(file);
+    if (tooLarge) {
+      setRefusedFiles((prev) => (prev.includes(tooLarge) ? prev : [...prev, tooLarge]));
+      return false;
+    }
     if (destination === "masterjob" || destination === "shipment" || destination === "invoicing") {
       const setFiles = destination === "masterjob" ? setMasterFiles : destination === "invoicing" ? setInvoiceFiles : setShipmentFiles;
       fileToBase64(file)
@@ -548,11 +595,39 @@ export function DocumentReadingWorkflow() {
     return hasShipmentInput && (shipmentMode === "new" || !!targetShipmentId);
   })();
 
+  // Nothing of an earlier pre-alert read stays: a new read starts on the next free MCZ, without the
+  // earlier Master B/L's details or House B/Ls, and a batch still on its way for it is dropped.
+  const resetPipeline = () => {
+    pipelineRun.current = { sessionId: "", batchIndex: 0 };
+    setPipelineSessionId("");
+    setPipelineStep("idle");
+    setClassification({});
+    setPreparedFiles([]);
+    setBatchJob(null);
+    houseShipments.current.clear();
+    setMblInfo(null);
+    setMblTicked({});
+    setMblFiled(false);
+    setMblReadError(null);
+    setMasterShipments([]);
+    setMasterIdx(0);
+    setMasterFields([]);
+    setMasterCreatedJobs([]);
+    setMasterDocs([]);
+    setMasterDocsSaved(0);
+    setHblBatchIndex(0);
+    setHblTotalBatches(0);
+    setHblLoading(false);
+    setWaitingForBatch(false);
+  };
+
   // ─── Extraction ──────────────────────────────────────────────────
-  // `invoiceFile`: the invoice of the queue to read; else the first one not done yet.
-  const handleExtract = async (invoiceFile?: UploadedFile) => {
+  // `invoiceFile`: the invoice of the queue to read; else the first one not done yet. `retryFailed`: a
+  // Shipments read again for the files that failed, keeping what the others gave.
+  const handleExtract = async ({ invoiceFile, retryFailed = false }: { invoiceFile?: UploadedFile; retryFailed?: boolean } = {}) => {
     setStep("extracting");
     setError(null);
+    setRefusedFiles([]);
     // A new read starts from its own name and type, not ones edited for an earlier file.
     setSaveDocument(true);
     setDocNameEdit(null);
@@ -563,23 +638,34 @@ export function DocumentReadingWorkflow() {
     setSplitDone(null);
     try {
       if (destination === "shipment") {
-        // Each file is read on its own, then all of them are merged into one review.
+        // Each file is read on its own, then all of them are merged into one review. A file that can't
+        // be read leaves the others to review (each read is a paid call), and is named with a retry.
         const reads: { file?: UploadedFile; values: Record<string, string>; method: string }[] = [];
         if (inputMode === "file") {
-          for (const file of shipmentFiles) {
-            try {
+          const { reads: byFile, failed } = await readEachFile(
+            shipmentFiles,
+            async (file): Promise<ShipmentRead> => {
               const result = await api.extraction.extractDocument({ fileBase64: file.base64, fileName: file.name });
-              reads.push({ file, values: normalizeExtracted(result.extracted), method: result.method });
-            } catch (err) {
-              throw new Error(`${file.name} could not be read: ${apiErrorMessage(err)}`);
-            }
+              return { values: normalizeExtracted(result.extracted), method: result.method };
+            },
+            retryFailed ? shipmentReads.current : undefined,
+          );
+          shipmentReads.current = byFile;
+          if (byFile.size === 0) {
+            throw new Error(failed.map((f) => `${f.file.name} could not be read: ${apiErrorMessage(f.error)}`).join(" "));
+          }
+          setShipmentReadFailures(failed);
+          for (const file of shipmentFiles) {
+            const read = byFile.get(file.uid);
+            if (read) reads.push({ file, ...read });
           }
         } else {
+          setShipmentReadFailures([]);
           const result = await api.extraction.extractText({ text: textInput.trim(), destination: "shipment" });
           reads.push({ values: normalizeExtracted(result.extracted), method: result.method });
         }
         const merged = mergeReads(reads.map((r) => ({ source: r.file?.name ?? "text", values: r.values })));
-        const target = shipmentMode === "existing" ? shipments.find((s) => s.id === targetShipmentId) : undefined;
+        const target = shipmentMode === "existing" ? (targetShipment ?? undefined) : undefined;
         setFields(
           buildFields(merged.values, (label) => {
             if (label === SEAL_LABEL) {
@@ -625,7 +711,8 @@ export function DocumentReadingWorkflow() {
         // Each line's charge as suggested, and only one the picker offers.
         const readLines = (result.invoiceLines ?? []).map((l) => {
             const code = toChargeCode(l.serviceType);
-            return { bl: l.bl, item: l.item, amount: l.amount, currency: l.currency, category: chargeOptions().some((c) => c.value === code) ? code : "" };
+            // A line's currency that is no code goes by the invoice's.
+            return { bl: l.bl, item: l.item, amount: l.amount, currency: readCurrency(l.currency), category: chargeOptions().some((c) => c.value === code) ? code : "" };
           });
         setInvoiceLines(creditNote ? creditLines(readLines) : readLines);
         setInvoiceLinesSkipped(!!result.invoiceLinesSkipped);
@@ -637,7 +724,7 @@ export function DocumentReadingWorkflow() {
             ? await api.extraction.extractCustoms({ fileBase64, fileName })
             : await api.extraction.extractText({ text: textInput.trim(), destination: "customs" });
         if (Object.keys(result.extracted).length === 0) throw new Error("No customs data found in this document.");
-        const target = shipments.find((s) => s.id === customsShipmentId);
+        const target = customsShipment;
         const targetContainers = (target?.containers ?? []).map((c) => c.containerNumber).filter(Boolean);
         setFields(
           buildFields(result.extracted, (label) => {
@@ -672,15 +759,12 @@ export function DocumentReadingWorkflow() {
         await quoteReading.read(inputMode === "file" ? { fileBase64, fileName } : { text: textInput.trim() });
         setStep("review");
       } else {
-        // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
-        setBatchMcz("");
-        mblOnlyJobId.current = null;
-        setMblFiled(false);
-        setMasterCreatedJobs([]);
-        setPipelineStep("idle");
+        // masterjob — Phase 1: prepare + classify.
+        resetPipeline();
         const prep = await api.extraction.pipelinePrepare({
           files: masterFiles.map((f) => ({ fileBase64: f.base64, fileName: f.name })),
         });
+        pipelineRun.current = { sessionId: prep.sessionId, batchIndex: 0 };
         setPreparedFiles(prep.files);
         setPipelineSessionId(prep.sessionId);
         setClassification(prep.classification);
@@ -698,7 +782,7 @@ export function DocumentReadingWorkflow() {
   // the same shipment or master job, with the same split.
   const readNextInvoice = (file: UploadedFile) => {
     setInvoiceFilesDone((prev) => new Set(prev).add(invoiceFileUid));
-    void handleExtract(file);
+    void handleExtract({ invoiceFile: file });
   };
 
   // ─── Field toggles ───────────────────────────────────────────────
@@ -710,6 +794,19 @@ export function DocumentReadingWorkflow() {
   const pickField = (i: number, value: string) =>
     setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, extractedValue: value, approved: true } : f)));
   const setAll = (approved: boolean) => setFields((prev) => prev.map((f) => ({ ...f, approved })));
+
+  // One write of the read at a time: its button shows it is working, and a second click while it runs
+  // does nothing, so a slow write never creates the shipment twice.
+  const [writing, setWriting] = useState(false);
+  const whileWriting = (write: () => Promise<unknown>) => async () => {
+    if (writing) return;
+    setWriting(true);
+    try {
+      await write();
+    } finally {
+      setWriting(false);
+    }
+  };
 
   // ─── Commit: shipment ────────────────────────────────────────────
   const commitShipment = async () => {
@@ -728,37 +825,50 @@ export function DocumentReadingWorkflow() {
     let jobNumber = "";
     try {
       if (shipmentMode === "existing") {
-        const target = shipments.find((s) => s.id === targetShipmentId);
+        // Read as it is now: its containers and cargo lines are sent back whole, so a copy from
+        // before would drop the rows added since.
+        const { shipment: target } = await api.shipments.shipmentGet(targetShipmentId);
         let data = toShipmentUpdate(approved);
-        data = await withPartyLinks(data, async () => target ?? (await api.shipments.shipmentGet(targetShipmentId)).shipment, keptPartyDetails);
+        data = await withPartyLinks(data, async () => target, keptPartyDetails);
         // Extracted containers join the shipment's existing rows (never replace).
-        const after = containersRead ? containersFrom(target?.containers ?? []) : [];
+        const after = containersRead ? containersFrom(target.containers ?? []) : [];
         if (after.length > 0) data.containers = after;
         // An approved package type goes onto all of the shipment's containers and cargo lines.
-        if (approved["Type Of Packages"] && !data.containers?.length && target?.containers?.length) {
+        if (approved["Type Of Packages"] && !data.containers?.length && target.containers?.length) {
           data.containers = target.containers;
         }
         data = withContainerType(data, approved);
-        data = withCargoLine(data, approved, target?.cargoItems ?? []);
-        data = withPackageType(data, approved["Type Of Packages"], target?.cargoItems ?? []);
+        data = withCargoLine(data, approved, target.cargoItems ?? []);
+        data = withPackageType(data, approved["Type Of Packages"], target.cargoItems ?? []);
         await updateShipment({ id: targetShipmentId, data });
-        jobNumber = target?.jobNumber || "";
+        jobNumber = target.jobNumber;
       } else {
-        const created = await createShipment(baseCreatePayload());
-        shipmentId = created.shipment.id;
-        let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
-        const after = containersRead ? containersFrom([]) : [];
-        if (after.length > 0) data.containers = after;
-        data = withContainerType(data, approved);
-        data = withCargoLine(data, approved);
-        data = withPackageType(data, approved["Type Of Packages"]);
-        await updateShipment({ id: created.shipment.id, data });
+        const created = await createAndWrite(
+          createdShipment,
+          async () => (await createShipment(baseCreatePayload())).shipment,
+          async (shipment) => {
+            let data = await withPartyLinks(toShipmentUpdate(approved), async () => shipment, keptPartyDetails);
+            const after = containersRead ? containersFrom([]) : [];
+            if (after.length > 0) data.containers = after;
+            data = withContainerType(data, approved);
+            data = withCargoLine(data, approved);
+            data = withPackageType(data, approved["Type Of Packages"]);
+            await updateShipment({ id: shipment.id, data });
+          },
+        );
+        createdShipment.current = null;
+        shipmentId = created.id;
         // The number the server gave the shipment (a parallel create may have taken the preview).
-        jobNumber = created.shipment.jobNumber;
+        jobNumber = created.jobNumber;
       }
       setCommittedJobNumber(jobNumber);
-    } catch {
-      return toast.error("Failed to write shipment data.");
+    } catch (err) {
+      const made = shipmentMode === "new" ? createdShipment.current?.shipment : null;
+      return toast.error(
+        made
+          ? `${made.jobNumber} was created, but its fields could not be written: ${apiErrorMessage(err)}. Write them again to finish it.`
+          : `Failed to write shipment data: ${apiErrorMessage(err)}`,
+      );
     }
     const saved: string[] = [];
     for (const d of shipmentDocViews) {
@@ -794,27 +904,6 @@ export function DocumentReadingWorkflow() {
     } catch {
       toast.error(`The fields were written, but ${name} could not be saved to ${jobNumber || "the shipment"}. Add it on its Documents tab.`);
       return false;
-    }
-  };
-
-  // ─── Commit: invoicing ───────────────────────────────────────────
-  const commitInvoice = async () => {
-    if (!invoiceCategory) return toast.warning("Please select a cost category.");
-    if (!invoiceTargetShipmentId) return toast.warning("Please select a target shipment.");
-    try {
-      const params: Parameters<typeof api.invoicing.invoicingUpsertCost>[1] = {
-        category: invoiceCategory,
-        realCurrency: normalizeCurrency(invoiceData.currency),
-        invoiceNumber: invoiceData.invoice_number || "",
-        vendor: invoiceData.vendor || "",
-      };
-      // realAmount is a numeric column — only send it when non-empty.
-      if (invoiceData.total_amount) params.realAmount = invoiceData.total_amount;
-      await api.invoicing.invoicingUpsertCost(invoiceTargetShipmentId, params);
-      setCommittedJobNumber(shipments.find((s) => s.id === invoiceTargetShipmentId)?.jobNumber || "");
-      setStep("committed");
-    } catch {
-      toast.error("Failed to save invoicing data.");
     }
   };
 
@@ -859,7 +948,10 @@ export function DocumentReadingWorkflow() {
 
   // The job number of a shipment a credit note or sorted invoice goes to.
   const jobOf = (id: string) =>
-    blShipments.find((s) => s.shipmentId === id)?.jobNumber ?? shipments.find((s) => s.id === id)?.jobNumber ?? id;
+    blShipments.find((s) => s.shipmentId === id)?.jobNumber ??
+    (invoiceShipment?.id === id ? invoiceShipment.jobNumber : undefined) ??
+    shipments.find((s) => s.id === id)?.jobNumber ??
+    id;
 
   // ─── Commit: invoice sorted by its B/Ls, or a credit note ────────
   const commitInvoiceLines = async () => {
@@ -869,7 +961,8 @@ export function DocumentReadingWorkflow() {
     try {
       const { rows } = await api.invoicing.invoicingPostInvoiceLines({ ...linesRequest, allowRepeat });
       const posted = [...new Set(rows.map((r) => r.shipmentId))];
-      for (const id of posted) queryClient.invalidateQueries({ queryKey: ["invoicing", id] });
+      for (const id of posted) queryClient.invalidateQueries({ queryKey: invoicingKey(id) });
+      if (invoiceToShipment) setCommittedJobNumber(jobOf(invoiceTargetShipmentId));
       // The invoice goes to the documents of each shipment it was posted to.
       let docs = 0;
       for (const id of posted) if (await saveReadDocument(id, jobOf(id))) docs += 1;
@@ -891,7 +984,7 @@ export function DocumentReadingWorkflow() {
       const { lines } = await api.invoicing.invoicingSplitCost({ ...splitRequest, overwriteShipmentIds: [...splitOverwrite] });
       const jobOf = (id: string) => invoiceRows.find((r) => r.shipmentId === id)?.jobNumber ?? id;
       const written = lines.filter((l) => l.written);
-      for (const l of written) queryClient.invalidateQueries({ queryKey: ["invoicing", l.shipmentId] });
+      for (const l of written) queryClient.invalidateQueries({ queryKey: invoicingKey(l.shipmentId) });
       // The invoice goes to the documents of each shipment it was posted to.
       let docs = 0;
       for (const l of written) if (await saveReadDocument(l.shipmentId, jobOf(l.shipmentId))) docs += 1;
@@ -913,25 +1006,22 @@ export function DocumentReadingWorkflow() {
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     try {
-      const target = shipments.find((s) => s.id === customsShipmentId);
-      const data = await withPartyLinks(
-        toShipmentUpdate(approved),
-        async () => target ?? (await api.shipments.shipmentGet(customsShipmentId)).shipment,
-        keptPartyDetails,
-      );
+      // Read as it is now: its containers are sent back whole, so a copy from before would drop the rows added since.
+      const { shipment: target } = await api.shipments.shipmentGet(customsShipmentId);
+      const data = await withPartyLinks(toShipmentUpdate(approved), async () => target, keptPartyDetails);
       if (approved["MRN Number"]) data.mrn = approved["MRN Number"];
       // Add only the containers the shipment doesn't have yet (never replace).
-      const existing = target?.containers ?? [];
+      const existing = target.containers ?? [];
       const known = new Set(existing.map((c) => c.containerNumber));
       const added = containerRowsFromNumbers(
         parseContainerNumbers(approved["Container Number"]).filter((n) => !known.has(n)),
       );
       if (added.length > 0) data.containers = [...existing, ...added];
       await updateShipment({ id: customsShipmentId, data });
-      setCommittedJobNumber(target?.jobNumber || "");
+      setCommittedJobNumber(target.jobNumber);
       setStep("committed");
-    } catch {
-      toast.error("Failed to write the customs data to the shipment.");
+    } catch (err) {
+      toast.error(`Failed to write the customs data to the shipment: ${apiErrorMessage(err)}`);
     }
   };
 
@@ -974,20 +1064,39 @@ export function DocumentReadingWorkflow() {
   // A batch's House B/L documents, one per shipment (none from a server that sends none).
   const batchDocs = (res: interfaces.ExtractHblResult) => (res.shipments ?? []).map((_, i) => res.documents?.[i] ?? null);
 
-  const startMasterExtraction = async () => {
+  // `withoutMbl`: the user goes on to the House B/Ls after the Master B/L could not be read.
+  const startMasterExtraction = async (withoutMbl = false) => {
+    const sessionId = pipelineSessionId;
     setPipelineStep("extracting");
     setError(null);
+    setMblReadError(null);
     try {
-      const mbl = await api.extraction.pipelineExtractMbl({ sessionId: pipelineSessionId }).catch(() => null);
-      const info = mbl?.mblInfo ? normalizeExtracted(mbl.mblInfo) : null;
-      if (info) {
-        setMblInfo(info);
-        setMblTicked(mblDefaultTicks(info));
-        setMblFiled(false);
+      // The server answers null for a pre-alert with no Master B/L pages; a read that failed is said,
+      // with a retry, instead of going on as if there were none (each read is a paid AI call, kept
+      // by the server for the session, so a retry reads only what has not been read).
+      let info: Record<string, string> | null = null;
+      if (!withoutMbl) {
+        try {
+          const mbl = await api.extraction.pipelineExtractMbl({ sessionId });
+          info = mbl.mblInfo ? normalizeExtracted(mbl.mblInfo) : null;
+        } catch (err) {
+          if (pipelineRun.current.sessionId !== sessionId) return;
+          setMblReadError(`The Master B/L could not be read: ${apiErrorMessage(err)}`);
+          setPipelineStep("classified");
+          return;
+        }
       }
 
-      const hbl = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: 0 });
+      const hbl = await api.extraction.pipelineExtractHbl({ sessionId, batchIndex: 0 });
+      if (pipelineRun.current.sessionId !== sessionId) return;
       const extracted = (hbl.shipments || []).map((house) => withMblSeals(normalizeExtracted(house), info));
+      if (extracted.length === 0 && (hbl.totalBatches || 1) <= 1 && !info) {
+        throw new Error("Nothing could be read from this pre-alert's Bills of Lading.");
+      }
+      pipelineRun.current.batchIndex = 1;
+      setMblInfo(info);
+      setMblTicked(info ? mblDefaultTicks(info) : {});
+      setMblFiled(false);
       setMasterShipments(extracted);
       setMasterDocs(batchDocs(hbl));
       setMasterDocsSaved(0);
@@ -998,22 +1107,29 @@ export function DocumentReadingWorkflow() {
       loadMasterFields(extracted[0]);
       setPipelineStep("ready");
     } catch (err) {
+      if (pipelineRun.current.sessionId !== sessionId) return;
       setError(err instanceof Error ? err.message : "Failed to extract shipments.");
       setPipelineStep("classified");
     }
   };
 
   // Reads the current session and batch, so the prefetch below always asks for the right one.
+  // An answer is taken only while its read and batch are still the current ones (pipelineRun).
   const loadNextBatch = useCallback(async () => {
     if (hblLoading || hblBatchIndex >= hblTotalBatches) return;
+    const asked = { sessionId: pipelineSessionId, batchIndex: hblBatchIndex };
+    const current = () => pipelineRun.current.sessionId === asked.sessionId && pipelineRun.current.batchIndex === asked.batchIndex;
     setHblLoading(true);
     setError(null);
     try {
-      const res = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: hblBatchIndex });
+      const res = await api.extraction.pipelineExtractHbl(asked);
+      if (!current()) return;
+      pipelineRun.current.batchIndex = asked.batchIndex + 1;
       setMasterShipments((prev) => [...prev, ...(res.shipments || []).map((house) => withMblSeals(normalizeExtracted(house), mblInfo))]);
       setMasterDocs((prev) => [...prev, ...batchDocs(res)]);
-      setHblBatchIndex((prev) => prev + 1);
+      setHblBatchIndex(asked.batchIndex + 1);
     } catch (err) {
+      if (!current()) return;
       setError(err instanceof Error ? err.message : "Failed to load next batch.");
     }
     setHblLoading(false);
@@ -1129,12 +1245,11 @@ export function DocumentReadingWorkflow() {
     if (masterMode === "existing" && !currentMasterJob) return toast.warning(`Master job ${activeMcz || ""} was not found.`);
     setFilingMblOnly(true);
     try {
-      let id = masterMode === "existing" ? currentMasterJob!.id : mblOnlyJobId.current;
+      let id = masterMode === "existing" ? currentMasterJob!.id : batchJob?.id;
       if (!id) {
         const { masterJob } = await createMasterJob.mutateAsync();
         id = masterJob.id;
-        mblOnlyJobId.current = id;
-        setBatchMcz(masterJob.mczNumber);
+        setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
       }
       if (await fileMblToMasterJob(id)) setStep("committed");
     } catch (err) {
@@ -1147,29 +1262,49 @@ export function DocumentReadingWorkflow() {
     destination === "masterjob" && pipelineStep === "ready" && masterShipments.length === 0 && hblBatchIndex >= hblTotalBatches && !!mblInfo;
 
   const validateAndCreate = async () => {
-    if (!activeMcz) return toast.warning("No MCZ number available.");
+    if (masterMode === "existing" && !masterMczExisting) return toast.warning("No MCZ number available.");
     const approved = fieldsToLabelValues(masterFields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
+    const house = masterIdx;
     try {
-      const created = await createShipment(baseCreatePayload());
-      let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
-      const newContainers = approved["Container Number"]
-        ? containersAfterReading([], { numbers: approved["Container Number"], addNumbers: true, seals: approved[SEAL_LABEL] })
-        : [];
-      if (newContainers.length > 0) data.containers = newContainers;
-      data = withContainerType(data, approved);
-      data = withCargoLine(data, approved);
-      data = withPackageType(data, approved["Type Of Packages"]);
-      await updateShipment({ id: created.shipment.id, data });
-      const linked = await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
-      if (masterMode === "new") setBatchMcz(activeMcz);
+      let job: { mczNumber: string } | null = masterMode === "existing" ? { mczNumber: masterMczExisting } : batchJob;
+      if (!job) {
+        const { masterJob } = await createMasterJob.mutateAsync();
+        job = { mczNumber: masterJob.mczNumber };
+        setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
+      }
+      const progress = houseShipments.current.get(house) ?? { current: null };
+      houseShipments.current.set(house, progress);
+      const shipment = await createAndWrite(
+        progress,
+        async () => (await createShipment(baseCreatePayload())).shipment,
+        async (created) => {
+          let data = await withPartyLinks(toShipmentUpdate(approved), async () => created, keptPartyDetails);
+          const newContainers = approved["Container Number"]
+            ? containersAfterReading([], { numbers: approved["Container Number"], addNumbers: true, seals: approved[SEAL_LABEL] })
+            : [];
+          if (newContainers.length > 0) data.containers = newContainers;
+          data = withContainerType(data, approved);
+          data = withCargoLine(data, approved);
+          data = withPackageType(data, approved["Type Of Packages"]);
+          await updateShipment({ id: created.id, data });
+        },
+      );
+      // By the number the server gave the master job: its digits are only ever its own.
+      const linked = await linkMasterJob({ shipmentId: shipment.id, mczNumber: job.mczNumber });
+      houseShipments.current.delete(house);
       if (!mblFiled && linked.shipment.masterJobId) await fileMblToMasterJob(linked.shipment.masterJobId);
-      if (await saveReadDocument(created.shipment.id, created.shipment.jobNumber)) setMasterDocsSaved((n) => n + 1);
-      setMasterCreatedJobs((prev) => [...prev, created.shipment.jobNumber]);
+      if (await saveReadDocument(shipment.id, shipment.jobNumber)) setMasterDocsSaved((n) => n + 1);
+      setMasterCreatedJobs((prev) => [...prev, shipment.jobNumber]);
       advanceMaster();
-    } catch {
-      toast.error("Failed to create shipment.");
+    } catch (err) {
+      const made = houseShipments.current.get(house)?.current?.shipment;
+      toast.error(
+        made
+          ? `${made.jobNumber} was created, but could not be finished: ${apiErrorMessage(err)}. Validate & Create again finishes it.`
+          : `The shipment could not be created: ${apiErrorMessage(err)}`,
+      );
     }
   };
 
@@ -1193,18 +1328,21 @@ export function DocumentReadingWorkflow() {
     setMasterFiles([]);
     setShipmentFiles([]);
     setShipmentDocs([]);
+    shipmentReads.current = new Map();
+    setShipmentReadFailures([]);
+    setRefusedFiles([]);
     setInvoiceFiles([]);
     setInvoiceFilesDone(new Set());
     setInvoiceFileUid("");
-    setPreparedFiles([]);
     setTextInput("");
     setFields([]);
     setExtractionMethod("");
     setShipmentMode("existing");
-    setTargetShipmentId("");
+    setTargetShipment(null);
+    createdShipment.current = null;
     setCommittedJobNumber("");
     quoteReading.reset();
-    setCustomsShipmentId("");
+    setCustomsShipment(null);
     setBookingMode("new");
     setBookingMcz("");
     setBookingCreated(null);
@@ -1214,7 +1352,7 @@ export function DocumentReadingWorkflow() {
     setLinesPreview(null);
     setAllowRepeat(false);
     setInvoiceCategory("");
-    setInvoiceTargetShipmentId("");
+    setInvoiceShipment(null);
     setInvoiceTarget("shipment");
     setInvoiceMcz("");
     setInvoiceUnticked(new Set());
@@ -1225,25 +1363,8 @@ export function DocumentReadingWorkflow() {
     setSplitDone(null);
     setMasterMode("new");
     setMasterMczExisting("");
-    setBatchMcz("");
-    mblOnlyJobId.current = null;
-    setPipelineSessionId("");
-    setPipelineStep("idle");
-    setClassification({});
     setInvoiceCreditNote(false);
-    setMblInfo(null);
-    setMblTicked({});
-    setMblFiled(false);
-    setMasterShipments([]);
-    setMasterIdx(0);
-    setMasterFields([]);
-    setMasterCreatedJobs([]);
-    setMasterDocs([]);
-    setMasterDocsSaved(0);
-    setHblBatchIndex(0);
-    setHblTotalBatches(0);
-    setHblLoading(false);
-    setWaitingForBatch(false);
+    resetPipeline();
   };
 
   const stepIndex = { upload: 0, extracting: 1, review: 2, committed: 3 }[step];
@@ -1298,8 +1419,9 @@ export function DocumentReadingWorkflow() {
               onChange={(v) => {
                 setDestination(v as Destination);
                 setError(null);
-                setBatchMcz("");
-                mblOnlyJobId.current = null;
+                setRefusedFiles([]);
+                setBatchJob(null);
+                createdShipment.current = null;
                 setBookingCreated(null);
               }}
               options={DESTINATION_OPTIONS as unknown as { value: string; label: string }[]}
@@ -1319,15 +1441,7 @@ export function DocumentReadingWorkflow() {
                 <Radio value="new">Create new shipment</Radio>
               </Radio.Group>
               {shipmentMode === "existing" ? (
-                <Select
-                  showSearch
-                  className="w-full"
-                  placeholder="Select shipment…"
-                  value={targetShipmentId || undefined}
-                  onChange={(v) => setTargetShipmentId(v || "")}
-                  options={shipmentOptions}
-                  filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-                />
+                <ShipmentPicker value={targetShipment} onChange={setTargetShipment} />
               ) : (
                 <Pill tone="slate" className={REF}>
                   {newShipmentPreview} (will be assigned)
@@ -1353,15 +1467,7 @@ export function DocumentReadingWorkflow() {
               {invoiceTarget === "shipment" ? (
                 <>
                   <div className={`${LABEL_TEXT} mb-1.5`}>Target shipment for invoice costs</div>
-                  <Select
-                    showSearch
-                    className="w-full"
-                    placeholder="Select shipment…"
-                    value={invoiceTargetShipmentId || undefined}
-                    onChange={(v) => setInvoiceTargetShipmentId(v || "")}
-                    options={shipmentOptions}
-                    filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-                  />
+                  <ShipmentPicker value={invoiceShipment} onChange={setInvoiceShipment} />
                 </>
               ) : (
                 <>
@@ -1399,15 +1505,7 @@ export function DocumentReadingWorkflow() {
           {destination === "customs" && (
             <div className="mb-4">
               <div className={`${LABEL_TEXT} mb-1.5`}>Internal Reference (required)</div>
-              <Select
-                showSearch
-                className="w-full"
-                placeholder="Select shipment…"
-                value={customsShipmentId || undefined}
-                onChange={(v) => setCustomsShipmentId(v || "")}
-                options={shipmentOptions}
-                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-              />
+              <ShipmentPicker value={customsShipment} onChange={setCustomsShipment} />
             </div>
           )}
 
@@ -1453,8 +1551,7 @@ export function DocumentReadingWorkflow() {
                 value={masterMode}
                 onChange={(e) => {
                   setMasterMode(e.target.value);
-                  setBatchMcz("");
-                  mblOnlyJobId.current = null;
+                  setBatchJob(null);
                 }}
                 className="mb-2"
               >
@@ -1566,6 +1663,18 @@ export function DocumentReadingWorkflow() {
 
           {error && <Alert className="mt-3" type="error" showIcon message={error} />}
 
+          {refusedFiles.length > 0 && (
+            <Alert
+              className="mt-3"
+              type="warning"
+              showIcon
+              message={refusedFiles.length === 1 ? "A file was not added" : `${refusedFiles.length} files were not added`}
+              description={refusedFiles.map((text) => (
+                <div key={text}>{text}</div>
+              ))}
+            />
+          )}
+
           <Button type="primary" className="mt-4" disabled={!canExtract} onClick={() => handleExtract()}>
             {destination === "masterjob" ? "Extract Pre-Alert" : "Extract Data"}
           </Button>
@@ -1614,13 +1723,39 @@ export function DocumentReadingWorkflow() {
           }
         >
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+          {destination === "shipment" && shipmentReadFailures.length > 0 && (
+            <Alert
+              className="mb-3"
+              type="warning"
+              showIcon
+              message={`${shipmentReadFailures.map((f) => f.file.name).join(", ")} could not be read`}
+              description={
+                <>
+                  {shipmentReadFailures.map((f) => (
+                    <div key={f.file.uid}>
+                      {f.file.name}: {apiErrorMessage(f.error)}
+                    </div>
+                  ))}
+                  <div className="mt-1">
+                    The fields below are from the other files, and only they are saved to the documents. Retry reads only{" "}
+                    {shipmentReadFailures.length === 1 ? "this file" : "these files"} and sets the review up again.
+                  </div>
+                </>
+              }
+              action={
+                <Button size="small" disabled={writing} onClick={() => handleExtract({ retryFailed: true })}>
+                  Retry
+                </Button>
+              }
+            />
+          )}
           <FieldReviewTable
             fields={fields}
             onToggle={toggleField}
             editable
             onEdit={editField}
             onPick={pickField}
-            containersOnFile={shipmentMode === "existing" ? containerNumbersOnFile(shipments.find((s) => s.id === targetShipmentId)?.containers ?? []) : []}
+            containersOnFile={shipmentMode === "existing" ? containerNumbersOnFile(targetShipment?.containers ?? []) : []}
           />
           {shipmentDocViews.map((d) => (
             <SaveDocumentBox
@@ -1647,18 +1782,18 @@ export function DocumentReadingWorkflow() {
             />
           )}
           <div className="flex gap-2 mt-4">
-            <Button onClick={() => setStep("upload")}>Back</Button>
+            <Button disabled={writing} onClick={() => setStep("upload")}>Back</Button>
             <Button
               type="primary"
               disabled={approvedCount === 0 || docNameMissing}
-              onClick={destination === "customs" ? commitCustoms : destination === "booking" ? handleCommitBooking : commitShipment}
-              loading={destination === "booking" && bookingSaving}
+              onClick={destination === "customs" ? whileWriting(commitCustoms) : destination === "booking" ? handleCommitBooking : whileWriting(commitShipment)}
+              loading={destination === "booking" ? bookingSaving : writing}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
               {destination === "booking"
                 ? bookingMasterJob?.mczNumber ?? bookingCreated?.mczNumber ?? `${newMcz} (new master job)`
                 : destination === "customs"
-                  ? shipments.find((s) => s.id === customsShipmentId)?.jobNumber || "shipment"
+                  ? customsShipment?.jobNumber || "shipment"
                   : shipmentMode === "new"
                     ? newShipmentPreview
                     : "shipment"}
@@ -1693,42 +1828,7 @@ export function DocumentReadingWorkflow() {
         <SectionCard title={`${docWord} for master job ${invoiceMcz}`}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           {linesSkippedAlert}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_110px_1fr_1fr] gap-3 mb-4">
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>
-                {docWord} total <span className="text-red-500">*</span>
-              </div>
-              <Input
-                aria-label={`${docWord} total`}
-                value={invoiceData.total_amount ?? ""}
-                onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value }))}
-                status={invoiceTotal > 0 || (creditNote && invoiceTotal < 0) ? undefined : "error"}
-              />
-            </div>
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>Currency</div>
-              <Select
-                className="w-full"
-                value={invoiceCurrency}
-                onChange={(v) => setInvoiceData((d) => ({ ...d, currency: v }))}
-                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-              />
-            </div>
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>
-                {docWord} number <span className="text-red-500">*</span>
-              </div>
-              <Input
-                value={invoiceData.invoice_number ?? ""}
-                onChange={(e) => setInvoiceData((d) => ({ ...d, invoice_number: e.target.value }))}
-                status={invoiceData.invoice_number?.trim() ? undefined : "error"}
-              />
-            </div>
-            <div>
-              <div className={`${LABEL_TEXT} mb-1.5`}>Vendor</div>
-              <Input value={invoiceData.vendor ?? ""} onChange={(e) => setInvoiceData((d) => ({ ...d, vendor: e.target.value }))} />
-            </div>
-          </div>
+          <InvoiceHeaderFields docWord={docWord} data={invoiceData} onChange={editInvoiceData} totalValid={invoiceTotalValid} className="mb-4" />
           {invoiceByBl ? (
             <>
               <InvoiceLinesTable
@@ -1847,27 +1947,13 @@ export function DocumentReadingWorkflow() {
         </SectionCard>
       )}
 
-      {step === "review" && destination === "invoicing" && !invoiceToMaster && (
+      {step === "review" && invoiceToShipment && (
         <SectionCard title={creditNote ? "Credit note data extracted" : "Invoice data extracted"}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           {linesSkippedAlert}
-          <Descriptions
-            bordered
-            size="small"
-            column={2}
-            items={Object.entries(invoiceData)
-              .filter(([, v]) => v)
-              .map(([key, value]) => ({
-                key,
-                label: INVOICE_FIELD_LABELS[key] || key,
-                children:
-                  key === "service_type"
-                    ? chargeLabel(String(value))
-                    : key === "total_amount" && invoiceData.currency
-                      ? `${value} ${invoiceData.currency}`
-                      : String(value),
-              }))}
-          />
+          {invoiceReadOnly.length > 0 && <Descriptions bordered size="small" column={2} className="mb-4" items={invoiceReadOnly} />}
+          <InvoiceHeaderFields docWord={docWord} data={invoiceData} onChange={editInvoiceData} totalValid={invoiceTotalValid} />
+          {creditNote && <p className={`mt-1.5 mb-0 ${HINT}`}>Deducted from buying as a minus, however it is printed.</p>}
           <div className="mt-4">
             <div className={`${LABEL_TEXT} mb-1.5`}>
               Cost Category <span className="text-red-500">*</span>
@@ -1886,66 +1972,21 @@ export function DocumentReadingWorkflow() {
               }))}
             />
           </div>
-          {creditNote && (
-            <div className="mt-4">
-              <div className="grid grid-cols-1 sm:grid-cols-[180px_110px_288px] gap-3">
-                <div>
-                  <div className={`${LABEL_TEXT} mb-1.5`}>
-                    Credit note total <span className="text-red-500">*</span>
-                  </div>
-                  <Input
-                    aria-label="Credit note total"
-                    value={invoiceData.total_amount ?? ""}
-                    onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value }))}
-                    status={invoiceTotal !== 0 ? undefined : "error"}
-                  />
-                </div>
-                <div>
-                  <div className={`${LABEL_TEXT} mb-1.5`}>Currency</div>
-                  <Select
-                    className="w-full"
-                    aria-label="Credit note currency"
-                    value={invoiceCurrency}
-                    onChange={(v) => setInvoiceData((d) => ({ ...d, currency: v }))}
-                    options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-                  />
-                </div>
-                <div>
-                  <div className={`${LABEL_TEXT} mb-1.5`}>
-                    Credit note number <span className="text-red-500">*</span>
-                  </div>
-                  <Input
-                    aria-label="Credit note number"
-                    value={invoiceData.invoice_number ?? ""}
-                    onChange={(e) => setInvoiceData((d) => ({ ...d, invoice_number: e.target.value }))}
-                    status={invoiceData.invoice_number?.trim() ? undefined : "error"}
-                  />
-                </div>
-              </div>
-              <p className={`mt-1.5 mb-0 ${HINT}`}>Deducted from buying as a minus, however it is printed.</p>
-              <div className="mt-4">
-                {linesPreview && <InvoiceLinesPreview rows={linesPreview} jobOf={jobOf} />}
-                {repeatedAlert}
-                {splitError && <Alert className="mb-3" type="error" showIcon message={splitError} />}
-              </div>
-            </div>
-          )}
+          <div className="mt-4">
+            {linesPreview && <InvoiceLinesPreview rows={linesPreview} jobOf={jobOf} />}
+            {repeatedAlert}
+            {splitError && <Alert className="mb-3" type="error" showIcon message={splitError} />}
+          </div>
           <div className="flex gap-2 mt-4">
             <Button onClick={() => setStep("upload")}>Back</Button>
-            {creditNote ? (
-              <Button
-                type="primary"
-                disabled={!linesReady || !linesPreview?.length || !!splitError || (linesRepeated && !allowRepeat)}
-                loading={splitSaving}
-                onClick={commitInvoiceLines}
-              >
-                Deduct from buying (Real Cost)
-              </Button>
-            ) : (
-              <Button type="primary" disabled={!invoiceCategory} onClick={commitInvoice}>
-                Write to invoicing (Real Cost)
-              </Button>
-            )}
+            <Button
+              type="primary"
+              disabled={!linesReady || !linesPreview?.length || !!splitError || (linesRepeated && !allowRepeat)}
+              loading={splitSaving}
+              onClick={commitInvoiceLines}
+            >
+              {creditNote ? "Deduct from buying (Real Cost)" : "Write to invoicing (Real Cost)"}
+            </Button>
           </div>
         </SectionCard>
       )}
@@ -2002,9 +2043,30 @@ export function DocumentReadingWorkflow() {
                   <span className="text-base font-bold text-indigo-700">{hblCount}</span>
                 </div>
                 {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+                {mblReadError && (
+                  <Alert
+                    className="mb-3"
+                    type="error"
+                    showIcon
+                    message={mblReadError}
+                    description={hblCount > 0 ? "Its details (vessel, ports, containers…) go onto the master job and its shipments. Retry, or read the House B/Ls without them." : undefined}
+                    action={
+                      <Space direction="vertical" size={4}>
+                        <Button size="small" onClick={() => startMasterExtraction()}>
+                          Retry
+                        </Button>
+                        {hblCount > 0 && (
+                          <Button size="small" type="text" onClick={() => startMasterExtraction(true)}>
+                            Go on without it
+                          </Button>
+                        )}
+                      </Space>
+                    }
+                  />
+                )}
                 <div className="flex gap-2">
                   <Button onClick={() => setStep("upload")}>Back</Button>
-                  <Button type="primary" onClick={startMasterExtraction}>
+                  <Button type="primary" onClick={() => startMasterExtraction()}>
                     {hblCount === 0 && (classification.MBL || 0) > 0 ? "Read the Master Bill of Lading" : "Extract Shipments from Bills of Lading"}
                   </Button>
                 </div>
@@ -2023,7 +2085,7 @@ export function DocumentReadingWorkflow() {
             <div>
               <div className={CARD_BAR}>
                 <h3 className={CARD_TITLE}>Master Bill of Lading</h3>
-                <Pill tone="slate" className={REF}>{activeMcz}</Pill>
+                <Pill tone="slate" className={REF}>{mczShown}</Pill>
                 <span className={HINT}>No House B/Ls in this upload — the MBL alone is filed</span>
               </div>
               <div className="p-4">
@@ -2032,7 +2094,7 @@ export function DocumentReadingWorkflow() {
                   ticked={mblTicked}
                   onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
                   filed={mblFiled}
-                  mcz={activeMcz}
+                  mcz={mczShown}
                   masterJob={currentMasterJob}
                   loadTypeLocked={mblLoadTypeLocked}
                   alone
@@ -2056,7 +2118,7 @@ export function DocumentReadingWorkflow() {
                   Shipment {Math.min(masterIdx + 1, masterShipments.length)} of {masterShipments.length}
                   {hblBatchIndex < hblTotalBatches ? "+" : ""}
                 </h3>
-                <Pill tone="slate" className={REF}>{activeMcz}</Pill>
+                <Pill tone="slate" className={REF}>{mczShown}</Pill>
                 <span className={HINT}>{masterCreatedJobs.length} created</span>
               </div>
               <div className="p-4">
@@ -2067,7 +2129,7 @@ export function DocumentReadingWorkflow() {
                     ticked={mblTicked}
                     onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
                     filed={mblFiled}
-                    mcz={activeMcz}
+                    mcz={mczShown}
                     masterJob={currentMasterJob}
                     loadTypeLocked={mblLoadTypeLocked}
                     onSealChange={setMblSeals}
@@ -2104,12 +2166,13 @@ export function DocumentReadingWorkflow() {
                     )}
 
                     <div className="flex gap-2 mt-4">
-                      <Button onClick={() => setStep("upload")}>Back</Button>
-                      <Button onClick={advanceMaster}>Skip</Button>
+                      <Button disabled={writing} onClick={() => setStep("upload")}>Back</Button>
+                      <Button disabled={writing} onClick={advanceMaster}>Skip</Button>
                       <Button
                         type="primary"
                         disabled={masterFields.filter((f) => f.approved).length === 0 || docNameMissing}
-                        onClick={validateAndCreate}
+                        loading={writing}
+                        onClick={whileWriting(validateAndCreate)}
                       >
                         Validate &amp; Create
                         {masterIdx < masterShipments.length - 1 || hblBatchIndex < hblTotalBatches ? " → Next" : ""}
@@ -2168,9 +2231,18 @@ export function DocumentReadingWorkflow() {
   );
 }
 
+// The fields of an invoice its review lets the user correct (InvoiceHeaderFields).
+const INVOICE_EDITED_FIELDS = new Set(["total_amount", "currency", "invoice_number", "vendor"]);
+
 // The server accepts 100 MB per request and the files travel base64-encoded
 // (a third larger), so this is the most one batch can carry.
 const MASTER_FILES_MAX_BYTES = 70 * 1024 * 1024;
+
+// What one file of a Shipments read gave.
+interface ShipmentRead {
+  values: Record<string, string>;
+  method: string;
+}
 
 interface UploadedFile {
   uid: string;

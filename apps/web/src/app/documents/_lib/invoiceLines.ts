@@ -1,4 +1,3 @@
-import { num } from "@/lib/money";
 import type { MasterInvoiceRow, SplitMethod } from "./masterInvoice";
 import { splitLines } from "./masterInvoice";
 
@@ -83,14 +82,38 @@ export function matchNote(match: LineMatch): string | null {
 }
 
 /**
- * A line's amount as typed or read ("1,177.20", "1 177,20", "-45"), or null when it is no amount: anything
- * but digits, separators and a minus in front, or 0. Read as the money fields read it (money.ts num).
+ * A line's amount as typed or read ("1,177.20", "1 177,20", "1,250", "-45"), to the cent, or null when it is
+ * no amount: anything but digits, separators and a minus in front, or 0. Read as the server reads an
+ * invoice's amounts (extraction/lib/invoiceLines.ts plainAmount) and as the money fields read them
+ * (money.ts parseMoney): a lone "," before three digits separates thousands ("1,250" is 1250, not 1.25).
+ * A "." or "," separates thousands when exactly three digits follow it and the other separator is in
+ * the number too, or it comes more than once, or it is a lone ","; any other is the decimal point, and
+ * with both the last one always is.
  */
 export function lineAmount(text: string | undefined): number | null {
-  const t = (text ?? "").trim();
-  if (!/^-?[\d\s\u00a0\u202f.,]+$/.test(t)) return null;
-  const n = Math.round(num(t) * 100) / 100;
-  return Number.isFinite(n) && n !== 0 ? n : null;
+  const match = /^(-?)([\d.,]+)$/.exec((text ?? "").replace(/[\s\u00a0\u202f]/g, ""));
+  if (!match) return null;
+  const sign = match[1] ? -1 : 1;
+  const body = match[2]!;
+  const both = body.includes(".") && body.includes(",");
+  const separators = [...body].flatMap((ch, i) => (ch === "." || ch === "," ? [i] : []));
+  const last = separators[separators.length - 1];
+  let decimalAt = -1;
+  for (const i of separators) {
+    const ch = body[i]!;
+    const repeats = body.indexOf(ch) !== body.lastIndexOf(ch);
+    const thousands = !(both && i === last) && /^\d{3}(?!\d)/.test(body.slice(i + 1)) && (both || repeats || ch === ",");
+    // A second decimal point, or thousands after the decimals, is no number.
+    if (decimalAt >= 0) return null;
+    if (!thousands) decimalAt = i;
+  }
+  const digits = (from: number, to?: number) => body.slice(from, to).replace(/[.,]/g, "");
+  const whole = decimalAt < 0 ? digits(0) : digits(0, decimalAt);
+  const fraction = decimalAt < 0 ? "" : body.slice(decimalAt + 1);
+  if (!/^\d*$/.test(fraction) || !(whole + fraction) || whole.length > 12) return null;
+  // Rounded half up on the digits themselves, so 0.005 is 0.01 whatever binary makes of it.
+  const cents = Number(`${whole || "0"}${fraction.padEnd(2, "0").slice(0, 2)}`) + (Number(fraction[2] ?? "0") >= 5 ? 1 : 0);
+  return cents === 0 ? null : (sign * cents) / 100;
 }
 
 const centsOf = (l: InvoiceLineDraft) => Math.round((lineAmount(l.amount) ?? 0) * 100);
@@ -123,8 +146,9 @@ export function invoiceLinesInvalid(lines: readonly InvoiceLineDraft[], matches:
 }
 
 /**
- * The lines as the server posts them, or null while something is missing: a charge or an amount on
- * any line, or, when a line goes to the split, how to split and somebody to split it over.
+ * The lines as the server posts them, or null while something is missing: a charge, an amount or a
+ * currency (its own, else the invoice's) on any line, or, when a line goes to the split, how to split
+ * and somebody to split it over.
  */
 export function invoicePostLines(
   lines: readonly InvoiceLineDraft[],
@@ -134,7 +158,7 @@ export function invoicePostLines(
   method: SplitMethod | null,
   fallbackCurrency: string,
 ) {
-  if (!lines.length || lines.some((l) => !l.category || lineAmount(l.amount) === null)) return null;
+  if (!lines.length || lines.some((l) => !l.category || lineAmount(l.amount) === null || !(l.currency || fallbackCurrency))) return null;
   const toSplit = lines.some((l, i) => lineTarget(l, matches[i]!) === SPLIT_TARGET);
   if (toSplit && !method) return null;
   const split = toSplit ? splitLines([...rows], ticked, method!) : [];

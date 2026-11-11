@@ -180,18 +180,41 @@ describe("what is posted", () => {
     expect(invoicePostLines([line({ amount: "" })], [match], rows, ticked, null, "USD")).toBeNull();
     expect(invoicePostLines([], [], rows, ticked, null, "USD")).toBeNull();
   });
+
+  it("waits for a currency on a line that has none of its own while the invoice has none either", () => {
+    expect(invoicePostLines([line({ currency: "" })], [match], rows, ticked, null, "")).toBeNull();
+    expect(invoicePostLines([line({ currency: "PLN" })], [match], rows, ticked, null, "")?.[0]?.currency).toBe("PLN");
+  });
 });
 
 describe("a line's amount", () => {
   it("is read as the money fields read it", () => {
     expect(lineAmount("1,177.20")).toBe(1177.2);
     expect(lineAmount("1.177,20")).toBe(1177.2);
+    expect(lineAmount("1 177,20")).toBe(1177.2);
     expect(lineAmount(" -45 ")).toBe(-45);
     expect(lineAmount("399.60")).toBe(399.6);
   });
 
+  it("reads a lone comma before three digits as thousands, as an invoice prints them", () => {
+    expect(lineAmount("1,250")).toBe(1250);
+    expect(lineAmount("12,500")).toBe(12500);
+    expect(lineAmount("1,234,567")).toBe(1234567);
+    expect(lineAmount("-1,250")).toBe(-1250);
+  });
+
+  it("reads any other comma as the decimal one", () => {
+    expect(lineAmount("1,25")).toBe(1.25);
+    expect(lineAmount("1250,5")).toBe(1250.5);
+  });
+
+  it("is rounded to the cent, as the server reads the invoice's lines", () => {
+    expect(lineAmount("40.0858")).toBe(40.09);
+    expect(lineAmount("399.600")).toBe(399.6);
+  });
+
   it("is none when it is no number or 0", () => {
-    for (const text of ["", " ", "abc", "12abc", "0", "0,00", "1e3", undefined]) expect(lineAmount(text)).toBeNull();
+    for (const text of ["", " ", "abc", "12abc", "0", "0,00", "1e3", "1.2.3,4.5", undefined]) expect(lineAmount(text)).toBeNull();
   });
 });
 
