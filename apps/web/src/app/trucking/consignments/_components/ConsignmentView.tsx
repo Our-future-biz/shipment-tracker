@@ -400,7 +400,14 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
           }
         />
       )}
-      {dialog?.kind === "upload" && <DocumentUploadModal defaultKind="POD" onClose={close} onUpload={doUpload} />}
+      {dialog?.kind === "upload" && (
+        <DocumentUploadModal
+          defaultKind="POD"
+          // The upload closes its dialog after it has moved on to "Stamp POD received?": that offer stays.
+          onClose={() => setDialog((d) => (d?.kind === "upload" ? null : d))}
+          onUpload={doUpload}
+        />
+      )}
       {dialog?.kind === "offerPod" && (
         <ConfirmModal
           open
