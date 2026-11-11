@@ -10181,11 +10181,6 @@ export namespace controllers {
          * With fromQuoteNumber: create the shipment although the quote already has one.
          */
         allowSecondShipment?: boolean
-
-        /**
-         * Other
-         */
-        claim?: string
     }
 
     export interface ShipmentCreateResponse {
@@ -10588,10 +10583,6 @@ export namespace controllers {
         quoteValidity?: string
         validityStatus?: string
         salesPerson?: string
-        /**
-         * Other
-         */
-        claim?: string
     }
 
     export interface ShipmentUpdateResponse {

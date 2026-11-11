@@ -210,6 +210,15 @@ export const useCanManageTariffs = (): boolean => {
   return !!user && (TARIFF_MANAGER_ROLES as readonly string[]).includes(user.role);
 };
 
+/** Roles that may upload, read and delete the company's public holidays; the server enforces the same. */
+export const HOLIDAY_MANAGER_ROLES = ["superadmin", "admin", "manager"] as const;
+
+/** Whether the signed-in user may manage public holidays (everyone may look at them). */
+export const useCanManageHolidays = (): boolean => {
+  const { user } = useAuth();
+  return !!user && (HOLIDAY_MANAGER_ROLES as readonly string[]).includes(user.role);
+};
+
 /** Whether the signed-in user sees the concept modules (Warehouse Concept, Trucking Concept): superadmins only. */
 export const useCanSeeConcepts = (): boolean => {
   const { user } = useAuth();

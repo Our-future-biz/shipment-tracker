@@ -43,6 +43,9 @@ describe("deactivating users", () => {
   it("never lets someone deactivate their own account", async () => {
     expect(() => assertNotSelf("u1", "u1")).toThrow("You cannot deactivate your own account");
     expect(() => assertNotSelf("u2", "u1")).not.toThrow();
+    // The same uuid in capitals is still the caller (the database compares them without case).
+    const me = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a02";
+    expect(() => assertNotSelf(me.toUpperCase(), me)).toThrow("You cannot deactivate your own account");
     await expect(authService.deactivateUser("u1", "c1", { userID: "u1", role: "admin" })).rejects.toThrow("own account");
     expect(users.getByIdInCompany).not.toHaveBeenCalled();
   });
@@ -144,6 +147,10 @@ describe("password rules", () => {
   it("refuses a password shorter than 12 characters for a new user and for a new password", async () => {
     users.findByEmail.mockResolvedValue(null);
     await expect(authService.createUser("c1", { role: "admin" }, { email: "new@example.com", password: "short" })).rejects.toThrow("at least 12 characters");
+    // The service identities' domain is nobody's: taken, it would stop the company's being made.
+    await expect(
+      authService.createUser("c1", { role: "admin" }, { email: "trucking-system+c1@System.Invalid", password: "a-long-enough-passphrase-1" }),
+    ).rejects.toThrow("reserved for the system");
     users.getByIdInCompany.mockResolvedValue({ id: "u2", email: "u2@example.com", role: "user" });
     await expect(authService.updateUser("u2", "c1", { userID: "u1", role: "admin" }, { password: "short" })).rejects.toThrow("at least 12 characters");
     expect(users.create).not.toHaveBeenCalled();

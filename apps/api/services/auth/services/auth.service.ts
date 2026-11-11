@@ -95,10 +95,17 @@ export function assertSuperadminTouchedBySuperadmin(targetRole: string, actorRol
   if (targetRole === "superadmin" && actorRole !== "superadmin") throw APIError.permissionDenied("Only a superadmin can change a superadmin's account");
 }
 
+// The same user: ids compared as the database compares uuids (without regard to case), so an id typed
+// in capitals is still the caller's own.
+const sameUser = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 // Nobody deactivates their own account, so a company can't lock out its last admin this way.
 export function assertNotSelf(targetId: string, actorId: string): void {
-  if (targetId === actorId) throw APIError.invalidArgument("You cannot deactivate your own account");
+  if (sameUser(targetId, actorId)) throw APIError.invalidArgument("You cannot deactivate your own account");
 }
+
+// The domain of the service identities ("Trucking (system)", one per company): no person signs up with it.
+const SYSTEM_EMAIL_DOMAIN = "@system.invalid";
 
 /** What #toInfo reads of a user row. */
 type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId" | "reportsToUserId">;
@@ -171,6 +178,8 @@ class AuthService {
       throw APIError.invalidArgument("email and password are required");
     }
     assertPassword(input.password, email);
+    // Taken by a person, it would stop the company's service identity from being made (ensureSystemUser).
+    if (email.endsWith(SYSTEM_EMAIL_DOMAIN)) throw APIError.invalidArgument("This e-mail address is reserved for the system");
     const role = input.role ?? "user";
     // superadmin is never assignable through the API — only the platform provisioning script.
     if (!isCompanyRole(role)) {
@@ -209,7 +218,7 @@ class AuthService {
     if (patch.role !== undefined) {
       if (!isAdminLevel(actor.role)) throw APIError.permissionDenied("Only admins can change roles");
       if (!isCompanyRole(patch.role)) throw APIError.invalidArgument("role must be admin, manager or user");
-      if (id === actor.userID) throw APIError.invalidArgument("You cannot change your own role");
+      if (sameUser(id, actor.userID)) throw APIError.invalidArgument("You cannot change your own role");
     }
     const target = await userRepository.getByIdInCompany(id, companyId);
     if (!target) throw userNotFound();

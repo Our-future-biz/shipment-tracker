@@ -207,9 +207,7 @@ interface ShipmentUpdateRequest {
   quoteValidity?: string;
   validityStatus?: string;
   salesPerson?: string;
-
-  // Other
-  claim?: string;
+  // No claim: it is derived from the shipment's claims (shipmentClaim.repository), never set here.
 }
 
 interface ShipmentUpdateResponse {

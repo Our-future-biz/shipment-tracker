@@ -1,4 +1,4 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { haulierService, type BankAccountsChange } from "../services/haulier.service";
@@ -53,6 +53,12 @@ interface HaulierTermsListResponse {
 export const _internalHaulierTermsList = api(
   { expose: false, auth: true, method: "GET", path: "/internal/trucking/haulier-terms" },
   async ({ companyId }: HaulierTermsListRequest): Promise<HaulierTermsListResponse> => {
+    // Another company's hauliers by an id the caller names: only for a superadmin's run (or the
+    // caller's own company), whoever calls this.
+    const caller = getAuthData()!;
+    if (caller.role !== "superadmin" && caller.companyID !== companyId) {
+      throw APIError.permissionDenied("Only a superadmin lists another company's haulier terms");
+    }
     return { hauliers: await haulierService.termsList(companyId) };
   },
 );
