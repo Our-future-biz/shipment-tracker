@@ -28,6 +28,19 @@ export function downloadDataUrl(dataUrl: string, fileName: string) {
   a.click();
 }
 
+/** Hands bytes to the browser as a download under the given name; the page stays where it is. */
+export function saveBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Freed once the browser has taken the download over: freed at once, the file can come out empty.
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
 // A base64 data URL's bytes as a Blob of the given type. Decoded here, as the app's security policy
 // (connect-src in next.config.ts) does not let fetch() read a data: URL.
 export function dataUrlToBlob(dataUrl: string, type: string): Blob {

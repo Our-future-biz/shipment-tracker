@@ -1,6 +1,8 @@
 // The writer of the app's CSV files, so how a file is written - its encoding, its escaping, what
 // protects whoever opens it - is decided in one place.
 
+import { saveBlob } from "./files";
+
 // What stands between the cells of a row.
 export const CSV_SEPARATOR = ",";
 
@@ -29,14 +31,7 @@ export function csvText(rows: string[][]): string {
 
 /** Hands the rows to the browser as a CSV file to save. */
 export function downloadCsv(fileName: string, rows: string[][]): void {
-  // The UTF-8 mark in front, so Excel reads the diacritics correctly.
-  const blob = new Blob(["\uFEFF" + csvText(rows)], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  // The UTF-8 mark in front, so Excel reads the diacritics correctly. Handed over as every download
+  // of the app is (lib/files), its link kept until the browser has the file.
+  saveBlob(new Blob(["\uFEFF" + csvText(rows)], { type: "text/csv;charset=utf-8;" }), fileName);
 }

@@ -28,6 +28,7 @@ import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/use
 import { useTrackingBell, useTrackingMarkRead, type TrackingBellNotice } from "@/hooks/useShipmentTracking";
 import { useDocumentChangeAnswers, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
+import { fold } from "@/lib/fold";
 
 // On the company's calendar and clock (Prague), wherever the browser is.
 const formatTime = (iso: string) => businessDateTime(iso);
@@ -111,8 +112,8 @@ const READ_KEEP_DAYS = 7;
 const READ_KEEP_MS = READ_KEEP_DAYS * 86_400_000;
 const keptSince = (iso: string | null | undefined, now: number) => !!iso && now - Date.parse(iso) <= READ_KEEP_MS;
 
-// The search box: every word must appear somewhere in the item, case and accents ignored.
-const fold = (v: string) => v.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+// The search box: every word must appear somewhere in the item, case and accents ignored (the
+// stroked letters too: "lodz" finds "Łódź").
 const matchesAll = (q: string, ...fields: (string | null | undefined)[]) => {
   const words = fold(q).split(/\s+/).filter(Boolean);
   if (!words.length) return true;

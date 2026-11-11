@@ -44,7 +44,9 @@ export function useToast() {
   const message = useMessages();
 
   // Each returns nothing, so a promise chain ending in a toast settles at once (see untilClicked).
-  return {
+  // The same object from render to render (while antd's APIs are the same), so an effect or a
+  // callback that names the toast among its dependencies does not run again on every render.
+  return useMemo(() => ({
     success: (content: string): void => {
       void message.success(content);
     },
@@ -74,5 +76,5 @@ export function useToast() {
         ...(stays ? { style: { cursor: "pointer" }, onClick: () => notification.destroy(key) } : {}),
       });
     },
-  };
+  }), [message, notification]);
 }

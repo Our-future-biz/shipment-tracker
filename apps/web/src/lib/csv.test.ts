@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { csvText } from "./csv";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { csvText, downloadCsv } from "./csv";
 
 describe("csvText", () => {
   it("quotes every cell and doubles its quotes", () => {
@@ -18,5 +18,29 @@ describe("csvText", () => {
 
   it("writes one line per row", () => {
     expect(csvText([["h1", "h2"], ["a", "b"]])).toBe('"h1","h2"\n"a","b"');
+  });
+});
+
+describe("downloadCsv", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("keeps the file's link until the browser has taken the download over, instead of freeing it at the click", () => {
+    vi.useFakeTimers();
+    const link = { href: "", download: "", click: vi.fn(), remove: vi.fn() };
+    vi.stubGlobal("document", { createElement: () => link, body: { appendChild: vi.fn() } });
+    vi.stubGlobal("window", { setTimeout: (run: () => void, ms: number) => setTimeout(run, ms) });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:shipments");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    downloadCsv("shipments.csv", [["Job"], ["SCZ1"]]);
+    expect(link.click).toHaveBeenCalled();
+    expect(link.download).toBe("shipments.csv");
+    expect(revoke).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(30_000);
+    expect(revoke).toHaveBeenCalledWith("blob:shipments");
   });
 });

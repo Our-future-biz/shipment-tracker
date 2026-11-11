@@ -1,7 +1,7 @@
-// The Organization page's one search box, applied to each of its sections.
+// The Organization page's one search box, applied to each of its sections. Accents are ignored,
+// the stroked letters' too (lib/fold), so "plzen" finds "Plzeň" and "lodz" "Łódź".
 
-// Accents are ignored, so "plzen" finds "Plzeň".
-const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+import { fold } from "@/lib/fold";
 
 export const matchesSearch = (search: string, ...values: (string | null | undefined)[]) => {
   const q = fold(search.trim());
