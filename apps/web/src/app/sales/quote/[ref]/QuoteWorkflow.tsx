@@ -207,6 +207,17 @@ const SMALL_LINK_CLASS = `shrink-0 text-xs font-semibold whitespace-nowrap ${LIN
 // The tooltip of the e-mail and phone of a contact picked from the Customer Database.
 const CONTACT_FOLLOWS_TITLE = "From the contact in the Customer Database - change it there, or unlink the contact to type another";
 
+// The offer of a lapsed tariff's new rate, asked for again as of today, with the route it was asked for.
+type ApprovedOffer =
+  | { kind: "ocean"; offer: OceanOffer; route: OceanRoute }
+  | { kind: "rail"; offer: RailOffer; port: string; direction: RailRoute["direction"] }
+  | { kind: "collection"; offer: CollectionOffer; route: CollectionRoute };
+
+// The line a lapsed tariff's new rate goes on (approvalLineOf): its ocean freight, its inland
+// haulage, or any line of a collection.
+const approvalFreightOf = (kind: TariffUpdate["kind"]): ((line: CostLine) => boolean) =>
+  kind === "ocean" ? isOceanFreightLine : kind === "rail" ? isInlandHaulageLine : () => true;
+
 // What the question before Routing is saved without its Place of Loading (origin) or Place of
 // Delivery (destination) asks.
 function blankRoutingTitle(data: SalesQuoteData): string {
@@ -340,6 +351,8 @@ export function QuoteWorkflow() {
   const [pendingValidity, setPendingValidity] = useState<string | null>();
   // The owner is being changed: its control waits for the server's answer.
   const [changingOwner, setChangingOwner] = useState(false);
+  // The revision is being made: Revise waits for the server's answer, so a second click asks for no second one.
+  const [revising, setRevising] = useState(false);
   // The quote was deleted from this page, which is on its way to the Quotes list.
   const [deleted, setDeleted] = useState(false);
 
@@ -452,8 +465,9 @@ export function QuoteWorkflow() {
   // A manager accepts the margin below the floor; the approval is the server's, like the status.
   const approveMargin = async (reason: string) => {
     const refused = await act((expectedDataVersion) => api.quotes.salesQuoteMarginApprove(ref, { reason, expectedDataVersion }), { versioned: true });
-    // A question waiting about the margin is answered by the approval.
-    if (!refused) void marginAsk.refresh();
+    // A question waiting about the margin is answered by the approval: Managers → Quote inquiries
+    // and the cockpit no longer show it as waiting.
+    if (!refused) void marginAsk.closed();
     return refused;
   };
 
@@ -653,6 +667,8 @@ export function QuoteWorkflow() {
   );
   // Where the route's places are: the quotation says it, as Routing does.
   const routeWhere = useRouteWhere(draft);
+  // What an approved rate puts on the quote, as the page was last drawn (see approveTariffUpdate).
+  const putApprovedRateNow = useRef<(update: TariffUpdate, found: ApprovedOffer) => void>(() => undefined);
   const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company, people, routeWhere);
     if (blocked) toast.error(blocked);
@@ -959,11 +975,29 @@ export function QuoteWorkflow() {
     if (!fclLayout && freight && !(Number(before?.amount) > 0) && offerToSelling(freight, sellingLines)) setToSelling({ line: freight, index: pick.at });
   };
 
+  // What approving a lapsed tariff's new rate puts on the quote once its offer is here (see
+  // approveTariffUpdate). Nothing is put on a quote closed meanwhile.
+  const putApprovedRate = (update: TariffUpdate, found: ApprovedOffer) => {
+    if (quoteClosed) return;
+    const at = approvalLineOf(buyingLines, update, approvalFreightOf(update.kind));
+    if (at < 0) return toast.error(`No buying line is priced from the old ${update.supplierName} rate any more`);
+    const old = buyingLines.filter((l) => l.tariffRef === update.oldRef);
+    const settled = { tariffUpdates: withoutTariffUpdate(draft, update) };
+    if (found.kind === "ocean") putPick(withApprovedRate(withOceanOffer(buyingLines, at, found.offer, found.route, draft), old), settled);
+    else if (found.kind === "rail") putPick(withApprovedRate(withRailOffer(buyingLines, at, found.offer, found.port, found.direction, draft), old), settled);
+    else set({ ...settled, buyingLines: stampPricedFor(withCollectionOffer(buyingLines, at, found.offer, found.route), [at], draft) });
+    toast.success(`New ${update.supplierName} rate approved`);
+  };
+  putApprovedRateNow.current = putApprovedRate;
+
   // The new rate of a lapsed tariff, approved: the offer is asked for again as of today and put in the
   // place of the old lines, each charge keeping the profit, "All in" tick and pairing it had
   // (withApprovedRate), and the rate leaves the quote's waiting ones in the same change. Typed
   // selling lines are left as they are and the user sees the new margin; a quote in the FCL layout
-  // sells each charge at its new buying plus the same profit.
+  // sells each charge at its new buying plus the same profit. The offer goes on the quote as it is
+  // once the offer is here, not as it was when the button was pressed: the page as last drawn puts
+  // it there (putApprovedRateNow), so what was typed while it was asked for stays, and the old lines
+  // are looked for where they are by then.
   const approveTariffUpdate = async (update: TariffUpdate) => {
     const today = businessToday();
     if (update.kind === "road") {
@@ -977,14 +1011,10 @@ export function QuoteWorkflow() {
       if (refused) toast.error(refused);
       return;
     }
-    const freightOf = update.kind === "ocean" ? isOceanFreightLine : update.kind === "rail" ? isInlandHaulageLine : () => true;
-    const at = approvalLineOf(buyingLines, update, freightOf);
-    if (quoteClosed || at < 0) {
+    if (quoteClosed || approvalLineOf(buyingLines, update, approvalFreightOf(update.kind)) < 0) {
       if (!quoteClosed) toast.error(`No buying line is priced from the old ${update.supplierName} rate any more`);
       return;
     }
-    const old = buyingLines.filter((l) => l.tariffRef === update.oldRef);
-    const settled = { tariffUpdates: withoutTariffUpdate(draft, update) };
     const gone = () => toast.error(`The new ${update.supplierName} rate is no longer offered for this route: pick a tariff under Tariffs available`);
     setApprovingRate(update.oldRef);
     try {
@@ -993,21 +1023,20 @@ export function QuoteWorkflow() {
         const request = oceanOffersRequest(route);
         const offer = request && (await api.tariffs.oceanOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
         if (!offer) return gone();
-        putPick(withApprovedRate(withOceanOffer(buyingLines, at, offer, route, draft), old), settled);
+        putApprovedRateNow.current(update, { kind: "ocean", offer, route });
       } else if (update.kind === "rail") {
         const route = railRouteOf(draft, today);
         const request = railOffersRequest(route);
         const offer = request && (await api.tariffs.railOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
         if (!offer || !route.port) return gone();
-        putPick(withApprovedRate(withRailOffer(buyingLines, at, offer, route.port, route.direction, draft), old), settled);
+        putApprovedRateNow.current(update, { kind: "rail", offer, port: route.port, direction: route.direction });
       } else {
         const route = collectionRouteOf(draft, collectionHubs, today);
         const request = collectionOffersRequest(route);
         const offer = request && (await api.tariffs.collectionOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
         if (!offer) return gone();
-        set({ ...settled, buyingLines: stampPricedFor(withCollectionOffer(buyingLines, at, offer, route), [at], draft) });
+        putApprovedRateNow.current(update, { kind: "collection", offer, route });
       }
-      toast.success(`New ${update.supplierName} rate approved`);
     } catch (err) {
       toast.error(`Could not approve the new rate: ${apiErrorMessage(err)}`);
     } finally {
@@ -2411,10 +2440,13 @@ export function QuoteWorkflow() {
           open
           onClose={() => setModal(null)}
           onConfirm={async () => {
+            setRevising(true);
             const refused = await reviseQuote();
+            setRevising(false);
             if (refused) toast.error(`${ref} - ${refused}`);
             setModal(null);
           }}
+          loading={revising}
           title="Revise as a new quote"
           description={
             quote.status === "won"

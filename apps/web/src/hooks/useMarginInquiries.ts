@@ -55,7 +55,9 @@ export const useQuoteMarginInquiry = (quoteNumber: string, enabled: boolean) => 
     loaded: query.data !== undefined,
     ask,
     withdraw,
-    refresh: query.refetch,
+    // The question was closed by another action on the quote (a manager's direct approval of the
+    // margin): read again wherever a question shows, as after an ask or a withdrawal.
+    closed: done,
   };
 };
 
