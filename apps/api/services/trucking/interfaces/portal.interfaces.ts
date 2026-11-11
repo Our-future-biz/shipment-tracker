@@ -58,6 +58,14 @@ export interface PortalStop {
   load: { pieces: number; palletPlaces: number; ldm: number; weightKg: number; adr: string | null; tailLift: boolean };
   deliveredAt: string | null;
   podUploaded: boolean;
+  /**
+   * Delivered may be stamped here now: a stop the haulier hands the goods over at (not a line
+   * haul's drop at a depot), not delivered yet, after the pick-up (FTL) or our warehouse's gate-in
+   * (groupage), on an order not rejected. The portal offers it only then.
+   */
+  canDeliver: boolean;
+  /** The POD may be uploaded here now: such a stop, the order confirmed, no POD yet, its stamps possible. */
+  canUploadPod: boolean;
 }
 
 /**

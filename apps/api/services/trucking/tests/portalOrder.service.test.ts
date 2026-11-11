@@ -339,6 +339,65 @@ describe("order views", () => {
   });
 });
 
+describe("what each stop offers: Delivered and the POD only where the server takes them", () => {
+  const offers = (s: { canDeliver: boolean; canUploadPod: boolean }) => [s.canDeliver, s.canUploadPod];
+  const deliveryOf = async (id: string) => (await portalOrderService.get(eva, id)).stops.find((s) => s.kind === "DELIVERY")!;
+
+  it("FTL: no Delivered before the pick-up (refused then), the POD once confirmed (it stamps the pick-up itself), each once", async () => {
+    const { trip: t, c } = await ftl();
+    const order = await portalOrderService.get(eva, t.id);
+    expect(order.stops.map(offers)).toEqual([
+      [false, false],
+      [false, false],
+    ]);
+    await expect(portalOrderService.delivered(eva, t.id, c.id, { at: null, receiverName: "" })).rejects.toMatchObject({ message: "Stamp the pick-up first" });
+    await portalOrderService.respond(eva, t.id, { action: "CONFIRM", reason: "" });
+    expect(offers(await deliveryOf(t.id))).toEqual([false, true]);
+    await portalOrderService.stamp(eva, t.id, { kind: "LOADED", at: null });
+    expect(offers(await deliveryOf(t.id))).toEqual([true, true]);
+    await portalOrderService.delivered(eva, t.id, c.id, { at: null, receiverName: "" });
+    expect(offers(await deliveryOf(t.id))).toEqual([false, true]);
+    await portalOrderService.pod(eva, t.id, c.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null });
+    expect(offers(await deliveryOf(t.id))).toEqual([false, false]);
+  });
+
+  it("line haul: its drop at the partner's depot offers neither, even confirmed and gated in - the server refuses both there", async () => {
+    const a = await ltl();
+    const { trip: t } = await run("LINEHAUL", [a], { confirmedAt: new Date("2026-10-14T09:00:00Z"), status: "CONFIRMED" });
+    gateIn(a.id);
+    const [drop] = (await portalOrderService.get(eva, t.id)).stops;
+    expect(drop).toMatchObject({ kind: "DELIVERY", canDeliver: false, canUploadPod: false });
+    await expect(portalOrderService.delivered(eva, t.id, a.id, { at: null, receiverName: "" })).rejects.toMatchObject({ code: "not_found" });
+    await expect(portalOrderService.pod(eva, t.id, a.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("delivery run: Delivered after our warehouse's gate-in, the POD once the run is confirmed as well", async () => {
+    const a = await ltl();
+    const { trip: t } = await run("DELIVERY_RUN", [a]);
+    expect(offers(await deliveryOf(t.id))).toEqual([false, false]);
+    gateIn(a.id);
+    expect(offers(await deliveryOf(t.id))).toEqual([true, false]);
+    await portalOrderService.respond(eva, t.id, { action: "CONFIRM", reason: "" });
+    expect(offers(await deliveryOf(t.id))).toEqual([true, true]);
+  });
+
+  it("partner delivery: both after the gate-in, with nothing to confirm", async () => {
+    const { c, leg } = await partner();
+    expect(offers(await deliveryOf(leg.id))).toEqual([false, false]);
+    gateIn(c.id);
+    expect(offers(await deliveryOf(leg.id))).toEqual([true, true]);
+  });
+
+  it("a rejected order offers neither", async () => {
+    const a = await ltl();
+    const { trip: t } = await run("DELIVERY_RUN", [a]);
+    gateIn(a.id);
+    await portalOrderService.respond(eva, t.id, { action: "REJECT", reason: "No driver that day" });
+    expect(offers(await deliveryOf(t.id))).toEqual([false, false]);
+    await expect(portalOrderService.delivered(eva, t.id, a.id, { at: null, receiverName: "" })).rejects.toMatchObject({ message: "This transport order was rejected" });
+  });
+});
+
 describe("confirm or reject, once (trips only)", () => {
   it("confirms an FTL order as the portal user: trip and consignment confirmed, an event by the haulier", async () => {
     const { trip: t, c } = await ftl();

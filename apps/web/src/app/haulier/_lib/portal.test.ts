@@ -4,8 +4,6 @@ import {
   ORDER_KIND,
   PORTAL_USER_STATUS,
   canRespond,
-  canUploadStopPod,
-  deliveredProblem,
   needsActionText,
   orderStatusText,
   passwordProblem,
@@ -71,18 +69,6 @@ describe("haulier portal actions", () => {
     expect(canRespond(order("AWAITING"))).toBe(true);
     expect(canRespond(order("CONFIRMED"))).toBe(false);
     expect(canRespond({ ...order("AWAITING"), kind: "PARTNER_DELIVERY" })).toBe(false);
-  });
-
-  it("stamps delivery stops once and takes their POD once", () => {
-    const stop = { kind: "DELIVERY" as const, deliveredAt: null, podUploaded: false };
-    expect(deliveredProblem(order("CONFIRMED"), stop, at)).toBeNull();
-    expect(deliveredProblem(order("CONFIRMED"), { ...stop, kind: "PICKUP" }, at)?.en).toBe("Delivery stops only.");
-    expect(deliveredProblem(order("CONFIRMED"), { ...stop, deliveredAt: "2026-10-15T14:05:00Z" }, at)?.en).toBe("Delivered 14:05.");
-    expect(canUploadStopPod(order("CONFIRMED"), stop)).toBe(true);
-    expect(canUploadStopPod(order("CONFIRMED"), { ...stop, podUploaded: true })).toBe(false);
-    expect(canUploadStopPod(order("REJECTED"), stop)).toBe(false);
-    // Only once the order is confirmed (owner decision 13).
-    expect(canUploadStopPod(order("AWAITING"), stop)).toBe(false);
   });
 });
 

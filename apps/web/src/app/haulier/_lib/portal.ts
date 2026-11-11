@@ -85,23 +85,14 @@ export function stampProblem(order: Pick<PortalOrder, "confirmation" | "stamps">
 /** Confirm / reject is asked once, on a trip that waits for it. */
 export const canRespond = (order: Pick<PortalOrder, "kind" | "confirmation">) => order.kind !== "PARTNER_DELIVERY" && order.confirmation.status === "AWAITING";
 
-/** Why a delivery stop cannot be stamped Delivered, or null. */
-export function deliveredProblem(order: Pick<PortalOrder, "confirmation">, stop: Pick<PortalStop, "kind" | "deliveredAt">, formatAt: (iso: string) => string): BiText | null {
-  if (order.confirmation.status === "REJECTED") return REJECTED_TEXT;
-  if (stop.kind !== "DELIVERY") return { cs: "Jen u vykládky.", en: "Delivery stops only." };
-  if (stop.deliveredAt) return { cs: `Doručeno ${formatAt(stop.deliveredAt)}.`, en: `Delivered ${formatAt(stop.deliveredAt)}.` };
-  return null;
-}
+/** Why a stop the haulier hands the goods over at offers no Delivered yet (the server says when: stop.canDeliver). */
+export const DELIVER_AFTER_LOADING: BiText = { cs: "Doručení lze zaznamenat po naložení zboží.", en: "Delivered can be stamped once the goods are loaded." };
 
 /** The POD rule (owner decision 13): once the order is confirmed, one per stop; the dispatcher replaces it. */
 export const POD_RULE: BiText = {
   cs: "POD lze nahrát až po potvrzení objednávky, jeden na každou vykládku. Opravu provede dispečer.",
   en: "The POD can be uploaded once the order is confirmed, one per delivery stop. The dispatcher replaces it if needed.",
 };
-
-/** The POD is uploaded once per delivery stop, once the order is confirmed (a partner delivery counts as confirmed). */
-export const canUploadStopPod = (order: Pick<PortalOrder, "confirmation">, stop: Pick<PortalStop, "kind" | "podUploaded">) =>
-  order.confirmation.status === "CONFIRMED" && stop.kind === "DELIVERY" && !stop.podUploaded;
 
 /** Why a rejection cannot be sent yet, or null. */
 export const rejectProblem = (reason: string): BiText | null =>

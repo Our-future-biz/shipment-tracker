@@ -10,7 +10,9 @@ import type { FileDownload, LoadInput, StampKind, StopInput } from "../interface
 import type { PortalOrder, PortalOrderItem, PortalOrderKind, PortalStop } from "../interfaces/portal.interfaces";
 import type { TruckingEventPayload } from "../schemas/truckingEvent.schema";
 import { isUuid } from "../../../lib/uuid";
-import { stampTime } from "../lib/consignmentRules";
+import { stampRefusal, stampTime } from "../lib/consignmentRules";
+import { factsOf } from "../lib/consignmentView";
+import { ltlStampRefusal } from "../lib/ltlRules";
 import { inStopOrder } from "../lib/ltlView";
 import { docStop, platesText } from "../lib/truckingDocs";
 import { depotStop } from "../lib/ltlDocs";
@@ -61,6 +63,28 @@ const consignmentsOf = (o: Loaded) => [...new Map(o.stops.map((s) => [s.c.id, s.
 const rejected = (t: TruckingTripRecord | null) => !!t && !!t.rejectedAt && !t.confirmedAt;
 /** Stops the haulier delivers (and uploads a POD for): not a line haul's drop at a depot. */
 const deliversAt = (o: Loaded) => o.kind === "FTL" || o.kind === "DELIVERY_RUN" || o.kind === "PARTNER_DELIVERY";
+
+/**
+ * What the haulier may do at a stop now, by the rules delivered() and pod() go by, so the portal
+ * offers only what they take: nothing at a pick-up, at a line haul's drop at a depot or on a
+ * rejected order; Delivered once, when the consignment may be stamped delivered (FTL after its
+ * pick-up, groupage after our warehouse's gate-in); the POD once, once the order is confirmed (a
+ * partner delivery has nothing to confirm), when the stamps it proves may be set - an FTL POD
+ * stamps the pick-up itself.
+ */
+function stopActions(o: Loaded, s: OrderStop, hasPod: boolean): Pick<PortalStop, "canDeliver" | "canUploadPod"> {
+  if (s.kind !== "DELIVERY" || !deliversAt(o) || rejected(o.trip)) return { canDeliver: false, canUploadPod: false };
+  const { c } = s;
+  const trip = o.kind === "FTL" ? o.trip : null;
+  const opts = { hasPod: false, manager: false };
+  // A groupage consignment's delivery waits for the gate-in only (its legs do not matter to it).
+  const deliverRefusal = c.scope === "LTL" ? ltlStampRefusal("delivered", c, [], opts) : stampRefusal("delivered", factsOf(c, trip), opts);
+  const podFirstRefusal = trip && !c.pickedUpAt ? stampRefusal("pickedUp", factsOf(c, trip), opts) : deliverRefusal;
+  return {
+    canDeliver: !c.deliveredAt && !deliverRefusal,
+    canUploadPod: (!o.trip || !!o.trip.confirmedAt) && !hasPod && (!!c.deliveredAt || !podFirstRefusal),
+  };
+}
 
 /** The stops of an order: an FTL trip's pick-up and delivery, a run's legs in stop order, a partner's delivery. */
 function stopsOf(kind: PortalOrderKind, consignments: TruckingConsignmentRecord[], legs: TruckingLegRecord[]): OrderStop[] {
@@ -273,6 +297,7 @@ class PortalOrderService {
           load: loadOf(s.c.load),
           deliveredAt: s.kind === "DELIVERY" && !lineHaul ? iso(s.c.deliveredAt) : null,
           podUploaded: s.kind === "DELIVERY" && !lineHaul && pods.has(s.c.id),
+          ...stopActions(o, s, pods.has(s.c.id)),
         };
       }),
       vehicleText: vehicle ? `${vehicle.label}${vehicle.tailLift ? ", tail lift" : ""}` : "",
