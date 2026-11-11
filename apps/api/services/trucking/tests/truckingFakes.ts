@@ -180,6 +180,10 @@ export const consignmentRepository = {
   list: vi.fn(async (companyId: string, f: { status?: string; shipmentId?: string }) =>
     store.consignments.filter((c) => c.companyId === companyId && (!f.status || c.status === f.status) && (!f.shipmentId || c.shipmentId === f.shipmentId)).map(copy),
   ),
+  count: vi.fn(
+    async (companyId: string, f: { status?: string; shipmentId?: string }) =>
+      store.consignments.filter((c) => c.companyId === companyId && (!f.status || c.status === f.status) && (!f.shipmentId || c.shipmentId === f.shipmentId)).length,
+  ),
   forShipmentLocked: vi.fn(async (_tx: unknown, companyId: string, shipmentId: string) =>
     store.consignments.filter((c) => c.companyId === companyId && c.shipmentId === shipmentId).map(copy),
   ),
@@ -276,7 +280,17 @@ export const tripRepository = {
   listLtl: vi.fn(async (companyId: string, kind: string, date: string) =>
     store.trips.filter((t) => t.companyId === companyId && !t.cancelledAt && t.kind === kind && t.plannedPickupDate === date).map(copy),
   ),
-  list: vi.fn(async (companyId: string) => store.trips.filter((t) => t.companyId === companyId).map(copy)),
+  list: vi.fn(async (companyId: string, f: { status?: string } = {}) => store.trips.filter((t) => t.companyId === companyId && (!f.status || t.status === f.status)).map(copy)),
+  statusCounts: vi.fn(async (companyId: string, day: string) => {
+    const of = new Map<string, { status: TruckingTripRecord["status"]; n: number; pickupToday: number }>();
+    for (const t of store.trips.filter((x) => x.companyId === companyId && !x.deletedAt)) {
+      const row = of.get(t.status) ?? { status: t.status, n: 0, pickupToday: 0 };
+      row.n += 1;
+      if (t.plannedPickupDate === day) row.pickupToday += 1;
+      of.set(t.status, row);
+    }
+    return [...of.values()];
+  }),
   forHaulier: vi.fn(async (companyId: string, haulierId: string) =>
     store.trips.filter((t) => t.companyId === companyId && t.haulierCustomerId === haulierId && !t.cancelledAt && t.orderSentAt && !t.deletedAt).map(copy),
   ),

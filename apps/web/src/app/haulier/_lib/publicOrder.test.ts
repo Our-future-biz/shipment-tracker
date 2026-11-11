@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PUBLIC_STATUS, canRespond, canUploadPod, localInputToIso, podProblem, respondProblem, toLocalInput } from "./publicOrder";
+import { PUBLIC_STATUS, canRespond, canUploadPod, deliveredAtToSend, podProblem, respondProblem } from "./publicOrder";
 
 describe("haulier page", () => {
   it("names every status in Czech and English", () => {
@@ -31,10 +31,10 @@ describe("haulier page", () => {
     expect(podProblem(true, "Eva", "2026-10-15T11:00:00Z", now)).toBeNull();
   });
 
-  it("turns a datetime-local value into ISO and back", () => {
-    const d = new Date(2026, 9, 15, 14, 5);
-    expect(toLocalInput(d)).toBe("2026-10-15T14:05");
-    expect(localInputToIso("2026-10-15T14:05")).toBe(d.toISOString());
-    expect(localInputToIso("")).toBeNull();
+  it("sends no delivery time (now, as the server receives it) until the driver sets one, then that time", () => {
+    // The field starts empty: a time filled in when the page opened would stamp every stop of a run then.
+    expect(deliveredAtToSend("")).toBeNull();
+    expect(deliveredAtToSend("not a time")).toBeNull();
+    expect(deliveredAtToSend("2026-10-15T14:05")).toBe(new Date(2026, 9, 15, 14, 5).toISOString());
   });
 });

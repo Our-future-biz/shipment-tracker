@@ -45,6 +45,8 @@ export interface HaulierInvoice {
   /** Why an exact match was not approved automatically (NEEDS_APPROVAL): a recent bank-account change, the same user, a repriced trip; a manager decides */
   holdReasons: string[];
   approval: { byName: string; at: string; reason: string } | null;
+  /** Who rejected it (REJECTED), when and why; null otherwise */
+  rejection: { byName: string; at: string; reason: string } | null;
   /** When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid. */
   payment: { paidOn: string; byName: string; at: string } | null;
   /**
@@ -56,6 +58,16 @@ export interface HaulierInvoice {
   createdAt: string;
   createdBy: string;
   version: number;
+}
+
+/** How many invoices are in each status, over every invoice (an open one's status as worked out now). */
+export interface HaulierInvoiceCounts {
+  DRAFT: number;
+  MATCHED: number;
+  NEEDS_APPROVAL: number;
+  APPROVED: number;
+  BLOCKED: number;
+  REJECTED: number;
 }
 
 /**

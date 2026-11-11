@@ -430,7 +430,7 @@ describe("pick-up runs: legs, cost split and costs per job", () => {
   it("shows the fill and the warnings in the trips list too", async () => {
     const a = await ltl({ weightKg: 1500, loadOver: { adr: true, adrUn: "1263", adrClass: "3" } });
     const trip = await pickupRun([legOf(a.id, "PICKUP")]);
-    const [item] = (await tripService.list(user, {})).filter((t) => t.id === trip.id);
+    const [item] = (await tripService.list(user, {})).trips.filter((t) => t.id === trip.id);
     expect(item).toMatchObject({ kind: "PICKUP_RUN", fill: trip.fill, warnings: trip.warnings });
   });
 });

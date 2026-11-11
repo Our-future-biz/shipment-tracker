@@ -13,6 +13,7 @@ import { ltlTripStatus } from "../lib/ltlRules";
 import { factsOf } from "../lib/consignmentView";
 import { hashToken, looksLikeToken, tokenMatches } from "../lib/haulierToken";
 import { checkUpload } from "../lib/truckingFiles";
+import { windowText } from "../lib/truckingDocs";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
 import { consignmentService, owed } from "./consignment.service";
@@ -48,6 +49,8 @@ export function publicOrder(o: Opened, podUploaded: boolean): PublicTransportOrd
     plannedPickupDate: trip.plannedPickupDate,
     pickup: publicStop(c.pickup),
     delivery: publicStop(c.delivery),
+    // Worded here, in Prague time: a haulier's phone may be set to another time zone.
+    windowText: { pickup: windowText(c.pickup.windowFrom, c.pickup.windowTo), delivery: windowText(c.delivery.windowFrom, c.delivery.windowTo) },
     load: c.load,
     agreedPrice: trip.buy ? { total: trip.buy.total, currency: trip.buy.currency } : null,
     status,

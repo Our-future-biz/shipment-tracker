@@ -7,7 +7,6 @@ import { useHauliers, useTariffs } from "@/hooks/useTrucking";
 import { useConsignments, useTrips } from "@/hooks/useTruckingConsignments";
 import { PAGE_TITLE } from "@/styles/ui";
 import { TRUCKING_TABS, tabSearch, type TruckingTab } from "../_lib/tabs";
-import { tripsNotConfirmed } from "../_lib/trips";
 import { TruckingConsignmentsTab } from "./TruckingConsignmentsTab";
 import { TruckingHaulierInvoicesTab } from "./TruckingHaulierInvoicesTab";
 import { TruckingHauliersTab } from "./TruckingHauliersTab";
@@ -31,12 +30,13 @@ export const TruckingView = () => {
   const [helpOpen, setHelpOpen] = useState(false);
   const { hauliers, isLoading: hauliersLoading } = useHauliers();
   const { tariffs, isLoading: tariffsLoading } = useTariffs();
-  // Work queues count what waits: consignments that need attention, trips ordered but not confirmed.
+  // Work queues count what waits: consignments that need attention, trips ordered but not confirmed
+  // (counted by the server over every trip, not the newest listed).
   const { counts: consignmentCounts } = useConsignments();
-  const { trips, isLoading: tripsLoading } = useTrips();
+  const { counts: tripCounts } = useTrips();
   const tabCounts: Partial<Record<TruckingTab, number>> = {
     ...(consignmentCounts ? { consignments: consignmentCounts.attention } : {}),
-    ...(tripsLoading ? {} : { trips: tripsNotConfirmed(trips) }),
+    ...(tripCounts ? { trips: tripCounts.notConfirmed } : {}),
     ...(hauliersLoading ? {} : { hauliers: hauliers.length }),
     ...(tariffsLoading ? {} : { tariffs: tariffs.length }),
   };

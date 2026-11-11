@@ -625,6 +625,18 @@ describe("list", () => {
     expect((await consignmentService.list(user, { search: "nothing" })).consignments).toHaveLength(0);
   });
 
+  it("says when more consignments match than the newest 1000 it read", async () => {
+    await seed({});
+    await seed({});
+    await seed({ status: "READY_TO_BILL" });
+    expect(await consignmentService.list(user, {})).toMatchObject({ listed: 3, total: 3, truncated: false });
+    expect(await consignmentService.list(user, { status: "READY_TO_BILL" })).toMatchObject({ listed: 1, total: 1, truncated: false });
+    // A view is worked out over what was read: still the same read, whatever the view keeps.
+    expect(await consignmentService.list(user, { view: "readyToBill" })).toMatchObject({ listed: 3, total: 3, truncated: false });
+    vi.mocked(consignmentRepository.count).mockResolvedValueOnce(1400);
+    expect(await consignmentService.list(user, {})).toMatchObject({ listed: 3, total: 1400, truncated: true });
+  });
+
   it("finds a consignment by its job's reference whatever the letters: the copy keeps what it was given, the job's letters follow its Freight Mode", async () => {
     await seed({});
     await seed({ jobNumber: "CZROAD00000077" });

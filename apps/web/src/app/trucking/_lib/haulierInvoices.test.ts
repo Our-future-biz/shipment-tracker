@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paymentState, differenceText, entryProblems, entrySummary, invoiceDecisionState, lineDifference, vatBlockers, type EntryHeader, type EntryLine } from "./haulierInvoices";
+import { approveHint, paymentState, differenceText, entryProblems, entrySummary, invoiceDecisionState, lineDifference, vatBlockers, type EntryHeader, type EntryLine } from "./haulierInvoices";
 
 const target = (id: string, expected: number, currency: "CZK" | "EUR" = "CZK") => ({ kind: "TRIP" as const, id, ref: `LCZ${id}`, date: "2026-10-01", expected, claimed: 0, currency, alreadyInvoiced: false });
 const header: EntryHeader = { invoiceNumber: "FV-1", issueDate: "2026-10-10", currency: "CZK", totalNet: 15000, vatAmount: 3150, totalGross: 18150, bankAccount: "19-2000145399/0800" };
@@ -24,6 +24,17 @@ describe("invoice difference", () => {
     expect(entrySummary(off, { totalNet: 15200 })).toMatchObject({ difference: 200, exact: false });
     // Two differences that cancel out are still not an exact match.
     expect(entrySummary([{ ...lines[0]!, invoiced: 10100 }, { ...lines[1]!, invoiced: 4900 }], header).exact).toBe(false);
+  });
+});
+
+describe("the Approve dialog", () => {
+  it("says how far the invoice is off, or why an exact match was held — never that it differs by Exact", () => {
+    expect(approveHint({ difference: 250, currency: "CZK", holdReasons: [] })).toMatch(/^The invoice differs from the expected cost by \+250 CZK\. Approving puts/);
+    const held = approveHint({ difference: 0, currency: "CZK", holdReasons: ["The bank account changed 3 days ago", "Entered by you"] });
+    expect(held).toMatch(/^The invoice matches the expected cost exactly but was held for a manager, for the reasons shown on the invoice\. Approving/);
+    expect(held).not.toContain("Exact");
+    // Lines that are off but add up to the expected total.
+    expect(approveHint({ difference: 0, currency: "CZK", holdReasons: [] })).toMatch(/^The invoice's total matches the expected cost, but not line by line\./);
   });
 });
 

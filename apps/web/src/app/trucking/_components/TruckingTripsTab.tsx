@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Tooltip } from "antd";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
+import { ListCapNotice } from "@/components/ListCapNotice";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useTrips, type TripListItem, type TripStatus } from "@/hooks/useTruckingConsignments";
 import { useAvizacePending } from "@/hooks/useTruckingControl";
@@ -19,7 +20,7 @@ import { HaulierStatusChip } from "./HaulierStatusChip";
 import { TripFillBars } from "./TripFillBars";
 import { TruckingStatusChip } from "./TruckingStatusChip";
 import { TripTiles } from "./TripTiles";
-import { inTripView, tripViewCounts, tripViewOf, type TripView } from "../_lib/trips";
+import { inTripView, tripViewOf, tripViewStatus, type TripView } from "../_lib/trips";
 import { RECORDED_AS_SENT } from "../_lib/transportOrder";
 import { byText, dash } from "../_lib/format";
 
@@ -126,11 +127,11 @@ export const TruckingTripsTab = () => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { trips, isLoading, isError } = useTrips();
-  // Work queues (?view=), filtered here: the list carries status, pick-up day and the order.
+  // Work queues (?view=): counted by the server over every trip; a queue of one status is listed by
+  // it, In transit today kept here from the newest trips (it carries status and pick-up day).
   const view = tripViewOf(searchParams.get("view"));
+  const { trips, counts, cap, isLoading, isError } = useTrips({ status: tripViewStatus(view) });
   const today = businessToday();
-  const counts = isLoading ? null : tripViewCounts(trips, today);
   const rows = useMemo(() => (view ? trips.filter((t) => inTripView(t, view, today)) : trips), [trips, view, today]);
   const handleView = (next: TripView | null) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -152,7 +153,16 @@ export const TruckingTripsTab = () => {
 
   return (
     <AppGrid<TripListItem>
-      subHeader={<TripTiles active={view} counts={counts} onSelect={handleView} />}
+      subHeader={
+        <>
+          <TripTiles active={view} counts={counts} onSelect={handleView} />
+          {cap && (
+            <div className="mt-3">
+              <ListCapNotice shown={cap.listed} total={cap.total} noun="trips" hint="older ones are not listed or searched here; the tiles count every trip" />
+            </div>
+          )}
+        </>
+      }
       searchPlaceholder="Search trip, consignment, haulier, plate, driver…"
       columns={columns}
       rows={rows}

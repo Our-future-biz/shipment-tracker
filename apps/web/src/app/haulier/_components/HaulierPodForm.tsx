@@ -5,7 +5,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatFileSize } from "@/lib/files";
 import type { PublicPod } from "@/hooks/useTruckingConsignments";
 import { POD_ACCEPT, readUpload, uploadProblem } from "@/app/trucking/_lib/uploads";
-import { localInputToIso, podProblem, toLocalInput } from "../_lib/publicOrder";
+import { DELIVERED_NOW_HINT, deliveredAtToSend, podProblem } from "../_lib/publicOrder";
 import { PORTAL_INPUT, PORTAL_LABEL, PORTAL_PRIMARY, PORTAL_SECONDARY } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
 import { PortalCard } from "./PortalCard";
@@ -19,20 +19,21 @@ interface HaulierPodFormProps {
   withCamera?: boolean;
 }
 
-// The signed CMR or delivery note (photo or PDF, up to 10 MB) with who took the goods and when.
+// The signed CMR or delivery note (photo or PDF, up to 10 MB) with who took the goods and when
+// (left empty: the moment it is sent).
 export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera = false }: HaulierPodFormProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [receiver, setReceiver] = useState("");
-  const [deliveredAt, setDeliveredAt] = useState(() => toLocalInput(new Date()));
+  const [deliveredAt, setDeliveredAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const fileProblem = file ? uploadProblem(file, { imagesAndPdfOnly: true }) : null;
-  const problem = podProblem(!!file, receiver, localInputToIso(deliveredAt));
+  const problem = podProblem(!!file, receiver, deliveredAtToSend(deliveredAt));
 
   const handleSubmit = async () => {
     if (!file || problem || fileProblem) return;
     setError(null);
     try {
-      await onUpload({ ...(await readUpload(file)), receiverName: receiver.trim(), deliveredAt: localInputToIso(deliveredAt) });
+      await onUpload({ ...(await readUpload(file)), receiverName: receiver.trim(), deliveredAt: deliveredAtToSend(deliveredAt) });
     } catch (e) {
       setError(apiErrorMessage(e));
     }
@@ -71,8 +72,11 @@ export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera
         <span className={PORTAL_LABEL}>
           <Bi text={{ cs: "Doručeno", en: "Delivered at" }} />
         </span>
-        <input type="datetime-local" className={PORTAL_INPUT} value={deliveredAt} onChange={(e) => setDeliveredAt(e.target.value)} />
+        <input type="datetime-local" className={`${PORTAL_INPUT} min-h-11`} value={deliveredAt} onChange={(e) => setDeliveredAt(e.target.value)} />
       </label>
+      <p className="mb-0 mt-1 text-[13px] text-slate-500">
+        <Bi text={DELIVERED_NOW_HINT} />
+      </p>
       {problem && file && (
         <p className="mb-0 mt-2 text-[13px] text-red-600">
           <Bi text={problem} />

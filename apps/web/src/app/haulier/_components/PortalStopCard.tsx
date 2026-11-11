@@ -4,7 +4,7 @@ import { businessDateTime } from "@/lib/date";
 import { formatQty } from "@/app/trucking/_lib/tariffs";
 import { HINT, LABEL_TEXT, REF } from "@/styles/ui";
 import type { BiText } from "../_lib/publicOrder";
-import { canUploadStopPod, deliveredProblem, POD_RULE, stopAddress, type PortalOrder, type PortalStop } from "../_lib/portal";
+import { DELIVER_AFTER_LOADING, POD_RULE, stopAddress, type PortalOrder, type PortalStop } from "../_lib/portal";
 import { Bi } from "./Bi";
 import { HaulierPodForm } from "./HaulierPodForm";
 import { PortalCard } from "./PortalCard";
@@ -30,10 +30,11 @@ const Row = ({ label, value }: { label: BiText; value: string }) =>
   ) : null;
 
 // One stop of the order as the driver needs it — where, when, whom to call, what is loaded — and,
-// at a delivery stop, Delivered and the POD upload.
+// at a delivery stop, Delivered and the POD upload where the server says they may be done now (a
+// line haul's drop at a partner's depot is no hand-over: it has neither).
 export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUploadPod }: PortalStopCardProps) => {
   const isDelivery = stop.kind === "DELIVERY";
-  const deliveredBlock = deliveredProblem(order, stop, businessDateTime);
+  const handsOver = isDelivery && order.kind !== "LINEHAUL";
   const load = stop.load;
 
   return (
@@ -78,7 +79,7 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
         </div>
       )}
 
-      {isDelivery && (
+      {handsOver && (
         <div className="mt-3 border-t border-slate-100 pt-3">
           {stop.deliveredAt && (
             <div className="text-[14px] font-semibold text-emerald-700">
@@ -90,8 +91,13 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
               ✓ <Bi text={{ cs: "POD nahrán", en: "POD uploaded" }} />
             </div>
           )}
-          {!deliveredBlock && <PortalDeliveredForm busy={busy} onDelivered={onDelivered} />}
-          {canUploadStopPod(order, stop) && (
+          {stop.canDeliver && <PortalDeliveredForm busy={busy} onDelivered={onDelivered} />}
+          {!stop.canDeliver && !stop.deliveredAt && order.confirmation.status !== "REJECTED" && (
+            <p className="mb-0 text-[13px] text-amber-700">
+              <Bi text={DELIVER_AFTER_LOADING} />
+            </p>
+          )}
+          {stop.canUploadPod && (
             <div className="mt-3">
               <HaulierPodForm busy={busy} onUpload={onUploadPod} accept="image/*,application/pdf" withCamera />
             </div>

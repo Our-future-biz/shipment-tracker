@@ -16,7 +16,7 @@ import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { COST_SPLIT_LABELS, CURRENCIES, profileProblems, type LaneDraft } from "../../_lib/hauliers";
 import { isTruckingManager, managerOnlyReason } from "../../_lib/roles";
-import { HAULIER_CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
+import { HAULIER_CONFLICT_TEXT, followRecord, isVersionConflict, type HeldDraft } from "../../_lib/saveConflict";
 import { HaulierIssueList } from "../../_components/HaulierIssueList";
 import { HaulierStatusChip } from "../../_components/HaulierStatusChip";
 import { TruckingField } from "../../_components/TruckingField";
@@ -53,6 +53,7 @@ const draftOf = (h: HaulierDetail): ProfileDraft => {
     preferredLanes: p.preferredLanes.map((l) => ({ ...l, key: l.id })),
   };
 };
+const heldOf = (h: HaulierDetail): HeldDraft<ProfileDraft> => ({ draft: draftOf(h), version: h.profile.version });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({ value: c, label: c }));
@@ -81,21 +82,23 @@ interface HaulierViewProps {
 }
 
 // One haulier: who it is, why it can or cannot be put on a trip, and its Trucking profile. Anyone
-// fills in the profile; a manager blocks or unblocks and manages its portal users. Saves carry the version read.
+// fills in the profile; a manager blocks or unblocks and manages its portal users. Saves carry the version
+// the draft was started from: typed over a newer profile, they are refused.
 export const HaulierView = ({ customerId }: HaulierViewProps) => {
   const toast = useToast();
   const { user } = useAuth();
   const { haulier, isLoading, error, reload, save, isSaving, block, unblock, isBlocking } = useHaulier(customerId);
   const { settings } = useTruckingSettings();
-  const [draft, setDraft] = useState<ProfileDraft | null>(null);
+  const [held, setHeld] = useState<HeldDraft<ProfileDraft> | null>(null);
+  const draft = held?.draft ?? null;
   const [conflict, setConflict] = useState(false);
   const [blockMode, setBlockMode] = useState<"block" | "unblock" | null>(null);
 
-  // The haulier as read (set while rendering): a newer one replaces the draft only while nothing is edited here.
+  // The haulier as read (set while rendering): a newer one replaces the draft only while nothing is edited here (followRecord).
   const [seen, setSeen] = useState<HaulierDetail | null>(null);
   if (haulier && haulier !== seen) {
     setSeen(haulier);
-    if (!draft || !seen || same(draft, draftOf(seen))) setDraft(draftOf(haulier));
+    setHeld(!held || !seen ? heldOf(haulier) : followRecord(held, heldOf(seen), heldOf(haulier)));
   }
 
   // A link to the VAT register card (from a blocked haulier invoice) lands there once the page is drawn.
@@ -142,12 +145,13 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
   const blockReason = managerOnlyReason(user, "block or unblock a haulier");
   // The 30-day hold after a bank-account change (owner decision 6), while it runs.
   const bankHold = p.bankChangeHoldUntil && Date.parse(p.bankChangeHoldUntil) > Date.now() ? p.bankChangeHoldUntil : null;
-  const set = <K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d));
+  const set = <K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) => setHeld((h) => (h ? { ...h, draft: { ...h.draft, [key]: value } } : h));
 
   const handleSave = async () => {
+    if (!held) return;
     try {
-      const res = await save({ ...draft, preferredLanes: draft.preferredLanes.map(({ key: _key, ...lane }) => lane), version: p.version });
-      setDraft(draftOf(res.haulier));
+      const res = await save({ ...draft, preferredLanes: draft.preferredLanes.map(({ key: _key, ...lane }) => lane), version: held.version });
+      setHeld(heldOf(res.haulier));
       setConflict(false);
       toast.success("Haulier saved");
     } catch (e) {
@@ -158,7 +162,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
   const handleReload = async () => {
     const res = await reload();
     if (!res.data) return;
-    setDraft(draftOf(res.data.haulier));
+    setHeld(heldOf(res.data.haulier));
     setConflict(false);
   };
   const handleBlockConfirm = async (reason: string) => {
@@ -369,7 +373,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
           <Button type="primary" onClick={handleSave} loading={isSaving} disabled={!dirty || problems.length > 0}>
             Save changes
           </Button>
-          <Button onClick={() => setDraft(draftOf(haulier))} disabled={!dirty || isSaving}>
+          <Button onClick={() => setHeld(heldOf(haulier))} disabled={!dirty || isSaving}>
             Discard
           </Button>
           {dirty && !problems.length && <span className="text-xs text-amber-700">unsaved changes</span>}

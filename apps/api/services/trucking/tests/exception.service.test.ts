@@ -129,10 +129,10 @@ describe("avizace", () => {
   it("an FTL trip warns while its delivery needs an avizace not recorded", async () => {
     const { c } = await seed({ load: load({ b2c: true }), status: "ORDERED", pickedUpAt: null });
     const { tripService } = await import("../services/trip.service");
-    const [listed] = await tripService.list(user, {});
+    const [listed] = (await tripService.list(user, {})).trips;
     expect(listed!.warnings).toEqual([`${c.ref}: avizace needed and not recorded yet`]);
     await avizaceService.record(user, c.id, { channel: "SMS", contact: "+420 777", agreedFrom: null, agreedTo: null, note: "" });
-    expect((await tripService.list(user, {}))[0]!.warnings).toEqual([]);
+    expect((await tripService.list(user, {})).trips[0]!.warnings).toEqual([]);
   });
 });
 

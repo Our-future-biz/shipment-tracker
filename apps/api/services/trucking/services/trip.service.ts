@@ -7,7 +7,7 @@ import { haulierRepository } from "../repositories/haulier.repository";
 import { truckingOutboxRepository, type TruckingOutboxInput } from "../repositories/truckingOutbox.repository";
 import { appendEvent, listEvents } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
-import type { ConsignmentDetail, PricedSide, PriceSnapshot, TripDetail, TripListItem, TripPriceInput, TripStatus } from "../interfaces/interfaces";
+import type { ConsignmentDetail, PricedSide, PriceSnapshot, TripDetail, TripListItem, TripPriceInput, TripQueueCounts, TripStatus } from "../interfaces/interfaces";
 import type { Actor } from "../../../lib/rbac";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
@@ -15,6 +15,7 @@ import { cleanPrice, cleanReason, consignmentStatus, marginOf, normalisePlate, t
 import { eventItem, factsOf, tripDetail, tripListItem, type HaulierAssessment, type TripLoadView } from "../lib/consignmentView";
 import { capacityOf, tripFill } from "../lib/ltlRules";
 import { avizaceWarnings } from "../lib/avizaceRules";
+import { tripQueues } from "../lib/tripQueues";
 import { buyCosts, noCosts, plannedUpdate, tripSourceRef } from "../lib/truckingLinks";
 import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
@@ -99,8 +100,19 @@ class TripService {
     return tripDetail(trip, consignments, assessments.get(trip.haulierCustomerId)!, link, events.map(eventItem), load);
   }
 
-  async list(actor: Actor, q: { status?: TripStatus; search?: string }): Promise<TripListItem[]> {
-    const trips = await tripRepository.list(actor.companyID, { status: q.status });
+  /**
+   * The newest trips (at most 1000) of the status, searched; with how many there are in all and
+   * the work queues counted over every trip, so a cut list is said and never counted from.
+   */
+  async list(
+    actor: Actor,
+    q: { status?: TripStatus; search?: string },
+  ): Promise<{ trips: TripListItem[]; listed: number; total: number; truncated: boolean; counts: TripQueueCounts }> {
+    const [trips, statusCounts] = await Promise.all([
+      tripRepository.list(actor.companyID, { status: q.status }),
+      tripRepository.statusCounts(actor.companyID, businessDay(new Date())),
+    ]);
+    const { total, counts } = tripQueues(statusCounts, q.status);
     const settings = await settingsService.get(actor.companyID);
     const [consignments, assessments, loads] = await Promise.all([
       consignmentRepository.findByTrips(actor.companyID, trips.filter((t) => t.kind === "FTL").map((t) => t.id)),
@@ -122,9 +134,10 @@ class TripService {
       return { fill: tripFill(mine.map((c) => c.load), capacity), warnings: t.cancelledAt ? [] : avizaceWarnings(mine) };
     };
     const search = (q.search ?? "").trim().toLowerCase();
-    return trips
+    const items = trips
       .map((t) => tripListItem(t, ofTrip.get(t.id) ?? [], assessments.get(t.haulierCustomerId)!, null, loadOf.get(t.id) ?? ftlLoad(t)))
       .filter((t) => !search || [t.ref, t.haulierName, t.tractorPlate, t.trailerPlate, t.driverName, ...t.consignmentRefs].some((v) => v.toLowerCase().includes(search)));
+    return { trips: items, listed: trips.length, total, truncated: total > trips.length, counts };
   }
 
   // ---- create ------------------------------------------------------------------------------------

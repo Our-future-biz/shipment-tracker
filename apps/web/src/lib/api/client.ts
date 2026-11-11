@@ -8564,6 +8564,25 @@ export namespace controllers {
 
     export interface HaulierInvoiceListResponse {
         invoices: interfaces.HaulierInvoice[]
+        /**
+         * How many of the newest invoices were read (at most 1000)
+         */
+        listed: number
+
+        /**
+         * How many invoices the status and haulier match, listed or not
+         */
+        total: number
+
+        /**
+         * More invoices match than were read: the oldest are not listed
+         */
+        truncated: boolean
+
+        /**
+         * Every status counted over all the haulier's (or all) invoices, not only those listed
+         */
+        counts: interfaces.HaulierInvoiceCounts
     }
 
     export interface HaulierInvoicePaidRequest {
@@ -11141,9 +11160,24 @@ export namespace controllers {
     export interface TruckingConsignmentListResponse {
         consignments: interfaces.ConsignmentListItem[]
         /**
-         * Over the consignments matching status / search / job, whatever the view
+         * Over the consignments matching status / search / job, whatever the view (of those read)
          */
         counts: interfaces.ConsignmentCounts
+
+        /**
+         * How many of the newest consignments of the status and job were read (at most 1000), before the search and the view
+         */
+        listed: number
+
+        /**
+         * How many consignments the status and job match, read or not
+         */
+        total: number
+
+        /**
+         * More consignments match than were read: the oldest are not listed, searched or counted
+         */
+        truncated: boolean
     }
 
     export interface TruckingConsignmentReasonRequest {
@@ -11826,6 +11860,25 @@ export namespace controllers {
 
     export interface TruckingTripListResponse {
         trips: interfaces.TripListItem[]
+        /**
+         * How many of the newest trips of the status were read (at most 1000), before the search
+         */
+        listed: number
+
+        /**
+         * How many trips the status matches, listed or not
+         */
+        total: number
+
+        /**
+         * More trips match than were read: the oldest are not listed
+         */
+        truncated: boolean
+
+        /**
+         * The work queues over every trip, not only those listed
+         */
+        counts: interfaces.TripQueueCounts
     }
 
     export interface TruckingTripRepriceRequest {
@@ -15720,6 +15773,15 @@ export namespace interfaces {
             reason: string
         } | null
         /**
+         * Who rejected it (REJECTED), when and why; null otherwise
+         */
+        rejection: {
+            byName: string
+            at: string
+            reason: string
+        } | null
+
+        /**
          * When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid.
          */
         payment: {
@@ -15759,6 +15821,18 @@ export namespace interfaces {
          * Already on another invoice that is not rejected (and not approved yet)
          */
         alreadyInvoiced: boolean
+    }
+
+    /**
+     * How many invoices are in each status, over every invoice (an open one's status as worked out now).
+     */
+    export interface HaulierInvoiceCounts {
+        DRAFT: number
+        MATCHED: number
+        NEEDS_APPROVAL: number
+        APPROVED: number
+        BLOCKED: number
+        REJECTED: number
     }
 
     export interface HaulierInvoiceLine {
@@ -18029,6 +18103,16 @@ export namespace interfaces {
         }
         deliveredAt: string | null
         podUploaded: boolean
+        /**
+         * Delivered may be stamped here now: a stop the haulier hands the goods over at (not a line
+         * haul's drop at a depot), not delivered yet, after the pick-up (FTL) or our warehouse's gate-in
+         * (groupage), on an order not rejected. The portal offers it only then.
+         */
+        canDeliver: boolean
+        /**
+         * The POD may be uploaded here now: such a stop, the order confirmed, no POD yet, its stamps possible.
+         */
+        canUploadPod: boolean
     }
 
     export interface PortalUserItem {
@@ -18289,6 +18373,14 @@ export namespace interfaces {
             reference: string
             notes: string
         }
+        /**
+         * The stops' windows in our words and in Prague time, as the transport order prints them ("16 Oct 2026, 08:00–12:00"; "" for none)
+         */
+        windowText: {
+            pickup: string
+            delivery: string
+        }
+
         load: LoadInput
         /**
          * The BUY price only
@@ -22290,6 +22382,22 @@ export namespace interfaces {
         total: number
         currency: "CZK" | "EUR"
         reason: string
+    }
+
+    /**
+     * The Trips tab's work queues, over every trip (not only the newest listed).
+     */
+    export interface TripQueueCounts {
+        draft: number
+        /**
+         * Ordered, not confirmed by the haulier yet (a rejected order too): the Trips tab's count
+         */
+        notConfirmed: number
+
+        /**
+         * On the road, or ordered or confirmed for pick-up today (the company's day, Prague)
+         */
+        inTransitToday: number
     }
 
     export type TripStatus = "DRAFT" | "ORDERED" | "CONFIRMED" | "IN_TRANSIT" | "DONE" | "CANCELLED"

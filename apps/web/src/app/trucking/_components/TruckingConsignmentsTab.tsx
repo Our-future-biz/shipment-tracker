@@ -7,6 +7,7 @@ import { Button, Tooltip } from "antd";
 import { PlusOutlined, TagsOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { Badge } from "@/components/Badge";
+import { ListCapNotice } from "@/components/ListCapNotice";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useConsignments, type ConsignmentListItem, type ConsignmentStatus } from "@/hooks/useTruckingConsignments";
 import { formatDate } from "@/lib/date";
@@ -194,7 +195,7 @@ export const TruckingConsignmentsTab = () => {
   const status = STATUSES.find((s) => s === searchParams.get("status")) ?? null;
   // ?job= (a job's shipment id): the consignments of one job, as Shipments and the Costs tab link here.
   const job = searchParams.get("job");
-  const { consignments, counts, isLoading, isError } = useConsignments({ view: view ?? undefined, status: status ?? undefined, shipmentId: job ?? undefined }, { keepPrevious: true });
+  const { consignments, counts, cap, isLoading, isError } = useConsignments({ view: view ?? undefined, status: status ?? undefined, shipmentId: job ?? undefined }, { keepPrevious: true });
   const activeTile: ConsignmentTileId | null = CONSIGNMENT_TILES.find((t) => t.view === view)?.id ?? null;
   const chipView = CONSIGNMENT_CHIPS.find((c) => c.id === view)?.id ?? null;
   const jobNumber = job ? (consignments[0]?.jobNumber ?? null) : null;
@@ -228,6 +229,16 @@ export const TruckingConsignmentsTab = () => {
           <>
             <ConsignmentTiles active={activeTile} counts={counts} onSelect={handleTile} />
             <ConsignmentQuickChips active={chipView} counts={counts} onSelect={(id) => setFilter({ view: id, status: null })} />
+            {cap && (
+              <div className="mt-3">
+                <ListCapNotice
+                  shown={cap.listed}
+                  total={cap.total}
+                  noun="consignments"
+                  hint="older ones are not listed, searched or counted in the tiles and chips; filter by status or job to reach them"
+                />
+              </div>
+            )}
             {job && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
                 <span>

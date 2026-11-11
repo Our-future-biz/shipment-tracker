@@ -63,7 +63,7 @@ async function ordered(opts: { expiresAt?: Date; confirmed?: boolean } = {}) {
     customerName: "Alfa",
     status: opts.confirmed ? "CONFIRMED" : "ORDERED",
     pickupDate: "2026-10-16",
-    pickup: { ...stop(), postcode: "11000", id: "s1", kind: "PICKUP", actualArrival: null, actualDeparture: null },
+    pickup: { ...stop({ windowFrom: "2026-10-16T04:00:00Z", windowTo: "2026-10-16T08:00:00Z" }), postcode: "11000", id: "s1", kind: "PICKUP", actualArrival: null, actualDeparture: null },
     delivery: { ...stop({ city: "Brno" }), postcode: "60200", id: "s2", kind: "DELIVERY", actualArrival: null, actualDeparture: null },
     load: load(),
     sell: { source: "TARIFF", total: 12000, currency: "CZK" } as never,
@@ -109,6 +109,11 @@ describe("the link", () => {
     expect(order.pickup).not.toHaveProperty("id");
     expect(order.pickup).not.toHaveProperty("siteId");
     expect(JSON.stringify(order)).not.toContain("12000");
+  });
+
+  it("words the windows in Prague time, as the transport order prints them, whatever the haulier's phone is set to", async () => {
+    const { token } = await ordered();
+    expect((await publicOrderService.get(token)).windowText).toEqual({ pickup: "16 Oct 2026, 06:00–10:00", delivery: "" });
   });
 
   it("answers the same 404 for an unknown, malformed, expired or revoked link and a cancelled trip", async () => {

@@ -876,6 +876,15 @@ export interface TripListItem {
   warnings: string[];
 }
 
+/** The Trips tab's work queues, over every trip (not only the newest listed). */
+export interface TripQueueCounts {
+  draft: number;
+  /** Ordered, not confirmed by the haulier yet (a rejected order too): the Trips tab's count */
+  notConfirmed: number;
+  /** On the road, or ordered or confirmed for pick-up today (the company's day, Prague) */
+  inTransitToday: number;
+}
+
 /** What the haulier sees via the link: no prices of the customer. */
 export interface PublicTransportOrder {
   orderNumber: string;
@@ -884,6 +893,8 @@ export interface PublicTransportOrder {
   plannedPickupDate: string;
   pickup: Omit<Stop, "id" | "siteId">;
   delivery: Omit<Stop, "id" | "siteId">;
+  /** The stops' windows in our words and in Prague time, as the transport order prints them ("16 Oct 2026, 08:00–12:00"; "" for none) */
+  windowText: { pickup: string; delivery: string };
   load: LoadInput;
   /** The BUY price only */
   agreedPrice: { total: number; currency: string } | null;

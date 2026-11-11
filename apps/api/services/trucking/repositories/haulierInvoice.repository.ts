@@ -187,6 +187,14 @@ class HaulierInvoiceRepository {
     return invoices.map((invoice) => ({ invoice, lines: lines.filter((l) => l.invoiceId === invoice.id) }));
   }
 
+  /** Every invoice (of the haulier) counted by its stored status. */
+  async statusCounts(companyId: string, haulierCustomerId?: string): Promise<{ status: HaulierInvoiceStatus; n: number }[]> {
+    const clauses: SQL[] = [eq(i.companyId, companyId), isNull(i.deletedAt)];
+    if (haulierCustomerId) clauses.push(eq(i.haulierCustomerId, haulierCustomerId));
+    const rows = await db.select({ status: i.status, n: sql<number>`count(*)::int` }).from(i).where(and(...clauses)).groupBy(i.status);
+    return rows.map((r) => ({ status: r.status, n: Number(r.n) }));
+  }
+
   /**
    * A haulier's approved invoices not noted as paid, without their lines: the soonest due first (no due day
    * last), then the oldest issued (at most `limit`).

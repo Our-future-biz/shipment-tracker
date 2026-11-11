@@ -5,6 +5,7 @@ import type { FileDownload } from "../interfaces/interfaces";
 import type {
   HaulierInvoice,
   HaulierInvoiceCandidate,
+  HaulierInvoiceCounts,
   HaulierInvoiceLineInput,
   HaulierInvoiceStatus,
 } from "../interfaces/haulierInvoice.interfaces";
@@ -76,12 +77,20 @@ interface HaulierInvoiceListRequest {
 
 interface HaulierInvoiceListResponse {
   invoices: HaulierInvoice[];
+  /** How many of the newest invoices were read (at most 1000) */
+  listed: number;
+  /** How many invoices the status and haulier match, listed or not */
+  total: number;
+  /** More invoices match than were read: the oldest are not listed */
+  truncated: boolean;
+  /** Every status counted over all the haulier's (or all) invoices, not only those listed */
+  counts: HaulierInvoiceCounts;
 }
 
 export const truckingHaulierInvoiceList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/haulier-invoices" },
   async (req: HaulierInvoiceListRequest): Promise<HaulierInvoiceListResponse> => {
-    return { invoices: await haulierInvoiceService.list(requireRole(), req) };
+    return haulierInvoiceService.list(requireRole(), req);
   },
 );
 
