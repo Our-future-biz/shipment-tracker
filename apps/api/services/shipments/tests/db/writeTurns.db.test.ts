@@ -85,13 +85,17 @@ describe("a delete while Invoicing numbers an invoice", () => {
     await vi.waitFor(() => expect(openInvoiceCount).toHaveBeenCalled());
 
     let finalized = false;
-    const finalizing = shipmentService.finalizeReference(s.id, s.companyId).finally(() => (finalized = true));
+    // Its refusal is caught here at once: it may come while the test still awaits the delete.
+    const finalizing = shipmentService
+      .finalizeReference(s.id, s.companyId)
+      .then(() => null, (err: unknown) => err)
+      .finally(() => (finalized = true));
     await new Promise((resolve) => setTimeout(resolve, 200));
     // Invoicing's turn waits for the delete's.
     expect(finalized).toBe(false);
     answer({ count: 0 });
     await deleting;
-    await expect(finalizing).rejects.toMatchObject({ message: "Shipment not found" });
+    expect(await finalizing).toMatchObject({ message: "Shipment not found" });
     expect(await live(s.companyId)).toEqual([]);
   });
 });
