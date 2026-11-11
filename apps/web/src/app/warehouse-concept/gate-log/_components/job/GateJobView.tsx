@@ -664,7 +664,11 @@ export function GateJobView({ id }: { id: string }) {
           update
             .mutateAsync({ ...linkChange!, linkChangeReason: reason })
             .then(() => setLinkChange(null))
-            .catch((e) => toast.error(errorMessage(e, "Failed to save")))
+            .catch((e) => {
+              toast.error(errorMessage(e, "Failed to save"));
+              // Rethrown so the dialog stays open with the reason typed (ReasonModal).
+              throw e;
+            })
         }
       />
       <ReasonModal
