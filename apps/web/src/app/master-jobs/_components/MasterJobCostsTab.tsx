@@ -92,8 +92,10 @@ const eurText = ({ eur, missing }: EurTotal) => (eur === null ? `no ČNB rate fo
 // the same part each, as the line says. The split below always shows how that stands; a shipment
 // carries its share, as a read-only row of its own Costs Breakdown, once the split is processed.
 export function MasterJobCostsTab({ masterJob }: Props) {
-  // The EUR figures wait for the rates: until they are in, every currency would read as one without a rate.
-  const { rates, fixingLabel, isLoading: ratesLoading } = useLatestRates();
+  // The EUR figures wait for the rates: until they are in - or when they could not be read - every
+  // currency would read as one without a rate, so the figures are left out instead.
+  const { rates, fixingLabel, isLoading: ratesLoading, isError: ratesError } = useLatestRates();
+  const ratesReady = !ratesLoading && !ratesError;
   const message = useMessages();
   const queryClient = useQueryClient();
   // Column widths the user dragged, kept per user in this browser, as on the Shipments grid: the
@@ -602,7 +604,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       return (
                         <td key={l.id} className={FOOT}>
                           {total != null ? `${money(total)} ${currency}` : EMPTY_CELL}
-                          {total != null && currency !== "EUR" && !ratesLoading && (
+                          {total != null && currency !== "EUR" && ratesReady && (
                             <span className="block text-[11px] font-normal text-slate-500">
                               {eurText(eurTotal([[currency ?? "", total]], rates))}
                             </span>
@@ -656,7 +658,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   {allIn
                     .map(([currency, total]) => `${money(total)} ${currency}`)
                     .join(" + ")}
-                  {!(allIn.length === 1 && allIn[0]![0] === "EUR") && !ratesLoading && (
+                  {!(allIn.length === 1 && allIn[0]![0] === "EUR") && ratesReady && (
                     <Tooltip title={`At the rates of ${fixingLabel || "today's ČNB fixing"}, without the ROE %. The split stays in the currencies as received.`}>
                       <span className="ml-1.5 text-indigo-700"> = {eurText(allInEur)}</span>
                     </Tooltip>

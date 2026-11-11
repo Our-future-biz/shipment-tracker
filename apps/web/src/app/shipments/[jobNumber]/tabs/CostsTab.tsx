@@ -16,7 +16,7 @@ import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sal
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
 import { SoldAtCostAmount, SoldAtCostRemove } from "./SoldAtCostAmount";
-import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
+import { invalidateInvoicingDerived } from "@/hooks/useInvoiceQueue";
 import { invoicePdfSource, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { isOpenInvoice, notInvoicedMark } from "@/app/invoicing/_lib/openInvoices";
@@ -266,8 +266,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   // Costs feed the shipment's totals (list rows, the customer's rollups), so those refresh too.
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["shipments"] });
-    // …and the Invoicing queue's counts (to bill, lines invoiced)
-    queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
+    // …and what is worked out from them elsewhere: the Invoicing queue's counts (to bill, lines
+    // invoiced), the invoice preview and the customer's Shipments tab figures
+    invalidateInvoicingDerived(queryClient);
     // …and the suppliers' What we owe (received and paid move it), and their Open jobs and last use (a vendor link moves them)
     queryClient.invalidateQueries({ queryKey: ["supplier-costs"] });
     queryClient.invalidateQueries({ queryKey: ["supplier-usage"] });
