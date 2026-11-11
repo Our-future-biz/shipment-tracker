@@ -15,7 +15,7 @@
 
 ## Code Examples
 
-### ✅ GOOD: Simple, clear function
+### Good: simple, clear function
 ```typescript
 const getUserDisplayName = (user: User): string => {
   if (!user) return 'Unknown User';
@@ -23,7 +23,7 @@ const getUserDisplayName = (user: User): string => {
 };
 ```
 
-### ❌ BAD: Overly complex with unnecessary abstractions
+### Bad: overly complex, with unnecessary abstractions
 ```typescript
 const getUserDisplayName = (user: User): string => {
   const userValidator = new UserValidator();
@@ -50,12 +50,14 @@ const getUserDisplayName = (user: User): string => {
 Before applying any changes, confirm:
 1. **Business Rules**: Have I verified that no existing business rule will be broken?
 2. **Design Consistency**: Am I following the approved UI/UX and architecture patterns?
-3. **Security/Privacy**: Have I verified no sensitive data/PII exposure or new security risks?
+3. **Security/Privacy**: Have I verified no sensitive data/PII exposure or new security risks? Is every query still scoped to the caller's company (`company_id`), and is every permission checked on the server?
 4. **Functionality Preservation**: Will the current functionality remain intact unless explicitly told to change it?
 5. **Simplicity**: Is this the simplest, cleanest way to achieve the goal?
 6. **Readability**: Can another developer understand this code without additional explanation?
 7. **Dependencies**: Am I adding a new dependency only if it is absolutely required?
-8. **Testing**: Will the change pass all existing tests, and have I added tests for new logic?
+8. **Testing**: Will the change pass all existing tests (`pnpm test`, plus the API's database tests under `encore test` when repositories changed), and have I added tests for new logic?
+
+For how the code is laid out, see `rules/encore-ts-standards.md` (apps/api) and `rules/frontend-web.md` (apps/web).
 
 ## Remember
 "Any fool can write code that a computer can understand. Good programmers write code that humans can understand." - Martin Fowler
