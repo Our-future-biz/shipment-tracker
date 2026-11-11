@@ -33,6 +33,10 @@ interface PipelineSession {
   owner: SessionOwner;
   pages: PipelinePage[];
   mblInfo: Record<string, string> | null;
+  // The pages were charged once, when the pre-alert was prepared: each part is read once too. Asked
+  // again (a retried request, a second click), the part answers what it read, without another call.
+  mblRead: boolean;
+  hblBatches: Map<number, ExtractHblResult>;
   shipments: Record<string, string>[];
   fileName: string;
   createdAt: number;
@@ -159,6 +163,8 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
     owner,
     pages: sessionPages,
     mblInfo: null,
+    mblRead: false,
+    hblBatches: new Map(),
     shipments: [],
     fileName: files.map((f) => f.fileName).join(", "),
     createdAt: Date.now(),
@@ -183,6 +189,7 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
 
 export async function extractMbl(sessionId: string, who: SessionOwner): Promise<ExtractMblResult> {
   const session = getSessionOrThrow(sessionId, who);
+  if (session.mblRead) return { mblInfo: session.mblInfo };
   const mblPages = getPagesByType(session, "MBL");
 
   if (mblPages.length === 0) {
@@ -206,6 +213,7 @@ export async function extractMbl(sessionId: string, who: SessionOwner): Promise<
     applyTradeDirection(mblInfo);
   }
   session.mblInfo = mblInfo;
+  session.mblRead = true;
 
   return { mblInfo };
 }
@@ -233,6 +241,10 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
       done: true,
     };
   }
+
+  // Read once: a batch asked for again answers what it read (no second paid call, no shipments twice).
+  const earlier = session.hblBatches.get(batchIndex);
+  if (earlier) return { ...earlier, totalExtracted: session.shipments.length };
 
   const batch = hbls.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
   const perHbl = await Promise.all(
@@ -274,7 +286,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
   session.shipments.push(...shipments);
   const done = batchIndex + 1 >= totalBatches;
 
-  return {
+  const result: ExtractHblResult = {
     shipments,
     documents: found.map((r) => r.document),
     batchIndex,
@@ -282,6 +294,8 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
     totalExtracted: session.shipments.length,
     done,
   };
+  session.hblBatches.set(batchIndex, result);
+  return result;
 }
 
 /**

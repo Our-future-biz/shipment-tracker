@@ -1,3 +1,4 @@
+import type { MaxLen } from "encore.dev/validate";
 import log from "encore.dev/log";
 import { auth } from "~encore/clients";
 import { getClient, MODEL, replyText } from "../lib/anthropic";
@@ -11,7 +12,8 @@ import { subdivisionOf, type Subdivision } from "../../../lib/geo/subdivisions";
 // as it was; the screens flag any value not in that form.
 
 export interface GeoItem {
-  text: string;
+  // A place or a country as typed: a line, not a document.
+  text: string & MaxLen<200>;
   kind: GeoKind;
   // What the field means, which tells a port from an airport or a town, e.g. "port of loading".
   role?: string;
@@ -73,7 +75,11 @@ async function lookupPlaces(codes: string[], names: { name: string; countryCode?
 }
 
 /** The stored form of each item, or null where nothing in the database matches it. */
-export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
+/**
+ * `beforeAi`: called once before the AI is asked (the items the database did not settle), e.g. to
+ * charge the caller's reading budget; it may refuse by throwing.
+ */
+export async function resolveGeo(items: GeoItem[], opts: { beforeAi?: () => void } = {}): Promise<(string | null)[]> {
   const out: (string | null)[] = items.map(() => null);
   // Items still open after the database pass, for one AI call: candidates are the database
   // rows the text could mean (empty when none were found by name).
@@ -140,6 +146,7 @@ export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
   }
 
   if (open.length > 0) {
+    opts.beforeAi?.();
     const picks = await askAi(items, open);
     const suggested = [...new Set(Object.values(picks).filter((c): c is string => !!c))];
     const valid = suggested.length > 0 ? (await lookupPlaces(suggested, [])).byCode : [];

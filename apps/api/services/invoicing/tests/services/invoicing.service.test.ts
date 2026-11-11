@@ -183,11 +183,13 @@ describe("importQuote", () => {
     expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, true, undefined);
   });
 
-  it("copies all the same when the customer's currency can't be read, billing in CZK as before", async () => {
+  it("copies nothing while the customer's currency can't be read, rather than make the billing settings in CZK", async () => {
     vi.mocked(billingSettingsRepository.getByShipmentId).mockResolvedValue(null);
     vi.mocked(shipments.shipmentGet).mockRejectedValue(new Error("shipments is unreachable"));
-    await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 2, selling: 1 });
-    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false, undefined);
+    copy.mockClear();
+    // The settings it would make would stay in CZK for a customer billed in EUR: try again instead.
+    await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).rejects.toMatchObject({ code: "unavailable" });
+    expect(copy).not.toHaveBeenCalled();
     expect(log.warn).toHaveBeenCalled();
   });
 });

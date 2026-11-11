@@ -1106,7 +1106,13 @@ class SalesQuoteService {
           ctx,
         );
         if (change.changed) {
-          const document = change.becameWon ? fxWriteFor("won", quote.data, today) : undefined;
+          // Won: the rates of a sent quote. Back to a draft status (its shipment went): priced live
+          // again, so the rates of the Won moment are dropped, as on every other way back to a draft.
+          const document = change.becameWon
+            ? fxWriteFor("won", quote.data, today)
+            : change.revertedTo && !mayStampFx(change.revertedTo)
+              ? fxWriteFor(change.revertedTo, quote.data, undefined)
+              : undefined;
           await salesQuoteRepository.writeLifecycle(tx, quote, { state: change.state, entries: change.entries, document });
         }
         return { ...change, customerId: quote.customerId };

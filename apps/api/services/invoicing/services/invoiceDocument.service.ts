@@ -36,6 +36,7 @@ import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
 import { invoiceBucket } from "../storage/invoiceBucket";
+import { BILLING_CURRENCY_UNKNOWN, startBilling } from "./billingStart.service";
 import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
 import { deliverInvoiceFollowups, followupsOfCreditNote, followupsOfInvoice, type FollowupActor } from "./invoiceFollowups.service";
 import { isUniqueViolation } from "../../../lib/db/errors";
@@ -150,15 +151,29 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const { shipment } = await shipments.shipmentGet({ shipmentId });
   const profileRow = await invoiceProfileRepository.getByCompany(companyId);
   const profile = profileRow ? normaliseProfile(profileRow) : null;
-  const [allRows, settings, alreadyInvoiced] = await Promise.all([
+  const [allRows, storedSettings, alreadyInvoiced] = await Promise.all([
     sellingCostRepository.listByShipmentId(shipmentId, companyId),
     billingSettingsRepository.getByShipmentId(shipmentId, companyId),
     invoiceRepository.invoicedSellingRowIds(shipmentId, companyId),
   ]);
+  // A job whose billing never started (its customer could not be read then) starts it now, in the
+  // customer's default currency: an invoice is never drawn up in CZK only because of that.
+  let settings = storedSettings;
+  let currencyUnknown = false;
+  if (!settings) {
+    try {
+      await startBilling(companyId, shipmentId);
+      settings = await billingSettingsRepository.getByShipmentId(shipmentId, companyId);
+    } catch (err) {
+      log.warn(err, "the shipment's billing could not be started before the invoice", { shipmentId });
+      currencyUnknown = true;
+    }
+  }
   // A row on an issued, not credited invoice is billed already; after a credit note it is open again.
   const rows = allRows.filter((r) => !alreadyInvoiced.has(r.id));
 
   const problems: string[] = [];
+  if (currencyUnknown) problems.push(BILLING_CURRENCY_UNKNOWN);
   const issueDate = pragueToday();
   const duzp = params.duzp?.trim() || defaultDuzp(shipment, issueDate);
   if (!isIsoDate(duzp)) problems.push("DUZP is not a valid date");

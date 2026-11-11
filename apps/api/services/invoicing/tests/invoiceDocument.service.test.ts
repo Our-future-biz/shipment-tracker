@@ -22,7 +22,7 @@ const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: v
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
 const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listLiveByCompany: vi.fn() }));
-const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi.fn() }));
+const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi.fn(), createIfMissing: vi.fn() }));
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 // The follow-up outbox, in memory: rows written in the issue's transaction, claimed and settled.
 const outbox = vi.hoisted(() => {
@@ -211,6 +211,24 @@ describe("ČNB rates", () => {
     expect(p.problems).toContain("Today's ČNB rate is imported at 15:00 (ČNB publishes about 14:30) — issue the invoice after that");
     const future = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2999-01-01" });
     expect(future.problems).toContain("DUZP is in the future — the ČNB rate for it is not known yet");
+  });
+
+  it("starts a job's billing that never started (its customer was unreadable then) before the invoice, in the customer's currency", async () => {
+    repo.listByShipment.mockResolvedValue([]);
+    clients.customerGet.mockResolvedValue({ customer: { ...customer, currency: "EUR" } });
+    settings.getByShipmentId.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValue({ billingCurrency: "EUR" });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(settings.createIfMissing).toHaveBeenCalledWith(SHIPMENT, COMPANY, { billingCurrency: "EUR" });
+    expect(p.currency).toBe("EUR");
+  });
+
+  it("holds the invoice while the customer's default currency can't be read, rather than draw it up in CZK", async () => {
+    repo.listByShipment.mockResolvedValue([]);
+    settings.getByShipmentId.mockResolvedValue(null);
+    clients.customerGet.mockRejectedValue(new Error("customers is down"));
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(p.problems).toContain("The customer's default currency could not be read — try again in a moment");
+    expect(settings.createIfMissing).not.toHaveBeenCalled();
   });
 
   it("does not hold a CZK invoice of CZK rows for the ČNB rate: nothing is converted", async () => {

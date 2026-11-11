@@ -22,7 +22,8 @@ vi.mock("../lib/pdf", () => {
 });
 vi.mock("../services/places.service", () => ({ canonicalizeRecords: vi.fn() }));
 
-import { extractMbl, MAX_PAGES, ownsSession, prepare } from "../services/pipeline.service";
+import { extractHblBatch, extractMbl, MAX_PAGES, ownsSession, prepare } from "../services/pipeline.service";
+import { extractFromPages } from "../services/extraction.service";
 import { splitPdfToPages } from "../lib/pdf";
 
 const alice = { companyId: "c1", userId: "u1" };
@@ -50,6 +51,23 @@ describe("what one pre-alert may cost", () => {
     vi.mocked(splitPdfToPages).mockClear();
     await expect(prepare([pdf(150), pdf(40_000)], { companyId: "c1", userId: "blank-pages" })).rejects.toThrow(`at most ${MAX_PAGES} pages`);
     expect(vi.mocked(splitPdfToPages).mock.calls.map((c) => c[1])).toEqual([MAX_PAGES, MAX_PAGES - 150]);
+  });
+
+  it("reads each part of a pre-alert once: asked again, it answers what it read without another paid call", async () => {
+    const carol = { companyId: "c1", userId: "carol" };
+    const { classifyPages } = await import("../services/extraction.service");
+    vi.mocked(classifyPages).mockResolvedValueOnce([{ type: "MBL", ref: "" }, { type: "HBL", ref: "H1" }] as never);
+    const { sessionId } = await prepare([pdf(2)], carol);
+    vi.mocked(extractFromPages).mockClear();
+    vi.mocked(extractFromPages).mockResolvedValueOnce([{ "MBL Number": "MSCU1" }]).mockResolvedValueOnce([{ Shipper: "ACME", "Personal Reference": "H1" }]);
+    const mbl = await extractMbl(sessionId, carol);
+    expect(await extractMbl(sessionId, carol)).toEqual(mbl);
+    const first = await extractHblBatch(sessionId, 0, carol);
+    const again = await extractHblBatch(sessionId, 0, carol);
+    expect(again.shipments).toEqual(first.shipments);
+    // One call for the MBL, one for the House B/L; the session holds the shipment once.
+    expect(extractFromPages).toHaveBeenCalledTimes(2);
+    expect(again.totalExtracted).toBe(1);
   });
 
   it("keeps at most 3 sessions per user: a new one drops the user's oldest", async () => {

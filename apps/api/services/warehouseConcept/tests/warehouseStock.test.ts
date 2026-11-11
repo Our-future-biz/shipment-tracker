@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
+import { db } from "../db/db";
 import { stockLineItem, warehouseStockService as svc, zoneItem } from "../services/warehouseStock.service";
 
 const user = randomUUID();
@@ -98,5 +100,22 @@ describe("movements and bonded register", () => {
     expect(entry).toMatchObject({ mrn: "26CZ5100001234A7", balance: 3, status: "In stock" });
     expect(await svc.updateBonded(entry.id, c, { balance: 0, discharge: "2026-08-20 · 40 00 release" })).toMatchObject({ status: "Discharged" });
     await expect(svc.createBonded(c, { mrn: " " })).rejects.toThrow(/required/);
+  });
+});
+
+describe("a long-stored line is never cut off by newer closed ones", () => {
+  it("lists and edits an old open line under 5001 newer closed lines", async () => {
+    const c = randomUUID();
+    const old = await svc.createStockLine(c, { job: "WCZ2025010001", receivedAt: "2025-01-15", location: "A-01-1", pieces: 3 });
+    // 5001 lines that left since, all newer than the open one.
+    await db.execute(sql`
+      INSERT INTO warehouse_stock_line (company_id, job, received_at, status, created_at)
+      SELECT ${c}::uuid, 'WCZ2026' || lpad(g::text, 6, '0'), '2026-10-01', 'Picked', now() + (g || ' seconds')::interval
+      FROM generate_series(1, 5001) g`);
+    const all = await svc.listStockLines(c);
+    expect(all.some((l) => l.id === old.id)).toBe(true);
+    expect((await svc.listStockLines(c, { openOnly: true })).map((l) => l.id)).toEqual([old.id]);
+    // Saved and answered (before: saved, then 404 because the line was past the newest 5000).
+    expect(await svc.updateStockLine(old.id, c, { location: "B-02-1" })).toMatchObject({ id: old.id, location: "B-02-1" });
   });
 });

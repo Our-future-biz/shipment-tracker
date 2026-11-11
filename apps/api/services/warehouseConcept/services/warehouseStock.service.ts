@@ -7,6 +7,7 @@ import {
   stockMovementRepository,
   zoneRepository,
   type PositionLink,
+  CLOSED_LINE_STATUSES,
 } from "../repositories/warehouseStock.repository";
 import { customsClock, type CustomsRegime } from "./warehouseStockCustoms";
 import { previewStockSync, syncStockForMovements } from "./warehouseStockSync";
@@ -41,7 +42,7 @@ export const AUTO_LINE_STATUSES = ["Available", "Allocated", "On hold"];
 /** Fields of an automatic line people may change; the rest follows the gate record. */
 export const AUTO_LINE_EDITABLE = ["location", "status", "consol", "marks"] as const;
 export const STOCK_CUSTOMS = ["Free circulation", "T1 bonded", "Temporary storage", "Customs warehouse", "Export cleared"];
-const CLOSED_STATUSES = ["Picked", "Voided"];
+const CLOSED_STATUSES = CLOSED_LINE_STATUSES;
 const FOLLOWS_GATE = "follows the gate record — change it on the position (gate job)";
 export const MOVEMENT_TYPES = ["Receipt", "Put-away", "Transfer", "Pick", "Load", "Adjustment", "Rework"];
 
@@ -248,7 +249,7 @@ class WarehouseStockService {
 
   /** Lines with their position; `openOnly` leaves out the lines that left or were voided. */
   async listStockLines(companyId: string, opts: { openOnly?: boolean } = {}) {
-    const rows = await stockLineRepository.listWithPosition(companyId, 5000);
+    const rows = await stockLineRepository.listWithPosition(companyId);
     const now = new Date();
     return rows
       .filter((r) => !opts.openOnly || !isClosedLine(r))
@@ -257,7 +258,7 @@ class WarehouseStockService {
   }
 
   private async lineById(id: string, companyId: string) {
-    const row = (await stockLineRepository.listWithPosition(companyId, 5000)).find((r) => r.id === id);
+    const [row] = await stockLineRepository.listWithPosition(companyId, { id });
     if (!row) throw notFound("Stock line");
     return stockLineItem(row);
   }
@@ -381,7 +382,7 @@ class WarehouseStockService {
 
   // Only what is on hand occupies a zone (lines that left or were voided do not).
   private async onHand(companyId: string) {
-    return (await stockLineRepository.listForCompany(companyId, 5000)).filter((l) => !isClosedLine(l));
+    return stockLineRepository.listOpen(companyId);
   }
 
   async listZones(companyId: string) {
@@ -433,13 +434,13 @@ class WarehouseStockService {
   // ---- bonded register ----
 
   async listBonded(companyId: string) {
-    const rows = await bondedEntryRepository.listWithPosition(companyId, 5000);
+    const rows = await bondedEntryRepository.listWithPosition(companyId);
     const now = new Date();
     return rows.map((r) => bondedItem(r, now)).sort((a, b) => b.entryDate.localeCompare(a.entryDate));
   }
 
   private async bondedById(id: string, companyId: string) {
-    const row = (await bondedEntryRepository.listWithPosition(companyId, 5000)).find((r) => r.id === id);
+    const [row] = await bondedEntryRepository.listWithPosition(companyId, { id });
     if (!row) throw notFound("Bonded entry");
     return bondedItem(row);
   }

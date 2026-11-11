@@ -1110,6 +1110,27 @@ describe("syncShipments", () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
 
+  it("drops the rates of the Won moment when the quote goes back to a draft status: it is priced live again", async () => {
+    stored = quote({
+      status: "won",
+      decidedAt: SENT,
+      shipmentId: FIRST.id,
+      shipmentJobNumber: "CZ00000101",
+      data: {
+        reference: REF,
+        quoteStatus: "won",
+        fx: { date: "2026-10-01", fixingDate: "2026-10-01", roePct: 100, rates: { EUR: 24 }, lockedAt: SENT.toISOString() },
+        timeline: [
+          { ...linkedLine(FIRST), at: SENT.toISOString() },
+          { kind: "status", status: "won", from: "draft", shipmentId: FIRST.id, jobNumber: "CZ00000101", at: SENT.toISOString() },
+        ],
+      },
+    });
+    const [result] = await salesQuoteService.syncShipments(martin, [{ quoteNumber: REF, shipments: [] }]);
+    expect(result).toMatchObject({ revertedTo: "draft" });
+    expect(written()).toMatchObject({ state: { status: "draft" }, document: { fx: null } });
+  });
+
   it("takes the link away, and a Won a shipment had made, when no shipment names the quote any more", async () => {
     stored = quoted({
       status: "won",
