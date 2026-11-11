@@ -25,7 +25,7 @@ export const useRegistrationSettings = () => {
     mutationFn: (params: { termsName: string; termsUrl: string }) => api.customers.registrationSettingsSave(params),
     onSuccess: (saved) => queryClient.setQueryData(SETTINGS_KEY, saved),
   });
-  return { settings: query.data, isLoading: query.isLoading, isError: query.isError, save };
+  return { settings: query.data, isLoading: query.isLoading, isError: query.isError, reload: query.refetch, save };
 };
 
 // ─── The chat on a company in Company approval ───
