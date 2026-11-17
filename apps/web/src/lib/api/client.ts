@@ -1400,6 +1400,8 @@ export namespace holidays {
             this.holidayDelete = this.holidayDelete.bind(this)
             this.holidayImport = this.holidayImport.bind(this)
             this.holidayList = this.holidayList.bind(this)
+            this.holidayMyCountriesGet = this.holidayMyCountriesGet.bind(this)
+            this.holidayMyCountriesSet = this.holidayMyCountriesSet.bind(this)
             this.holidayRead = this.holidayRead.bind(this)
         }
 
@@ -1419,6 +1421,18 @@ export namespace holidays {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/holidays`)
             return await resp.json() as controllers.HolidayListResponse
+        }
+
+        public async holidayMyCountriesGet(): Promise<controllers.MyCountriesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/holidays/my-countries`)
+            return await resp.json() as controllers.MyCountriesResponse
+        }
+
+        public async holidayMyCountriesSet(params: controllers.MyCountriesSetRequest): Promise<controllers.MyCountriesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/holidays/my-countries`, JSON.stringify(params))
+            return await resp.json() as controllers.MyCountriesResponse
         }
 
         /**
@@ -9169,6 +9183,17 @@ export namespace controllers {
 
     export interface MasterJobUpdateResponse {
         masterJob: interfaces.MasterJobItem
+    }
+
+    export interface MyCountriesResponse {
+        /**
+         * As the World Holidays list names them (its Country, else its Country code)
+         */
+        countries: string[]
+    }
+
+    export interface MyCountriesSetRequest {
+        countries: string[]
     }
 
     export interface NextJobNumberResponse {

@@ -1,25 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button, Select, Tooltip } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { CARD, CARD_BAR, CARD_TITLE, PAGE_TITLE } from "@/styles/ui";
 import { usePublicHolidays } from "@/hooks/usePublicHolidays";
+import { useMyCountries } from "@/hooks/useMyCountries";
+import { apiErrorMessage } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 import { MONTHS, WEEKDAYS, holidayKey, monthWeeks } from "./_lib/calendar";
 import { countryOf, flagOf, isCzechHoliday, listCountries, shownHolidays, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
 
 const YEARS = Array.from({ length: 100 }, (_, i) => 1951 + i);
-// The countries picked are this viewer's, kept in their browser.
-const COUNTRIES_KEY = "calendar.holidayCountries";
-
-const readCountries = (): string[] => {
-  try {
-    const v = JSON.parse(localStorage.getItem(COUNTRIES_KEY) ?? "[]");
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-};
 
 /** What a holiday's tooltip line says: where it is, and what. */
 function HolidayLine({ h }: { h: DayHoliday }) {
@@ -50,16 +42,11 @@ export function CalendarView() {
   const { holidays: listed } = usePublicHolidays();
   const days = useMemo(() => yearHolidays(year, listed), [year, listed]);
   const countryOptions = useMemo(() => listCountries(listed), [listed]);
-  const [countries, setCountries] = useState<string[]>([]);
-  useEffect(() => setCountries(readCountries()), []);
-  const pickCountries = (next: string[]) => {
-    setCountries(next);
-    try {
-      localStorage.setItem(COUNTRIES_KEY, JSON.stringify(next));
-    } catch {
-      // not kept: the pick still holds on this page
-    }
-  };
+  // The user's countries, kept on their account and shared with the Public Holidays page.
+  const toast = useToast();
+  const { myCountries: countries, saveMyCountries } = useMyCountries();
+  const pickCountries = (next: string[]) =>
+    void saveMyCountries(next).catch((err) => toast.error(`Could not save your countries: ${apiErrorMessage(err)}`));
 
   const isToday = (m: number, d: number) =>
     year === today.getFullYear() && m === today.getMonth() && d === today.getDate();
@@ -84,10 +71,10 @@ export function CalendarView() {
             maxTagCount="responsive"
             value={countries.filter((c) => countryOptions.includes(c))}
             onChange={pickCountries}
-            placeholder="Holidays: all countries"
+            placeholder="My countries: all"
             className="min-w-[220px] max-w-[420px] flex-1"
             options={countryOptions.map((c) => ({ value: c, label: c }))}
-            aria-label="Countries whose holidays are shown"
+            aria-label="My countries (whose holidays are shown)"
           />
         )}
         <div className="flex items-center gap-4 text-[12px] text-slate-500">

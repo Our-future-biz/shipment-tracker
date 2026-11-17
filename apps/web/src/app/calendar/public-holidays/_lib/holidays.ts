@@ -47,3 +47,12 @@ export function thisWeek(): { from: string; to: string } {
   const monday = d.subtract((d.day() + 6) % 7, "day");
   return { from: monday.format("YYYY-MM-DD"), to: monday.add(6, "day").format("YYYY-MM-DD") };
 }
+
+/** A holiday row's country as the filters name it: its Country, else its Country code. */
+export const rowCountry = (h: Pick<HolidayItem, "country" | "countryCode">) => h.country || h.countryCode;
+
+/** The list's countries, each once, in alphabetical order. */
+export const listedCountries = (items: HolidayItem[]) => [...new Set(items.map(rowCountry).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+/** The rows of the countries the user cares about; all of them while none is picked. */
+export const ofMyCountries = (items: HolidayItem[], mine: readonly string[]) => (mine.length ? items.filter((h) => mine.includes(rowCountry(h))) : items);
