@@ -12,6 +12,7 @@ import { formatDate } from "@/lib/date";
 import { money } from "@/lib/money";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
+import { allFieldsSearchHref } from "@/app/shipments/_lib/allFieldsSearch";
 import type { QuoteStatus } from "@/app/sales/_lib/types";
 import { matchPages, menuPages } from "./searchPages";
 import type { SearchGroup, SearchHit, SearchKind } from "./searchTypes";
@@ -52,7 +53,9 @@ const shipments: Source<interfaces.SearchShipmentItem> = {
     subtitle: line(s.customer, route(s.pol, s.pod), s.eta && `ETA ${formatDate(s.eta)}`),
     mark: s.status ? <StatusBadge status={s.status} /> : undefined,
   }),
-  allHref: (q) => withQ("/shipments", q),
+  // The list searched in every field, as here: its own search looks only in the columns shown, and
+  // would list fewer than the count says.
+  allHref: allFieldsSearchHref,
 };
 
 const masterJobs: Source<interfaces.SearchMasterJobItem> = {

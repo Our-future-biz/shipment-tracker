@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Alert, Button } from "antd";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
@@ -10,12 +11,14 @@ import { ShipmentsTable } from "./ShipmentsTable";
 import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { MasterJobDialog, linkEach, linkedCount } from "./MasterJobDialog";
 import { apiErrorMessage } from "@/lib/api";
+import { searchColumnsFor, searchesAllFields, shownColumnsParams } from "../_lib/allFieldsSearch";
 
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
 // instead of only the rows already in the browser.
 export const ShipmentsView = () => {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);
   const statusBucket = searchParams.get("status") ?? "all";
@@ -25,10 +28,12 @@ export const ShipmentsView = () => {
   const fromQuote = searchParams.get("fromQuote");
   const anotherFromQuote = !!fromQuote && searchParams.get("another") === "1";
 
-  // The search looks only in the columns the table shows.
-  const [searchColumns, setSearchColumns] = useState<string[]>();
+  // The search looks only in the columns the table shows - unless "Show all" on the main search's
+  // results led here: then in every field, as the main search does, to list what it counted.
+  const [shownColumns, setShownColumns] = useState<string[]>();
+  const allFields = searchesAllFields(searchParams);
   const { shipments, total, isLoading, isError, createShipment, linkMasterJob, isCreating } =
-    useShipments({ search, searchColumns, statusBucket, tile });
+    useShipments({ search, searchColumns: searchColumnsFor(searchParams, shownColumns), statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);
@@ -90,7 +95,23 @@ export const ShipmentsView = () => {
         cap={{ shown: shipments.length, total }}
         isLoading={isLoading}
         isError={isError}
-        onVisibleColumnsChange={setSearchColumns}
+        onVisibleColumnsChange={setShownColumns}
+        notice={
+          allFields && (
+            // Says why rows show that match nowhere in their columns, and how to go back to the list's own search.
+            <Alert
+              type="info"
+              showIcon
+              className="!mb-3"
+              message={`Searching every field for “${searchParams.get("q")?.trim()}”, as the main search does, so some shipments match in fields that aren't shown as columns.`}
+              action={
+                <Button size="small" onClick={() => router.replace(`${pathname}?${shownColumnsParams(searchParams).toString()}`, { scroll: false })}>
+                  Search shown columns only
+                </Button>
+              }
+            />
+          )
+        }
         onCreateClick={() => setCreateOpen(true)}
         onAddMasterJob={(ids) => {
           setMasterJobPreselected(ids);
