@@ -214,6 +214,7 @@ describe("planLinksNormalize", () => {
     consigneeContactId: null,
     agentPic: "",
     agentPicContactId: null,
+    invoicingStatus: "",
     ...over,
   });
   const masterJob = (over: Partial<MasterJobLinks> = {}): MasterJobLinks => ({ id: "m-1", shipperId: null, shipper: "", consigneeId: null, consignee: "", ...over });
@@ -239,6 +240,17 @@ describe("planLinksNormalize", () => {
     expect(plan.masterJobs).toEqual([{ id: "m-1", from: { consignee: "Beta" }, to: { consignee: "Beta a.s." }, values: 1 }]);
     expect(plan.checked).toBe(4);
     expect(plan.unmatched).toEqual([]);
+  });
+
+  it("leaves an invoiced shipment as it was billed - its names and its contacts - and brings the others up to date", () => {
+    const billed = { customerId: ALFA, customer: "Alfa sro", customerPic: "Petr", agentId: BETA, agent: "Beta" };
+    const plan = planLinksNormalize(
+      [shipment({ id: "s-1", ...billed, invoicingStatus: "Invoiced" }), shipment({ id: "s-2", ...billed, invoicingStatus: " invoiced " }), shipment({ id: "s-3", ...billed, invoicingStatus: "Ready to Invoice" })],
+      [],
+      refs,
+    );
+    expect(plan.shipments.map((r) => r.id)).toEqual(["s-3"]);
+    expect(plan.shipments[0]!.to).toEqual({ customer: "Alfa s.r.o.", agent: "Beta a.s.", customerPicContactId: PETR.id, customerPic: "Petr Masák" });
   });
 
   it("links a contact stored by name to the contact of its party, and takes the contact's name", () => {

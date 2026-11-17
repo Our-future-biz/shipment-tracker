@@ -1,6 +1,7 @@
 import { APIError } from "encore.dev/api";
 import { normaliseName } from "../../../lib/personName";
 import type { UnmatchedLink } from "../interfaces/interfaces";
+import { followsPartyRenames } from "./shipmentEditRule";
 
 // "Everything must be linked" (owner, 26 Oct 2026). A shipment keeps the names of its parties and
 // their contact people as text - the grid searches, filters and exports them - and next to each
@@ -173,6 +174,8 @@ export interface ShipmentLinks {
   consigneeContactId: string | null;
   agentPic: string;
   agentPicContactId: string | null;
+  /** An invoiced shipment keeps the names it holds (followsPartyRenames). */
+  invoicingStatus: string;
 }
 
 /** What the backfill reads of a live master job. */
@@ -230,7 +233,8 @@ export function linkedCustomerIds(shipments: ShipmentLinks[], masterJobs: Master
  * What the links backfill changes: a party linked to a customer takes the customer's current name;
  * a contact linked by id takes its current name; a contact stored by name only is linked to the
  * contact of its party that matchContact finds (and takes its name). A deleted customer or contact
- * leaves the copy as it is (a restore brings it back). A second run finds nothing to do.
+ * leaves the copy as it is (a restore brings it back). An invoiced shipment is left as it was
+ * billed, names and contacts alike (followsPartyRenames). A second run finds nothing to do.
  * Reported as unmatched is only what somebody can put right: a party linked to a customer that is
  * gone, and a Customer's PIC its live customer has no contact for. A contact of a party that is
  * no live customer has nothing to match (the party is what needs linking), and a Shipper /
@@ -267,6 +271,7 @@ export function planLinksNormalize(shipments: ShipmentLinks[], masterJobs: Maste
 
   const shipmentRewrites: LinkRewrite<ShipmentLinks>[] = [];
   for (const s of shipments) {
+    if (!followsPartyRenames(s.invoicingStatus)) continue;
     const rewrite: LinkRewrite<ShipmentLinks> = { id: s.id, from: {}, to: {}, values: 0 };
     parties(s, SHIPMENT_PARTIES, rewrite, "");
     for (const slot of CONTACT_SLOTS) {

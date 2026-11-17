@@ -44,6 +44,14 @@ export const SALES_REFERENCE_INVOICED = "This shipment is invoiced: its Sales Re
 export const isInvoicedStatus = (value: string | null | undefined): boolean => (value ?? "").trim().toLowerCase() === "invoiced";
 
 /**
+ * Whether a shipment's copies of its parties' names and contacts follow a rename in the Customer
+ * Database (owner decision, 17 Nov 2026): not once it is invoiced - a billed shipment keeps the
+ * customer, agent and contacts it was billed with. One that is not invoiced follows as before.
+ * The renames are bulk writes: partyLinks.repository spells this out in SQL (FOLLOWS_RENAMES).
+ */
+export const followsPartyRenames = (invoicingStatus: string | null | undefined): boolean => !isInvoicedStatus(invoicingStatus);
+
+/**
  * Why the shipment may not be marked Invoiced, or null when it may (owner decision, 17 Nov 2026):
  * only once all its charges are - every selling line with a value, ticked for Invoice or not, on an
  * issued, not credited invoice. No role is let past it, a manager neither. The count is Invoicing's

@@ -187,3 +187,35 @@ describe("applyLinks", () => {
     expect((await shipmentOf(companyId, edited!.id)).customerPic).toBe("Jana");
   });
 });
+
+describe("an invoiced shipment", () => {
+  it("keeps the customer, agent and contacts it was billed with; one not invoiced follows the rename", async () => {
+    const [companyId, customerId, contactId] = [randomUUID(), randomUUID(), randomUUID()];
+    const party = { customerId, customer: "Alfa", agentId: customerId, agent: "Alfa", customerPicContactId: contactId, customerPic: "Petr" };
+    const [billed, spaced, open] = await db
+      .insert(shipmentTable)
+      .values([
+        { companyId, jobNumber: "CZ1", invoicingStatus: "Invoiced", ...party },
+        { companyId, jobNumber: "CZ2", invoicingStatus: " invoiced ", ...party },
+        { companyId, jobNumber: "CZ3", invoicingStatus: "Ready to Invoice", ...party },
+      ])
+      .returning();
+
+    const renamed = await partyLinksRepository.renameCustomer(companyId, customerId, named("Alfa s.r.o."));
+    expect(renamed.parties.map((r) => r.id)).toEqual([open!.id]);
+    const contact = await partyLinksRepository.renameContact(companyId, customerId, contactId, named("Petr Masák"));
+    expect(contact.parties.map((r) => r.id)).toEqual([open!.id]);
+    for (const id of [billed!.id, spaced!.id]) {
+      expect(await shipmentOf(companyId, id)).toMatchObject({ customer: "Alfa", agent: "Alfa", customerPic: "Petr" });
+    }
+    expect(await shipmentOf(companyId, open!.id)).toMatchObject({ customer: "Alfa s.r.o.", agent: "Alfa s.r.o.", customerPic: "Petr Masák" });
+
+    // Invoiced after the backfill read it: its rewrite is not applied either.
+    const { changed } = await partyLinksRepository.applyLinks(companyId, {
+      shipments: [{ id: billed!.id, from: { customer: "Alfa" }, to: { customer: "Alfa s.r.o." }, values: 1 }],
+      masterJobs: [],
+    });
+    expect(changed).toBe(0);
+    expect((await shipmentOf(companyId, billed!.id)).customer).toBe("Alfa");
+  });
+});

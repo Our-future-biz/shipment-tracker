@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approvedByLockRefusal, creditCheckLockRefusal, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { approvedByLockRefusal, creditCheckLockRefusal, followsPartyRenames, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 
 const EVA = "eva@firma.cz";
 
@@ -114,5 +114,15 @@ describe("the credit check once it is approved", () => {
     expect(creditCheckLockRefusal({ creditCheck: "Red" }, { creditCheck: "Green" }, "user")).toBeNull();
     expect(creditCheckLockRefusal({ creditCheck: "Red" }, { creditCheck: "Yellow" }, "user")).toBeNull();
     expect(creditCheckLockRefusal({ creditCheck: "" }, { creditCheck: "Red" }, "user")).toBeNull();
+  });
+});
+
+describe("the names an invoiced shipment holds", () => {
+  it("stay as they were billed: a rename in the Customer Database skips the shipment, however Invoiced is written", () => {
+    for (const status of ["Invoiced", "invoiced", " INVOICED "]) expect(followsPartyRenames(status)).toBe(false);
+  });
+
+  it("follow renames as before on a shipment that is not invoiced", () => {
+    for (const status of ["", "Not Invoiced", "Ready to Invoice", "Partially Invoiced", null, undefined]) expect(followsPartyRenames(status)).toBe(true);
   });
 });

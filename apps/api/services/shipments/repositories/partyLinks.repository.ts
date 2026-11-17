@@ -53,6 +53,9 @@ const SHIPMENT_CONTACTS = [
 ] as const;
 
 const liveShipment = (companyId: string) => and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
+// followsPartyRenames (lib/shipmentEditRule) in SQL: an invoiced shipment - its Invoicing Status
+// Invoiced, however it is written - keeps the names it was billed with; a rename skips it.
+const FOLLOWS_RENAMES = sql`lower(btrim(${shipmentTable.invoicingStatus})) <> 'invoiced'`;
 const liveMasterJob = (companyId: string) => and(eq(masterJobTable.companyId, companyId), isNull(masterJobTable.deletedAt));
 
 /** Each value of `from` still as it was read (null compared as null): an edit made since wins. */
@@ -70,8 +73,8 @@ const takeTurn = (tx: Tx, key: string) => tx.execute(sql`select pg_advisory_xact
 class PartyLinksRepository {
   /**
    * Writes a customer's current name into the company's live copies that hold its id and differ:
-   * a shipment's Customer, Shipper, Consignee and Principal Party, a master job's Shipper and
-   * Consignee - in one transaction.
+   * a shipment's Customer, Shipper, Consignee, Agent and Principal Party (not on an invoiced
+   * shipment), a master job's Shipper and Consignee - in one transaction.
    */
   async renameCustomer(companyId: string, customerId: string, currentName: CurrentName): Promise<PartyWrites> {
     return db.transaction(async (tx) => {
@@ -84,7 +87,7 @@ class PartyLinksRepository {
         const rows = await tx
           .update(shipmentTable)
           .set({ [key]: name })
-          .where(and(liveShipment(companyId), eq(id, customerId), ne(text, name)))
+          .where(and(liveShipment(companyId), FOLLOWS_RENAMES, eq(id, customerId), ne(text, name)))
           .returning(PARTIES_OF);
         if (key === "customer") parties = rows;
         changed += rows.length;
@@ -103,8 +106,8 @@ class PartyLinksRepository {
 
   /**
    * Writes a contact's current name into the company's live shipments that link to it - as
-   * Customer's PIC, Shipper or Consignee Contact - where it is still a contact of that party and
-   * the name differs, in one transaction.
+   * Customer's PIC, Shipper or Consignee Contact, Agent's PIC - where it is still a contact of that
+   * party and the name differs, and the shipment is not invoiced, in one transaction.
    */
   async renameContact(companyId: string, customerId: string, contactId: string, currentName: CurrentName): Promise<PartyWrites> {
     return db.transaction(async (tx) => {
@@ -117,7 +120,7 @@ class PartyLinksRepository {
         const rows = await tx
           .update(shipmentTable)
           .set({ [key]: name })
-          .where(and(liveShipment(companyId), eq(id, contactId), eq(party, customerId), ne(text, name)))
+          .where(and(liveShipment(companyId), FOLLOWS_RENAMES, eq(id, contactId), eq(party, customerId), ne(text, name)))
           .returning(PARTIES_OF);
         if (key === "customerPic") parties = rows;
         changed += rows.length;
@@ -166,6 +169,7 @@ class PartyLinksRepository {
           consigneeContactId: shipmentTable.consigneeContactId,
           agentPic: shipmentTable.agentPic,
           agentPicContactId: shipmentTable.agentPicContactId,
+          invoicingStatus: shipmentTable.invoicingStatus,
         })
         .from(shipmentTable)
         .where(liveShipment(companyId)),
@@ -185,7 +189,8 @@ class PartyLinksRepository {
 
   /**
    * Applies a chunk of the backfill's rewrites in one transaction. A row is changed only while it
-   * still holds every value its rewrite was planned from, so an edit made since the read is kept.
+   * still holds every value its rewrite was planned from, so an edit made since the read is kept,
+   * and while it is not invoiced: one invoiced since the read keeps its names too.
    */
   async applyLinks(
     companyId: string,
@@ -201,7 +206,7 @@ class PartyLinksRepository {
         const [row] = await tx
           .update(shipmentTable)
           .set(to)
-          .where(and(liveShipment(companyId), eq(shipmentTable.id, id), ...stillAs(shipmentColumns, from)))
+          .where(and(liveShipment(companyId), FOLLOWS_RENAMES, eq(shipmentTable.id, id), ...stillAs(shipmentColumns, from)))
           .returning(PARTIES_OF);
         if (!row) continue;
         changed += values;

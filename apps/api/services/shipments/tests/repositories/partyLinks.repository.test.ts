@@ -62,6 +62,8 @@ import { shipmentTable } from "../../schemas/shipment.schema";
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const ALFA = "00000000-0000-0000-0000-0000000000a1";
 const PETR = "00000000-0000-0000-0000-00000000c001";
+// followsPartyRenames in SQL: what keeps an invoiced shipment's names as they were billed.
+const NOT_INVOICED = `lower(btrim("shipment"."invoicing_status")) <> 'invoiced'`;
 
 const dialect = new PgDialect();
 /** A piece of a statement as Postgres gets it: its text and its parameters. */
@@ -97,13 +99,16 @@ describe("renameCustomer", () => {
     const [customer, shipper, consignee, agent, principal, mjShipper, mjConsignee] = fake.state.updates;
     expect(customer!.values).toEqual({ customer: "Alfa s.r.o." });
     expect(sent(customer!.where)).toEqual({
-      sql: '(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and "shipment"."customer_id" = $2 and "shipment"."customer" <> $3)',
+      // An invoiced shipment keeps the name it was billed with.
+      sql: `(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and ${NOT_INVOICED} and "shipment"."customer_id" = $2 and "shipment"."customer" <> $3)`,
       params: [COMPANY, ALFA, "Alfa s.r.o."],
     });
+    for (const update of fake.state.updates.slice(0, 5)) expect(sent(update.where).sql).toContain(NOT_INVOICED);
     expect([shipper, consignee, agent, principal].map((u) => u!.values)).toEqual([{ shipper: "Alfa s.r.o." }, { consignee: "Alfa s.r.o." }, { agent: "Alfa s.r.o." }, { principalParty: "Alfa s.r.o." }]);
     expect(sent(agent!.where).sql).toContain('"shipment"."agent_id" = $2 and "shipment"."agent" <> $3');
     expect(sent(principal!.where).sql).toContain('"shipment"."principal_party_id" = $2 and "shipment"."principal_party" <> $3');
     expect([mjShipper!.table, mjConsignee!.table]).toEqual([masterJobTable, masterJobTable]);
+    // A master job is not invoiced itself: its copies follow as before.
     expect(sent(mjConsignee!.where)).toEqual({
       sql: '(("master_job"."company_id" = $1 and "master_job"."deleted_at" is null) and "master_job"."consignee_id" = $2 and "master_job"."consignee" <> $3)',
       params: [COMPANY, ALFA, "Alfa s.r.o."],
@@ -135,9 +140,10 @@ describe("renameContact", () => {
     const [pic, shipperContact, consigneeContact, agentContact] = fake.state.updates;
     expect(pic!.values).toEqual({ customerPic: "Petr Masák" });
     expect(sent(pic!.where)).toEqual({
-      sql: '(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and "shipment"."customer_pic_contact_id" = $2 and "shipment"."customer_id" = $3 and "shipment"."customer_pic" <> $4)',
+      sql: `(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and ${NOT_INVOICED} and "shipment"."customer_pic_contact_id" = $2 and "shipment"."customer_id" = $3 and "shipment"."customer_pic" <> $4)`,
       params: [COMPANY, PETR, ALFA, "Petr Masák"],
     });
+    for (const update of fake.state.updates) expect(sent(update.where).sql).toContain(NOT_INVOICED);
     expect(shipperContact!.values).toEqual({ shipperContact: "Petr Masák" });
     expect(sent(shipperContact!.where).sql).toContain('"shipment"."shipper_contact_id" = $2 and "shipment"."shipper_id" = $3');
     expect(consigneeContact!.values).toEqual({ consigneeContact: "Petr Masák" });
@@ -193,7 +199,7 @@ describe("applyLinks", () => {
     expect(first!.table).toBe(shipmentTable);
     expect(first!.values).toEqual({ customerPicContactId: PETR, customerPic: "Petr Masák" });
     expect(sent(first!.where)).toEqual({
-      sql: '(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and "shipment"."id" = $2 and "shipment"."customer_pic_contact_id" IS NOT DISTINCT FROM $3 and "shipment"."customer_pic" IS NOT DISTINCT FROM $4)',
+      sql: `(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and ${NOT_INVOICED} and "shipment"."id" = $2 and "shipment"."customer_pic_contact_id" IS NOT DISTINCT FROM $3 and "shipment"."customer_pic" IS NOT DISTINCT FROM $4)`,
       params: [COMPANY, "s-1", null, "Petr"],
     });
     expect(masterJob!.table).toBe(masterJobTable);

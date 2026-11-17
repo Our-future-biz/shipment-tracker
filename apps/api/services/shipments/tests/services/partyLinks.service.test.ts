@@ -241,6 +241,7 @@ describe("normalizeLinks", () => {
     consigneeContactId: null,
     agentPic: "",
     agentPicContactId: null,
+    invoicingStatus: "",
     ...over,
   });
 
