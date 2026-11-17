@@ -12,6 +12,7 @@ import {
   DeleteOutlined,
   DownOutlined,
   EyeOutlined,
+  FieldTimeOutlined,
   FilePdfOutlined,
   HistoryOutlined,
   ImportOutlined,
@@ -51,10 +52,9 @@ import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
 import { customerSendBlock, supplierSendBlock } from "../../_lib/supplierApproval";
 import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine, TariffUpdate } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, serviceTypeLabel } from "../../_lib/types";
 import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
-import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
 import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, cyAtDestination, cyAtOrigin, cyTermsOf, CY_TERMS, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, routingMissing, stripProtected, withLineBasis, type CyTerms, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
@@ -107,12 +107,11 @@ import {
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
-import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
-import { MiniButton, RemoveLineButton } from "./_components/QuoteButtons";
+import { LineBlock } from "./_components/LineBlock";
+import { MiniButton } from "./_components/QuoteButtons";
 import { QuoteReeferBlock } from "./_components/QuoteReeferBlock";
 import { QuoteOogBlock } from "./_components/QuoteOogBlock";
 import { hasOogEquipment, oogMissing, oogSummary, oogTypes } from "../../_lib/oog";
-import { checkContainerWeight, type WeightCheck } from "../../_lib/containerWeight";
 import { asksHeavyPieces, missingWarehouseFee, WAREHOUSE_PAIR_ID, withHeavyPieces } from "../../_lib/heavyPieces";
 import { HeavyFeeReasonDialog } from "./_components/HeavyFeeReasonDialog";
 import { OverweightReasonDialog } from "./_components/OverweightReasonDialog";
@@ -165,20 +164,11 @@ import { limitCzechPhone } from "@/lib/phone";
 import { CargoDimensionAdrFields } from "@/app/shipments/[jobNumber]/tabs/CargoDimensionAdrFields";
 import { CARD, LABEL_TEXT } from "@/styles/ui";
 import { MenuLabel } from "@/app/trucking/_components/MenuLabel";
+import { quoteDeleteOffer } from "../../_lib/quoteDelete";
 import { QuoteFacts } from "./_components/QuoteFacts";
 import { OwnerFact } from "./_components/OwnerFact";
-
-// A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
-// the chargeable weight.
-const emptyPackage: PackageLine = { qty: 1, type: "Pallets", stackable: true };
-// A new container is the most quoted box; its cargo weight is left for somebody to enter.
-const emptyContainer: QuoteContainerLine = { qty: 1, type: "40' HC" };
-// The container types a line can be, as the shipment's Container Details offer them: grouped by
-// size, each group saying what one box of it counts in TEU.
-const CONTAINER_TYPE_OPTIONS = CONTAINER_SIZES.map((size) => ({
-  label: `${size} containers · ${teuForType(size)} TEU`,
-  options: (CONTAINER_KINDS_BY_SIZE[size] ?? CONTAINER_KINDS).map((kind) => ({ value: `${size} ${kind}`, label: `${size} ${kind}` })),
-}));
+import { QuoteContainerLines, QuotePackageLines } from "./_components/QuoteCargoLines";
+import { QuoteHistoryDialog } from "./_components/QuoteHistoryDialog";
 
 // The six steps of the form, in the order they are filled in.
 type SectionKey = "customer" | "shipment" | "routing" | "cargo" | "pricing" | "terms";
@@ -321,7 +311,7 @@ export function QuoteWorkflow() {
   const [overweightAsk, setOverweightAsk] = useState<{ to?: SectionKey; save?: boolean; removing?: number } | null>(null);
   const [feeChange, setFeeChange] = useState<{ index: number; amount: number; before: number; currency: string; reason?: string; removing?: LineSide } | null>(null);
   const [modal, setModal] = useState<
-    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin" | "askMargin" | "shipments"
+    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin" | "askMargin" | "shipments" | "history"
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
@@ -431,11 +421,13 @@ export function QuoteWorkflow() {
 
   // Every status change made on this page - on the lifecycle bar and by "Mark as sent" - is asked
   // of the server, which decides whether the quote may make that move and stamps what goes with
-  // it. Sending stores rates in the document, so the request names the document's version.
+  // it. Sending stores rates in the document, so the request names the document's version - and
+  // the status this page shows, which a colleague's status change (no new version) may have left
+  // behind: the server then refuses, and the page reads the quote again.
   // Resolves with why the server refused, or with null.
   const changeStatus = (change: StatusChange) =>
     act(
-      (expectedDataVersion) => api.quotes.salesQuoteTransition(ref, { ...transitionRequest(change), expectedDataVersion }),
+      (expectedDataVersion) => api.quotes.salesQuoteTransition(ref, { ...transitionRequest(change, quote?.effectiveStatus), expectedDataVersion }),
       { versioned: true },
     );
 
@@ -546,9 +538,8 @@ export function QuoteWorkflow() {
     router.replace(listHref);
   };
 
-  // Packages
+  // Packages (their lines: QuotePackageLines)
   const packages = draft.packages ?? [];
-  const packageKeys = useListKeys(packages.length);
   // The cost lines' row keys live here, not in their editors: a line removed with its counterpart
   // drops a row on each side.
   const buyingKeys = useListKeys((draft.buyingLines ?? []).length);
@@ -564,19 +555,17 @@ export function QuoteWorkflow() {
     const copyOfSums = packages.length > 0 && draft.weight === sums.grossWeight && draft.cbm === sums.cbm;
     set(copyOfSums ? { packages: pkgs, weight: undefined, cbm: undefined } : { packages: pkgs });
   };
-  const patchPackage = (i: number, patch: Partial<PackageLine>) => updatePackages(packages.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
-  // Containers: the equipment of a full-container quote, in the packages' place. A typed total
-  // weight that is the boxes' own sum is dropped with the edit, as with the packages above.
+  // Containers: the equipment of a full-container quote, in the packages' place (their lines:
+  // QuoteContainerLines). A typed total weight that is the boxes' own sum is dropped with the
+  // edit, as with the packages above.
   const containerQuote = isContainerQuote(draft);
   const containers = draft.containers ?? [];
-  const containerKeys = useListKeys(containers.length);
   const updateContainers = (lines: QuoteContainerLine[]) => {
     const sums = computeCargo({ containers });
     const copyOfSums = sums.weightFromContainers && draft.weight === sums.grossWeight;
     set(copyOfSums ? { containers: lines, weight: undefined } : { containers: lines });
   };
-  const patchContainer = (i: number, patch: Partial<QuoteContainerLine>) => updateContainers(containers.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 
   // Sibling variants of the same enquiry (base ref + its -2/-3 duplicates).
   // The active quote uses the live draft so the preview always shows fresh data.
@@ -694,7 +683,7 @@ export function QuoteWorkflow() {
     }
     let sent: SalesQuoteData | null = null;
     const refused = await act(async (expectedDataVersion) => {
-      const answer = await api.quotes.salesQuoteTransition(ref, { ...transitionRequest({ status: "quoted", validUntil }), expectedDataVersion });
+      const answer = await api.quotes.salesQuoteTransition(ref, { ...transitionRequest({ status: "quoted", validUntil }, quote?.effectiveStatus), expectedDataVersion });
       sent = asData(answer.quote.data);
       return answer;
     }, { versioned: true });
@@ -1083,10 +1072,11 @@ export function QuoteWorkflow() {
   // older quote): choosing the same template again changes nothing in the picker, so it is offered.
   const termsOutdated = !quoteClosed && termsDifferFromTemplate(draft, terms);
 
-  // While a shipment carries the quote nobody may delete it, and the way there is not obvious:
-  // the server's sentence stands under Delete quote in the Actions menu. A user who may not
-  // delete the quote for want of a role is shown neither the item nor a reason.
-  const deleteBlockedByShipment = quote.shipmentId !== null ? quote.permissions.deleteBlockedReason : undefined;
+  // Only a Draft that never went out is deleted. When nobody may delete the quote as it stands - a
+  // shipment carries it, it is Ready to Send or later, it is a revision - the server's sentence,
+  // with what to do instead, stands under a disabled Delete quote in the Actions menu. A user who
+  // may not delete the quote for want of a role is shown neither the item nor a reason.
+  const deleteOffer = quoteDeleteOffer(quote.permissions);
 
   // What waits behind Actions in the header: what is done now and then - a copy of the quote,
   // filling it in from something that exists, deleting it. What cannot be done now stays in the
@@ -1105,12 +1095,12 @@ export function QuoteWorkflow() {
         { key: "copyShipment", icon: <ContainerOutlined />, label: "Copy from shipment", disabled: quoteClosed, onClick: () => setModal("copyShipment") },
       ],
     },
-    ...(quote.permissions.canDelete
+    ...(deleteOffer === "offer"
       ? [{ type: "divider" as const }, { key: "delete", danger: true, icon: <DeleteOutlined />, label: "Delete quote", onClick: () => setModal("delete") }]
-      : deleteBlockedByShipment
+      : deleteOffer !== "hide"
         ? [
             { type: "divider" as const },
-            { key: "delete", danger: true, disabled: true, icon: <DeleteOutlined />, label: <MenuLabel label="Delete quote" reason={`Cannot be deleted: ${deleteBlockedByShipment}.`} /> },
+            { key: "delete", danger: true, disabled: true, icon: <DeleteOutlined />, label: <MenuLabel label="Delete quote" reason={`Cannot be deleted: ${deleteOffer.reason}.`} /> },
           ]
         : []),
   ];
@@ -1431,85 +1421,7 @@ export function QuoteWorkflow() {
           {/* A full-container quote lists its boxes; container lines a quote still has after its
               service type changed stay in view too - they count in its weight and go with a shipment
               made from it - rather than counting unseen. */}
-          {(containerQuote || containers.length > 0) && (
-            <LineBlock
-              title="Containers"
-              actions={
-                <MiniButton icon={<PlusOutlined />} onClick={() => updateContainers([...containers, { ...emptyContainer }])}>
-                  Add container
-                </MiniButton>
-              }
-            >
-              {containers.length === 0 ? (
-                <LineBlockEmpty>No containers yet.</LineBlockEmpty>
-              ) : (
-                <LineTable minWidthClass="min-w-[760px]">
-                  <colgroup>
-                    <col className="w-[76px]" />
-                    <col className="w-[200px]" />
-                    <col className="w-16" />
-                    <col className="w-[140px]" />
-                    <col />
-                    <col className="w-10" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th scope="col" className={LINE_TH_CLASS}>Qty</th>
-                      <th scope="col" className={LINE_TH_CLASS}>Container type</th>
-                      <th scope="col" className={LINE_TH_RIGHT_CLASS}>TEU</th>
-                      <th scope="col" className={LINE_TH_CLASS}>Kg / container</th>
-                      <th scope="col" className={LINE_TH_CLASS}>Weight limit</th>
-                      <th scope="col" aria-label="Remove container" className={LINE_TH_CLASS} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {containers.map((c, i) => {
-                      const weightCheck = checkContainerWeight(c.type, c.weight);
-                      return (
-                      <tr key={containerKeys.keys[i]}>
-                        <td className={LINE_TD_CLASS}>
-                          <InputNumber size="small" className="!w-full" aria-label="Number of containers" min={1} precision={0} parser={moneyInputParser} value={c.qty} onChange={(v) => patchContainer(i, { qty: v ?? 1 })} />
-                        </td>
-                        <td className={LINE_TD_CLASS}>
-                          <Select
-                            size="small"
-                            className="w-full"
-                            aria-label="Container type"
-                            // A box saved as "40' GP" shows as the "40' DC" it is today.
-                            value={containerType(c.type) || undefined}
-                            onChange={(v) => patchContainer(i, { type: v })}
-                            options={CONTAINER_TYPE_OPTIONS}
-                          />
-                        </td>
-                        <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{fmtQuantity((Number(c.qty) || 0) * teuForType(c.type))}</td>
-                        <td className={LINE_TD_CLASS}>
-                          <InputNumber
-                            size="small"
-                            className={`!w-full ${WEIGHT_FIELD_CLASS[weightCheck?.level ?? "standard"]}`}
-                            aria-label="Cargo weight per container in kg"
-                            min={0}
-                            parser={moneyInputParser}
-                            value={c.weight}
-                            placeholder="Cargo"
-                            onChange={(v) => patchContainer(i, { weight: v ?? undefined })}
-                          />
-                        </td>
-                        <td className={LINE_TD_CLASS}>{weightCheck ? <ContainerWeightNote check={weightCheck} /> : EMPTY_CELL}</td>
-                        <td className={`${LINE_TD_CLASS} !pl-0`}>
-                          <RemoveLineButton label={`Remove container ${i + 1}`} onClick={() => {
-                              containerKeys.remove(i);
-                              updateContainers(containers.filter((_, j) => j !== i));
-                            }}
-                          />
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </LineTable>
-              )}
-            </LineBlock>
-          )}
+          {(containerQuote || containers.length > 0) && <QuoteContainerLines lines={containers} onChange={updateContainers} readOnly={quoteClosed} />}
 
           {/* A reefer box among the containers opens its requirements; the set-point is required. */}
           {hasReefer(draft) && (
@@ -1523,87 +1435,7 @@ export function QuoteWorkflow() {
 
           {/* A full-container quote lists its boxes above; package lines it still has (from before
               it was one, or copied from a shipment) stay in view rather than counting unseen. */}
-          {(!containerQuote || packages.length > 0) && (
-          <LineBlock
-            title="Packages"
-            actions={
-              <MiniButton icon={<PlusOutlined />} onClick={() => updatePackages([...packages, { ...emptyPackage }])}>
-                Add package
-              </MiniButton>
-            }
-          >
-            {packages.length === 0 ? (
-              <LineBlockEmpty>No packages yet.</LineBlockEmpty>
-            ) : (
-              <LineTable minWidthClass="min-w-[700px]">
-                <colgroup>
-                  <col className="w-[76px]" />
-                  <col />
-                  <col className="w-[84px]" />
-                  <col className="w-[84px]" />
-                  <col className="w-[84px]" />
-                  <col className="w-[92px]" />
-                  <col className="w-[144px]" />
-                  <col className="w-10" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th scope="col" className={LINE_TH_CLASS}>Qty</th>
-                    <th scope="col" className={LINE_TH_CLASS}>Packing</th>
-                    <th scope="col" className={LINE_TH_CLASS}>L (cm)</th>
-                    <th scope="col" className={LINE_TH_CLASS}>W (cm)</th>
-                    <th scope="col" className={LINE_TH_CLASS}>H (cm)</th>
-                    <th scope="col" className={LINE_TH_CLASS}>Kg/each</th>
-                    <th scope="col" className={LINE_TH_CLASS}>Cargo Stackability</th>
-                    <th scope="col" aria-label="Remove package" className={LINE_TH_CLASS} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {packages.map((p, i) => (
-                    <tr key={packageKeys.keys[i]}>
-                      {/* Width needs "!": antd's own input-number width is unlayered CSS and would win over a plain utility. */}
-                      <td className={LINE_TD_CLASS}>
-                        <InputNumber size="small" className="!w-full" aria-label="Quantity" min={1} precision={0} parser={moneyInputParser} value={p.qty} onChange={(v) => patchPackage(i, { qty: v ?? 1 })} />
-                      </td>
-                      <td className={LINE_TD_CLASS}>
-                        <Select
-                          size="small"
-                          className="w-full"
-                          aria-label="Packing"
-                          value={p.type}
-                          onChange={(v) => patchPackage(i, { type: v })}
-                          options={PACKING_TYPES.map((t) => ({ value: t, label: t }))}
-                        />
-                      </td>
-                      <td className={LINE_TD_CLASS}>
-                        <InputNumber size="small" className="!w-full" aria-label="Length in cm" min={0} parser={moneyInputParser} value={p.length} onChange={(v) => patchPackage(i, { length: v ?? undefined })} />
-                      </td>
-                      <td className={LINE_TD_CLASS}>
-                        <InputNumber size="small" className="!w-full" aria-label="Width in cm" min={0} parser={moneyInputParser} value={p.width} onChange={(v) => patchPackage(i, { width: v ?? undefined })} />
-                      </td>
-                      <td className={LINE_TD_CLASS}>
-                        <InputNumber size="small" className="!w-full" aria-label="Height in cm" min={0} parser={moneyInputParser} value={p.height} onChange={(v) => patchPackage(i, { height: v ?? undefined })} />
-                      </td>
-                      <td className={LINE_TD_CLASS}>
-                        <InputNumber size="small" className="!w-full" aria-label="Weight per piece in kg" min={0} parser={moneyInputParser} value={p.weight} onChange={(v) => patchPackage(i, { weight: v ?? undefined })} />
-                      </td>
-                      <td className={LINE_TD_CLASS}>
-                        <Checkbox aria-label="Stackable" checked={p.stackable !== false} onChange={(e) => patchPackage(i, { stackable: e.target.checked })} />
-                      </td>
-                      <td className={`${LINE_TD_CLASS} !pl-0`}>
-                        <RemoveLineButton label={`Remove package ${i + 1}`} onClick={() => {
-                            packageKeys.remove(i);
-                            updatePackages(packages.filter((_, j) => j !== i));
-                          }}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </LineTable>
-            )}
-          </LineBlock>
-          )}
+          {(!containerQuote || packages.length > 0) && <QuotePackageLines lines={packages} onChange={updatePackages} readOnly={quoteClosed} />}
 
           {/* Freight metrics. Weight and volume are the lines' sum - the containers' declared
               cargo, else the packages'; where the lines give none they are typed here for the
@@ -2110,6 +1942,13 @@ export function QuoteWorkflow() {
                   </button>
                 </Tooltip>
               </Badge>
+              {/* The quote's history - status, validity, Quoted by, follow-ups, shipments - for
+                  everybody who may open the quote. */}
+              <Tooltip title="History">
+                <button type="button" onClick={() => setModal("history")} aria-label="History" className={toolbarButtonClass("secondary", "square")}>
+                  <FieldTimeOutlined />
+                </button>
+              </Tooltip>
               <Tooltip title="Preview">
                 <button type="button" onClick={() => setModal("preview")} aria-label="Preview" className={toolbarButtonClass("secondary", "square")}>
                   <EyeOutlined />
@@ -2395,6 +2234,7 @@ export function QuoteWorkflow() {
         <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
       )}
       {modal === "delete" && <DeleteQuoteModal quoteNumber={ref} onDelete={deleteThisQuote} onClose={() => setModal(null)} />}
+      {modal === "history" && <QuoteHistoryDialog quoteNumber={ref} data={asData(quote.data)} onClose={() => setModal(null)} />}
       {toSelling && (
         <AddToSellingDialog
           line={toSelling.line}
@@ -2674,31 +2514,4 @@ function marginTone(totals: QuoteTotals): KpiTone | undefined {
   if (margin === null) return profit < 0 ? "red" : undefined;
   if (isThinProfit(totals)) return undefined;
   return margin >= 15 ? "green" : margin >= THIN_MARGIN ? "amber" : "red";
-}
-
-// The KG / CONTAINER field by where the cargo weight stands: no colour within the standard limit,
-// amber when it needs a heavy-tested box (or the shipping line's confirmation), red when too heavy.
-const WEIGHT_FIELD_CLASS: Record<WeightCheck["level"], string> = {
-  standard: "",
-  heavyTested: "!bg-amber-100 !border-amber-400",
-  confirm: "!bg-amber-100 !border-amber-400",
-  tooHeavy: "!bg-red-100 !border-red-400",
-};
-
-// Beside a container line: the type's weight limits, and what the cargo weight on it needs.
-function ContainerWeightNote({ check }: { check: WeightCheck }) {
-  const kg = (n: number) => `${n.toLocaleString("en-US")} kg`;
-  return (
-    <div className="text-[12px] leading-4 text-slate-500">
-      Standard up to {kg(check.standard)} · {check.heavyTested ? "Heavy tested up to" : "Max"} {kg(check.max)}
-      {check.level === "heavyTested" && <span className="block text-amber-700">Heavy-tested box needed</span>}
-      {check.level === "confirm" && (
-        <span className="block text-amber-700">
-          {check.heavyTested && "Heavy-tested box needed. "}
-          <strong>You need to have it confirmed by shipping line</strong>
-        </span>
-      )}
-      {check.level === "tooHeavy" && <span className="block font-semibold text-red-600">Too heavy for this box</span>}
-    </div>
-  );
 }

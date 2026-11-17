@@ -257,7 +257,7 @@ describe("step 6 signals", () => {
     };
     const all = buildSalesCockpit({ quotes: [fact({ quoteNumber: "QCZ1" })], tasks: [], capped: false, mode: "all", now: NOW, lines });
     expect(all.attention.rows.find((r) => r.id === "QCZ1")!.tags.map((t) => t.text)).toEqual(["Inquiry on a closed quote · decide or close it"]);
-    expect(all.attention.rows.find((r) => r.id === "QCZ8")!.tags.map((t) => t.text)).toEqual(["Inquiry on a closed quote · decide or close it", "Answer nobody received · tell the new owner"]);
+    expect(all.attention.rows.find((r) => r.id === "QCZ8")!.tags.map((t) => t.text)).toEqual(["Inquiry on a closed quote · decide or close it", "Answer nobody received · tell the person in Quoted by"]);
     const air = buildSalesCockpit({ quotes: [fact({ quoteNumber: "QCZ1" })], tasks: [], capped: false, mode: "air", now: NOW, lines });
     expect(air.attention.total).toBe(0);
     expect(all.audit).toEqual({ ...lines.audit, approvalsLapsed: 0 });

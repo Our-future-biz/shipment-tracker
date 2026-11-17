@@ -11,7 +11,7 @@ vi.mock("~encore/clients", () => ({
   customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn(), _internalSupplierApprovalStates: vi.fn() },
   fx: { fxRatesOn: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn() },
-  trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
+  trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn(), _internalTruckingNamingQuote: vi.fn() },
 }));
 vi.mock("../../topics", () => ({ quoteRenamed: { publish: vi.fn() } }));
 vi.mock("../../services/quoteEvents.service", () => ({ deliverQuoteEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
@@ -70,6 +70,7 @@ const fxRatesOn = vi.mocked(fx.fxRatesOn);
 const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
 const truckingRate = vi.mocked(trucking.truckingRate);
 const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
+const namingConsignments = vi.mocked(trucking._internalTruckingNamingQuote);
 const customerActivate = vi.mocked(customers.customerActivate);
 const customerRefs = vi.mocked(customers._internalCustomerRefs);
 
@@ -153,6 +154,7 @@ beforeEach(() => {
   // that are not about them.
   fxRatesOn.mockResolvedValue({ date: "2026-10-10", fixingDate: "2026-10-09", provisional: false, missing: false, roePct: 100, rates: [] } as never);
   namingShipments.mockResolvedValue({ shipments: [] });
+  namingConsignments.mockResolvedValue({ consignments: [] });
 
   const companyID = randomUUID();
   manager = { userID: U_MANAGER, companyID, role: "manager" };
@@ -206,6 +208,21 @@ describe("get", () => {
       canDelete: false,
       deleteBlockedReason: "shipment CZ00000101 was created from this quote - remove the Sales Reference from the shipment first",
     });
+  });
+
+  it("tells the page that a Draft revision of a Replaced quote cannot be deleted, so Delete is not offered only to be refused", async () => {
+    vi.mocked(repository.liveReplacedBy).mockResolvedValue("QCZ20261111002");
+    expect((await salesQuoteService.get(manager, REF)).permissions).toMatchObject({
+      canDelete: false,
+      deleteBlockedReason: "it is the revision that replaced QCZ20261111002 - deleted, it would leave QCZ20261111002 Replaced for good; mark it Lost instead, or keep working on it",
+      deleteBlockedBy: "status",
+    });
+    expect(repository.liveReplacedBy).toHaveBeenCalledWith(manager.companyID, REF);
+    // Anything but a Draft is refused by its status: nothing is looked up for it.
+    vi.mocked(repository.liveReplacedBy).mockClear();
+    stored = quote({ status: "revised" });
+    expect((await salesQuoteService.get(manager, REF)).permissions).toMatchObject({ canDelete: false, deleteBlockedBy: "status" });
+    expect(repository.liveReplacedBy).not.toHaveBeenCalled();
   });
 
   it("matches a quote that only this request adopted - its owner still a text nobody compared - before it answers", async () => {
@@ -1300,7 +1317,7 @@ describe("setOwner", () => {
     stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT });
     await expect(salesQuoteService.setOwner(manager, REF, U_JANA)).rejects.toMatchObject({
       code: "failed_precondition",
-      message: "the owner of a Quoted quote cannot be changed - revise it",
+      message: "Quoted by cannot be changed on a Quoted quote - revise it",
     });
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
@@ -1382,7 +1399,19 @@ describe("delete", () => {
     expect(namingShipments).toHaveBeenCalledWith({ reference: REF });
   });
 
+  it("refuses while a trucking job names the quote, and names the job", async () => {
+    namingConsignments.mockResolvedValue({ consignments: ["TCZ20260012"] });
+    await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "trucking job TCZ20260012 names this quote - mark the quote Lost instead",
+    });
+    expect(repository.withLockedQuote).not.toHaveBeenCalled();
+    expect(namingConsignments).toHaveBeenCalledWith({ reference: REF });
+  });
+
   const managersOnly = { code: "permission_denied", message: "only a manager can delete this quote" };
+  const SENT_BEFORE = "the quote went to the customer before and stays for the reports; mark it Lost instead";
+  const sentBefore = { code: "failed_precondition", message: SENT_BEFORE };
   const SHIPMENT = { shipmentId: "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01", shipmentJobNumber: "CZ00000101" };
   const linked = {
     code: "failed_precondition",
@@ -1390,19 +1419,23 @@ describe("delete", () => {
   };
   /** A quote of Martin's that is with the customer. */
   const quoted = (over: Partial<SalesQuoteRecord> = {}) => quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, lastContactAt: SENT, ...over });
+  const keptQuoted = {
+    code: "failed_precondition",
+    message: "the quote is Quoted - it went to the customer and stays for the reports; mark it Lost instead, or revise it",
+  };
 
   const nothingDeleted = () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
     expect(attachments.deleteForQuote).not.toHaveBeenCalled();
   };
 
-  it("refuses to delete the revision a Replaced quote handed its offer on to", async () => {
+  it("refuses to delete the revision a Replaced quote handed its offer on to, naming that quote once", async () => {
     vi.mocked(repository.liveReplacedBy).mockResolvedValueOnce("QCZ20261010001");
     await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject({
       code: "failed_precondition",
-      message: expect.stringContaining("is the revision that replaced QCZ20261010001"),
+      message: "it is the revision that replaced QCZ20261010001 - deleted, it would leave QCZ20261010001 Replaced for good; mark it Lost instead, or keep working on it",
     });
-    expect(repository.liveReplacedBy).toHaveBeenCalledWith(TX, stored!.companyId, stored!.quoteNumber);
+    expect(repository.liveReplacedBy).toHaveBeenCalledWith(stored!.companyId, stored!.quoteNumber, TX);
     nothingDeleted();
   });
 
@@ -1423,8 +1456,8 @@ describe("delete", () => {
     expect(quoteInquiryRepository.withdrawOpenOf).toHaveBeenCalledWith(martin.companyID, stored!.id, U_MARTIN, NOW, TX);
   });
 
-  it("lets a manager delete any quote: a colleague's, one that was sent, one that is decided", async () => {
-    for (const row of [quote(), quoted(), quoted({ status: "won", decidedAt: SENT }), quote({ ownerUserId: null, ownerLabel: "Petr" })]) {
+  it("lets a manager delete any Draft that never went out: a colleague's, one that belongs to nobody", async () => {
+    for (const row of [quote(), quote({ ownerUserId: U_JANA, ownerLabel: "jana@forwarder.cz" }), quote({ ownerUserId: null, ownerLabel: "Petr" })]) {
       repository.writeLifecycle.mockClear();
       stored = row;
       await salesQuoteService.delete(manager, REF);
@@ -1433,24 +1466,43 @@ describe("delete", () => {
     }
   });
 
+  it("refuses everybody - managers too - a quote from Ready to Send on: it stays for the reports", async () => {
+    const kept: [SalesQuoteRecord, string][] = [
+      [quote({ status: "ready_to_send" }), "the quote is Ready to Send - only a Draft can be deleted; mark it Lost instead"],
+      [quoted(), keptQuoted.message],
+      [quoted({ status: "won", decidedAt: SENT }), "the quote is Won - it stays for the reports; revise it instead"],
+      [quoted({ status: "lost", decidedAt: SENT }), "the quote is Lost - it stays for the reports as it is"],
+      [quoted({ status: "replaced" }), "the quote is Replaced - it stays for the reports as what the customer was given; work on its revision instead"],
+      // Told by the status shown: a Quoted quote whose validity has passed is Expired.
+      [quoted({ validUntil: YESTERDAY }), "the quote is Expired - it went to the customer and stays for the reports; revise it instead"],
+    ];
+    for (const [row, message] of kept) {
+      stored = row;
+      for (const actor of [manager, { ...manager, role: "admin" }, { ...manager, role: "superadmin" }, martin]) {
+        await expect(salesQuoteService.delete(actor, REF), `${actor.role} / ${row.status}`).rejects.toMatchObject({ code: "failed_precondition", message });
+      }
+    }
+    // Nothing of these is a revision to look up, and no other service is asked: the status refuses them first.
+    expect(repository.liveReplacedBy).not.toHaveBeenCalled();
+    expect(namingShipments).not.toHaveBeenCalled();
+    expect(namingConsignments).not.toHaveBeenCalled();
+    expect(repository.withLockedQuote).not.toHaveBeenCalled();
+    nothingDeleted();
+  });
+
   it("refuses a plain user a colleague's Draft", async () => {
     await expect(salesQuoteService.delete(jana, REF)).rejects.toMatchObject(managersOnly);
     nothingDeleted();
   });
 
-  it("refuses a plain user their own quote once it is with the customer", async () => {
-    stored = quoted();
-    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(managersOnly);
-    nothingDeleted();
-  });
-
-  it("refuses a plain user their own Draft that was sent once and reopened (Lost -> Draft)", async () => {
+  it("refuses everybody a Draft that was sent once and reopened (Lost -> Draft)", async () => {
     stored = quote({ status: "draft", sentAt: SENT, firstSentAt: SENT });
-    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(managersOnly);
+    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(sentBefore);
+    await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject(sentBefore);
     nothingDeleted();
   });
 
-  it("refuses a plain user their own Draft that was Quoted without a sent date and reopened through Lost", async () => {
+  it("refuses everybody a Draft that was Quoted without a sent date and reopened through Lost", async () => {
     // Set to Quoted in bulk before sendings were dated: no sent date, no history line.
     stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted", salesOwner: "martin@forwarder.cz" } });
     // The row after a lifecycle write, with the lines the write adds to its history.
@@ -1465,20 +1517,19 @@ describe("delete", () => {
 
     // No fact of the Draft says it went out any more; the line by which it left Quoted does.
     expect(reopened).toMatchObject({ status: "draft", firstSentAt: null, sentAt: null, ownerUserId: U_MARTIN });
-    expect(reopened.permissions).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: managersOnly.message, canApproveMargin: false });
+    expect(reopened.permissions).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: SENT_BEFORE, deleteBlockedBy: "status", canApproveMargin: false });
     repository.writeLifecycle.mockClear();
-    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(managersOnly);
+    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(sentBefore);
+    await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject(sentBefore);
     nothingDeleted();
-    // It stays a manager's delete.
-    await expect(salesQuoteService.delete(manager, REF)).resolves.toBeUndefined();
   });
 
   it("answers the flag a screen gets and the delete from the same history", async () => {
     // A Draft of Martin's whose history says it left Quoted without a sent date.
     const left = [{ kind: "status", status: "lost", from: "quoted", at: SENT.toISOString(), userId: U_MARTIN }];
     stored = quote({ data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: left } });
-    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ permissions: { canDelete: false } });
-    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(managersOnly);
+    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ permissions: { canDelete: false, deleteBlockedReason: SENT_BEFORE } });
+    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(sentBefore);
     nothingDeleted();
   });
 
@@ -1529,7 +1580,12 @@ describe("delete", () => {
     // The list said "may delete" a moment ago; meanwhile the quote went out.
     await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ permissions: { canDelete: true } });
     stored = quoted();
-    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(managersOnly);
+    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(keptQuoted);
+    nothingDeleted();
+    // Read as a Draft by the delete itself, and sent by the time it is locked: the lock decides.
+    repository.loadSales.mockResolvedValueOnce(quote());
+    await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(keptQuoted);
+    expect(repository.withLockedQuote).toHaveBeenCalledTimes(1);
     nothingDeleted();
   });
 

@@ -17,7 +17,7 @@ interface QuoteListFiltersProps {
   onChange: (patch: Partial<Filters>) => void;
   // Takes every filter off.
   onClear: () => void;
-  // The company's users, for the Sales owner filter: by e-mail (userIdOptions).
+  // The company's users, for the Quoted by filter: by e-mail (userIdOptions).
   userOptions: UserIdOption[];
 }
 

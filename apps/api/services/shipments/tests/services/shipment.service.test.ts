@@ -285,6 +285,17 @@ describe("create from a quote", () => {
     expect(links.syncReference).not.toHaveBeenCalled();
   });
 
+  it("refuses a quote that never went out while its customer waits for approval - in the words of creating the shipment", async () => {
+    salesQuoteGet.mockResolvedValueOnce(
+      quote({ status: "draft", sendBlocked: "ACME s.r.o. waits for a manager's approval (Sales → Managers → Company approval) — the quote can be sent once it is approved" }),
+    );
+    await expect(fromQuote()).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: `${REF} - ACME s.r.o. waits for a manager's approval (Sales → Managers → Company approval) — the shipment can be created once it is approved`,
+    });
+    expect(repository.createFromQuote).not.toHaveBeenCalled();
+  });
+
   it("refuses a second shipment from the same quote with a conflict that names the first - and does nothing else", async () => {
     repository.createFromQuote.mockResolvedValue({ existing: { id: "shipment-0", jobNumber: "CZ00000100" } });
     await expect(fromQuote()).rejects.toMatchObject({

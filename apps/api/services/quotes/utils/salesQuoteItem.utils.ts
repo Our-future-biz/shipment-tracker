@@ -84,7 +84,7 @@ function ownerPermission(
   data: unknown,
 ): { canChangeOwner: OwnerChangeRight; ownerChangeBlockedReason?: string } {
   if (keepsGivenTerms(state.status, isWonRevision(state.status, data))) {
-    return { canChangeOwner: "none", ownerChangeBlockedReason: "A closed quote keeps its owner - revise it" };
+    return { canChangeOwner: "none", ownerChangeBlockedReason: "Quoted by cannot be changed on a closed quote - revise it" };
   }
   const right = ownerChangeRight(actor, state);
   return right === "none" ? { canChangeOwner: right, ownerChangeBlockedReason: "Only a manager can reassign this quote" } : { canChangeOwner: right };
@@ -96,7 +96,9 @@ function ownerPermission(
  * expired, what it may be set to, whether a follow-up is due, its road margin, and what this user
  * may do with it. `userEmails` are the e-mails of the company's users by id - a person is shown
  * by e-mail; `margins` is what a road margin is judged with - left out when the rule applies to
- * none of the quotes read; `states` where the companies the quotes are linked to stand (LinkedStates).
+ * none of the quotes read; `states` where the companies the quotes are linked to stand (LinkedStates);
+ * `replaces` the live Replaced quote this one is the revision of, when that was looked up (a
+ * Draft's, for the delete - quoteDeletePermission).
  */
 export function toItem(
   row: SalesQuoteRecord,
@@ -105,13 +107,14 @@ export function toItem(
   now: Date,
   margins?: MarginContext,
   states?: LinkedStates,
+  replaces?: string | null,
 ): SalesQuoteItem {
   const state = stateOf(row);
   const today = businessDay(now);
   const margin = margins ? roadMargin(row.data, margins) : null;
   const everSent = wasEverSent(state, isPlainObject(row.data) ? row.data.timeline : undefined);
   const shown = effectiveStatus(state.status, state.validUntil, today);
-  const deletion = quoteDeletePermission(actor, { ...state, everSent });
+  const deletion = quoteDeletePermission(actor, { ...state, status: shown, everSent, replaces });
   return {
     id: row.id,
     quoteNumber: row.quoteNumber,
@@ -144,7 +147,7 @@ export function toItem(
     permissions: {
       ...ownerPermission(actor, state, row.data),
       canDelete: deletion.allowed,
-      ...(deletion.allowed ? {} : { deleteBlockedReason: deletion.reason }),
+      ...(deletion.allowed ? {} : { deleteBlockedReason: deletion.reason, deleteBlockedBy: deletion.blockedBy }),
       canApproveMargin: canApproveMargin(actor.role),
     },
   };

@@ -37,7 +37,7 @@ export interface ColumnFilter {
 
 /**
  * The columns the server filters by (quotes utils/quoteColumnFilters.utils), with the list's titles;
- * Incoterms is picked from its codes. Status, Sales owner, Freight mode, Trade direction and Created
+ * Incoterms is picked from its codes. Status, Quoted by, Freight mode, Trade direction and Created
  * have filters of their own above.
  */
 export const QUOTE_FILTER_COLUMNS: { key: string; title: string; options?: readonly string[] }[] = [

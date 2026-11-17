@@ -795,7 +795,7 @@ describe("applyOwner", () => {
       expect(refusal(() => applyOwner(closed, jana, ctx)), status).toBe("not_allowed");
       expect(refusal(() => applyOwner(closed, null, ctx)), status).toBe("not_allowed");
     }
-    expect(() => applyOwner({ ...martins, status: "quoted" }, jana, ctx)).toThrow("the owner of a Quoted quote cannot be changed - revise it");
+    expect(() => applyOwner({ ...martins, status: "quoted" }, jana, ctx)).toThrow("Quoted by cannot be changed on a Quoted quote - revise it");
   });
 
   it("is still no change on a closed quote that already has that owner", () => {

@@ -177,7 +177,7 @@ export interface QuoteFx {
 export interface TimelineEntry {
   // What the line records. A line written before kinds existed has none and is a status change;
   // only status changes carry a status.
-  kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted" | "road_price" | "margin_approval";
+  kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted" | "road_price" | "margin_approval" | "warehouse_inquiry";
   status?: QuoteStatus;
   at: string;
   // Who made the change, by e-mail; older entries hold the display name, and entries written
