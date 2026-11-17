@@ -20,7 +20,9 @@ import {
   type MasterContainer,
 } from "../lib/masterJobSync";
 import type { MasterJobRecord, NewMasterJobRecord } from "../schemas/masterJob.schema";
-import { isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { isDetailsManager, isOpenToPerson, touchesDetails, warehouseReceivedRefusal } from "../lib/shipmentEditRule";
+import type { ShipmentRecord } from "../schemas/shipment.schema";
+import { businessDay } from "../../../lib/businessDate";
 import type { MasterJobContainerRecord } from "../schemas/masterJobContainer.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type {
@@ -81,6 +83,26 @@ const DATE_FIELDS = new Set([
 ]);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Warehouse Received set on a master job is written onto its houses, so a person's save keeps the
+// shipment's rule for it (lib/shipmentEditRule): on the master job itself (a house linked later
+// takes its date), and on each house as it stands - one received or released already included.
+function assertWarehouseReceived(
+  masterJob: Pick<MasterJobRecord, "warehouseReceivedDate">,
+  data: Record<string, unknown>,
+  houses: readonly Pick<ShipmentRecord, "jobNumber" | "warehouseReceivedDate" | "warehouseReleasedDate">[],
+  role: string,
+): void {
+  if (!("warehouseReceivedDate" in data)) return;
+  const asked = { warehouseReceivedDate: (data.warehouseReceivedDate as string | null) ?? null };
+  const today = businessDay(new Date());
+  const own = warehouseReceivedRefusal(masterJob, asked, role, today);
+  if (own) throw APIError.permissionDenied(own);
+  for (const house of houses) {
+    const refusal = warehouseReceivedRefusal(house, asked, role, today);
+    if (refusal) throw APIError.permissionDenied(`${house.jobNumber}: ${refusal}`);
+  }
+}
 
 function toItem(
   { companyId: _companyId, deletedAt: _deletedAt, ...fields }: MasterJobRecord,
@@ -268,6 +290,7 @@ class MasterJobService {
       );
     }
     if (editor && touchesDetails(synced)) await this.assertMayChangeHouses(houses, editor);
+    if (editor) assertWarehouseReceived(existing, clean, houses, editor.role);
 
     // The Load Type names the reference (lib/masterJobNumber), in the same write. It locks once
     // set, so a master job goes from its plain MCZ to its letters only once.

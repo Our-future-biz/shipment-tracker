@@ -30,6 +30,7 @@ import { pickupPinKey } from "./pinKey";
 import { inputMessage } from "./inputError";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { isUuid } from "../../../lib/uuid";
+import { receivedDateRefusal } from "../../../lib/warehouseReceivedRule";
 import { acceptRecordedAt, checkRequestId, latest, offlineDetail, pragueHhmm, type StampOutcome, type SurveyOutcome } from "./offline";
 import { dockSlotsOf } from "./dockSlots";
 import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
@@ -370,18 +371,11 @@ function assertFreeDaysAllowed(freeDays: number | null | undefined, role: string
     throw APIError.permissionDenied(`Only a manager gives more than ${DEFAULT_FREE_DAYS} free days`);
   }
 }
-// "Received in warehouse" starts the storage clock of outbound cargo: moved later or cleared, the
-// days in between are storage given away too, so only a manager does it (as free days above the
-// default); setting it the first time or earlier is anyone's - but never a day still to come: the
-// cargo was received today at the latest, and a date ahead would give the storage away as well.
-// Once the cargo is released its storage is settled: only a manager corrects the date then.
+// "Received in warehouse" starts the storage clock of outbound cargo (lib/warehouseReceivedRule,
+// the rule the shipment's own Warehouse Received field keeps too).
 function assertReceivedDateAllowed(before: string | null | undefined, after: string | null | undefined, released: boolean, role: string, today: string) {
-  if (isManagerRole(role)) return;
-  if (released) throw APIError.permissionDenied("The cargo was released: only a manager changes Received in warehouse now");
-  if (after && after > today) throw APIError.permissionDenied("Received in warehouse can't be a day still to come: the cargo was received today at the latest");
-  if (before && (!after || after > before)) {
-    throw APIError.permissionDenied("Only a manager moves Received in warehouse later or clears it: the days in between are storage given away");
-  }
+  const refusal = receivedDateRefusal(before, after, released, role, today);
+  if (refusal) throw APIError.permissionDenied(refusal);
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a

@@ -84,6 +84,8 @@ import { shipmentTrackingEventRepository } from "../../repositories/shipmentTrac
 import { quoteLinksService } from "../../services/quoteLinks.service";
 import { shipmentService } from "../../services/shipment.service";
 import { shipmentPartiesChanged } from "../../topics";
+import { RELEASED_BEFORE_RECEIVED } from "../../lib/shipmentEditRule";
+import { addDays, businessDay } from "../../../../lib/businessDate";
 
 const repository = vi.mocked(shipmentRepository);
 const links = vi.mocked(quoteLinksService);
@@ -2136,6 +2138,55 @@ describe("who may change a shipment's details", () => {
   it("does not hold the app's own writes to it", async () => {
     named(MARTIN.email);
     await expect(asRole({ vessel: "SEASPAN" })).resolves.toBeTruthy();
+  });
+
+  describe("the warehouse dates, held to the warehouse's rules", () => {
+    const today = businessDay(new Date());
+    const [earlier, ahead] = [addDays(today, -5), addDays(today, 1)];
+    const atWarehouse = (warehouseReceivedDate: string | null, warehouseReleasedDate: string | null = null) =>
+      stored.set(SHIPMENT, row({ personInCharge: MARTIN.email, warehouseReceivedDate, warehouseReleasedDate }));
+
+    it("refuses a user a Warehouse Received still to come, moved later, cleared or changed after the release, and writes nothing", async () => {
+      atWarehouse(null);
+      await expect(asRole({ warehouseReceivedDate: ahead }, "user")).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("can't be a day still to come") });
+      // Padded, it is still the same day ahead.
+      await expect(asRole({ warehouseReceivedDate: ` ${ahead}` }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+      atWarehouse(earlier);
+      await expect(asRole({ warehouseReceivedDate: today }, "user")).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("later or clears it") });
+      await expect(asRole({ warehouseReceivedDate: "" }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+      atWarehouse(today, today);
+      await expect(asRole({ warehouseReceivedDate: earlier }, "user")).rejects.toMatchObject({ code: "permission_denied", message: "The cargo was released: only a manager changes Warehouse Received now" });
+      expect(repository.updateForCompany).not.toHaveBeenCalled();
+    });
+
+    it("lets a user set it up to today or move it earlier, and a manager do all", async () => {
+      atWarehouse(null);
+      await expect(asRole({ warehouseReceivedDate: today }, "user")).resolves.toBeTruthy();
+      await expect(asRole({ warehouseReceivedDate: earlier }, "user")).resolves.toBeTruthy();
+      atWarehouse(earlier, today);
+      await expect(asRole({ warehouseReceivedDate: ahead }, "manager")).resolves.toBeTruthy();
+      await expect(asRole({ warehouseReceivedDate: "", warehouseReleasedDate: "" }, "admin")).resolves.toBeTruthy();
+    });
+
+    it("refuses Warehouse Released while Warehouse Received is empty", async () => {
+      atWarehouse(null);
+      for (const role of ["user", "manager"]) {
+        await expect(asRole({ warehouseReleasedDate: today }, role)).rejects.toMatchObject({ code: "failed_precondition", message: RELEASED_BEFORE_RECEIVED });
+      }
+      await expect(asRole({ warehouseReceivedDate: earlier, warehouseReleasedDate: today }, "user")).resolves.toBeTruthy();
+    });
+
+    it("refuses a date that is no day", async () => {
+      atWarehouse(null);
+      await expect(asRole({ warehouseReceivedDate: "2026-02-31" }, "user")).rejects.toMatchObject({ code: "invalid_argument", message: 'Warehouse Received must be a date as "YYYY-MM-DD"' });
+    });
+
+    it("does not hold the Warehouse Concept's or Trucking's own updates to it", async () => {
+      atWarehouse(earlier, earlier);
+      await expect(asRole({ warehouseReceivedDate: ahead })).resolves.toBeTruthy();
+      atWarehouse(null);
+      await expect(asRole({ warehouseReleasedDate: today })).resolves.toBeTruthy();
+    });
   });
 
   it("refuses a user the actions that aren't a field edit, on someone else's shipment", async () => {

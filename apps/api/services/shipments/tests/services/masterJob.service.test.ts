@@ -24,6 +24,7 @@ import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { MASTER_JOB_PEOPLE_REFUSAL, masterJobService } from "../../services/masterJob.service";
 import { shipmentService } from "../../services/shipment.service";
+import { addDays, businessDay } from "../../../../lib/businessDate";
 
 const repository = vi.mocked(masterJobRepository);
 const customerGet = vi.mocked(customers.customerGet);
@@ -133,7 +134,7 @@ describe("a save that writes onto the houses", () => {
   });
 
   it("keeps the departments' own fields open, and a save not reaching the houses free", async () => {
-    await save({ etaWarehouse: "2026-11-20", warehouseReceivedDate: "2026-11-21" }, user);
+    await save({ etaWarehouse: "2026-11-20", warehouseReceivedDate: addDays(businessDay(new Date()), -1) }, user);
     // Equipment stays on the master job.
     await save({ equipment: "40HC" }, user);
     expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
@@ -156,6 +157,24 @@ describe("a save that writes onto the houses", () => {
   it("leaves the app's own writes, which name no editor, unchecked", async () => {
     await save({ actualArrival: "2026-11-20" });
     expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
+    expect(shipmentService.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("holds Warehouse Received to the warehouse's rule, on the master job and on every house, writing nothing when refused", async () => {
+    const today = businessDay(new Date());
+    await expect(save({ warehouseReceivedDate: addDays(today, 1) }, user)).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("can't be a day still to come") });
+    // CZ2 has left the warehouse already: its date is settled.
+    vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([
+      { ...house("CZ1", "a@x.cz"), warehouseReceivedDate: null, warehouseReleasedDate: null },
+      { ...house("CZ2", "b@x.cz"), warehouseReceivedDate: addDays(today, -3), warehouseReleasedDate: today },
+    ] as never);
+    await expect(save({ warehouseReceivedDate: addDays(today, -4) }, user)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "CZ2: The cargo was released: only a manager changes Warehouse Received now",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(shipmentService.update).not.toHaveBeenCalled();
+    await save({ warehouseReceivedDate: addDays(today, -4) }, { userID: USER, role: "manager" });
     expect(shipmentService.update).toHaveBeenCalledTimes(2);
   });
 

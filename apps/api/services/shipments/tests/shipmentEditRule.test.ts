@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { approvedByLockRefusal, creditCheckLockRefusal, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import {
+  RELEASED_BEFORE_RECEIVED,
+  approvedByLockRefusal,
+  creditCheckLockRefusal,
+  isDetailsManager,
+  isOpenToPerson,
+  touchesDetails,
+  warehouseReceivedRefusal,
+  warehouseReleaseRefusal,
+} from "../lib/shipmentEditRule";
 
 const EVA = "eva@firma.cz";
 
@@ -114,5 +123,59 @@ describe("the credit check once it is approved", () => {
     expect(creditCheckLockRefusal({ creditCheck: "Red" }, { creditCheck: "Green" }, "user")).toBeNull();
     expect(creditCheckLockRefusal({ creditCheck: "Red" }, { creditCheck: "Yellow" }, "user")).toBeNull();
     expect(creditCheckLockRefusal({ creditCheck: "" }, { creditCheck: "Red" }, "user")).toBeNull();
+  });
+});
+
+describe("the shipment's Warehouse Received, as the warehouse's received date", () => {
+  const TODAY = "2026-11-17";
+  const stored = (warehouseReceivedDate: string | null, warehouseReleasedDate: string | null = null) => ({ warehouseReceivedDate, warehouseReleasedDate });
+
+  it("refuses a user a day still to come, also the first time it is set", () => {
+    expect(warehouseReceivedRefusal(stored(null), { warehouseReceivedDate: "2026-11-18" }, "user", TODAY)).toBe(
+      "Warehouse Received can't be a day still to come: the cargo was received today at the latest",
+    );
+    expect(warehouseReceivedRefusal(stored(null), { warehouseReceivedDate: TODAY }, "user", TODAY)).toBeNull();
+  });
+
+  it("refuses a user moving it later or clearing it, and lets them move it earlier", () => {
+    const later = "Only a manager moves Warehouse Received later or clears it: the days in between are storage given away";
+    expect(warehouseReceivedRefusal(stored("2026-11-10"), { warehouseReceivedDate: "2026-11-12" }, "user", TODAY)).toBe(later);
+    expect(warehouseReceivedRefusal(stored("2026-11-10"), { warehouseReceivedDate: null }, "user", TODAY)).toBe(later);
+    expect(warehouseReceivedRefusal(stored("2026-11-10"), { warehouseReceivedDate: "2026-11-09" }, "user", TODAY)).toBeNull();
+  });
+
+  it("refuses a user any change once the cargo is released from the warehouse", () => {
+    expect(warehouseReceivedRefusal(stored("2026-11-10", "2026-11-12"), { warehouseReceivedDate: "2026-11-09" }, "user", TODAY)).toBe(
+      "The cargo was released: only a manager changes Warehouse Received now",
+    );
+  });
+
+  it("lets a manager, an admin and a superadmin do all of it", () => {
+    for (const role of ["manager", "admin", "superadmin"]) {
+      expect(warehouseReceivedRefusal(stored("2026-11-10", "2026-11-12"), { warehouseReceivedDate: "2026-12-01" }, role, TODAY)).toBeNull();
+      expect(warehouseReceivedRefusal(stored("2026-11-10"), { warehouseReceivedDate: null }, role, TODAY)).toBeNull();
+    }
+  });
+
+  it("isn't touched by an edit of something else, or the date sent again", () => {
+    expect(warehouseReceivedRefusal(stored("2026-11-10", "2026-11-12"), {}, "user", TODAY)).toBeNull();
+    expect(warehouseReceivedRefusal(stored("2026-11-10", "2026-11-12"), { warehouseReceivedDate: "2026-11-10" }, "user", TODAY)).toBeNull();
+  });
+});
+
+describe("the shipment's Warehouse Released", () => {
+  it("is refused while Warehouse Received is empty", () => {
+    expect(warehouseReleaseRefusal({ warehouseReceivedDate: null, warehouseReleasedDate: null }, { warehouseReleasedDate: "2026-11-12" })).toBe(RELEASED_BEFORE_RECEIVED);
+    expect(warehouseReleaseRefusal({ warehouseReceivedDate: "2026-11-10", warehouseReleasedDate: null }, { warehouseReceivedDate: null, warehouseReleasedDate: "2026-11-12" })).toBe(RELEASED_BEFORE_RECEIVED);
+  });
+
+  it("is set once the cargo was received, also in the same write", () => {
+    expect(warehouseReleaseRefusal({ warehouseReceivedDate: "2026-11-10", warehouseReleasedDate: null }, { warehouseReleasedDate: "2026-11-12" })).toBeNull();
+    expect(warehouseReleaseRefusal({ warehouseReceivedDate: null, warehouseReleasedDate: null }, { warehouseReceivedDate: "2026-11-10", warehouseReleasedDate: "2026-11-12" })).toBeNull();
+  });
+
+  it("can always be cleared, and a release already stored is not asked about again", () => {
+    expect(warehouseReleaseRefusal({ warehouseReceivedDate: null, warehouseReleasedDate: "2026-11-12" }, { warehouseReleasedDate: null })).toBeNull();
+    expect(warehouseReleaseRefusal({ warehouseReceivedDate: null, warehouseReleasedDate: "2026-11-12" }, { warehouseReleasedDate: "2026-11-12" })).toBeNull();
   });
 });
