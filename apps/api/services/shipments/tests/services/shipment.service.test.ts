@@ -19,6 +19,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
   shipmentRepository: {
     createWithJobNumber: vi.fn(),
     createFromQuote: vi.fn(),
+    createForHouseBol: vi.fn(),
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
     softDeleteForCompany: vi.fn(),
@@ -206,6 +207,55 @@ describe("create", () => {
       message: expect.stringMatching(/no charges to invoice/),
     });
     expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+  });
+});
+
+// X6: a pre-alert read twice made a House B/L twice. The create a reading makes names the House
+// B/L, and the repository finds the shipment that has it under one lock on the B/L.
+describe("create for a House B/L of a reading", () => {
+  const forHouse = (houseBol: string, over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { fromHouseBol: houseBol, ...over } as never);
+  const key = (v: unknown) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  beforeEach(() => {
+    repository.createForHouseBol.mockImplementation(async (_companyId, houseBol, data) => {
+      const existing = [...stored.values()].find((r) => key(r.houseBolNumber) === key(houseBol));
+      if (existing) return { existing: { id: existing.id, jobNumber: existing.jobNumber } };
+      const created = row({ ...(data as Record<string, unknown>) });
+      stored.set(created.id, created);
+      return { created };
+    });
+  });
+
+  it("stores the House B/L as the shipment's House BoL Number, created under the B/L's lock", async () => {
+    const result = await forHouse("  HBLTEST-A1 ", { pol: "Shanghai" });
+    const [companyId, houseBol, data] = repository.createForHouseBol.mock.calls[0]!;
+    expect([companyId, houseBol]).toEqual([COMPANY, "HBLTEST-A1"]);
+    expect(data).toMatchObject({ houseBolNumber: "HBLTEST-A1", pol: "Shanghai" });
+    expect(data).not.toHaveProperty("fromHouseBol");
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+    expect(result.shipment).toMatchObject({ id: SHIPMENT, houseBolNumber: "HBLTEST-A1" });
+  });
+
+  it("refuses a second shipment of the same House B/L, however it is written, naming the shipment that has it", async () => {
+    stored.set(SHIPMENT, row({ jobNumber: "CZLCL00000134", houseBolNumber: "HBLTEST-A1" }));
+    await expect(forHouse("hbltest a1")).rejects.toMatchObject({
+      code: "already_exists",
+      message: "House B/L hbltest a1 is already on shipment CZLCL00000134, so it is not created again",
+      details: { shipmentId: SHIPMENT, jobNumber: "CZLCL00000134" },
+    });
+    expect(stored.size).toBe(1);
+  });
+
+  it("refuses a House B/L without letters or digits, and one together with a quote", async () => {
+    await expect(forHouse(" / - ")).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(forHouse("HBLTEST-A1", { fromQuoteNumber: REF })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.createForHouseBol).not.toHaveBeenCalled();
+    expect(repository.createFromQuote).not.toHaveBeenCalled();
+  });
+
+  it("creates as before when the reading names no House B/L", async () => {
+    await forHouse("   ");
+    expect(repository.createForHouseBol).not.toHaveBeenCalled();
+    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(1);
   });
 });
 

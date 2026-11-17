@@ -189,6 +189,49 @@ describe("withLiveBySalesNumber", () => {
   });
 });
 
+describe("createForHouseBol", () => {
+  const HOUSE_LOCK = { sql: "select pg_advisory_xact_lock(hashtext($1))", params: [`shipment-house-bol:${COMPANY}:HBLTESTA1`] };
+  const HOUSE_KEY_SQL = `regexp_replace(upper("shipment"."house_bol_number"), $2, '', 'g')`;
+
+  it("takes the lock on the House B/L, looks for its shipment, takes the next job number and inserts - in that order, in one transaction", async () => {
+    const alongside = vi.fn(async () => {
+      fake.state.steps.push("alongside");
+    });
+    await expect(shipmentRepository.createForHouseBol(COMPANY, "HBLTEST-A1", { houseBolNumber: "HBLTEST-A1" } as never, alongside)).resolves.toEqual({
+      created: { id: "shipment-new", houseBolNumber: "HBLTEST-A1", jobNumber: "CZ00000102", companyId: COMPANY },
+    });
+    expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "tx job number", "tx insert", "alongside", "commit"]);
+    // One lock per B/L of the company, however the B/L is written.
+    expect(sent(fake.state.locks[0])).toEqual(HOUSE_LOCK);
+    const [read] = fake.state.reads;
+    expect(sent(read!.where)).toEqual({ sql: `(${LIVE} and ${HOUSE_KEY_SQL} = $3)`, params: [COMPANY, "[^A-Z0-9]", "HBLTESTA1"] });
+    expect(read!.orderBy.map((order) => sent(order).sql)).toEqual(OLDEST_FIRST);
+  });
+
+  it("inserts nothing when a live shipment has the House B/L already, and answers that one (the oldest)", async () => {
+    fake.state.found = [FIRST, { id: "shipment-2", jobNumber: "CZ00000105" }];
+    await expect(shipmentRepository.createForHouseBol(COMPANY, "hbltest/a1", {} as never)).resolves.toEqual({ existing: FIRST });
+    expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "commit"]);
+    expect(sent(fake.state.locks[0])).toEqual(HOUSE_LOCK);
+    expect(fake.state.inserted).toEqual([]);
+  });
+});
+
+describe("liveByHouseBols", () => {
+  it("reads the company's live shipments by the House B/Ls' keys, each key once, the oldest first", async () => {
+    fake.state.found = [{ ...FIRST, key: "HBLTESTA1" }];
+    await expect(shipmentRepository.liveByHouseBols(COMPANY, ["HBLTEST-A1", "hbltest a1", "HBL/B2", " - "])).resolves.toEqual([{ ...FIRST, key: "HBLTESTA1" }]);
+    const [read] = fake.state.reads;
+    expect(sent(read!.where).params).toEqual([COMPANY, "[^A-Z0-9]", "HBLTESTA1", "HBLB2"]);
+    expect(Object.keys(read!.fields)).toEqual(["id", "jobNumber", "key"]);
+  });
+
+  it("asks nothing for B/Ls without letters or digits", async () => {
+    await expect(shipmentRepository.liveByHouseBols(COMPANY, ["", " / "])).resolves.toEqual([]);
+    expect(fake.state.reads).toEqual([]);
+  });
+});
+
 describe("createFromQuote", () => {
   const create = (allowSecond: boolean, data: Record<string, unknown> = {}) =>
     shipmentRepository.createFromQuote(COMPANY, REF, data as never, allowSecond);

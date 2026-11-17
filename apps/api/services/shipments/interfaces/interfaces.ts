@@ -1354,3 +1354,17 @@ export interface AttachmentFileLink {
   fileType: string;
   contentUrl: string;
 }
+
+/** A live shipment a document reading made already for a House B/L. */
+export interface ReadingShipmentMatch {
+  /** The House B/L as it was asked for. */
+  houseBol: string;
+  shipmentId: string;
+  jobNumber: string;
+}
+
+/** What a document reading made already: shipments by House B/L, the master job of the Master B/L. */
+export interface ReadingMatches {
+  shipments: ReadingShipmentMatch[];
+  masterJob: { id: string; mczNumber: string } | null;
+}

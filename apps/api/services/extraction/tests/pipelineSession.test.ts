@@ -22,6 +22,9 @@ vi.mock("../lib/pdf", () => {
   };
 });
 vi.mock("../services/places.service", () => ({ canonicalizeRecords: vi.fn() }));
+// What the company made from a pre-alert already (Shipments): nothing, unless a test says so.
+const readingMatches = vi.hoisted(() => vi.fn(async (_req: { houseBols: string[]; masterBol: string }) => ({ shipments: [] as unknown[], masterJob: null as unknown })));
+vi.mock("~encore/clients", () => ({ shipments: { _internalReadingMatches: readingMatches } }));
 
 import { extractHblBatch, extractMbl, MAX_PAGES, ownsSession, prepare } from "../services/pipeline.service";
 import { classifyPages, extractFromPages } from "../services/extraction.service";
@@ -112,10 +115,62 @@ describe("reading a pre-alert's parts", () => {
     const { sessionId } = await prepare([pdf(3)], fay);
     vi.mocked(extractFromPages).mockReset();
     vi.mocked(extractFromPages).mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce({ Shipper: "ACME", "Personal Reference": "H2" });
-    expect(await extractMbl(sessionId, fay)).toEqual({ mblInfo: null });
+    expect(await extractMbl(sessionId, fay)).toEqual({ mblInfo: null, existingMasterJob: null });
     const batch = await extractHblBatch(sessionId, 0, fay);
     expect(batch.shipments).toEqual([{ Shipper: "ACME", "Personal Reference": "H2" }]);
     expect(batch.documents).toHaveLength(1);
     expect(batch.totalExtracted).toBe(1);
+  });
+});
+
+// X6: read again, a pre-alert offered every House B/L as new and made them twice. Each answer says
+// which houses and which master job the company has already, asked of Shipments as the reader.
+describe("what a pre-alert made already", () => {
+  const pdf = (pages: number) => ({ fileBase64: String(pages), fileName: `${pages}.pdf` });
+  const gus = { companyId: "c1", userId: "gus" };
+  const made = new Map<string, { shipmentId: string; jobNumber: string }>([["HBLTESTA1", { shipmentId: "s1", jobNumber: "CZLCL00000134" }]]);
+
+  async function read() {
+    vi.mocked(classifyPages).mockResolvedValueOnce([
+      { page: 1, type: "MBL", ref: "" },
+      { page: 2, type: "HBL", ref: "HBLTEST-A1" },
+      { page: 3, type: "HBL", ref: "HBLTEST-A2" },
+    ]);
+    const { sessionId } = await prepare([pdf(3)], gus);
+    vi.mocked(extractFromPages).mockReset();
+    vi.mocked(extractFromPages)
+      .mockResolvedValueOnce({ "Master BoL Number": "HLCUX6TEST001" })
+      .mockResolvedValueOnce({ "House BoL Number": "HBLTEST-A1" })
+      .mockResolvedValueOnce({ "House BoL Number": "hbltest a2" });
+    return sessionId;
+  }
+
+  it("names the live master job of the Master B/L and the live shipment of each House B/L, asked again on every answer", async () => {
+    readingMatches.mockImplementation(async ({ houseBols, masterBol }) => ({
+      shipments: houseBols.flatMap((h) => {
+        const m = made.get(h.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+        return m ? [{ houseBol: h, ...m }] : [];
+      }),
+      masterJob: masterBol === "HLCUX6TEST001" ? { id: "mj8", mczNumber: "MCZCONSOL99990008" } : null,
+    }));
+    const sessionId = await read();
+    expect((await extractMbl(sessionId, gus)).existingMasterJob).toEqual({ id: "mj8", number: "MCZCONSOL99990008" });
+    const batch = await extractHblBatch(sessionId, 0, gus);
+    expect(batch.existing).toEqual([{ id: "s1", number: "CZLCL00000134" }, null]);
+    expect(readingMatches).toHaveBeenLastCalledWith({ houseBols: ["HBLTEST-A1", "hbltest a2"], masterBol: "" });
+
+    // The second house is created meanwhile: the batch asked again shows it, without another paid read.
+    made.set("HBLTESTA2", { shipmentId: "s2", jobNumber: "CZLCL00000135" });
+    expect((await extractHblBatch(sessionId, 0, gus)).existing).toEqual([{ id: "s1", number: "CZLCL00000134" }, { id: "s2", number: "CZLCL00000135" }]);
+    expect((await extractMbl(sessionId, gus)).existingMasterJob).toEqual({ id: "mj8", number: "MCZCONSOL99990008" });
+    expect(extractFromPages).toHaveBeenCalledTimes(3);
+  });
+
+  it("goes on without it when Shipments can't be asked: every house shows as new (Shipments still refuses a second one)", async () => {
+    readingMatches.mockRejectedValue(new Error("shipments is unreachable"));
+    const sessionId = await read();
+    expect((await extractMbl(sessionId, gus)).existingMasterJob).toBeNull();
+    expect((await extractHblBatch(sessionId, 0, gus)).existing).toEqual([null, null]);
+    readingMatches.mockReset();
   });
 });

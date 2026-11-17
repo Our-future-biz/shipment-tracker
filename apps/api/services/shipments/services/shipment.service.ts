@@ -50,6 +50,7 @@ import type {
 } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
 import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
+import { billOfLadingKey } from "../../../lib/billOfLading";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
@@ -133,6 +134,8 @@ interface FromQuote {
   fromQuoteNumber?: string;
   /** Create it although a live shipment was already created from that quote. */
   allowSecondShipment?: boolean;
+  /** The House B/L a document reading creates the shipment for: each House B/L once (createForHouseBol). */
+  fromHouseBol?: string;
 }
 
 /**
@@ -1060,7 +1063,12 @@ class ShipmentService {
     creatorUserId?: string,
     { allowUnfinishedQuote = false, creatorRole }: { allowUnfinishedQuote?: boolean; creatorRole?: string } = {},
   ): Promise<CreatedShipment> {
-    const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
+    const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, fromHouseBol, ...rest } = data;
+    const houseBol = (fromHouseBol ?? "").trim();
+    if (houseBol && fromQuoteNumber?.trim()) throw APIError.invalidArgument("A shipment is created from a quote or from a House B/L, not from both");
+    if (houseBol && !billOfLadingKey(houseBol)) throw APIError.invalidArgument("The House B/L number has no letters or digits");
+    // The reading's House B/L is the shipment's House BoL Number from the start: the check below finds it.
+    if (houseBol) rest.houseBolNumber = houseBol;
     const badOffice = customsOfficeRefusal(rest.customsOffice);
     if (badOffice) throw APIError.invalidArgument(badOffice);
     // A new shipment has no charges yet, so none of them is invoiced.
@@ -1135,11 +1143,19 @@ class ShipmentService {
     // written leaves no shipment behind, so the request fails as a whole and a retry can't make a
     // second one. (One made from a quote reports such a failure instead - see createFromQuote.)
     const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
-    const shipment = await shipmentRepository.createWithJobNumber(
-      companyId,
-      shipmentData,
-      hasDetailRows(rows) ? (tx, created) => this.writeDetailRows(tx, created.id, companyId, rows) : undefined,
-    );
+    const alongside = hasDetailRows(rows) ? (tx: Tx, created: ShipmentRecord) => this.writeDetailRows(tx, created.id, companyId, rows) : undefined;
+    let shipment: ShipmentRecord;
+    if (houseBol) {
+      // A reading sent again (or twice at once) finds the shipment it made: a House B/L is one shipment.
+      const made = await shipmentRepository.createForHouseBol(companyId, houseBol, shipmentData, alongside);
+      if ("existing" in made) {
+        const { id, jobNumber } = made.existing;
+        throw APIError.alreadyExists(`House B/L ${houseBol} is already on shipment ${jobNumber}, so it is not created again`).withDetails({ shipmentId: id, jobNumber });
+      }
+      shipment = made.created;
+    } else {
+      shipment = await shipmentRepository.createWithJobNumber(companyId, shipmentData, alongside);
+    }
     await this.recalcCustomerRollups(shipment.customerId, companyId);
     // Billed in its customer's default currency from the start.
     if (shipment.customerId) await startShipmentBilling(shipment.id);

@@ -113,7 +113,7 @@ export function useUpdateMasterJob() {
 export function useCreateMasterJob() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.shipments.masterJobCreate(),
+    mutationFn: (params: controllers.MasterJobCreateRequest | void) => api.shipments.masterJobCreate(params ?? {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
   });
 }

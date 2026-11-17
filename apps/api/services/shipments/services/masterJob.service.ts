@@ -42,6 +42,7 @@ import { compareJobNumbers } from "../../../lib/jobNumber";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { companyUsers, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { requireUserEmail } from "../../../lib/personPick";
+import { billOfLadingKey } from "../../../lib/billOfLading";
 
 /** The person saving a master job, held to who may change each house's details (lib/shipmentEditRule). */
 export interface MasterJobEditor {
@@ -229,6 +230,18 @@ class MasterJobService {
     const createdBy = userId ? await userEmailOf(userId) : "";
     const row = await masterJobRepository.createWithMczNumber(companyId, createdBy);
     return toItem(row, 0);
+  }
+
+  /**
+   * The master job of a Master B/L (a pre-alert's reading): the live one that has it already -
+   * read twice, a pre-alert goes under the same master job - else a new one holding it. Without a
+   * Master B/L, a new empty one.
+   */
+  async createForMasterBol(companyId: string, masterBol: string, userId?: string): Promise<{ masterJob: MasterJobItem; reused: boolean }> {
+    if (!billOfLadingKey(masterBol)) return { masterJob: await this.create(companyId, userId), reused: false };
+    const createdBy = userId ? await userEmailOf(userId) : "";
+    const { row, reused } = await masterJobRepository.findOrCreateForMasterBol(companyId, masterBol, createdBy);
+    return { masterJob: toItem(row, reused ? await this.countShipments(row.id, companyId) : 0), reused };
   }
 
   // `editor`: the person saving, when it is their edit (the Master Jobs page, and a date or vessel

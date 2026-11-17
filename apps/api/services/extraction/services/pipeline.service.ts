@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
+import { shipments as shipmentsService } from "~encore/clients";
 import { classifyPages, extractFromPages } from "./extraction.service";
 import { splitPdfToPages, detectMediaType, mergePagesToPdf, TooManyPagesError } from "../lib/pdf";
 import { MBL_FIELDS, SHIPMENT_FIELDS } from "../lib/fields";
@@ -9,7 +10,9 @@ import { applyTradeDirection } from "../lib/tradeDirection";
 import { groupHblPages } from "../lib/hblGroups";
 import { canonicalizeRecords } from "./places.service";
 import { chargeReading } from "../lib/readingBudget";
-import type { PrepareResult, ExtractMblResult, ExtractHblResult, HblDocument, PipelineFile } from "../interfaces/interfaces";
+import type { PrepareResult, ExtractMblResult, ExtractHblResult, HblDocument, PipelineFile, ReadingMadeAlready } from "../interfaces/interfaces";
+import type { ReadingMatches } from "../../shipments/interfaces/interfaces";
+import { billOfLadingKey } from "../../../lib/billOfLading";
 
 interface PipelinePage {
   pageNum: number;
@@ -183,9 +186,43 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
   };
 }
 
+// What the company made from this pre-alert already (read and created before): asked of Shipments
+// on every answer, as the user who reads, so a house created since shows too. When Shipments can't
+// be asked the reading goes on without it (logged): a house is still never created twice, as
+// Shipments refuses a second shipment of a House B/L (shipmentCreate's fromHouseBol).
+async function madeAlready(houseBols: string[], masterBol: string): Promise<ReadingMatches | null> {
+  if (!houseBols.some((h) => billOfLadingKey(h)) && !billOfLadingKey(masterBol)) return { shipments: [], masterJob: null };
+  try {
+    return await shipmentsService._internalReadingMatches({ houseBols: houseBols.filter((h) => billOfLadingKey(h)), masterBol });
+  } catch (err) {
+    log.warn("pipeline: what the pre-alert made already could not be read", { error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+const HOUSE_BOL = "House BoL Number";
+const MASTER_BOL = "Master BoL Number";
+
+/** The live master job that has the Master B/L already, or null. */
+async function existingMasterJob(mblInfo: Record<string, string> | null): Promise<ReadingMadeAlready | null> {
+  const masterJob = mblInfo ? (await madeAlready([], mblInfo[MASTER_BOL] ?? ""))?.masterJob : null;
+  return masterJob ? { id: masterJob.id, number: masterJob.mczNumber } : null;
+}
+
+/** For each shipment read: the live shipment that has its House B/L already, or null. */
+export async function existingHouses(shipments: Record<string, string>[]): Promise<(ReadingMadeAlready | null)[]> {
+  const houseBols = shipments.map((s) => s[HOUSE_BOL] ?? "");
+  const found = (await madeAlready(houseBols, ""))?.shipments ?? [];
+  const byKey = new Map(found.map((m) => [billOfLadingKey(m.houseBol), m]));
+  return houseBols.map((h) => {
+    const m = billOfLadingKey(h) ? byKey.get(billOfLadingKey(h)) : undefined;
+    return m ? { id: m.shipmentId, number: m.jobNumber } : null;
+  });
+}
+
 export async function extractMbl(sessionId: string, who: SessionOwner): Promise<ExtractMblResult> {
   const session = getSessionOrThrow(sessionId, who);
-  if (session.mblRead) return { mblInfo: session.mblInfo };
+  if (session.mblRead) return { mblInfo: session.mblInfo, existingMasterJob: await existingMasterJob(session.mblInfo) };
   const mblPages = getPagesByType(session, "MBL");
 
   if (mblPages.length === 0) {
@@ -210,7 +247,7 @@ export async function extractMbl(sessionId: string, who: SessionOwner): Promise<
   session.mblInfo = mblInfo;
   session.mblRead = true;
 
-  return { mblInfo };
+  return { mblInfo, existingMasterJob: await existingMasterJob(mblInfo) };
 }
 
 const MBL_PAGES_READ = 4;
@@ -239,7 +276,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
 
   // Read once: a batch asked for again answers what it read (no second paid call, no shipments twice).
   const earlier = session.hblBatches.get(batchIndex);
-  if (earlier) return { ...earlier, totalExtracted: session.shipments.length };
+  if (earlier) return { ...earlier, totalExtracted: session.shipments.length, existing: await existingHouses(earlier.shipments) };
 
   const batch = hbls.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
   const perHbl = await Promise.all(
@@ -291,7 +328,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
     done,
   };
   session.hblBatches.set(batchIndex, result);
-  return result;
+  return { ...result, existing: await existingHouses(shipments) };
 }
 
 /**

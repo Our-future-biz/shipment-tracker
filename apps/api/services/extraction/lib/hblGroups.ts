@@ -1,3 +1,5 @@
+import { billOfLadingKey } from "../../../lib/billOfLading";
+
 // Pages of a pre-alert that belong to the same House Bill of Lading are one
 // shipment, however many pages it runs to and however many copies were sent
 // (a rated and an unrated HBL of the same shipment, for instance).
@@ -10,9 +12,9 @@ export interface ClassifiedPage {
   ref: string;
 }
 
-/** "CHI/BRV/V01035" and "CHIBRVV01035" are the same House B/L. */
+/** "CHI/BRV/V01035" and "CHIBRVV01035" are the same House B/L - as Shipments compares them too. */
 export function normalizeHblRef(ref: string | null | undefined): string {
-  return (ref ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return billOfLadingKey(ref);
 }
 
 /**

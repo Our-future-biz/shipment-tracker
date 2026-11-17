@@ -19,6 +19,7 @@ import {
 } from "antd";
 import { BarChartOutlined, DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
@@ -41,7 +42,7 @@ import { AppCard } from "@/components/AppCard";
 import { Pill } from "@/components/Pill";
 import { PreviewButton } from "@/components/PreviewButton";
 import { SectionCard } from "@/components/SectionCard";
-import { BTN, BTN_PRIMARY, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT, REF } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 import { FieldReviewTable } from "./FieldReviewTable";
 import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
@@ -94,6 +95,7 @@ import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentT
 import { mergeReads } from "../_lib/mergeReads";
 import { readEachFile, readFileProblem } from "../_lib/fileReads";
 import { createAndWrite, type ShipmentProgress } from "../_lib/resumeShipment";
+import { houseRefusedAsMade, housesMadeAlready, madeAlreadyNumbers, masterBolToFile, type MadeAlready } from "../_lib/preAlertMadeAlready";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
@@ -313,6 +315,11 @@ export function DocumentReadingWorkflow() {
   const [masterCreatedJobs, setMasterCreatedJobs] = useState<string[]>([]);
   // Each House B/L's own pages, in step with masterShipments, saved to the shipment made from it.
   const [masterDocs, setMasterDocs] = useState<(interfaces.HblDocument | null)[]>([]);
+  // In step with masterShipments: the company's live shipment that has the House B/L already (read
+  // and created before) - shown as created, linked, and not created again (the server refuses it too).
+  const [masterExisting, setMasterExisting] = useState<(MadeAlready | null)[]>([]);
+  // The live master job that has the pre-alert's Master B/L already: a new batch goes under it.
+  const [mblMasterJob, setMblMasterJob] = useState<MadeAlready | null>(null);
   const [masterDocsSaved, setMasterDocsSaved] = useState(0);
   const [hblBatchIndex, setHblBatchIndex] = useState(0);
   const [hblTotalBatches, setHblTotalBatches] = useState(0);
@@ -497,6 +504,8 @@ export function DocumentReadingWorkflow() {
   // job: its PDF is also kept with the invoice on Accounts Payable, D18), or the current House B/L's own
   // pages of a pre-alert. A Shipments read saves its files through shipmentDocs instead (pasted text has no file).
   const masterDoc = destination === "masterjob" ? masterDocs[masterIdx] ?? null : null;
+  // The house on screen had its shipment from an earlier reading: nothing to create.
+  const existingHouse = destination === "masterjob" && pipelineStep === "ready" ? masterExisting[masterIdx] ?? null : null;
   const docToSave =
     destination === "invoicing" && inputMode === "file" && fileBase64
       ? { base64: fileBase64, type: fileMeta.type, size: fileMeta.size, name: fileName }
@@ -545,9 +554,12 @@ export function DocumentReadingWorkflow() {
   const docNameMissing =
     (!!docToSave && saveDocument && !docName.trim()) || shipmentDocViews.some((d) => d.save && !d.name.trim());
 
+  // The houses of the pre-alert that had their shipment from an earlier reading.
+  const madeBefore = madeAlreadyNumbers(masterExisting);
   const successTitle = (() => {
     if (destination === "masterjob") {
       if (masterCreatedJobs.length === 0 && mblFiled) return `Master B/L filed to ${currentMasterJob?.mczNumber ?? activeMcz}`;
+      if (masterCreatedJobs.length === 0 && madeBefore.length > 0) return "No new shipments: this pre-alert's House B/Ls were created before";
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
     }
     if (creditNote && splitDone) return `Credit note deducted from ${splitDone.written.join(", ")}`;
@@ -567,10 +579,10 @@ export function DocumentReadingWorkflow() {
     done.supplierInvoiceId ? ` Booked on Accounts Payable as Received${done.docFiled ? ", with its PDF" : ""}.` : "";
   const successSubtitle =
     destination === "masterjob"
-      ? masterCreatedJobs.length > 0
-        ? `Under ${activeMcz}: ${masterCreatedJobs.join(", ")}` +
-          (masterDocsSaved > 0 ? ` · ${masterDocsSaved} House B/L${masterDocsSaved !== 1 ? "s" : ""} saved to their shipments' documents` : "")
-        : `Master Job ${activeMcz}`
+      ? (masterCreatedJobs.length > 0
+          ? `Under ${activeMcz}: ${masterCreatedJobs.join(", ")}` +
+            (masterDocsSaved > 0 ? ` · ${masterDocsSaved} House B/L${masterDocsSaved !== 1 ? "s" : ""} saved to their shipments' documents` : "")
+          : `Master Job ${activeMcz}`) + (madeBefore.length > 0 ? ` · Created before, not created again: ${madeBefore.join(", ")}` : "")
       : creditNote && splitDone
         ? `${splitDone.written.length > 1 ? "Each has a new buying row" : "It has a new buying row"} with the minus amount.${splitDone.docs > 0 ? ` The credit note is in the documents of ${splitDone.docs} shipment${splitDone.docs !== 1 ? "s" : ""}.` : ""}${payablesNote(splitDone)}`
       : destination === "invoicing" && splitDone
@@ -668,6 +680,8 @@ export function DocumentReadingWorkflow() {
     setMasterFields([]);
     setMasterCreatedJobs([]);
     setMasterDocs([]);
+    setMasterExisting([]);
+    setMblMasterJob(null);
     setMasterDocsSaved(0);
     setHblBatchIndex(0);
     setHblTotalBatches(0);
@@ -896,9 +910,10 @@ export function DocumentReadingWorkflow() {
         data = withContainerType(data, approved);
         data = withCargoLine(data, approved, target.cargoItems ?? []);
         data = withPackageType(data, approved["Type Of Packages"], target.cargoItems ?? []);
-        await updateShipment({ id: targetShipmentId, data });
-        jobNumber = target.jobNumber;
+        // The job number as the write left it: its letters follow a Load Type the read wrote.
+        jobNumber = (await updateShipment({ id: targetShipmentId, data })).shipment.jobNumber;
       } else {
+        let written = "";
         const created = await createAndWrite(
           createdShipment,
           async () => (await createShipment(baseCreatePayload())).shipment,
@@ -909,13 +924,14 @@ export function DocumentReadingWorkflow() {
             data = withContainerType(data, approved);
             data = withCargoLine(data, approved);
             data = withPackageType(data, approved["Type Of Packages"]);
-            await updateShipment({ id: shipment.id, data });
+            written = (await updateShipment({ id: shipment.id, data })).shipment.jobNumber;
           },
         );
         createdShipment.current = null;
         shipmentId = created.id;
-        // The number the server gave the shipment (a parallel create may have taken the preview).
-        jobNumber = created.jobNumber;
+        // The number the server gave the shipment (a parallel create may have taken the preview), with
+        // the letters the written Load Type gave it (CZ… → CZLCL…).
+        jobNumber = written || created.jobNumber;
       }
       setCommittedJobNumber(jobNumber);
     } catch (err) {
@@ -1176,10 +1192,12 @@ export function DocumentReadingWorkflow() {
       // with a retry, instead of going on as if there were none (each read is a paid AI call, kept
       // by the server for the session, so a retry reads only what has not been read).
       let info: Record<string, string> | null = null;
+      let mblJob: MadeAlready | null = null;
       if (!withoutMbl) {
         try {
           const mbl = await api.extraction.pipelineExtractMbl({ sessionId });
           info = mbl.mblInfo ? normalizeExtracted(mbl.mblInfo) : null;
+          mblJob = mbl.existingMasterJob ?? null;
         } catch (err) {
           if (pipelineRun.current.sessionId !== sessionId) return;
           setMblReadError(`The Master B/L could not be read: ${apiErrorMessage(err)}`);
@@ -1200,6 +1218,10 @@ export function DocumentReadingWorkflow() {
       setMblFiled(false);
       setMasterShipments(extracted);
       setMasterDocs(batchDocs(hbl));
+      setMasterExisting(housesMadeAlready(hbl));
+      setMblMasterJob(mblJob);
+      // The Master B/L has its master job already (read before): a new batch goes under it, not a new one.
+      if (mblJob && masterMode === "new") setBatchJob({ id: mblJob.id, mczNumber: mblJob.number });
       setMasterDocsSaved(0);
       setHblBatchIndex(1);
       setHblTotalBatches(hbl.totalBatches || 1);
@@ -1228,6 +1250,7 @@ export function DocumentReadingWorkflow() {
       pipelineRun.current.batchIndex = asked.batchIndex + 1;
       setMasterShipments((prev) => [...prev, ...(res.shipments || []).map((house) => withMblSeals(normalizeExtracted(house), mblInfo))]);
       setMasterDocs((prev) => [...prev, ...batchDocs(res)]);
+      setMasterExisting((prev) => [...prev, ...housesMadeAlready(res)]);
       setHblBatchIndex(asked.batchIndex + 1);
     } catch (err) {
       if (!current()) return;
@@ -1348,7 +1371,8 @@ export function DocumentReadingWorkflow() {
     try {
       let id = masterMode === "existing" ? currentMasterJob!.id : batchJob?.id;
       if (!id) {
-        const { masterJob } = await createMasterJob.mutateAsync();
+        // By its Master B/L: the master job that has it already is the one filed to.
+        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked) || undefined });
         id = masterJob.id;
         setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
       }
@@ -1368,18 +1392,22 @@ export function DocumentReadingWorkflow() {
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
     const house = masterIdx;
+    if (masterExisting[house]) return advanceMaster();
     try {
       let job: { mczNumber: string } | null = masterMode === "existing" ? { mczNumber: masterMczExisting } : batchJob;
       if (!job) {
-        const { masterJob } = await createMasterJob.mutateAsync();
+        // By its Master B/L: a pre-alert read again goes under the master job that has it already.
+        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked) || undefined });
         job = { mczNumber: masterJob.mczNumber };
         setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
       }
       const progress = houseShipments.current.get(house) ?? { current: null };
       houseShipments.current.set(house, progress);
+      // Named by its House B/L: the server refuses a second shipment of it (409), also for two clicks at once.
+      const fromHouseBol = approved["House BoL Number"]?.trim() || undefined;
       const shipment = await createAndWrite(
         progress,
-        async () => (await createShipment(baseCreatePayload())).shipment,
+        async () => (await createShipment({ ...baseCreatePayload(), fromHouseBol })).shipment,
         async (created) => {
           let data = await withPartyLinks(toShipmentUpdate(approved), async () => created, keptPartyDetails);
           const newContainers = approved["Container Number"]
@@ -1396,10 +1424,19 @@ export function DocumentReadingWorkflow() {
       const linked = await linkMasterJob({ shipmentId: shipment.id, mczNumber: job.mczNumber });
       houseShipments.current.delete(house);
       if (!mblFiled && linked.shipment.masterJobId) await fileMblToMasterJob(linked.shipment.masterJobId);
-      if (await saveReadDocument(shipment.id, shipment.jobNumber)) setMasterDocsSaved((n) => n + 1);
-      setMasterCreatedJobs((prev) => [...prev, shipment.jobNumber]);
+      // The job number as it is now: its letters follow the Load Type the fields wrote (CZ… → CZLCL…).
+      const jobNumber = linked.shipment.jobNumber;
+      if (await saveReadDocument(shipment.id, jobNumber)) setMasterDocsSaved((n) => n + 1);
+      setMasterCreatedJobs((prev) => [...prev, jobNumber]);
       advanceMaster();
     } catch (err) {
+      const refusedAsMade = houseRefusedAsMade(err);
+      if (refusedAsMade) {
+        // Created meanwhile (another reading, another tab): shown as created, nothing made here.
+        houseShipments.current.delete(house);
+        setMasterExisting((prev) => Object.assign([...prev], { [house]: refusedAsMade }));
+        return toast.warning(apiErrorMessage(err));
+      }
       const made = houseShipments.current.get(house)?.current?.shipment;
       toast.error(
         made
@@ -2269,6 +2306,12 @@ export function DocumentReadingWorkflow() {
                   />
                 )}
 
+                {mblMasterJob && batchJob?.id === mblMasterJob.id && (
+                  <p className={`mt-0 mb-3 ${HINT}`}>
+                    This Master B/L is on {mblMasterJob.number} already (read before): its shipments are added to it, not to a new master job.
+                  </p>
+                )}
+
                 {error && <Alert className="mb-3" type="error" showIcon message={error} />}
 
                 {waitingForBatch ? (
@@ -2276,6 +2319,29 @@ export function DocumentReadingWorkflow() {
                     <Spin />
                     <p className="mt-3 mb-0 text-sm text-slate-500">Loading the next shipments…</p>
                   </div>
+                ) : existingHouse ? (
+                  <>
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message={`House B/L ${masterShipments[masterIdx]?.["House BoL Number"] ?? ""} was created before`}
+                      description={
+                        <>
+                          It is shipment{" "}
+                          <Link href={`/shipments/${encodeURIComponent(existingHouse.number)}`} className={`${LINK} ${REF}`}>
+                            {existingHouse.number}
+                          </Link>
+                          , so it is not created again.
+                        </>
+                      }
+                    />
+                    <div className="flex gap-2 mt-4">
+                      <Button onClick={() => setStep("upload")}>Back</Button>
+                      <Button type="primary" onClick={advanceMaster}>
+                        {masterIdx < masterShipments.length - 1 || hblBatchIndex < hblTotalBatches ? "Next" : "Finish"}
+                      </Button>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <FieldReviewTable
