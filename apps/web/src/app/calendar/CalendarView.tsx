@@ -1,20 +1,65 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, Select, Tooltip } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { CARD, CARD_BAR, CARD_TITLE, PAGE_TITLE } from "@/styles/ui";
-import { MONTHS, WEEKDAYS, czechHolidays, holidayKey, monthWeeks } from "./_lib/calendar";
+import { usePublicHolidays } from "@/hooks/usePublicHolidays";
+import { MONTHS, WEEKDAYS, holidayKey, monthWeeks } from "./_lib/calendar";
+import { countryOf, flagOf, isCzechHoliday, listCountries, shownHolidays, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
 
 const YEARS = Array.from({ length: 100 }, (_, i) => 1951 + i);
+// The countries picked are this viewer's, kept in their browser.
+const COUNTRIES_KEY = "calendar.holidayCountries";
 
-// Year calendar: 12 months with ISO week numbers; weekends and Czech public holidays in red,
-// today highlighted. No Print button (owner, 17 Nov 2026); printing from the browser (⌘P) still
-// prints only the calendar, as the controls and app navigation are print:hidden.
+const readCountries = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(COUNTRIES_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+/** What a holiday's tooltip line says: where it is, and what. */
+function HolidayLine({ h }: { h: DayHoliday }) {
+  const flag = flagOf(h.countryCode);
+  return (
+    <div className="py-0.5">
+      <span className="font-semibold">
+        {flag && <span className="mr-1">{flag}</span>}
+        {countryOf(h)}
+        {h.country && h.countryCode && <span className="font-normal opacity-70"> ({h.countryCode})</span>}
+      </span>
+      <div>
+        {h.name}
+        {h.kind === "Regional" && <span className="opacity-70"> · regional{h.regions ? `: ${h.regions}` : ""}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Year calendar: 12 months with ISO week numbers; weekends and Czech public holidays in red, the
+// other countries' holidays (the World Holidays list, Calendar → Public Holidays) marked with a dot,
+// and on hover every holiday of the day with its country, so users know where to expect it. Today
+// highlighted. No Print button (owner, 17 Nov 2026); printing from the browser (⌘P) still prints
+// only the calendar, as the controls and app navigation are print:hidden.
 export function CalendarView() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
-  const holidays = useMemo(() => czechHolidays(year), [year]);
+  const { holidays: listed } = usePublicHolidays();
+  const days = useMemo(() => yearHolidays(year, listed), [year, listed]);
+  const countryOptions = useMemo(() => listCountries(listed), [listed]);
+  const [countries, setCountries] = useState<string[]>([]);
+  useEffect(() => setCountries(readCountries()), []);
+  const pickCountries = (next: string[]) => {
+    setCountries(next);
+    try {
+      localStorage.setItem(COUNTRIES_KEY, JSON.stringify(next));
+    } catch {
+      // not kept: the pick still holds on this page
+    }
+  };
 
   const isToday = (m: number, d: number) =>
     year === today.getFullYear() && m === today.getMonth() && d === today.getDate();
@@ -32,6 +77,30 @@ export function CalendarView() {
         />
         <Button icon={<RightOutlined />} onClick={() => setYear((y) => y + 1)} aria-label="Next year" />
         <Button onClick={() => setYear(today.getFullYear())}>Today</Button>
+        {countryOptions.length > 0 && (
+          <Select
+            mode="multiple"
+            allowClear
+            maxTagCount="responsive"
+            value={countries.filter((c) => countryOptions.includes(c))}
+            onChange={pickCountries}
+            placeholder="Holidays: all countries"
+            className="min-w-[220px] max-w-[420px] flex-1"
+            options={countryOptions.map((c) => ({ value: c, label: c }))}
+            aria-label="Countries whose holidays are shown"
+          />
+        )}
+        <div className="flex items-center gap-4 text-[12px] text-slate-500">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-full bg-red-50 ring-1 ring-red-200" /> Czech public holiday
+          </span>
+          {countryOptions.length > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" /> Holiday in another country
+            </span>
+          )}
+          <span>Hover a day to see where</span>
+        </div>
       </div>
 
       <div className="flex flex-col gap-5">
@@ -61,14 +130,17 @@ export function CalendarView() {
                         <td className="py-1 text-[10px] text-slate-400 border-r border-slate-100">{row.week}</td>
                         {row.days.map((d, i) => {
                           if (d === null) return <td key={i} />;
-                          const holiday = holidays.get(holidayKey(year, m, d));
-                          const red = i >= 5 || !!holiday;
+                          const all = days.get(holidayKey(year, m, d));
+                          const shown = shownHolidays(all, countries);
+                          const czech = isCzechHoliday(all);
+                          const abroad = shown.some((h) => !(h.countryCode === "CZ" && h.kind === "National"));
+                          const red = i >= 5 || czech;
                           const cell = (
                             <span
-                              className={`inline-flex items-center justify-center w-7 h-7 rounded-full font-semibold ${
+                              className={`relative inline-flex items-center justify-center w-7 h-7 rounded-full font-semibold ${
                                 isToday(m, d)
                                   ? "bg-indigo-600 text-white"
-                                  : holiday
+                                  : czech
                                     ? "bg-red-50 text-red-600"
                                     : red
                                       ? "text-red-600"
@@ -76,11 +148,31 @@ export function CalendarView() {
                               }`}
                             >
                               {d}
+                              {abroad && (
+                                <span
+                                  aria-hidden
+                                  className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-amber-500"
+                                />
+                              )}
                             </span>
                           );
                           return (
                             <td key={i} className="py-0.5">
-                              {holiday ? <Tooltip title={holiday}>{cell}</Tooltip> : cell}
+                              {shown.length ? (
+                                <Tooltip
+                                  title={
+                                    <div className="flex flex-col divide-y divide-white/15">
+                                      {shown.map((h) => (
+                                        <HolidayLine key={`${h.countryCode}-${h.kind}-${h.name}`} h={h} />
+                                      ))}
+                                    </div>
+                                  }
+                                >
+                                  {cell}
+                                </Tooltip>
+                              ) : (
+                                cell
+                              )}
                             </td>
                           );
                         })}
