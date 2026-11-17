@@ -2,14 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { Button, Select, Tooltip } from "antd";
-import { LeftOutlined, PrinterOutlined, RightOutlined } from "@ant-design/icons";
+import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { CARD, CARD_BAR, CARD_TITLE, PAGE_TITLE } from "@/styles/ui";
 import { MONTHS, WEEKDAYS, czechHolidays, holidayKey, monthWeeks } from "./_lib/calendar";
 
 const YEARS = Array.from({ length: 100 }, (_, i) => 1951 + i);
 
 // Year calendar: 12 months with ISO week numbers; weekends and Czech public holidays in red,
-// today highlighted. Print prints only the calendar (the controls and app navigation are print:hidden).
+// today highlighted. No Print button (owner, 17 Nov 2026); printing from the browser (⌘P) still
+// prints only the calendar, as the controls and app navigation are print:hidden.
 export function CalendarView() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -31,10 +32,6 @@ export function CalendarView() {
         />
         <Button icon={<RightOutlined />} onClick={() => setYear((y) => y + 1)} aria-label="Next year" />
         <Button onClick={() => setYear(today.getFullYear())}>Today</Button>
-        <div className="flex-1" />
-        <Button icon={<PrinterOutlined />} onClick={() => window.print()}>
-          Print
-        </Button>
       </div>
 
       <div className="flex flex-col gap-5">
