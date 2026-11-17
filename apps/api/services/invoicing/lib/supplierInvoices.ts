@@ -23,6 +23,28 @@ export function invoiceKeyOf(line: { invoiceNumber: string; supplierCustomerId: 
 
 export { invoiceNumberKey };
 
+/** A master job's line as its siblings are matched: the master job, its supplier text and its number. */
+export const masterSiblingKey = (l: { masterJobId: string; vendor: string; invoiceNumber: string }): string =>
+  `${l.masterJobId}|${supplierKeyOf({ supplierCustomerId: null, haulierId: null, vendor: l.vendor })}|${invoiceNumberKey(l.invoiceNumber)}`;
+
+/**
+ * The invoices a master job's lines are on once linked to a supplier, by masterSiblingKey. A master job's line
+ * names its supplier by text only: a new line of the same master job, supplier text and number joins that invoice,
+ * instead of being booked as a second record by the text (one supplier bill, one row on Accounts Payable).
+ */
+export function linkedMasterSiblings<T extends { id: string; numberKey: string; supplierKey: string }>(
+  lines: readonly { masterJobId: string; vendor: string; invoiceNumber: string; supplierInvoiceId: string | null }[],
+  invoices: ReadonlyMap<string, T>,
+): Map<string, T> {
+  const out = new Map<string, T>();
+  for (const l of lines) {
+    const h = l.supplierInvoiceId ? invoices.get(l.supplierInvoiceId) : undefined;
+    if (!h || h.supplierKey.startsWith("n:") || h.numberKey !== invoiceNumberKey(l.invoiceNumber)) continue;
+    out.set(masterSiblingKey(l), h);
+  }
+  return out;
+}
+
 /** A line's amount as the invoice bills it: unit amount × quantity (none = 1). */
 export const lineAmount = (amount: string | number | null, qty: string | number | null): number => round2(Number(amount ?? 0) * qtyOrOne(qty));
 

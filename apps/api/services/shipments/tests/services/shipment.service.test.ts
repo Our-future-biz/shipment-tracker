@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } })
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
   warehouse: { _internalPickupPlates: vi.fn() },
 }));
@@ -182,6 +182,7 @@ beforeEach(() => {
   });
   vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds).mockResolvedValue([]);
   vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
+  vi.mocked(invoicing._internalPaidSupplierInvoices).mockResolvedValue({ invoiceNumbers: [] });
   vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: [] });
   // Every charge on an open invoice unless a test says otherwise: Invoiced may then be set.
   vi.mocked(invoicing._internalChargeCount).mockResolvedValue({ invoiced: 2, total: 2 });
@@ -1259,6 +1260,15 @@ describe("softDelete", () => {
     expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
     expect(deliverShipmentEvents).not.toHaveBeenCalled();
     expect(links.syncReference).not.toHaveBeenCalled();
+  });
+
+  it("refuses a shipment whose costs are on a supplier invoice marked paid: nothing deleted, no event", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: "" }));
+    vi.mocked(invoicing._internalPaidSupplierInvoices).mockResolvedValue({ invoiceNumbers: ["FV-77"] });
+    await expect(shipmentService.softDelete(SHIPMENT, COMPANY, USER)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("supplier invoices marked paid (FV-77)") });
+    expect(vi.mocked(invoicing._internalPaidSupplierInvoices)).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+    expect(repository.softDeleteWithEvent).not.toHaveBeenCalled();
+    expect(deliverShipmentEvents).not.toHaveBeenCalled();
   });
 
   it("says not found when the shipment went meanwhile, and owes no event", async () => {

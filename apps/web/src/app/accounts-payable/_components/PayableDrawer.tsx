@@ -11,7 +11,6 @@ import { formatDate, formatDateTime } from "@/lib/date";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { formatAmount } from "@/lib/money";
 import { useFilePreview } from "@/hooks/useFilePreview";
-import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 import { useSupplierInvoice, useSupplierInvoiceSeen } from "@/hooks/useSupplierInvoices";
 import { EMPTY, HINT, LABEL_TEXT, LINK, MODAL_TITLE, REF, TD, TH } from "@/styles/ui";
 import { MarkPills } from "./MarkPills";
@@ -48,17 +47,25 @@ function Section({ title, children, extra }: { title: string; children: ReactNod
 const none = <span className={EMPTY}>—</span>;
 const dayOrNone = (v: string | null) => (v ? <span className="tabular-nums">{formatDate(v)}</span> : none);
 
+/** The read document's file as the invoice's detail carries it (the server asks the shipment that keeps it). */
+interface DocumentFileState {
+  file: interfaces.PayableDocumentFile | null;
+  gone: boolean;
+  /** A fresh link, for a preview whose link has expired (links last an hour); null when the file is gone. */
+  freshUrl: () => Promise<string | null>;
+}
+
 /** The read document, kept as an attachment of a shipment (D18), opened in the app's preview. */
-function DocumentLink({ document }: { document: NonNullable<PayableInvoice["document"]> }) {
-  const { attachments, isLoading, previewSource } = useShipmentAttachments(document.shipmentId);
+function DocumentLink({ document, state }: { document: NonNullable<PayableInvoice["document"]>; state: DocumentFileState }) {
   const preview = useFilePreview();
-  const file = attachments.find((a) => a.id === document.attachmentId);
-  if (isLoading) return <span className={HINT}>Loading the document…</span>;
-  if (!file) return <span className={HINT}>{document.name || "The document"} is no longer among the shipment&apos;s documents.</span>;
+  const { file } = state;
+  if (state.gone) return <span className={HINT}>{document.name || "The document"} is no longer among the shipment&apos;s documents.</span>;
+  if (!file) return <span className={HINT}>{document.name || "The document"} could not be looked up just now: open the invoice again in a moment.</span>;
+  const source = { fileName: file.fileName || document.name, contentUrl: file.contentUrl, fileType: file.fileType, refreshUrl: state.freshUrl };
   return (
     <>
-      {/* The app's preview, its link renewed when it has expired (links last an hour). */}
-      <a href={file.contentUrl} onClick={preview.previewOnClick(previewSource(file))} className={`inline-flex items-center gap-1.5 font-medium ${LINK}`}>
+      {/* The app's preview, its link renewed when it has expired. */}
+      <a href={file.contentUrl} onClick={preview.previewOnClick(source)} className={`inline-flex items-center gap-1.5 font-medium ${LINK}`}>
         <FileTextOutlined />
         {file.fileName || document.name}
       </a>
@@ -67,7 +74,7 @@ function DocumentLink({ document }: { document: NonNullable<PayableInvoice["docu
   );
 }
 
-function Facts({ invoice }: { invoice: PayableInvoice }) {
+function Facts({ invoice, documentFile }: { invoice: PayableInvoice; documentFile: DocumentFileState }) {
   const linkedId = invoice.supplierCustomerId ?? invoice.haulierId;
   const read = invoice.totalNet !== null || invoice.vatAmount !== null || invoice.totalGross !== null;
   return (
@@ -143,7 +150,7 @@ function Facts({ invoice }: { invoice: PayableInvoice }) {
       )}
       {invoice.document && (
         <Fact label="Document">
-          <DocumentLink document={invoice.document} />
+          <DocumentLink document={invoice.document} state={documentFile} />
         </Fact>
       )}
     </div>
@@ -304,7 +311,14 @@ export function PayableDrawer({ id, onClose }: { id: string | null; onClose: () 
       {detail && invoice && (
         <div className="flex flex-col gap-6">
           <MarkPills invoice={invoice} empty={false} />
-          <Facts invoice={invoice} />
+          <Facts
+            invoice={invoice}
+            documentFile={{
+              file: detail.documentFile,
+              gone: detail.documentGone,
+              freshUrl: async () => (await query.refetch()).data?.documentFile?.contentUrl ?? null,
+            }}
+          />
           <Section title="Actions">
             <PayableActions key={invoice.id} invoice={invoice} canDecide={detail.canDecide} />
           </Section>

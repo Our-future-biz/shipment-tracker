@@ -23,13 +23,6 @@ export interface ChargeCount {
 /** Whether every charge of the job is invoiced: it has at least one, and none is left to bill. */
 export const chargesInvoiced = (c: ChargeCount): boolean => c.total > 0 && c.invoiced >= c.total;
 
-/** Why the job may not be marked Invoiced yet, or null when it may. */
-export function invoicedRefusal(c: ChargeCount): string | null {
-  if (chargesInvoiced(c)) return null;
-  if (c.total === 0) return "This shipment has no charges to invoice: it can be marked Invoiced once its selling lines are on an invoice";
-  return `Not all charges are invoiced: ${c.invoiced} of ${c.total} selling lines are on an invoice. Invoice the rest first`;
-}
-
 export interface StatusPatch {
   status?: string;
   invoicingStatus?: string;

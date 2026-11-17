@@ -10,7 +10,7 @@ import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken
 import { iso, isoOrNull } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import type { FileContent } from "../../../lib/fileContent";
-import type { AttachmentCustomsStatus, AttachmentItem } from "../interfaces/interfaces";
+import type { AttachmentCustomsStatus, AttachmentFileLink, AttachmentItem } from "../interfaces/interfaces";
 import { shipmentService } from "./shipment.service";
 
 /** An attachment row as the API shows it: who uploaded and reviewed it by e-mail, a download link, no storage key. */
@@ -47,6 +47,16 @@ class AttachmentService {
       userEmails(),
     ]);
     return rows.map((r) => toItem(r, emails));
+  }
+
+  /**
+   * One file's name, type and signed link, for another service that shows it (a supplier invoice's read document on
+   * Accounts Payable); null when it is no longer among the shipment's documents.
+   */
+  async fileLink(shipmentId: string, id: string, companyId: string): Promise<AttachmentFileLink | null> {
+    if (!isUuid(shipmentId) || !isUuid(id)) return null;
+    const row = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
+    return row ? { fileName: row.fileName, fileType: row.fileType, contentUrl: attachmentContentUrl(row.shipmentId, row.id, row.companyId) } : null;
   }
 
   /** Stores the bytes, then the record; when the record can't be written, the stored bytes go again. */

@@ -73,6 +73,25 @@ describe("partialCreditLines", () => {
 });
 
 describe("planPartialCredit", () => {
+  // A discount line below zero: each line alone can't tell that crediting the THC would credit more than the invoice.
+  const DISCOUNT: StoredLine = { ...THC, id: "l3", description: "Discount", qty: "1.00", unitPrice: "-100.00", net: "-100.00", sourceSellingCostId: "s3" };
+
+  it("refuses to credit more than is left of an invoice with a discount line", () => {
+    const remaining = remainingLines([THC, CUSTOMS, DISCOUNT], []);
+    // 300 + 100 - 100 = 300 left; THC 250 and customs 2 000 CZK (80 EUR) take 330.
+    expect(planPartialCredit(remaining, [{ lineId: "l1", amount: "250" }, { lineId: "l2", amount: "2000" }])).toEqual({
+      problem: "This credits more than is left of the invoice (300.00 without VAT): credit less, or credit the whole invoice instead",
+    });
+    expect(planPartialCredit(remaining, [{ lineId: "l1", amount: "250" }])).toHaveProperty("lines");
+  });
+
+  it("sees the whole invoice in every line it can credit to its end, or in a credit that leaves nothing", () => {
+    const remaining = remainingLines([THC, CUSTOMS, DISCOUNT], []);
+    expect(planPartialCredit(remaining, [{ lineId: "l1", amount: "300" }, { lineId: "l2", amount: "2500" }])).toEqual({ problem: WHOLE_INVOICE });
+    // THC 200 + customs 2 500 CZK (100 EUR) = 300, all that is left.
+    expect(planPartialCredit(remaining, [{ lineId: "l1", amount: "200" }, { lineId: "l2", amount: "2500" }])).toEqual({ problem: WHOLE_INVOICE });
+  });
+
   it("refuses a partial credit note that would credit the whole invoice", () => {
     const remaining = remainingLines([THC, CUSTOMS], []);
     expect(planPartialCredit(remaining, [{ lineId: "l1", amount: "300" }, { lineId: "l2", amount: "2500" }])).toEqual({ problem: WHOLE_INVOICE });

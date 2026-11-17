@@ -180,7 +180,7 @@ class MasterJobCostService {
     const values = { category: "", ...changesOf(input) };
     // housesOf also refuses a master job that is not the company's.
     await assertNotKeptByTruckingFor(companyId, await housesOf(masterJobId), { category: values.category ?? "", splitMethod: values.splitMethod ?? "wm", inSplit: values.inSplit });
-    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, { supplierInvoiceId: null }, values);
+    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, { supplierInvoiceId: null, masterJobId }, values);
     await masterJobCostRepository.create(companyId, masterJobId, values);
     // A master job's invoice is one row of Accounts Payable, payable once (D16).
     await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: actorUserId }, { masterJobIds: [masterJobId] }, "master_job");

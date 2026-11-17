@@ -60,8 +60,12 @@ export function CreditNoteModal({ doc, onCreditWhole, isCrediting, onClose }: Cr
 
   const submitWhole = async () => {
     if (!reason.trim()) return;
-    await onCreditWhole(reason.trim());
-    close();
+    try {
+      await onCreditWhole(reason.trim());
+      close();
+    } catch {
+      // Refused: the invoice panel has said why, and the dialog stays open to try again.
+    }
   };
 
   const submitPart = async () => {
@@ -245,6 +249,13 @@ export function CreditNoteModal({ doc, onCreditWhole, isCrediting, onClose }: Cr
               </div>
             )}
             {draft.wholeInvoice && <Alert type="warning" showIcon message="That is the whole invoice: credit the Whole invoice instead — it needs no approval." />}
+            {draft.overInvoice && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`That is more than is left of the invoice (${money(draft.left)} ${currency} without VAT): credit less, or credit the Whole invoice instead.`}
+              />
+            )}
             {reasonField}
           </>
         )}

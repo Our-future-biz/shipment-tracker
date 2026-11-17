@@ -22,6 +22,7 @@ describe("my countries on the holiday list", () => {
   it("names a row by its country, else its code", () => {
     expect(rowCountry(row("", "SK"))).toBe("SK");
     expect(rowCountry(row("Germany", "DE"))).toBe("Germany");
+    expect(rowCountry(row(" ", " sk "))).toBe("SK");
   });
 
   it("offers each country once, in order", () => {

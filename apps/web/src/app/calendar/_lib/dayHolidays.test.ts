@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flagOf, isCzechHoliday, listCountries, shownHolidays, yearHolidays } from "./dayHolidays";
+import { flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays } from "./dayHolidays";
 import { holidayKey } from "./calendar";
 import type { HolidayItem } from "../public-holidays/_lib/holidays";
 
@@ -54,6 +54,13 @@ describe("yearHolidays", () => {
     expect(yearHolidays(2026, items).get(NOV_17)).toHaveLength(1);
   });
 
+  it("walks only the days of the year, even for an end date years away", () => {
+    const items = [row({ country: "Japan", countryCode: "JP", nationalHoliday: "Typo", nationalStart: "2026-12-31", nationalEnd: "9026-01-01" })];
+    const days = yearHolidays(2026, items);
+    expect(days.get(holidayKey(2026, 11, 31))?.map((h) => h.countryCode)).toEqual(["JP"]);
+    expect([...days.values()].flat().filter((h) => h.countryCode === "JP")).toHaveLength(1);
+  });
+
   it("leaves out rows without a usable date", () => {
     const items = [row({ country: "Poland", countryCode: "PL", nationalHoliday: "Broken", nationalStart: "17.11.2026" })];
     expect(yearHolidays(2026, items).get(NOV_17)).toHaveLength(1);
@@ -78,6 +85,18 @@ describe("filtering and colour", () => {
 
   it("offers the list's countries, not the Czech Republic", () => {
     expect(listCountries([row({ country: "Germany", countryCode: "DE" }), row({ country: "Czechia", countryCode: "CZ" }), row({ countryCode: "AT" })])).toEqual(["AT", "Germany"]);
+  });
+
+  it("shows a country listed only by a lower-case code once it is picked", () => {
+    const items = [row({ countryCode: " sk", nationalHoliday: "Struggle Day", nationalStart: "2026-11-17" })];
+    const offered = listCountries(items)[0]!;
+    expect(offered).toBe("SK");
+    expect(shownHolidays(yearHolidays(2026, items).get(NOV_17), [offered]).map((h) => h.countryCode)).toEqual(["CZ", "SK"]);
+  });
+
+  it("keeps the saved picks the calendar does not offer when the user changes the picker", () => {
+    expect(withUnofferedPicks(["Czechia", "Germany", "Gone"], ["Austria", "Germany"], ["Austria"])).toEqual(["Czechia", "Gone", "Austria"]);
+    expect(withUnofferedPicks(["Germany"], ["Austria", "Germany"], [])).toEqual([]);
   });
 });
 

@@ -81,7 +81,7 @@ function ReasonForm({ label, explain, saveLabel, danger, saving, onSave, onCance
 function PaidForm({ invoice, saving, onSave, onCancel }: { invoice: PayableInvoice; saving: boolean; onSave: (day: string) => void; onCancel: () => void }) {
   const today = businessToday();
   const [day, setDay] = useState(today);
-  const problem = paidDayProblem(day, today, invoice.bookedOn);
+  const problem = paidDayProblem(day, today, invoice.paidNotBefore);
   return (
     <FormBox>
       <div className={HINT}>
@@ -95,8 +95,8 @@ function PaidForm({ invoice, saving, onSave, onCancel }: { invoice: PayableInvoi
           format="D.M.YYYY"
           value={day ? dayjs(day) : null}
           onChange={(d) => setDay(d ? d.format("YYYY-MM-DD") : "")}
-          // Not after today, nor before it was booked: the server refuses both.
-          disabledDate={(d) => d.format("YYYY-MM-DD") > today || (!!invoice.bookedOn && d.format("YYYY-MM-DD") < invoice.bookedOn)}
+          // Not after today, nor before it was received: the server refuses both.
+          disabledDate={(d) => !!paidDayProblem(d.format("YYYY-MM-DD"), today, invoice.paidNotBefore)}
           className="w-[160px]"
           aria-label="Paid on"
         />
@@ -224,6 +224,8 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
   const [form, setForm] = useState<Form>(null);
   const toggle = (f: Exclude<Form, null>) => setForm((now) => (now === f ? null : f));
 
+  // One decision at a time: every save button waits while any of them is on its way (each sends the version the
+  // user saw, so a second would only be refused as changed meanwhile).
   // Every answer comes back as the invoice now is; a refusal says why (changed meanwhile, a VAT check, four eyes).
   const run = (p: Promise<unknown>, done: string) =>
     p
@@ -253,7 +255,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
         {can.approve.shown && (
           <ActionButtonPrimary
             state={can.approve}
-            saving={actions.approve.isPending}
+            saving={actions.pending}
             onClick={() => void run(actions.approve.mutateAsync({ invoice }), `Approved: ${number} is to be paid`)}
           />
         )}
@@ -274,7 +276,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
           explain="Refusing takes its lines off the jobs: an estimated line goes back to its estimate, any other line goes, and they are kept on the invoice for the record (D12). Its number is free again for the corrected invoice. The supplier is told the reason."
           saveLabel={`Refuse ${number}`}
           danger
-          saving={actions.refuse.isPending}
+          saving={actions.pending}
           onSave={(reason) => void run(actions.refuse.mutateAsync({ invoice, reason }), `Refused: ${number} left the jobs`)}
           onCancel={() => setForm(null)}
         />
@@ -284,7 +286,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
           label="Why the approval is taken back"
           explain="It waits for a manager's approval again."
           saveLabel="Take back the approval"
-          saving={actions.takeBackApproval.isPending}
+          saving={actions.pending}
           onSave={(reason) => void run(actions.takeBackApproval.mutateAsync({ invoice, reason }), `${number} waits for approval again`)}
           onCancel={() => setForm(null)}
         />
@@ -294,7 +296,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
           label="Why the payment is taken back"
           explain={`For a payment noted by mistake: ${number} and its lines are unpaid again.`}
           saveLabel="Take back the payment"
-          saving={actions.takeBackPayment.isPending}
+          saving={actions.pending}
           onSave={(reason) => void run(actions.takeBackPayment.mutateAsync({ invoice, reason }), `${number} is unpaid again`)}
           onCancel={() => setForm(null)}
         />
@@ -302,7 +304,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
       {form === "markPaid" && (
         <PaidForm
           invoice={invoice}
-          saving={actions.markPaid.isPending}
+          saving={actions.pending}
           onSave={(paidOn) => void run(actions.markPaid.mutateAsync({ invoice, paidOn }), `${number} marked paid on ${formatDate(paidOn)}`)}
           onCancel={() => setForm(null)}
         />
@@ -310,7 +312,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
       {form === "link" && (
         <LinkForm
           invoice={invoice}
-          saving={actions.linkSupplier.isPending}
+          saving={actions.pending}
           onSave={(supplierCustomerId) => void run(actions.linkSupplier.mutateAsync({ invoice, supplierCustomerId }), "Supplier linked")}
           onCancel={() => setForm(null)}
         />
@@ -318,7 +320,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
       {form === "details" && (
         <DetailsForm
           invoice={invoice}
-          saving={actions.setDetails.isPending}
+          saving={actions.pending}
           onSave={(details) => void run(actions.setDetails.mutateAsync({ invoice, details }), "Details saved")}
           onCancel={() => setForm(null)}
         />

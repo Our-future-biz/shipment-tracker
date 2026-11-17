@@ -1173,6 +1173,11 @@ export interface PayableInvoiceItem {
   daysOverdue: number;
   /** The day it was booked (yyyy-mm-dd) */
   bookedOn: string;
+  /**
+   * The earliest day it may be noted paid (yyyy-mm-dd): the day it was received. Null when it never was stamped
+   * (gathered from older lines, a master job's): paid before Accounts Payable existed, any past day may be noted.
+   */
+  paidNotBefore: string | null;
   /** What its lines bill, per currency, without VAT */
   amounts: { currency: string; amount: number }[];
   /** As read from the document (null: not read) */
@@ -1290,6 +1295,17 @@ export interface PayableDetailResponse {
   /** The lines as they were when it was refused */
   refusedLines: { kind: "job" | "master_job"; ownerId: string; category: string; description: string; amount: number | null; currency: string }[];
   canDecide: boolean;
+  /** The read document's file with a signed link (it lasts an hour); null when there is none, it is gone or it could not be looked up just now */
+  documentFile: PayableDocumentFile | null;
+  /** The document the invoice names is no longer among the shipment's documents */
+  documentGone: boolean;
+}
+
+/** A supplier invoice's read document, as the shipment keeps it. */
+export interface PayableDocumentFile {
+  fileName: string;
+  fileType: string;
+  contentUrl: string;
 }
 
 /** What the bell shows of Accounts Payable. */

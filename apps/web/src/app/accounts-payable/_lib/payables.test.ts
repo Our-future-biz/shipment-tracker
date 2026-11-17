@@ -45,6 +45,7 @@ const invoice = (over: Partial<PayableInvoice> = {}): PayableInvoice => ({
   dueSource: "invoice",
   daysOverdue: 0,
   bookedOn: "2026-11-03",
+  paidNotBefore: "2026-11-03",
   amounts: [{ currency: "EUR", amount: 12500 }],
   totalNet: null,
   vatAmount: null,
@@ -337,6 +338,8 @@ describe("actions", () => {
     expect(paidDayProblem("2026-11-18", "2026-11-17", "2026-11-03")).toMatch(/after today/);
     expect(paidDayProblem("2026-11-01", "2026-11-17", "2026-11-03")).toMatch(/before it was booked/);
     expect(paidDayProblem("2026-11-17", "2026-11-17", "2026-11-03")).toBe("");
+    // Never stamped received (a master job's, gathered from older lines): any past day, as the server allows.
+    expect(paidDayProblem("2025-01-10", "2026-11-17", null)).toBe("");
   });
 });
 

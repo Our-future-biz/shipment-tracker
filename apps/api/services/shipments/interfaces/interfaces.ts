@@ -1347,3 +1347,10 @@ export interface SearchMasterJobsResponse {
   /** How many master jobs match in all. */
   total: number;
 }
+
+/** One shipment file as another service shows it: its name, type and signed link (it lasts an hour). */
+export interface AttachmentFileLink {
+  fileName: string;
+  fileType: string;
+  contentUrl: string;
+}

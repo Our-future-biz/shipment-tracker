@@ -126,6 +126,8 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
 
 import * as costRepo from "../../repositories/invoiceCost.repository";
 import { invoicingService } from "../../services/invoicing.service";
+import { supplierInvoiceService } from "../../services/supplierInvoice.service";
+import { supplierInvoiceRepository } from "../../repositories/supplierInvoice.repository";
 
 type StoredRow = { shipmentId: string; category: string; estAmount: string | null; realAmount: string | null; invoiceNumber: string; description: string; postedFromLines: boolean };
 const store = costRepo as unknown as { rows: StoredRow[]; add: (values: Record<string, unknown>) => StoredRow };
@@ -329,5 +331,15 @@ describe("one shipment's credit note", () => {
       invoicingService.postInvoiceLines(COMPANY, { invoiceNumber: "CN-5", creditNote: true, lines: [{ category: "customs", amount: "-45.00", currency: "CZK", shipmentId: A }] }).then((r) => r.rows),
     ).resolves.toEqual([{ shipmentId: A, category: "customs", amount: "-45.00", currency: "CZK", repeated: false, ontoEstimate: false, bookedElsewhere: false }]);
     expect(houses).not.toHaveBeenCalled();
+  });
+});
+
+describe("the same supplier's invoice booked already on other jobs (Accounts Payable)", () => {
+  it("is refused before Accounts Payable is asked, so a post that writes nothing takes no approval back", async () => {
+    vi.mocked(supplierInvoiceRepository.bookedOnOtherJobs).mockResolvedValueOnce([B]);
+    vi.mocked(supplierInvoiceService.beforeLineChange).mockClear();
+    await expect(post()).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("is booked already on another job") });
+    expect(supplierInvoiceService.beforeLineChange).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
   });
 });

@@ -48,8 +48,11 @@ export function thisWeek(): { from: string; to: string } {
   return { from: monday.format("YYYY-MM-DD"), to: monday.add(6, "day").format("YYYY-MM-DD") };
 }
 
-/** A holiday row's country as the filters name it: its Country, else its Country code. */
-export const rowCountry = (h: Pick<HolidayItem, "country" | "countryCode">) => h.country || h.countryCode;
+/**
+ * A holiday row's country as the filters name it: its Country, else its Country code in capitals.
+ * The Public Holidays page and the year calendar both name it this way, so a saved pick matches on both.
+ */
+export const rowCountry = (h: Pick<HolidayItem, "country" | "countryCode">) => h.country.trim() || h.countryCode.trim().toUpperCase();
 
 /** The list's countries, each once, in alphabetical order. */
 export const listedCountries = (items: HolidayItem[]) => [...new Set(items.map(rowCountry).filter(Boolean))].sort((a, b) => a.localeCompare(b));

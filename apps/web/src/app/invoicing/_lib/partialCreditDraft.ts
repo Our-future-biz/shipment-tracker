@@ -15,6 +15,10 @@ export interface PartialCreditDraft {
   ok: boolean;
   /** Every line credited to its end: a credit of the whole invoice, which needs no approval */
   wholeInvoice: boolean;
+  /** It takes more than is left of the invoice (possible with a line below zero, a discount): `left` says how much is */
+  overInvoice: boolean;
+  /** What is left of the invoice to credit, without VAT, in the invoice currency */
+  left: number;
   net: number;
   vat: number;
   gross: number;
@@ -51,8 +55,22 @@ export function partialCreditDraft(lines: readonly Line[], picked: Readonly<Reco
   }
   const creditable = lines.filter((l) => cents(l.remainingAmount) > 0).length;
   const problems = Object.values(rows).some((r) => r.problem);
-  const wholeInvoice = !problems && creditable > 0 && toEnd === creditable;
   net = round2(net);
   vat = round2(vat);
-  return { rows, lines: out, ok: out.length > 0 && !problems && !wholeInvoice, wholeInvoice, net, vat, gross: round2(net + vat) };
+  // As the API: what is left of the invoice after this credit, all its lines counted (one below zero too).
+  const leftCents = lines.reduce((s, l) => s + cents(l.remainingNet), 0);
+  const after = leftCents - cents(net);
+  const wholeInvoice = !problems && out.length > 0 && ((creditable > 0 && toEnd === creditable) || after === 0);
+  const overInvoice = !problems && !wholeInvoice && out.length > 0 && after < 0;
+  return {
+    rows,
+    lines: out,
+    ok: out.length > 0 && !problems && !wholeInvoice && !overInvoice,
+    wholeInvoice,
+    overInvoice,
+    left: leftCents / 100,
+    net,
+    vat,
+    gross: round2(net + vat),
+  };
 }

@@ -26,6 +26,7 @@ const invoice = (over: Partial<PayableInvoice> = {}): PayableInvoice => ({
   dueSource: "invoice",
   daysOverdue: 0,
   bookedOn: "2026-11-03",
+  paidNotBefore: "2026-11-03",
   amounts: [{ currency: "EUR", amount: 12500 }],
   totalNet: null,
   vatAmount: null,

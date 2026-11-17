@@ -9,7 +9,7 @@ import { useMyCountries } from "@/hooks/useMyCountries";
 import { apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { MONTHS, WEEKDAYS, holidayKey, monthWeeks } from "./_lib/calendar";
-import { countryOf, flagOf, isCzechHoliday, listCountries, shownHolidays, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
+import { countryOf, flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
 
 const YEARS = Array.from({ length: 100 }, (_, i) => 1951 + i);
 
@@ -46,7 +46,7 @@ export function CalendarView() {
   const toast = useToast();
   const { myCountries: countries, saveMyCountries } = useMyCountries();
   const pickCountries = (next: string[]) =>
-    void saveMyCountries(next).catch((err) => toast.error(`Could not save your countries: ${apiErrorMessage(err)}`));
+    void saveMyCountries(withUnofferedPicks(countries, countryOptions, next)).catch((err) => toast.error(`Could not save your countries: ${apiErrorMessage(err)}`));
 
   const isToday = (m: number, d: number) =>
     year === today.getFullYear() && m === today.getMonth() && d === today.getDate();
@@ -71,7 +71,7 @@ export function CalendarView() {
             maxTagCount="responsive"
             value={countries.filter((c) => countryOptions.includes(c))}
             onChange={pickCountries}
-            placeholder="My countries: all"
+            placeholder={countries.length ? `My countries: ${countries.join(", ")}` : "My countries: all"}
             className="min-w-[220px] max-w-[420px] flex-1"
             options={countryOptions.map((c) => ({ value: c, label: c }))}
             aria-label="My countries (whose holidays are shown)"

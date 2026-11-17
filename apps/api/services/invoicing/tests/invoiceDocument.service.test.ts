@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const repo = vi.hoisted(() => ({
   issue: vi.fn(),
@@ -974,7 +974,9 @@ describe("queue", () => {
 });
 
 describe("cancelling an invoice on its issue day", () => {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague" }).format(new Date());
+  // The clock is pinned: the service reads "today" again when it runs, and a run across midnight in Prague must not
+  // find the invoice issued yesterday.
+  const today = "2026-11-17";
   const invoice = {
     id: "inv1", kind: "invoice", status: "issued", number: "INV2026CZ00000028-001", shipmentId: SHIPMENT, customerId: CUSTOMER, companyId: COMPANY,
     currency: "EUR", gross: "363.00", issueDate: today, dueDate: "2026-12-01", shipment: { jobNumber: "CZ00000028", jobYear: 2026 }, customer,
@@ -983,6 +985,8 @@ describe("cancelling an invoice on its issue day", () => {
   const approver = { userId: "manager-1", userEmail: "boss@test.cz", comment: "" };
 
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-17T10:00:00Z"));
     repo.getInTx.mockResolvedValue(invoice);
     repo.markCancelled.mockResolvedValue(true);
     changes.approve.mockResolvedValue({ ...request, status: "approved" });
@@ -990,6 +994,7 @@ describe("cancelling an invoice on its issue day", () => {
     // nothing billed any more once the invoice is cancelled
     repo.listOpenInvoicesWithSources.mockResolvedValue([]);
   });
+  afterEach(() => vi.useRealTimers());
 
   it("cancels it under the credit notes' series lock, approves the request and puts the job back to bill", async () => {
     const cancelled = await invoiceDocumentService.cancelOnIssueDay(request as never, approver);

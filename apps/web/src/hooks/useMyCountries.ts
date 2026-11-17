@@ -16,6 +16,8 @@ export function useMyCountries() {
     queryFn: async () => (await api.holidays.holidayMyCountriesGet()).countries,
   });
   const save = useMutation({
+    // One save at a time, in click order, so an older answer never overwrites a newer pick.
+    scope: { id: "holiday-my-countries" },
     mutationFn: async (countries: string[]) => (await api.holidays.holidayMyCountriesSet({ countries })).countries,
     // Shown at once; the server's cleaned list replaces it, and a refusal puts the saved one back.
     onMutate: async (countries) => {

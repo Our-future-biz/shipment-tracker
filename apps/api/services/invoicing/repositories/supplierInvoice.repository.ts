@@ -13,7 +13,7 @@ import {
   type SupplierInvoiceRecord,
   type SupplierInvoiceSource,
 } from "../schemas/supplierInvoice.schema";
-import { invoiceNumberKey, supplierKeyOf } from "../lib/supplierInvoices";
+import { invoiceNumberKey, linkedMasterSiblings, masterSiblingKey, supplierKeyOf } from "../lib/supplierInvoices";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -50,6 +50,8 @@ interface SyncLine {
   supplierInvoiceId: string | null;
   currency: string;
   receivedAt: Date | null;
+  /** A master job's line: its master job */
+  masterJobId?: string;
 }
 
 class SupplierInvoiceRepository {
@@ -101,7 +103,7 @@ class SupplierInvoiceRepository {
         .where(and(eq(c.companyId, companyId), isNull(c.deletedAt), ...ENTERED_HERE, numbered(c.invoiceNumber, c.supplierInvoiceId), costScope));
       const masterLines: SyncLine[] = (
         await tx
-          .select({ id: m.id, invoiceNumber: m.invoiceNumber, vendor: m.vendor, supplierInvoiceId: m.supplierInvoiceId, currency: m.realCurrency })
+          .select({ id: m.id, masterJobId: m.masterJobId, invoiceNumber: m.invoiceNumber, vendor: m.vendor, supplierInvoiceId: m.supplierInvoiceId, currency: m.realCurrency })
           .from(m)
           .where(and(eq(m.companyId, companyId), isNull(m.deletedAt), numbered(m.invoiceNumber, m.supplierInvoiceId), masterScope))
       ).map((l) => ({ ...l, supplierCustomerId: null, haulierId: null, receivedAt: null }));
@@ -120,6 +122,11 @@ class SupplierInvoiceRepository {
       const masterLinked = [...new Set(masterLines.map((l) => l.supplierInvoiceId).filter((id): id is string => !!id))];
       const linkedById = new Map(
         (masterLinked.length ? await tx.select().from(t).where(and(LIVE(companyId), ne(t.status, "refused"), inArray(t.id, masterLinked))) : []).map((h) => [h.id, h]),
+      );
+      // …and a new line of the same master job, supplier text and number joins that linked invoice too.
+      const masterSiblings = linkedMasterSiblings(
+        masterLines.map((l) => ({ masterJobId: l.masterJobId ?? "", vendor: l.vendor, invoiceNumber: l.invoiceNumber, supplierInvoiceId: l.supplierInvoiceId })),
+        linkedById,
       );
       const headerFor = async (line: SyncLine, source: SupplierInvoiceSource): Promise<SupplierInvoiceRecord> => {
         const supplierKey = supplierKeyOf(line);
@@ -159,7 +166,8 @@ class SupplierInvoiceRepository {
         const numbered = !!invoiceNumberKey(line.invoiceNumber);
         const kept = table === "master" && line.supplierInvoiceId ? linkedById.get(line.supplierInvoiceId) : undefined;
         if (kept && numbered && kept.numberKey === invoiceNumberKey(line.invoiceNumber)) return;
-        const header = numbered ? await headerFor(line, table === "master" ? "master_job" : origin.source) : null;
+        const sibling = table === "master" && numbered && line.masterJobId ? masterSiblings.get(masterSiblingKey({ ...line, masterJobId: line.masterJobId })) : undefined;
+        const header = numbered ? (sibling ?? (await headerFor(line, table === "master" ? "master_job" : origin.source))) : null;
         const want = header?.id ?? null;
         if (line.supplierInvoiceId === want) return;
         if (line.supplierInvoiceId) touched.add(line.supplierInvoiceId);
@@ -245,6 +253,28 @@ class SupplierInvoiceRepository {
       .where(and(LIVE(companyId), ne(t.status, "refused"), eq(t.supplierKey, supplierKey), eq(t.numberKey, numberKey)))
       .limit(1);
     return row?.id ?? null;
+  }
+
+  /**
+   * The live invoice, linked to a supplier, that another line of this master job with this supplier text and number
+   * is on (lib/supplierInvoices linkedMasterSiblings): the invoice a new such line joins.
+   */
+  async idOfMasterSibling(companyId: string, masterJobId: string, vendor: string, numberKey: string): Promise<string | null> {
+    if (!numberKey || !masterJobId) return null;
+    const rows = await db
+      .select({ id: t.id, numberKey: t.numberKey, supplierKey: t.supplierKey, vendor: m.vendor, invoiceNumber: m.invoiceNumber, supplierInvoiceId: m.supplierInvoiceId, masterJobId: m.masterJobId })
+      .from(m)
+      .innerJoin(t, eq(t.id, m.supplierInvoiceId))
+      .where(and(eq(m.companyId, companyId), eq(m.masterJobId, masterJobId), isNull(m.deletedAt), LIVE(companyId), ne(t.status, "refused"), eq(t.numberKey, numberKey)));
+    const siblings = linkedMasterSiblings(rows, new Map(rows.map((r) => [r.id, r])));
+    return siblings.get(masterSiblingKey({ masterJobId, vendor, invoiceNumber: numberKey }))?.id ?? null;
+  }
+
+  /** Which of these invoices are still there (a merge on linking a supplier deletes the record it merged). */
+  async liveIds(companyId: string, ids: string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const rows = await db.select({ id: t.id }).from(t).where(and(LIVE(companyId), inArray(t.id, ids)));
+    return new Set(rows.map((r) => r.id));
   }
 
   /** The other shipments the live invoice of this supplier and number is booked on already (a second read of it). */

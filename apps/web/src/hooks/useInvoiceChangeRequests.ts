@@ -8,7 +8,7 @@ import { invoicingKey } from "./useInvoicing";
 import { FX_KEYS } from "./useFx";
 import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
-import { creditNoteRequestKeys } from "./useCreditNoteRequests";
+import { creditNoteRequestKeys, creditOptionsKeys, invoiceChangeRequestKeys } from "./billingApprovalKeys";
 
 export type InvoiceChangeRequestItem = interfaces.InvoiceChangeRequestItem;
 
@@ -16,12 +16,6 @@ export type InvoiceChangeRequestItem = interfaces.InvoiceChangeRequestItem;
 // answered on Sales → Managers → Billing approvals the same day; a request still waiting at
 // midnight Prague time expires. Approving cancels the invoice (kept on record, no credit note):
 // its lines go back to be billed and it is issued again corrected under the next number.
-
-export const invoiceChangeRequestKeys = {
-  all: ["invoice-change-requests"] as const,
-  list: ["invoice-change-requests", "list"] as const,
-  forMe: ["invoice-change-requests", "for-me"] as const,
-};
 
 /**
  * An answer moves the request everywhere it shows (this list, the bell, the invoice's own
@@ -31,7 +25,7 @@ export const invoiceChangeRequestKeys = {
 const refreshAfterAnswer = (queryClient: QueryClient, request: InvoiceChangeRequestItem | undefined) => {
   void queryClient.invalidateQueries({ queryKey: invoiceChangeRequestKeys.all });
   void queryClient.invalidateQueries({ queryKey: creditNoteRequestKeys.all });
-  void queryClient.invalidateQueries({ queryKey: ["credit-options"] });
+  void queryClient.invalidateQueries({ queryKey: creditOptionsKeys.all });
   if (!request) return;
   const { shipmentId } = request;
   void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.docs(shipmentId) });

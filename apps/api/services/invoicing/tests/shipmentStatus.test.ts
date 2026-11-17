@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chargesInvoiced, invoicedRefusal, isBillingStatus, statusesAfterCredit, statusesAfterIssue } from "../lib/shipmentStatus";
+import { chargesInvoiced, isBillingStatus, statusesAfterCredit, statusesAfterIssue } from "../lib/shipmentStatus";
 
 const ALL = { invoiced: 3, total: 3 };
 const SOME = { invoiced: 2, total: 3 };
@@ -11,20 +11,6 @@ describe("chargesInvoiced", () => {
     expect(chargesInvoiced(SOME)).toBe(false);
     expect(chargesInvoiced(NONE)).toBe(false);
     expect(chargesInvoiced({ invoiced: 0, total: 0 })).toBe(false);
-  });
-});
-
-describe("invoicedRefusal", () => {
-  it("lets a fully invoiced job be marked Invoiced", () => {
-    expect(invoicedRefusal(ALL)).toBeNull();
-  });
-
-  it("says how many charges are invoiced when some are left", () => {
-    expect(invoicedRefusal(SOME)).toBe("Not all charges are invoiced: 2 of 3 selling lines are on an invoice. Invoice the rest first");
-  });
-
-  it("refuses a job with no charges at all", () => {
-    expect(invoicedRefusal({ invoiced: 0, total: 0 })).toMatch(/no charges to invoice/);
   });
 });
 

@@ -30,6 +30,15 @@ describe("partialCreditDraft", () => {
     expect(partialCreditDraft([THC, { ...CUSTOMS, remainingAmount: 0, remainingNet: 0 }], { l1: "300" }).wholeInvoice).toBe(true);
   });
 
+  it("refuses more than is left of an invoice with a line below zero, as the API does", () => {
+    const DISCOUNT = { lineId: "l3", remainingAmount: -150, remainingNet: -150, fxRate: 1, vatRate: 21, unitCurrency: "EUR" };
+    // 300 + 100 - 150 = 250 left; THC 200 and customs 2 000 CZK (80 EUR) take 280.
+    expect(partialCreditDraft([THC, CUSTOMS, DISCOUNT], { l1: "200", l2: "2000" })).toMatchObject({ ok: false, overInvoice: true, wholeInvoice: false, left: 250 });
+    expect(partialCreditDraft([THC, CUSTOMS, DISCOUNT], { l1: "200" })).toMatchObject({ ok: true, overInvoice: false });
+    // the THC and customs to their end: the whole invoice, not more than it
+    expect(partialCreditDraft([THC, CUSTOMS, DISCOUNT], { l1: "300", l2: "2500" })).toMatchObject({ wholeInvoice: true, overInvoice: false, ok: false });
+  });
+
   it("is nothing while no line is picked", () => {
     expect(partialCreditDraft([THC], {})).toMatchObject({ ok: false, wholeInvoice: false, gross: 0 });
   });

@@ -47,7 +47,7 @@ export const isInvoicedStatus = (value: string | null | undefined): boolean => (
  * Why the shipment may not be marked Invoiced, or null when it may (owner decision, 17 Nov 2026):
  * only once all its charges are - every selling line with a value, ticked for Invoice or not, on an
  * issued, not credited invoice. No role is let past it, a manager neither. The count is Invoicing's
- * (_internalChargeCount); the same words are in Invoicing's lib/shipmentStatus.
+ * (_internalChargeCount, by its chargesInvoiced rule in lib/shipmentStatus).
  */
 export function invoicedRefusal(charges: { invoiced: number; total: number }): string | null {
   if (charges.total > 0 && charges.invoiced >= charges.total) return null;

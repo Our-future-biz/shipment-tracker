@@ -22,20 +22,25 @@ const repo = vi.hoisted(() => ({
   seenIds: vi.fn(),
   markSeen: vi.fn(),
   idOf: vi.fn(async () => null),
+  idOfMasterSibling: vi.fn(async (): Promise<string | null> => null),
+  liveIds: vi.fn(async (_c: string, ids: string[]) => new Set(ids)),
 }));
 vi.mock("../../repositories/supplierInvoice.repository", () => ({ supplierInvoiceRepository: repo }));
 // The day each job was first billed (arrived after billing): none billed unless a test says so.
 vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: { firstBilledOn: vi.fn(async () => new Map()) } }));
+const costs = vi.hoisted(() => ({ listByShipmentId: vi.fn() }));
+vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: costs }));
 const clients = vi.hoisted(() => ({
   supplierFacts: vi.fn(),
   shipmentBasics: vi.fn(),
   masterJobBasics: vi.fn(),
   costClaims: vi.fn(),
+  attachmentLink: vi.fn(),
   haulierInvoices: vi.fn(),
 }));
 vi.mock("~encore/clients", () => ({
   customers: { _internalSupplierFacts: clients.supplierFacts },
-  shipments: { _internalShipmentBasics: clients.shipmentBasics, _internalMasterJobBasics: clients.masterJobBasics, _internalCostClaims: clients.costClaims },
+  shipments: { _internalShipmentBasics: clients.shipmentBasics, _internalMasterJobBasics: clients.masterJobBasics, _internalCostClaims: clients.costClaims, _internalAttachmentLink: clients.attachmentLink },
   trucking: { _internalHaulierInvoiceList: clients.haulierInvoices },
 }));
 const users = vi.hoisted(() => ({ companyUsersWithRoles: vi.fn(), userEmailOf: vi.fn() }));
@@ -194,6 +199,7 @@ beforeEach(() => {
     return { ...current, ...values, version: current.version + 1 };
   });
   repo.countByStatus.mockResolvedValue(0);
+  repo.liveIds.mockImplementation(async (_c: string, ids: string[]) => new Set(ids));
   repo.bookedSince.mockResolvedValue([]);
   repo.seenIds.mockResolvedValue(new Set());
   clients.supplierFacts.mockImplementation(async ({ ids }: { ids: string[] }) => ({ suppliers: ids.includes(SUPPLIER) ? [supplierFacts()] : [] }));
@@ -373,6 +379,17 @@ describe("markPaid", () => {
     await expect(service.markPaid(manager, INV, 3, "2026-11-15")).rejects.toMatchObject({ code: "failed_precondition" });
     // A settled claim holds nothing; one with another number on the job is another invoice's.
     clients.costClaims.mockResolvedValue({ claims: [claim({ status: "accepted" }), claim({ id: "c2", supplierInvoiceId: null, invoiceNumber: "FV-2" })] });
+    await expect(service.markPaid(manager, INV, 3, "2026-11-15")).resolves.toBeDefined();
+  });
+
+  it("is held by an open claim tied to the record merged into it when the supplier was linked", async () => {
+    const MERGED = "5d0c7a1e-3b2f-4e6d-9a8c-1f2e3d4c5b6f";
+    clients.costClaims.mockImplementation(async (q: { shipmentIds?: string[] }) => ({ claims: q.shipmentIds ? [claim({ supplierInvoiceId: MERGED, invoiceNumber: "FV-1" })] : [] }));
+    repo.liveIds.mockResolvedValue(new Set());
+    await expect(service.markPaid(manager, INV, 3, "2026-11-15")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/claim on this invoice is open/) });
+    expect(repo.liveIds).toHaveBeenCalledWith(COMPANY, [MERGED]);
+    // Tied to another invoice that is still there, it is that invoice's.
+    repo.liveIds.mockResolvedValue(new Set([MERGED]));
     await expect(service.markPaid(manager, INV, 3, "2026-11-15")).resolves.toBeDefined();
   });
 
@@ -671,6 +688,32 @@ describe("beforeLineChange", () => {
     await service.beforeLineChange(actor, line(), { realAmount: "1000" });
     expect(repo.decide).not.toHaveBeenCalled();
   });
+
+  // A master job's line names its supplier by text: once its invoice is linked, a new line of it joins it there.
+  describe("a new line of a master job whose invoice is linked to a supplier", () => {
+    const masterLine = { supplierInvoiceId: null, masterJobId: "mj1" } as Parameters<typeof service.beforeLineChange>[1];
+    const values = { category: "thc", vendor: "MSC", invoiceNumber: "fv 1", realAmount: "50.00" };
+
+    it("can't join it once it is paid", async () => {
+      repo.idOfMasterSibling.mockResolvedValue(INV);
+      repo.byId.mockResolvedValue(header({ status: "approved", paidOn: "2026-11-10" }));
+      await expect(service.beforeLineChange(actor, masterLine, values)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/marked paid already/) });
+      expect(repo.idOfMasterSibling).toHaveBeenCalledWith(COMPANY, "mj1", "MSC", "FV1");
+      expect(repo.idOf).not.toHaveBeenCalled();
+    });
+
+    it("sends it back to be approved when approved, as any line joining it does", async () => {
+      repo.idOfMasterSibling.mockResolvedValue(INV);
+      repo.byId.mockResolvedValue(header({ status: "approved" }));
+      await service.beforeLineChange(actor, masterLine, values);
+      expect(lastDecision().event).toMatchObject({ action: "line_changed", payload: { changed: ["line added"] } });
+    });
+
+    it("goes by its supplier text when no sibling's invoice is linked", async () => {
+      await service.beforeLineChange(actor, masterLine, values);
+      expect(repo.idOf).toHaveBeenCalledWith(COMPANY, "n:msc", "FV1");
+    });
+  });
 });
 
 describe("afterLineWrite", () => {
@@ -759,7 +802,7 @@ describe("payables (the page)", () => {
     expect(page.canDecide).toBe(true);
 
     const row = (id: string) => page.invoices.find((i) => i.id === id)!;
-    expect(row(H(1))).toMatchObject({ due: "2026-11-10", dueSource: "invoice", daysOverdue: 7, bookedOn: "2026-11-03", amounts: [{ currency: "EUR", amount: 1000 }], jobs: ["CZFCL00000023"], mine: true, aboveEstimate: true });
+    expect(row(H(1))).toMatchObject({ due: "2026-11-10", dueSource: "invoice", daysOverdue: 7, bookedOn: "2026-11-03", paidNotBefore: "2026-11-03", amounts: [{ currency: "EUR", amount: 1000 }], jobs: ["CZFCL00000023"], mine: true, aboveEstimate: true });
     expect(row(H(1)).lines[0]).toMatchObject({ kind: "job", jobNumber: "CZFCL00000023", estimate: 900, amount: 1000, difference: 100 });
     expect(row(H(2))).toMatchObject({ due: "2026-11-24", dueSource: "terms", daysOverdue: 0, claimed: true, amounts: [{ currency: "USD", amount: 200 }] });
     expect(row(H(2)).claims).toEqual([expect.objectContaining({ id: "claim-1", linked: true, status: "open" })]);
@@ -770,7 +813,7 @@ describe("payables (the page)", () => {
     // The same number from two suppliers among the live invoices: both marked; the unlinked one has no terms.
     expect(row(H(1)).marks).toEqual(["same_number_other_supplier"]);
     expect(row(H(6)).marks).toEqual(["not_linked", "no_terms", "same_number_other_supplier"]);
-    expect(row(H(6))).toMatchObject({ supplier: "MSC", bookedOn: "2026-11-15", lines: [] });
+    expect(row(H(6))).toMatchObject({ supplier: "MSC", bookedOn: "2026-11-15", paidNotBefore: null, lines: [] });
 
     expect(page.expected).toEqual([
       expect.objectContaining({ lineId: "e1", jobNumber: "CZFCL00000023", estimate: 300, currency: "CZK", createdOn: "2026-11-05", mine: true, jobStatus: "Booked" }),
@@ -847,5 +890,82 @@ describe("detail", () => {
     ]);
     expect(answer.invoice.amounts).toEqual([{ currency: "EUR", amount: 200 }]);
     expect(answer.canDecide).toBe(false);
+    // No document read for it: nothing is looked up.
+    expect(answer).toMatchObject({ documentFile: null, documentGone: false });
+    expect(clients.attachmentLink).not.toHaveBeenCalled();
+  });
+
+  describe("the read document", () => {
+    const withDocument = () => repo.byId.mockResolvedValue(header({ documentShipmentId: SHIP_A, documentAttachmentId: "att-1", documentName: "msc.pdf" }));
+    const file = { fileName: "msc.pdf", fileType: "application/pdf", contentUrl: "/shipments/a/attachments/att-1/content?t=x" };
+
+    it("carries the file's link from the shipment that keeps it, so the drawer asks for nothing more", async () => {
+      withDocument();
+      clients.attachmentLink.mockResolvedValue({ file });
+      const answer = await service.detail(clerk, INV);
+      expect(clients.attachmentLink).toHaveBeenCalledWith({ shipmentId: SHIP_A, attachmentId: "att-1" });
+      expect(answer).toMatchObject({ documentFile: file, documentGone: false });
+    });
+
+    it("says the document is gone when the shipment no longer has it", async () => {
+      withDocument();
+      clients.attachmentLink.mockResolvedValue({ file: null });
+      expect(await service.detail(clerk, INV)).toMatchObject({ documentFile: null, documentGone: true });
+    });
+
+    it("still opens the invoice when the shipments service can't be reached, without calling the file gone", async () => {
+      withDocument();
+      clients.attachmentLink.mockRejectedValue(new Error("down"));
+      expect(await service.detail(clerk, INV)).toMatchObject({ documentFile: null, documentGone: false });
+      expect(log.warn).toHaveBeenCalled();
+    });
+  });
+});
+
+describe("a deleted job (shipment-deleted)", () => {
+  const H = (n: number) => `00000000-0000-4000-8000-0000000000b${n}`;
+  const onJob = (...invoiceIds: (string | null)[]) => costs.listByShipmentId.mockResolvedValue(invoiceIds.map((id, i) => costLine({ id: `l${i}`, supplierInvoiceId: id })));
+  const headers = (...list: Header[]) => repo.byId.mockImplementation(async (_c: string, id: string) => list.find((h) => h.id === id) ?? null);
+
+  it("names the paid invoices that bill it, so it is not deleted", async () => {
+    onJob(H(1), H(2), H(2), null);
+    headers(header({ id: H(1), status: "approved", paidOn: "2026-11-10", invoiceNumber: "PAID-1" }), header({ id: H(2), status: "approved" }));
+    expect(await service.paidInvoicesOfShipment(COMPANY, SHIP_A)).toEqual(["PAID-1"]);
+    expect(costs.listByShipmentId).toHaveBeenCalledWith(SHIP_A, COMPANY);
+    expect(await service.paidInvoicesOfShipment(COMPANY, "not-a-uuid")).toEqual([]);
+  });
+
+  it("sends an approved invoice it was on back to be approved, and leaves booked, refused and paid ones as they are", async () => {
+    onJob(H(1), H(2), H(3), H(4));
+    headers(
+      header({ id: H(1), status: "approved" }),
+      header({ id: H(2), status: "booked" }),
+      header({ id: H(3), status: "refused" }),
+      header({ id: H(4), status: "approved", paidOn: "2026-11-10" }),
+    );
+    await service.beforeShipmentRetired(COMPANY, SHIP_A);
+    expect(repo.decide).toHaveBeenCalledTimes(1);
+    expect(repo.decide.mock.calls[0]![1]).toMatchObject({ id: H(1) });
+    expect(lastDecision()).toMatchObject({ values: { status: "booked" }, event: { action: "line_changed", byUserId: null, payload: { changed: ["job deleted"], shipmentId: SHIP_A } } });
+    expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/marked paid/), expect.objectContaining({ invoiceId: H(4) }));
+  });
+});
+
+describe("attachDocument", () => {
+  const doc = { shipmentId: SHIP_A, attachmentId: "5d0c7a1e-3b2f-4e6d-9a8c-1f2e3d4c5b70", name: " msc.pdf " };
+  const clerk = { userID: "u-clerk", companyID: COMPANY, role: "user" } as Parameters<typeof service.attachDocument>[0];
+
+  it("keeps the read document with an invoice that waits or is approved", async () => {
+    repo.byId.mockResolvedValue(header({ status: "approved" }));
+    await service.attachDocument(clerk, INV, doc);
+    expect(repo.setDetails).toHaveBeenCalledWith(COMPANY, INV, { documentShipmentId: SHIP_A, documentAttachmentId: doc.attachmentId, documentName: "msc.pdf" });
+  });
+
+  it("leaves a paid or a refused invoice's document as it was", async () => {
+    repo.byId.mockResolvedValue(header({ status: "approved", paidOn: "2026-11-10" }));
+    await expect(service.attachDocument(clerk, INV, doc)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/marked paid/) });
+    repo.byId.mockResolvedValue(header({ status: "refused" }));
+    await expect(service.attachDocument(clerk, INV, doc)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/refused/) });
+    expect(repo.setDetails).not.toHaveBeenCalled();
   });
 });

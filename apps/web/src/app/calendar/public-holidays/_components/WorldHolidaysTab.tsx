@@ -126,7 +126,7 @@ export function WorldHolidaysTab({ items: allItems, loading, canManage }: WorldH
           />
         )}
         <span className="text-[12px] text-slate-500 basis-full">
-          Only these countries&apos; holidays show on this page and in the year calendar, on every browser you sign in with. None picked shows all countries.
+          Only these countries&apos; holidays show on this page and in the year calendar (which always shows the Czech ones), on every browser you sign in with. None picked shows all countries.
         </span>
       </div>
 

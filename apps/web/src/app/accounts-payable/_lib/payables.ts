@@ -327,11 +327,14 @@ export function actionsFor(i: PayableInvoice, canDecide: boolean): PayableAction
   };
 }
 
-/** Why the payment can't be noted on that day, or "" (the server's paymentProblem, for the day only). */
-export function paidDayProblem(day: string, today: string, bookedOn: string): string {
+/**
+ * Why the payment can't be noted on that day, or "" (the server's paymentProblem, for the day only). `notBefore` is
+ * the invoice's paidNotBefore: null for one never stamped received, which may be noted paid on any past day.
+ */
+export function paidDayProblem(day: string, today: string, notBefore: string | null): string {
   if (!day) return "Pick the day it was paid";
   if (day > today) return "The day it was paid cannot be after today";
-  if (bookedOn && day < bookedOn) return `The day it was paid cannot be before it was booked (${formatDate(bookedOn)})`;
+  if (notBefore && day < notBefore) return `The day it was paid cannot be before it was booked (${formatDate(notBefore)})`;
   return "";
 }
 

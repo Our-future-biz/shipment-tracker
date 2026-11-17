@@ -5,6 +5,7 @@ import { api, isNotFound } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api";
 import { supplierInvoiceKeys } from "./supplierInvoiceKeys";
 import { invoicingKey, invoicingKeys } from "./useInvoicing";
+import { invalidateInvoicingDerived } from "./useInvoiceQueue";
 
 // Finance → Accounts Payable (Council Outlay 9): the list of supplier invoices, one invoice with its history,
 // and what a manager does to it (D5, D8, D11, D13). Every write sends the version the user saw: an invoice that
@@ -59,8 +60,12 @@ function refreshAfterChange(queryClient: QueryClient, before: interfaces.Payable
   if (masterJobIds.size) void queryClient.invalidateQueries({ queryKey: invoicingKeys.all });
   for (const id of masterJobIds) void queryClient.invalidateQueries({ queryKey: ["master-jobs", id, "costs"] });
   void queryClient.invalidateQueries({ queryKey: ["shipments"] });
-  // The supplier's What we owe (Customer Database) counts the same lines.
+  // …and what is worked out from those costs elsewhere: the Invoicing queue, the invoice preview and the
+  // customer's Shipments tab figures (a refusal takes real costs off the jobs), as the job's Costs tab does.
+  invalidateInvoicingDerived(queryClient);
+  // The supplier's What we owe (Customer Database) counts the same lines, and its Open jobs follow a supplier link.
   void queryClient.invalidateQueries({ queryKey: ["supplier-costs"] });
+  void queryClient.invalidateQueries({ queryKey: ["supplier-usage"] });
 }
 
 type Target = { invoice: interfaces.PayableInvoiceItem };

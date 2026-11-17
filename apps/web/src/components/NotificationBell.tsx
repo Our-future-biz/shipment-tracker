@@ -676,7 +676,7 @@ export function NotificationBell() {
       {payablesWaitingShown > 0 && (
         <>
           <div className={headingClass}>Supplier invoices, waiting</div>
-          <button type="button" onClick={() => go("/accounts-payable")} className={rowClass}>
+          <button type="button" onClick={() => go("/accounts-payable?tab=to_approve")} className={rowClass}>
             <span className="flex items-center gap-2">
               <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
               <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{payablesWaitingTitle(payablesToApprove)}</span>

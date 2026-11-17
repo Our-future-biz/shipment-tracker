@@ -199,13 +199,31 @@ export function fullCreditTotalsAfter(original: StoredTotals, credits: StoredTot
 
 export const WHOLE_INVOICE = "This credits the whole invoice: credit the whole invoice instead - that needs no approval";
 
+/** Whether every line that has something left to credit is credited to its end (a line below zero, a discount, can't be picked). */
+function creditableToTheirEnd(remaining: RemainingLine[], lines: CreditLineCalc[]): boolean {
+  return remaining
+    .filter((r) => cents(r.remainingAmount) > 0)
+    .every((r) => {
+      const credit = lines.find((l) => l.correctsLineId === r.lineId);
+      return !!credit && cents(credit.unitPrice) === cents(r.remainingAmount);
+    });
+}
+
 /**
- * The lines of a partial credit note as asked, or why it can't be one: a bad line or amount, or
- * one that would credit the whole invoice (a full credit note does that, at once and without approval).
+ * The lines of a partial credit note as asked, or why it can't be one: a bad line or amount, one that
+ * would credit the whole invoice (a full credit note does that, at once and without approval), or one
+ * that would take more than is left of the invoice. Each line is checked against itself only, so with a
+ * line below zero (a discount) the lines alone could credit more than the invoice is worth.
  */
 export function planPartialCredit(remaining: RemainingLine[], asked: AskedLine[]): { lines: CreditLineCalc[] } | { problem: string } {
   const plan = partialCreditLines(remaining, asked);
   if ("problem" in plan) return plan;
-  if (creditsEverything(remaining, plan.lines)) return { problem: WHOLE_INVOICE };
+  if (creditsEverything(remaining, plan.lines) || creditableToTheirEnd(remaining, plan.lines)) return { problem: WHOLE_INVOICE };
+  const left = remaining.reduce((s, r) => s + cents(r.remainingNet), 0);
+  const after = left + plan.lines.reduce((s, l) => s + cents(l.net), 0);
+  if (after === 0) return { problem: WHOLE_INVOICE };
+  if (after < 0) {
+    return { problem: `This credits more than is left of the invoice (${(left / 100).toFixed(2)} without VAT): credit less, or credit the whole invoice instead` };
+  }
   return plan;
 }

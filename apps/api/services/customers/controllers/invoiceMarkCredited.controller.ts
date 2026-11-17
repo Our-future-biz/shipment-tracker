@@ -4,8 +4,11 @@ import { getAuthData } from "~encore/auth";
 import { invoiceService } from "../services/invoice.service";
 
 interface InvoiceMarkCreditedRequest {
-  /** The credited invoice's number and its credit note's number */
-  invoiceNumbers: (string & MinLen<1> & MaxLen<100>)[] & MaxLen<10>;
+  /**
+   * The credited invoice's number and those of its partial credit notes (a full credit note after many partial ones
+   * names them all), or the cancelled invoice's
+   */
+  invoiceNumbers: (string & MinLen<1> & MaxLen<100>)[] & MaxLen<500>;
   /** Cancelled for an invoice withdrawn on its issue day; Credited when left out */
   status?: "Credited" | "Cancelled";
 }

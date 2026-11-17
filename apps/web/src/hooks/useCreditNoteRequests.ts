@@ -8,17 +8,12 @@ import { invoicingKey } from "./useInvoicing";
 import { FX_KEYS } from "./useFx";
 import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
+import { creditNoteRequestKeys, creditOptionsKeys } from "./billingApprovalKeys";
 
 export type CreditNoteRequest = interfaces.CreditNoteRequestItem;
 
 // Crediting an invoice in part: asked from the invoice, line by line with a reason, and answered
 // on Sales → Managers → Billing approvals. Approving issues the credit note at once.
-
-export const creditNoteRequestKeys = {
-  all: ["credit-note-requests"] as const,
-  list: ["credit-note-requests", "list"] as const,
-  forMe: ["credit-note-requests", "for-me"] as const,
-};
 
 /**
  * An answer moves the request everywhere it shows (this list, the bell, the invoice's own
@@ -27,7 +22,7 @@ export const creditNoteRequestKeys = {
  */
 const refreshAfterAnswer = (queryClient: QueryClient, request: CreditNoteRequest | undefined) => {
   void queryClient.invalidateQueries({ queryKey: creditNoteRequestKeys.all });
-  void queryClient.invalidateQueries({ queryKey: ["credit-options"] });
+  void queryClient.invalidateQueries({ queryKey: creditOptionsKeys.all });
   if (!request) return;
   const { shipmentId } = request;
   void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.docs(shipmentId) });

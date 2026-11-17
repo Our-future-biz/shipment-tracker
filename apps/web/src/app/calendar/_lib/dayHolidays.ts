@@ -1,4 +1,4 @@
-import { occurrences, type HolidayItem } from "../public-holidays/_lib/holidays";
+import { occurrences, rowCountry, type HolidayItem } from "../public-holidays/_lib/holidays";
 import { czechHolidays, holidayKey } from "./calendar";
 
 // What the year calendar shows on a day: every country's holiday, so users see where to expect one
@@ -24,8 +24,8 @@ export function flagOf(code: string): string {
   return String.fromCodePoint(...[...c].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
 }
 
-/** The country a holiday is in, as a filter and the tooltip name it: its name, else its code. */
-export const countryOf = (h: Pick<DayHoliday, "country" | "countryCode">) => h.country || h.countryCode;
+/** The country a holiday is in, as a filter and the tooltip name it: its name, else its code (as the list page names it). */
+export const countryOf = (h: Pick<DayHoliday, "country" | "countryCode">) => rowCountry(h);
 
 const isCzech = (code: string) => code.trim().toUpperCase() === CZECH.code;
 
@@ -44,8 +44,11 @@ export function yearHolidays(year: number, items: HolidayItem[]): Map<string, Da
     const from = new Date(`${o.start}T00:00:00`);
     const to = new Date(`${o.end || o.start}T00:00:00`);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) continue;
-    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-      if (d.getFullYear() !== year) continue;
+    // Only the days in `year` are walked, so a typo end date years away costs nothing.
+    const first = new Date(year, 0, 1);
+    const last = new Date(year, 11, 31);
+    const end = to > last ? last : to;
+    for (let d = new Date(from < first ? first : from); d <= end; d.setDate(d.getDate() + 1)) {
       const k = holidayKey(year, d.getMonth(), d.getDate());
       // The Czech calendar names the national holiday already.
       if (isCzech(o.countryCode) && o.kind === "National" && days.get(k)?.some((h) => isCzech(h.countryCode) && h.kind === "National")) continue;
@@ -74,5 +77,14 @@ export function shownHolidays(list: readonly DayHoliday[] | undefined, countries
 
 /** The countries of the list, for the filter (the Czech Republic is always shown, so not offered). */
 export function listCountries(items: HolidayItem[]): string[] {
-  return [...new Set(items.filter((h) => !isCzech(h.countryCode)).map((h) => h.country || h.countryCode).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  return [...new Set(items.filter((h) => !isCzech(h.countryCode)).map(rowCountry).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * The user's countries after a change in the calendar's picker. It offers only the list's other
+ * countries, so the saved picks it does not offer (a Czech row picked on the Public Holidays page, a
+ * country no longer listed) are kept, not dropped by an edit here.
+ */
+export function withUnofferedPicks(saved: readonly string[], offered: readonly string[], picked: readonly string[]): string[] {
+  return [...saved.filter((c) => !offered.includes(c)), ...picked];
 }

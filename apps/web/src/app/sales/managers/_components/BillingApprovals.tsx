@@ -183,7 +183,7 @@ function SupplierInvoiceApprovals() {
             {isError ? "Could not load the count." : "Approved or refused on Accounts Payable, where the invoice, its lines and its file are."}
           </div>
         </div>
-        <Link href="/accounts-payable" className={`${BTN} !text-slate-700 hover:!text-slate-900`}>
+        <Link href="/accounts-payable?tab=to_approve" className={`${BTN} !text-slate-700 hover:!text-slate-900`}>
           Open Accounts Payable
         </Link>
       </div>

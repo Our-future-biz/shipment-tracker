@@ -3,23 +3,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { creditNoteRequestKeys, creditOptionsKeys } from "./billingApprovalKeys";
 
 export type CreditOptions = interfaces.CreditOptionsItem;
 export type CreditableLine = interfaces.CreditableLineItem;
 export type CreditNoteRequest = interfaces.CreditNoteRequestItem;
 
-/** Query keys of partial credit notes; the managers' Billing approvals list shares the "credit-note-requests" prefix. */
-export const CREDIT_KEYS = {
-  options: (invoiceId: string) => ["credit-options", invoiceId] as const,
-  optionsAll: ["credit-options"] as const,
-  ofShipment: (shipmentId: string) => ["credit-note-requests", "shipment", shipmentId] as const,
-  requestsAll: ["credit-note-requests"] as const,
-};
-
 /** The credit dialog: what is left of each line of the invoice, and a partial credit note already waiting. */
 export function useCreditOptions(invoiceId: string | null) {
   return useQuery({
-    queryKey: CREDIT_KEYS.options(invoiceId ?? ""),
+    queryKey: creditOptionsKeys.of(invoiceId ?? ""),
     queryFn: async () => (await api.invoicing.invoiceCreditOptions(invoiceId!)).options,
     enabled: !!invoiceId,
   });
@@ -28,7 +21,7 @@ export function useCreditOptions(invoiceId: string | null) {
 /** A shipment's partial credit note requests, newest first (its invoices show the one waiting). */
 export function useShipmentCreditRequests(shipmentId: string) {
   return useQuery({
-    queryKey: CREDIT_KEYS.ofShipment(shipmentId),
+    queryKey: creditNoteRequestKeys.ofShipment(shipmentId),
     queryFn: async () => (await api.invoicing.invoicingCreditNoteRequestsOfShipment(shipmentId)).requests,
   });
 }
@@ -37,8 +30,8 @@ export function useShipmentCreditRequests(shipmentId: string) {
 export function useCreditRequestMutations() {
   const queryClient = useQueryClient();
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: CREDIT_KEYS.optionsAll });
-    void queryClient.invalidateQueries({ queryKey: CREDIT_KEYS.requestsAll });
+    void queryClient.invalidateQueries({ queryKey: creditOptionsKeys.all });
+    void queryClient.invalidateQueries({ queryKey: creditNoteRequestKeys.all });
   };
   const ask = useMutation({
     mutationFn: ({ invoiceId, lines, reason }: { invoiceId: string; lines: { lineId: string; amount: string }[]; reason: string }) =>

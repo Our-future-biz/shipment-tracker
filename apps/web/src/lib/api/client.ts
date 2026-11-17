@@ -10035,22 +10035,6 @@ export namespace controllers {
         version: number
     }
 
-    export interface ReasonRequest {
-        reason: string
-        /**
-         * The version the user saw: a change since is refused, to be looked at again
-         */
-        version: number
-    }
-
-    export interface ReasonRequest {
-        reason: string
-        /**
-         * The version the user saw: a change since is refused, to be looked at again
-         */
-        version: number
-    }
-
     export interface RegistrationLinkCreateRequest {
         roles: interfaces.CustomerRole[]
         /**
@@ -18496,6 +18480,24 @@ export namespace interfaces {
         }[]
 
         canDecide: boolean
+        /**
+         * The read document's file with a signed link (it lasts an hour); null when there is none, it is gone or it could not be looked up just now
+         */
+        documentFile: PayableDocumentFile | null
+
+        /**
+         * The document the invoice names is no longer among the shipment's documents
+         */
+        documentGone: boolean
+    }
+
+    /**
+     * A supplier invoice's read document, as the shipment keeps it.
+     */
+    export interface PayableDocumentFile {
+        fileName: string
+        fileType: string
+        contentUrl: string
     }
 
     export interface PayableEventItem {
@@ -18585,6 +18587,12 @@ export namespace interfaces {
          * The day it was booked (yyyy-mm-dd)
          */
         bookedOn: string
+
+        /**
+         * The earliest day it may be noted paid (yyyy-mm-dd): the day it was received. Null when it never was stamped
+         * (gathered from older lines, a master job's): paid before Accounts Payable existed, any past day may be noted.
+         */
+        paidNotBefore: string | null
 
         /**
          * What its lines bill, per currency, without VAT

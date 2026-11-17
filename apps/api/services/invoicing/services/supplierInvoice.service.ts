@@ -25,12 +25,14 @@ import {
 } from "../lib/supplierInvoices";
 import { supplierInvoiceRepository as repo, type SyncScope } from "../repositories/supplierInvoice.repository";
 import { invoiceRepository } from "../repositories/invoice.repository";
+import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import type { InvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { MasterJobCostRecord } from "../schemas/masterJobCost.schema";
 import type { SupplierInvoiceRecord, SupplierInvoiceSource } from "../schemas/supplierInvoice.schema";
 import type {
   PayableClaimItem,
   PayableDetailResponse,
+  PayableDocumentFile,
   PayableExpectedItem,
   PayableHaulierItem,
   PayableInvoiceItem,
@@ -108,7 +110,7 @@ async function factsOf(ids: string[]): Promise<Map<string, SupplierFacts>> {
   return new Map(answers.flatMap((a) => a.suppliers.map((f) => [f.id, f as SupplierFacts] as const)));
 }
 
-async function claimsFor(shipmentIds: string[], invoiceIds: string[]): Promise<PayableClaimFact[]> {
+async function claimsFor(companyId: string, shipmentIds: string[], invoiceIds: string[]): Promise<PayableClaimFact[]> {
   if (!shipmentIds.length && !invoiceIds.length) return [];
   const calls = [
     ...chunks(shipmentIds, CLAIM_IDS_PER_CALL).map((ids) => shipments._internalCostClaims({ shipmentIds: ids })),
@@ -116,10 +118,21 @@ async function claimsFor(shipmentIds: string[], invoiceIds: string[]): Promise<P
   ];
   const seen = new Map<string, PayableClaimFact>();
   for (const answer of await Promise.all(calls)) for (const c of answer.claims) seen.set(c.id, c);
-  return [...seen.values()];
+  const claims = [...seen.values()];
+  // A claim tied to an invoice record that is gone (merged into the supplier's own when the supplier was linked)
+  // disputes the invoice by its number on the job, as one typed before it could be tied: it still holds the payment.
+  const tied = [...new Set(claims.map((c) => c.supplierInvoiceId).filter((id): id is string => !!id))];
+  const live = tied.length ? await repo.liveIds(companyId, tied) : new Set<string>();
+  return claims.map((c) => (c.supplierInvoiceId && !live.has(c.supplierInvoiceId) ? { ...c, supplierInvoiceId: null } : c));
 }
 
 const supplierIdOf = (h: Pick<SupplierInvoiceRecord, "supplierCustomerId" | "haulierId">) => h.supplierCustomerId ?? h.haulierId;
+
+/**
+ * The earliest day the invoice may be noted paid: the day it was received. Never stamped (gathered from older lines,
+ * a master job's), it was paid before Accounts Payable existed, so any past day may be noted (null).
+ */
+const paidNotBefore = (h: Pick<SupplierInvoiceRecord, "receivedAt">) => (h.receivedAt ? businessDay(h.receivedAt) : null);
 
 const costLineItem = (l: InvoiceCostRecord, jobs: Map<string, JobFacts>): PayableLineItem => {
   const job = jobs.get(l.shipmentId);
@@ -196,7 +209,13 @@ class SupplierInvoiceService {
   }
 
   /** Reads what the rows of these invoices (and estimates) need from the other services, at once. */
-  private async context(costLines: InvoiceCostRecord[], masterLines: MasterJobCostRecord[], headers: SupplierInvoiceRecord[], extraShipmentIds: string[] = []): Promise<Context> {
+  private async context(
+    companyId: string,
+    costLines: InvoiceCostRecord[],
+    masterLines: MasterJobCostRecord[],
+    headers: SupplierInvoiceRecord[],
+    extraShipmentIds: string[] = [],
+  ): Promise<Context> {
     const shipmentIds = [...new Set([...costLines.map((l) => l.shipmentId), ...extraShipmentIds])];
     const masterIds = [...new Set(masterLines.map((l) => l.masterJobId))];
     const supplierIds = [...new Set(headers.map(supplierIdOf).filter((id): id is string => !!id))];
@@ -211,7 +230,7 @@ class SupplierInvoiceService {
           return { facts: new Map<string, SupplierFacts>(), read: false };
         },
       ),
-      claimsFor(claimShipments, headers.map((h) => h.id)).catch((err) => {
+      claimsFor(companyId, claimShipments, headers.map((h) => h.id)).catch((err) => {
         log.warn(err, "cost claims could not be read for Accounts Payable");
         return [] as PayableClaimFact[];
       }),
@@ -224,7 +243,7 @@ class SupplierInvoiceService {
   private async rows(actor: Actor, headers: SupplierInvoiceRecord[], today: string, email: string): Promise<PayableInvoiceItem[]> {
     const ids = headers.map((h) => h.id);
     const [costLines, masterLines] = await Promise.all([repo.costLinesOf(actor.companyID, ids), repo.masterLinesOf(actor.companyID, ids)]);
-    const ctx = await this.context(costLines, masterLines, headers);
+    const ctx = await this.context(actor.companyID, costLines, masterLines, headers);
     return this.build(headers, costLines, masterLines, ctx, today, email);
   }
 
@@ -280,6 +299,7 @@ class SupplierInvoiceService {
         dueSource: source,
         daysOverdue: h.status === "refused" || h.paidOn ? 0 : daysOverdue(due, today),
         bookedOn: businessDay(bookedAt),
+        paidNotBefore: paidNotBefore(h),
         amounts,
         totalNet: h.totalNet,
         vatAmount: h.vatAmount,
@@ -343,7 +363,7 @@ class SupplierInvoiceService {
     const shown = headers.slice(0, LIST_LIMIT);
     const ids = shown.map((h) => h.id);
     const [costLines, masterLines] = await Promise.all([repo.costLinesOf(actor.companyID, ids), repo.masterLinesOf(actor.companyID, ids)]);
-    const ctx = await this.context(costLines, masterLines, shown, expectedLines.map((l) => l.shipmentId));
+    const ctx = await this.context(actor.companyID, costLines, masterLines, shown, expectedLines.map((l) => l.shipmentId));
     const invoices = this.build(shown, costLines, masterLines, ctx, today, email);
     const expected = this.expected(expectedLines, ctx.jobs, email);
     const haulier = await this.haulier(actor, today);
@@ -453,9 +473,10 @@ class SupplierInvoiceService {
   /** One invoice with what happened to it. */
   async detail(actor: Actor, id: string): Promise<PayableDetailResponse> {
     const h = await this.header(actor, id);
-    const [[invoice], events] = await Promise.all([
+    const [[invoice], events, document] = await Promise.all([
       this.rows(actor, [h], businessDay(new Date()), await this.emailOrNothing(actor)),
       repo.events(actor.companyID, h.id),
+      this.documentFile(h),
     ]);
     return {
       invoice: invoice!,
@@ -478,7 +499,24 @@ class SupplierInvoiceService {
         currency: l.realCurrency,
       })),
       canDecide: this.canDecide(actor),
+      documentFile: document.file,
+      documentGone: document.gone,
     };
+  }
+
+  /**
+   * The read document's file with its link, from the shipment that keeps it, so the drawer opens it without asking for
+   * the job's documents itself. A lookup that fails leaves the link out (the drawer says so), not the invoice.
+   */
+  private async documentFile(h: SupplierInvoiceRecord): Promise<{ file: PayableDocumentFile | null; gone: boolean }> {
+    if (!h.documentShipmentId || !h.documentAttachmentId) return { file: null, gone: false };
+    try {
+      const { file } = await shipments._internalAttachmentLink({ shipmentId: h.documentShipmentId, attachmentId: h.documentAttachmentId });
+      return { file, gone: !file };
+    } catch (err) {
+      log.warn(err, "a supplier invoice's document could not be looked up", { invoiceId: h.id, shipmentId: h.documentShipmentId });
+      return { file: null, gone: false };
+    }
   }
 
   /**
@@ -582,7 +620,7 @@ class SupplierInvoiceService {
     const costLines = await repo.costLinesOf(actor.companyID, [h.id]);
     let claims: PayableClaimFact[];
     try {
-      claims = await claimsFor([...new Set(costLines.map((l) => l.shipmentId))], [h.id]);
+      claims = await claimsFor(actor.companyID, [...new Set(costLines.map((l) => l.shipmentId))], [h.id]);
     } catch (err) {
       log.warn(err, "cost claims could not be read before a payment");
       throw APIError.unavailable("Whether a claim holds this invoice could not be read just now: try again in a moment");
@@ -593,9 +631,7 @@ class SupplierInvoiceService {
       paidOn: h.paidOn,
       day: paidOn,
       today: businessDay(new Date()),
-      // Not before it was booked - unless it never was stamped (gathered from older lines, a master job's): paid
-      // before Accounts Payable existed, any past day may be noted.
-      bookedOn: h.receivedAt ? businessDay(h.receivedAt) : null,
+      bookedOn: paidNotBefore(h),
       openClaim: open,
     });
     if (problem) throw APIError.failedPrecondition(problem);
@@ -705,6 +741,9 @@ class SupplierInvoiceService {
   async attachDocument(actor: Actor, id: string, doc: { shipmentId: string; attachmentId: string; name: string }): Promise<void> {
     if (!isUuid(doc.shipmentId) || !isUuid(doc.attachmentId)) throw APIError.invalidArgument("The document must be given by its shipment and attachment ids");
     const h = await this.header(actor, id);
+    // As its details: never once paid or refused, it stays as it was decided.
+    if (h.paidOn) throw APIError.failedPrecondition(`This invoice is marked paid (${h.paidOn}): it stays as it was paid`);
+    if (h.status === "refused") throw APIError.failedPrecondition("This invoice was refused: the corrected invoice is booked as a new one");
     await repo.setDetails(actor.companyID, h.id, { documentShipmentId: doc.shipmentId, documentAttachmentId: doc.attachmentId, documentName: doc.name.trim().slice(0, 300) });
   }
 
@@ -794,7 +833,11 @@ class SupplierInvoiceService {
     const sameNumber = invoiceNumberKey(String(line.invoiceNumber ?? "")) === numberKey;
     // A line keeps its invoice while its number (and, on a job, its supplier) stay: nothing joins anything then.
     if (line.supplierInvoiceId && sameNumber && (!isCost || keyOf(line) === keyOf(next))) return;
-    const id = await repo.idOf(actor.companyID, keyOf(next), numberKey);
+    // A master job's line joins the linked invoice its siblings are on first, as the sync matches it.
+    const masterJobId = !isCost && typeof next.masterJobId === "string" ? next.masterJobId : "";
+    const id =
+      (masterJobId ? await repo.idOfMasterSibling(actor.companyID, masterJobId, String(next.vendor ?? ""), numberKey) : null) ??
+      (await repo.idOf(actor.companyID, keyOf(next), numberKey));
     if (!id || id === line.supplierInvoiceId) return;
     const h = await repo.byId(actor.companyID, id);
     if (!h || h.status === "refused") return;
@@ -802,6 +845,39 @@ class SupplierInvoiceService {
       throw APIError.failedPrecondition(`Supplier invoice ${h.invoiceNumber} is marked paid already (${h.paidOn}): a line can't join it. Take the payment back on Finance → Accounts Payable first`);
     }
     if (h.status === "approved") await this.backToBooked(actor, h, { line: (line as { id?: string }).id ?? null, changed: ["line added"] });
+  }
+
+  /** The live supplier invoices (not refused) that bill a line of this job. */
+  private async invoicesOfShipment(companyId: string, shipmentId: string): Promise<SupplierInvoiceRecord[]> {
+    const lines = await invoiceCostRepository.listByShipmentId(shipmentId, companyId);
+    const ids = [...new Set(lines.map((l) => l.supplierInvoiceId).filter((id): id is string => !!id))];
+    const headers = await Promise.all(ids.map((id) => repo.byId(companyId, id)));
+    return headers.filter((h): h is SupplierInvoiceRecord => !!h && h.status !== "refused");
+  }
+
+  /**
+   * The numbers of the supplier invoices marked paid that bill a line of this job. The job can't be deleted while
+   * one does: a paid invoice's lines stay as paid (shipments asks before a delete).
+   */
+  async paidInvoicesOfShipment(companyId: string, shipmentId: string): Promise<string[]> {
+    if (!isUuid(shipmentId)) return [];
+    return (await this.invoicesOfShipment(companyId, shipmentId)).filter((h) => !!h.paidOn).map((h) => h.invoiceNumber);
+  }
+
+  /**
+   * Before a deleted job's lines go (the shipment-deleted subscription): they leave their invoices as deleted lines
+   * do, so an approved invoice that now bills less waits to be approved again. One paid meanwhile keeps its state
+   * (the delete is refused while one is paid), said in the log. A failure throws, so the subscription tries again.
+   */
+  async beforeShipmentRetired(companyId: string, shipmentId: string): Promise<void> {
+    const actor = { companyID: companyId, userID: "" };
+    for (const h of await this.invoicesOfShipment(companyId, shipmentId)) {
+      if (h.paidOn) {
+        log.warn("a deleted job's lines leave a supplier invoice marked paid", { companyId, shipmentId, invoiceId: h.id });
+        continue;
+      }
+      if (h.status === "approved") await this.backToBooked(actor, h, { changed: ["job deleted"], shipmentId });
+    }
   }
 
   /** Sends an approved invoice back to be approved; refused (to be tried again) when it changed meanwhile and still is approved. */

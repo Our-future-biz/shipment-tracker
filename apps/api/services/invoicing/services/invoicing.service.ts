@@ -669,16 +669,17 @@ class InvoicingService {
       return { rows: answer(ontoEstimates(rows, open).map((id) => id !== null)), supplierInvoiceId: null };
     }
     if (earlier.size && rows.some((r) => earlier.has(key(r))) && !input.allowRepeat) throw repeatedRefusal();
+    // Refused before Accounts Payable is touched, so a post that writes nothing takes no approval back.
+    if (bookedElsewhere.length && !input.allowRepeat) {
+      const jobs = bookedElsewhere.length === 1 ? "another job" : `${bookedElsewhere.length} other jobs`;
+      throw APIError.failedPrecondition(`${creditNote ? "Credit note" : "Invoice"} ${invoiceNumber} of this supplier is booked already on ${jobs}: see it on Finance → Accounts Payable`);
+    }
     // Not onto a paid invoice, whatever is allowed; an approved one is approved again (D8, D11).
     await supplierInvoiceService.beforeLineChange(
       { companyID: companyId, userID: actorUserId },
       { supplierInvoiceId: null, shipmentId: shipmentIds[0] ?? "" },
       { invoiceNumber, vendor: input.vendor ?? "", supplierCustomerId },
     );
-    if (bookedElsewhere.length && !input.allowRepeat) {
-      const jobs = bookedElsewhere.length === 1 ? "another job" : `${bookedElsewhere.length} other jobs`;
-      throw APIError.failedPrecondition(`${creditNote ? "Credit note" : "Invoice"} ${invoiceNumber} of this supplier is booked already on ${jobs}: see it on Finance → Accounts Payable`);
-    }
     // The repeat is checked again under the locks, where two posts of one invoice wait for each other.
     const written = await invoiceCostRepository.addInvoiceRows(
       companyId,
@@ -835,9 +836,12 @@ class InvoicingService {
 
   /**
    * A deleted shipment's costs, charges, billing and customs lines are retired with it.
-   * Generated invoices stay: an issued invoice number is a legal record.
+   * Generated invoices stay: an issued invoice number is a legal record. Its costs leave the supplier
+   * invoices they are on as deleted lines do (an approved one is approved again, one left with no line
+   * and never decided goes). Run again on a redelivery, it finds nothing left to do.
    */
   async retireShipment(shipmentId: string, companyId: string): Promise<void> {
+    await supplierInvoiceService.beforeShipmentRetired(companyId, shipmentId);
     await Promise.all([
       invoiceCostRepository.softDeleteForShipment(shipmentId, companyId),
       sellingCostRepository.softDeleteForShipment(shipmentId, companyId),
@@ -847,6 +851,7 @@ class InvoicingService {
       customsInvoiceLineRepository.softDeleteForShipment(shipmentId, companyId),
       customsInvoiceRepository.softDeleteForShipment(shipmentId, companyId),
     ]);
+    await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: "" }, { shipmentIds: [shipmentId] }, "typed");
   }
 }
 

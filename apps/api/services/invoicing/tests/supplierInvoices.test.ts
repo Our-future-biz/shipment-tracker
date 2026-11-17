@@ -9,6 +9,8 @@ import {
   invoiceNumberKey,
   isCzechVatPayer,
   lineAmount,
+  linkedMasterSiblings,
+  masterSiblingKey,
   marksOf,
   paymentProblem,
   sumByCurrency,
@@ -296,5 +298,32 @@ describe("paymentProblem", () => {
   it("refuses a day after today or before it was booked", () => {
     expect(paymentProblem({ ...base, day: "2026-11-18" })).toMatch(/after today/);
     expect(paymentProblem({ ...base, day: "2026-11-02" })).toBe("The day it was paid cannot be before it was booked (2026-11-03)");
+  });
+});
+
+describe("linkedMasterSiblings", () => {
+  const linked = { id: "inv-c", numberKey: "FV1", supplierKey: "c:supplier-1" };
+  const byText = { id: "inv-n", numberKey: "FV2", supplierKey: "n:msc" };
+  const invoices = new Map([linked, byText].map((h) => [h.id, h]));
+  const line = (over: Partial<{ masterJobId: string; vendor: string; invoiceNumber: string; supplierInvoiceId: string | null }> = {}) => ({
+    masterJobId: "mj1",
+    vendor: "MSC",
+    invoiceNumber: "FV 1",
+    supplierInvoiceId: "inv-c",
+    ...over,
+  });
+
+  it("points a new line of the same master job, supplier text and number at the linked invoice", () => {
+    const siblings = linkedMasterSiblings([line()], invoices);
+    expect(siblings.get(masterSiblingKey({ masterJobId: "mj1", vendor: " msc ", invoiceNumber: "fv1" }))).toBe(linked);
+    // another master job, another supplier text or another number is another invoice
+    expect(siblings.get(masterSiblingKey({ masterJobId: "mj2", vendor: "MSC", invoiceNumber: "FV1" }))).toBeUndefined();
+    expect(siblings.get(masterSiblingKey({ masterJobId: "mj1", vendor: "Maersk", invoiceNumber: "FV1" }))).toBeUndefined();
+  });
+
+  it("leaves out an invoice still matched by the text, and a line renumbered away from its invoice", () => {
+    expect(linkedMasterSiblings([line({ invoiceNumber: "FV2", supplierInvoiceId: "inv-n" })], invoices).size).toBe(0);
+    expect(linkedMasterSiblings([line({ invoiceNumber: "FV3" })], invoices).size).toBe(0);
+    expect(linkedMasterSiblings([line({ supplierInvoiceId: null })], invoices).size).toBe(0);
   });
 });

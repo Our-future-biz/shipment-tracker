@@ -1552,6 +1552,13 @@ class ShipmentService {
   async softDelete(id: string, companyId: string, userId?: string, role?: string): Promise<void> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
+    // A supplier invoice marked paid keeps its lines as paid (Finance → Accounts Payable): the job's costs can't go.
+    const { invoiceNumbers: paid } = await invoicing._internalPaidSupplierInvoices({ shipmentId: id });
+    if (paid.length) {
+      throw APIError.failedPrecondition(
+        `This shipment's costs are on supplier invoices marked paid (${paid.join(", ")}): take the payment back on Finance → Accounts Payable first`,
+      );
+    }
 
     // The invoice check, the history line, the delete and the shipment-deleted event it owes are
     // one write turn. Invoicing takes the same turn right before it numbers an invoice of the job

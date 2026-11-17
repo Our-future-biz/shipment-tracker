@@ -6,7 +6,7 @@ import { and, eq, isNull } from "drizzle-orm";
 // at once, and what is stored afterwards is what the write turns (and the conditional writes) let
 // through. Runs only under `encore test` (SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db).
 const openInvoiceCount = vi.hoisted(() => vi.fn(async () => ({ count: 0 })));
-vi.mock("~encore/clients", () => ({ auth: {}, customers: {}, invoicing: { openInvoiceCount }, quotes: {}, warehouse: { _internalPickupPlates: async () => ({ plates: [] }) } }));
+vi.mock("~encore/clients", () => ({ auth: {}, customers: {}, invoicing: { openInvoiceCount, _internalPaidSupplierInvoices: async () => ({ invoiceNumbers: [] }) }, quotes: {}, warehouse: { _internalPickupPlates: async () => ({ plates: [] }) } }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
 vi.mock("../../../../lib/outbox/serviceIdentity", () => ({ serviceActor: async () => ({ userID: "svc" }) }));

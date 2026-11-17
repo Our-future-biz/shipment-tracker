@@ -22,6 +22,7 @@ import { BTN_PRIMARY, BTN_SM, CARD, EMPTY_STATE, HINT, ICON_BTN_DANGER, ICON_BTN
 import { LOCKED_CONTROL, LOCKED_INPUT, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } from "../_lib/rowLock";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnWidths } from "@/hooks/useColumnWidths";
+import { supplierInvoiceKeys } from "@/hooks/supplierInvoiceKeys";
 import { ResizableTh } from "@/components/ResizableTh";
 
 type View = interfaces.MasterJobCostsView;
@@ -129,6 +130,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     }
     void queryClient.invalidateQueries({ queryKey: ["invoicing"] });
     void queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    // A buying line books, moves or sends back for approval its supplier invoice on Finance → Accounts Payable.
+    void queryClient.invalidateQueries({ queryKey: supplierInvoiceKeys.all });
   };
   // A failed save leaves the view as the server has it now (an answer skipped above included).
   const failed = (what: string) => (err: unknown) => {
