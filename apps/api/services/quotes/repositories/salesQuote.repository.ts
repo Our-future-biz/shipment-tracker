@@ -671,6 +671,26 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
+   * How many of the customer's live sales quotes are still in play as shown on `today` - not won,
+   * lost, replaced or expired (OPEN): the ones that keep the customer from being deleted.
+   */
+  async countOpenOfCustomer(companyId: string, customerId: string, today: string): Promise<number> {
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(quoteTable)
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          eq(quoteTable.customerId, customerId),
+          inArray(shownStatus(today), [...OPEN]),
+        ),
+      );
+    return Number(value);
+  }
+
+  /**
    * The quotes the Sales managers' cockpit judges (Council Outlay 6): open ones as shown on
    * `today`; Won ones with no shipment yet, or decided since `wonSince`; ones shown Expired whose
    * validity ended on `expiredSince` or later; Won or Lost ones decided since `decidedSince`

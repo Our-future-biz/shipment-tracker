@@ -265,6 +265,26 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     return row ?? null;
   }
 
+  /**
+   * The company's most recently deleted customer with this registration number in this country's
+   * register; null when there is none. The unique index covers live customers only, so this is
+   * what keeps a deleted company from being added a second time.
+   */
+  async findDeletedByIco(ico: string, country: string, companyId: string): Promise<CustomerRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(customerTable)
+      .where(and(
+        eq(customerTable.companyId, companyId),
+        eq(customerTable.country, registerCountry(country)),
+        eq(customerTable.ico, ico),
+        isNotNull(customerTable.deletedAt),
+      ))
+      .orderBy(desc(customerTable.deletedAt))
+      .limit(1);
+    return row ?? null;
+  }
+
   // Server-side filtered list, always scoped to the company: the newest `limit` (2000) rows, and
   // how many match in all.
   async listFiltered(companyId: string, f: CustomerListFilters): Promise<{ rows: (CustomerItemRow & { lastContactAt: Date | null })[]; total: number }> {

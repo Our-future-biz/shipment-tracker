@@ -662,6 +662,15 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     return rows.map((r) => r.id);
   }
 
+  /** How many live shipments of the company are for the customer (the Customer Database asks before a delete). */
+  async countOfCustomer(companyId: string, customerId: string): Promise<number> {
+    const [{ value }] = await this.db
+      .select({ value: count() })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), eq(shipmentTable.customerId, customerId), isNull(shipmentTable.deletedAt)));
+    return Number(value);
+  }
+
   async findByCustomerId(customerId: string, companyId: string) {
     return this.db
       .select()

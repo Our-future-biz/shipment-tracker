@@ -13,6 +13,7 @@ vi.mock("../../repositories/customer.repository", () => ({
     listFiltered: vi.fn(),
     listWithRole: vi.fn(),
     findByIco: vi.fn(),
+    findDeletedByIco: vi.fn(),
     createWithContact: vi.fn(),
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
@@ -106,6 +107,14 @@ describe("roles", () => {
     ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "", country: "SK" } as never);
     await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT)).rejects.toMatchObject({ code: "already_exists" });
     expect(repository.findByIco.mock.calls).toEqual([["12345678", "CZ", COMPANY], ["12345678", "SK", COMPANY]]);
+
+    // And one deleted there: restored, not added a second time.
+    repository.findByIco.mockReset();
+    repository.findByIco.mockResolvedValue(null);
+    repository.findDeletedByIco.mockReset();
+    repository.findDeletedByIco.mockResolvedValueOnce(null).mockResolvedValueOnce(customerRow() as never);
+    await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT)).rejects.toMatchObject({ code: "already_exists" });
+    expect(repository.findDeletedByIco.mock.calls).toEqual([["12345678", "CZ", COMPANY], ["12345678", "SK", COMPANY]]);
   });
 
   // A change of roles is worked out with the row locked: `current` is the row as the lock reads it, and the

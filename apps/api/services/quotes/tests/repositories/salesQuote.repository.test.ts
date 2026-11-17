@@ -983,8 +983,23 @@ describe("countOpenByTariffVersions", () => {
   });
 });
 
+describe("countOpenOfCustomer", () => {
+  const CUSTOMER = "946e01e8-a4ed-4aa7-932b-2c5d5e991c30";
+
+  it("counts the customer's live sales quotes still in play as shown today: not won, lost, replaced or expired", async () => {
+    fake.state.total = "2";
+    await expect(salesQuoteRepository.countOpenOfCustomer(COMPANY, CUSTOMER, "2026-10-12")).resolves.toBe(2);
+    expect(rendered(fake.state.counts[0])).toMatchObject({
+      sql:
+        '("quote"."company_id" = $1 and "quote"."deleted_at" is null and "quote"."status" is not null and "quote"."customer_id" = $2 and ' +
+        `CASE WHEN "quote"."status" in ($3, $4) AND "quote"."valid_until" < $5::date THEN 'expired' ELSE "quote"."status" END in ($6, $7, $8, $9, $10))`,
+      params: [COMPANY, CUSTOMER, "quoted", "feedback", "2026-10-12", "draft", "ready_to_send", "quoted", "feedback", "revised"],
+    });
+  });
+});
+
 describe("customerFacts", () => {
-  const LIVE = '"quote"."company_id" = $1 and "quote"."deleted_at" is null and "quote"."status" is not null';
+  const LIVE ='"quote"."company_id" = $1 and "quote"."deleted_at" is null and "quote"."status" is not null';
   // A quote that went out: a first sent date, or a status that proves it.
   const SENT = '("quote"."first_sent_at" is not null or "quote"."status" in ($1, $2, $3, $4, $5))';
   const SENT_STATUSES = ["quoted", "feedback", "won", "expired", "replaced"];

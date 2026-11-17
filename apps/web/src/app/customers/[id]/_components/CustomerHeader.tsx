@@ -23,7 +23,7 @@ import { useCustomerCameFrom } from "../../_lib/customerCameFrom";
 import { useCustomerListHref } from "../../_lib/customerListHref";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { apiFileUrl } from "@/lib/api";
+import { apiErrorMessage, apiFileUrl } from "@/lib/api";
 import { Pill } from "@/components/Pill";
 import { CARD, ICON_BTN, PAGE_TITLE } from "@/styles/ui";
 
@@ -76,8 +76,9 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
       toast.success(noun === "supplier" ? "Supplier deleted" : "Customer deleted");
       // Replace, so Back does not return to the page of a customer that no longer exists.
       router.replace(listHref);
-    } catch {
-      toast.error(`Failed to delete the ${noun}`);
+    } catch (err) {
+      // e.g. it still has shipments or open quotes: the server says how many and what to do.
+      toast.error(`Failed to delete the ${noun}: ${apiErrorMessage(err)}`);
       setDeleting(false);
     }
   };
@@ -175,7 +176,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         onClose={() => setDeleteOpen(false)}
         onConfirm={handleDelete}
         title={`Delete ${noun}`}
-        description={`Delete ${customer.companyName}? It is hidden from everyone together with its contacts, addresses, sites, invoices, documents and notes. Its shipments and quotes are kept, and the record stays in the database: restore it under Customer Database → Deleted.`}
+        description={`Delete ${customer.companyName}? It is hidden from everyone together with its contacts, addresses, sites, invoices, documents and notes. It can't be deleted while it has shipments or open quotes. The record stays in the database: restore it under Customer Database → Deleted.`}
         confirmLabel="Delete"
         danger
         loading={deleting}

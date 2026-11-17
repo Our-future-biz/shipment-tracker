@@ -10,3 +10,14 @@ export const registerCountry = (country: string): string => normaliseCountry(cou
 
 /** The unique index on (company, country, registration number) of live customers (customer.schema). */
 export const CUSTOMER_ICO_UNIQUE = "customer_company_country_ico_unique";
+
+/** What a create answers when the company is in the Customer Database as deleted (same register, same number). */
+export function deletedTwinRefusal(deleted: { companyName: string; approvalDecision: string }, viaLink: boolean): string {
+  // The company registering itself is not told what the Customer Database holds about it.
+  if (viaLink) return "This company can't be registered through this link: please contact whoever sent it to you";
+  const restore = `${deleted.companyName} is in the Customer Database as deleted: a superadmin can restore it under Customer Database → Deleted instead of adding it again`;
+  // A new supplier a manager declined is deleted so; the decline is taken back where it was given.
+  return deleted.approvalDecision === "declined"
+    ? `${restore}, or a manager can undo its decline under Sales → Managers → Company approval`
+    : restore;
+}

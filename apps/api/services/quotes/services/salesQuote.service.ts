@@ -1187,6 +1187,14 @@ class SalesQuoteService {
     return salesQuoteRepository.shipmentLinks(companyId);
   }
 
+  // How many of the customer's quotes are still in play today, asked by the Customer Database before
+  // a delete. Quotes older code left without columns are adopted first: the count reads the columns.
+  async openCountOfCustomer(companyId: string, customerId: string): Promise<number> {
+    if (!isUuid(customerId)) return 0;
+    await salesQuoteRepository.adoptPending(companyId);
+    return salesQuoteRepository.countOpenOfCustomer(companyId, customerId, businessDay(new Date()));
+  }
+
   // What the company's quotes say about its customers, for the pipeline of the sales service:
   // for each customer whether a quote went out and when, and the quotes that are still open -
   // judged today, so an expired one is not among them - with what their value is worked out

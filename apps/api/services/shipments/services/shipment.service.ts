@@ -1439,6 +1439,11 @@ class ShipmentService {
     return shipmentRepository.idsOfCustomer(companyId, customerId, ids.filter(isUuid));
   }
 
+  /** How many live shipments the customer has: what is not an id names no customer. */
+  async countOfCustomer(companyId: string, customerId: string): Promise<number> {
+    return isUuid(customerId) ? shipmentRepository.countOfCustomer(companyId, customerId) : 0;
+  }
+
   /** The quote references of the live shipments whose job number contains the text (the Quotes list's Shipment filter). */
   async quoteReferencesByJobNumber(companyId: string, text: string): Promise<string[]> {
     return shipmentRepository.salesNumbersByJobNumber(companyId, text, MAX_REFERENCES_BY_JOB);

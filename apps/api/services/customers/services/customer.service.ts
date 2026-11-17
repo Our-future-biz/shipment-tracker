@@ -1,6 +1,6 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { auth } from "~encore/clients";
+import { auth, quotes, shipments } from "~encore/clients";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
@@ -39,7 +39,8 @@ import { assertCzechPhone } from "../../../lib/phone";
 import { contactChanged, customerChanged } from "../topics";
 import { contactRepository } from "../repositories/contact.repository";
 import { seatText } from "../lib/seat";
-import { CUSTOMER_ICO_UNIQUE, registerCountry } from "../lib/registerNumber";
+import { CUSTOMER_ICO_UNIQUE, deletedTwinRefusal, registerCountry } from "../lib/registerNumber";
+import { customerDeleteRefusal, type CustomerUses } from "../lib/customerInUse";
 import { billingCurrencies } from "../lib/billingCurrencies";
 import { supplierTermsService } from "./supplierTerms.service";
 
@@ -281,6 +282,36 @@ async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerReco
 }
 
 /**
+ * Refuses a company the customer database already has in this country's register: a live one, or a
+ * deleted one - that is restored, not added a second time (a second row would keep it from ever
+ * being restored).
+ */
+async function assertNotInDatabase(companyId: string, number: string, country: string, what: string, viaLink: boolean): Promise<void> {
+  if (await customerRepository.findByIco(number, country, companyId)) {
+    throw APIError.alreadyExists(`A customer with this ${what} already exists`);
+  }
+  const deleted = await customerRepository.findDeletedByIco(number, country, companyId);
+  if (deleted) throw APIError.alreadyExists(deletedTwinRefusal(deleted, viaLink));
+}
+
+/**
+ * What still names the customer, counted by the services that own it. One that can't be asked
+ * refuses the delete: a customer is never deleted on a guess.
+ */
+async function usesOf(customer: CustomerRecord): Promise<CustomerUses> {
+  try {
+    const [held, open] = await Promise.all([
+      shipments._internalCustomerShipmentCount({ customerId: customer.id }),
+      quotes._internalCustomerOpenQuoteCount({ customerId: customer.id }),
+    ]);
+    return { shipments: held.count, openQuotes: open.count };
+  } catch (err) {
+    log.warn(err, "a customer's shipments and open quotes could not be counted; it is not deleted", { customerId: customer.id });
+    throw APIError.unavailable(`Could not check whether ${customer.companyName} still has shipments or open quotes, so it was not deleted: try again in a moment`);
+  }
+}
+
+/**
  * The insert of a new customer. The IČO check before it gives the friendly answer; two creates
  * racing past it are stopped by the unique index, and the loser gets the same answer, not a 500.
  */
@@ -411,13 +442,10 @@ class CustomerService {
     const mainContact = firstContact(contact);
     // An IČO is a number of the Czech register: refused before ARES is asked when a Czech customer has it,
     // and again for the country ARES gives the company's seat in, which the customer is stored with.
-    if (await customerRepository.findByIco(ico, "CZ", companyId)) {
-      throw APIError.alreadyExists("A customer with this IČO already exists");
-    }
+    const viaLink = !!supplierRequest?.viaLink;
+    await assertNotInDatabase(companyId, ico, "CZ", "IČO", viaLink);
     const ares = await aresService.lookup(ico);
-    if (registerCountry(ares.country) !== "CZ" && (await customerRepository.findByIco(ares.ico, ares.country, companyId))) {
-      throw APIError.alreadyExists("A customer with this IČO already exists");
-    }
+    if (registerCountry(ares.country) !== "CZ") await assertNotInDatabase(companyId, ares.ico, ares.country, "IČO", viaLink);
     const approval = await approvalOf(actorRole, supplierRequest);
     const values: Omit<NewCustomerRecord, "companyId"> = {
       ...approval,
@@ -455,9 +483,7 @@ class CustomerService {
     if (country === "CZ") throw APIError.invalidArgument("A Czech company is added from ARES by its IČO");
     const registrationNumber = (input.registrationNumber ?? "").trim();
     // Unique in its own country's register only: another country's same number is another company.
-    if (registrationNumber && (await customerRepository.findByIco(registrationNumber, country, companyId))) {
-      throw APIError.alreadyExists("A customer with this registration number already exists");
-    }
+    if (registrationNumber) await assertNotInDatabase(companyId, registrationNumber, country, "registration number", !!supplierRequest?.viaLink);
     const street = input.street.trim();
     const city = input.city.trim();
     const postalCode = input.postalCode.trim();
@@ -577,8 +603,12 @@ class CustomerService {
     return customerRepository.activate(id, companyId);
   }
 
-  // Its contacts go with it; the one customer event tells the copies of both.
+  // Its contacts go with it; the one customer event tells the copies of both. Refused while live
+  // shipments or open quotes name it: they would be left with a deleted company.
   async softDelete(id: string, companyId: string): Promise<void> {
+    const customer = await this.requireLive(id, companyId);
+    const refusal = customerDeleteRefusal(customer.companyName, await usesOf(customer));
+    if (refusal) throw APIError.failedPrecondition(refusal);
     const row = await customerRepository.softDeleteWithChildren(id, companyId);
     if (!row) throw APIError.notFound("Customer not found");
     await this.announceDeleted(companyId, row);

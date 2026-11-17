@@ -464,3 +464,17 @@ describe("basicsByIds", () => {
     expect(fake.state.plainReads).toEqual([]);
   });
 });
+
+describe("countOfCustomer", () => {
+  const CUSTOMER = "946e01e8-a4ed-4aa7-932b-2c5d5e991c30";
+
+  it("counts the company's live shipments for the customer (what keeps the customer from being deleted)", async () => {
+    // Postgres reports a count as text.
+    fake.state.total = "3";
+    await expect(shipmentRepository.countOfCustomer(COMPANY, CUSTOMER)).resolves.toBe(3);
+    expect(sent(fake.state.counts[0])).toEqual({
+      sql: '("shipment"."company_id" = $1 and "shipment"."customer_id" = $2 and "shipment"."deleted_at" is null)',
+      params: [COMPANY, CUSTOMER],
+    });
+  });
+});

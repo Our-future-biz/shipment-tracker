@@ -8,6 +8,7 @@ const customers = vi.hoisted(() => ({
   getDeletedForCompany: vi.fn(),
   restoreWithChildren: vi.fn(),
   findByIco: vi.fn(),
+  findDeletedByIco: vi.fn(),
   createForCompany: vi.fn(),
   createWithContact: vi.fn(),
 }));
@@ -26,7 +27,13 @@ vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } })
 const topics = vi.hoisted(() => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }));
 vi.mock("../topics", () => topics);
 const userLookup = vi.hoisted(() => vi.fn());
-vi.mock("~encore/clients", () => ({ auth: { userLookup } }));
+// What the shipments and quotes services count of a customer before it is deleted.
+const uses = vi.hoisted(() => ({ shipments: vi.fn(async () => ({ count: 0 })), openQuotes: vi.fn(async () => ({ count: 0 })) }));
+vi.mock("~encore/clients", () => ({
+  auth: { userLookup },
+  shipments: { _internalCustomerShipmentCount: uses.shipments },
+  quotes: { _internalCustomerOpenQuoteCount: uses.openQuotes },
+}));
 const logger = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn() }));
 vi.mock("encore.dev/log", () => ({ default: logger }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
@@ -34,7 +41,8 @@ vi.mock("encore.dev/api", () => ({
   APIError: {
     notFound: (msg: string) => new Error(msg),
     invalidArgument: (msg: string) => new Error(msg),
-    alreadyExists: (msg: string) => new Error(msg),
+    alreadyExists: (msg: string) => Object.assign(new Error(msg), { code: "already_exists" }),
+    unavailable: (msg: string) => Object.assign(new Error(msg), { code: "unavailable" }),
     permissionDenied: (msg: string) => new Error(msg),
     failedPrecondition: (msg: string) => Object.assign(new Error(msg), { code: "failed_precondition" }),
     aborted: (msg: string) => Object.assign(new Error(msg), { code: "aborted" }),
@@ -355,6 +363,97 @@ describe("deleted customers", () => {
   });
 });
 
+describe("deleting a customer that shipments or quotes still name", () => {
+  const live = (over: Record<string, unknown> = {}) => ({
+    id: "c1", companyId: COMPANY, companyName: "Alfa s.r.o.", label: "STANDARD", roles: ["customer"], registrationDate: null,
+    lastActivityDate: null, logoData: "", createdAt: now, updatedAt: now, deletedAt: null, ...over,
+  });
+
+  it("is refused while it has live shipments or open quotes, saying how many and what to do; nothing is deleted", async () => {
+    customers.getByIdForCompany.mockResolvedValue(live());
+    uses.shipments.mockResolvedValueOnce({ count: 3 });
+    uses.openQuotes.mockResolvedValueOnce({ count: 1 });
+    await expect(customerService.softDelete("c1", COMPANY)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Alfa s.r.o. can't be deleted while it has 3 shipments and 1 open quote: set it Inactive instead, or first give the shipments another customer and mark the quote Lost",
+    });
+    expect(uses.shipments).toHaveBeenCalledWith({ customerId: "c1" });
+    expect(uses.openQuotes).toHaveBeenCalledWith({ customerId: "c1" });
+    expect(customers.softDeleteWithChildren).not.toHaveBeenCalled();
+    expect(topics.customerChanged.publish).not.toHaveBeenCalled();
+  });
+
+  it("is refused, not done on a guess, when the shipments or the quotes can't be asked", async () => {
+    customers.getByIdForCompany.mockResolvedValue(live());
+    uses.openQuotes.mockRejectedValueOnce(new Error("quotes down"));
+    await expect(customerService.softDelete("c1", COMPANY)).rejects.toMatchObject({
+      code: "unavailable",
+      message: "Could not check whether Alfa s.r.o. still has shipments or open quotes, so it was not deleted: try again in a moment",
+    });
+    expect(customers.softDeleteWithChildren).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("goes ahead when nothing names it any more", async () => {
+    customers.getByIdForCompany.mockResolvedValue(live());
+    customers.softDeleteWithChildren.mockResolvedValue(live({ deletedAt: now }));
+    await customerService.softDelete("c1", COMPANY);
+    expect(customers.softDeleteWithChildren).toHaveBeenCalledWith("c1", COMPANY);
+  });
+
+  it("asks no other service about a customer that isn't live in the company", async () => {
+    customers.getByIdForCompany.mockResolvedValue(null);
+    await expect(customerService.softDelete("c1", COMPANY)).rejects.toThrow("Customer not found");
+    expect(uses.shipments).not.toHaveBeenCalled();
+    expect(customers.softDeleteWithChildren).not.toHaveBeenCalled();
+  });
+});
+
+describe("adding a company the Customer Database has as deleted", () => {
+  const CONTACT = { firstName: "Hans", lastName: "Müller", email: "hans@example.de" };
+  const SIEMENS = { country: "DE", companyName: "Siemens AG", registrationNumber: "HRB 12345", street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333", contact: CONTACT };
+
+  it("is refused with a pointer to the restore, from ARES by its IČO, before ARES is asked; no duplicate is made", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.findDeletedByIco.mockResolvedValue({ id: "c1", companyName: "Alfa s.r.o.", approvalDecision: "" });
+    await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT)).rejects.toMatchObject({
+      code: "already_exists",
+      message: "Alfa s.r.o. is in the Customer Database as deleted: a superadmin can restore it under Customer Database → Deleted instead of adding it again",
+    });
+    expect(customers.findDeletedByIco).toHaveBeenCalledWith("12345678", "CZ", COMPANY);
+    expect(customers.createWithContact).not.toHaveBeenCalled();
+  });
+
+  it("is refused for a foreign company by its number in its own country's register", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.findDeletedByIco.mockResolvedValue({ id: "c1", companyName: "Siemens AG", approvalDecision: "" });
+    await expect(customerService.createManual(COMPANY, "user", SIEMENS)).rejects.toThrow("Siemens AG is in the Customer Database as deleted");
+    expect(customers.findDeletedByIco).toHaveBeenCalledWith("HRB 12345", "DE", COMPANY);
+    expect(customers.createWithContact).not.toHaveBeenCalled();
+  });
+
+  it("points a declined new supplier to its undo too, and tells a company registering by link only to ask the sender", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.findDeletedByIco.mockResolvedValue({ id: "c1", companyName: "DANGO s.r.o.", approvalDecision: "declined" });
+    await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT)).rejects.toThrow(
+      "or a manager can undo its decline under Sales → Managers → Company approval",
+    );
+    const viaLink = { userId: "u1", quoteNumber: "", viaLink: { requestedBy: "rep@firm.cz" } };
+    await expect(customerService.createManual(COMPANY, "", SIEMENS, viaLink)).rejects.toThrow(
+      "This company can't be registered through this link: please contact whoever sent it to you",
+    );
+    expect(customers.createWithContact).not.toHaveBeenCalled();
+  });
+
+  it("goes ahead when only another country's register has the number deleted", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.findDeletedByIco.mockResolvedValue(null);
+    customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
+    await customerService.createManual(COMPANY, "user", SIEMENS);
+    expect(customers.createWithContact).toHaveBeenCalled();
+  });
+});
+
 describe("a declined new supplier taken back", () => {
   const declined = (over: Record<string, unknown> = {}) => ({
     id: "c1", companyId: COMPANY, ico: "12345678", companyName: "DANGO s.r.o.", label: "TARGET CUSTOMER", roles: ["haulier"], registrationDate: null,
@@ -436,6 +535,7 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
   });
 
   it("a delete is sent with deleted: true, and each contact hidden with it gets its own delete event", async () => {
+    customers.getByIdForCompany.mockResolvedValue(saved());
     customers.softDeleteWithChildren.mockResolvedValue(saved({ deletedAt: now }));
     contacts.hiddenWithCustomer.mockResolvedValueOnce([
       { id: "k1", customerId: "c1", name: "Petr Masák", email: "p@alfa.cz", phone: "+420 777 111 222" },
@@ -451,6 +551,7 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
   });
 
   it("a delete done is not failed by its announcement: a contacts read that fails is only logged", async () => {
+    customers.getByIdForCompany.mockResolvedValue(saved());
     customers.softDeleteWithChildren.mockResolvedValue(saved({ deletedAt: now }));
     contacts.hiddenWithCustomer.mockRejectedValueOnce(new Error("db down"));
     await expect(customerService.softDelete("c1", COMPANY)).resolves.toBeUndefined();
@@ -492,6 +593,7 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
   });
 
   it("a delete whose publish fails still succeeds (a retry would get 404); the failure is logged with the ids", async () => {
+    customers.getByIdForCompany.mockResolvedValue(saved());
     customers.softDeleteWithChildren.mockResolvedValue(saved({ deletedAt: now }));
     const down = new Error("pubsub down");
     topics.customerChanged.publish.mockRejectedValueOnce(down);
