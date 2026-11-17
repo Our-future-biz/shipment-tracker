@@ -239,6 +239,13 @@
       "when": 1794893946753,
       "tag": "0033_partial_credit_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794903544652,
+      "tag": "0034_invoice_change_requests",
+      "breakpoints": true
     }
   ]
 }

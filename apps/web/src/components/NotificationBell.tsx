@@ -19,6 +19,8 @@ import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/u
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
 import { useSellingAmountBell, type SellingAmountRequest } from "@/hooks/useSellingAmountRequests";
 import { useCreditNoteRequestBell, type CreditNoteRequest } from "@/hooks/useCreditNoteRequests";
+import { useInvoiceChangeRequestBell, type InvoiceChangeRequestItem } from "@/hooks/useInvoiceChangeRequests";
+import { INVOICE_FIX_LABELS } from "@/app/invoicing/_lib/invoiceFixes";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { useApprovalChatsUnread } from "@/hooks/useCompanyRegistration";
@@ -117,6 +119,22 @@ const creditAnswerText = (r: CreditNoteRequest) =>
   r.status === "approved"
     ? `${formatAmount(Number(r.gross), r.currency)} credited · ${r.jobNumber}${r.comment ? ` — ${r.comment}` : ""}`
     : `Rejected: ${r.comment}`;
+// A request to change an invoice on its issue day, waiting for a manager (today only), and the answer
+// to whoever asked: approved cancels the invoice, to be issued again corrected; unanswered by midnight, it expires.
+const changeWaitingTitle = (r: InvoiceChangeRequestItem) => `Invoice change waiting · ${r.invoiceNumber}`;
+const changeWaitingText = (r: InvoiceChangeRequestItem) =>
+  `${r.requestedByName || "A colleague"} asks to change ${r.invoiceNumber} (${r.jobNumber}, ${r.customerName}), today only: ${r.fixes.map((f) => INVOICE_FIX_LABELS[f] ?? f).join(", ")} — ${r.reason}`;
+const changeAnswerTitle = (r: InvoiceChangeRequestItem) =>
+  `Change of ${r.invoiceNumber} ${
+    r.status === "approved" ? "approved: the invoice is cancelled — issue it again corrected" : r.status === "expired" ? "expired" : r.status === "withdrawn" ? "withdrawn" : "rejected"
+  }`;
+const changeAnswerText = (r: InvoiceChangeRequestItem) =>
+  r.status === "approved"
+    ? `${r.jobNumber}${r.comment ? ` — ${r.comment}` : ""}`
+    : r.status === "expired"
+      ? r.comment || "Not answered on the invoice's issue day"
+      : `Rejected: ${r.comment}`;
+const changeAnswerDot = (r: InvoiceChangeRequestItem) => (r.status === "approved" ? "bg-emerald-500" : r.status === "rejected" ? "bg-red-500" : "bg-slate-400");
 
 // How long a read notification stays under the bell, in the "Last 7 days" view.
 const READ_KEEP_DAYS = 7;
@@ -197,6 +215,8 @@ export function NotificationBell() {
   const { waiting: sellingWaiting, answers: sellingAnswers, hasLoaded: sellingLoaded, seen: sellingSeen } = useSellingAmountBell();
   // Requests to credit an invoice in part: waiting, for every manager; answered, for whoever asked.
   const { waiting: creditWaiting, answers: creditAnswers, hasLoaded: creditLoaded, seen: creditSeen } = useCreditNoteRequestBell();
+  // Requests to change an invoice on its issue day: waiting, for every manager; answered or expired, for whoever asked.
+  const { waiting: changeWaiting, answers: changeAnswers, hasLoaded: changeLoaded, seen: changeSeen } = useInvoiceChangeRequestBell();
   // New suppliers added from quotes: a manager is told what waits, whoever added one the answer.
   const { canManageSales } = useSalesPermissions();
   const { approvals: supplierApprovals, hasLoaded: suppliersLoaded, seen: supplierSeen } = useSupplierApprovals();
@@ -226,6 +246,7 @@ export function NotificationBell() {
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
   const unreadSellingAnswers = sellingAnswers.filter((a) => !a.answerSeenAt);
   const unreadCreditAnswers = creditAnswers.filter((a) => !a.answerSeenAt);
+  const unreadChangeAnswers = changeAnswers.filter((a) => !a.answerSeenAt);
   // "Last 7 days": everything unread, and what was read in the last 7 days (a mention: written in them).
   const viewNotices = view === "unread" ? notices : announcements.filter((a) => a.unread || keptSince(a.readAt, now));
   const viewMentions = view === "unread" ? unreadMentions : allMentions;
@@ -240,6 +261,8 @@ export function NotificationBell() {
   const sellingAnswersShown = (view === "unread" ? unreadSellingAnswers : sellingAnswers).filter((a) => matchesAll(query, sellingAnswerTitle(a), sellingAnswerText(a), a.decidedByName));
   const creditWaitingShown = creditWaiting.filter((r) => matchesAll(query, creditWaitingTitle(r), creditWaitingText(r)));
   const creditAnswersShown = (view === "unread" ? unreadCreditAnswers : creditAnswers).filter((a) => matchesAll(query, creditAnswerTitle(a), creditAnswerText(a), a.decidedByName));
+  const changeWaitingShown = changeWaiting.filter((r) => matchesAll(query, changeWaitingTitle(r), changeWaitingText(r)));
+  const changeAnswersShown = (view === "unread" ? unreadChangeAnswers : changeAnswers).filter((a) => matchesAll(query, changeAnswerTitle(a), changeAnswerText(a), a.decidedByName));
   const marginAnswersShown = (view === "unread" ? unreadMarginAnswers : marginAnswers).filter((a) => matchesAll(query, marginAnswerTitle(a), marginAnswerText(a), a.decidedByName));
   const unreadSupplierAnswers = supplierAnswers.filter((a) => !a.answerSeen);
   const supplierWaitingShown = supplierWaiting.filter((a) => matchesAll(query, supplierWaitingTitle(a), supplierWaitingText(a)));
@@ -360,6 +383,19 @@ export function NotificationBell() {
     seenCredit.current = new Set(keys);
   }, [creditWaiting, creditAnswers, creditLoaded, toast]);
 
+  // The same for requests to change an invoice on its issue day.
+  const seenChange = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!changeLoaded) return;
+    const before = seenChange.current;
+    const keys = [...changeWaiting.map((r) => `w:${r.id}`), ...changeAnswers.map((a) => `a:${a.id}`)];
+    if (before) {
+      for (const r of changeWaiting) if (!before.has(`w:${r.id}`)) toast.notify({ title: changeWaitingTitle(r), description: changeWaitingText(r), type: "warning" });
+      for (const a of changeAnswers) if (!a.answerSeenAt && !before.has(`a:${a.id}`)) toast.notify({ title: changeAnswerTitle(a), description: changeAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+    }
+    seenChange.current = new Set(keys);
+  }, [changeWaiting, changeAnswers, changeLoaded, toast]);
+
   // And new suppliers waiting, and answers to the ones this user added. Every waiting one is remembered,
   // whoever the user is: the sales permissions may arrive after the list, and a manager is then not told
   // of the whole backlog as news.
@@ -429,7 +465,7 @@ export function NotificationBell() {
   const total =
     importInstructions.length +
     approvalChats.length +
-    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + changeWaiting.length + unreadChangeAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.threadId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : a.decision === "approved" && a.customerId ? `/customers/${a.customerId}` : "/customers");
@@ -463,6 +499,10 @@ export function NotificationBell() {
   };
   const openCreditAnswer = (a: CreditNoteRequest) => {
     if (!a.answerSeenAt) creditSeen.mutate([a.id]);
+    go(`/invoicing?shipment=${encodeURIComponent(a.shipmentId)}&tab=documents`);
+  };
+  const openChangeAnswer = (a: InvoiceChangeRequestItem) => {
+    if (!a.answerSeenAt) changeSeen.mutate([a.id]);
     go(`/invoicing?shipment=${encodeURIComponent(a.shipmentId)}&tab=documents`);
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
@@ -545,6 +585,33 @@ export function NotificationBell() {
           <span className="text-[12px] text-slate-700 line-clamp-2">{sellingAnswerText(a)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
+      {changeWaitingShown.length > 0 && <div className={headingClass}>Invoice changes, waiting (today only)</div>}
+      {changeWaitingShown.map((r) => (
+        <button key={`iw:${r.id}`} type="button" onClick={() => go(salesManagersHref({ tab: "billing" }))} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{changeWaitingTitle(r)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{changeWaitingText(r)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(r.requestedAt)}</span>
+        </button>
+      ))}
+      {changeAnswersShown.length > 0 && <div className={headingClass}>Invoice changes, answers</div>}
+      {changeAnswersShown.map((a) => (
+        <button key={`ia:${a.id}`} type="button" onClick={() => openChangeAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${changeAnswerDot(a)}`} />}
+            {/* Two lines: the approved title says what to do next ("issue it again corrected"). */}
+            <span className={`min-w-0 flex-1 text-[13px] line-clamp-2 ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>
+              {changeAnswerTitle(a)}
+            </span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{changeAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.status === "expired" ? "Expired" : a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
           </span>
         </button>
       ))}
@@ -722,7 +789,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + changeWaitingShown.length + changeAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

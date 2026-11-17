@@ -15,9 +15,13 @@ const repo = vi.hoisted(() => ({
   billedShipmentIds: vi.fn(),
   creditNotesOf: vi.fn(),
   linesOf: vi.fn(),
+  getInTx: vi.fn(),
+  lockSeries: vi.fn(),
+  markCancelled: vi.fn(),
 }));
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
 const requests = vi.hoisted(() => ({ approve: vi.fn(), withdrawForInvoice: vi.fn() }));
+const changes = vi.hoisted(() => ({ approve: vi.fn(), withdrawForInvoice: vi.fn() }));
 const trucking = vi.hoisted(() => ({
   lock: vi.fn(async () => undefined),
   liveSellingVersions: vi.fn(async (_tx: unknown, _c: string, _s: string, ids: string[]) => new Map(ids.map((id) => [id, new Date("2026-11-06T09:00:00Z").getTime()]))),
@@ -63,6 +67,8 @@ const clients = vi.hoisted(() => ({
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: "user" }) }));
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
 vi.mock("../repositories/creditNoteRequest.repository", () => ({ creditNoteRequestRepository: requests }));
+vi.mock("../repositories/invoiceChangeRequest.repository", () => ({ invoiceChangeRequestRepository: changes }));
+vi.mock("../db/db", () => ({ db: { transaction: async (work: (tx: unknown) => Promise<unknown>) => work({}) } }));
 vi.mock("../../../lib/companyUsers", () => ({ userEmailOf: async (id: string) => `${id}@test.cz` }));
 vi.mock("../repositories/invoiceFollowupOutbox.repository", () => ({ invoiceFollowupOutboxRepository: outbox }));
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
@@ -964,5 +970,59 @@ describe("queue", () => {
     expect(r.queue.map((x) => x.jobNumber)).not.toContain("CZ00000000");
     // still shown oldest first
     expect(r.queue[0]!.jobNumber).toBe("CZ00000200");
+  });
+});
+
+describe("cancelling an invoice on its issue day", () => {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague" }).format(new Date());
+  const invoice = {
+    id: "inv1", kind: "invoice", status: "issued", number: "INV2026CZ00000028-001", shipmentId: SHIPMENT, customerId: CUSTOMER, companyId: COMPANY,
+    currency: "EUR", gross: "363.00", issueDate: today, dueDate: "2026-12-01", shipment: { jobNumber: "CZ00000028", jobYear: 2026 }, customer,
+  };
+  const request = { id: "chg1", companyId: COMPANY, shipmentId: SHIPMENT, invoiceId: "inv1", status: "pending", issueDate: today };
+  const approver = { userId: "manager-1", userEmail: "boss@test.cz", comment: "" };
+
+  beforeEach(() => {
+    repo.getInTx.mockResolvedValue(invoice);
+    repo.markCancelled.mockResolvedValue(true);
+    changes.approve.mockResolvedValue({ ...request, status: "approved" });
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
+    // nothing billed any more once the invoice is cancelled
+    repo.listOpenInvoicesWithSources.mockResolvedValue([]);
+  });
+
+  it("cancels it under the credit notes' series lock, approves the request and puts the job back to bill", async () => {
+    const cancelled = await invoiceDocumentService.cancelOnIssueDay(request as never, approver);
+    expect(cancelled.status).toBe("cancelled");
+    expect(repo.lockSeries).toHaveBeenCalledWith({}, COMPANY, "CN2026CZ00000028-");
+    expect(repo.markCancelled).toHaveBeenCalledWith({}, "inv1", COMPANY, today);
+    expect(changes.approve).toHaveBeenCalledWith({}, COMPANY, "chg1", approver);
+    expect(requests.withdrawForInvoice).toHaveBeenCalledWith({}, COMPANY, "inv1", { id: "manager-1", name: "boss@test.cz" }, expect.stringMatching(/cancelled/));
+    // no credit note: nothing issued
+    expect(repo.issue).not.toHaveBeenCalled();
+    expect(outbox.rows.map((r) => r.kind)).toEqual(["mark_credited", "status_after_credit"]);
+    expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"], status: "Cancelled" }, expect.anything());
+    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]" }, { authData: expect.objectContaining({ appWrite: true }) });
+  });
+
+  it("refuses an invoice issued on another day", async () => {
+    repo.getInTx.mockResolvedValue({ ...invoice, issueDate: "2026-01-02" });
+    await expect(invoiceDocumentService.cancelOnIssueDay(request as never, approver)).rejects.toThrow(/can be cancelled only that day/);
+    expect(repo.markCancelled).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invoice with a credit note, or credited meanwhile", async () => {
+    repo.creditNotesOf.mockResolvedValue([{ id: "cnA", number: "CN2026CZ00000028-001" }]);
+    await expect(invoiceDocumentService.cancelOnIssueDay(request as never, approver)).rejects.toThrow(/credited in part since/);
+    repo.creditNotesOf.mockResolvedValue([]);
+    repo.getInTx.mockResolvedValueOnce(invoice).mockResolvedValueOnce({ ...invoice, status: "credited" });
+    await expect(invoiceDocumentService.cancelOnIssueDay(request as never, approver)).rejects.toThrow(/credited since/);
+    expect(repo.markCancelled).not.toHaveBeenCalled();
+  });
+
+  it("is undone when the request was answered a moment ago", async () => {
+    changes.approve.mockResolvedValue(null);
+    await expect(invoiceDocumentService.cancelOnIssueDay(request as never, approver)).rejects.toThrow(/answered a moment ago/);
+    expect(outbox.enqueue).not.toHaveBeenCalled();
   });
 });

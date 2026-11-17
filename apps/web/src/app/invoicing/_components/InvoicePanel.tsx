@@ -31,7 +31,7 @@ import { PreviewButton } from "@/components/PreviewButton";
 import { mailtoLink, openMailto } from "@/lib/mailto";
 import { invoiceEmailTo, shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { useToast } from "@/lib/toast";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
 import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
@@ -50,6 +50,8 @@ import { billingCurrencyOptions, billToCurrencies } from "../_lib/billToCurrenci
 import { IssuedInvoiceEmailModal, type IssuedInvoiceEmail } from "./IssuedInvoiceEmailModal";
 import { CreditNoteModal } from "./CreditNoteModal";
 import { useShipmentCreditRequests } from "@/hooks/useCreditOptions";
+import { useShipmentChangeRequests } from "@/hooks/useInvoiceChangeAsk";
+import { InvoiceChangeModal } from "./InvoiceChangeModal";
 import { InvoiceCustomerSelect } from "./InvoiceCustomerSelect";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
@@ -80,9 +82,11 @@ const czDate = (iso: string) => formatDate(iso) || "—";
 
 /** The two views of the lines card: what goes on the next invoice, and what was invoiced already. */
 type LinesView = "to_invoice" | "invoiced";
-const INVOICE_STATUS: Record<interfaces.InvoiceDocStatus, { label: string; tone: "green" | "amber" }> = {
+const INVOICE_STATUS: Record<interfaces.InvoiceDocStatus, { label: string; tone: "green" | "amber" | "slate" }> = {
   issued: { label: "Issued", tone: "green" },
   credited: { label: "Credited", tone: "amber" },
+  // withdrawn on its issue day with a manager's approval, and issued again corrected
+  cancelled: { label: "Cancelled", tone: "slate" },
 };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
@@ -151,6 +155,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   // Partial credit notes asked of a manager: the one waiting shows on its invoice.
   const { data: creditRequests } = useShipmentCreditRequests(shipment.id);
   const waitingCredit = (invoiceId: string) => (creditRequests ?? []).some((r) => r.invoiceId === invoiceId && r.status === "pending");
+  // Changing an invoice on its issue day (asked of a manager): the one waiting shows on its invoice.
+  const [changeTarget, setChangeTarget] = useState<InvoiceDoc | null>(null);
+  const { data: changeRequests } = useShipmentChangeRequests(shipment.id);
+  const waitingChange = (invoiceId: string) => (changeRequests ?? []).some((r) => r.invoiceId === invoiceId && r.status === "pending");
+  // On its issue day (Prague), not credited in any part, nothing asked yet: it can still be changed.
+  const changeable = (d: InvoiceDoc) =>
+    d.kind === "invoice" && d.status === "issued" && d.issueDate === businessToday() && !waitingChange(d.id) && !docs.some((c) => c.correctsInvoiceId === d.id);
   const [downloading, setDownloading] = useState<string | null>(null);
   // An issued invoice's or credit note's PDF, shown in the app's preview.
   const filePreview = useFilePreview();
@@ -1016,6 +1027,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                         <span className="inline-flex gap-2">
                           <Pill tone="slate">{d.kind === "credit_note" ? "Credit note" : "Invoice"}</Pill>
                           {d.status === "credited" && <Pill tone="amber">Credited</Pill>}
+                          {d.status === "cancelled" && (
+                            <Pill tone="slate" title="Cancelled on its issue day with a manager's approval: issued again corrected under the next number">
+                              Cancelled
+                            </Pill>
+                          )}
+                          {d.kind === "invoice" && d.status === "issued" && waitingChange(d.id) && <Pill tone="indigo">Change requested</Pill>}
                           {d.kind === "invoice" && d.status === "issued" && docs.some((c) => c.kind === "credit_note" && c.correctsInvoiceId === d.id) && (
                             <Pill tone="amber">Partly credited</Pill>
                           )}
@@ -1031,6 +1048,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                           <Button size="small" type="text" icon={<FilePdfOutlined />} loading={downloading === d.id} onClick={() => void download(d)}>
                             PDF
                           </Button>
+                          {changeable(d) && (
+                            <Tooltip title="Issued today: a manager can cancel it, so it is issued again corrected">
+                              <Button size="small" type="text" icon={<EditOutlined />} onClick={() => setChangeTarget(d)}>
+                                Request change…
+                              </Button>
+                            </Tooltip>
+                          )}
                           {d.kind === "invoice" && d.status === "issued" && (
                             <Button size="small" type="text" icon={<RollbackOutlined />} onClick={() => setCreditTarget({ doc: d, key: newKey() })}>
                               Credit note…
@@ -1066,8 +1090,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
             </p>
             {notReleasedWarning && <Alert type="warning" showIcon message={notReleasedWarning} />}
             <p className="m-0 text-slate-500">
-              It gets the next number of {shipment.jobNumber} and a PDF. An issued invoice can never be changed or deleted —
-              a mistake is corrected with a credit note.
+              It gets the next number of {shipment.jobNumber} and a PDF. An issued invoice can&apos;t be edited: today a manager can
+              still cancel it for you to issue it again corrected (Request change…); after today a mistake is corrected with a credit note.
             </p>
           </div>
         )}
@@ -1086,6 +1110,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
 
       {/* ── Credit note: the whole invoice at once, or part of it asked of a manager ── */}
       <CreditNoteModal doc={creditTarget?.doc ?? null} onCreditWhole={confirmCredit} isCrediting={isCrediting} onClose={() => setCreditTarget(null)} />
+
+      {/* ── Change on the issue day: asked of a manager, who cancels it to be issued again ── */}
+      <InvoiceChangeModal doc={changeTarget} onClose={() => setChangeTarget(null)} />
     </>
   );
 }

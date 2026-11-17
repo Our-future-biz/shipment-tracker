@@ -133,11 +133,13 @@ export function statusDotClass(status: string): string {
 // (Pill tone "slate"); only statuses are coloured.
 
 // Invoice status badge tones (components/Badge.tsx): open in the app's indigo, then red, green and grey.
+// Cancelled (on its issue day, to be issued again corrected) is grey like Credited: nothing is owed on it.
 export const INVOICE_STATUS_TONES: Record<interfaces.InvoiceStatus, Tone> = {
   Open: "i",
   Overdue: "r",
   Paid: "g",
   Credited: "",
+  Cancelled: "",
 };
 
 // antd Tag colours of a note's type, for the Sales follow-up tasks (sales/_components/FollowUpTasksCard.tsx).

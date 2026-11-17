@@ -1450,6 +1450,12 @@ export namespace invoicing {
             this.customsInvoicingGet = this.customsInvoicingGet.bind(this)
             this.customsInvoicingSetNumber = this.customsInvoicingSetNumber.bind(this)
             this.customsInvoicingUpdateLine = this.customsInvoicingUpdateLine.bind(this)
+            this.invoiceChangeAsk = this.invoiceChangeAsk.bind(this)
+            this.invoiceChangeRequestDecide = this.invoiceChangeRequestDecide.bind(this)
+            this.invoiceChangeRequestForMe = this.invoiceChangeRequestForMe.bind(this)
+            this.invoiceChangeRequestList = this.invoiceChangeRequestList.bind(this)
+            this.invoiceChangeRequestSeen = this.invoiceChangeRequestSeen.bind(this)
+            this.invoiceChangeRequestWithdraw = this.invoiceChangeRequestWithdraw.bind(this)
             this.invoiceCreditOptions = this.invoiceCreditOptions.bind(this)
             this.invoiceDocCredit = this.invoiceDocCredit.bind(this)
             this.invoiceDocGet = this.invoiceDocGet.bind(this)
@@ -1471,6 +1477,7 @@ export namespace invoicing {
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
             this.invoicingGet = this.invoicingGet.bind(this)
             this.invoicingImportQuote = this.invoicingImportQuote.bind(this)
+            this.invoicingInvoiceChangeRequestsOfShipment = this.invoicingInvoiceChangeRequestsOfShipment.bind(this)
             this.invoicingMasterJobCostAdd = this.invoicingMasterJobCostAdd.bind(this)
             this.invoicingMasterJobCostDelete = this.invoicingMasterJobCostDelete.bind(this)
             this.invoicingMasterJobCostUpdate = this.invoicingMasterJobCostUpdate.bind(this)
@@ -1584,6 +1591,76 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines/${encodeURIComponent(lineId)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomsLineResponse
+        }
+
+        /**
+         * Asks a manager to cancel the invoice so it can be issued again corrected: on its issue day only.
+         */
+        public async invoiceChangeAsk(invoiceId: string, params: controllers.AskChangeRequest): Promise<{
+    request: interfaces.InvoiceChangeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoices/${encodeURIComponent(invoiceId)}/change-requests`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.InvoiceChangeRequestItem
+}
+        }
+
+        /**
+         * A manager's answer, on the invoice's issue day: approving cancels the invoice at once.
+         */
+        public async invoiceChangeRequestDecide(id: string, params: controllers.DecideChangeRequest): Promise<{
+    request: interfaces.InvoiceChangeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoice-change-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.InvoiceChangeRequestItem
+}
+        }
+
+        /**
+         * The bell: requests waiting, for a manager, and answers to what the user asked.
+         */
+        public async invoiceChangeRequestForMe(): Promise<{
+    waiting: interfaces.InvoiceChangeRequestItem[]
+    answers: interfaces.InvoiceChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoice-change-requests/for-me`)
+            return await resp.json() as {
+    waiting: interfaces.InvoiceChangeRequestItem[]
+    answers: interfaces.InvoiceChangeRequestItem[]
+}
+        }
+
+        /**
+         * The managers' list (Billing approvals): what waits today, and what was answered in the last 30 days.
+         */
+        public async invoiceChangeRequestList(): Promise<{
+    requests: interfaces.InvoiceChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoice-change-requests`)
+            return await resp.json() as {
+    requests: interfaces.InvoiceChangeRequestItem[]
+}
+        }
+
+        public async invoiceChangeRequestSeen(params: {
+    ids: string[]
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/invoice-change-requests/seen`, JSON.stringify(params))
+        }
+
+        public async invoiceChangeRequestWithdraw(id: string): Promise<{
+    request: interfaces.InvoiceChangeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoice-change-requests/${encodeURIComponent(id)}/withdraw`)
+            return await resp.json() as {
+    request: interfaces.InvoiceChangeRequestItem
+}
         }
 
         /**
@@ -1754,6 +1831,16 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/import-quote`, JSON.stringify(params))
             return await resp.json() as interfaces.QuoteImportResult
+        }
+
+        public async invoicingInvoiceChangeRequestsOfShipment(shipmentId: string): Promise<{
+    requests: interfaces.InvoiceChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}/invoice-change-requests`)
+            return await resp.json() as {
+    requests: interfaces.InvoiceChangeRequestItem[]
+}
         }
 
         public async invoicingMasterJobCostAdd(masterJobId: string, params: controllers.CreateMasterJobCostRequest): Promise<interfaces.MasterJobCostsView> {
@@ -6861,6 +6948,18 @@ export namespace controllers {
         tooMany: boolean
     }
 
+    export interface AskChangeRequest {
+        /**
+         * What is wrong with the invoice
+         */
+        fixes: interfaces.InvoiceFixItem[]
+
+        /**
+         * Why
+         */
+        reason: string
+    }
+
     export interface AskPartialCreditRequest {
         /**
          * The lines to credit, each by an amount in the line's own currency
@@ -7926,6 +8025,11 @@ export namespace controllers {
     }
 
     export interface DecideAmountRequest {
+        decision: "approve" | "reject"
+        comment?: string
+    }
+
+    export interface DecideChangeRequest {
         decision: "approve" | "reject"
         comment?: string
     }
@@ -16587,6 +16691,36 @@ export namespace interfaces {
         statementNumbers: string[]
     }
 
+    /**
+     * A request to change an invoice on its issue day, and its answer (Sales → Managers → Billing approvals).
+     */
+    export interface InvoiceChangeRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        invoiceId: string
+        invoiceNumber: string
+        customerName: string
+        currency: string
+        gross: string
+        /**
+         * The invoice's issue date: the request can be answered only on it
+         */
+        issueDate: string
+
+        fixes: InvoiceFixItem[]
+        reason: string
+        status: "pending" | "approved" | "rejected" | "withdrawn" | "expired"
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        decidedByName: string
+        decidedAt: string | null
+        comment: string
+        selfDecision: boolean
+        answerSeenAt: string | null
+    }
+
     export interface InvoiceCostItem {
         id: string
         shipmentId: string
@@ -16735,9 +16869,14 @@ export namespace interfaces {
     }
 
     /**
-     * issued; an invoice reversed by a credit note becomes credited
+     * cancelled: withdrawn on its issue day with a manager's approval, to be corrected and issued again under the next number
      */
-    export type InvoiceDocStatus = "issued" | "credited"
+    export type InvoiceDocStatus = "issued" | "credited" | "cancelled"
+
+    /**
+     * What is wrong with an invoice, as the one asking to change it ticks it
+     */
+    export type InvoiceFixItem = "lines" | "customer" | "duzp" | "currency" | "text" | "other"
 
     export interface InvoiceItem {
         id: string
@@ -17017,9 +17156,10 @@ export namespace interfaces {
     }
 
     /**
-     * Credited = reversed by a credit note; like Paid, it no longer counts as owed.
+     * Credited = reversed by a credit note; Cancelled = withdrawn on its issue day (Invoicing, with a
+     * manager's approval) and issued again under another number. Like Paid, neither counts as owed.
      */
-    export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited"
+    export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited" | "Cancelled"
 
     export interface InvoiceVatSummaryItem {
         vatCode: VatCode

@@ -288,6 +288,31 @@ class InvoiceRepository extends TenantRepository<typeof t> {
   }
 
   /**
+   * Cancels an invoice on its issue day (services/invoiceChangeRequest): the one other status change
+   * an issued invoice allows (the database trigger too). false = it is no longer issued, or was not
+   * issued on `issueDate`.
+   */
+  async markCancelled(tx: Tx, id: string, companyId: string, issueDate: string): Promise<boolean> {
+    const rows = await tx
+      .update(t)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(and(eq(t.id, id), eq(t.companyId, companyId), eq(t.kind, "invoice"), eq(t.status, "issued"), eq(t.issueDate, issueDate)))
+      .returning({ id: t.id });
+    return rows.length > 0;
+  }
+
+  /** Takes the series lock of a job's credit notes, so no credit note of it is issued meanwhile. */
+  async lockSeries(tx: Tx, companyId: string, seriesPrefix: string): Promise<void> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`invoice-number:${companyId}:${seriesPrefix}`}))`);
+  }
+
+  /** The invoice as it is now, read in a transaction. */
+  async getInTx(tx: Tx, id: string, companyId: string): Promise<InvoiceRecord | null> {
+    const [row] = await tx.select().from(t).where(and(eq(t.id, id), eq(t.companyId, companyId), isNull(t.deletedAt))).limit(1);
+    return row ?? null;
+  }
+
+  /**
    * Stores the PDF reference once. false = another request stored one a moment earlier;
    * that first file stays the official copy.
    */

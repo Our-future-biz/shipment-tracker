@@ -25,6 +25,7 @@ import { SalesQuoteInquiries } from "./SalesQuoteInquiries";
 import { SalesCompanyApprovals } from "./SalesCompanyApprovals";
 import { BillingApprovals } from "./BillingApprovals";
 import { useCreditNoteRequests } from "@/hooks/useCreditNoteRequests";
+import { useInvoiceChangeRequests } from "@/hooks/useInvoiceChangeRequests";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
 import { BTN, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
@@ -323,8 +324,11 @@ function SalesManagersCockpit() {
     (tab === "inquiries" ? inquiries.filter((r) => r.inquiry.status === "pending" && inCockpitMode(r.serviceType, mode)).length : (cockpit?.tiles.awaitingApproval ?? 0)) + sellingAmountsWaiting;
   // New suppliers waiting for a manager, counted on their tab (they have no freight mode).
   const { waiting: suppliersWaiting } = useSupplierApprovals();
-  // Partial credit notes waiting for a manager, counted on their tab (an invoice has no freight mode).
+  // Partial credit notes and issue-day invoice changes waiting for a manager, counted on their tab
+  // (an invoice has no freight mode).
   const { waiting: creditNotesWaiting } = useCreditNoteRequests();
+  const { waiting: invoiceChangesWaiting } = useInvoiceChangeRequests();
+  const billingWaiting = creditNotesWaiting + invoiceChangesWaiting;
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
   const service = LIST_SERVICE[mode];
 
@@ -435,9 +439,9 @@ function SalesManagersCockpit() {
             label: (
               <span className="whitespace-nowrap">
                 Billing approvals
-                {creditNotesWaiting > 0 && (
+                {billingWaiting > 0 && (
                   <Pill tone="amber" className="ml-1.5 tabular-nums">
-                    {creditNotesWaiting}
+                    {billingWaiting}
                   </Pill>
                 )}
               </span>

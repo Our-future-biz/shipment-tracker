@@ -73,8 +73,8 @@ class InvoiceService {
    * An invoice reversed by a credit note: the invoice and the credit note both stop counting
    * as owed (aging / credit) — they cancel each other out.
    */
-  async markCredited(companyId: string, invoiceNumbers: string[]): Promise<number> {
-    return customerInvoiceRepository.setStatusByNumbers(companyId, invoiceNumbers, "Credited");
+  async markCredited(companyId: string, invoiceNumbers: string[], status: "Credited" | "Cancelled" = "Credited"): Promise<number> {
+    return customerInvoiceRepository.setStatusByNumbers(companyId, invoiceNumbers, status);
   }
 
   async softDelete(id: string, companyId: string): Promise<void> {

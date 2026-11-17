@@ -312,7 +312,8 @@ export type VatCode = SellingVatCode | "NP";
 export type InvoiceDocKind = "invoice" | "credit_note";
 
 /** issued; an invoice reversed by a credit note becomes credited */
-export type InvoiceDocStatus = "issued" | "credited";
+/** cancelled: withdrawn on its issue day with a manager's approval, to be corrected and issued again under the next number */
+export type InvoiceDocStatus = "issued" | "credited" | "cancelled";
 
 /** Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status) */
 export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals";
@@ -1050,4 +1051,32 @@ export interface CreditNoteRequestItem {
   answerSeenAt: string | null;
   creditNoteId: string | null;
   creditNoteNumber: string;
+}
+
+/** What is wrong with an invoice, as the one asking to change it ticks it */
+export type InvoiceFixItem = "lines" | "customer" | "duzp" | "currency" | "text" | "other";
+
+/** A request to change an invoice on its issue day, and its answer (Sales → Managers → Billing approvals). */
+export interface InvoiceChangeRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  currency: string;
+  gross: string;
+  /** The invoice's issue date: the request can be answered only on it */
+  issueDate: string;
+  fixes: InvoiceFixItem[];
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "withdrawn" | "expired";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  selfDecision: boolean;
+  answerSeenAt: string | null;
 }

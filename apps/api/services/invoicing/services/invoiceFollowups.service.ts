@@ -62,6 +62,17 @@ export function followupsOfCreditNote(
 }
 
 /**
+ * An invoice cancelled on its issue day (services/invoiceChangeRequest): Cancelled in the customer's
+ * list, so it is no longer owed, and the shipment back in the queue - its lines are billed again.
+ */
+export function followupsOfCancellation(invoice: InvoiceRecord, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
+  return rowsOf(invoice, invoice.shipmentId, actor, [
+    { kind: "mark_credited", payload: { invoiceNumbers: [invoice.number], status: "Cancelled" } },
+    { kind: "status_after_credit", payload: { shipmentId: invoice.shipmentId } },
+  ]);
+}
+
+/**
  * A partial credit note (lib/partialCredit): in the customer's list as Open with its negative amount,
  * due with the invoice, so what the customer owes drops by it; the invoice stays Open with the rest.
  * The shipment's statuses are looked at again, as after any credit note.
@@ -99,7 +110,11 @@ export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<vo
       return;
     }
     case "mark_credited":
-      await customers.invoiceMarkCredited({ invoiceNumbers: payload.invoiceNumbers as string[] }, { authData });
+      // Cancelled for an invoice withdrawn on its issue day; Credited otherwise (the rows from before carry no status).
+      await customers.invoiceMarkCredited(
+        { invoiceNumbers: payload.invoiceNumbers as string[], ...(payload.status === "Cancelled" ? { status: "Cancelled" as const } : {}) },
+        { authData },
+      );
       return;
     case "status_after_issue":
     case "status_after_credit": {
@@ -118,7 +133,7 @@ export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<vo
 
 const WHAT: Record<string, string> = {
   customer_invoice: "The document could not be added to the customer's invoice list",
-  mark_credited: "The credited invoice could not be marked Credited in the customer's invoice list",
+  mark_credited: "The credited or cancelled invoice could not be marked so in the customer's invoice list",
   status_after_issue: "The shipment's statuses could not be moved after the invoice",
   status_after_credit: "The shipment's statuses could not be moved after the credit note",
 };

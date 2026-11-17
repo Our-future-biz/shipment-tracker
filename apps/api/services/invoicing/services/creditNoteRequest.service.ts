@@ -91,7 +91,7 @@ class CreditNoteRequestService {
     if (reason.length < 3) throw APIError.invalidArgument("Give the reason for the credit note");
     const { original, remaining } = await invoiceDocumentService.creditState(invoiceId, actor.companyID);
     if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
-    if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
+    if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been ${original.status === "cancelled" ? "cancelled" : "credited"}`);
     const plan = planPartialCredit(remaining, input.lines ?? []);
     if ("problem" in plan) throw APIError.invalidArgument(plan.problem);
     const totals = partialCreditTotals(plan.lines, Number(original.fxRate));

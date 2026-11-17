@@ -39,8 +39,11 @@ export type DocumentType =
   | "Transport licence"
   | "Framework agreement"
   | "Certificate";
-/** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
-export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
+/**
+ * Credited = reversed by a credit note; Cancelled = withdrawn on its issue day (Invoicing, with a
+ * manager's approval) and issued again under another number. Like Paid, neither counts as owed.
+ */
+export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited" | "Cancelled";
 /**
  * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
  * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the

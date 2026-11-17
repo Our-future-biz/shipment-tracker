@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import { convert } from "@/lib/fx";
-import { summarizeInvoices, unconvertedReason } from "./customerInvoices";
+import { daysOverdue, effectiveStatus, isOverdue, isSettled, summarizeInvoices, unconvertedReason } from "./customerInvoices";
 
 const NOW = new Date("2026-10-13T12:00:00").getTime();
 const rates = { CZK: 1, EUR: 25, USD: 22 };
@@ -82,6 +82,17 @@ describe("summarizeInvoices", () => {
       NOW,
     );
     expect(s.outstanding).toBe(70);
+  });
+
+  it("treats an invoice cancelled on its issue day as settled: not owed, never overdue", () => {
+    const cancelled = inv({ id: "a", amount: 300, currency: "", status: "Cancelled", dueDate: "2020-01-01" });
+    const s = summarizeInvoices([cancelled, inv({ id: "b", amount: 70, currency: "" })], { currency: "USD", rates }, NOW);
+    expect(s.outstanding).toBe(70);
+    expect(s.overdueCount).toBe(0);
+    expect(isSettled(cancelled)).toBe(true);
+    expect(isOverdue(cancelled, NOW)).toBe(false);
+    expect(daysOverdue(cancelled, NOW)).toBe(0);
+    expect(effectiveStatus(cancelled, NOW)).toBe("Cancelled");
   });
 });
 

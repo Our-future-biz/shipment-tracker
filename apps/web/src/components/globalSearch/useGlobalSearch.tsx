@@ -119,7 +119,7 @@ const invoices: Source<interfaces.SearchInvoiceItem> = {
     title: i.number,
     isRef: true,
     subtitle: line(i.kind === "credit_note" ? "Credit note" : "Invoice", i.customerName, i.jobNumber, formatDate(i.issueDate), `${money(i.gross)} ${i.currency}`),
-    mark: i.status === "credited" ? <Pill tone="amber">Credited</Pill> : undefined,
+    mark: i.status === "credited" ? <Pill tone="amber">Credited</Pill> : i.status === "cancelled" ? <Pill tone="slate">Cancelled</Pill> : undefined,
   }),
 };
 

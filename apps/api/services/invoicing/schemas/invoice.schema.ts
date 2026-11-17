@@ -130,7 +130,8 @@ export const invoiceTable = pgTable(
     index("invoice_corrects_invoice_id_idx").on(table.correctsInvoiceId),
     foreignKey({ columns: [table.correctsInvoiceId], foreignColumns: [table.id], name: "invoice_corrects_invoice_id_fk" }),
     check("invoice_kind_check", sql`${table.kind} IN ('invoice', 'credit_note')`),
-    check("invoice_status_check", sql`${table.status} IN ('issued', 'credited')`),
+    // cancelled: withdrawn on the day it was issued, a manager approving a change (services/invoiceChangeRequest)
+    check("invoice_status_check", sql`${table.status} IN ('issued', 'credited', 'cancelled')`),
     // a credit note always names the invoice it reverses, and only a credit note does
     check("invoice_credit_note_link_check", sql`(${table.kind} = 'credit_note') = (${table.correctsInvoiceId} IS NOT NULL)`),
   ],

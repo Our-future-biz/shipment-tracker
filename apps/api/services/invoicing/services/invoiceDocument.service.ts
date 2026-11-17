@@ -44,11 +44,15 @@ import {
   deliverInvoiceFollowups,
   followupsOfCreditNote,
   followupsOfInvoice,
+  followupsOfCancellation,
   followupsOfPartialCreditNote,
   type FollowupActor,
 } from "./invoiceFollowups.service";
 import { fullCreditLines, fullCreditTotalsAfter, partialCreditTotals, planPartialCredit, remainingLines, type CreditLineCalc, type RemainingLine } from "../lib/partialCredit";
 import { creditNoteRequestRepository } from "../repositories/creditNoteRequest.repository";
+import { invoiceChangeRequestRepository } from "../repositories/invoiceChangeRequest.repository";
+import type { InvoiceChangeRequestRecord } from "../schemas/invoiceChangeRequest.schema";
+import { db } from "../db/db";
 import type { CreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
 import { userEmailOf } from "../../../lib/companyUsers";
 import { isUuid } from "../../../lib/uuid";
@@ -649,6 +653,7 @@ class InvoiceDocumentService {
       const original = await invoiceRepository.getByIdForCompany(invoiceId, companyId);
       if (!original) throw APIError.notFound("Invoice not found");
       if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
+      if (original.status === "cancelled") throw APIError.failedPrecondition(`Invoice ${original.number} was cancelled: it is no longer owed`);
       if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
 
       const [{ credits, remaining }, userEmail] = await Promise.all([creditState(original, companyId), userEmailOf(userId)]);
@@ -673,6 +678,7 @@ class InvoiceDocumentService {
             const ok = await invoiceRepository.markCredited(tx, original.id, companyId);
             if (!ok) throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
             await creditNoteRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: userId, name: userEmail }, `The invoice was credited in full on ${inserted.number}`);
+            await invoiceChangeRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: userId, name: userEmail }, `The invoice was credited in full on ${inserted.number}`);
             await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCreditNote(inserted, original, actorOf(userId), credits.map((c) => c.number)));
           },
         },
@@ -684,6 +690,42 @@ class InvoiceDocumentService {
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };
     });
+  }
+
+  /**
+   * Cancels an invoice on the day it was issued, a manager approving a change of it
+   * (services/invoiceChangeRequest): no credit note, the invoice kept on record as it was, and its
+   * lines billed again - corrected, under the next number. Under the series lock of the job's credit
+   * notes, so none is issued meanwhile; refused once one was (a credit note corrects it then), or
+   * once the issue day is over. In the same transaction the request is approved, a partial credit
+   * note asked for the invoice is taken back, and the customer's list and the shipment's statuses
+   * are told (the follow-ups).
+   */
+  async cancelOnIssueDay(
+    request: InvoiceChangeRequestRecord,
+    approver: { userId: string; userEmail: string; comment: string },
+  ): Promise<InvoiceRecord> {
+    const companyId = request.companyId;
+    const today = pragueToday();
+    const invoice = await db.transaction(async (tx) => {
+      const original = await invoiceRepository.getInTx(tx, request.invoiceId, companyId);
+      if (!original || original.kind !== "invoice") throw APIError.failedPrecondition("The invoice of this request is not there any more: reject the request");
+      await invoiceRepository.lockSeries(tx, companyId, invoiceSeriesPrefix("CN", original.shipment.jobYear, original.shipment.jobNumber));
+      const now = await invoiceRepository.getInTx(tx, original.id, companyId);
+      if (now?.status === "cancelled") throw APIError.failedPrecondition(`Invoice ${original.number} is cancelled already`);
+      if (now?.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has been credited since: reject the request`);
+      if (original.issueDate !== today) throw APIError.failedPrecondition(`Invoice ${original.number} was issued on ${original.issueDate}: it can be cancelled only that day`);
+      if ((await invoiceRepository.creditNotesOf(original.id, companyId, tx)).length) {
+        throw APIError.failedPrecondition(`Invoice ${original.number} has been credited in part since: correct it with a credit note, and reject the request`);
+      }
+      if (!(await invoiceRepository.markCancelled(tx, original.id, companyId, today))) throw APIError.failedPrecondition(`Invoice ${original.number} can no longer be cancelled`);
+      if (!(await invoiceChangeRequestRepository.approve(tx, companyId, request.id, approver))) throw APIError.failedPrecondition("This request was answered a moment ago");
+      await creditNoteRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: approver.userId, name: approver.userEmail }, `The invoice was cancelled on its issue day`);
+      await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCancellation(original, actorOf(approver.userId)));
+      return { ...original, status: "cancelled" as const };
+    });
+    await deliverInvoiceFollowups(invoice.id);
+    return invoice;
   }
 
   /** What is left of an invoice to credit, line by line (the credit dialog), and its credit notes so far. */
@@ -706,7 +748,7 @@ class InvoiceDocumentService {
     return issueOnce(companyId, key, sameRequest, async () => {
       const original = await invoiceRepository.getByIdForCompany(request.invoiceId, companyId);
       if (!original || original.kind !== "invoice") throw APIError.failedPrecondition("The invoice of this request is not there any more: reject the request");
-      if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has been credited in full since: reject the request`);
+      if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has been ${original.status === "cancelled" ? "cancelled" : "credited in full"} since: reject the request`);
 
       const { credits, remaining } = await creditState(original, companyId);
       const plan = planPartialCredit(remaining, request.lines.map((l) => ({ lineId: l.lineId, amount: l.amount })));
@@ -730,6 +772,8 @@ class InvoiceDocumentService {
           afterInsert: async (tx, inserted) => {
             const approved = await creditNoteRequestRepository.approve(tx, companyId, request.id, approver, { id: inserted.id, number: inserted.number });
             if (!approved) throw APIError.failedPrecondition("This request was answered a moment ago");
+            // A change of the invoice asked meanwhile can't cancel it any more: a credit note corrects it now.
+            await invoiceChangeRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: approver.userId, name: approver.userEmail }, `The invoice was credited in part on ${inserted.number}`);
             await sellingCostRepository.insertCreditRows(
               tx,
               companyId,

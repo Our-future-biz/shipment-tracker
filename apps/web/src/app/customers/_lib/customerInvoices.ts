@@ -51,13 +51,16 @@ export function unconvertedReason(unconverted: InvoiceSummary["unconverted"], ra
 // An invoice without a currency was entered by hand in the customer's currency.
 const invoiceCurrency = (invoice: InvoiceItem, fx: InvoiceFx) => invoice.currency || fx.currency;
 
-/** Nothing more is owed: paid, or cancelled by a credit note. */
+/**
+ * Nothing more is owed: paid, cancelled by a credit note, or cancelled on its issue day (it is
+ * issued again corrected under a new number, which is the one owed).
+ */
 export function isSettled(invoice: InvoiceItem): boolean {
-  return invoice.status === "Paid" || invoice.status === "Credited";
+  return invoice.status === "Paid" || invoice.status === "Credited" || invoice.status === "Cancelled";
 }
 
 // Whole calendar days past the due date on the viewer's clock (the one the Due column is shown in);
-// 0 when paid, not yet due, or the date is missing/unreadable.
+// 0 when settled, not yet due, or the date is missing/unreadable.
 export function daysOverdue(invoice: InvoiceItem, now = Date.now()): number {
   if (isSettled(invoice) || !ISO_DATE.test(invoice.dueDate)) return 0;
   const due = dayjs(invoice.dueDate.slice(0, 10));

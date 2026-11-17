@@ -15,7 +15,8 @@ export type InvoiceFollowupKind = "customer_invoice" | "mark_credited" | "status
 
 export type InvoiceFollowupPayload =
   | { customerId: string; invoiceNumber: string; amount: number; currency: string; dueDate: string; status: "Open" | "Credited"; issuedAt: string }
-  | { invoiceNumbers: string[] }
+  // mark_credited: Cancelled for an invoice cancelled on its issue day; Credited when left out
+  | { invoiceNumbers: string[]; status?: "Cancelled" }
   | { shipmentId: string };
 
 // The follow-ups of an issued invoice or credit note, written in the issue's own transaction and
