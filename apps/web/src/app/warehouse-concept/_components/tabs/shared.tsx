@@ -179,6 +179,8 @@ export type FieldDef = {
   step?: number;
   placeholder?: string;
   section?: string;
+  /** Why the value can't be taken (shown under the field), or null - for a rule the server holds too. */
+  validate?: (value: string) => string | null;
 };
 
 // Create / edit form for a warehouse record, laid out in two columns with optional sections.
@@ -329,6 +331,9 @@ export function RecordFormModal<V extends object>({
                 ...(f.required ? [{ required: true, message: `${f.label} is required` }] : []),
                 ...(f.type === "container"
                   ? [{ validator: (_: unknown, v?: string) => (isValidContainerNumber(v) ? Promise.resolve() : Promise.reject(new Error("4 letters + 7 digits, e.g. MSKU1234567"))) }]
+                  : []),
+                ...(f.validate
+                  ? [{ validator: (_: unknown, v?: string) => { const why = f.validate!(v ?? ""); return why ? Promise.reject(new Error(why)) : Promise.resolve(); } }]
                   : []),
               ]}
             >

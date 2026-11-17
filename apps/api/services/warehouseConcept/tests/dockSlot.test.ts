@@ -125,6 +125,22 @@ describe("dock slots linked to positions", () => {
     expect((await svc.updateDockSlot(slot.id, c, { status: "Completed" })).status).toBe("Completed");
   });
 
+  // T8: the docks keep the Czech public holidays, as a trip's slot does (tripSlotWindow).
+  it("refuses a slot on a Czech public holiday, booked or moved there; one already there can still be closed", async () => {
+    const c = randomUUID();
+    const p = await position(c);
+    for (const holiday of ["2026-11-17", "2026-12-24", "2026-12-25"]) {
+      await expect(svc.createDockSlot(c, { movementId: p.id, date: holiday, time: "08:00", dock: "Dock 1" })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: `The docks do not work on ${holiday}, a Czech public holiday — pick another day`,
+      });
+    }
+    const slot = await svc.createDockSlot(c, { movementId: p.id, date: DAY, time: "08:00", dock: "Dock 1" });
+    await expect(svc.updateDockSlot(slot.id, c, { date: "2026-12-24" })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect((await svc.listDockSlots(c)).map((s) => s.date)).toEqual([DAY]);
+    expect((await svc.updateDockSlot(slot.id, c, { status: "Completed" })).status).toBe("Completed");
+  });
+
   it("works out the slot time in Prague time across the clock change", () => {
     expect(pragueInstant("2026-01-15", "08:00").toISOString()).toBe("2026-01-15T07:00:00.000Z");
     expect(pragueInstant("2026-07-15", "08:00").toISOString()).toBe("2026-07-15T06:00:00.000Z");
@@ -143,6 +159,25 @@ describe("a gate record taken out of the Gate Log frees its door", () => {
     // Free again: the deleted record's slot no longer holds Dock 3 at 14:00.
     await expect(svc.createDockSlot(c, { movementId: other.id, date: DAY, time: "14:00", dock: "Dock 3" })).resolves.toMatchObject({ status: "Booked" });
     expect(slot.status).toBe("Booked");
+  });
+
+  // T6: a slot in progress is completed with its record - it stays as what happened, and the door is free.
+  it("completes a slot in progress when the record is deleted or archived, so its door can be booked again", async () => {
+    const c = randomUUID();
+    const deleted = await position(c);
+    const archived = await position(c);
+    const a = await svc.createDockSlot(c, { movementId: deleted.id, date: DAY, time: "16:00", dock: "Dock 3" });
+    const b = await svc.createDockSlot(c, { movementId: archived.id, date: DAY, time: "17:00", dock: "Dock 3" });
+    await svc.updateDockSlot(a.id, c, { status: "In progress" });
+    await svc.updateDockSlot(b.id, c, { status: "In progress" });
+    await gateMovementService.remove(deleted.id, c, user);
+    await gateAdminService.archive(archived.id, c, user, "manager", "Booked twice");
+    const slots = new Map((await svc.listDockSlots(c)).map((s) => [s.id, s]));
+    expect(slots.get(a.id)).toMatchObject({ status: "Completed", note: "gate record deleted" });
+    expect(slots.get(b.id)).toMatchObject({ status: "Completed", note: "gate record archived: Booked twice" });
+    const other = await position(c);
+    await expect(svc.createDockSlot(c, { movementId: other.id, date: DAY, time: "16:00", dock: "Dock 3" })).resolves.toMatchObject({ status: "Booked" });
+    await expect(svc.createDockSlot(c, { movementId: other.id, date: DAY, time: "17:00", dock: "Dock 3" })).resolves.toMatchObject({ status: "Booked" });
   });
 
   it("cancels them when a manager archives it too", async () => {

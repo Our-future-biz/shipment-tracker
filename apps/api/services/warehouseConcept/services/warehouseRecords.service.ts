@@ -53,6 +53,7 @@ import type {
   WarehouseStaffItem,
 } from "../interfaces/records.interfaces";
 import { isDeadlock, isExclusionViolation } from "../../../lib/db/errors";
+import { isCzechHoliday } from "../../../lib/workingDays";
 import type { Tx } from "../repositories/warehouseSection.repository";
 
 type ContainerRow = typeof warehouseContainerTable.$inferSelect;
@@ -313,6 +314,12 @@ class WarehouseRecordsService {
     values.movementId = movementId;
 
     const date = values.date ?? stored?.date ?? "";
+    // The docks do not work on a Czech public holiday, whatever weekday it falls on - as a trip's
+    // slot is never booked then (tripSlotWindow, lib/workingDays). Checked when a slot is booked or
+    // moved to the day: one already on it can still be completed or cancelled.
+    if (isCalendarDate(date) && date !== stored?.date && isCzechHoliday(date)) {
+      throw APIError.failedPrecondition(`The docks do not work on ${date}, a Czech public holiday — pick another day`);
+    }
     const time = values.time ?? stored?.time ?? "";
     const durationMin = values.durationMin ?? stored?.durationMin ?? DOCK_SLOT_DEFAULT_MIN;
     if (isCalendarDate(date) && TIME.test(time)) Object.assign(values, slotWindow(date, time, durationMin));
