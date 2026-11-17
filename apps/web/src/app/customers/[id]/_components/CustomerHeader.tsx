@@ -22,7 +22,10 @@ import { CustomerSalesOwnerSelect } from "./CustomerSalesOwnerSelect";
 import { useCustomerCameFrom } from "../../_lib/customerCameFrom";
 import { useCustomerListHref } from "../../_lib/customerListHref";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
-import { useAuth } from "@/lib/auth/AuthContext";
+import { useAuth, useCanManageCustomers } from "@/lib/auth/AuthContext";
+import { EMPTY_COMPANY_NAME, renamedCompany } from "../../_lib/companyName";
+import { EditableText } from "./EditableText";
+import { useCustomerEdits } from "./useCustomerEdits";
 import { apiErrorMessage, apiFileUrl } from "@/lib/api";
 import { Pill } from "@/components/Pill";
 import { CARD, ICON_BTN, PAGE_TITLE } from "@/styles/ui";
@@ -47,6 +50,18 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const { deleteCustomer, uploadLogo, deleteLogo } = useCustomer(customer.id);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // The name shipments, quotes and invoices copy: a manager renames the company (the server refuses anyone else).
+  const { shown, save } = useCustomerEdits(customer);
+  const renameLocked = useCanManageCustomers() ? undefined : `Only a manager can rename the ${noun}`;
+
+  const handleRename = (typed: string) => {
+    const companyName = renamedCompany(typed);
+    if (!companyName) {
+      toast.error(EMPTY_COMPANY_NAME);
+      return;
+    }
+    save({ companyName });
+  };
 
   const handleLogoFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -111,12 +126,20 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={apiFileUrl(customer.logoUrl)} alt="" className="w-full h-full object-contain" />
             ) : (
-              <span className="text-[16px] font-semibold text-indigo-600">{customer.companyName.slice(0, 2).toUpperCase()}</span>
+              <span className="text-[16px] font-semibold text-indigo-600">{shown.companyName.slice(0, 2).toUpperCase()}</span>
             )}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className={PAGE_TITLE}>{customer.companyName}</h1>
+              <h1 className={PAGE_TITLE}>
+                <EditableText
+                  value={shown.companyName}
+                  onCommit={handleRename}
+                  label="company name"
+                  readOnlyReason={renameLocked}
+                  inputClassName="w-[360px] max-w-full"
+                />
+              </h1>
               {/* A customer's account type; a supplier only shows what it supplies instead. */}
               {!isSupplierOnly(customer.roles) && <CustomerAccountTypeBadge label={customer.label} />}
               <CustomerRoleBadges roles={customer.roles} />

@@ -17,11 +17,13 @@ interface EditableTextProps {
   label?: string;
   // Shown but not editable (e.g. a field only a manager may change); the hover says why.
   readOnlyReason?: string;
+  // The input's width: a short field by default, wider where a long value is edited (a company name).
+  inputClassName?: string;
 }
 
 // Click-to-edit text: a button showing the value that turns into an input. Enter or leaving the field saves,
 // Escape cancels.
-export function EditableText({ value, onCommit, placeholder = "—", label, readOnlyReason }: EditableTextProps) {
+export function EditableText({ value, onCommit, placeholder = "—", label, readOnlyReason, inputClassName = "max-w-[180px]" }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -75,7 +77,7 @@ export function EditableText({ value, onCommit, placeholder = "—", label, read
         onBlur={() => finish(true)}
         onPressEnter={handlePressEnter}
         onKeyDown={handleKeyDown}
-        className="max-w-[180px]"
+        className={inputClassName}
       />
     );
   }

@@ -249,6 +249,8 @@ function definedOnly<T extends object>(patch: T): Partial<T> {
  * them; any user may edit the rest of the record.
  */
 const MANAGER_FIELDS = [
+  // The name shipments, quotes, follow-ups and invoices copy: a rename reaches all of them.
+  "companyName",
   "salesOwnerUserId",
   "label",
   "creditLimit",

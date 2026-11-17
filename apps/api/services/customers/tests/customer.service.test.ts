@@ -43,7 +43,7 @@ vi.mock("encore.dev/api", () => ({
     invalidArgument: (msg: string) => new Error(msg),
     alreadyExists: (msg: string) => Object.assign(new Error(msg), { code: "already_exists" }),
     unavailable: (msg: string) => Object.assign(new Error(msg), { code: "unavailable" }),
-    permissionDenied: (msg: string) => new Error(msg),
+    permissionDenied: (msg: string) => Object.assign(new Error(msg), { code: "permission_denied" }),
     failedPrecondition: (msg: string) => Object.assign(new Error(msg), { code: "failed_precondition" }),
     aborted: (msg: string) => Object.assign(new Error(msg), { code: "aborted" }),
   },
@@ -215,10 +215,21 @@ describe("manager-only fields", () => {
     customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
     await customerService.update("c1", COMPANY, "user", { companyWebsite: "https://x.cz" });
     expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { companyWebsite: "https://x.cz" });
-    for (const patch of [{ salesOwnerUserId: null }, { creditLimit: 1000 }, { label: "KEY ACCOUNT" as const }, { paymentTerms: "30 days" }, { riskLevel: "High" as const }, { industry: "Steel" }]) {
+    for (const patch of [{ salesOwnerUserId: null }, { creditLimit: 1000 }, { label: "KEY ACCOUNT" as const }, { paymentTerms: "30 days" }, { riskLevel: "High" as const }, { industry: "Steel" }, { companyName: "Alfa Group s.r.o." }]) {
       await expect(customerService.update("c1", COMPANY, "user", patch)).rejects.toThrow(/Only a manager can change/);
     }
     expect(customers.updateForCompany).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a manager, an admin and a superadmin rename the company, but not a plain user", async () => {
+    customers.updateForCompany.mockResolvedValue({ id: "c1", companyName: "Alfa Group s.r.o.", createdAt: now, updatedAt: now });
+    await expect(customerService.update("c1", COMPANY, "user", { companyName: "Alfa Group s.r.o." })).rejects.toMatchObject({ code: "permission_denied" });
+    expect(customers.updateForCompany).not.toHaveBeenCalled();
+    for (const role of ["manager", "admin", "superadmin"]) {
+      await customerService.update("c1", COMPANY, role, { companyName: "Alfa Group s.r.o." });
+    }
+    expect(customers.updateForCompany).toHaveBeenCalledTimes(3);
+    expect(customers.updateForCompany).toHaveBeenLastCalledWith("c1", COMPANY, { companyName: "Alfa Group s.r.o." });
   });
 });
 
@@ -514,17 +525,17 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
 
   it("the name is stored trimmed, and a blank one is refused before anything is written or sent", async () => {
     customers.updateForCompany.mockResolvedValue(saved());
-    await customerService.update("c1", COMPANY, "user", { companyName: "  Alfa s.r.o. " });
+    await customerService.update("c1", COMPANY, "manager", { companyName: "  Alfa s.r.o. " });
     expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { companyName: "Alfa s.r.o." });
     vi.clearAllMocks();
-    await expect(customerService.update("c1", COMPANY, "user", { companyName: "   " })).rejects.toThrow("The company name can't be empty");
+    await expect(customerService.update("c1", COMPANY, "manager", { companyName: "   " })).rejects.toThrow("The company name can't be empty");
     expect(customers.updateForCompany).not.toHaveBeenCalled();
     expect(topics.customerChanged.publish).not.toHaveBeenCalled();
   });
 
   it("nothing is sent for a customer that isn't there", async () => {
     customers.updateForCompany.mockResolvedValue(null);
-    await expect(customerService.update("x", COMPANY, "user", { companyName: "Beta" })).rejects.toThrow("Customer not found");
+    await expect(customerService.update("x", COMPANY, "manager", { companyName: "Beta" })).rejects.toThrow("Customer not found");
     customers.softDeleteWithChildren.mockResolvedValue(null);
     await expect(customerService.softDelete("x", COMPANY)).rejects.toThrow("Customer not found");
     customers.getDeletedForCompany.mockResolvedValue(saved({ deletedAt: now }));

@@ -287,8 +287,8 @@ describe("roles", () => {
 
   it("stay as they are when a change does not send them", async () => {
     repository.updateForCompany.mockResolvedValue(customerRow());
-    await customerService.update("customer-1", COMPANY, "user", { companyName: "ITTEC" });
-    expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { companyName: "ITTEC" });
+    await customerService.update("customer-1", COMPANY, "user", { companyWebsite: "https://ittec.cz" });
+    expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { companyWebsite: "https://ittec.cz" });
   });
 });
 
