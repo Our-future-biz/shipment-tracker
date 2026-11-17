@@ -11,7 +11,8 @@ import { businessDateTime } from "@/lib/date";
 import { amountInBox } from "@/lib/money";
 import { HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 import { CLAIM_STATUSES, claimChanges, claimFilled, costClaimSendable, type ClaimValues } from "./claimValues";
-import { apInvoiceHref, type SupplierInvoiceOption } from "./supplierInvoiceLink";
+import { apInvoiceHref } from "@/lib/accountsPayable";
+import type { SupplierInvoiceOption } from "./supplierInvoiceLink";
 
 type Claim = interfaces.ClaimItem;
 export type { ClaimValues };

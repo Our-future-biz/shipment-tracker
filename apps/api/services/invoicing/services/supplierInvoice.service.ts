@@ -642,7 +642,7 @@ class SupplierInvoiceService {
       h,
       { paidOn, paidAt, paidByUserId: actor.userID, paidBy: by },
       { action: "paid", fromStatus: h.status, toStatus: h.status, byUserId: actor.userID, by, payload: { paidOn } },
-      (tx) => repo.setLinesPaid(tx, actor.companyID, h.id, { paidOn, paidAt, paidByUserId: actor.userID, paidBy: by }),
+      (tx) => repo.setLinesPaid(tx, actor.companyID, h.id, { pay: { paidOn, paidAt, paidByUserId: actor.userID, paidBy: by } }),
     );
     if (!row) throw changedMeanwhile();
     return this.detail(actor, id);
@@ -656,13 +656,16 @@ class SupplierInvoiceService {
     const h = await this.header(actor, id);
     this.assertVersion(h, version);
     if (!h.paidOn) throw APIError.failedPrecondition("This invoice is not marked paid");
+    const paidOn = h.paidOn;
     const by = await userEmailOf(actor.userID);
     const row = await repo.decide(
       actor.companyID,
       h,
       { paidOn: null, paidAt: null, paidByUserId: null, paidBy: "" },
       { action: "payment_taken_back", fromStatus: h.status, toStatus: h.status, byUserId: actor.userID, by, reason: why, payload: { paidOn: h.paidOn } },
-      (tx) => repo.setLinesPaid(tx, actor.companyID, h.id, null),
+      // Its lines as they were before it: a manager's payment unstamps what it stamped; one taken from the lines
+      // (paid before Accounts Payable existed, no manager noted it) was theirs, so all of them.
+      (tx) => repo.setLinesPaid(tx, actor.companyID, h.id, { takeBack: { paidOn, paidAt: h.paidAt, fromLines: !h.paidByUserId } }),
     );
     if (!row) throw changedMeanwhile();
     return this.detail(actor, id);

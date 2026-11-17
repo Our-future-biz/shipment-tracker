@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { apInvoiceHref, supplierInvoiceOptions } from "./supplierInvoiceLink";
+import { apInvoiceHref } from "@/lib/accountsPayable";
+import { supplierInvoiceOptions } from "./supplierInvoiceLink";
 
 const line = (supplierInvoiceId: string | null, vendor = "Maersk", invoiceNumber = "FA-1", realCurrency = "EUR") => ({
   supplierInvoiceId,

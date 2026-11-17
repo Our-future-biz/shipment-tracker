@@ -128,7 +128,7 @@ log.error(err, "shipments: shipment-deleted not published for good", { outboxId:
 
 ## 9. Tests
 
-Vitest. Tests live in `services/<service>/tests/`, never next to the source. Database tests are skipped by a plain `vitest run`. The shipments, trucking and warehouseConcept ones run under `encore test` with `SHIPMENTS_DB_TESTS=1`, `TRUCKING_DB_TESTS=1` or `WAREHOUSE_DB_TESTS=1` (see `apps/api/vitest.config.ts`). The quotes and sales ones run when `QUOTES_DB_URL` or `SALES_DB_URL` names a database. See [Testing Standards](testing_standards.md).
+Vitest. Tests live in `services/<service>/tests/`, never next to the source. Database tests are skipped by a plain `vitest run`. The shipments, trucking, invoicing and warehouseConcept ones run under `encore test` with `SHIPMENTS_DB_TESTS=1`, `TRUCKING_DB_TESTS=1`, `INVOICING_DB_TESTS=1` or `WAREHOUSE_DB_TESTS=1` (see `apps/api/vitest.config.ts`). The quotes and sales ones run when `QUOTES_DB_URL` or `SALES_DB_URL` names a database. See [Testing Standards](testing_standards.md).
 
 ---
 

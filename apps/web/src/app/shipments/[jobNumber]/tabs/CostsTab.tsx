@@ -32,7 +32,7 @@ import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { isDetailsManager } from "@/lib/shipmentEditRule";
 import { SupplierPicker, type SupplierValue } from "@/components/SupplierPicker";
 import { CostPaidCell } from "./CostPaidCell";
-import { apInvoiceHref } from "./supplierInvoiceLink";
+import { apInvoiceHref } from "@/lib/accountsPayable";
 import { SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import { CurrencyPicker } from "@/components/CurrencyPicker";

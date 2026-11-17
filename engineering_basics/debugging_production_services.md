@@ -37,7 +37,7 @@ Other commands:
 | The web app loads but every call fails | The API is not up on 4001 (look at the terminal), or `NEXT_PUBLIC_API_URL` points somewhere else. |
 | AI document reading fails | `ANTHROPIC_API_KEY` in `.secrets.local.cue` is still the placeholder. |
 | `tsc` errors about `encore.gen` | `encore.gen` is generated and goes stale. Run `encore gen wrappers` in `apps/api`. In `apps/web`, ignore errors under `.next/types`. |
-| Database tests seem to pass but never ran | A plain `vitest run` skips them. Run them with `encore test` and `SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1` (see `apps/api/vitest.config.ts`). |
+| Database tests seem to pass but never ran | A plain `vitest run` skips them. Run them with `encore test` and `SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1 INVOICING_DB_TESTS=1` (see `apps/api/vitest.config.ts`). |
 
 ## In Encore Cloud
 

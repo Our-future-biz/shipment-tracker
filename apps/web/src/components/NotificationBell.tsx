@@ -34,6 +34,7 @@ import { useTrackingBell, useTrackingMarkRead, type TrackingBellNotice } from "@
 import { useDocumentChangeAnswers, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 import { fold } from "@/lib/fold";
+import { apInvoiceHref } from "@/lib/accountsPayable";
 
 // On the company's calendar and clock (Prague), wherever the browser is.
 const formatTime = (iso: string) => businessDateTime(iso);
@@ -537,7 +538,7 @@ export function NotificationBell() {
   };
   const openPayableBooked = (b: PayableNotice) => {
     payableSeen.mutate([b.invoiceId]);
-    go(`/accounts-payable?invoice=${encodeURIComponent(b.invoiceId)}`);
+    go(apInvoiceHref(b.invoiceId));
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = `px-4 py-2 border-b border-slate-200 bg-slate-50 ${LABEL_TEXT}`;

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Accounts Payable's record is matched after each cost write (services/supplierInvoice): stood in for here.
 vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceService: { beforeLineChange: vi.fn(async () => undefined), afterLineWrite: vi.fn(async () => []) } }));
 vi.mock("../../repositories/supplierInvoice.repository", () => ({
-  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined) },
+  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined), paidDays: vi.fn(async () => new Map<string, string>()) },
 }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
@@ -28,6 +28,7 @@ vi.mock("../../services/invoicing.service", () => ({
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import type { SplitRowValues } from "../../repositories/masterJobCost.repository";
 import { masterJobCostService } from "../../services/masterJobCost.service";
+import { supplierInvoiceRepository } from "../../repositories/supplierInvoice.repository";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const MASTER = "3d55a500-d6f8-4def-8e95-82e77493cabb";
@@ -98,6 +99,22 @@ describe("processing a master job's split", () => {
     await masterJobCostService.process(COMPANY, MASTER);
     expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
     expect(written).toEqual([]);
+  });
+});
+
+describe("a line on a supplier invoice (Finance → Accounts Payable)", () => {
+  it("comes with its invoice and the day that invoice was paid, so the tab keeps a paid line as paid", async () => {
+    const PAID = "5d0c7a1e-3b2f-4e6d-9a8c-1f2e3d4c5b6a";
+    const OPEN = "5d0c7a1e-3b2f-4e6d-9a8c-1f2e3d4c5b6b";
+    costs.list.mockResolvedValue([line({ supplierInvoiceId: PAID }), line({ id: "open", supplierInvoiceId: OPEN }), line({ id: "none", supplierInvoiceId: null })]);
+    vi.mocked(supplierInvoiceRepository.paidDays).mockResolvedValue(new Map([[PAID, "2026-11-10"]]));
+    const view = await masterJobCostService.view(COMPANY, MASTER);
+    expect(supplierInvoiceRepository.paidDays).toHaveBeenCalledWith(COMPANY, [PAID, OPEN]);
+    expect(view.lines.map((l) => [l.id, l.supplierInvoiceId, l.invoicePaidOn])).toEqual([
+      [LINE, PAID, "2026-11-10"],
+      ["open", OPEN, null],
+      ["none", null, null],
+    ]);
   });
 });
 

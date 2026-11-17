@@ -19,7 +19,8 @@ import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { ClaimFormModal, type ClaimValues } from "./ClaimFormModal";
 import { claimAmountText, claimStatusOf } from "./claimValues";
-import { apInvoiceHref, supplierInvoiceOptions } from "./supplierInvoiceLink";
+import { apInvoiceHref } from "@/lib/accountsPayable";
+import { supplierInvoiceOptions } from "./supplierInvoiceLink";
 
 // Claim tab: claims on the shipment itself (how the cargo arrived) and claims on a
 // supplier's costs. Each card holds as many claims as needed: "+" opens a dialog to fill one in,

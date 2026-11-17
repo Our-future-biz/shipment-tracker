@@ -567,14 +567,14 @@ vi.mock("../repositories/customerNote.repository", () => ({ customerNoteReposito
 
   Pure helpers (`lib/*.ts`, `services/<service>/lib/*.ts`) are tested directly. Repository tests
   without a database mock `../../db/db` and check the query that is built.
-- **Database tests** (`tests/db/*.db.test.ts` in shipments and trucking, and the
+- **Database tests** (`tests/db/*.db.test.ts` in shipments, trucking and invoicing, and the
   `warehouseConcept/tests`) run only under `encore test` with their flag. A plain `vitest run`
   skips them:
 
 ```bash
 cd apps/api
-SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1 \
-  encore test services/shipments/tests/db services/warehouseConcept/tests services/trucking/tests/db
+SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1 INVOICING_DB_TESTS=1 \
+  encore test services/shipments/tests/db services/warehouseConcept/tests services/trucking/tests/db services/invoicing/tests/db
 ```
 
 - Name a test by the behaviour ("is refused, not saved without an author, when the user can't be
@@ -595,6 +595,6 @@ SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1 \
 - [ ] Errors are `APIError`s with a sentence the user can act on.
 - [ ] A schema change comes with a generated migration (`drizzle-kit generate --config=…`).
 - [ ] Events and outbox handlers are idempotent, and crons also run locally (timer).
-- [ ] Unit tests pass, and the database tests too when repositories of shipments, trucking or
-      warehouseConcept changed. The web client (`apps/web/src/lib/api/client.ts`) is updated by
+- [ ] Unit tests pass, and the database tests too when repositories of shipments, trucking,
+      invoicing or warehouseConcept changed. The web client (`apps/web/src/lib/api/client.ts`) is updated by
       hand when an endpoint changed (see `rules/frontend-web.md`).

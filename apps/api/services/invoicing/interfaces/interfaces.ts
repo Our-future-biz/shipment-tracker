@@ -774,6 +774,10 @@ export interface MasterJobCostItem {
   /** The shipments taken out of this line's split: the line is shared out over the others */
   excludedShipmentIds: string[];
   sortOrder: number;
+  /** The supplier invoice the line is billed on (Finance → Accounts Payable); null without an invoice number */
+  supplierInvoiceId: string | null;
+  /** The day that invoice was marked paid (yyyy-mm-dd): its real cost, number and vendor then stay as paid; null while unpaid */
+  invoicePaidOn: string | null;
 }
 
 /** A shipment of the master job as the split sees it. */

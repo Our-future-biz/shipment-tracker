@@ -17800,6 +17800,15 @@ export namespace interfaces {
         excludedShipmentIds: string[]
 
         sortOrder: number
+        /**
+         * The supplier invoice the line is billed on (Finance → Accounts Payable); null without an invoice number
+         */
+        supplierInvoiceId: string | null
+
+        /**
+         * The day that invoice was marked paid (yyyy-mm-dd): its real cost, number and vendor then stay as paid; null while unpaid
+         */
+        invoicePaidOn: string | null
     }
 
     /**

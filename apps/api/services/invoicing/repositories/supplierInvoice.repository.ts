@@ -41,6 +41,22 @@ export interface EventInput {
 const ENTERED_HERE = [isNull(c.sourceTruckingRef), isNull(c.sourceMasterJobRef)];
 const LIVE = (companyId: string) => and(eq(t.companyId, companyId), isNull(t.deletedAt));
 
+/** A payment noted on Accounts Payable, as its job lines take it. */
+export interface LinePayment {
+  paidOn: string;
+  paidAt: Date;
+  paidByUserId: string;
+  paidBy: string;
+}
+
+/** The payment taken back, as it was on the invoice. */
+export interface PaymentTakenBack {
+  paidOn: string;
+  paidAt: Date | null;
+  /** Taken as paid from its lines, all paid before Accounts Payable existed (no manager noted it) */
+  fromLines: boolean;
+}
+
 interface SyncLine {
   id: string;
   invoiceNumber: string;
@@ -270,6 +286,16 @@ class SupplierInvoiceRepository {
     return siblings.get(masterSiblingKey({ masterJobId, vendor, invoiceNumber: numberKey }))?.id ?? null;
   }
 
+  /** The day each of these live invoices was marked paid; the unpaid ones are left out. */
+  async paidDays(companyId: string, ids: string[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map();
+    const rows = await db
+      .select({ id: t.id, paidOn: t.paidOn })
+      .from(t)
+      .where(and(LIVE(companyId), inArray(t.id, ids), isNotNull(t.paidOn)));
+    return new Map(rows.filter((r) => !!r.paidOn).map((r) => [r.id, r.paidOn!]));
+  }
+
   /** Which of these invoices are still there (a merge on linking a supplier deletes the record it merged). */
   async liveIds(companyId: string, ids: string[]): Promise<Set<string>> {
     if (!ids.length) return new Set();
@@ -378,19 +404,35 @@ class SupplierInvoiceRepository {
     });
   }
 
-  /** Marks the job lines of an invoice paid (or not), so the job's Costs and What we owe say the same. */
-  async setLinesPaid(tx: Tx, companyId: string, invoiceId: string, paid: { paidOn: string; paidAt: Date; paidByUserId: string; paidBy: string } | null): Promise<void> {
+  /**
+   * The invoice's payment on its job lines, so the job's Costs and What we owe say the same (D11). Paying stamps the
+   * lines not paid yet: one paid before Accounts Payable existed keeps its own day. Taking the payment back unstamps
+   * what this payment stamped (the lines of its paid time); an invoice taken as paid from its lines (all paid before
+   * Accounts Payable existed) was their payment, so all of them.
+   */
+  async setLinesPaid(tx: Tx, companyId: string, invoiceId: string, change: { pay: LinePayment } | { takeBack: PaymentTakenBack }): Promise<void> {
     const now = new Date();
-    if (paid) {
+    const lines = and(eq(c.companyId, companyId), isNull(c.deletedAt), eq(c.supplierInvoiceId, invoiceId));
+    if ("pay" in change) {
       await tx
         .update(c)
-        .set({ received: true, receivedAt: sql`coalesce(${c.receivedAt}, ${now.toISOString()}::timestamptz)`, ...paid, updatedAt: now })
-        .where(and(eq(c.companyId, companyId), isNull(c.deletedAt), eq(c.supplierInvoiceId, invoiceId)));
+        .set({ received: true, receivedAt: sql`coalesce(${c.receivedAt}, ${now.toISOString()}::timestamptz)`, updatedAt: now })
+        .where(lines);
+      await tx
+        .update(c)
+        .set({ ...change.pay, updatedAt: now })
+        .where(and(lines, isNull(c.paidOn)));
     } else {
+      const { paidOn, paidAt, fromLines } = change.takeBack;
+      const stampedByIt = fromLines
+        ? undefined
+        : paidAt
+          ? sql`date_trunc('milliseconds', ${c.paidAt}) = date_trunc('milliseconds', ${paidAt.toISOString()}::timestamptz)`
+          : eq(c.paidOn, paidOn);
       await tx
         .update(c)
         .set({ paidOn: null, paidAt: null, paidByUserId: null, paidBy: null, updatedAt: now })
-        .where(and(eq(c.companyId, companyId), isNull(c.deletedAt), eq(c.supplierInvoiceId, invoiceId)));
+        .where(and(lines, stampedByIt));
     }
     await this.sharesFollowPaid(tx, companyId, { invoiceId });
   }

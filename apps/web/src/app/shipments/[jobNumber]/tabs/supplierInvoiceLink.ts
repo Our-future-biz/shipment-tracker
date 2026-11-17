@@ -1,8 +1,5 @@
-// Finance → Accounts Payable (Council Outlay 9) seen from a shipment: where one supplier invoice opens, and the
-// invoices this shipment's buying lines are on, for a claim on costs to name (D15). Pure, so it is unit-tested.
-
-/** The Accounts Payable page opened on one supplier invoice. */
-export const apInvoiceHref = (supplierInvoiceId: string): string => `/accounts-payable?invoice=${encodeURIComponent(supplierInvoiceId)}`;
+// Finance → Accounts Payable (Council Outlay 9) seen from a shipment: the invoices this shipment's buying lines are
+// on, for a claim on costs to name (D15). Pure, so it is unit-tested. Where one invoice opens: lib/accountsPayable.
 
 /** What a buying line tells about the supplier invoice it is on. */
 interface InvoicedLine {

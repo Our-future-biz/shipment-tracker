@@ -21,7 +21,7 @@ import type { MasterJobCostInput, MasterJobCostItem, MasterJobCostsView, MasterJ
 
 const SPLIT_METHODS: readonly MasterJobSplitMethod[] = ["wm", "shipment"];
 
-const toItem = (r: MasterJobCostRecord): MasterJobCostItem => ({
+const toItem = (r: MasterJobCostRecord, paidOn: ReadonlyMap<string, string> = new Map()): MasterJobCostItem => ({
   id: r.id,
   masterJobId: r.masterJobId,
   category: r.category,
@@ -39,6 +39,8 @@ const toItem = (r: MasterJobCostRecord): MasterJobCostItem => ({
   inSplit: r.inSplit,
   excludedShipmentIds: r.excludedShipmentIds,
   sortOrder: r.sortOrder,
+  supplierInvoiceId: r.supplierInvoiceId,
+  invoicePaidOn: (r.supplierInvoiceId && paidOn.get(r.supplierInvoiceId)) || null,
 });
 
 function changesOf(input: MasterJobCostInput): Partial<NewMasterJobCostRecord> {
@@ -170,9 +172,11 @@ class MasterJobCostService {
   async view(companyId: string, masterJobId: string): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
     const [houses, lines] = await Promise.all([housesOf(masterJobId), masterJobCostRepository.list(companyId, masterJobId)]);
-    const shares = await sharesAsWritten(companyId, lines, houses);
+    const invoiceIds = [...new Set(lines.map((l) => l.supplierInvoiceId).filter((id): id is string => !!id))];
+    const [shares, paidOn] = await Promise.all([sharesAsWritten(companyId, lines, houses), supplierInvoiceRepository.paidDays(companyId, invoiceIds)]);
     const split = await masterJobCostRepository.splitState(companyId, masterJobId, splitRows(masterJobId, lines, shares));
-    return withVsEstimate({ lines: lines.map(toItem), houses, shares, split });
+    // A line of a supplier invoice marked paid stays as paid (D11): the tab says so, as the job's Costs Breakdown does.
+    return withVsEstimate({ lines: lines.map((l) => toItem(l, paidOn)), houses, shares, split });
   }
 
   async add(companyId: string, masterJobId: string, input: MasterJobCostInput, actorUserId = ""): Promise<MasterJobCostsView> {

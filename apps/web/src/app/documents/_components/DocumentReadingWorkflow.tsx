@@ -100,6 +100,7 @@ import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
 import { InvoiceHeaderFields } from "./InvoiceHeaderFields";
 import { anyToSplit, creditAmount, creditLines, invoiceDocumentDetails, invoiceLinesInvalid, invoicePostLines, lineAmount, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
 import { shipmentFreight } from "@/lib/freightTons";
+import { apInvoiceHref } from "@/lib/accountsPayable";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 
@@ -2355,7 +2356,7 @@ export function DocumentReadingWorkflow() {
                 </Button>
                 {destination === "quote" && quoteReading.written && <QuoteOpenButton quoteNumber={quoteReading.written.quoteNumber} />}
                 {destination === "invoicing" && splitDone?.supplierInvoiceId && (
-                  <Button onClick={() => router.push(`/accounts-payable?invoice=${encodeURIComponent(splitDone.supplierInvoiceId!)}`)}>
+                  <Button onClick={() => router.push(apInvoiceHref(splitDone.supplierInvoiceId!))}>
                     Open in Accounts Payable
                   </Button>
                 )}

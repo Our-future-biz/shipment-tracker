@@ -23,6 +23,8 @@ import { LOCKED_CONTROL, LOCKED_INPUT, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } 
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnWidths } from "@/hooks/useColumnWidths";
 import { supplierInvoiceKeys } from "@/hooks/supplierInvoiceKeys";
+import { formatDate } from "@/lib/date";
+import { apInvoiceHref } from "@/lib/accountsPayable";
 import { ResizableTh } from "@/components/ResizableTh";
 
 type View = interfaces.MasterJobCostsView;
@@ -349,6 +351,14 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 const control = locked ? LOCKED_CONTROL : "";
                 const input = locked ? LOCKED_INPUT : "";
                 const lockedProps = locked ? { open: false, tabIndex: -1 } : {};
+                // A line of a supplier invoice marked paid stays as paid: its real cost, invoice number and vendor
+                // are refused until the payment is taken back on Finance → Accounts Payable (D11), and it isn't deleted.
+                const paidOn = line.invoicePaidOn;
+                const billing = locked || !!paidOn;
+                const billingInput = billing ? LOCKED_INPUT : "";
+                const paidTitle = paidOn
+                  ? `On a supplier invoice marked paid on ${formatDate(paidOn)}: its real cost, invoice number and vendor stay as paid until the payment is taken back on Finance → Accounts Payable`
+                  : undefined;
                 return (
                 <tr
                   key={line.id}
@@ -357,7 +367,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   // The row being typed in is the open one.
                   onFocus={locked ? undefined : () => openKey !== line.id && open(line.id)}
                   onKeyDown={locked ? undefined : lockOnEnter(close)}
-                  title={locked ? "Double-click to edit" : undefined}
+                  title={paidTitle ?? (locked ? "Double-click to edit" : undefined)}
                   className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
                 >
                   <td className={`${CELL} text-center`}>
@@ -389,7 +399,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     <input readOnly={locked} className={`${FIELD} ${input}`} key={`d${line.description}`} defaultValue={line.description} onBlur={(e) => saveText(line, "description", e.target.value)} aria-label="Description" />
                   </td>
                   <td className={CELL}>
-                    <input readOnly={locked} className={`${FIELD} ${input}`} key={`v${line.vendor}`} defaultValue={line.vendor} placeholder="—" onBlur={(e) => saveText(line, "vendor", e.target.value)} aria-label="Vendor" />
+                    <input readOnly={billing} className={`${FIELD} ${billingInput}`} key={`v${line.vendor}`} defaultValue={line.vendor} placeholder="—" onBlur={(e) => !paidOn && saveText(line, "vendor", e.target.value)} aria-label="Vendor" />
                   </td>
                   <td className={CELL}>
                     <input key={`eq${line.estQty}`} defaultValue={line.estQty ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => saveAmount(line, "estQty", e.target.value)} readOnly={locked} className={`${FIELD} text-center ${input}`} aria-label="Estimated quantity" />
@@ -401,16 +411,23 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     <CurrencyPicker locked={locked} value={line.estCurrency} onChange={(v) => saveEstCurrency(line, v)} ariaLabel="Estimated currency" />
                   </td>
                   <td className={`${CELL} ${SPLIT_LINE}`}>
-                    <input key={`rq${line.realQty}`} defaultValue={line.realQty ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => saveAmount(line, "realQty", e.target.value)} readOnly={locked} className={`${FIELD} text-center ${input}`} aria-label="Real quantity" />
+                    <input key={`rq${line.realQty}`} defaultValue={line.realQty ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => !paidOn && saveAmount(line, "realQty", e.target.value)} readOnly={billing} className={`${FIELD} text-center ${billingInput}`} aria-label="Real quantity" />
                   </td>
                   <td className={CELL}>
-                    <input key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => saveAmount(line, "realAmount", e.target.value)} readOnly={locked} className={`${FIELD} text-right ${input}`} aria-label="Real Cost" />
+                    <input key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => !paidOn && saveAmount(line, "realAmount", e.target.value)} readOnly={billing} className={`${FIELD} text-right ${billingInput}`} aria-label="Real Cost" />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker locked={locked} value={line.realCurrency} onChange={(v) => save(line, { realCurrency: v })} ariaLabel="Real currency" />
+                    <CurrencyPicker locked={billing} value={line.realCurrency} onChange={(v) => save(line, { realCurrency: v })} ariaLabel="Real currency" />
                   </td>
                   <td className={CELL}>
-                    <input readOnly={locked} className={`${FIELD} ${input}`} key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => saveInvoiceNumber(line, e.target.value)} aria-label="Invoice number" />
+                    <input readOnly={billing} className={`${FIELD} ${billingInput}`} key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => !paidOn && saveInvoiceNumber(line, e.target.value)} aria-label="Invoice number" />
+                    {line.supplierInvoiceId && (
+                      <Tooltip title={paidOn ? `Paid on ${formatDate(paidOn)}, noted for the whole invoice on Finance → Accounts Payable` : "Its payment is noted for the whole invoice on Finance → Accounts Payable"}>
+                        <Link href={apInvoiceHref(line.supplierInvoiceId)} className={`${LINK} block mt-0.5 text-[11px] leading-[14px]`}>
+                          {paidOn ? `Paid ${formatDate(paidOn)}` : "Accounts Payable"}
+                        </Link>
+                      </Tooltip>
+                    )}
                   </td>
                   <td className={`${CELL} text-center`}>
                     <Tooltip title="Received is ticked automatically once the invoice number is filled in">
@@ -447,11 +464,22 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                         <CopyOutlined />
                       </button>
                     </Tooltip>
-                    <Tooltip title="Delete row">
-                      <button type="button" disabled={busy} onClick={() => remove.mutate(line.id)} aria-label="Delete buying cost row" className={ICON_BTN_DANGER}>
-                        <DeleteOutlined />
-                      </button>
-                    </Tooltip>
+                    {paidOn ? (
+                      // A disabled button fires no hover: the span takes it, so the reason still shows.
+                      <Tooltip title="On a supplier invoice marked paid: take the payment back on Finance → Accounts Payable to delete it">
+                        <span className="inline-flex">
+                          <button type="button" disabled aria-label="Delete buying cost row" className={ICON_BTN_DANGER}>
+                            <DeleteOutlined />
+                          </button>
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Delete row">
+                        <button type="button" disabled={busy} onClick={() => remove.mutate(line.id)} aria-label="Delete buying cost row" className={ICON_BTN_DANGER}>
+                          <DeleteOutlined />
+                        </button>
+                      </Tooltip>
+                    )}
                   </td>
                 </tr>
                 );

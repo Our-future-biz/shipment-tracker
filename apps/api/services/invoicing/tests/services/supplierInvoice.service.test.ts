@@ -354,7 +354,7 @@ describe("markPaid", () => {
     expect(values.paidAt).toBeInstanceOf(Date);
     expect(values).not.toHaveProperty("status");
     expect(event).toMatchObject({ action: "paid", fromStatus: "approved", toStatus: "approved", payload: { paidOn: "2026-11-15" } });
-    expect(repo.setLinesPaid).toHaveBeenCalledWith(TX, COMPANY, INV, { paidOn: "2026-11-15", paidAt: values.paidAt, paidByUserId: "u-boss", paidBy: "u-boss@test.cz" });
+    expect(repo.setLinesPaid).toHaveBeenCalledWith(TX, COMPANY, INV, { pay: { paidOn: "2026-11-15", paidAt: values.paidAt, paidByUserId: "u-boss", paidBy: "u-boss@test.cz" } });
     expect(clients.costClaims).toHaveBeenCalledWith({ shipmentIds: [SHIP_A] });
     expect(clients.costClaims).toHaveBeenCalledWith({ supplierInvoiceIds: [INV] });
   });
@@ -432,11 +432,19 @@ describe("taking an approval or a payment back", () => {
   });
 
   it("takes a payment back with a reason: the lines are unpaid again, the old day kept in the history", async () => {
-    repo.byId.mockResolvedValue(header({ status: "approved", paidOn: "2026-11-10", paidBy: "u-other@test.cz" }));
+    const paidAt = new Date("2026-11-10T08:00:00Z");
+    repo.byId.mockResolvedValue(header({ status: "approved", paidOn: "2026-11-10", paidAt, paidByUserId: "u-other", paidBy: "u-other@test.cz" }));
     await service.takeBackPayment(manager, INV, 3, "Noted on the wrong invoice");
     expect(lastDecision().values).toEqual({ paidOn: null, paidAt: null, paidByUserId: null, paidBy: "" });
     expect(lastDecision().event).toMatchObject({ action: "payment_taken_back", fromStatus: "approved", toStatus: "approved", reason: "Noted on the wrong invoice", payload: { paidOn: "2026-11-10" } });
-    expect(repo.setLinesPaid).toHaveBeenCalledWith(TX, COMPANY, INV, null);
+    // The lines that payment stamped, not those paid before Accounts Payable existed.
+    expect(repo.setLinesPaid).toHaveBeenCalledWith(TX, COMPANY, INV, { takeBack: { paidOn: "2026-11-10", paidAt, fromLines: false } });
+  });
+
+  it("takes back a payment taken from its lines (paid before Accounts Payable existed) off all of them", async () => {
+    repo.byId.mockResolvedValue(header({ status: "approved", paidOn: "2026-10-01", paidAt: null, paidByUserId: null, paidBy: "" }));
+    await service.takeBackPayment(manager, INV, 3, "It was never paid");
+    expect(repo.setLinesPaid).toHaveBeenCalledWith(TX, COMPANY, INV, { takeBack: { paidOn: "2026-10-01", paidAt: null, fromLines: true } });
   });
 
   it("takes back only a payment that is there, with a reason, by a manager", async () => {

@@ -112,12 +112,13 @@ Some behaviour only shows against real Postgres: tenant scoping in real SQL, loc
 | `SHIPMENTS_DB_TESTS=1` | `services/shipments/tests/db/` |
 | `WAREHOUSE_DB_TESTS=1` | `services/warehouseConcept/tests/` (the whole folder) |
 | `TRUCKING_DB_TESTS=1` | `services/trucking/tests/db/` |
+| `INVOICING_DB_TESTS=1` | `services/invoicing/tests/db/` |
 | `QUOTES_DB_TESTS=1` | `services/quotes/tests/db/quoteRename.db.test.ts`, `quoteNumberIndexes.db.test.ts` (they skip themselves with `describe.skipIf`) |
 
 ```bash
 cd apps/api
-SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1 \
-  encore test services/shipments/tests/db services/warehouseConcept/tests services/trucking/tests/db
+SHIPMENTS_DB_TESTS=1 WAREHOUSE_DB_TESTS=1 TRUCKING_DB_TESTS=1 INVOICING_DB_TESTS=1 \
+  encore test services/shipments/tests/db services/warehouseConcept/tests services/trucking/tests/db services/invoicing/tests/db
 
 QUOTES_DB_TESTS=1 encore test services/quotes/tests/db/quoteRename.db.test.ts
 ```

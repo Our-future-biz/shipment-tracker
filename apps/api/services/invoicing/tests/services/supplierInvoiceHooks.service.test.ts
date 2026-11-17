@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const ap = vi.hoisted(() => ({ beforeLineChange: vi.fn(), afterLineWrite: vi.fn() }));
 vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceService: ap }));
 vi.mock("../../repositories/supplierInvoice.repository", () => ({
-  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined) },
+  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined), paidDays: vi.fn(async () => new Map<string, string>()) },
 }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
