@@ -25,7 +25,6 @@ import type { ShipmentRecord } from "../schemas/shipment.schema";
 import { businessDay } from "../../../lib/businessDate";
 import type { MasterJobContainerRecord } from "../schemas/masterJobContainer.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
-import type { ShipmentRecord } from "../schemas/shipment.schema";
 import type {
   ContainerLine,
   MasterJobContainerLine,
