@@ -13,8 +13,11 @@ const repo = vi.hoisted(() => ({
   invoicedSellingRowIds: vi.fn(),
   shipmentIdsWithInvoices: vi.fn(),
   billedShipmentIds: vi.fn(),
+  creditNotesOf: vi.fn(),
+  linesOf: vi.fn(),
 }));
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
+const requests = vi.hoisted(() => ({ approve: vi.fn(), withdrawForInvoice: vi.fn() }));
 const trucking = vi.hoisted(() => ({
   lock: vi.fn(async () => undefined),
   liveSellingVersions: vi.fn(async (_tx: unknown, _c: string, _s: string, ids: string[]) => new Map(ids.map((id) => [id, new Date("2026-11-06T09:00:00Z").getTime()]))),
@@ -22,7 +25,7 @@ const trucking = vi.hoisted(() => ({
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
-const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listLiveByShipments: vi.fn() }));
+const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listLiveByShipments: vi.fn(), insertCreditRows: vi.fn() }));
 const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByShipments: vi.fn(), createIfMissing: vi.fn() }));
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 // The follow-up outbox, in memory: rows written in the issue's transaction, claimed and settled.
@@ -59,6 +62,8 @@ const clients = vi.hoisted(() => ({
 
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: "user" }) }));
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
+vi.mock("../repositories/creditNoteRequest.repository", () => ({ creditNoteRequestRepository: requests }));
+vi.mock("../../../lib/companyUsers", () => ({ userEmailOf: async (id: string) => `${id}@test.cz` }));
 vi.mock("../repositories/invoiceFollowupOutbox.repository", () => ({ invoiceFollowupOutboxRepository: outbox }));
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
@@ -151,6 +156,9 @@ beforeEach(() => {
   clients.invoiceCreate.mockResolvedValue({});
   clients.invoiceMarkCredited.mockResolvedValue({ updated: 1 });
   repo.invoicedSellingRowIds.mockResolvedValue(new Set());
+  // No credit note of the invoice so far, unless a test says otherwise.
+  repo.creditNotesOf.mockResolvedValue([]);
+  repo.linesOf.mockResolvedValue([]);
   // The job's charges as the status follow-up counts them: both selling lines on the open invoice.
   selling.listLiveByShipments.mockResolvedValue(CHARGES);
   repo.listOpenInvoicesWithSources.mockResolvedValue([openInvoiceOf(["s1", "s2"])]);
@@ -554,6 +562,9 @@ describe("issue", () => {
 
   it("refuses a row saved while the invoice was being prepared, so it isn't billed with its old values", async () => {
     repo.invoicedSellingRowIds.mockResolvedValue(new Set());
+  // No credit note of the invoice so far, unless a test says otherwise.
+  repo.creditNotesOf.mockResolvedValue([]);
+  repo.linesOf.mockResolvedValue([]);
     // s1 was saved after the invoice read it: under the lock it is newer than what the lines were built from.
     trucking.liveSellingVersions.mockImplementationOnce(async (_tx, _c, _s, ids: string[]) => new Map(ids.map((id) => [id, id === "s1" ? SAVED.getTime() + 1000 : SAVED.getTime()])));
     repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { beforeInsert?: (tx: unknown) => Promise<void> }) => {
@@ -566,6 +577,9 @@ describe("issue", () => {
 
   it("waits for a running Trucking push and refuses rows the push replaced meanwhile", async () => {
     repo.invoicedSellingRowIds.mockResolvedValue(new Set());
+  // No credit note of the invoice so far, unless a test says otherwise.
+  repo.creditNotesOf.mockResolvedValue([]);
+  repo.linesOf.mockResolvedValue([]);
     // the push soft-deleted s2 and wrote a new row while this invoice was being prepared
     trucking.liveSellingVersions.mockImplementationOnce(async (_tx, _c, _s, ids: string[]) => new Map(ids.filter((id) => id !== "s2").map((id) => [id, SAVED.getTime()])));
     repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { beforeInsert?: (tx: unknown) => Promise<void> }) => {
@@ -728,6 +742,108 @@ describe("credit", () => {
       return { invoice: {}, lines: [] };
     });
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toThrow(/already been credited/);
+  });
+});
+
+describe("partial credit notes", () => {
+  const original = {
+    id: "inv1", kind: "invoice", status: "issued", number: "INV2026CZ00000028-001", shipmentId: SHIPMENT, customerId: CUSTOMER, companyId: COMPANY,
+    currency: "EUR", fxRate: "25.000000", fxWeek: "", dueDate: "2026-11-30", supplier: { ...profile, bankAccount: null }, customer,
+    shipment: { jobNumber: "CZ00000028", jobYear: 2026 },
+    net: "300.00", vat: "63.00", gross: "363.00", netCzk: "7500.00", vatCzk: "1575.00", grossCzk: "9075.00",
+    vatSummary: [{ vatCode: "S21", vatRate: 21, base: 300, vat: 63, baseCzk: 7500, vatCzk: 1575 }],
+  };
+  const lines = [
+    { id: "l1", description: "THC", qty: "1.00", unitPrice: "200.00", unitCurrency: "EUR", net: "200.00", vatCode: "S21", vatRate: "21.00", fxRate: "1", sourceSellingCostId: "s1", correctsLineId: null },
+    { id: "l2", description: "Customs clearance", qty: "1.00", unitPrice: "100.00", unitCurrency: "EUR", net: "100.00", vatCode: "S21", vatRate: "21.00", fxRate: "1", sourceSellingCostId: "s2", correctsLineId: null },
+  ];
+  const request = {
+    id: "req1", companyId: COMPANY, shipmentId: SHIPMENT, invoiceId: "inv1", reason: "Agreed discount on THC", status: "pending",
+    lines: [{ lineId: "l1", description: "THC", unitCurrency: "EUR", amount: "50.00", net: "50.00" }],
+  };
+  const approver = { userId: "manager-1", userEmail: "boss@test.cz", comment: "" };
+  // Runs the issue's hooks as the repository does, and keeps what it was asked to write.
+  const issueRuns = () =>
+    repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, written: Record<string, unknown>[], hooks?: { beforeInsert?: (tx: unknown) => Promise<void>; afterInsert?: (tx: unknown, invoice: unknown) => Promise<void> }) => {
+      await hooks?.beforeInsert?.({});
+      const invoice = { ...header, id: "cn1", number: `${prefix}001`, pdfKey: "", createdAt: new Date() };
+      await hooks?.afterInsert?.({}, invoice);
+      return { invoice, lines: written.map((l, i) => ({ ...l, id: `cl${i}` })), replayed: false };
+    });
+
+  beforeEach(() => {
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue(lines);
+    repo.markCredited.mockResolvedValue(true);
+    requests.approve.mockResolvedValue({ ...request, status: "approved" });
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
+    issueRuns();
+  });
+
+  it("issues the approved lines as a credit note, marks the request approved and lowers the shipment's revenue", async () => {
+    const cn = await invoiceDocumentService.issuePartialCredit(request as never, approver);
+    const [prefix, header, written] = repo.issue.mock.calls[0]!;
+    expect(prefix).toBe("CN2026CZ00000028-");
+    expect(header).toMatchObject({
+      kind: "credit_note", correctsInvoiceId: "inv1", creditReason: "Agreed discount on THC", issuedBy: "manager-1", idempotencyKey: "credit-request:req1",
+      net: "-50.00", vat: "-10.50", gross: "-60.50", netCzk: "-1250.00", vatCzk: "-262.50", grossCzk: "-1512.50",
+    });
+    expect(written).toEqual([expect.objectContaining({ correctsLineId: "l1", qty: "-1.00", unitPrice: "50.00", net: "-50.00", vatCode: "S21" })]);
+    // The invoice stays open with the rest.
+    expect(repo.markCredited).not.toHaveBeenCalled();
+    expect(requests.approve).toHaveBeenCalledWith({}, COMPANY, "req1", approver, { id: "cn1", number: "CN2026CZ00000028-001" });
+    // One negative row per credited line, which the credit note line bills.
+    const [, , shipmentId, creditNote, rows] = selling.insertCreditRows.mock.calls[0]!;
+    expect(shipmentId).toBe(SHIPMENT);
+    expect(creditNote).toMatchObject({ id: "cn1", number: "CN2026CZ00000028-001" });
+    expect(rows).toEqual([expect.objectContaining({ sourceRowId: "s1", lineText: "THC", amount: 50, currency: "EUR", vatCode: "S21" })]);
+    expect(written[0]!.sourceSellingCostId).toBe(rows[0].id);
+    // In the customer's list as Open and negative, due with the invoice; the invoice is not marked Credited.
+    expect(outbox.rows.map((r) => r.kind)).toEqual(["customer_invoice", "status_after_credit"]);
+    expect(clients.invoiceCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", amount: -60.5, status: "Open", dueDate: "2026-11-30" }),
+      expect.anything(),
+    );
+    expect(clients.invoiceMarkCredited).not.toHaveBeenCalled();
+    expect(cn.number).toBe("CN2026CZ00000028-001");
+  });
+
+  it("refuses when the invoice no longer has what was asked: the manager rejects it instead", async () => {
+    // A line credited in part since: 180 of THC was taken already.
+    repo.creditNotesOf.mockResolvedValue([{ id: "cnA", number: "CN2026CZ00000028-001", gross: "-217.80" }]);
+    repo.linesOf.mockResolvedValue([{ ...lines[0], id: "x1", qty: "-1.00", unitPrice: "180.00", net: "-180.00", correctsLineId: "l1" }]);
+    await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toMatchObject({
+      message: expect.stringMatching(/"THC" has 20.00 EUR left to credit.*reject the request/),
+    });
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invoice credited in full since", async () => {
+    repo.getByIdForCompany.mockResolvedValue({ ...original, status: "credited" });
+    await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toThrow(/credited in full since/);
+  });
+
+  it("refuses when another credit note of the invoice was issued while this one was worked out", async () => {
+    repo.creditNotesOf.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "cnA", number: "CN2026CZ00000028-001", gross: "-10.00" }]);
+    await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toThrow(/credited a moment ago/);
+    expect(requests.approve).not.toHaveBeenCalled();
+  });
+
+  it("a full credit note afterwards reverses only what is left, marks the partial credit note Credited too and takes back a waiting request", async () => {
+    const partial = { id: "cnA", number: "CN2026CZ00000028-001", gross: "-60.50", net: "-50.00", vat: "-10.50", netCzk: "-1250.00", vatCzk: "-262.50", grossCzk: "-1512.50",
+      vatSummary: [{ vatCode: "S21", vatRate: 21, base: -50, vat: -10.5, baseCzk: -1250, vatCzk: -262.5 }] };
+    repo.creditNotesOf.mockResolvedValue([partial]);
+    repo.linesOf.mockResolvedValue([{ ...lines[0], id: "x1", qty: "-1.00", unitPrice: "50.00", net: "-50.00", correctsLineId: "l1" }]);
+    await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
+    const [, header, written] = repo.issue.mock.calls[0]!;
+    expect(header).toMatchObject({ net: "-250.00", vat: "-52.50", gross: "-302.50", grossCzk: "-7562.50" });
+    expect(written).toEqual([
+      expect.objectContaining({ correctsLineId: "l1", qty: "-1.00", unitPrice: "150.00", net: "-150.00" }),
+      expect.objectContaining({ correctsLineId: "l2", qty: "-1.00", unitPrice: "100.00", net: "-100.00" }),
+    ]);
+    expect(repo.markCredited).toHaveBeenCalledWith({}, "inv1", COMPANY);
+    expect(requests.withdrawForInvoice).toHaveBeenCalledWith({}, COMPANY, "inv1", { id: USER, name: `${USER}@test.cz` }, expect.stringMatching(/credited in full/));
+    expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001", "CN2026CZ00000028-001"] }, expect.anything());
   });
 });
 

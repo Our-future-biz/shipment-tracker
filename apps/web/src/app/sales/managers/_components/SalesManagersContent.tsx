@@ -23,6 +23,8 @@ import { useSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
 import { COCKPIT_MODES, cockpitModeOf, inCockpitMode } from "../_lib/cockpitModes";
 import { SalesQuoteInquiries } from "./SalesQuoteInquiries";
 import { SalesCompanyApprovals } from "./SalesCompanyApprovals";
+import { BillingApprovals } from "./BillingApprovals";
+import { useCreditNoteRequests } from "@/hooks/useCreditNoteRequests";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
 import { BTN, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
@@ -302,11 +304,11 @@ export function SalesManagersContent() {
 function SalesManagersCockpit() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // The tab (?tab=inquiries) and the freight mode (?mode=) live in the address, so they survive a
+  // The tab (?tab=inquiries, approvals, billing) and the freight mode (?mode=) live in the address, so they survive a
   // reload and a bell item can link to the inquiries. The mode filters both tabs, and stays when
   // the tab changes.
   const tabParam = searchParams.get("tab");
-  const tab: SalesManagersTab = tabParam === "inquiries" || tabParam === "approvals" ? tabParam : "cockpit";
+  const tab: SalesManagersTab = tabParam === "inquiries" || tabParam === "approvals" || tabParam === "billing" ? tabParam : "cockpit";
   const mode = cockpitModeOf(searchParams.get("mode"));
   const go = (next: { tab?: SalesManagersTab; mode?: SalesCockpitMode }) =>
     router.replace(salesManagersHref({ tab: next.tab ?? tab, mode: next.mode ?? mode }), { scroll: false });
@@ -321,6 +323,8 @@ function SalesManagersCockpit() {
     (tab === "inquiries" ? inquiries.filter((r) => r.inquiry.status === "pending" && inCockpitMode(r.serviceType, mode)).length : (cockpit?.tiles.awaitingApproval ?? 0)) + sellingAmountsWaiting;
   // New suppliers waiting for a manager, counted on their tab (they have no freight mode).
   const { waiting: suppliersWaiting } = useSupplierApprovals();
+  // Partial credit notes waiting for a manager, counted on their tab (an invoice has no freight mode).
+  const { waiting: creditNotesWaiting } = useCreditNoteRequests();
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
   const service = LIST_SERVICE[mode];
 
@@ -426,17 +430,32 @@ function SalesManagersCockpit() {
               </span>
             ),
           },
+          {
+            key: "billing",
+            label: (
+              <span className="whitespace-nowrap">
+                Billing approvals
+                {creditNotesWaiting > 0 && (
+                  <Pill tone="amber" className="ml-1.5 tabular-nums">
+                    {creditNotesWaiting}
+                  </Pill>
+                )}
+              </span>
+            ),
+          },
         ]}
       />
 
-      {/* A new supplier has no freight mode: the approvals are not filtered by one. */}
-      {tab !== "approvals" && (
+      {/* A new supplier and an invoice have no freight mode: their approvals are not filtered by one. */}
+      {tab !== "approvals" && tab !== "billing" && (
         <div role="group" aria-label="Freight mode">
           <PillTabs tabs={COCKPIT_MODES} active={mode} onChange={setMode} />
         </div>
       )}
 
-      {tab === "approvals" ? (
+      {tab === "billing" ? (
+        <BillingApprovals />
+      ) : tab === "approvals" ? (
         <SalesCompanyApprovals />
       ) : tab === "inquiries" ? (
         <SalesQuoteInquiries mode={mode} />

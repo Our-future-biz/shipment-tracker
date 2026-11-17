@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -41,6 +41,25 @@ export interface IssueHooks {
 // An issued, not credited invoice (credit notes are never "open").
 const openInvoice = (companyId: string) =>
   and(eq(t.companyId, companyId), eq(t.kind, "invoice"), eq(t.status, "issued"), isNull(t.deletedAt));
+
+/**
+ * A document whose lines bill selling rows now: an open invoice, or a partial credit note of one -
+ * its lines' rows (the negative rows it put on the shipment) are settled while the invoice stands.
+ * A credit note of an invoice credited to its end settles nothing: what it reversed is billed again.
+ */
+const billsNow = (companyId: string) =>
+  and(
+    eq(t.companyId, companyId),
+    isNull(t.deletedAt),
+    or(
+      and(eq(t.kind, "invoice"), eq(t.status, "issued")),
+      and(
+        eq(t.kind, "credit_note"),
+        // the invoice it corrects (lib/partialCredit) still stands
+        sql`exists (select 1 from "invoice" "corrected" where "corrected"."id" = ${t.correctsInvoiceId} and "corrected"."status" = 'issued' and "corrected"."deleted_at" is null)`,
+      ),
+    ),
+  );
 
 /**
  * Tax documents are immutable once issued (database triggers, migration 0011): nothing here
@@ -117,22 +136,35 @@ class InvoiceRepository extends TenantRepository<typeof t> {
       .from(t)
       .where(ofShipments);
     if (!invoices.length) return [];
+    // The lines of the open invoices and of their partial credit notes, each kept with the invoice:
+    // a partial credit note's rows are billed by it, and its gross comes off the invoice's.
     const lines = await this.db
-      .select({ invoiceId: lineT.invoiceId, source: lineT.sourceSellingCostId })
+      .select({ invoiceId: sql<string>`coalesce(${t.correctsInvoiceId}, ${t.id})`, source: lineT.sourceSellingCostId })
       .from(lineT)
       .innerJoin(t, eq(lineT.invoiceId, t.id))
-      .where(and(ofShipments, eq(lineT.companyId, companyId)));
+      .where(and(billsNow(companyId), inArray(t.shipmentId, ids), eq(lineT.companyId, companyId)));
+    const credits = await this.db
+      .select({ invoiceId: t.correctsInvoiceId, gross: t.gross })
+      .from(t)
+      .where(and(billsNow(companyId), eq(t.kind, "credit_note"), inArray(t.shipmentId, ids)));
     const sources = new Map<string, (string | null)[]>();
     for (const l of lines) {
       const list = sources.get(l.invoiceId) ?? [];
       list.push(l.source);
       sources.set(l.invoiceId, list);
     }
-    return invoices.map((i) => ({ ...i, sourceSellingCostIds: sources.get(i.id) ?? [] }));
+    const credited = new Map<string, number>();
+    for (const c of credits) if (c.invoiceId) credited.set(c.invoiceId, (credited.get(c.invoiceId) ?? 0) + Number(c.gross));
+    return invoices.map((i) => ({
+      ...i,
+      gross: credited.has(i.id) ? (Number(i.gross) + credited.get(i.id)!).toFixed(2) : i.gross,
+      sourceSellingCostIds: sources.get(i.id) ?? [],
+    }));
   }
 
   /**
-   * Selling rows of a shipment that are already on an issued, not credited invoice: they must
+   * Selling rows of a shipment that are already on an issued, not credited invoice, or on a partial
+   * credit note of one (billsNow): they must
    * not be invoiced again. `reader` lets the issue transaction re-check under its lock.
    */
   async invoicedSellingRowIds(shipmentId: string, companyId: string, reader: Reader = db): Promise<Set<string>> {
@@ -140,8 +172,27 @@ class InvoiceRepository extends TenantRepository<typeof t> {
       .select({ source: lineT.sourceSellingCostId })
       .from(lineT)
       .innerJoin(t, eq(lineT.invoiceId, t.id))
-      .where(and(openInvoice(companyId), eq(t.shipmentId, shipmentId), eq(lineT.companyId, companyId)));
+      .where(and(billsNow(companyId), eq(t.shipmentId, shipmentId), eq(lineT.companyId, companyId)));
     return new Set(rows.map((r) => r.source).filter((s): s is string => !!s));
+  }
+
+  /** The credit notes issued against an invoice, oldest first. */
+  async creditNotesOf(invoiceId: string, companyId: string, reader: Reader = db): Promise<InvoiceRecord[]> {
+    return reader
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.correctsInvoiceId, invoiceId), eq(t.kind, "credit_note"), isNull(t.deletedAt)))
+      .orderBy(asc(t.createdAt));
+  }
+
+  /** The lines of these documents. */
+  async linesOf(invoiceIds: string[], companyId: string, reader: Reader = db): Promise<InvoiceLineRecord[]> {
+    if (!invoiceIds.length) return [];
+    return reader
+      .select()
+      .from(lineT)
+      .where(and(inArray(lineT.invoiceId, invoiceIds), eq(lineT.companyId, companyId), isNull(lineT.deletedAt)))
+      .orderBy(asc(lineT.seq));
   }
 
   /** Of the shipments, those with an issued invoice not credited: billed (lib/billedLock). */

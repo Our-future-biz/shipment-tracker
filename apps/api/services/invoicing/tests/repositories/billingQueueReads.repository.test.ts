@@ -60,13 +60,17 @@ describe("the Invoicing queue's reads", () => {
     ];
     const open = await invoiceRepository.listOpenInvoicesWithSources([A, B, A], COMPANY);
     expect(open.map((i) => [i.id, i.sourceSellingCostIds])).toEqual([["i1", ["s1", null]], ["i2", ["s9"]]]);
-    const [invoices, lines] = fake.state.reads;
+    const [invoices, lines, credits] = fake.state.reads;
     expect(sent(invoices!.where).params).toEqual([COMPANY, "invoice", "issued", A, B]);
     expect(sent(invoices!.where).sql).toContain(`"invoice"."shipment_id" in ($4, $5)`);
     // The lines are not asked for by a list of every invoice id (Postgres refuses past 65,535 parameters).
     expect(lines).toMatchObject({ table: "invoice_line", joined: "invoice" });
-    expect(sent(lines!.where).params).toEqual([COMPANY, "invoice", "issued", A, B, COMPANY]);
-    expect(sent(lines!.where).sql).not.toContain("invoice_id");
+    expect(sent(lines!.where).params).toEqual([COMPANY, "invoice", "issued", "credit_note", A, B, COMPANY]);
+    expect(sent(lines!.where).sql).not.toMatch(/"invoice_id" in/);
+    // The lines of a partial credit note of an open invoice count with it (lib/partialCredit).
+    expect(sent(lines!.where).sql).toContain(`"corrected"."status" = 'issued'`);
+    expect(credits).toMatchObject({ table: "invoice", joined: null });
+    expect(sent(credits!.where).params).toEqual([COMPANY, "invoice", "issued", "credit_note", "credit_note", A, B]);
   });
 
   it("reads the selling rows and billing settings of the listed shipments only", async () => {

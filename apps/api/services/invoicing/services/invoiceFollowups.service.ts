@@ -25,12 +25,12 @@ type Row = Omit<NewInvoiceFollowupOutboxRecord, "companyId" | "invoiceId" | "shi
 const rowsOf = (doc: InvoiceRecord, shipmentId: string, actor: FollowupActor, rows: Row[]): NewInvoiceFollowupOutboxRecord[] =>
   rows.map((r) => ({ ...r, companyId: doc.companyId, invoiceId: doc.id, shipmentId, actingUserId: actor.userId, actingRole: actor.role }));
 
-const customerEntry = (doc: InvoiceRecord, status: "Open" | "Credited") => ({
+const customerEntry = (doc: InvoiceRecord, status: "Open" | "Credited", dueDate = doc.dueDate) => ({
   customerId: doc.customerId,
   invoiceNumber: doc.number,
   amount: Number(doc.gross),
   currency: doc.currency,
-  dueDate: doc.dueDate ?? "",
+  dueDate: dueDate ?? "",
   status,
   issuedAt: doc.issueDate ?? "",
 });
@@ -44,13 +44,31 @@ export function followupsOfInvoice(invoice: InvoiceRecord, actor: FollowupActor)
 }
 
 /**
- * A credit note: in the customer's list as Credited, the invoice it cancels marked Credited there
- * too, and the shipment back in the queue when a charge of it is no longer invoiced.
+ * A credit note of the whole invoice (or of what partial ones left of it): in the customer's list as
+ * Credited, the invoice it cancels and its partial credit notes marked Credited there too, and the
+ * shipment back in the queue when a charge of it is no longer invoiced.
  */
-export function followupsOfCreditNote(creditNote: InvoiceRecord, original: InvoiceRecord, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
+export function followupsOfCreditNote(
+  creditNote: InvoiceRecord,
+  original: InvoiceRecord,
+  actor: FollowupActor,
+  partialCreditNoteNumbers: string[] = [],
+): NewInvoiceFollowupOutboxRecord[] {
   return rowsOf(creditNote, original.shipmentId, actor, [
     { kind: "customer_invoice", payload: customerEntry(creditNote, "Credited") },
-    { kind: "mark_credited", payload: { invoiceNumbers: [original.number] } },
+    { kind: "mark_credited", payload: { invoiceNumbers: [original.number, ...partialCreditNoteNumbers] } },
+    { kind: "status_after_credit", payload: { shipmentId: original.shipmentId } },
+  ]);
+}
+
+/**
+ * A partial credit note (lib/partialCredit): in the customer's list as Open with its negative amount,
+ * due with the invoice, so what the customer owes drops by it; the invoice stays Open with the rest.
+ * The shipment's statuses are looked at again, as after any credit note.
+ */
+export function followupsOfPartialCreditNote(creditNote: InvoiceRecord, original: InvoiceRecord, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
+  return rowsOf(creditNote, original.shipmentId, actor, [
+    { kind: "customer_invoice", payload: customerEntry(creditNote, "Open", original.dueDate) },
     { kind: "status_after_credit", payload: { shipmentId: original.shipmentId } },
   ]);
 }

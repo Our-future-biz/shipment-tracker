@@ -17,6 +17,7 @@ const selling = (id: string, partial: Partial<interfaces.SellingCostItem> = {}):
   sortOrder: 0,
   sourceTruckingRef: null,
   sourceMasterJobRef: null,
+  sourceCreditNoteId: null,
   createdAt: "2026-11-09T08:00:00.000Z",
   ...partial,
 });

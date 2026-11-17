@@ -19,7 +19,7 @@ import { SoldAtCostAmount, SoldAtCostRemove } from "./SoldAtCostAmount";
 import { invalidateInvoicingDerived } from "@/hooks/useInvoiceQueue";
 import { invoicePdfSource, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { useFilePreview } from "@/hooks/useFilePreview";
-import { isOpenInvoice, notInvoicedMark } from "@/app/invoicing/_lib/openInvoices";
+import { billingDocs, isOpenInvoice, notInvoicedMark } from "@/app/invoicing/_lib/openInvoices";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
@@ -375,15 +375,15 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const sellLocked = (r: SellingRow) =>
     (!unlocked.has(r.id) || !invoicedKnown) && !!(r.category || num(r.amount));
 
-  // Selling rows on an issued invoice (a credited one frees them): the invoice each is on.
+  // Selling rows on an issued invoice (a credited one frees them): the invoice each is on - or the
+  // partial credit note that put a negative row on the shipment, which settles it while the invoice stands.
   // Until the list has come, no filled row opens for editing (it may turn out to be invoiced).
   // A list that could not be read does not keep them shut: the card says so, and the rows open,
   // as the server refuses a change to an invoiced row whatever is shown here.
   const { data: invoiceDocs, isError: invoiceDocsFailed } = useInvoiceDocList(shipment.id);
   const invoicedKnown = !!invoiceDocs || invoiceDocsFailed;
   const invoicedBy = new Map<string, InvoiceDoc>();
-  for (const doc of invoiceDocs?.invoices ?? []) {
-    if (!isOpenInvoice(doc)) continue;
+  for (const doc of billingDocs(invoiceDocs?.invoices ?? [])) {
     for (const line of doc.lines) if (line.sourceSellingCostId) invoicedBy.set(line.sourceSellingCostId, doc);
   }
   // The PDF of the invoice a row is on, shown by its mark in the app's preview.
@@ -1034,7 +1034,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         <span className={READ}>
                           {invoicedOn?.lines.find((l) => l.sourceSellingCostId === r.id)?.description ?? printedText(r)}
                         </span>
-                        {r.customer.trim() && <span className={OWN_TEXT_HINT}>Own text from Issue invoice</span>}
+                        {/* a partial credit note's negative row: what it took off the charge (its description names it) */}
+                        {r.sourceCreditNoteId ? (
+                          <span className={OWN_TEXT_HINT}>{r.description || "Credited on a credit note"}</span>
+                        ) : (
+                          r.customer.trim() && <span className={OWN_TEXT_HINT}>Own text from Issue invoice</span>
+                        )}
                         {truckingTag && <TruckingCostTagLink tag={truckingTag} />}
                         {!invoicedOn && notInvoicedPill(r)}
                       </td>

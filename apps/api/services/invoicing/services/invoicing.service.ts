@@ -102,6 +102,7 @@ const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
   sourceMasterJobRef: r.sourceMasterJobRef,
+  sourceCreditNoteId: r.sourceCreditNoteId,
   createdAt: r.createdAt.toISOString(),
 });
 

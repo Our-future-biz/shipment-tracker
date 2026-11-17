@@ -9,6 +9,7 @@ import { FX_KEYS } from "./useFx";
 import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
 import { saveBlob, type PreviewSource } from "./useFilePreview";
+import { CREDIT_KEYS } from "./useCreditOptions";
 
 export type InvoiceDoc = interfaces.InvoiceDocItem;
 export type InvoicePreview = interfaces.InvoicePreviewItem;
@@ -49,6 +50,9 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     // the costs card, and the job's rate lock, which becomes final once invoiced
     void queryClient.invalidateQueries({ queryKey: invoicingKey(shipmentId) });
     void queryClient.invalidateQueries({ queryKey: FX_KEYS.jobAll(shipmentId) });
+    // a credit of the whole invoice takes back a partial one waiting for a manager, and leaves nothing to credit
+    void queryClient.invalidateQueries({ queryKey: CREDIT_KEYS.requestsAll });
+    void queryClient.invalidateQueries({ queryKey: CREDIT_KEYS.optionsAll });
   };
 
   const issue = useMutation({

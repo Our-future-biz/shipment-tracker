@@ -55,6 +55,8 @@ export interface SellingCostItem {
   sourceTruckingRef: string | null;
   /** The master job's line the row sells on at cost ("master:<masterJobId>:<lineId>"); null otherwise. Read-only then. */
   sourceMasterJobRef: string | null;
+  /** The partial credit note that put this negative row on the shipment (lib/partialCredit); null otherwise */
+  sourceCreditNoteId: string | null;
   /** When the row was added: on a billed shipment, before or after its first invoice */
   createdAt: string;
 }
@@ -422,6 +424,10 @@ export interface InvoiceProfileItem {
 
 /** One line of an issued invoice / credit note, or of a preview */
 export interface InvoiceDocLineItem {
+  /** The stored line's id (absent on a preview) */
+  id?: string;
+  /** On a credit note: the invoice line it corrects */
+  correctsLineId?: string | null;
   description: string;
   qty: string;
   unitPrice: string;
@@ -971,4 +977,77 @@ export interface SearchInvoicesResponse {
   items: SearchInvoiceItem[];
   /** How many documents match in all. */
   total: number;
+}
+
+/** One line of an invoice in the credit dialog: what it was, and what is left of it to credit. */
+export interface CreditableLineItem {
+  lineId: string;
+  description: string;
+  qty: number;
+  unitPrice: number;
+  /** The line's own currency: what to credit is asked in it */
+  unitCurrency: string;
+  /** qty × unit price, in the line's own currency */
+  amount: number;
+  /** What is left of it to credit, in the line's own currency */
+  remainingAmount: number;
+  /** Invoice-currency units per 1 unit of the line's currency */
+  fxRate: number;
+  /** The line's total and what is left of it, in the invoice currency */
+  net: number;
+  remainingNet: number;
+  vatCode: VatCode;
+  vatRate: number;
+}
+
+/** What the credit dialog shows of an invoice. */
+export interface CreditOptionsItem {
+  invoiceId: string;
+  number: string;
+  currency: string;
+  gross: string;
+  /** What partial credit notes took off it so far (gross, negative), and their numbers */
+  creditedGross: string;
+  creditNoteNumbers: string[];
+  lines: CreditableLineItem[];
+  /** A partial credit note waiting for a manager, if any */
+  pendingRequest: CreditNoteRequestItem | null;
+}
+
+export interface CreditNoteRequestLineItem {
+  lineId: string;
+  description: string;
+  unitCurrency: string;
+  /** What to credit, in the line's own currency */
+  amount: string;
+  /** The same in the invoice currency, when asked */
+  net: string;
+}
+
+/** A request to credit an invoice in part, and its answer (Sales → Managers → Billing approvals). */
+export interface CreditNoteRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  currency: string;
+  lines: CreditNoteRequestLineItem[];
+  net: string;
+  vat: string;
+  gross: string;
+  invoiceGross: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "withdrawn";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  selfDecision: boolean;
+  answerSeenAt: string | null;
+  creditNoteId: string | null;
+  creditNoteNumber: string;
 }

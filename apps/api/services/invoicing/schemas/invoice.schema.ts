@@ -156,6 +156,8 @@ export const invoiceLineTable = pgTable(
     vatCode: text("vat_code").$type<VatCode>().notNull(),
     vatRate: numeric("vat_rate", { precision: 5, scale: 2 }).notNull(),
     sourceSellingCostId: uuid("source_selling_cost_id"),
+    /** On a credit note: the line of the invoice it corrects (lib/partialCredit); null on an invoice, and on credit notes from before. */
+    correctsLineId: uuid("corrects_line_id"),
   },
   (table) => [
     ...defaultTableIndexes("invoice_line", table),

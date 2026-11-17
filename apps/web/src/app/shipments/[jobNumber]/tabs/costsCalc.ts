@@ -69,6 +69,8 @@ export interface SellingRow {
   sourceBuyId: string | null;
   /** When the row was added (ISO): on a billed shipment, before or after its first invoice. */
   createdAt?: string;
+  /** The partial credit note that put this negative row on the shipment; null otherwise. */
+  sourceCreditNoteId?: string | null;
 }
 
 export interface RxeRow {

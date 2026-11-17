@@ -232,6 +232,13 @@
       "when": 1794385326929,
       "tag": "0032_invoice_followup_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794893946753,
+      "tag": "0033_partial_credit_notes",
+      "breakpoints": true
     }
   ]
 }

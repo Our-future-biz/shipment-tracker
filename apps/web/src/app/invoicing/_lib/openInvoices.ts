@@ -5,11 +5,22 @@ type Doc = interfaces.InvoiceDocItem;
 /** An open invoice: issued and not credited. A credit note never is one. */
 export const isOpenInvoice = (d: Pick<Doc, "kind" | "status">) => d.kind === "invoice" && d.status === "issued";
 
-/** The selling rows on an open invoice: billed already, so they are not on the next one. */
-export function openInvoiceRowIds(docs: readonly Pick<Doc, "kind" | "status" | "lines">[]): Set<string> {
+type Billing = Pick<Doc, "kind" | "status" | "lines"> & Partial<Pick<Doc, "id" | "correctsInvoiceId">>;
+
+/**
+ * The documents that bill selling rows now (API invoice.repository billsNow): the open invoices, and
+ * the partial credit notes of them - the negative rows such a credit note put on the shipment are
+ * settled by it while the invoice stands. A credit note of an invoice credited to its end settles nothing.
+ */
+export function billingDocs<T extends Billing>(docs: readonly T[]): T[] {
+  const open = new Set(docs.filter(isOpenInvoice).map((d) => d.id));
+  return docs.filter((d) => isOpenInvoice(d) || (d.kind === "credit_note" && !!d.correctsInvoiceId && open.has(d.correctsInvoiceId)));
+}
+
+/** The selling rows on an open invoice (or on a partial credit note of one): billed already, so they are not on the next one. */
+export function openInvoiceRowIds(docs: readonly Billing[]): Set<string> {
   return new Set(
-    docs
-      .filter(isOpenInvoice)
+    billingDocs(docs)
       .flatMap((d) => d.lines.map((l) => l.sourceSellingCostId))
       .filter((id): id is string => !!id),
   );
@@ -38,7 +49,7 @@ export function notInvoicedMark(
   docs: readonly Pick<Doc, "kind" | "status" | "lines" | "createdAt">[],
 ): typeof ADDED_AFTER_BILLING | typeof NOT_INVOICED_YET | null {
   const open = docs.filter(isOpenInvoice);
-  if (!open.length || open.some((d) => d.lines.some((l) => l.sourceSellingCostId === row.id))) return null;
+  if (!open.length || openInvoiceRowIds(docs).has(row.id)) return null;
   const firstBilled = open.reduce((first, d) => (new Date(d.createdAt).getTime() < first ? new Date(d.createdAt).getTime() : first), Infinity);
   const added = row.createdAt ? new Date(row.createdAt).getTime() : NaN;
   return added > firstBilled ? ADDED_AFTER_BILLING : NOT_INVOICED_YET;

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { invoiceRepository } from "./invoice.repository";
@@ -8,6 +8,25 @@ import {
   type InvoiceSellingCostRecord,
   type NewInvoiceSellingCostRecord,
 } from "../schemas/invoiceSellingCost.schema";
+import type { SellingVatCode } from "../interfaces/interfaces";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** One negative row a partial credit note puts on the shipment (lib/partialCredit). */
+export interface CreditRowInput {
+  /** Taken before the credit note's lines are written: each line names its row as its source. */
+  id: string;
+  /** The selling row the credited invoice line was made from, when it had one */
+  sourceRowId: string | null;
+  /** The invoice line's text */
+  lineText: string;
+  /** What was credited, in the line's own currency (positive) */
+  amount: number;
+  currency: string;
+  vatCode: string;
+}
+
+const SELLING_VAT = new Set<string>(["S21", "Z69", "RC", "OUT"]);
 
 // Every query on a line also matches its shipment, so a line can only be written through its
 // own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are read-only here: no line
@@ -123,6 +142,41 @@ class SellingCostRepository extends TenantRepository<typeof t> {
       .update(t)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
+  }
+
+  /**
+   * The negative rows of a partial credit note: one per credited line, below the shipment's other
+   * rows, with the charge of the row the line was made from. They lower the shipment's revenue by
+   * what was credited, and are its lines' sources, so they count as invoiced while the invoice stands.
+   */
+  async insertCreditRows(tx: Tx, companyId: string, shipmentId: string, creditNote: { id: string; number: string }, rows: CreditRowInput[]): Promise<void> {
+    if (!rows.length) return;
+    const sourceIds = rows.map((r) => r.sourceRowId).filter((x): x is string => !!x);
+    const sources = sourceIds.length
+      ? await tx.select({ id: t.id, category: t.category }).from(t).where(and(eq(t.companyId, companyId), inArray(t.id, sourceIds)))
+      : [];
+    const categoryOf = new Map(sources.map((r) => [r.id, r.category]));
+    const [{ last }] = await tx
+      .select({ last: sql<number>`coalesce(max(${t.sortOrder}), 0)::int` })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
+    await tx.insert(t).values(
+      rows.map((r, i) => ({
+        id: r.id,
+        companyId,
+        shipmentId,
+        category: (r.sourceRowId && categoryOf.get(r.sourceRowId)) || "",
+        description: `Credited on ${creditNote.number}`,
+        customer: `${r.lineText} - credit note ${creditNote.number}`,
+        qty: "1.00",
+        amount: (-r.amount).toFixed(2),
+        currency: r.currency || "CZK",
+        invoice: true,
+        vatCode: SELLING_VAT.has(r.vatCode) ? (r.vatCode as SellingVatCode) : null,
+        sortOrder: (last ?? 0) + 1 + i,
+        sourceCreditNoteId: creditNote.id,
+      })),
+    );
   }
 }
 

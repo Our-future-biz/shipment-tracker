@@ -18,6 +18,7 @@ import { salesManagersHref } from "@/app/sales/_lib/tabs";
 import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/useWarehouseInquiries";
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
 import { useSellingAmountBell, type SellingAmountRequest } from "@/hooks/useSellingAmountRequests";
+import { useCreditNoteRequestBell, type CreditNoteRequest } from "@/hooks/useCreditNoteRequests";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { useApprovalChatsUnread } from "@/hooks/useCompanyRegistration";
@@ -106,6 +107,16 @@ const sellingAnswerText = (r: SellingAmountRequest) =>
     : r.status === "approved"
       ? `${sellingMoney(r.requestedAmount, r.currency)}${r.comment ? ` — ${r.comment}` : ""}`
       : `${sellingMoney(r.requestedAmount, r.currency)}: ${r.comment}`;
+// A request to credit an invoice in part, waiting for a manager, and the answer to whoever asked.
+const creditWaitingTitle = (r: CreditNoteRequest) => `Partial credit note waiting · ${r.invoiceNumber}`;
+const creditWaitingText = (r: CreditNoteRequest) =>
+  `${r.requestedByName || "A colleague"} asks to credit ${formatAmount(Number(r.gross), r.currency)} of ${formatAmount(Number(r.invoiceGross), r.currency)} (${r.jobNumber}, ${r.customerName}) — ${r.reason}`;
+const creditAnswerTitle = (r: CreditNoteRequest) =>
+  `Partial credit note on ${r.invoiceNumber} ${r.status === "approved" ? `approved${r.creditNoteNumber ? ` (${r.creditNoteNumber})` : ""}` : "rejected"}`;
+const creditAnswerText = (r: CreditNoteRequest) =>
+  r.status === "approved"
+    ? `${formatAmount(Number(r.gross), r.currency)} credited · ${r.jobNumber}${r.comment ? ` — ${r.comment}` : ""}`
+    : `Rejected: ${r.comment}`;
 
 // How long a read notification stays under the bell, in the "Last 7 days" view.
 const READ_KEEP_DAYS = 7;
@@ -184,6 +195,8 @@ export function NotificationBell() {
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
   // Requests to sell below the cost: waiting, for every manager; answered, for whoever asked.
   const { waiting: sellingWaiting, answers: sellingAnswers, hasLoaded: sellingLoaded, seen: sellingSeen } = useSellingAmountBell();
+  // Requests to credit an invoice in part: waiting, for every manager; answered, for whoever asked.
+  const { waiting: creditWaiting, answers: creditAnswers, hasLoaded: creditLoaded, seen: creditSeen } = useCreditNoteRequestBell();
   // New suppliers added from quotes: a manager is told what waits, whoever added one the answer.
   const { canManageSales } = useSalesPermissions();
   const { approvals: supplierApprovals, hasLoaded: suppliersLoaded, seen: supplierSeen } = useSupplierApprovals();
@@ -212,6 +225,7 @@ export function NotificationBell() {
   const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
   const unreadSellingAnswers = sellingAnswers.filter((a) => !a.answerSeenAt);
+  const unreadCreditAnswers = creditAnswers.filter((a) => !a.answerSeenAt);
   // "Last 7 days": everything unread, and what was read in the last 7 days (a mention: written in them).
   const viewNotices = view === "unread" ? notices : announcements.filter((a) => a.unread || keptSince(a.readAt, now));
   const viewMentions = view === "unread" ? unreadMentions : allMentions;
@@ -224,6 +238,8 @@ export function NotificationBell() {
   const marginWaitingShown = marginWaiting.filter((r) => matchesAll(query, waitingTitle(r), waitingText(r)));
   const sellingWaitingShown = sellingWaiting.filter((r) => matchesAll(query, sellingWaitingTitle(r), sellingWaitingText(r)));
   const sellingAnswersShown = (view === "unread" ? unreadSellingAnswers : sellingAnswers).filter((a) => matchesAll(query, sellingAnswerTitle(a), sellingAnswerText(a), a.decidedByName));
+  const creditWaitingShown = creditWaiting.filter((r) => matchesAll(query, creditWaitingTitle(r), creditWaitingText(r)));
+  const creditAnswersShown = (view === "unread" ? unreadCreditAnswers : creditAnswers).filter((a) => matchesAll(query, creditAnswerTitle(a), creditAnswerText(a), a.decidedByName));
   const marginAnswersShown = (view === "unread" ? unreadMarginAnswers : marginAnswers).filter((a) => matchesAll(query, marginAnswerTitle(a), marginAnswerText(a), a.decidedByName));
   const unreadSupplierAnswers = supplierAnswers.filter((a) => !a.answerSeen);
   const supplierWaitingShown = supplierWaiting.filter((a) => matchesAll(query, supplierWaitingTitle(a), supplierWaitingText(a)));
@@ -331,6 +347,19 @@ export function NotificationBell() {
     seenSelling.current = new Set(keys);
   }, [sellingWaiting, sellingAnswers, sellingLoaded, toast]);
 
+  // The same for requests to credit an invoice in part.
+  const seenCredit = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!creditLoaded) return;
+    const before = seenCredit.current;
+    const keys = [...creditWaiting.map((r) => `w:${r.id}`), ...creditAnswers.map((a) => `a:${a.id}`)];
+    if (before) {
+      for (const r of creditWaiting) if (!before.has(`w:${r.id}`)) toast.notify({ title: creditWaitingTitle(r), description: creditWaitingText(r), type: "warning" });
+      for (const a of creditAnswers) if (!a.answerSeenAt && !before.has(`a:${a.id}`)) toast.notify({ title: creditAnswerTitle(a), description: creditAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+    }
+    seenCredit.current = new Set(keys);
+  }, [creditWaiting, creditAnswers, creditLoaded, toast]);
+
   // And new suppliers waiting, and answers to the ones this user added. Every waiting one is remembered,
   // whoever the user is: the sales permissions may arrive after the list, and a manager is then not told
   // of the whole backlog as news.
@@ -400,7 +429,7 @@ export function NotificationBell() {
   const total =
     importInstructions.length +
     approvalChats.length +
-    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.threadId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : a.decision === "approved" && a.customerId ? `/customers/${a.customerId}` : "/customers");
@@ -431,6 +460,10 @@ export function NotificationBell() {
   const openSellingAnswer = (a: SellingAmountRequest) => {
     if (!a.answerSeenAt) sellingSeen.mutate([a.id]);
     go(`/shipments/${a.shipmentId}?tab=costs`);
+  };
+  const openCreditAnswer = (a: CreditNoteRequest) => {
+    if (!a.answerSeenAt) creditSeen.mutate([a.id]);
+    go(`/invoicing?shipment=${encodeURIComponent(a.shipmentId)}&tab=documents`);
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = `px-4 py-2 border-b border-slate-200 bg-slate-50 ${LABEL_TEXT}`;
@@ -510,6 +543,30 @@ export function NotificationBell() {
             <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{sellingAnswerTitle(a)}</span>
           </span>
           <span className="text-[12px] text-slate-700 line-clamp-2">{sellingAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
+      {creditWaitingShown.length > 0 && <div className={headingClass}>Partial credit notes, waiting</div>}
+      {creditWaitingShown.map((r) => (
+        <button key={`cw:${r.id}`} type="button" onClick={() => go(salesManagersHref({ tab: "billing" }))} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{creditWaitingTitle(r)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{creditWaitingText(r)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(r.requestedAt)}</span>
+        </button>
+      ))}
+      {creditAnswersShown.length > 0 && <div className={headingClass}>Partial credit notes, answers</div>}
+      {creditAnswersShown.map((a) => (
+        <button key={`ca:${a.id}`} type="button" onClick={() => openCreditAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{creditAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{creditAnswerText(a)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
           </span>
@@ -665,7 +722,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

@@ -692,6 +692,9 @@ export namespace customers {
 }
         }
 
+        /**
+         * A Czech company's record by IČO. Counted per company like the name search (two calls to ARES each).
+         */
         public async aresLookup(ico: string): Promise<interfaces.AresResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/ares/${encodeURIComponent(ico)}`)
@@ -1419,7 +1422,8 @@ export namespace holidays {
         }
 
         /**
-         * Reads holidays out of an uploaded file for review; nothing is saved yet.
+         * Reads holidays out of an uploaded file for review; nothing is saved yet. Managers only: the
+         * holidays move every lead time in Trucking, and reading a file is a paid AI call.
          */
         public async holidayRead(params: controllers.HolidayReadRequest): Promise<interfaces.HolidayReadResult> {
             // Now make the actual call to the API
@@ -1436,17 +1440,24 @@ export namespace invoicing {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.creditNoteRequestDecide = this.creditNoteRequestDecide.bind(this)
+            this.creditNoteRequestForMe = this.creditNoteRequestForMe.bind(this)
+            this.creditNoteRequestList = this.creditNoteRequestList.bind(this)
+            this.creditNoteRequestSeen = this.creditNoteRequestSeen.bind(this)
+            this.creditNoteRequestWithdraw = this.creditNoteRequestWithdraw.bind(this)
             this.customsInvoicingAddLine = this.customsInvoicingAddLine.bind(this)
             this.customsInvoicingDeleteLine = this.customsInvoicingDeleteLine.bind(this)
             this.customsInvoicingGet = this.customsInvoicingGet.bind(this)
             this.customsInvoicingSetNumber = this.customsInvoicingSetNumber.bind(this)
             this.customsInvoicingUpdateLine = this.customsInvoicingUpdateLine.bind(this)
+            this.invoiceCreditOptions = this.invoiceCreditOptions.bind(this)
             this.invoiceDocCredit = this.invoiceDocCredit.bind(this)
             this.invoiceDocGet = this.invoiceDocGet.bind(this)
             this.invoiceDocIssue = this.invoiceDocIssue.bind(this)
             this.invoiceDocList = this.invoiceDocList.bind(this)
             this.invoiceDocPdf = this.invoiceDocPdf.bind(this)
             this.invoiceDocPreview = this.invoiceDocPreview.bind(this)
+            this.invoicePartialCreditAsk = this.invoicePartialCreditAsk.bind(this)
             this.invoiceProfileGet = this.invoiceProfileGet.bind(this)
             this.invoiceProfileSave = this.invoiceProfileSave.bind(this)
             this.invoiceQueue = this.invoiceQueue.bind(this)
@@ -1454,6 +1465,7 @@ export namespace invoicing {
             this.invoicingAddCharge = this.invoicingAddCharge.bind(this)
             this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
             this.invoicingCopyEstimates = this.invoicingCopyEstimates.bind(this)
+            this.invoicingCreditNoteRequestsOfShipment = this.invoicingCreditNoteRequestsOfShipment.bind(this)
             this.invoicingDeleteBuyingCost = this.invoicingDeleteBuyingCost.bind(this)
             this.invoicingDeleteCharge = this.invoicingDeleteCharge.bind(this)
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
@@ -1487,6 +1499,63 @@ export namespace invoicing {
             this.sellingAmountRequestWithdraw = this.sellingAmountRequestWithdraw.bind(this)
         }
 
+        /**
+         * A manager's answer: approving issues the credit note at once.
+         */
+        public async creditNoteRequestDecide(id: string, params: controllers.DecideCreditRequest): Promise<{
+    request: interfaces.CreditNoteRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/credit-note-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.CreditNoteRequestItem
+}
+        }
+
+        /**
+         * The bell: requests waiting, for a manager, and answers to what the user asked.
+         */
+        public async creditNoteRequestForMe(): Promise<{
+    waiting: interfaces.CreditNoteRequestItem[]
+    answers: interfaces.CreditNoteRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/credit-note-requests/for-me`)
+            return await resp.json() as {
+    waiting: interfaces.CreditNoteRequestItem[]
+    answers: interfaces.CreditNoteRequestItem[]
+}
+        }
+
+        /**
+         * The managers' list (Billing approvals): what waits, and what was answered in the last 30 days.
+         */
+        public async creditNoteRequestList(): Promise<{
+    requests: interfaces.CreditNoteRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/credit-note-requests`)
+            return await resp.json() as {
+    requests: interfaces.CreditNoteRequestItem[]
+}
+        }
+
+        public async creditNoteRequestSeen(params: {
+    ids: string[]
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/credit-note-requests/seen`, JSON.stringify(params))
+        }
+
+        public async creditNoteRequestWithdraw(id: string): Promise<{
+    request: interfaces.CreditNoteRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/credit-note-requests/${encodeURIComponent(id)}/withdraw`)
+            return await resp.json() as {
+    request: interfaces.CreditNoteRequestItem
+}
+        }
+
         public async customsInvoicingAddLine(shipmentId: string, params: controllers.AddCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines`, JSON.stringify(params))
@@ -1515,6 +1584,19 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines/${encodeURIComponent(lineId)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomsLineResponse
+        }
+
+        /**
+         * The credit dialog: what is left of each line of the invoice, and a request already waiting.
+         */
+        public async invoiceCreditOptions(invoiceId: string): Promise<{
+    options: interfaces.CreditOptionsItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoices/${encodeURIComponent(invoiceId)}/credit-options`)
+            return await resp.json() as {
+    options: interfaces.CreditOptionsItem
+}
         }
 
         public async invoiceDocCredit(invoiceId: string, params: controllers.CreditRequest): Promise<controllers.InvoiceDocResponse> {
@@ -1555,6 +1637,19 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/invoices/preview`, JSON.stringify(params))
             return await resp.json() as controllers.PreviewResponse
+        }
+
+        /**
+         * Asks a manager to credit the invoice in part: nothing is issued until one approves.
+         */
+        public async invoicePartialCreditAsk(invoiceId: string, params: controllers.AskPartialCreditRequest): Promise<{
+    request: interfaces.CreditNoteRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoices/${encodeURIComponent(invoiceId)}/partial-credit-requests`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.CreditNoteRequestItem
+}
         }
 
         public async invoiceProfileGet(): Promise<controllers.GetProfileResponse> {
@@ -1611,6 +1706,16 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/copy-estimates`, JSON.stringify(params))
             return await resp.json() as controllers.CopyEstimatesResponse
+        }
+
+        public async invoicingCreditNoteRequestsOfShipment(shipmentId: string): Promise<{
+    requests: interfaces.CreditNoteRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}/credit-note-requests`)
+            return await resp.json() as {
+    requests: interfaces.CreditNoteRequestItem[]
+}
         }
 
         public async invoicingDeleteBuyingCost(shipmentId: string, costId: string): Promise<controllers.DeleteBuyingResponse> {
@@ -3999,7 +4104,7 @@ export namespace tariffs {
 
         /**
          * Approves a draft without errors (manager): it prices from its start date; active versions whose
-         * dates it covers give way.
+         * dates it covers give way, and keep pricing the days before and after it (lib/versionGiveWay).
          */
         public async railTariffApprove(versionId: string): Promise<controllers.RailTariffVersionResponse> {
             // Now make the actual call to the API
@@ -6756,6 +6861,21 @@ export namespace controllers {
         tooMany: boolean
     }
 
+    export interface AskPartialCreditRequest {
+        /**
+         * The lines to credit, each by an amount in the line's own currency
+         */
+        lines: {
+            lineId: string
+            amount: string
+        }[]
+
+        /**
+         * Why (printed on the credit note)
+         */
+        reason: string
+    }
+
     export interface AskRemovalRequest {
         /**
          * Why the row should go.
@@ -6793,14 +6913,16 @@ export namespace controllers {
     export interface AttachmentCreateRequest {
         fileName: string
         /**
-         * Ignored: the server stores the decoded file's own size.
+         * Not used: the size stored is that of the file received. Kept so a client that still sends it is accepted.
          */
         fileSize?: number
+
         fileType: string
         /**
-         * The file's bytes; an empty file is refused.
+         * The file, base64. Required: a document without its file is one nobody can open.
          */
         contentBase64: string
+
         /**
          * Optional business document type set right at upload.
          */
@@ -7808,6 +7930,11 @@ export namespace controllers {
         comment?: string
     }
 
+    export interface DecideCreditRequest {
+        decision: "approve" | "reject"
+        comment?: string
+    }
+
     export interface DecideRequest {
         decision: "approve" | "counter" | "reject"
         /**
@@ -7883,7 +8010,11 @@ export namespace controllers {
 
     export interface DocumentChangeAskRequest {
         fileName: string
-        fileSize: number
+        /**
+         * Not used: the size stored is that of the file received. Kept so a client that still sends it is accepted.
+         */
+        fileSize?: number
+
         fileType: string
         contentBase64: string
         reason: string
@@ -14123,6 +14254,110 @@ export namespace interfaces {
     }
 
     /**
+     * A request to credit an invoice in part, and its answer (Sales → Managers → Billing approvals).
+     */
+    export interface CreditNoteRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        invoiceId: string
+        invoiceNumber: string
+        customerName: string
+        currency: string
+        lines: CreditNoteRequestLineItem[]
+        net: string
+        vat: string
+        gross: string
+        invoiceGross: string
+        reason: string
+        status: "pending" | "approved" | "rejected" | "withdrawn"
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        decidedByName: string
+        decidedAt: string | null
+        comment: string
+        selfDecision: boolean
+        answerSeenAt: string | null
+        creditNoteId: string | null
+        creditNoteNumber: string
+    }
+
+    export interface CreditNoteRequestLineItem {
+        lineId: string
+        description: string
+        unitCurrency: string
+        /**
+         * What to credit, in the line's own currency
+         */
+        amount: string
+
+        /**
+         * The same in the invoice currency, when asked
+         */
+        net: string
+    }
+
+    /**
+     * What the credit dialog shows of an invoice.
+     */
+    export interface CreditOptionsItem {
+        invoiceId: string
+        number: string
+        currency: string
+        gross: string
+        /**
+         * What partial credit notes took off it so far (gross, negative), and their numbers
+         */
+        creditedGross: string
+
+        creditNoteNumbers: string[]
+        lines: CreditableLineItem[]
+        /**
+         * A partial credit note waiting for a manager, if any
+         */
+        pendingRequest: CreditNoteRequestItem | null
+    }
+
+    /**
+     * One line of an invoice in the credit dialog: what it was, and what is left of it to credit.
+     */
+    export interface CreditableLineItem {
+        lineId: string
+        description: string
+        qty: number
+        unitPrice: number
+        /**
+         * The line's own currency: what to credit is asked in it
+         */
+        unitCurrency: string
+
+        /**
+         * qty × unit price, in the line's own currency
+         */
+        amount: number
+
+        /**
+         * What is left of it to credit, in the line's own currency
+         */
+        remainingAmount: number
+
+        /**
+         * Invoice-currency units per 1 unit of the line's currency
+         */
+        fxRate: number
+
+        /**
+         * The line's total and what is left of it, in the invoice currency
+         */
+        net: number
+
+        remainingNet: number
+        vatCode: VatCode
+        vatRate: number
+    }
+
+    /**
      * The contact person sent with a new customer, with the same limits as a contact added later.
      */
     export interface CustomerContactRequest {
@@ -15829,7 +16064,7 @@ export namespace interfaces {
     export interface HaulierInvoiceCounts {
         DRAFT: number
         MATCHED: number
-        NEEDS_APPROVAL: number
+        "NEEDS_APPROVAL": number
         APPROVED: number
         BLOCKED: number
         REJECTED: number
@@ -16475,6 +16710,16 @@ export namespace interfaces {
      * One line of an issued invoice / credit note, or of a preview
      */
     export interface InvoiceDocLineItem {
+        /**
+         * The stored line's id (absent on a preview)
+         */
+        id?: string
+
+        /**
+         * On a credit note: the invoice line it corrects
+         */
+        correctsLineId?: string | null
+
         description: string
         qty: string
         unitPrice: string
@@ -17731,15 +17976,6 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -17757,6 +17993,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -18109,6 +18354,7 @@ export namespace interfaces {
          * (groupage), on an order not rejected. The portal offers it only then.
          */
         canDeliver: boolean
+
         /**
          * The POD may be uploaded here now: such a stop, the order confirmed, no POD yet, its stamps possible.
          */
@@ -20221,6 +20467,11 @@ export namespace interfaces {
          * The master job's line the row sells on at cost ("master:<masterJobId>:<lineId>"); null otherwise. Read-only then.
          */
         sourceMasterJobRef: string | null
+
+        /**
+         * The partial credit note that put this negative row on the shipment (lib/partialCredit); null otherwise
+         */
+        sourceCreditNoteId: string | null
 
         /**
          * When the row was added: on a billed shipment, before or after its first invoice
@@ -23959,7 +24210,11 @@ export namespace services {
     }
 
     export interface GeoItem {
+        /**
+         * A place or a country as typed: a line, not a document.
+         */
         text: string
+
         kind: geo.GeoKind
         /**
          * What the field means, which tells a port from an airport or a town, e.g. "port of loading".

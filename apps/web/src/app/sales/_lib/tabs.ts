@@ -60,7 +60,7 @@ export const salesSettingsHref = (tab: SalesSettingsTab) => `${SALES_PAGES.setti
 
 // Sales → Managers keeps its tab (?tab=inquiries, ?tab=approvals) and freight mode (?mode=) in the
 // address; the cockpit over all modes, where the page opens, needs neither.
-export type SalesManagersTab = "cockpit" | "inquiries" | "approvals";
+export type SalesManagersTab = "cockpit" | "inquiries" | "approvals" | "billing";
 export function salesManagersHref({ tab = "cockpit", mode = "all" }: { tab?: SalesManagersTab; mode?: string } = {}): string {
   const params = new URLSearchParams();
   if (tab !== "cockpit") params.set("tab", tab);

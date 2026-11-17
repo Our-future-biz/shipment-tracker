@@ -53,4 +53,5 @@ export const sellRowsOf = (sellingCosts: InvoicingData["sellingCosts"] | undefin
     invoice: !!c.invoice,
     sourceBuyId: c.sourceBuyId ?? null,
     createdAt: c.createdAt,
+    sourceCreditNoteId: c.sourceCreditNoteId ?? null,
   }));

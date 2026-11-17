@@ -48,6 +48,8 @@ import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
 import { billingCurrencyOptions, billToCurrencies } from "../_lib/billToCurrencies";
 import { IssuedInvoiceEmailModal, type IssuedInvoiceEmail } from "./IssuedInvoiceEmailModal";
+import { CreditNoteModal } from "./CreditNoteModal";
+import { useShipmentCreditRequests } from "@/hooks/useCreditOptions";
 import { InvoiceCustomerSelect } from "./InvoiceCustomerSelect";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
@@ -146,7 +148,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   const [note, setNote] = useState("");
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
   const [creditTarget, setCreditTarget] = useState<{ doc: InvoiceDoc; key: string } | null>(null);
-  const [creditReason, setCreditReason] = useState("");
+  // Partial credit notes asked of a manager: the one waiting shows on its invoice.
+  const { data: creditRequests } = useShipmentCreditRequests(shipment.id);
+  const waitingCredit = (invoiceId: string) => (creditRequests ?? []).some((r) => r.invoiceId === invoiceId && r.status === "pending");
   const [downloading, setDownloading] = useState<string | null>(null);
   // An issued invoice's or credit note's PDF, shown in the app's preview.
   const filePreview = useFilePreview();
@@ -296,16 +300,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
     }
   };
 
-  const confirmCredit = async () => {
-    if (!creditTarget || !creditReason.trim()) return;
+  // The whole invoice (or what partial credit notes left of it), at once. Refused, the dialog stays open.
+  const confirmCredit = async (reason: string) => {
+    if (!creditTarget) return;
     try {
-      const { invoice } = await credit({ invoiceId: creditTarget.doc.id, reason: creditReason.trim(), idempotencyKey: creditTarget.key });
-      setCreditTarget(null);
-      setCreditReason("");
+      const { invoice } = await credit({ invoiceId: creditTarget.doc.id, reason, idempotencyKey: creditTarget.key });
       toast.success(`Credit note ${invoice.number} issued`);
       await download(invoice);
     } catch (e) {
       toast.error(e instanceof Error && e.message ? e.message : "Failed to issue the credit note");
+      throw e;
     }
   };
 
@@ -1012,6 +1016,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                         <span className="inline-flex gap-2">
                           <Pill tone="slate">{d.kind === "credit_note" ? "Credit note" : "Invoice"}</Pill>
                           {d.status === "credited" && <Pill tone="amber">Credited</Pill>}
+                          {d.kind === "invoice" && d.status === "issued" && docs.some((c) => c.kind === "credit_note" && c.correctsInvoiceId === d.id) && (
+                            <Pill tone="amber">Partly credited</Pill>
+                          )}
+                          {d.kind === "invoice" && d.status === "issued" && waitingCredit(d.id) && <Pill tone="indigo">Partial credit waiting</Pill>}
                         </span>
                       </td>
                       <td className={`${TD} !text-slate-500`}>{czDate(d.issueDate)}</td>
@@ -1076,32 +1084,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
 
       {filePreview.modal}
 
-      {/* ── Credit note ── */}
-      <Modal
-        open={!!creditTarget}
-        title={`Credit note for ${creditTarget?.doc.number ?? ""}`}
-        okText="Issue credit note"
-        okButtonProps={{ danger: true, disabled: !creditReason.trim() }}
-        onOk={confirmCredit}
-        confirmLoading={isCrediting}
-        onCancel={() => { setCreditTarget(null); setCreditReason(""); }}
-        destroyOnHidden
-      >
-        <div className="text-[13px] text-slate-700 flex flex-col gap-2">
-          <p className="m-0">
-            Reverses the whole invoice ({creditTarget && <strong className="tabular-nums">{money(Number(creditTarget.doc.gross))} {creditTarget.doc.currency}</strong>}) with the same
-            rates and VAT. The reason is printed on the credit note.
-          </p>
-          <Input.TextArea
-            value={creditReason}
-            onChange={(e) => setCreditReason(e.target.value)}
-            placeholder="Reason, e.g. wrong customer / wrong amount"
-            maxLength={300}
-            autoSize={{ minRows: 2 }}
-            aria-label="Reason for the credit note"
-          />
-        </div>
-      </Modal>
+      {/* ── Credit note: the whole invoice at once, or part of it asked of a manager ── */}
+      <CreditNoteModal doc={creditTarget?.doc ?? null} onCreditWhole={confirmCredit} isCrediting={isCrediting} onClose={() => setCreditTarget(null)} />
     </>
   );
 }

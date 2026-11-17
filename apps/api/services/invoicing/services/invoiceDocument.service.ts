@@ -15,7 +15,6 @@ import { invoiceSeriesPrefix, jobYear } from "../lib/invoiceNumber";
 import {
   addDays,
   calculateInvoice,
-  creditLines,
   creditTotals,
   defaultDuzp,
   dueDays,
@@ -40,7 +39,18 @@ import type { ChargeCount } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 import { BILLING_CURRENCY_UNKNOWN, startBilling } from "./billingStart.service";
 import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
-import { chargeCountOf, deliverInvoiceFollowups, followupsOfCreditNote, followupsOfInvoice, type FollowupActor } from "./invoiceFollowups.service";
+import {
+  chargeCountOf,
+  deliverInvoiceFollowups,
+  followupsOfCreditNote,
+  followupsOfInvoice,
+  followupsOfPartialCreditNote,
+  type FollowupActor,
+} from "./invoiceFollowups.service";
+import { fullCreditLines, fullCreditTotalsAfter, partialCreditTotals, planPartialCredit, remainingLines, type CreditLineCalc, type RemainingLine } from "../lib/partialCredit";
+import { creditNoteRequestRepository } from "../repositories/creditNoteRequest.repository";
+import type { CreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
+import { userEmailOf } from "../../../lib/companyUsers";
 import { isUuid } from "../../../lib/uuid";
 
 /**
@@ -137,6 +147,8 @@ export function toDocItem(inv: InvoiceRecord, lines: InvoiceLineRecord[]): Invoi
     hasPdf: !!inv.pdfKey,
     createdAt: inv.createdAt.toISOString(),
     lines: lines.map((l) => ({
+      id: l.id,
+      correctsLineId: l.correctsLineId ?? null,
       description: l.description,
       qty: l.qty,
       unitPrice: l.unitPrice,
@@ -299,8 +311,9 @@ function supplierSnapshot(profile: NonNullable<Awaited<ReturnType<typeof loadCon
   };
 }
 
-const lineRows = (lines: InvoiceLineCalc[]): InvoiceLineInput[] =>
+const lineRows = (lines: (InvoiceLineCalc & { correctsLineId?: string })[]): InvoiceLineInput[] =>
   lines.map((l, i) => ({
+    correctsLineId: l.correctsLineId ?? null,
     seq: i + 1,
     description: l.description,
     qty: l.qty.toFixed(2),
@@ -371,6 +384,50 @@ async function issueOnce(
   }
 }
 
+type Reader = Parameters<typeof invoiceRepository.getLines>[2];
+
+/** What is left of an invoice to credit, line by line, and the credit notes issued against it so far. */
+async function creditState(original: InvoiceRecord, companyId: string, reader?: Reader): Promise<{ credits: InvoiceRecord[]; remaining: RemainingLine[] }> {
+  const credits = await invoiceRepository.creditNotesOf(original.id, companyId, reader);
+  const lines = await invoiceRepository.getLines(original.id, companyId, reader);
+  const against = await invoiceRepository.linesOf(credits.map((c) => c.id), companyId, reader);
+  return { credits, remaining: remainingLines(lines, against) };
+}
+
+/** The header of a credit note of `original`: same job, parties and rates; dated the day it is issued (§42 ZDPH). */
+function creditNoteHeader(original: InvoiceRecord, reason: string, issuedBy: string, key: string | null, totals: ReturnType<typeof creditTotals>) {
+  const issueDate = pragueToday();
+  return {
+    companyId: original.companyId,
+    shipmentId: original.shipmentId,
+    kind: "credit_note" as const,
+    status: "issued" as const,
+    correctsInvoiceId: original.id,
+    creditReason: reason,
+    customerId: original.customerId,
+    issueDate,
+    // DUZP of a credit note = the date it is issued (§42 ZDPH)
+    duzp: issueDate,
+    dueDate: issueDate,
+    currency: original.currency,
+    fxRate: original.fxRate,
+    fxWeek: original.fxWeek,
+    fxFixingDate: original.fxFixingDate,
+    fxSource: original.fxSource,
+    roePct: original.roePct,
+    ...money(totals),
+    vatSummary: totals.vatSummary,
+    supplier: original.supplier,
+    customer: original.customer,
+    shipment: original.shipment,
+    note: "",
+    issuedBy,
+    idempotencyKey: key,
+  };
+}
+
+const CREDITED_MEANWHILE = (number: string) => `Invoice ${number} was credited a moment ago — open it again and credit what is left`;
+
 export interface InvoicePdfFile {
   fileName: string;
   contentBase64: string;
@@ -404,6 +461,8 @@ async function pdfInput(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyI
     creditReason: inv.creditReason,
     correctsNumber: corrected?.number ?? "",
     lines: lines.map((l) => ({
+      id: l.id,
+      correctsLineId: l.correctsLineId ?? null,
       description: l.description, qty: l.qty, unitPrice: l.unitPrice, unitCurrency: l.unitCurrency,
       net: l.net, vatCode: l.vatCode, vatRate: l.vatRate,
     })),
@@ -576,6 +635,11 @@ class InvoiceDocumentService {
    * Credit note (opravný daňový doklad, §45): reverses the whole original invoice with the
    * same rates and VAT codes, numbered CN + job year + job number + sequence.
    */
+  /**
+   * A credit note of the whole invoice: at once, no approval. After partial credit notes it reverses
+   * what they left, so the invoice and all its credit notes come to nothing (lib/partialCredit); a
+   * partial one still waiting for a manager is taken back, as nothing is left to credit in part.
+   */
   async credit(invoiceId: string, companyId: string, userId: string, reason: string, idempotencyKey?: string): Promise<InvoiceDocItem> {
     const key = idempotencyKey?.trim() || null;
     const sameRequest = (r: InvoiceRecord) => r.kind === "credit_note" && r.correctsInvoiceId === invoiceId;
@@ -587,67 +651,100 @@ class InvoiceDocumentService {
       if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
       if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
 
-      const originalLines = await invoiceRepository.getLines(original.id, companyId);
-      const calcLines: InvoiceLineCalc[] = creditLines(
-        originalLines.map((l) => ({
-          sourceSellingCostId: l.sourceSellingCostId ?? "",
-          description: l.description,
-          qty: Number(l.qty),
-          unitPrice: Number(l.unitPrice),
-          unitCurrency: l.unitCurrency,
-          net: Number(l.net),
-          vatCode: l.vatCode,
-          vatRate: Number(l.vatRate),
-          fxRate: Number(l.fxRate ?? 1),
-        })),
-      );
-      // §42 ZDPH: a correction uses the rate of the original supply — and the credit note must
-      // cancel the invoice exactly, so its totals are the invoice's own, negated.
-      const totals = creditTotals(original);
-      const issueDate = pragueToday();
+      const [{ credits, remaining }, userEmail] = await Promise.all([creditState(original, companyId), userEmailOf(userId)]);
+      // §42 ZDPH: a correction uses the rate of the original supply. With no partial credit before,
+      // the credit note must cancel the invoice exactly, so its totals are the invoice's own, negated;
+      // after partial ones, what they left of them.
+      const calcLines: CreditLineCalc[] = fullCreditLines(remaining);
+      const totals = credits.length ? fullCreditTotalsAfter(original, credits) : creditTotals(original);
 
       const { invoice, lines, replayed: again } = await invoiceRepository.issue(
         // the credit note belongs to the same job and job year as the invoice it corrects
         invoiceSeriesPrefix("CN", original.shipment.jobYear, original.shipment.jobNumber),
-        {
-          companyId,
-          shipmentId: original.shipmentId,
-          kind: "credit_note",
-          status: "issued",
-          correctsInvoiceId: original.id,
-          creditReason: reason.trim(),
-          customerId: original.customerId,
-          issueDate,
-          // DUZP of a credit note = the date it is issued (§42 ZDPH)
-          duzp: issueDate,
-          dueDate: issueDate,
-          currency: original.currency,
-          fxRate: original.fxRate,
-          fxWeek: original.fxWeek,
-          fxFixingDate: original.fxFixingDate,
-          fxSource: original.fxSource,
-          roePct: original.roePct,
-          ...money(totals),
-          vatSummary: totals.vatSummary,
-          supplier: original.supplier,
-          customer: original.customer,
-          shipment: original.shipment,
-          note: "",
-          issuedBy: userId,
-          idempotencyKey: key,
-        },
+        creditNoteHeader(original, reason.trim(), userId, key, totals),
         lineRows(calcLines).map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId || null })),
         {
+          // Credit notes of one job are issued one at a time (the series lock): one issued while this
+          // was being worked out changed what is left.
+          beforeInsert: async (tx) => {
+            if ((await invoiceRepository.creditNotesOf(original.id, companyId, tx)).length !== credits.length) throw APIError.failedPrecondition(CREDITED_MEANWHILE(original.number));
+          },
           afterInsert: async (tx, inserted) => {
             const ok = await invoiceRepository.markCredited(tx, original.id, companyId);
             if (!ok) throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
-            await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCreditNote(inserted, original, actorOf(userId)));
+            await creditNoteRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: userId, name: userEmail }, `The invoice was credited in full on ${inserted.number}`);
+            await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCreditNote(inserted, original, actorOf(userId), credits.map((c) => c.number)));
           },
         },
       );
       // The request this one repeats issued it while this one waited for the lock.
       if (again) return earlierDocument(invoice, lines, sameRequest);
       // Sent straight away; what a service does not take now is sent again by the followups cron.
+      await deliverInvoiceFollowups(invoice.id);
+      const stored = await storePdfQuietly(invoice, lines, companyId);
+      return { ...toDocItem(invoice, lines), hasPdf: stored };
+    });
+  }
+
+  /** What is left of an invoice to credit, line by line (the credit dialog), and its credit notes so far. */
+  async creditState(invoiceId: string, companyId: string): Promise<{ original: InvoiceRecord; credits: InvoiceRecord[]; remaining: RemainingLine[] }> {
+    const original = isUuid(invoiceId) ? await invoiceRepository.getByIdForCompany(invoiceId, companyId) : null;
+    if (!original) throw APIError.notFound("Invoice not found");
+    return { original, ...(await creditState(original, companyId)) };
+  }
+
+  /**
+   * Issues the partial credit note a manager approved (services/creditNoteRequest): the lines asked,
+   * checked again against what is left of the invoice now. In the same transaction the request is
+   * marked approved with it, and a negative selling row goes on the shipment for every credited line,
+   * so its revenue and profit drop by what was credited. Once per request (its idempotency key).
+   */
+  async issuePartialCredit(request: CreditNoteRequestRecord, approver: { userId: string; userEmail: string; comment: string }): Promise<InvoiceDocItem> {
+    const companyId = request.companyId;
+    const key = `credit-request:${request.id}`;
+    const sameRequest = (r: InvoiceRecord) => r.kind === "credit_note" && r.correctsInvoiceId === request.invoiceId;
+    return issueOnce(companyId, key, sameRequest, async () => {
+      const original = await invoiceRepository.getByIdForCompany(request.invoiceId, companyId);
+      if (!original || original.kind !== "invoice") throw APIError.failedPrecondition("The invoice of this request is not there any more: reject the request");
+      if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has been credited in full since: reject the request`);
+
+      const { credits, remaining } = await creditState(original, companyId);
+      const plan = planPartialCredit(remaining, request.lines.map((l) => ({ lineId: l.lineId, amount: l.amount })));
+      if ("problem" in plan) throw APIError.failedPrecondition(`${plan.problem}. The invoice has changed since this was asked: reject the request`);
+      // Each line bills the negative row it puts on the shipment.
+      const rows = plan.lines.map((l) => ({ line: l, rowId: randomUUID() }));
+      const calcLines = rows.map(({ line, rowId }) => ({ ...line, sourceSellingCostId: rowId }));
+      const totals = partialCreditTotals(calcLines, Number(original.fxRate));
+
+      const { invoice, lines, replayed: again } = await invoiceRepository.issue(
+        invoiceSeriesPrefix("CN", original.shipment.jobYear, original.shipment.jobNumber),
+        creditNoteHeader(original, request.reason, approver.userId, key, totals),
+        lineRows(calcLines),
+        {
+          beforeInsert: async (tx) => {
+            await truckingLinesLock(tx, original.shipmentId);
+            if ((await invoiceRepository.creditNotesOf(original.id, companyId, tx)).length !== credits.length) {
+              throw APIError.failedPrecondition(`Invoice ${original.number} was credited a moment ago: open the request again`);
+            }
+          },
+          afterInsert: async (tx, inserted) => {
+            const approved = await creditNoteRequestRepository.approve(tx, companyId, request.id, approver, { id: inserted.id, number: inserted.number });
+            if (!approved) throw APIError.failedPrecondition("This request was answered a moment ago");
+            await sellingCostRepository.insertCreditRows(
+              tx,
+              companyId,
+              original.shipmentId,
+              inserted,
+              rows.map(({ line, rowId }) => {
+                const source = remaining.find((r) => r.lineId === line.correctsLineId);
+                return { id: rowId, sourceRowId: source?.sourceSellingCostId ?? null, lineText: line.description, amount: line.unitPrice, currency: line.unitCurrency, vatCode: line.vatCode };
+              }),
+            );
+            await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfPartialCreditNote(inserted, original, actorOf(approver.userId)));
+          },
+        },
+      );
+      if (again) return earlierDocument(invoice, lines, sameRequest);
       await deliverInvoiceFollowups(invoice.id);
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };

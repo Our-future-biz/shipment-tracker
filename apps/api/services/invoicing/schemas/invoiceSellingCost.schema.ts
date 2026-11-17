@@ -52,6 +52,12 @@ export const invoiceSellingCostTable = pgTable(
      * so processing the split doesn't put it back while the cost is the one approved (amountOverrideCost).
      */
     waivedAt: timestamp("waived_at", { withTimezone: true }),
+    /**
+     * A negative row a partial credit note put on the shipment (lib/partialCredit): what was credited
+     * of a charge, so revenue and profit follow what the customer pays. It is the credit note line's
+     * source, so it counts as invoiced - and can't be changed - while the invoice it corrects stands.
+     */
+    sourceCreditNoteId: uuid("source_credit_note_id"),
   },
   (table) => [
     ...defaultTableIndexes("invoice_selling_cost", table),
