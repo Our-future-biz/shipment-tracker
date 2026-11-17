@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input, Button, Checkbox, DatePicker, Popconfirm, Tooltip } from "antd";
 import {
   AlignLeftOutlined,
@@ -11,7 +11,7 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentNotes, type ShipmentNote } from "@/hooks/useShipmentNotes";
+import { useCoverNotesBell, useCoverNotesMarkRead, useShipmentNotes, type ShipmentNote } from "@/hooks/useShipmentNotes";
 import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { AppModal } from "@/components/AppModal";
@@ -51,6 +51,21 @@ export function NotesTab({
   onSaveFreeComments: (value: string) => void;
 }) {
   const { notes, openCount, add, change, remove } = useShipmentNotes(shipment.id);
+  // Opening the tab is seeing the to-dos of a shipment the bell says this user now covers, and so
+  // is having it open when the bell lists it anew.
+  const { mutate: markRead } = useCoverNotesMarkRead();
+  const { notices: coverNotices } = useCoverNotesBell();
+  const listedHere = coverNotices
+    .filter((n) => n.shipmentId === shipment.id)
+    .map((n) => n.at)
+    .join("|");
+  const markedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const opened = markedFor.current === null;
+    if (!opened && (!listedHere || listedHere === markedFor.current)) return;
+    markedFor.current = listedHere;
+    markRead(shipment.id);
+  }, [markRead, shipment.id, listedHere]);
   // The new to-do: its title, deadline and (behind "Add details") details.
   const [title, setTitle] = useState("");
   const [due, setDue] = useState<dayjs.Dayjs | null>(null);

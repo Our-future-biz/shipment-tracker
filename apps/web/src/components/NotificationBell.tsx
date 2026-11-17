@@ -31,6 +31,7 @@ import { ApprovalChatDrawer } from "@/components/ApprovalChatDrawer";
 import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/useShipmentAlerts";
 import { useTrackingBell, useTrackingMarkRead, type TrackingBellNotice } from "@/hooks/useShipmentTracking";
+import { useCoverNotesBell, useCoverNotesMarkRead, type CoverNotesNotice } from "@/hooks/useShipmentNotes";
 import { useDocumentChangeAnswers, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 import { fold } from "@/lib/fold";
@@ -63,6 +64,10 @@ const verdictText = (v: CustomsVerdictNotice) => `${v.fileName}${v.note ? ` — 
 // What the bell says about a shipment's dates.
 const trackingTitle = (n: TrackingBellNotice) => `${n.title} · ${n.jobNumber}`;
 const TRACKING_DOT: Record<TrackingBellNotice["kind"], string> = { date_moved: "bg-amber-500", to_confirm: "bg-indigo-500", not_told: "bg-red-500" };
+
+// A shipment somebody else made the user cover, with what is still to do on it.
+const coverTitle = (n: CoverNotesNotice) => `${n.openCount} open to-do${n.openCount === 1 ? "" : "s"} · ${n.jobNumber}`;
+const coverText = (n: CoverNotesNotice) => `You are now its ${n.role}: ${n.titles.join(" · ")}${n.openCount > n.titles.length ? " · …" : ""}`;
 
 // A manager's answer to a request to replace an approved document, as the bell says it.
 const documentAnswerTitle = (a: DocumentChangeRequestItem) => `Document change ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
@@ -217,6 +222,10 @@ export function NotificationBell() {
   // A date of a shipment this user is on moved, waits to be confirmed, or no longer holds what the customer was told.
   const { notices: trackingNotices, hasLoaded: trackingLoaded } = useTrackingBell();
   const { mutate: markTrackingRead } = useTrackingMarkRead();
+  // Shipments somebody else made this user the Handled By or Holiday Cover of, with their open to-dos,
+  // until the user opens the shipment's Notes To-Do tab (the server lists them only until then).
+  const { notices: coverNotices, hasLoaded: coverLoaded } = useCoverNotesBell();
+  const { mutate: markCoverRead } = useCoverNotesMarkRead();
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
   // long), and managers' answers to their questions or quotes (Council Outlay 6).
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
@@ -252,6 +261,8 @@ export function NotificationBell() {
   const verdictsShown = (view === "unread" ? unreadVerdicts : verdicts).filter((v) => matchesAll(query, verdictTitle(v), verdictText(v), v.reviewedByName));
   const unreadTracking = trackingNotices.filter((n) => n.unread);
   const trackingShown = (view === "unread" ? unreadTracking : trackingNotices).filter((n) => matchesAll(query, trackingTitle(n), n.text, n.by));
+  // Listed in both views: each stays until its tab is opened or its to-dos are finished.
+  const coverShown = coverNotices.filter((n) => matchesAll(query, coverTitle(n), coverText(n), n.by));
   const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
   const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
@@ -348,6 +359,17 @@ export function NotificationBell() {
     seenTracking.current = new Set(trackingNotices.map(keyOf));
     for (const n of fresh) toast.notify({ title: trackingTitle(n), description: n.text, type: n.kind === "date_moved" ? "info" : "warning" });
   }, [trackingNotices, trackingLoaded, toast]);
+
+  // The same for a shipment the user was made to cover: by the shipment and when they were made so.
+  const seenCover = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!coverLoaded) return;
+    const keyOf = (n: CoverNotesNotice) => `${n.shipmentId}:${n.at}`;
+    const before = seenCover.current;
+    const fresh = before ? coverNotices.filter((n) => !before.has(keyOf(n))) : [];
+    seenCover.current = new Set(coverNotices.map(keyOf));
+    for (const n of fresh) toast.notify({ title: coverTitle(n), description: coverText(n), type: "info" });
+  }, [coverNotices, coverLoaded, toast]);
 
   // The same for answers about a Customs Office.
   const seenOfficeAnswers = useRef<Set<string> | null>(null);
@@ -496,7 +518,7 @@ export function NotificationBell() {
   const total =
     importInstructions.length +
     approvalChats.length +
-    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + (payablesToApprove > 0 ? 1 : 0) + payablesBooked.length + changeWaiting.length + unreadChangeAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadTracking.length + coverNotices.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + (payablesToApprove > 0 ? 1 : 0) + payablesBooked.length + changeWaiting.length + unreadChangeAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.threadId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : a.decision === "approved" && a.customerId ? `/customers/${a.customerId}` : "/customers");
@@ -535,6 +557,11 @@ export function NotificationBell() {
   const openChangeAnswer = (a: InvoiceChangeRequestItem) => {
     if (!a.answerSeenAt) changeSeen.mutate([a.id]);
     go(`/invoicing?shipment=${encodeURIComponent(a.shipmentId)}&tab=documents`);
+  };
+  const openCover = (n: CoverNotesNotice) => {
+    // Seen here, not only once the tab opens: the shipment may open on another tab.
+    markCoverRead(n.shipmentId);
+    go(`/shipments/${n.shipmentId}?tab=notes`);
   };
   const openPayableBooked = (b: PayableNotice) => {
     payableSeen.mutate([b.invoiceId]);
@@ -824,6 +851,17 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
+      {coverShown.length > 0 && <div className={headingClass}>To-dos on shipments you now cover</div>}
+      {coverShown.map((n) => (
+        <button key={`cover:${n.shipmentId}`} type="button" onClick={() => openCover(n)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-indigo-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{coverTitle(n)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{coverText(n)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{[n.by, formatTime(n.at)].filter(Boolean).join(" · ")}</span>
+        </button>
+      ))}
       {verdictsShown.length > 0 && <div className={headingClass}>Customs</div>}
       {verdictsShown.map((v) => (
         <button key={`${v.id}:${v.reviewedAt}`} type="button" onClick={() => openVerdict(v)} className={rowClass}>
@@ -854,7 +892,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + payablesWaitingShown + payablesBookedShown.length + changeWaitingShown.length + changeAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {trackingShown.length + coverShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + payablesWaitingShown + payablesBookedShown.length + changeWaitingShown.length + changeAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

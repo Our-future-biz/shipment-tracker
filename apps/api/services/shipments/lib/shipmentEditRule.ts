@@ -59,7 +59,7 @@ export function invoicedRefusal(charges: { invoiced: number; total: number }): s
 export const DETAILS_REFUSAL = "Only the user in this shipment's Handled By or Holiday Cover, or a manager, can change its details";
 
 // A person is kept by e-mail; an old value may carry a name after it ("a@b.cz — Name").
-const personEmail = (value: string | null | undefined) => (value ?? "").split(" — ")[0]!.trim().toLowerCase();
+export const personEmail = (value: string | null | undefined) => (value ?? "").split(" — ")[0]!.trim().toLowerCase();
 
 type People = { personInCharge?: string | null; holidayCover?: string | null };
 

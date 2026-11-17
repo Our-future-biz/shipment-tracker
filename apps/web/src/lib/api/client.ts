@@ -2929,6 +2929,8 @@ export namespace shipments {
             this.commentMentions = this.commentMentions.bind(this)
             this.commentStrike = this.commentStrike.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
+            this.coverNotesForMe = this.coverNotesForMe.bind(this)
+            this.coverNotesMarkRead = this.coverNotesMarkRead.bind(this)
             this.customerLinkCreate = this.customerLinkCreate.bind(this)
             this.customerLinkGet = this.customerLinkGet.bind(this)
             this.customerLinkRevoke = this.customerLinkRevoke.bind(this)
@@ -3172,6 +3174,29 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipment-comments/unread`)
             return await resp.json() as controllers.CommentUnreadResponse
+        }
+
+        /**
+         * The bell: shipments somebody else made the user the Handled By or Holiday Cover of, with their
+         * open to-dos, in one answer (titles included), until the user opens the shipment's Notes To-Do tab.
+         */
+        public async coverNotesForMe(): Promise<controllers.CoverNotesForMeResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipment-notes/for-me`)
+            return await resp.json() as controllers.CoverNotesForMeResponse
+        }
+
+        /**
+         * The Notes To-Do tab was opened: the bell no longer lists the shipment for this user.
+         */
+        public async coverNotesMarkRead(shipmentId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/notes/read`)
+            return await resp.json() as {
+    ok: boolean
+}
         }
 
         /**
@@ -7543,6 +7568,10 @@ export namespace controllers {
          * Only shipments that have something unread for this user.
          */
         unread: interfaces.CommentUnreadItem[]
+    }
+
+    export interface CoverNotesForMeResponse {
+        notices: interfaces.CoverNotesNotice[]
     }
 
     export interface CompanyListResponse {
@@ -22981,6 +23010,32 @@ export namespace interfaces {
         tradeDirection: string
         status: string
         flags: TrackingAttentionFlag[]
+    }
+
+    /**
+     * A shipment somebody else made the user the Handled By or Holiday Cover of, with the to-dos still
+     * open on it (the bell's "To-dos on shipments you now cover", lib/coverBell).
+     */
+    export interface CoverNotesNotice {
+        shipmentId: string
+        jobNumber: string
+        /**
+         * What the user was made.
+         */
+        role: "Handled By" | "Holiday Cover"
+        /**
+         * Who made them so, by e-mail; empty when unknown.
+         */
+        by: string
+        at: string
+        /**
+         * How many of its to-dos are open.
+         */
+        openCount: number
+        /**
+         * The first open to-dos' titles, in the Notes To-Do tab's order (starred first, then newest).
+         */
+        titles: string[]
     }
 
     /**
