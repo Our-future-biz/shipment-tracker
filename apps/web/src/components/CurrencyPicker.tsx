@@ -49,6 +49,8 @@ export function CurrencyPicker({ value, onChange, locked = false, ariaLabel }: C
         locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-selector]:!bg-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
       }`}
       tabIndex={locked ? -1 : undefined}
+      // Locked, it never opens - by the keyboard either, once a double-click has put the focus in it.
+      open={locked ? false : undefined}
     />
   );
 }

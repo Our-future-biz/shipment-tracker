@@ -81,7 +81,7 @@ function ReasonForm({ label, explain, saveLabel, danger, saving, onSave, onCance
 function PaidForm({ invoice, saving, onSave, onCancel }: { invoice: PayableInvoice; saving: boolean; onSave: (day: string) => void; onCancel: () => void }) {
   const today = businessToday();
   const [day, setDay] = useState(today);
-  const problem = paidDayProblem(day, today, invoice.paidNotBefore);
+  const problem = paidDayProblem(day, today, invoice);
   return (
     <FormBox>
       <div className={HINT}>
@@ -95,8 +95,10 @@ function PaidForm({ invoice, saving, onSave, onCancel }: { invoice: PayableInvoi
           format="D.M.YYYY"
           value={day ? dayjs(day) : null}
           onChange={(d) => setDay(d ? d.format("YYYY-MM-DD") : "")}
-          // Not after today, nor before it was received: the server refuses both.
-          disabledDate={(d) => !!paidDayProblem(d.format("YYYY-MM-DD"), today, invoice.paidNotBefore)}
+          // Not after today, nor before it was received: the server refuses both. As bounds, not disabledDate,
+          // so the month and year panels stay open for the days in between.
+          minDate={invoice.paidNotBefore ? dayjs(invoice.paidNotBefore) : undefined}
+          maxDate={dayjs(today)}
           className="w-[160px]"
           aria-label="Paid on"
         />

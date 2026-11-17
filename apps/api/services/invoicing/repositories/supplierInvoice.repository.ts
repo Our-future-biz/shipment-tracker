@@ -567,6 +567,16 @@ class SupplierInvoiceRepository {
     });
   }
 
+  /** Keeps the read document with an invoice that is neither paid nor refused (checked in the write). */
+  async setDocument(companyId: string, id: string, doc: Pick<NewSupplierInvoiceRecord, "documentShipmentId" | "documentAttachmentId" | "documentName">): Promise<boolean> {
+    const rows = await db
+      .update(t)
+      .set({ ...doc, updatedAt: new Date() })
+      .where(and(LIVE(companyId), eq(t.id, id), isNull(t.paidOn), ne(t.status, "refused")))
+      .returning({ id: t.id });
+    return rows.length > 0;
+  }
+
   async setDetails(companyId: string, id: string, values: Partial<NewSupplierInvoiceRecord>): Promise<SupplierInvoiceRecord | null> {
     const [row] = await db
       .update(t)

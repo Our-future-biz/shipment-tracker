@@ -9,6 +9,7 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import { db } from "../../db/db";
 import { supplierInvoiceRepository as repo } from "../../repositories/supplierInvoice.repository";
+import { invoiceCostRepository } from "../../repositories/invoiceCost.repository";
 import { invoiceCostTable as c } from "../../schemas/invoiceCost.schema";
 import { masterJobCostTable as m } from "../../schemas/masterJobCost.schema";
 import { supplierInvoiceEventTable as ev, supplierInvoiceTable as t } from "../../schemas/supplierInvoice.schema";
@@ -215,5 +216,25 @@ describe("a refusal taking the lines off (takeLinesOff)", () => {
     expect(await line(estimated.id)).toMatchObject({ deletedAt: null, estAmount: "90.00", realAmount: null, invoiceNumber: "", received: false, supplierInvoiceId: null });
     expect((await line(typed.id)).deletedAt).not.toBeNull();
     expect(await master(ml.id)).toMatchObject({ realAmount: null, invoiceNumber: "", supplierInvoiceId: null });
+  });
+});
+
+describe("a deleted shipment's cost lines (invoiceCostRepository.softDeleteForShipment)", () => {
+  it("go with it, but not those of a supplier invoice marked paid, nor another shipment's", async () => {
+    const a = randomUUID();
+    const shipmentId = randomUUID();
+    const onPaid = await costLine(a, { shipmentId, invoiceNumber: "PD-1" });
+    const onOpen = await costLine(a, { shipmentId, invoiceNumber: "OP-1" });
+    const plain = await costLine(a, { shipmentId });
+    const elsewhere = await costLine(a, { invoiceNumber: "PD-1" });
+    await repo.sync(a, { all: true }, ORIGIN);
+    await decided((await line(onPaid.id)).supplierInvoiceId!, { status: "approved", paidOn: "2026-11-12" });
+
+    expect(await invoiceCostRepository.softDeleteForShipment(shipmentId, a)).toBe(1);
+
+    expect((await line(onPaid.id)).deletedAt).toBeNull();
+    expect((await line(onOpen.id)).deletedAt).not.toBeNull();
+    expect((await line(plain.id)).deletedAt).not.toBeNull();
+    expect((await line(elsewhere.id)).deletedAt).toBeNull();
   });
 });

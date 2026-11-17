@@ -409,11 +409,20 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
     return row ?? null;
   }
 
-  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+  /**
+   * A deleted shipment's cost lines go with it - but not those of a supplier invoice marked paid, whose lines stay
+   * as paid (Finance → Accounts Payable, D11): checked in this statement, so a payment noted a moment before is seen.
+   * Answers how many lines were kept that way.
+   */
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<number> {
+    const onPaidInvoice = sql`EXISTS (SELECT 1 FROM supplier_invoice h WHERE h.id = ${t.supplierInvoiceId} AND h.company_id = ${companyId}::uuid AND h.deleted_at IS NULL AND h.paid_on IS NOT NULL)`;
+    const live = and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt));
     await this.db
       .update(t)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
+      .where(and(live, sql`NOT ${onPaidInvoice}`));
+    const [kept] = await this.db.select({ n: count() }).from(t).where(and(live, onPaidInvoice));
+    return kept?.n ?? 0;
   }
 }
 

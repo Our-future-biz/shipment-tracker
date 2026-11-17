@@ -1,10 +1,10 @@
 import type { interfaces } from "@/lib/api/client";
+import { round2 } from "@/lib/money";
 
 export type CreditMode = "whole" | "part";
 
 type Line = Pick<interfaces.CreditableLineItem, "lineId" | "remainingAmount" | "remainingNet" | "fxRate" | "vatRate" | "unitCurrency">;
 
-const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
 const cents = (v: number) => Math.round(v * 100);
 
 export interface PartialCreditDraft {

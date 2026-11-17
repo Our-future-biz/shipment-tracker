@@ -120,4 +120,13 @@ describe("a deleted shipment's documents", () => {
     await expect(attachmentService.getContent(SHIPMENT, DOC, "t")).resolves.toBeNull();
     expect(bucket.download).not.toHaveBeenCalled();
   });
+
+  it("give another service no link (a supplier invoice's read document): the file is gone, not a link that fails", async () => {
+    await expect(attachmentService.fileLink(SHIPMENT, DOC, "c1")).resolves.toEqual({ fileName: "invoice.pdf", fileType: "application/pdf", contentUrl: "/file" });
+    shipments.isLive.mockResolvedValue(false);
+    await expect(attachmentService.fileLink(SHIPMENT, DOC, "c1")).resolves.toBeNull();
+    repo.getForShipment.mockClear();
+    await expect(attachmentService.fileLink("not-a-uuid", DOC, "c1")).resolves.toBeNull();
+    expect(repo.getForShipment).not.toHaveBeenCalled();
+  });
 });

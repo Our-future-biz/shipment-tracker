@@ -743,11 +743,21 @@ class SupplierInvoiceService {
   /** The read document, kept as an attachment of a shipment (D18). */
   async attachDocument(actor: Actor, id: string, doc: { shipmentId: string; attachmentId: string; name: string }): Promise<void> {
     if (!isUuid(doc.shipmentId) || !isUuid(doc.attachmentId)) throw APIError.invalidArgument("The document must be given by its shipment and attachment ids");
+    // As its details: never once paid or refused, it stays as it was decided - checked in the write too, so a payment
+    // noted meanwhile is seen.
+    const refusal = (h: SupplierInvoiceRecord) =>
+      h.paidOn
+        ? APIError.failedPrecondition(`This invoice is marked paid (${h.paidOn}): it stays as it was paid`)
+        : h.status === "refused"
+          ? APIError.failedPrecondition("This invoice was refused: the corrected invoice is booked as a new one")
+          : null;
     const h = await this.header(actor, id);
-    // As its details: never once paid or refused, it stays as it was decided.
-    if (h.paidOn) throw APIError.failedPrecondition(`This invoice is marked paid (${h.paidOn}): it stays as it was paid`);
-    if (h.status === "refused") throw APIError.failedPrecondition("This invoice was refused: the corrected invoice is booked as a new one");
-    await repo.setDetails(actor.companyID, h.id, { documentShipmentId: doc.shipmentId, documentAttachmentId: doc.attachmentId, documentName: doc.name.trim().slice(0, 300) });
+    const before = refusal(h);
+    if (before) throw before;
+    const kept = await repo.setDocument(actor.companyID, h.id, { documentShipmentId: doc.shipmentId, documentAttachmentId: doc.attachmentId, documentName: doc.name.trim().slice(0, 300) });
+    if (kept) return;
+    const now = await repo.byId(actor.companyID, h.id);
+    throw (now && refusal(now)) ?? notThere();
   }
 
   /**
@@ -869,8 +879,9 @@ class SupplierInvoiceService {
 
   /**
    * Before a deleted job's lines go (the shipment-deleted subscription): they leave their invoices as deleted lines
-   * do, so an approved invoice that now bills less waits to be approved again. One paid meanwhile keeps its state
-   * (the delete is refused while one is paid), said in the log. A failure throws, so the subscription tries again.
+   * do, so an approved invoice that now bills less waits to be approved again. The delete is refused while an
+   * invoice is paid; one paid after the delete but before this ran keeps its state and the job's lines it was paid
+   * for (the lines' delete leaves them, retireShipment). A failure throws, so the subscription tries again.
    */
   async beforeShipmentRetired(companyId: string, shipmentId: string): Promise<void> {
     const actor = { companyID: companyId, userID: "" };

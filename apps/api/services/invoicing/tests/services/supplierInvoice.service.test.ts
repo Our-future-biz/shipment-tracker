@@ -24,6 +24,7 @@ const repo = vi.hoisted(() => ({
   idOf: vi.fn(async () => null),
   idOfMasterSibling: vi.fn(async (): Promise<string | null> => null),
   liveIds: vi.fn(async (_c: string, ids: string[]) => new Set(ids)),
+  setDocument: vi.fn(async () => true),
 }));
 vi.mock("../../repositories/supplierInvoice.repository", () => ({ supplierInvoiceRepository: repo }));
 // The day each job was first billed (arrived after billing): none billed unless a test says so.
@@ -965,8 +966,9 @@ describe("attachDocument", () => {
 
   it("keeps the read document with an invoice that waits or is approved", async () => {
     repo.byId.mockResolvedValue(header({ status: "approved" }));
+    repo.setDocument.mockResolvedValue(true);
     await service.attachDocument(clerk, INV, doc);
-    expect(repo.setDetails).toHaveBeenCalledWith(COMPANY, INV, { documentShipmentId: SHIP_A, documentAttachmentId: doc.attachmentId, documentName: "msc.pdf" });
+    expect(repo.setDocument).toHaveBeenCalledWith(COMPANY, INV, { documentShipmentId: SHIP_A, documentAttachmentId: doc.attachmentId, documentName: "msc.pdf" });
   });
 
   it("leaves a paid or a refused invoice's document as it was", async () => {
@@ -974,6 +976,12 @@ describe("attachDocument", () => {
     await expect(service.attachDocument(clerk, INV, doc)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/marked paid/) });
     repo.byId.mockResolvedValue(header({ status: "refused" }));
     await expect(service.attachDocument(clerk, INV, doc)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/refused/) });
-    expect(repo.setDetails).not.toHaveBeenCalled();
+    expect(repo.setDocument).not.toHaveBeenCalled();
+  });
+
+  it("says it was paid meanwhile when the payment came between the read and the write", async () => {
+    repo.byId.mockResolvedValueOnce(header({ status: "approved" })).mockResolvedValueOnce(header({ status: "approved", paidOn: "2026-11-17" }));
+    repo.setDocument.mockResolvedValue(false);
+    await expect(service.attachDocument(clerk, INV, doc)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/marked paid \(2026-11-17\)/) });
   });
 });

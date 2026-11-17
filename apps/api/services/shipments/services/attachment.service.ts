@@ -54,7 +54,8 @@ class AttachmentService {
    * Accounts Payable); null when it is no longer among the shipment's documents.
    */
   async fileLink(shipmentId: string, id: string, companyId: string): Promise<AttachmentFileLink | null> {
-    if (!isUuid(shipmentId) || !isUuid(id)) return null;
+    // As the content endpoint: a deleted shipment's files are no longer handed out.
+    if (!isUuid(shipmentId) || !isUuid(id) || !(await shipmentService.isLive(shipmentId, companyId))) return null;
     const row = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
     return row ? { fileName: row.fileName, fileType: row.fileType, contentUrl: attachmentContentUrl(row.shipmentId, row.id, row.companyId) } : null;
   }

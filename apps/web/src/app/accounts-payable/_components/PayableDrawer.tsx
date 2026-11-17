@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Alert, Drawer, Spin, Tooltip } from "antd";
 import { FileTextOutlined } from "@ant-design/icons";
 import { Pill } from "@/components/Pill";
-import { apiErrorMessage, isNotFound } from "@/lib/api";
+import { apiErrorMessage, apiFileUrl, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { chargeLabel } from "@/lib/chargeCodes";
@@ -53,6 +53,9 @@ interface DocumentFileState {
   gone: boolean;
   /** A fresh link, for a preview whose link has expired (links last an hour); null when the file is gone. */
   freshUrl: () => Promise<string | null>;
+  /** Reads the invoice again, for a document that could not be looked up */
+  retry: () => void;
+  retrying: boolean;
 }
 
 /** The read document, kept as an attachment of a shipment (D18), opened in the app's preview. */
@@ -60,12 +63,21 @@ function DocumentLink({ document, state }: { document: NonNullable<PayableInvoic
   const preview = useFilePreview();
   const { file } = state;
   if (state.gone) return <span className={HINT}>{document.name || "The document"} is no longer among the shipment&apos;s documents.</span>;
-  if (!file) return <span className={HINT}>{document.name || "The document"} could not be looked up just now: open the invoice again in a moment.</span>;
+  if (!file) {
+    return (
+      <span className={HINT}>
+        {document.name || "The document"} could not be looked up just now.{" "}
+        <button type="button" onClick={state.retry} disabled={state.retrying} className={LINK}>
+          {state.retrying ? "Trying again…" : "Try again"}
+        </button>
+      </span>
+    );
+  }
   const source = { fileName: file.fileName || document.name, contentUrl: file.contentUrl, fileType: file.fileType, refreshUrl: state.freshUrl };
   return (
     <>
-      {/* The app's preview, its link renewed when it has expired. */}
-      <a href={file.contentUrl} onClick={preview.previewOnClick(source)} className={`inline-flex items-center gap-1.5 font-medium ${LINK}`}>
+      {/* The app's preview, its link renewed when it has expired; a middle-click opens the file from the API. */}
+      <a href={apiFileUrl(file.contentUrl)} onClick={preview.previewOnClick(source)} className={`inline-flex items-center gap-1.5 font-medium ${LINK}`}>
         <FileTextOutlined />
         {file.fileName || document.name}
       </a>
@@ -317,6 +329,8 @@ export function PayableDrawer({ id, onClose }: { id: string | null; onClose: () 
               file: detail.documentFile,
               gone: detail.documentGone,
               freshUrl: async () => (await query.refetch()).data?.documentFile?.contentUrl ?? null,
+              retry: () => void query.refetch(),
+              retrying: query.isFetching,
             }}
           />
           <Section title="Actions">

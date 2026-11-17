@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays } from "./dayHolidays";
 import { holidayKey } from "./calendar";
 import type { HolidayItem } from "../public-holidays/_lib/holidays";
@@ -56,7 +56,11 @@ describe("yearHolidays", () => {
 
   it("walks only the days of the year, even for an end date years away", () => {
     const items = [row({ country: "Japan", countryCode: "JP", nationalHoliday: "Typo", nationalStart: "2026-12-31", nationalEnd: "9026-01-01" })];
+    // Each day walked is a step of the date: a year's worth at most, not the 2.5 million days to 9026.
+    const steps = vi.spyOn(Date.prototype, "setDate");
     const days = yearHolidays(2026, items);
+    expect(steps.mock.calls.length).toBeLessThan(400);
+    steps.mockRestore();
     expect(days.get(holidayKey(2026, 11, 31))?.map((h) => h.countryCode)).toEqual(["JP"]);
     expect([...days.values()].flat().filter((h) => h.countryCode === "JP")).toHaveLength(1);
   });

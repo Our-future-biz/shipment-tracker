@@ -842,7 +842,7 @@ class InvoicingService {
    */
   async retireShipment(shipmentId: string, companyId: string): Promise<void> {
     await supplierInvoiceService.beforeShipmentRetired(companyId, shipmentId);
-    await Promise.all([
+    const [keptOnPaid] = await Promise.all([
       invoiceCostRepository.softDeleteForShipment(shipmentId, companyId),
       sellingCostRepository.softDeleteForShipment(shipmentId, companyId),
       additionalChargeRepository.softDeleteForShipment(shipmentId, companyId),
@@ -851,6 +851,8 @@ class InvoicingService {
       customsInvoiceLineRepository.softDeleteForShipment(shipmentId, companyId),
       customsInvoiceRepository.softDeleteForShipment(shipmentId, companyId),
     ]);
+    // A supplier invoice paid before the delete was heard of keeps the deleted job's lines it was paid for.
+    if (keptOnPaid) log.warn("a deleted job's lines stay on supplier invoices marked paid", { companyId, shipmentId, lines: keptOnPaid });
     await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: "" }, { shipmentIds: [shipmentId] }, "typed");
   }
 }

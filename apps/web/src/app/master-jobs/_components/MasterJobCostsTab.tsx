@@ -23,6 +23,7 @@ import { LOCKED_CONTROL, LOCKED_INPUT, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } 
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnWidths } from "@/hooks/useColumnWidths";
 import { supplierInvoiceKeys } from "@/hooks/supplierInvoiceKeys";
+import { invalidateInvoicingDerived } from "@/hooks/useInvoiceQueue";
 import { formatDate } from "@/lib/date";
 import { apInvoiceHref } from "@/lib/accountsPayable";
 import { ResizableTh } from "@/components/ResizableTh";
@@ -132,6 +133,12 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     }
     void queryClient.invalidateQueries({ queryKey: ["invoicing"] });
     void queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    // The shares are cost lines of the shipments: what is worked out from those refreshes too, as after a job's own
+    // cost write (Costs Breakdown) - the Invoicing queue, the invoice preview, the customer's Shipments tab figures,
+    // and the suppliers' What we owe and Open jobs.
+    invalidateInvoicingDerived(queryClient);
+    void queryClient.invalidateQueries({ queryKey: ["supplier-costs"] });
+    void queryClient.invalidateQueries({ queryKey: ["supplier-usage"] });
     // A buying line books, moves or sends back for approval its supplier invoice on Finance → Accounts Payable.
     void queryClient.invalidateQueries({ queryKey: supplierInvoiceKeys.all });
   };
@@ -228,9 +235,10 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     if (invoiceNumber === line.invoiceNumber) return;
     save(line, { invoiceNumber, received: invoiceNumber !== "" });
   };
-  // A currency change on Estimated is mirrored to Real while Real is empty.
+  // A currency change on Estimated is mirrored to Real while Real is empty - not on a paid invoice's line,
+  // whose real side stays as paid (the server would refuse the whole change).
   const saveEstCurrency = (line: Line, currency: string) =>
-    save(line, { estCurrency: currency, ...(Number(line.realAmount) ? {} : { realCurrency: currency }) });
+    save(line, { estCurrency: currency, ...(Number(line.realAmount) || line.invoicePaidOn ? {} : { realCurrency: currency }) });
   // A shipment in or out of a line's split: the other shipments share the line out between them.
   const saveInSplit = (line: Line, shipmentId: string, inSplit: boolean) =>
     save(line, {
@@ -417,7 +425,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     <input key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => !paidOn && saveAmount(line, "realAmount", e.target.value)} readOnly={billing} className={`${FIELD} text-right ${billingInput}`} aria-label="Real Cost" />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker locked={billing} value={line.realCurrency} onChange={(v) => save(line, { realCurrency: v })} ariaLabel="Real currency" />
+                    <CurrencyPicker locked={billing} value={line.realCurrency} onChange={(v) => !paidOn && save(line, { realCurrency: v })} ariaLabel="Real currency" />
                   </td>
                   <td className={CELL}>
                     <input readOnly={billing} className={`${FIELD} ${billingInput}`} key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => !paidOn && saveInvoiceNumber(line, e.target.value)} aria-label="Invoice number" />

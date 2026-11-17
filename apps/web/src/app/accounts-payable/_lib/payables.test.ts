@@ -335,11 +335,13 @@ describe("actions", () => {
   it("asks a reason of three characters at least, and a paid day between booking and today", () => {
     expect(reasonOk("  no ")).toBe(false);
     expect(reasonOk("Wrong rate")).toBe(true);
-    expect(paidDayProblem("2026-11-18", "2026-11-17", "2026-11-03")).toMatch(/after today/);
-    expect(paidDayProblem("2026-11-01", "2026-11-17", "2026-11-03")).toMatch(/before it was booked/);
-    expect(paidDayProblem("2026-11-17", "2026-11-17", "2026-11-03")).toBe("");
+    const received = invoice({ bookedOn: "2026-11-03", paidNotBefore: "2026-11-03" });
+    expect(paidDayProblem("2026-11-18", "2026-11-17", received)).toMatch(/after today/);
+    expect(paidDayProblem("2026-11-01", "2026-11-17", received)).toMatch(/before it was booked/);
+    expect(paidDayProblem("2026-11-17", "2026-11-17", received)).toBe("");
     // Never stamped received (a master job's, gathered from older lines): any past day, as the server allows.
-    expect(paidDayProblem("2025-01-10", "2026-11-17", null)).toBe("");
+    // It goes by the received day the server checks, not by the booked day shown.
+    expect(paidDayProblem("2025-01-10", "2026-11-17", invoice({ bookedOn: "2026-11-03", paidNotBefore: null }))).toBe("");
   });
 });
 
