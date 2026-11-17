@@ -8,7 +8,7 @@ import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useCreateMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
 import { useToast } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
-import { compareMczNumbers, nextMczNumber } from "@/lib/mcz";
+import { compareMczNumbers, matchesMczSearch, nextMczNumber } from "@/lib/mcz";
 import { Badge } from "@/components/Badge";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { PillTabs } from "@/components/SectionCard";
@@ -86,6 +86,8 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   const [selected, setSelected] = useState<Set<string>>(new Set(initialSelectedIds ?? []));
   const [search, setSearch] = useState("");
   const [selectedExistingMCZ, setSelectedExistingMCZ] = useState("");
+  // Narrows the master jobs to link to: a company has too many to scroll through for the one wanted.
+  const [mczSearch, setMczSearch] = useState("");
 
   // Each opening starts afresh, with the shipments it is opened for ticked. Only an opening: the
   // caller may hand a new list of the same ids on every render (a refetch when the window gets the
@@ -98,6 +100,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
       setSearch("");
       setMode("new");
       setSelectedExistingMCZ("");
+      setMczSearch("");
     }
   }
   const [isLinking, setIsLinking] = useState(false);
@@ -126,6 +129,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
     for (const m of masterJobs) map.set(m.mczNumber, m.shipmentCount);
     return Array.from(map.entries()).sort(([a], [b]) => compareMczNumbers(a, b));
   }, [shipments, masterJobs]);
+  const offeredMCZs = useMemo(() => existingMCZs.filter(([mcz]) => matchesMczSearch(mcz, mczSearch)), [existingMCZs, mczSearch]);
 
   const filteredShipments = useMemo(() => shipmentsOffered(shipments, search, onlyIds), [shipments, search, onlyIds]);
   // What is listed is what goes, when the grid chose them.
@@ -176,6 +180,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
     setSearch("");
     setMode("new");
     setSelectedExistingMCZ("");
+    setMczSearch("");
     onClose();
   };
 
@@ -224,26 +229,38 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
         )}
 
         {mode === "existing" && existingMCZs.length > 0 && (
-          // The master jobs to link to, one row each, as the shipments below.
-          <div className="max-h-[156px] overflow-y-auto rounded-lg border border-slate-200">
-            <Radio.Group value={selectedExistingMCZ} onChange={(e) => setSelectedExistingMCZ(e.target.value)} className="!flex flex-col w-full">
-              {existingMCZs.map(([mcz, count], i) => {
-                const on = selectedExistingMCZ === mcz;
-                return (
-                  <Radio
-                    key={mcz}
-                    value={mcz}
-                    className={`!m-0 !flex items-center w-full px-3 py-2 transition-colors ${i < existingMCZs.length - 1 ? "border-b border-slate-100" : ""} ${
-                      on ? "bg-indigo-50/70" : "hover:bg-slate-50"
-                    }`}
-                  >
-                    <span className={`${REF} text-[13px] font-semibold text-slate-900`}>{mcz}</span>
-                    <span className={`${HINT} ml-2`}>{linkedCount(count)}</span>
-                  </Radio>
-                );
-              })}
-            </Radio.Group>
-          </div>
+          <>
+            {/* Found by its number typed with its letters or without (mcz00000007 → MCZCONSOL00000007), as in the main search. */}
+            <Input
+              prefix={<SearchOutlined className="text-slate-400" />}
+              placeholder="Search master job number…"
+              value={mczSearch}
+              onChange={(e) => setMczSearch(e.target.value)}
+              allowClear
+              aria-label="Search master jobs"
+            />
+            {/* The master jobs to link to, one row each, as the shipments below. */}
+            <div className="max-h-[156px] overflow-y-auto rounded-lg border border-slate-200">
+              <Radio.Group value={selectedExistingMCZ} onChange={(e) => setSelectedExistingMCZ(e.target.value)} className="!flex flex-col w-full">
+                {offeredMCZs.map(([mcz, count], i) => {
+                  const on = selectedExistingMCZ === mcz;
+                  return (
+                    <Radio
+                      key={mcz}
+                      value={mcz}
+                      className={`!m-0 !flex items-center w-full px-3 py-2 transition-colors ${i < offeredMCZs.length - 1 ? "border-b border-slate-100" : ""} ${
+                        on ? "bg-indigo-50/70" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className={`${REF} text-[13px] font-semibold text-slate-900`}>{mcz}</span>
+                      <span className={`${HINT} ml-2`}>{linkedCount(count)}</span>
+                    </Radio>
+                  );
+                })}
+              </Radio.Group>
+              {offeredMCZs.length === 0 && <div className={EMPTY_STATE}>No master job matches the search.</div>}
+            </div>
+          </>
         )}
 
         {/* Search, to pick more: not when the shipments were chosen in the grid. */}
