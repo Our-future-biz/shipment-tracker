@@ -36,10 +36,11 @@ import type {
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
+import type { ChargeCount } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 import { BILLING_CURRENCY_UNKNOWN, startBilling } from "./billingStart.service";
 import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
-import { deliverInvoiceFollowups, followupsOfCreditNote, followupsOfInvoice, type FollowupActor } from "./invoiceFollowups.service";
+import { chargeCountOf, deliverInvoiceFollowups, followupsOfCreditNote, followupsOfInvoice, type FollowupActor } from "./invoiceFollowups.service";
 import { isUuid } from "../../../lib/uuid";
 
 /**
@@ -669,6 +670,15 @@ class InvoiceDocumentService {
   /** Issued, not credited invoices of a job (its tax date is final while there is one). */
   async openInvoiceCount(shipmentId: string, companyId: string): Promise<number> {
     return invoiceRepository.countOpenInvoices(shipmentId, companyId);
+  }
+
+  /**
+   * The job's charges: its selling lines with a value, ticked for Invoice or not, and how many of
+   * them are on an issued, not credited invoice. All of them must be before it is Invoiced
+   * (lib/shipmentStatus); the same count as the queue's Lines Invoiced.
+   */
+  async chargeCount(shipmentId: string, companyId: string): Promise<ChargeCount> {
+    return isUuid(shipmentId) ? chargeCountOf(shipmentId, companyId) : { invoiced: 0, total: 0 };
   }
 
   /** Of the shipments, those with an issued, not credited invoice: openInvoiceCount for many at once. */

@@ -133,6 +133,14 @@ const sellRow = (over: Record<string, unknown>) => ({
   id: "s1", category: "Ocean freight", qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true, vatCode: null, updatedAt: SAVED, ...over,
 });
 
+const CHARGES = [
+  { id: "s1", shipmentId: SHIPMENT, qty: "1", amount: "100.00", currency: "EUR", invoice: true },
+  { id: "s2", shipmentId: SHIPMENT, qty: "1", amount: "4999.50", currency: "CZK", invoice: true },
+];
+const openInvoiceOf = (sourceSellingCostIds: string[]) => ({
+  id: "inv1", shipmentId: SHIPMENT, number: "INV2026CZ00000028-001", currency: "CZK", gross: "7524.50", duzp: "2026-10-13", sourceSellingCostIds,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   clients.shipmentGet.mockResolvedValue({ shipment });
@@ -143,6 +151,9 @@ beforeEach(() => {
   clients.invoiceCreate.mockResolvedValue({});
   clients.invoiceMarkCredited.mockResolvedValue({ updated: 1 });
   repo.invoicedSellingRowIds.mockResolvedValue(new Set());
+  // The job's charges as the status follow-up counts them: both selling lines on the open invoice.
+  selling.listLiveByShipments.mockResolvedValue(CHARGES);
+  repo.listOpenInvoicesWithSources.mockResolvedValue([openInvoiceOf(["s1", "s2"])]);
   clients.shipmentUpdate.mockResolvedValue({});
   profiles.getByCompany.mockResolvedValue(profile);
   selling.listByShipmentId.mockResolvedValue([sellRow({}), sellRow({ id: "s2", category: "THC Destination", amount: "4999.50", currency: "CZK" })]);
@@ -333,6 +344,14 @@ describe("issue", () => {
     // Both follow-ups were written with the invoice (its transaction) and are sent.
     expect(outbox.enqueue).toHaveBeenCalledTimes(1);
     expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "sent"], ["status_after_issue", "sent"]]);
+  });
+
+  it("leaves the job Not Invoiced and in Billing while a charge is left to bill", async () => {
+    // A third selling line that this invoice does not carry.
+    selling.listLiveByShipments.mockResolvedValue([...CHARGES, { id: "s3", shipmentId: SHIPMENT, qty: "1", amount: "50.00", currency: "CZK", invoice: false }]);
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k-partial" });
+    expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "sent"], ["status_after_issue", "sent"]]);
+    expect(clients.shipmentUpdate).not.toHaveBeenCalled();
   });
 
   it("addresses the invoice to the customer's billing address instead of its seat, and keeps the seat's country for VAT", async () => {
@@ -620,6 +639,7 @@ describe("credit", () => {
   it("reverses the whole invoice as CN + job year + job number and marks the original credited", async () => {
     clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
     repo.countOpenInvoices.mockResolvedValue(0);
+    repo.listOpenInvoicesWithSources.mockResolvedValue([]);
     repo.getByIdForCompany.mockResolvedValue(original);
     repo.getLines.mockResolvedValue([line]);
     repo.markCredited.mockResolvedValue(true);
@@ -649,9 +669,22 @@ describe("credit", () => {
     expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]"  }, { authData: expect.objectContaining({ appWrite: true }) });
   });
 
+  it("puts the job back to bill when another invoice is still open but a charge is no longer invoiced", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
+    repo.countOpenInvoices.mockResolvedValue(1);
+    // The other open invoice carries s2 only: s1 was on the one credited.
+    repo.listOpenInvoicesWithSources.mockResolvedValue([openInvoiceOf(["s2"])]);
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue([line]);
+    repo.markCredited.mockResolvedValue(true);
+    await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong amount");
+    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]" }, { authData: expect.objectContaining({ appWrite: true }) });
+  });
+
   it("marks the original Credited even when the credit note can't go into the customer's list", async () => {
     clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
     repo.countOpenInvoices.mockResolvedValue(0);
+    repo.listOpenInvoicesWithSources.mockResolvedValue([]);
     repo.getByIdForCompany.mockResolvedValue(original);
     repo.getLines.mockResolvedValue([line]);
     repo.markCredited.mockResolvedValue(true);

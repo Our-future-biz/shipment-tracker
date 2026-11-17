@@ -55,7 +55,18 @@ import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
-import { approvedByLockRefusal, creditCheckLockRefusal, customerRoleRefusal, DETAILS_REFUSAL, SALES_REFERENCE_INVOICED, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import {
+  approvedByLockRefusal,
+  creditCheckLockRefusal,
+  customerRoleRefusal,
+  DETAILS_REFUSAL,
+  SALES_REFERENCE_INVOICED,
+  invoicedRefusal,
+  isDetailsManager,
+  isInvoicedStatus,
+  isOpenToPerson,
+  touchesDetails,
+} from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
@@ -1052,6 +1063,8 @@ class ShipmentService {
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
     const badOffice = customsOfficeRefusal(rest.customsOffice);
     if (badOffice) throw APIError.invalidArgument(badOffice);
+    // A new shipment has no charges yet, so none of them is invoiced.
+    if (isInvoicedStatus(rest.invoicingStatus)) throw APIError.failedPrecondition(invoicedRefusal({ invoiced: 0, total: 0 })!);
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
@@ -1181,6 +1194,11 @@ class ShipmentService {
     const badOffice = customsOfficeRefusal(data.customsOffice, existing.customsOffice);
     if (badOffice) throw APIError.invalidArgument(badOffice);
     if (role !== undefined && touchesDetails(data)) await this.assertMayChangeDetails(existing, userId, role);
+    // Invoiced only once all the charges are, whoever asks (the app's own follow-up of an invoice too).
+    if (isInvoicedStatus(data.invoicingStatus) && !isInvoicedStatus(existing.invoicingStatus)) {
+      const refusal = invoicedRefusal(await invoicing._internalChargeCount({ shipmentId: id }));
+      if (refusal) throw APIError.failedPrecondition(refusal);
+    }
 
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);

@@ -1,10 +1,12 @@
 import log from "encore.dev/log";
 import { customers, shipments } from "~encore/clients";
 import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
-import { invoiceRepository } from "../repositories/invoice.repository";
 import type { InvoiceFollowupOutboxRecord, NewInvoiceFollowupOutboxRecord } from "../schemas/invoiceFollowupOutbox.schema";
 import type { InvoiceRecord } from "../schemas/invoice.schema";
-import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
+import { invoiceRepository } from "../repositories/invoice.repository";
+import { sellingCostRepository } from "../repositories/sellingCost.repository";
+import { countInvoicedLines } from "../lib/billingQueue";
+import { statusesAfterCredit, statusesAfterIssue, type ChargeCount, type StatusPatch } from "../lib/shipmentStatus";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
 
 // What an issued invoice or credit note owes the other services (schemas/invoiceFollowupOutbox):
@@ -33,7 +35,7 @@ const customerEntry = (doc: InvoiceRecord, status: "Open" | "Credited") => ({
   issuedAt: doc.issueDate ?? "",
 });
 
-/** An invoice: in the customer's list as Open; the shipment Invoiced (and Billing -> Billed). */
+/** An invoice: in the customer's list as Open; the shipment Invoiced (and Billing -> Billed) once it bills the last charge. */
 export function followupsOfInvoice(invoice: InvoiceRecord, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
   return rowsOf(invoice, invoice.shipmentId, actor, [
     { kind: "customer_invoice", payload: customerEntry(invoice, "Open") },
@@ -43,7 +45,7 @@ export function followupsOfInvoice(invoice: InvoiceRecord, actor: FollowupActor)
 
 /**
  * A credit note: in the customer's list as Credited, the invoice it cancels marked Credited there
- * too, and the shipment back in the queue when no invoice of it is left open.
+ * too, and the shipment back in the queue when a charge of it is no longer invoiced.
  */
 export function followupsOfCreditNote(creditNote: InvoiceRecord, original: InvoiceRecord, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
   return rowsOf(creditNote, original.shipmentId, actor, [
@@ -51,6 +53,19 @@ export function followupsOfCreditNote(creditNote: InvoiceRecord, original: Invoi
     { kind: "mark_credited", payload: { invoiceNumbers: [original.number] } },
     { kind: "status_after_credit", payload: { shipmentId: original.shipmentId } },
   ]);
+}
+
+/**
+ * The job's charges: its selling lines with a value, ticked for Invoice or not, and how many of
+ * them are on an issued, not credited invoice (the queue's Lines Invoiced). All of them must be
+ * before the job is Invoiced (lib/shipmentStatus).
+ */
+export async function chargeCountOf(shipmentId: string, companyId: string): Promise<ChargeCount> {
+  const [rows, openInvoices] = await Promise.all([
+    sellingCostRepository.listLiveByShipments([shipmentId], companyId),
+    invoiceRepository.listOpenInvoicesWithSources([shipmentId], companyId),
+  ]);
+  return countInvoicedLines(rows, openInvoices).get(shipmentId) ?? { invoiced: 0, total: 0 };
 }
 
 const changes = (patch: StatusPatch) => !!(patch.status || patch.invoicingStatus);
@@ -73,10 +88,9 @@ export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<vo
       // Worked out from the shipment as it is now: a status someone moved since is left alone.
       const shipmentId = String(payload.shipmentId);
       const { shipment } = await shipments.shipmentGet({ shipmentId }, { authData });
-      const patch =
-        row.kind === "status_after_issue"
-          ? statusesAfterIssue(shipment)
-          : statusesAfterCredit(shipment, await invoiceRepository.countOpenInvoices(shipmentId, row.companyId));
+      // Both follow the job's charges: Invoiced once the last one is on an open invoice, back when one is not.
+      const charges = await chargeCountOf(shipmentId, row.companyId);
+      const patch = row.kind === "status_after_issue" ? statusesAfterIssue(shipment, charges) : statusesAfterCredit(shipment, charges);
       // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
       if (changes(patch)) await shipments.shipmentUpdate({ shipmentId, ...patch }, { authData: { ...authData, appWrite: true } });
       return;

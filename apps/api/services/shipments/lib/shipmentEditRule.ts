@@ -40,6 +40,21 @@ export const DEPARTMENT_FIELDS: ReadonlySet<string> = new Set([
 /** An invoiced shipment keeps the offer it was invoiced from, until the invoice is credited. */
 export const SALES_REFERENCE_INVOICED = "This shipment is invoiced: its Sales Reference can't be changed. Credit the invoice first";
 
+/** Whether this Invoicing Status is Invoiced, however it is written. */
+export const isInvoicedStatus = (value: string | null | undefined): boolean => (value ?? "").trim().toLowerCase() === "invoiced";
+
+/**
+ * Why the shipment may not be marked Invoiced, or null when it may (owner decision, 17 Nov 2026):
+ * only once all its charges are - every selling line with a value, ticked for Invoice or not, on an
+ * issued, not credited invoice. No role is let past it, a manager neither. The count is Invoicing's
+ * (_internalChargeCount); the same words are in Invoicing's lib/shipmentStatus.
+ */
+export function invoicedRefusal(charges: { invoiced: number; total: number }): string | null {
+  if (charges.total > 0 && charges.invoiced >= charges.total) return null;
+  if (charges.total === 0) return "This shipment has no charges to invoice: it can be marked Invoiced once its selling lines are on an invoice";
+  return `Not all charges are invoiced: ${charges.invoiced} of ${charges.total} selling lines are on an invoice. Invoice the rest first`;
+}
+
 export const DETAILS_REFUSAL = "Only the user in this shipment's Handled By or Holiday Cover, or a manager, can change its details";
 
 // A person is kept by e-mail; an old value may carry a name after it ("a@b.cz — Name").

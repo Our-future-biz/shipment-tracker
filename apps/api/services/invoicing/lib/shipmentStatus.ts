@@ -1,14 +1,34 @@
 /**
- * How issuing and crediting move the shipment's statuses (owner's decision, 2026-10-14):
+ * How issuing and crediting move the shipment's statuses (owner's decisions, 2026-10-14 and 2026-11-17):
  *  - Shipment Status "Billing" (set by operations) means the job is ready to bill
- *  - issuing an invoice: Invoicing Status -> Invoiced, Shipment Status Billing -> Billed
- *  - a credit note that leaves the job without an open invoice: Invoicing Status ->
- *    Not Invoiced, Shipment Status Billed -> Billing, so the job is back in the queue
+ *  - a job is Invoiced only once all its charges are: every selling line with a value, ticked for
+ *    Invoice or not, is on an issued, not credited invoice (chargesInvoiced). Nobody may mark it
+ *    Invoiced by hand before that, a manager neither
+ *  - issuing the invoice that bills the last charge: Invoicing Status -> Invoiced, Shipment Status
+ *    Billing -> Billed. An invoice that leaves a charge to bill changes neither
+ *  - a credit note that leaves a charge not invoiced: Invoicing Status -> Not Invoiced, Shipment
+ *    Status Billed -> Billing, so the job is back in the queue
  * Statuses are stored with their direction ("Billing [IMP]"); any other status is left alone.
  */
 
 export const INVOICED = "Invoiced";
 export const NOT_INVOICED = "Not Invoiced";
+
+/** A job's selling lines with a value: how many are on an open invoice, of all of them (countInvoicedLines). */
+export interface ChargeCount {
+  invoiced: number;
+  total: number;
+}
+
+/** Whether every charge of the job is invoiced: it has at least one, and none is left to bill. */
+export const chargesInvoiced = (c: ChargeCount): boolean => c.total > 0 && c.invoiced >= c.total;
+
+/** Why the job may not be marked Invoiced yet, or null when it may. */
+export function invoicedRefusal(c: ChargeCount): string | null {
+  if (chargesInvoiced(c)) return null;
+  if (c.total === 0) return "This shipment has no charges to invoice: it can be marked Invoiced once its selling lines are on an invoice";
+  return `Not all charges are invoiced: ${c.invoiced} of ${c.total} selling lines are on an invoice. Invoice the rest first`;
+}
 
 export interface StatusPatch {
   status?: string;
@@ -25,8 +45,9 @@ export function isBillingStatus(status: string | null | undefined): boolean {
   return swap(status ?? "", "Billing", "Billing") !== undefined;
 }
 
-/** The fields to change after an invoice was issued; empty when nothing changes. */
-export function statusesAfterIssue(current: { status: string; invoicingStatus: string }): StatusPatch {
+/** The fields to change after an invoice was issued; empty when nothing changes, or a charge is left to bill. */
+export function statusesAfterIssue(current: { status: string; invoicingStatus: string }, charges: ChargeCount): StatusPatch {
+  if (!chargesInvoiced(charges)) return {};
   const patch: StatusPatch = {};
   if (current.invoicingStatus !== INVOICED) patch.invoicingStatus = INVOICED;
   const billed = swap(current.status ?? "", "Billing", "Billed");
@@ -34,9 +55,9 @@ export function statusesAfterIssue(current: { status: string; invoicingStatus: s
   return patch;
 }
 
-/** The fields to change after a credit note; nothing while another invoice is still open. */
-export function statusesAfterCredit(current: { status: string; invoicingStatus: string }, openInvoicesLeft: number): StatusPatch {
-  if (openInvoicesLeft > 0) return {};
+/** The fields to change after a credit note; nothing while all charges are still invoiced (on another open invoice). */
+export function statusesAfterCredit(current: { status: string; invoicingStatus: string }, charges: ChargeCount): StatusPatch {
+  if (chargesInvoiced(charges)) return {};
   const patch: StatusPatch = {};
   if (current.invoicingStatus !== NOT_INVOICED) patch.invoicingStatus = NOT_INVOICED;
   const billing = swap(current.status ?? "", "Billed", "Billing");

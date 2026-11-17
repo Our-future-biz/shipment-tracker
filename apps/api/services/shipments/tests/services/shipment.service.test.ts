@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } })
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
   warehouse: { _internalPickupPlates: vi.fn() },
 }));
@@ -183,6 +183,8 @@ beforeEach(() => {
   vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds).mockResolvedValue([]);
   vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
   vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: [] });
+  // Every charge on an open invoice unless a test says otherwise: Invoiced may then be set.
+  vi.mocked(invoicing._internalChargeCount).mockResolvedValue({ invoiced: 2, total: 2 });
   vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
@@ -194,6 +196,16 @@ beforeEach(() => {
   );
   links.syncReference.mockResolvedValue(synced({ status: "won", becameWon: true }));
   importQuote.mockResolvedValue({ buying: 3, selling: 2 });
+});
+
+describe("create", () => {
+  it("refuses a new shipment marked Invoiced: it has no charges yet", async () => {
+    await expect(shipmentService.create(COMPANY, { invoicingStatus: "Invoiced", tradeDirection: "Import" } as never)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringMatching(/no charges to invoice/),
+    });
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+  });
 });
 
 describe("create from a quote", () => {
@@ -489,6 +501,39 @@ describe("Created by", () => {
 
 describe("update", () => {
   const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+
+  describe("Invoicing Status Invoiced, only once all the charges are invoiced", () => {
+    it("refuses it while a selling line is not on an invoice, a manager's request too", async () => {
+      stored.set(SHIPMENT, row({ invoicingStatus: "Not Invoiced" }));
+      vi.mocked(invoicing._internalChargeCount).mockResolvedValue({ invoiced: 2, total: 3 });
+      await expect(update({ invoicingStatus: "Invoiced" })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "Not all charges are invoiced: 2 of 3 selling lines are on an invoice. Invoice the rest first",
+      });
+      await expect(shipmentService.update(SHIPMENT, COMPANY, { invoicingStatus: "Invoiced" } as never, USER, "admin")).rejects.toMatchObject({ code: "failed_precondition" });
+      expect(invoicing._internalChargeCount).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+      expect(repository.updateForCompany).not.toHaveBeenCalled();
+    });
+
+    it("refuses it on a shipment with no charges", async () => {
+      stored.set(SHIPMENT, row({ invoicingStatus: "Not Invoiced" }));
+      vi.mocked(invoicing._internalChargeCount).mockResolvedValue({ invoiced: 0, total: 0 });
+      await expect(update({ invoicingStatus: "Invoiced" })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/no charges to invoice/) });
+    });
+
+    it("sets it once every charge is invoiced", async () => {
+      stored.set(SHIPMENT, row({ invoicingStatus: "Not Invoiced" }));
+      await update({ invoicingStatus: "Invoiced" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ invoicingStatus: "Invoiced" });
+    });
+
+    it("does not ask about a shipment already Invoiced, nor about Not Invoiced", async () => {
+      stored.set(SHIPMENT, row({ invoicingStatus: "Invoiced" }));
+      await update({ invoicingStatus: "Invoiced" });
+      await update({ invoicingStatus: "Not Invoiced" });
+      expect(invoicing._internalChargeCount).not.toHaveBeenCalled();
+    });
+  });
 
   describe("a shipment read with no Trade Direction", () => {
     it("starts its status on the side of the direction it is given", async () => {

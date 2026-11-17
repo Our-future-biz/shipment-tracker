@@ -19,6 +19,7 @@ import { formatDate } from "@/lib/date";
 import { StatusBadge } from "@/components/StatusBadge";
 import { money } from "@/lib/money";
 import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { signed } from "@/app/shipments/[jobNumber]/tabs/costsCalc";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
@@ -73,8 +74,9 @@ interface ShipmentProps {
 
 /**
  * Job facts at a glance with its two statuses: Shipment Status ("Billing" puts the job in the
- * queue) and Invoicing Status, which issuing sets automatically and which can also be changed
- * here by hand (e.g. for a job invoiced outside the app).
+ * queue) and Invoicing Status, which issuing the invoice of the last charge sets automatically.
+ * By hand it may be set to Invoiced only once all the charges are on an open invoice (the server
+ * refuses it before, whoever asks), so the option is off until Lines Invoiced is complete.
  */
 function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: string | null }) {
   const toast = useToast();
@@ -92,14 +94,23 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
     try {
       await updateShipment({ id: shipment.id, data: { invoicingStatus: value } });
       toast.success(`Invoicing Status of ${shipment.jobNumber} set to ${value}`);
-    } catch {
-      toast.error("Failed to change the Invoicing Status");
+    } catch (e) {
+      toast.error(`Failed to change the Invoicing Status: ${apiErrorMessage(e)}`);
     } finally {
       setSaving(false);
     }
   };
 
   const job = shipment.jobNumber ?? shipment.id;
+  // Why Invoiced can't be picked yet (the server's rule, shipments lib/shipmentEditRule invoicedRefusal).
+  const invoicedBlocked =
+    !lines || shipment.invoicingStatus === "Invoiced"
+      ? null
+      : lines.total === 0
+        ? "No charges to invoice yet"
+        : lines.invoiced < lines.total
+          ? `Not all charges are invoiced: ${lines.invoiced} of ${lines.total} selling lines`
+          : null;
 
   return (
     // Two rows of six on a wide screen, lined up as in the shipment header: Job, Direction, Customer,
@@ -130,7 +141,10 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
           value={shipment.invoicingStatus || "Not Invoiced"}
           onChange={(v) => void handleInvoicingStatus(v)}
           loading={saving}
-          options={INVOICING_STATUSES.map((v) => ({ value: v, label: <InvoicingStatusTag value={v} /> }))}
+          options={INVOICING_STATUSES.map((v) => {
+            const blocked = v === "Invoiced" ? invoicedBlocked : null;
+            return { value: v, disabled: !!blocked, title: blocked ?? undefined, label: <InvoicingStatusTag value={v} /> };
+          })}
           className="w-full max-w-[140px]"
           aria-label="Invoicing Status"
         />
