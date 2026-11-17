@@ -27,6 +27,7 @@ vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: haulie
 
 import { publicOrderService, LINK_INVALID } from "../services/publicOrder.service";
 import { consignmentService } from "../services/consignment.service";
+import { shipments } from "~encore/clients";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
@@ -162,6 +163,27 @@ describe("POD through the link", () => {
     expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ companyID: COMPANY }), [expect.objectContaining({ id: c.id, podReceivedAt: null })], { warn: false });
     expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(truckingDocumentBucket.upload).mock.invocationCallOrder[0]!);
     refresh.mockRestore();
+  });
+
+  // The link brings no signed-in user, so Encore passes no auth along: Shipments is asked as the
+  // service identity, else it refuses and the POD freezes the department from before (T9).
+  it("stamps the department the job has now, also when it moved since the booking (asked as the service identity)", async () => {
+    const { token, c } = await ordered({ confirmed: true });
+    Object.assign(store.consignments.find((x) => x.id === c.id)!, { department: "Road Department", internal: false });
+    const basics = vi.fn(async (_req: { ids: string[] }, opts?: { authData?: { companyID: string } }) => {
+      if (!opts?.authData) throw Object.assign(new Error("Unauthenticated"), { code: "unauthenticated" });
+      return { shipments: [{ id: SHIPMENT, jobNumber: "CZ00000042", customerId: CUSTOMER, department: opts.authData.companyID === COMPANY ? "Operation Department" : "" }] };
+    });
+    Object.assign(shipments, { _internalShipmentBasics: basics });
+    try {
+      await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: "2026-10-15T08:30:00Z", receiverName: "" });
+    } finally {
+      Object.assign(shipments, { _internalShipmentBasics: undefined });
+    }
+    expect(basics).toHaveBeenCalledWith({ ids: [SHIPMENT] }, { authData: { userID: SERVICE_USER, companyID: COMPANY, role: "user" } });
+    const row = store.consignments.find((x) => x.id === c.id)!;
+    expect(row).toMatchObject({ department: "Operation Department", internal: true, podSource: "HAULIER" });
+    expect(row.podReceivedAt).not.toBeNull();
   });
 
   it("stores the file and stamps picked up, delivered and POD received (source HAULIER); owes the job its dates and Billing", async () => {

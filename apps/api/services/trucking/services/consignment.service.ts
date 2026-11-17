@@ -139,12 +139,18 @@ type BillingActor = Pick<Actor, "userID" | "role" | "companyID">;
 const DEPARTMENT_PAGE = 200;
 const BASICS_MAX = 500;
 
-/** The departments of jobs as Shipments has them now, by id (a job it no longer has is left out). */
-async function jobDepartments(shipmentIds: string[]): Promise<Map<string, string>> {
+/**
+ * The departments of jobs as Shipments has them now, by id (a job it no longer has is left out).
+ * Asked as `actor`: a haulier's POD (the link, the portal) comes with no signed-in user whose auth
+ * Encore could pass along, and without it Shipments refuses the call - the POD then froze the
+ * department the consignment had before.
+ */
+async function jobDepartments(actor: BillingActor, shipmentIds: string[]): Promise<Map<string, string>> {
   const ids = [...new Set(shipmentIds)];
   const out = new Map<string, string>();
+  const as = { authData: { userID: actor.userID, companyID: actor.companyID, role: actor.role } };
   for (let i = 0; i < ids.length; i += BASICS_MAX) {
-    const { shipments: found } = await shipments._internalShipmentBasics({ ids: ids.slice(i, i + BASICS_MAX) });
+    const { shipments: found } = await shipments._internalShipmentBasics({ ids: ids.slice(i, i + BASICS_MAX) }, as);
     for (const j of found) out.set(j.id, j.department ?? "");
   }
   return out;
@@ -786,7 +792,7 @@ class ConsignmentService {
     if (!live.length) return 0;
     let departments: Map<string, string>;
     try {
-      departments = await jobDepartments(live.map((c) => c.shipmentId));
+      departments = await jobDepartments(actor, live.map((c) => c.shipmentId));
     } catch (err) {
       log.warn("trucking: job departments not read", { error: err instanceof Error ? err.message : String(err) });
       return 0;
