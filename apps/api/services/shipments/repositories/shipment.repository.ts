@@ -618,7 +618,11 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     };
   }
 
-  /** A few fields of the company's live shipments among `ids` (Trucking's view of its jobs, and who Accounts Payable asks about a supplier invoice). */
+  /**
+   * A few fields of the company's live shipments among `ids` (Trucking's view of its jobs, who
+   * Accounts Payable asks about a supplier invoice, and the job of a warehouse record the main
+   * search finds).
+   */
   async basicsByIds(companyId: string, ids: string[]) {
     if (!ids.length) return [];
     return this.db
@@ -636,6 +640,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         personInCharge: shipmentTable.personInCharge,
         holidayCover: shipmentTable.holidayCover,
         invoicingStatus: shipmentTable.invoicingStatus,
+        warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+        warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
       })
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, ids), isNull(shipmentTable.deletedAt)));

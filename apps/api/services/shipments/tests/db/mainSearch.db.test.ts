@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { db } from "../../db/db";
+import { containerRepository } from "../../repositories/container.repository";
 import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { containerTable } from "../../schemas/container.schema";
@@ -81,5 +82,46 @@ describe("main search: shipments", () => {
     expect(rows.map((r) => r.jobNumber)).toEqual(["CZ00000202"]);
     expect(total).toBe(2);
     expect((await shipmentRepository.searchMain(companyId, "cz00000201", 5)).rows.map((r) => r.jobNumber)).toEqual(["CZ00000201"]);
+  });
+});
+
+describe("main search: containers", () => {
+  const numbers = async (companyId: string, text: string, limit = 10) => (await containerRepository.searchMain(companyId, text, limit)).rows.map((r) => r.containerNumber);
+
+  it("finds a container by its number or a part of it, spaces and case as stored left aside, with its job and master job", async () => {
+    const companyId = randomUUID();
+    const job = await masterJob(companyId, "MCZFULL00000011");
+    const onJob = await house(companyId, job.id, "CZFCL00000301", "MSCU1234567");
+    const [loose] = await db.insert(shipmentTable).values({ companyId, jobNumber: "CZFCL00000302" }).returning();
+    await db.insert(containerTable).values({ companyId, shipmentId: loose!.id, containerNumber: "tghu 765 4321", type: "40HC" });
+    const { rows } = await containerRepository.searchMain(companyId, "MSCU1234567", 10);
+    expect(rows).toEqual([
+      expect.objectContaining({ containerNumber: "MSCU1234567", shipmentId: onJob.id, jobNumber: "CZFCL00000301", masterJobId: job.id, mczNumber: "MCZFULL00000011" }),
+    ]);
+    expect(await numbers(companyId, "TGHU7654321")).toEqual(["tghu 765 4321"]);
+    expect((await containerRepository.searchMain(companyId, "7654", 10)).rows[0]).toMatchObject({ type: "40HC", masterJobId: null, mczNumber: null });
+  });
+
+  it("keeps to the company's live containers on live jobs, the newest jobs first, with how many match in all", async () => {
+    const [companyId, other] = [randomUUID(), randomUUID()];
+    const [older, newer, gone] = await db
+      .insert(shipmentTable)
+      .values([
+        { companyId, jobNumber: "CZ00000311", createdAt: new Date("2026-01-01T00:00:00Z") },
+        { companyId, jobNumber: "CZ00000312", createdAt: new Date("2026-02-01T00:00:00Z") },
+        { companyId, jobNumber: "CZ00000313", deletedAt: new Date() },
+      ])
+      .returning();
+    const [elsewhere] = await db.insert(shipmentTable).values({ companyId: other, jobNumber: "CZ00000314" }).returning();
+    await db.insert(containerTable).values([
+      { companyId, shipmentId: older!.id, containerNumber: "CAIU1111111" },
+      { companyId, shipmentId: newer!.id, containerNumber: "CAIU1111112" },
+      { companyId, shipmentId: newer!.id, containerNumber: "CAIU1111113", deletedAt: new Date() },
+      { companyId, shipmentId: gone!.id, containerNumber: "CAIU1111114" },
+      { companyId: other, shipmentId: elsewhere!.id, containerNumber: "CAIU1111115" },
+    ]);
+    const { rows, total } = await containerRepository.searchMain(companyId, "CAIU11111", 1);
+    expect(rows.map((r) => r.containerNumber)).toEqual(["CAIU1111112"]);
+    expect(total).toBe(2);
   });
 });

@@ -47,7 +47,9 @@ import type {
   PalletType,
   AdrPackingGroup,
   SearchShipmentsResponse,
+  SearchContainersResponse,
 } from "../interfaces/interfaces";
+import { mainSearchNumber } from "../../../lib/mainSearch";
 import { iso } from "../../../lib/db/serialize";
 import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
@@ -743,6 +745,29 @@ class ShipmentService {
         freightMode: r.freightMode ?? "",
         etd: r.etd ?? null,
         eta: r.eta ?? null,
+      })),
+      total,
+    };
+  }
+
+  /**
+   * The main search in containers: those of the company's live jobs whose number holds what was
+   * typed (lib/mainSearch, mainSearchNumber), with the job and its master job; nothing for text
+   * that can't be part of a container number.
+   */
+  async searchContainers(companyId: string, q: string, limit: number): Promise<SearchContainersResponse> {
+    const text = mainSearchNumber(q);
+    if (!text) return { items: [], total: 0 };
+    const { rows, total } = await containerRepository.searchMain(companyId, text, limit);
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        containerNumber: r.containerNumber,
+        type: r.type,
+        shipmentId: r.shipmentId,
+        jobNumber: r.jobNumber,
+        masterJobId: r.masterJobId ?? null,
+        mczNumber: r.mczNumber ?? null,
       })),
       total,
     };

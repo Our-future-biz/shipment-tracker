@@ -122,6 +122,8 @@ describe("the basics of jobs", () => {
       personInCharge: "jana@firma.cz",
       holidayCover: "",
       invoicingStatus: "Invoiced",
+      warehouseReceivedDate: null,
+      warehouseReleasedDate: null,
     };
     vi.mocked(shipmentRepository.basicsByIds).mockResolvedValue([row]);
     await expect(roadJobService.basics(COMPANY, [JOB, JOB, "no id"])).resolves.toEqual([row]);

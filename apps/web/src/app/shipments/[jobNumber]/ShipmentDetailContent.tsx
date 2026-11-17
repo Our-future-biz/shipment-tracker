@@ -96,6 +96,7 @@ import {
   REF,
 } from "@/styles/ui";
 import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
+import { CONTAINER_PARAM, containerToShow } from "../_lib/containerLink";
 import { NotesTab } from "./tabs/NotesTab";
 import { useShipmentNotes } from "@/hooks/useShipmentNotes";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
@@ -1161,6 +1162,8 @@ export function ShipmentDetailContent() {
 
   const setActiveTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
+    // The container marked on Container Details belongs to the opening from the main search.
+    params.delete(CONTAINER_PARAM);
     if (key === "details") {
       params.delete("tab");
     } else {
@@ -1992,6 +1995,7 @@ export function ShipmentDetailContent() {
               setCargoFocusId(containerId);
               setActiveTab("cargo");
             }}
+            showContainerId={containerToShow(searchParams)}
           />
           </DetailsGuard>
           </div>

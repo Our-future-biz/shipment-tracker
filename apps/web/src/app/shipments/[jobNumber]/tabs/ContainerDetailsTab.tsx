@@ -64,6 +64,7 @@ export function ContainerDetailsTab({
   onChange,
   onOpenCargo,
   readOnly = false,
+  showContainerId = null,
 }: {
   shipment: ShipmentItem;
   /** Saves the list; rejects when the server refuses it (the caller says why). */
@@ -74,7 +75,14 @@ export function ContainerDetailsTab({
    * with no Add, no row menu and no editing; a container's number still opens its Cargo Details.
    */
   readOnly?: boolean;
+  /** The container the tab was opened on (from the main search): its row is scrolled to and marked. */
+  showContainerId?: string | null;
 }) {
+  // The marked row, scrolled to once it is drawn: in the middle of the screen, so it is not lost under the page's head.
+  const shownRowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (showContainerId) shownRowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [showContainerId]);
   const [rows, setRows] = useState<ContainerLine[]>(() => withFirstRow(shipment.containers));
   // Rows being edited. Rows without a container number are always editable; a row
   // with one collapses to read mode on Enter / focus leaving the row, and
@@ -446,7 +454,11 @@ export function ContainerDetailsTab({
                 // clicked column; the container number is a link to its cargo panel.
                 <div
                   key={rowKey(c)}
-                  className={`${COLS} px-2 py-1.5 ${rowLine(i)} ${readOnly ? "" : "cursor-pointer hover:bg-slate-50 select-none"}`}
+                  ref={showContainerId && c.id === showContainerId ? shownRowRef : undefined}
+                  aria-current={showContainerId && c.id === showContainerId ? "true" : undefined}
+                  className={`${COLS} px-2 py-1.5 ${rowLine(i)} ${readOnly ? "" : "cursor-pointer hover:bg-slate-50 select-none"} ${
+                    showContainerId && c.id === showContainerId ? "bg-indigo-50/70 ring-1 ring-inset ring-indigo-200" : ""
+                  }`}
                   title={readOnly ? undefined : "Double-click to edit"}
                   onDoubleClick={
                     readOnly
