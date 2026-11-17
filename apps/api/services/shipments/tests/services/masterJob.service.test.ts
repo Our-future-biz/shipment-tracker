@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The MBL Shipper / Consignee of a master job, linked to the Customer Database: run against
 // stand-ins for the repositories, the shipment service and the customers service.
@@ -17,7 +17,7 @@ vi.mock("../../services/shipment.service", () => ({ shipmentService: { update: v
 // The company's users and the signed-in one's e-mail, which the auth service answers.
 vi.mock("../../../../lib/companyUsers", () => ({ companyUsers: vi.fn(), userEmailOf: vi.fn() }));
 
-import { customers } from "~encore/clients";
+import { customers, invoicing } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { companyUsers, userEmailOf } from "../../../../lib/companyUsers";
 import { masterJobRepository } from "../../repositories/masterJob.repository";
@@ -303,6 +303,58 @@ describe("attaching a shipment to a master job", () => {
     expect(unassign).not.toHaveBeenCalled();
     sync.mockRestore();
     unassign.mockRestore();
+  });
+});
+
+describe("linking several shipments to a master job at once", () => {
+  const OLD = "00000000-0000-0000-0000-0000000000m0";
+  const shipments = shipmentRepository as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  const service = shipmentService as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  const ship = (id: string, jobNumber: string, over: Record<string, unknown> = {}) => ({
+    id,
+    jobNumber,
+    masterJobId: OLD,
+    tradeDirection: "Import",
+    department: "",
+    actualArrival: null,
+    actualDeparture: null,
+    ...over,
+  });
+  const leftShare = vi.mocked(invoicing._internalMasterJobShipmentLeft);
+  const link = (ids: string[]) => masterJobService.linkShipments(JOB, COMPANY, ids, USER);
+
+  beforeEach(() => {
+    // The master job has arrived; CZ00000002 is invoiced and has no ATA yet, CZ00000003 is not invoiced.
+    repository.getByIdForCompany.mockResolvedValue(record({ actualArrival: "2026-11-10" }) as never);
+    const rows: Record<string, ReturnType<typeof ship>> = { s2: ship("s2", "CZ00000002"), s3: ship("s3", "CZ00000003") };
+    shipments.getByIdForCompany = vi.fn(async (id: string) => rows[id]);
+    shipments.updateForCompany = vi.fn(async (id: string) => rows[id]);
+    service.linkMasterJob = vi.fn(async (id: string) => ({ ...rows[id], masterJobId: JOB }));
+    service.isInvoiced = vi.fn(async (id: string) => id === "s2");
+    vi.spyOn(masterJobService as never, "syncShipment" as never).mockResolvedValue(undefined as never);
+    vi.spyOn(masterJobService as never, "unassignFromContainers" as never).mockResolvedValue(undefined as never);
+    vi.spyOn(masterJobService, "get").mockResolvedValue({} as never);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("links none of them when one is invoiced and the master job's ATA would change its tax date", async () => {
+    await expect(link(["s3", "s2"])).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "CZ00000002 is already invoiced, so it can't take this master job's ATA / ATD — credit the invoice first; none of the shipments was linked",
+    });
+    // CZ00000003 stays where it was too, on its old master job's containers and costs.
+    expect(service.linkMasterJob).not.toHaveBeenCalled();
+    expect(shipments.updateForCompany).not.toHaveBeenCalled();
+    expect(leftShare).not.toHaveBeenCalled();
+  });
+
+  it("links an invoiced one whose tax date stays as it is, and the others", async () => {
+    shipments.getByIdForCompany = vi.fn(async (id: string) => ship(id, id === "s2" ? "CZ00000002" : "CZ00000003", id === "s2" ? { actualArrival: "2026-11-10" } : {}));
+    await link(["s3", "s2"]);
+    expect(service.linkMasterJob).toHaveBeenCalledTimes(2);
+    // They left their old master job, so it gives up their share of its costs.
+    expect(leftShare).toHaveBeenCalledWith({ masterJobId: OLD });
   });
 });
 
