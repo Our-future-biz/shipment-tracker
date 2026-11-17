@@ -266,7 +266,7 @@ describe("create and price sources", () => {
     it("a won quote prices it; a second consignment from the same quote is refused, a cancelled one frees it", async () => {
       vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ status: "won", effectiveStatus: "won" }) as never);
       const first = await consignmentService.create(user, input(asQuote));
-      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ code: "already_exists", message: `Quote QCZ20261010001 already prices consignment ${first.ref}: one consignment per quote` });
+      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ code: "already_exists", message: `Quote QCZ20261010001 is already on consignment ${first.ref}: one consignment per quote` });
       // Repricing the same consignment from its own quote is not a second use.
       const again = await consignmentService.update(user, first.id, { ...input(asQuote), version: store.consignments[0]!.version, reprice: true });
       expect(again.sell).toMatchObject({ source: "QUOTE", total: 15000 });
@@ -283,14 +283,40 @@ describe("create and price sources", () => {
       expect(shipments._internalShipmentCreateRoad).toHaveBeenCalledWith(expect.objectContaining({ quoteNumber: "QCZROAD20261010001" }));
       await expect(consignmentService.create(user, input({ ...asQuote, quoteNumber: "QCZROAD20261010001" }))).rejects.toMatchObject({
         code: "already_exists",
-        message: `Quote QCZROAD20261010001 already prices consignment ${first.ref}: one consignment per quote`,
+        message: `Quote QCZROAD20261010001 is already on consignment ${first.ref}: one consignment per quote`,
       });
+    });
+
+    // T4: the rule holds whatever the consignment is priced by - an agreed price naming the quote
+    // takes it as one priced from it does, in any letter form of its number.
+    it("refuses an agreed-price consignment naming a quote another consignment is priced from, and the other way round", async () => {
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ quoteNumber: "QCZROAD20261010001", status: "won", effectiveStatus: "won" }) as never);
+      const manual = { price: { source: "MANUAL" as const, total: 400, currency: "EUR" as const, reason: "Agreed by phone" } };
+      const fromQuote = await consignmentService.create(user, input(asQuote));
+      await expect(consignmentService.create(user, input({ ...manual, quoteNumber: "QCZ20261010001" }))).rejects.toMatchObject({
+        code: "already_exists",
+        message: `Quote QCZ20261010001 is already on consignment ${fromQuote.ref}: one consignment per quote`,
+      });
+      await expect(consignmentService.create(user, input({ ...manual, quoteNumber: "QCZROAD20261010001" }))).rejects.toMatchObject({ code: "already_exists" });
+      await consignmentService.cancel(manager, fromQuote.id, "Booked twice");
+
+      const agreed = await consignmentService.create(user, input({ ...manual, quoteNumber: "QCZ20261010001" }));
+      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({
+        code: "already_exists",
+        message: `Quote QCZROAD20261010001 is already on consignment ${agreed.ref}: one consignment per quote`,
+      });
+      // Nor can another consignment take the quote by an edit; the consignment's own number stays its own.
+      const other = await consignmentService.create(user, input(manual));
+      const row = () => store.consignments.find((x) => x.id === other.id)!;
+      await expect(consignmentService.update(user, other.id, { ...input({ ...manual, quoteNumber: "QCZROAD20261010001" }), version: row().version, reprice: false })).rejects.toMatchObject({ code: "already_exists" });
+      const own = store.consignments.find((x) => x.id === agreed.id)!;
+      await expect(consignmentService.update(user, agreed.id, { ...input({ ...manual, quoteNumber: "QCZ20261010001", pickupDate: "2026-10-19" }), version: own.version, reprice: false })).resolves.toMatchObject({ pickupDate: "2026-10-19" });
     });
 
     it("takes back the job it made when the consignment can't be saved (two bookings of one quote at once)", async () => {
       vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ status: "won", effectiveStatus: "won" }) as never);
       vi.mocked(consignmentRepository.insert).mockRejectedValueOnce(Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "trucking_consignment_quote_unique" } }));
-      await expect(consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }))).rejects.toMatchObject({ code: "already_exists" });
+      await expect(consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }))).rejects.toMatchObject({ code: "already_exists", message: "Quote QCZ20261010001 is already on another consignment: one consignment per quote" });
       expect(shipments._internalShipmentRoadRetire).toHaveBeenCalledWith({ shipmentId: SHIPMENT }, { authData: { userID: user.userID, companyID: user.companyID, role: user.role } });
       expect(store.consignments).toEqual([]);
     });

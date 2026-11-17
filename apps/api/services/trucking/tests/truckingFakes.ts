@@ -221,8 +221,8 @@ export const consignmentRepository = {
       .map(copy),
   ),
   liveByQuote: vi.fn(async (companyId: string, quoteNumber: string) =>
-    // As the SQL compares: the reference without the letters of the quote's Freight Mode.
-    copy(store.consignments.find((c) => c.companyId === companyId && !!c.quoteNumber && sameSalesReference(c.quoteNumber, quoteNumber) && !c.cancelledAt && c.sell?.source === "QUOTE") ?? null),
+    // As the SQL compares: the reference without the letters of the quote's Freight Mode, whatever the consignment is priced by.
+    copy(store.consignments.find((c) => c.companyId === companyId && !!c.quoteNumber && sameSalesReference(c.quoteNumber, quoteNumber) && !c.cancelledAt && !c.deletedAt) ?? null),
   ),
 };
 

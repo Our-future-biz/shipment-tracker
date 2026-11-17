@@ -192,9 +192,10 @@ class ConsignmentRepository {
   }
 
   /**
-   * The live consignment priced from a quote (one per quote), when there is one. The reference is
-   * compared without the letters of the quote's Freight Mode: a consignment that holds it from
-   * before a rename, or as it was typed, still names that quote (lib/salesReference).
+   * The live consignment that names a quote (one per quote, however it is priced), when there is
+   * one. The reference is compared without the letters of the quote's Freight Mode: a consignment
+   * that holds it from before a rename, or as it was typed, still names that quote
+   * (lib/salesReference) - as the unique index compares it.
    */
   async liveByQuote(companyId: string, quoteNumber: string, reader: Tx | typeof db = db): Promise<TruckingConsignmentRecord | null> {
     const [row] = await reader
@@ -205,7 +206,6 @@ class ConsignmentRepository {
         sql`${plainSalesReferenceSql(c.quoteNumber)} = ${plainSalesReference(quoteNumber)}`,
         isNull(c.cancelledAt),
         isNull(c.deletedAt),
-        sql`${c.sell}->>'source' = 'QUOTE'`,
       ));
     return row ?? null;
   }
