@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { MAIN_SEARCH_DEFAULT_LIMIT, MAIN_SEARCH_MAX_LIMIT, mainSearchInput } from "../mainSearch";
+import { MAIN_SEARCH_DEFAULT_LIMIT, MAIN_SEARCH_MAX_LIMIT, mainSearchInput, mainSearchNumber } from "../mainSearch";
+
+describe("mainSearchNumber: what a container number or warehouse reference is searched for", () => {
+  it("is what was typed in capitals, its spaces left out", () => {
+    expect(mainSearchNumber("mscu1234567")).toBe("MSCU1234567");
+    expect(mainSearchNumber(" MSCU 123 4567 ")).toBe("MSCU1234567");
+    expect(mainSearchNumber("whcz2026001")).toBe("WHCZ2026001");
+  });
+
+  it("is a part of a number from 4 characters", () => {
+    expect(mainSearchNumber("1234")).toBe("1234");
+    expect(mainSearchNumber("mscu")).toBe("MSCU");
+    expect(mainSearchNumber("123")).toBeNull();
+    expect(mainSearchNumber("ms c")).toBeNull();
+  });
+
+  it("is nothing for text that can't be part of a number", () => {
+    expect(mainSearchNumber("müller gmbh")).toBeNull();
+    expect(mainSearchNumber("gmbh hamburg")).toBeNull();
+    expect(mainSearchNumber("CZ-0001")).toBeNull();
+    expect(mainSearchNumber("1234abc")).toBeNull();
+  });
+});
 
 describe("mainSearchInput", () => {
   it("does not search fewer than two characters, spaces aside", () => {

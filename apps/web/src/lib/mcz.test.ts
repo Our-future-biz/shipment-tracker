@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareMczNumbers, existingMczNumbers, nextMczNumber, sameMczNumber } from "./mcz";
+import { compareMczNumbers, existingMczNumbers, matchesMczSearch, nextMczNumber, sameMczNumber } from "./mcz";
 
 describe("master job references with letters", () => {
   it("goes on from the highest number, whatever its letters", () => {
@@ -18,5 +18,27 @@ describe("master job references with letters", () => {
     expect(sameMczNumber("MCZ00000007", "MCZCONSOL00000008")).toBe(false);
     expect(sameMczNumber("", undefined)).toBe(false);
     expect(sameMczNumber("OLD-7", "OLD-7")).toBe(true);
+  });
+});
+
+describe("finding a master job by its reference (the Master Job dialog's Link to existing)", () => {
+  it("finds it typed without its letters, or with other ones, in any case", () => {
+    expect(matchesMczSearch("MCZCONSOL00000007", "mcz00000007")).toBe(true);
+    expect(matchesMczSearch("MCZCONSOL00000007", "MCZ00000007")).toBe(true);
+    expect(matchesMczSearch("MCZCONSOL00000007", "mczfull00000007")).toBe(true);
+    expect(matchesMczSearch("MCZ00000007", "MCZCONSOL00000007")).toBe(true);
+    expect(matchesMczSearch("MCZCONSOL00000008", "mcz00000007")).toBe(false);
+  });
+
+  it("finds it typed with its letters, by any part of it, or by digits still being typed", () => {
+    expect(matchesMczSearch("MCZCONSOL00000007", "mczconsol00000007")).toBe(true);
+    expect(matchesMczSearch("MCZCONSOL00000007", "consol")).toBe(true);
+    expect(matchesMczSearch("MCZCONSOL00000007", "07")).toBe(true);
+    expect(matchesMczSearch("MCZCONSOL00000017", "mcz0000001")).toBe(true);
+    expect(matchesMczSearch("MCZCONSOL00000007", "full")).toBe(false);
+  });
+
+  it("lists every master job while nothing is typed", () => {
+    expect(matchesMczSearch("MCZ00000001", "  ")).toBe(true);
   });
 });

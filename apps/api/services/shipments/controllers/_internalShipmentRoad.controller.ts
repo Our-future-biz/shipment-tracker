@@ -42,7 +42,10 @@ interface RoadJobBasicsResponse {
   shipments: RoadJobBasics[];
 }
 
-/** Internal API of the trucking service: job number, customer and status of its jobs. */
+/**
+ * Internal API of the trucking service: job number, customer and status of its jobs. Invoicing
+ * asks it too, and the warehouse service for the jobs of the records its main search finds.
+ */
 export const _internalShipmentBasics = api(
   { expose: false, auth: true, method: "POST", path: "/internal/shipments/basics" },
   async ({ ids }: RoadJobBasicsRequest): Promise<RoadJobBasicsResponse> => {

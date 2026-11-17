@@ -12,6 +12,10 @@ import { formatDate } from "@/lib/date";
 import { money } from "@/lib/money";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
+import { allFieldsSearchHref } from "@/app/shipments/_lib/allFieldsSearch";
+import { containerDetailsHref } from "@/app/shipments/_lib/containerLink";
+import { WAREHOUSE_SECTIONS } from "@/app/warehouse/_components/warehouseRules";
+import { warehouseRecordHref } from "@/app/warehouse/_lib/warehouseHref";
 import type { QuoteStatus } from "@/app/sales/_lib/types";
 import { matchPages, menuPages } from "./searchPages";
 import type { SearchGroup, SearchHit, SearchKind } from "./searchTypes";
@@ -52,7 +56,9 @@ const shipments: Source<interfaces.SearchShipmentItem> = {
     subtitle: line(s.customer, route(s.pol, s.pod), s.eta && `ETA ${formatDate(s.eta)}`),
     mark: s.status ? <StatusBadge status={s.status} /> : undefined,
   }),
-  allHref: (q) => withQ("/shipments", q),
+  // The list searched in every field, as here: its own search looks only in the columns shown, and
+  // would list fewer than the count says.
+  allHref: allFieldsSearchHref,
 };
 
 const masterJobs: Source<interfaces.SearchMasterJobItem> = {
@@ -73,6 +79,36 @@ const masterJobs: Source<interfaces.SearchMasterJobItem> = {
   }),
   // No "Show all" in Master Jobs: its grid searches the jobs' own columns, not the containers and
   // house job numbers this search also finds them by, so it would list fewer than the count says.
+};
+
+const containers: Source<interfaces.SearchContainerItem> = {
+  kind: "containers",
+  label: "Containers",
+  fetch: (q, limit) => api.shipments.searchContainers({ q, limit }),
+  hit: (c) => ({
+    key: `container-${c.id}`,
+    // The job's Container Details, on this container.
+    href: containerDetailsHref(c.shipmentId, c.id),
+    title: c.containerNumber,
+    isRef: true,
+    subtitle: line(c.type, c.jobNumber, c.mczNumber && `Master job ${c.mczNumber}`),
+  }),
+  // No "Show all": no list holds containers, so the results page says how many of them it shows.
+};
+
+const warehouse: Source<interfaces.SearchWarehouseItem> = {
+  kind: "warehouse",
+  label: "Warehouse",
+  fetch: (q, limit) => api.warehouse.searchWarehouse({ q, limit }),
+  hit: (w) => ({
+    key: `warehouse-${w.id}`,
+    // The record on the Warehouse page its shipment is on now.
+    href: warehouseRecordHref(w.page, w.shipmentId),
+    title: w.reference,
+    isRef: true,
+    subtitle: line(w.jobNumber, w.customer, WAREHOUSE_SECTIONS[w.page]),
+  }),
+  // No "Show all": the Warehouse pages list a shipment by where it is, not by its reference.
 };
 
 const customers: Source<interfaces.SearchCustomerItem> = {
@@ -123,7 +159,7 @@ const invoices: Source<interfaces.SearchInvoiceItem> = {
   }),
 };
 
-const SOURCES = [shipments, masterJobs, customers, quotes, invoices] as const;
+const SOURCES = [shipments, masterJobs, containers, warehouse, customers, quotes, invoices] as const;
 
 function useSourceGroup<T>(source: Source<T>, q: string, limit: number): SearchGroup {
   const enabled = q.length >= MIN_QUERY;
@@ -150,7 +186,8 @@ function useSourceGroup<T>(source: Source<T>, q: string, limit: number): SearchG
 
 /**
  * Everything the main search finds for `q`, by kind and in a fixed order: the app's pages the
- * user's menu lists, then shipments, master jobs, companies, quotes and invoices - at most
+ * user's menu lists, then shipments, master jobs, containers, warehouse records, companies, quotes
+ * and invoices - at most
  * `limit` of each. Each kind is asked on its own, so one that answers first shows first.
  */
 export function useGlobalSearch(q: string, limit: number): SearchGroup[] {
@@ -174,6 +211,8 @@ export function useGlobalSearch(q: string, limit: number): SearchGroup[] {
     useSourceGroup(SOURCES[2], q, limit),
     useSourceGroup(SOURCES[3], q, limit),
     useSourceGroup(SOURCES[4], q, limit),
+    useSourceGroup(SOURCES[5], q, limit),
+    useSourceGroup(SOURCES[6], q, limit),
   ];
   return [pages, ...found];
 }

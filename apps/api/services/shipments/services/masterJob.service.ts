@@ -23,6 +23,7 @@ import type { MasterJobRecord, NewMasterJobRecord } from "../schemas/masterJob.s
 import { isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import type { MasterJobContainerRecord } from "../schemas/masterJobContainer.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
+import type { ShipmentRecord } from "../schemas/shipment.schema";
 import type {
   ContainerLine,
   MasterJobContainerLine,
@@ -258,10 +259,7 @@ class MasterJobService {
     // anything is written — the save goes through for all of them or for none.
     const synced = syncedShipmentData(existing, clean);
     const houses = Object.keys(synced).length > 0 ? await shipmentRepository.findByMasterJobId(id, companyId) : [];
-    const locked: string[] = [];
-    for (const house of houses) {
-      if (changesTaxDate(house, synced) && (await shipmentService.isInvoiced(house.id))) locked.push(house.jobNumber);
-    }
+    const locked = await this.invoicedTaxDateChanges(houses, synced);
     if (locked.length > 0) {
       throw APIError.failedPrecondition(
         `ATA / ATD can't change: ${locked.join(", ")} ${locked.length === 1 ? "is" : "are"} already invoiced — credit the invoice first`,
@@ -336,17 +334,32 @@ class MasterJobService {
 
   async linkShipments(id: string, companyId: string, shipmentIds: string[], userId: string): Promise<MasterJobDetail> {
     const row = await this.require(id, companyId);
-    const left: (string | null)[] = [];
+    const shipments: ShipmentRecord[] = [];
     for (const shipmentId of shipmentIds) {
       const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
       if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
-      left.push(shipment.masterJobId);
+      shipments.push(shipment);
     }
-    for (const shipmentId of shipmentIds) {
-      await this.attachShipment(shipmentId, companyId, row.mczNumber, userId, { dropShares: false });
+    // An invoiced shipment can't take the master job's ATA / ATD (its tax date). Every one is checked
+    // before any is linked: linked one by one, those before it would stay on the master job, moved off
+    // their old one's containers, while the answer says the link was refused.
+    const locked = await this.invoicedTaxDateChanges(shipments, syncedShipmentData(row));
+    if (locked.length > 0) {
+      throw APIError.failedPrecondition(
+        `${locked.join(", ")} ${locked.length === 1 ? "is already invoiced, so it" : "are already invoiced, so they"} can't take this master job's ATA / ATD — credit the invoice first; none of the shipments was linked`,
+      );
     }
-    // They carry nothing of the master jobs they left; this one's costs reach them when its split is processed.
-    await dropSharesOfLeftShipments(left.filter((masterJobId) => masterJobId !== id));
+    const left: (string | null)[] = [];
+    try {
+      for (const shipment of shipments) {
+        await this.attachShipment(shipment.id, companyId, row.mczNumber, userId, { dropShares: false });
+        left.push(shipment.masterJobId);
+      }
+    } finally {
+      // They carry nothing of the master jobs they left - also when a later one failed, as those
+      // before it did leave theirs; this one's costs reach them when its split is processed.
+      await dropSharesOfLeftShipments(left.filter((masterJobId) => masterJobId !== id));
+    }
     return this.get(id, companyId);
   }
 
@@ -430,6 +443,15 @@ class MasterJobService {
     const containers =
       row.loadType === FULL_LOAD ? [] : (await masterJobContainerRepository.listByMasterJobId(row.id, companyId)).map(toMasterContainerLine);
     await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers);
+  }
+
+  /** The job numbers of the shipments that are invoiced and whose tax date (ATA / ATD) `synced` would change. */
+  private async invoicedTaxDateChanges(shipments: readonly ShipmentRecord[], synced: ReturnType<typeof syncedShipmentData>): Promise<string[]> {
+    const locked: string[] = [];
+    for (const shipment of shipments) {
+      if (changesTaxDate(shipment, synced) && (await shipmentService.isInvoiced(shipment.id))) locked.push(shipment.jobNumber);
+    }
+    return locked;
   }
 
   /** Refuses the save, naming the houses, when the editor may not change every one of them. */

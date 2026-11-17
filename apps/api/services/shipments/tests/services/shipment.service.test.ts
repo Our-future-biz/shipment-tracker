@@ -50,7 +50,7 @@ vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: { mczNumbersByIds: vi.fn(), getByIdForCompany: vi.fn() } }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({
-  containerRepository: { syncForShipment: vi.fn(async () => new Map()), listByShipmentId: vi.fn(), listByShipmentIds: vi.fn() },
+  containerRepository: { syncForShipment: vi.fn(async () => new Map()), listByShipmentId: vi.fn(), listByShipmentIds: vi.fn(), searchMain: vi.fn() },
 }));
 vi.mock("../../repositories/cargoItem.repository", () => ({
   cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), listByShipmentIds: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() },
@@ -2186,5 +2186,23 @@ describe("requireLive", () => {
     await expect(shipmentService.requireLive("s1", COMPANY)).rejects.toMatchObject({ code: "not_found" });
     await expect(shipmentService.isLive("s1", COMPANY)).resolves.toBe(false);
     expect(repository.getByIdForCompany).not.toHaveBeenCalled();
+  });
+});
+
+describe("the main search in containers", () => {
+  const search = vi.mocked(containerRepository.searchMain);
+  const row = { id: "c1", containerNumber: "MSCU1234567", type: "40HC", shipmentId: SHIPMENT, jobNumber: "CZFCL00000301", masterJobId: null, mczNumber: null };
+
+  it("asks for the number typed, its spaces left out and in capitals, and lists each with its job", async () => {
+    search.mockResolvedValue({ rows: [row], total: 3 });
+    await expect(shipmentService.searchContainers(COMPANY, "mscu 1234", 5)).resolves.toEqual({ items: [row], total: 3 });
+    expect(search).toHaveBeenCalledWith(COMPANY, "MSCU1234", 5);
+  });
+
+  it("asks nothing for text that can't be part of a container number", async () => {
+    search.mockClear();
+    await expect(shipmentService.searchContainers(COMPANY, "gmbh hamburg", 5)).resolves.toEqual({ items: [], total: 0 });
+    await expect(shipmentService.searchContainers(COMPANY, "msc", 5)).resolves.toEqual({ items: [], total: 0 });
+    expect(search).not.toHaveBeenCalled();
   });
 });

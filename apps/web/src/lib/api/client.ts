@@ -2972,6 +2972,7 @@ export namespace shipments {
             this.publicImportInstructionsForm = this.publicImportInstructionsForm.bind(this)
             this.publicImportInstructionsSubmit = this.publicImportInstructionsSubmit.bind(this)
             this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
+            this.searchContainers = this.searchContainers.bind(this)
             this.searchMasterJobs = this.searchMasterJobs.bind(this)
             this.searchShipments = this.searchShipments.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
@@ -3594,6 +3595,23 @@ export namespace shipments {
             return await resp.json() as {
     status: interfaces.PublicShipmentStatus
 }
+        }
+
+        /**
+         * The main search (the top bar) in containers: the containers of the company's live shipments
+         * whose number holds what was typed - spaces left out, in any case, from 4 characters - each with
+         * its job and master job, the newest jobs first, and how many match in all.
+         */
+        public async searchContainers(params: interfaces.SearchContainersRequest): Promise<interfaces.SearchContainersResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/containers`, undefined, {query})
+            return await resp.json() as interfaces.SearchContainersResponse
         }
 
         /**
@@ -5572,6 +5590,7 @@ export namespace warehouse {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.searchWarehouse = this.searchWarehouse.bind(this)
             this.warehouseCreate = this.warehouseCreate.bind(this)
             this.warehouseDelete = this.warehouseDelete.bind(this)
             this.warehouseEnsureRefs = this.warehouseEnsureRefs.bind(this)
@@ -5582,6 +5601,24 @@ export namespace warehouse {
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
             this.warehouseTruckCreate = this.warehouseTruckCreate.bind(this)
             this.warehouseUpdate = this.warehouseUpdate.bind(this)
+        }
+
+        /**
+         * The main search (the top bar) in the warehouse: the company's shipments' warehouse records whose
+         * reference (WHCZ…) holds what was typed - spaces left out, in any case, from 4 characters - or is
+         * that number with other letters or none, the newest first, each with its job and the Warehouse
+         * page it is on, and how many match in all. Every signed-in role, as for the Warehouse pages.
+         */
+        public async searchWarehouse(params: interfaces.SearchWarehouseRequest): Promise<interfaces.SearchWarehouseResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/warehouse`, undefined, {query})
+            return await resp.json() as interfaces.SearchWarehouseResponse
         }
 
         public async warehouseCreate(params: controllers.WarehouseCreateRequest): Promise<controllers.WarehouseCreateResponse> {
@@ -20922,6 +20959,54 @@ export namespace interfaces {
     }
 
     /**
+     * A container found by the main search, on the job it is on.
+     */
+    export interface SearchContainerItem {
+        /**
+         * The container row's id: the job's Container Details opens on it.
+         */
+        id: string
+
+        containerNumber: string
+        type: string
+        shipmentId: string
+        jobNumber: string
+        /**
+         * The job's master job, when it is on one.
+         */
+        masterJobId: string | null
+
+        mczNumber: string | null
+    }
+
+    /**
+     * GET /search/containers: the typed text and how many rows to give.
+     */
+    export interface SearchContainersRequest {
+        /**
+         * What was typed; a container is looked for from 4 characters (spaces left out).
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchContainersResponse {
+        /**
+         * The matching containers of the newest jobs, at most `limit`.
+         */
+        items: SearchContainerItem[]
+
+        /**
+         * How many containers match in all.
+         */
+        total: number
+    }
+
+    /**
      * A company (customer or supplier) found by the main search.
      */
     export interface SearchCustomerItem {
@@ -21192,6 +21277,52 @@ export namespace interfaces {
 
         /**
          * How many shipments match in all.
+         */
+        total: number
+    }
+
+    /**
+     * A shipment's warehouse record found by the main search, with its job.
+     */
+    export interface SearchWarehouseItem {
+        id: string
+        /**
+         * Its warehouse reference (WHCZ…).
+         */
+        reference: string
+
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        /**
+         * Where the shipment is in the warehouse now, so the record opens on that page.
+         */
+        page: WarehousePage
+    }
+
+    /**
+     * GET /search/warehouse: the typed text and how many rows to give.
+     */
+    export interface SearchWarehouseRequest {
+        /**
+         * What was typed; a reference is looked for from 4 characters (spaces left out).
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchWarehouseResponse {
+        /**
+         * The newest matching records, at most `limit`.
+         */
+        items: SearchWarehouseItem[]
+
+        /**
+         * How many records match in all.
          */
         total: number
     }
@@ -24465,6 +24596,11 @@ export namespace interfaces {
         delivery: CockpitDelivery
         audit: CockpitAudit
     }
+
+    /**
+     * The Warehouse page a shipment is on: In Warehouse, Stock or Out Warehouse.
+     */
+    export type WarehousePage = "in" | "stock" | "out"
 
     export interface WarehouseRef {
         shipmentId: string

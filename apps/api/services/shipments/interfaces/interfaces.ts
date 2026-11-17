@@ -916,6 +916,10 @@ export interface RoadJobBasics {
   holidayCover: string;
   /** The Invoicing Status as stored */
   invoicingStatus: string;
+  /** Taken into the warehouse, YYYY-MM-DD; null while not (the Warehouse pages move it by this and the next) */
+  warehouseReceivedDate: string | null;
+  /** Released from the warehouse, YYYY-MM-DD; null while not */
+  warehouseReleasedDate: string | null;
 }
 
 /** A name the people backfill could not turn into a user's e-mail: it fits no user, or more than one. */
@@ -1345,6 +1349,34 @@ export interface SearchMasterJobsResponse {
   /** The newest matching master jobs, at most `limit`. */
   items: SearchMasterJobItem[];
   /** How many master jobs match in all. */
+  total: number;
+}
+
+/** GET /search/containers: the typed text and how many rows to give. */
+export interface SearchContainersRequest {
+  /** What was typed; a container is looked for from 4 characters (spaces left out). */
+  q: string & MaxLen<200>;
+  /** Rows to give: 5 when left out, 1 to 50. */
+  limit?: number;
+}
+
+/** A container found by the main search, on the job it is on. */
+export interface SearchContainerItem {
+  /** The container row's id: the job's Container Details opens on it. */
+  id: string;
+  containerNumber: string;
+  type: string;
+  shipmentId: string;
+  jobNumber: string;
+  /** The job's master job, when it is on one. */
+  masterJobId: string | null;
+  mczNumber: string | null;
+}
+
+export interface SearchContainersResponse {
+  /** The matching containers of the newest jobs, at most `limit`. */
+  items: SearchContainerItem[];
+  /** How many containers match in all. */
   total: number;
 }
 

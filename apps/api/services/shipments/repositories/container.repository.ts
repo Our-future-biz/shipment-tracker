@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { containerTable, type ContainerRecord } from "../schemas/container.schema";
+import { masterJobTable } from "../schemas/masterJob.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 import { matchContainerRows, normalizeContainerNumber, teuForType } from "../lib/cargoProjection";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
@@ -80,6 +81,44 @@ class ContainerRepository extends TenantRepository<typeof containerTable> {
         sql`${shipmentTable.status} IS DISTINCT FROM ${CANCELLED_STATUS}`,
       ))
       .orderBy(desc(containerTable.createdAt));
+  }
+
+  /**
+   * The main search (the top bar) in containers: those on the company's live shipments whose
+   * number, its spaces left out and in capitals, holds `text` (lib/mainSearch), the newest
+   * jobs first (`limit` of them), each with its job and the job's master job, and how many in all.
+   */
+  async searchMain(companyId: string, text: string, limit: number) {
+    const where = and(
+      eq(containerTable.companyId, companyId),
+      isNull(containerTable.deletedAt),
+      eq(shipmentTable.companyId, companyId),
+      isNull(shipmentTable.deletedAt),
+      sql`upper(regexp_replace(${containerTable.containerNumber}, '[[:space:]]', '', 'g')) LIKE ${`%${text}%`}`,
+    );
+    const [rows, [{ value: total }]] = await Promise.all([
+      db
+        .select({
+          id: containerTable.id,
+          containerNumber: containerTable.containerNumber,
+          type: containerTable.type,
+          shipmentId: shipmentTable.id,
+          jobNumber: shipmentTable.jobNumber,
+          masterJobId: masterJobTable.id,
+          mczNumber: masterJobTable.mczNumber,
+        })
+        .from(containerTable)
+        .innerJoin(shipmentTable, eq(shipmentTable.id, containerTable.shipmentId))
+        .leftJoin(
+          masterJobTable,
+          and(eq(masterJobTable.id, shipmentTable.masterJobId), eq(masterJobTable.companyId, companyId), isNull(masterJobTable.deletedAt)),
+        )
+        .where(where)
+        .orderBy(desc(shipmentTable.createdAt), asc(containerTable.position), asc(containerTable.id))
+        .limit(limit),
+      db.select({ value: count() }).from(containerTable).innerJoin(shipmentTable, eq(shipmentTable.id, containerTable.shipmentId)).where(where),
+    ]);
+    return { rows, total: Number(total) };
   }
 
   // Sync the shipment's containers to the provided list while keeping row ids

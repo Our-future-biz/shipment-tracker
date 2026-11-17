@@ -1,4 +1,4 @@
-import { eq, desc, isNull, and, like, sql } from "drizzle-orm";
+import { eq, count, desc, isNotNull, isNull, and, like, sql } from "drizzle-orm";
 import { TenantRepository, type AnyDb } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { warehouseTaskTable, type WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
@@ -89,6 +89,32 @@ class WarehouseTaskRepository extends TenantRepository<typeof warehouseTaskTable
       .where(and(eq(warehouseTaskTable.companyId, companyId), like(warehouseTaskTable.taskId, `${prefix}%`)));
     const highest = used.reduce((max, r) => Math.max(max, parseInt(r.taskId.slice(prefix.length), 10) || 0), 0);
     return `${prefix}${String(highest + 1).padStart(3, "0")}`;
+  }
+
+  /**
+   * The main search (the top bar): the company's live warehouse records of shipments (not the
+   * trucks) whose reference, in capitals, holds `text` - or, with `digits` (a reference typed with
+   * other letters, warehouseRefDigits), whose number starts with them - the newest first, `limit`
+   * of them, and how many match in all.
+   */
+  async searchMain(companyId: string, text: string, digits: string | null, limit: number) {
+    const byNumber = digits ? sql` OR substring(upper(${warehouseTaskTable.taskId}) from '^WHCZ([0-9]+)$') LIKE ${`${digits}%`}` : sql``;
+    const where = and(
+      eq(warehouseTaskTable.companyId, companyId),
+      isNull(warehouseTaskTable.deletedAt),
+      isNotNull(warehouseTaskTable.shipmentId),
+      sql`(upper(${warehouseTaskTable.taskId}) LIKE ${`%${text}%`}${byNumber})`,
+    );
+    const [rows, [{ value: total }]] = await Promise.all([
+      this.db
+        .select({ id: warehouseTaskTable.id, taskId: warehouseTaskTable.taskId, shipmentId: warehouseTaskTable.shipmentId })
+        .from(warehouseTaskTable)
+        .where(where)
+        .orderBy(desc(warehouseTaskTable.createdAt), desc(warehouseTaskTable.id))
+        .limit(limit),
+      this.db.select({ value: count() }).from(warehouseTaskTable).where(where),
+    ]);
+    return { rows, total: Number(total) };
   }
 
   // A deleted shipment's warehouse rows go with it; their references stay taken (nextRef counts them).

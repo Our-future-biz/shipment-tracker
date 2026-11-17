@@ -47,6 +47,7 @@ import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ShipmentChatDrawer } from "./ChatPanel";
 import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
+import { searchesAllFields, typedSearchParams } from "@/app/shipments/_lib/allFieldsSearch";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
@@ -92,6 +93,8 @@ export interface ShipmentsTableProps {
   cap?: { shown: number; total: number };
   /** Told the columns shown (their keys, in order) whenever they change: the search looks only in them. */
   onVisibleColumnsChange?: (columnKeys: string[]) => void;
+  /** Shown over the table, with the list's cap (e.g. that the search looks in every field). */
+  notice?: React.ReactNode;
 }
 
 type ColFilter = { key: string; value: string };
@@ -158,6 +161,7 @@ export const ShipmentsTable = ({
   toolbarLead,
   cap,
   onVisibleColumnsChange,
+  notice,
 }: ShipmentsTableProps) => {
   const router = useRouter();
   const pathname = usePathname();
@@ -195,10 +199,7 @@ export const ShipmentsTable = ({
 
   const onSearchChange = (value: string) => {
     setSearch(value);
-    const params = new URLSearchParams(searchParams.toString());
-    if (value) params.set("q", value);
-    else params.delete("q");
-    const qs = params.toString();
+    const qs = typedSearchParams(searchParams, value).toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
@@ -326,6 +327,8 @@ export const ShipmentsTable = ({
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
+    // "Show all" from the main search opens on exactly what it found, as many as it counted.
+    if (searchesAllFields(searchParams)) return;
     let stored: { status?: string; filters?: ColFilter[] } | null = null;
     try {
       stored = JSON.parse(localStorage.getItem(storageKey) ?? "null");
@@ -987,6 +990,7 @@ export const ShipmentsTable = ({
         </div>
       )}
 
+      {notice}
       {cap && <ListCapNotice shown={cap.shown} total={cap.total} noun="shipments" />}
 
       {/* Table */}

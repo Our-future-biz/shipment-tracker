@@ -23,6 +23,21 @@ export function sameMczNumber(a: string | null | undefined, b: string | null | u
   return x !== null && x === mczDigits(b);
 }
 
+// A search typed as a reference, with its letters or without, in any case: its digits.
+const MCZ_SEARCH = /^MCZ(?:CONSOL|FULL|PROJECT)?(\d+)$/;
+
+/**
+ * Whether a master job's reference is found by the text typed: by any part of it, in any case, or
+ * as a reference with other letters or none - mcz00000007 finds MCZCONSOL00000007, as the main
+ * search does, and digits still being typed find the numbers they start.
+ */
+export function matchesMczSearch(mcz: string, search: string): boolean {
+  const q = search.trim().toUpperCase();
+  if (!q || mcz.toUpperCase().includes(q)) return true;
+  const digits = MCZ_SEARCH.exec(q)?.[1];
+  return digits !== undefined && (mczDigits(mcz)?.startsWith(digits) ?? false);
+}
+
 // `masterJobs` are the MCZ numbers of every master job on the server: one created
 // on the Master Jobs page has no shipments yet, so the shipments alone miss it.
 export function nextMczNumber(shipments: ShipmentItem[], masterJobs: string[] = []): string {
