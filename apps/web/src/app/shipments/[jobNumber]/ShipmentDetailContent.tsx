@@ -927,8 +927,9 @@ const EQUIP_DEPOT_L: FieldDef[] = [
 const EQUIP_DEPOT_R: FieldDef[] = [
   { key: "redeliveryReference", label: "Redelivery Reference" },
   { key: "redeliveryDepot", label: "Redelivery Depot" },
-  { key: "equipmentDelivery", label: "Equipment Delivery/Pick-Up Address" },
-  { key: "equipmentDeliveryDate", label: "Equipment Delivery/Pick-Up Date" },
+  // The card's title says Equipment; the lists keep "Equipment Delivery/Pick-Up …" (columnConfig).
+  { key: "equipmentDelivery", label: "Delivery/Pick-Up Address" },
+  { key: "equipmentDeliveryDate", label: "Delivery/Pick-Up Date" },
 ];
 
 const REFS_ROUTING: FieldDef[] = [
@@ -1472,9 +1473,12 @@ export function ShipmentDetailContent() {
             <div className="@container flex flex-col gap-4 min-w-0 lg:[--lw:160px]">
               {/* SHIPMENT OVERVIEW */}
               <div className={CARD}>
-                {/* Column order mirrors the agreed overview mockup 1:1 — left is
-                    "who and what", right is "where, when and in which state".
-                    Fields are declared as a list so the field chooser can filter them. */}
+                {/* Left is "who and what", right is "where, when and in which state". Only what
+                    no other card shows (owner decision, 17 Nov 2026): the ports are in References &
+                    Routing, ETD / ETA in Key Dates, the container and BoL numbers in Carrier & Bill
+                    of Lading, the customer's contact and reference in Parties & Agents, Handled By
+                    in Basic Information. Fields are declared as a list so the field chooser can
+                    filter them. */}
                 {(() => {
                   const left: FieldDef[] = [
                     // Internal Reference is in Basic Information.
@@ -1484,11 +1488,8 @@ export function ShipmentDetailContent() {
                     { key: "loadType", label: "Load Type" },
                     { key: "serviceType", label: "Service Type" },
                     { key: "customer", label: "Customer", ro: true },
-                    // Picked from the customer's contacts (the contact cell), with its card on hover.
-                    { key: "customerPic", label: "Customer's Contact" },
-                    { key: "customerReference", label: "Customer Reference" },
                     { key: "serviceName", label: "Service Name" },
-                    { key: "personInCharge", label: "Handled By" },
+                    // The shipment's own Sales Person: the Quote card shows the uploaded quote's owner instead.
                     { key: "salesPerson", label: "Sales Person", ro: true },
                     { key: "incotermOrigin", label: "Incoterms Origin", ro: true },
                     { key: "incotermDestination", label: "Incoterms Destination", ro: true },
@@ -1500,16 +1501,9 @@ export function ShipmentDetailContent() {
                     // Follows the paperwork; its manual steps are set in the Customs tab.
                     { key: "customsStatus", label: "Customs Status", ro: true },
                     { key: "invoicingStatus", label: "Invoicing Status" },
-                    { key: "pol", label: "Port of Loading" },
-                    { key: "estimatedDeparture", label: "ETD Estimated" },
-                    { key: "pod", label: "Port of Discharge" },
-                    { key: "estimatedArrival", label: "ETA Estimated" },
                     { key: "shipmentsDate", label: "Shipments Month", ro: true },
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
-                    { key: "containerNumber", label: "Container Number", ro: true },
-                    { key: "masterBolNumber", label: "Master BoL Number" },
-                    { key: "houseBolNumber", label: "House BoL Number" },
                     { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
 
@@ -1571,10 +1565,6 @@ export function ShipmentDetailContent() {
                         mark={<UnlinkedPersonMark value={shipment.salesPerson} hint="pick one in the Quote card" />}
                       />
                     ),
-                    containerNumber: (
-                      <ContainerNumberLinkRow value={shipment.containerNumber} onOpen={openContainerTab} />
-                    ),
-                    // Worked out by the server from the shipping line, and no column of the grid either.
                   };
 
                   const allKeys = [...left, ...right].map((f) => f.key);
@@ -1750,7 +1740,8 @@ export function ShipmentDetailContent() {
                   title="Equipment & Depot"
                   cardId="equip"
                   layout="stack"
-                  className="h-full"
+                  // Labels 170px wide, so "Delivery/Pick-Up Address" keeps to one line.
+                  className="h-full lg:[--lw:170px]"
                   columns={[EQUIP_DEPOT_L, EQUIP_DEPOT_R]}
                   shipment={shipment}
                   onCommit={handleCommit}
@@ -1923,7 +1914,8 @@ export function ShipmentDetailContent() {
               </div>
 
               <DetailCard icon={<SafetyCertificateOutlined />} title="Compliance" cardId="compliance" className="[--lw:150px]" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
-              <DetailCard icon={<HomeOutlined />} title="Destination Warehouse Routing" cardId="destinationRouting" columns={[DESTINATION_ROUTING_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              {/* Named by its two fields, as Equipment & Depot is: a longer name ran onto three lines beside its tools. */}
+              <DetailCard icon={<HomeOutlined />} title="HUB & CFS" cardId="destinationRouting" columns={[DESTINATION_ROUTING_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
             </div>
           </div>
           </div>

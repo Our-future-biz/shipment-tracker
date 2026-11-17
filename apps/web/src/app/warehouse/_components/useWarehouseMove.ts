@@ -1,6 +1,6 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import { useShipmentMutations } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
 import { todayIso } from "@/lib/date";
@@ -61,8 +61,9 @@ export function useWarehouseMove(
       );
       toast.success(`${ids.length} shipment${ids.length === 1 ? "" : "s"} moved to ${movedTo}${truck ? ` on truck ${truck}` : ""}`);
       return true;
-    } catch {
-      toast.error(`Could not move the shipments to ${movedTo}`);
+    } catch (err) {
+      // The server's reason: a received date only a manager may clear, a release before the receipt.
+      toast.error(`Could not move the shipments to ${movedTo}: ${apiErrorMessage(err)}`);
       return false;
     }
   };

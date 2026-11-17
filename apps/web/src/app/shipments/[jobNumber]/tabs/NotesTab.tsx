@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input, Button, Checkbox, DatePicker, Popconfirm, Tooltip } from "antd";
 import {
   AlignLeftOutlined,
@@ -11,14 +11,14 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentNotes, type ShipmentNote } from "@/hooks/useShipmentNotes";
+import { useCoverNotesBell, useCoverNotesMarkRead, useShipmentNotes, type ShipmentNote } from "@/hooks/useShipmentNotes";
 import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { AppModal } from "@/components/AppModal";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, LABEL_TEXT, TD, TH } from "@/styles/ui";
 import { dueInfo, type DueTone } from "./noteDue";
-import { NOTE_DETAILS_MAX, freeCommentsAsNote } from "./noteDraft";
+import { NOTE_DETAILS_MAX, freeCommentsMove } from "./noteDraft";
 
 
 /** The deadline chip's colours: a deadline is red; once past, solid red; a done to-do's grey. */
@@ -51,6 +51,21 @@ export function NotesTab({
   onSaveFreeComments: (value: string) => void;
 }) {
   const { notes, openCount, add, change, remove } = useShipmentNotes(shipment.id);
+  // Opening the tab is seeing the to-dos of a shipment the bell says this user now covers, and so
+  // is having it open when the bell lists it anew.
+  const { mutate: markRead } = useCoverNotesMarkRead();
+  const { notices: coverNotices } = useCoverNotesBell();
+  const listedHere = coverNotices
+    .filter((n) => n.shipmentId === shipment.id)
+    .map((n) => n.at)
+    .join("|");
+  const markedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const opened = markedFor.current === null;
+    if (!opened && (!listedHere || listedHere === markedFor.current)) return;
+    markedFor.current = listedHere;
+    markRead(shipment.id);
+  }, [markRead, shipment.id, listedHere]);
   // The new to-do: its title, deadline and (behind "Add details") details.
   const [title, setTitle] = useState("");
   const [due, setDue] = useState<dayjs.Dayjs | null>(null);
@@ -194,12 +209,8 @@ export function NotesTab({
             editable={freeCommentsEditable}
             onSave={onSaveFreeComments}
             moving={add.isPending}
-            // Moved whole (the first line the title, all of it the details) or not at all.
-            movable={!!freeCommentsAsNote(freeComments)}
-            onMoveToList={() => {
-              const note = freeCommentsAsNote(freeComments);
-              if (note) add.mutate(note, { onSuccess: () => onSaveFreeComments("") });
-            }}
+            // Emptied only once the to-do is made from it.
+            onMoveToList={(note) => add.mutate(note, { onSuccess: () => onSaveFreeComments("") })}
           />
         )}
 
@@ -575,29 +586,36 @@ function NoteEditModal({
 }
 
 // Free Comments as text; a double click edits it, a click elsewhere saves, and "Add to the list"
-// makes it a to-do (and empties Free Comments).
+// makes it a to-do (and empties Free Comments) - from what is typed, while it is being edited.
 function FreeComments({
   value,
   onSave,
   onMoveToList,
   moving,
-  movable,
   editable,
 }: {
   value: string;
   /** False for a user who may not change the shipment's details: it is only shown. */
   editable: boolean;
   onSave: (value: string) => void;
-  onMoveToList: () => void;
+  onMoveToList: (note: { text: string; details?: string }) => void;
   moving: boolean;
-  /** False when the text is too long for one to-do. */
-  movable: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  // The text on screen: what is typed while it is edited, else the saved one.
+  const shown = editing ? draft : value;
+  // Moved whole (the first line the title, all of it the details) or not at all.
+  const move = freeCommentsMove(value, shown);
   const save = () => {
     setEditing(false);
     if (draft !== value) onSave(draft);
+  };
+  const handleMoveToList = () => {
+    if (!move) return;
+    setEditing(false);
+    if (move.saveFirst !== undefined) onSave(move.saveFirst);
+    onMoveToList(move.note);
   };
   return (
     <div className="mt-6 border-t border-slate-100 pt-4">
@@ -605,8 +623,15 @@ function FreeComments({
         <span className={LABEL_TEXT}>Free Comments</span>
         {/* Moving empties Free Comments, which only who may change the details can do. */}
         {editable && (
-          <Tooltip title={movable ? "" : `Too long for one to-do (${NOTE_DETAILS_MAX} characters at most): shorten it or split it first`}>
-            <Button size="small" onClick={onMoveToList} loading={moving} disabled={!movable}>
+          <Tooltip title={move ? "" : `Too long for one to-do (${NOTE_DETAILS_MAX} characters at most): shorten it or split it first`}>
+            <Button
+              size="small"
+              // The text being typed keeps its focus: no blur saves it on the way, the click takes it as it is.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleMoveToList}
+              loading={moving}
+              disabled={!move}
+            >
               Add to the list
             </Button>
           </Tooltip>

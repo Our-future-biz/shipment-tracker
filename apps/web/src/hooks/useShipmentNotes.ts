@@ -6,8 +6,10 @@ import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
 
 export type ShipmentNote = interfaces.ShipmentNoteItem;
+export type CoverNotesNotice = interfaces.CoverNotesNotice;
 
 const key = (shipmentId: string) => ["shipment-notes", shipmentId];
+const COVER_BELL_KEY = ["cover-notes-bell"] as const;
 
 /** The shipment's notepad: its notes, how many are still open, and the ways to change them. */
 export function useShipmentNotes(shipmentId: string) {
@@ -19,7 +21,11 @@ export function useShipmentNotes(shipmentId: string) {
     enabled: !!shipmentId,
   });
   const notes = data?.notes ?? [];
-  const refresh = () => queryClient.invalidateQueries({ queryKey: key(shipmentId) });
+  // The bell lists a shipment someone was made to cover while it has open to-dos: the last one finished ends it.
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: COVER_BELL_KEY });
+    return queryClient.invalidateQueries({ queryKey: key(shipmentId) });
+  };
   const failed = (what: string) => (e: unknown) => toast.error(`${what}: ${apiErrorMessage(e)}`);
 
   const add = useMutation({
@@ -46,4 +52,26 @@ export function useShipmentNotes(shipmentId: string) {
     change,
     remove,
   };
+}
+
+/**
+ * The bell: shipments somebody else made this user the Handled By or Holiday Cover of, with their
+ * open to-dos, until the user opens the shipment's Notes To-Do tab. Polled like the bell's other requests.
+ */
+export function useCoverNotesBell() {
+  const query = useQuery({
+    queryKey: COVER_BELL_KEY,
+    queryFn: async () => (await api.shipments.coverNotesForMe()).notices,
+    refetchInterval: 30_000,
+  });
+  return { notices: query.data ?? [], hasLoaded: query.data !== undefined };
+}
+
+/** The shipment's Notes To-Do tab was opened, from the bell's line or the shipment: the bell lists it no longer. */
+export function useCoverNotesMarkRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (shipmentId: string) => api.shipments.coverNotesMarkRead(shipmentId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: COVER_BELL_KEY }),
+  });
 }

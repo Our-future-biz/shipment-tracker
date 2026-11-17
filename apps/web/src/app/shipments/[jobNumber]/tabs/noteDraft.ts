@@ -16,3 +16,15 @@ export function freeCommentsAsNote(value: string): { text: string; details?: str
   if (title === whole) return { text: title };
   return whole.length <= NOTE_DETAILS_MAX ? { text: title, details: whole } : null;
 }
+
+/**
+ * What "Add to the list" does with Free Comments: the to-do is made from the text as it stands on
+ * screen - while it is being edited, what is typed, not the text saved before the edit. A typed
+ * change is saved first, so a to-do that can't be made leaves it in Free Comments. Null when the
+ * text can't be one to-do.
+ */
+export function freeCommentsMove(saved: string, shown: string): { saveFirst?: string; note: { text: string; details?: string } } | null {
+  const note = freeCommentsAsNote(shown);
+  if (!note) return null;
+  return shown === saved ? { note } : { saveFirst: shown, note };
+}

@@ -5,6 +5,7 @@
 // is in the web's lib/shipmentEditRule, which makes the screens read-only to match.
 
 import { isCreditApproved } from "./fieldDefaults";
+import { receivedDateRefusal } from "../../../lib/warehouseReceivedRule";
 
 const MANAGER_ROLES = ["superadmin", "admin", "manager"];
 
@@ -66,7 +67,7 @@ export function invoicedRefusal(charges: { invoiced: number; total: number }): s
 export const DETAILS_REFUSAL = "Only the user in this shipment's Handled By or Holiday Cover, or a manager, can change its details";
 
 // A person is kept by e-mail; an old value may carry a name after it ("a@b.cz — Name").
-const personEmail = (value: string | null | undefined) => (value ?? "").split(" — ")[0]!.trim().toLowerCase();
+export const personEmail = (value: string | null | undefined) => (value ?? "").split(" — ")[0]!.trim().toLowerCase();
 
 type People = { personInCharge?: string | null; holidayCover?: string | null };
 
@@ -99,6 +100,36 @@ export function creditCheckLockRefusal(existing: { creditCheck: string }, data: 
   if (isDetailsManager(role) || !("creditCheck" in data)) return null;
   if (!isCreditApproved(existing.creditCheck) || isCreditApproved(data.creditCheck)) return null;
   return "The credit check is approved: only a manager can change it";
+}
+
+type WarehouseDates = { warehouseReceivedDate?: string | null; warehouseReleasedDate?: string | null };
+
+/** The cargo is released from the warehouse only once it was received there. */
+export const RELEASED_BEFORE_RECEIVED = "The cargo was not received in the warehouse yet: fill in Warehouse Received before Warehouse Released";
+
+// The dates as they are, and as a write leaves them ("" for none).
+const dateBefore = (existing: WarehouseDates, key: keyof WarehouseDates) => existing[key] ?? "";
+const dateAfter = (existing: WarehouseDates, data: WarehouseDates, key: keyof WarehouseDates) => (key in data ? (data[key] ?? "") : dateBefore(existing, key));
+
+/**
+ * Why a person may not make this change to Warehouse Received, or null when they may: the
+ * Warehouse Concept's rule for its own received date (lib/warehouseReceivedRule). At user level
+ * never a day still to come (`today`, the Prague business day), not moved later or cleared once
+ * set, and not changed once the cargo is released from the warehouse; a manager, an admin and a
+ * superadmin may do all. The app's own writes (the Warehouse Concept's and Trucking's updates, a
+ * master job's sync) carry stamps made under their own rules and aren't asked.
+ */
+export function warehouseReceivedRefusal(existing: WarehouseDates, data: WarehouseDates, role: string, today: string): string | null {
+  const [before, after] = [dateBefore(existing, "warehouseReceivedDate"), dateAfter(existing, data, "warehouseReceivedDate")];
+  if (after === before) return null;
+  return receivedDateRefusal(before, after, !!dateBefore(existing, "warehouseReleasedDate"), role, today, "Warehouse Received");
+}
+
+/** Why a person may not set this Warehouse Released, or null when they may: only with Warehouse Received filled in, whoever asks. */
+export function warehouseReleaseRefusal(existing: WarehouseDates, data: WarehouseDates): string | null {
+  const released = dateAfter(existing, data, "warehouseReleasedDate");
+  if (!released || released === dateBefore(existing, "warehouseReleasedDate")) return null;
+  return dateAfter(existing, data, "warehouseReceivedDate") ? null : RELEASED_BEFORE_RECEIVED;
 }
 
 /**

@@ -1146,6 +1146,24 @@ export interface TrackingBellNotice {
   unread: boolean;
 }
 
+/**
+ * A shipment somebody else made the user the Handled By or Holiday Cover of, with the to-dos still
+ * open on it (the bell's "To-dos on shipments you now cover", lib/coverBell).
+ */
+export interface CoverNotesNotice {
+  shipmentId: string;
+  jobNumber: string;
+  /** What the user was made. */
+  role: "Handled By" | "Holiday Cover";
+  /** Who made them so, by e-mail; empty when unknown. */
+  by: string;
+  at: string;
+  /** How many of its to-dos are open. */
+  openCount: number;
+  /** The first open to-dos' titles, in the Notes To-Do tab's order (starred first, then newest). */
+  titles: string[];
+}
+
 /** Something a shipment's dates say needs doing, as Needs Attention lists it. */
 export interface TrackingAttentionFlag {
   kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed" | "free_time";

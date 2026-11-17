@@ -1,5 +1,5 @@
 import { APIError, ErrCode } from "encore.dev/api";
-import { businessDay } from "../../../lib/businessDate";
+import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
@@ -68,6 +68,8 @@ import {
   isInvoicedStatus,
   isOpenToPerson,
   touchesDetails,
+  warehouseReceivedRefusal,
+  warehouseReleaseRefusal,
 } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
@@ -406,6 +408,25 @@ function sanitizeTypedFields<T extends BlankablePriority>(
     else if (key === "customsPriority") out[key] = "Standard";
   }
   return out as Omit<T, "customsPriority"> & { customsPriority?: CustomsPriority };
+}
+
+const WAREHOUSE_DATES = { warehouseReceivedDate: "Warehouse Received", warehouseReleasedDate: "Warehouse Released" } as const;
+
+// A person's write of the warehouse dates (lib/shipmentEditRule): each a real day, trimmed so a
+// padded one can't slip past the check of today; Warehouse Received under the warehouse's rule,
+// Warehouse Released only after it. The app's own writes aren't asked: their stamps keep their rules.
+function assertWarehouseDates(existing: ShipmentRecord, data: Partial<NewShipmentRecord>, role: string): void {
+  for (const key of Object.keys(WAREHOUSE_DATES) as (keyof typeof WAREHOUSE_DATES)[]) {
+    const value = data[key];
+    if (typeof value !== "string") continue;
+    const day = value.trim();
+    if (day && !isRealYmd(day)) throw APIError.invalidArgument(`${WAREHOUSE_DATES[key]} must be a date as "YYYY-MM-DD"`);
+    data[key] = day || null;
+  }
+  const received = warehouseReceivedRefusal(existing, data, role, businessDay(new Date()));
+  if (received) throw APIError.permissionDenied(received);
+  const release = warehouseReleaseRefusal(existing, data);
+  if (release) throw APIError.failedPrecondition(release);
 }
 
 /** A classified document of a shipment and its customs review ("" | approved | declined). */
@@ -1229,6 +1250,7 @@ class ShipmentService {
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    if (role !== undefined) assertWarehouseDates(existing, shipmentData, role);
     if (shipmentData.shippingLine !== undefined) shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
     clearStaleTimes(shipmentData, existing);
     const users = usersOnce();
