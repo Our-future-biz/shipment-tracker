@@ -497,7 +497,7 @@ export function applyOwner(
   // Before the refusal: a bulk assign over quotes that already have that owner tells them apart.
   if (ownerUserId === state.ownerUserId && ownerLabel === state.ownerLabel) return { changed: false };
   if (keepsGivenTerms(state.status, wonRevision)) {
-    throw new LifecycleError("not_allowed", `the owner of a ${label(state.status)} quote cannot be changed - revise it`);
+    throw new LifecycleError("not_allowed", `Quoted by cannot be changed on a ${label(state.status)} quote - revise it`);
   }
 
   const was = state.ownerLabel ? ` (was ${state.ownerLabel})` : "";

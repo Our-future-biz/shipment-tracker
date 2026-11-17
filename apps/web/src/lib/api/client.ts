@@ -2381,10 +2381,11 @@ export namespace quotes {
 
         /**
          * Deletes a sales quote: it is gone from Sales for everybody, while its row, its history and
-         * its reference - which is never used again - are kept. Refused for a user who may not delete
-         * this quote (permission denied), and for everybody while a shipment is linked to it (failed
-         * precondition, naming the shipment). What the signed-in user may do is on every quote that is
-         * handed out: permissions.canDelete.
+         * its reference - which is never used again - are kept. Only a Draft that never went out can
+         * be: refused for everybody (failed precondition) while a shipment or trucking job names it,
+         * once it is Ready to Send or later, and for the revision of a Replaced quote; refused for a
+         * user who may not delete this quote (permission denied). What the signed-in user may do is on
+         * every quote that is handed out: permissions.canDelete.
          */
         public async salesQuoteDelete(quoteNumber: string): Promise<controllers.SalesQuoteDeleteResponse> {
             // Now make the actual call to the API
@@ -20909,10 +20910,17 @@ export namespace interfaces {
             canDelete: boolean
 
             /**
-             * Why not, when they may not - the sentence to show: a shipment is linked to the quote (then
-             * nobody may, and shipmentId is set), or the user would have to be a manager.
+             * Why not, when they may not - the sentence to show, finishing "QCZ… - …": a shipment is
+             * linked to the quote, the quote is past being a Draft that never went out (it stays for the
+             * reports), or the user would have to be a manager.
              */
             deleteBlockedReason?: string
+
+            /**
+             * What stops the delete, when something does: `shipment` and `status` stop everybody, so a
+             * screen says why; `role` stops only this user.
+             */
+            deleteBlockedBy?: "shipment" | "status" | "role"
 
             /**
              * Whether the user may approve a margin below the Trucking margin floor (a manager).

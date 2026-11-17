@@ -397,9 +397,10 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   /**
    * The live quote a revision replaced, by the revision's number: a Replaced quote whose document
    * names it (replacedBy, compared without the Freight Mode letters). Null when there is none.
+   * Read in `reader`: the transaction that holds the revision locked, or none for a screen.
    */
-  async liveReplacedBy(tx: QuoteTransaction, companyId: string, revisionNumber: string): Promise<string | null> {
-    const [row] = await tx
+  async liveReplacedBy(companyId: string, revisionNumber: string, reader: QuoteTransaction | typeof db = db): Promise<string | null> {
+    const [row] = await reader
       .select({ quoteNumber: quoteTable.quoteNumber })
       .from(quoteTable)
       .where(and(

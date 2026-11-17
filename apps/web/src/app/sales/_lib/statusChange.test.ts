@@ -30,6 +30,14 @@ describe("transitionRequest", () => {
     expect(transitionRequest({ status: "won", comment: "   " }).comment).toBeUndefined();
   });
 
+  it("names the status the screen showed, so a page that still shows Quoted cannot change a quote a colleague made Won", () => {
+    expect(transitionRequest({ status: "won" }, "quoted")).toEqual({ to: "won", comment: undefined, validUntil: undefined, lostReason: undefined, expectedStatus: "quoted" });
+    // The status as shown: an expired quote is Expired, whatever it is stored as.
+    expect(transitionRequest({ status: "draft" }, "expired").expectedStatus).toBe("expired");
+    // Asked without one (no screen behind it), the server goes by the move alone.
+    expect(transitionRequest({ status: "won" })).not.toHaveProperty("expectedStatus");
+  });
+
   it("never carries rates: the server stamps them", () => {
     expect(Object.keys(transitionRequest({ status: "quoted" }))).not.toContain("exchange");
   });

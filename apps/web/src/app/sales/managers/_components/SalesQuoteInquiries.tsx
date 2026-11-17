@@ -24,7 +24,7 @@ import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_T
 
 // Sales → Managers → Quote inquiries (Council Outlay 6, step 3): reps ask a manager to approve a
 // margin below the floor. A manager approves it, approves it down to a counter margin, rejects it,
-// or asks back in the quote's chat. The answer goes to whoever asked and to the quote's owner, and
+// or asks back in the quote's chat. The answer goes to whoever asked and to the person in Quoted by, and
 // into the quote's history. A manager may answer their own question or quote: it is allowed and
 // shown (owner decision D9). The warehouse's heavy-piece questions are decided on Warehouse →
 // Managers; here they are one line to chase.
@@ -112,7 +112,7 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
         <div className={`${CARD_BAR} flex-wrap justify-between`}>
           <div>
             <h3 className={CARD_TITLE}>Quote inquiries · margins below the floor</h3>
-            <div className={HINT}>Approve as asked, approve down to a counter margin, or reject with a reason. The answer goes to whoever asked and to the quote&apos;s owner.</div>
+            <div className={HINT}>Approve as asked, approve down to a counter margin, or reject with a reason. The answer goes to whoever asked and to the person in the quote&apos;s Quoted by.</div>
           </div>
           <Segmented
             size="small"
@@ -249,7 +249,7 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                                 onChange={(e) => setComment(e.target.value)}
                                 className={`${TEXTAREA} w-full resize-y`}
                               />
-                              <span className={`block ${HINT} mt-0.5`}>Sent to {i.requestedByName || "whoever asked"} and the quote&apos;s owner, and kept in the quote&apos;s history</span>
+                              <span className={`block ${HINT} mt-0.5`}>Sent to {i.requestedByName || "whoever asked"} and the person in the quote&apos;s Quoted by, and kept in the quote&apos;s history</span>
                             </label>
                             <div className="flex gap-2">
                               <button

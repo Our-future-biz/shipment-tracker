@@ -1,7 +1,7 @@
 import { APIError, ErrCode } from "encore.dev/api";
 import { businessDay } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
-import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
+import { canManageSales, shipmentFromQuoteBlocked, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { customers, invoicing, quotes, warehouse } from "~encore/clients";
@@ -997,8 +997,9 @@ class ShipmentService {
     if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
     // A quote that never went out becomes Won by this shipment without passing the send gate: it
     // has to pass it here - a margin below its floor approved, heavy pieces approved (Council Outlay 6 D11).
+    // The gate's sentence speaks of sending; here it is the shipment that waits.
     if (UNSENT_FOR_SHIPMENT.includes(quote.effectiveStatus) && quote.sendBlocked) {
-      throw APIError.failedPrecondition(`${quote.quoteNumber} - ${quote.sendBlocked}`);
+      throw APIError.failedPrecondition(`${quote.quoteNumber} - ${shipmentFromQuoteBlocked(quote.sendBlocked)}`);
     }
     customerPicFromQuote(shipmentData, quote.data);
     await linkContact(shipmentData, undefined, CUSTOMER_PIC, contactsOf, "lenient");

@@ -184,14 +184,45 @@ describe("toItem", () => {
     const BLOCKED_BY_SHIPMENT = "shipment CZ2610001 was created from this quote - remove the Sales Reference from the shipment first";
     const permissions = (over: Partial<SalesQuoteRecord>, actor: { userID: string; role: string }) => toItem(row(over), emails, actor, NOW).permissions;
 
-    it("lets a manager reassign and delete any quote that is open", () => {
+    it("lets a manager reassign any quote that is open, and delete any Draft that never went out", () => {
       for (const role of ["superadmin", "admin", "manager"]) {
-        expect(permissions({ ownerUserId: "user-2", status: "revised", sentAt: SENT, firstSentAt: SENT }, { userID: "user-9", role })).toEqual({
+        expect(permissions({ ownerUserId: "user-2" }, { userID: "user-9", role })).toEqual({
           canChangeOwner: "any",
           canDelete: true,
           canApproveMargin: true,
         });
+        expect(permissions({ ownerUserId: "user-2", status: "revised", sentAt: SENT, firstSentAt: SENT }, { userID: "user-9", role })).toEqual({
+          canChangeOwner: "any",
+          canDelete: false,
+          deleteBlockedReason: "the quote is Revised - only a Draft can be deleted; mark it Lost instead",
+          deleteBlockedBy: "status",
+          canApproveMargin: true,
+        });
       }
+    });
+
+    it("lets nobody delete a quote from Ready to Send on - a manager neither - and says why, for the screen to show", () => {
+      for (const actor of [manager, martin]) {
+        expect(permissions({ ownerUserId: "user-1", status: "ready_to_send" }, actor), actor.role).toMatchObject({
+          canDelete: false,
+          deleteBlockedReason: "the quote is Ready to Send - only a Draft can be deleted; mark it Lost instead",
+          deleteBlockedBy: "status",
+        });
+        expect(permissions({ ownerUserId: "user-1", status: "replaced", sentAt: SENT, firstSentAt: SENT }, actor), actor.role).toMatchObject({
+          canDelete: false,
+          deleteBlockedReason: "the quote is Replaced - it stays for the reports as what the customer was given; work on its revision instead",
+          deleteBlockedBy: "status",
+        });
+      }
+    });
+
+    it("lets nobody delete the revision of a Replaced quote when that was looked up, naming the quote once", () => {
+      expect(toItem(row({ ownerUserId: "user-1" }), emails, manager, NOW, undefined, undefined, "QCZ20261010001").permissions).toMatchObject({
+        canDelete: false,
+        deleteBlockedReason: "it is the revision that replaced QCZ20261010001 - deleted, it would leave QCZ20261010001 Replaced for good; mark it Lost instead, or keep working on it",
+        deleteBlockedBy: "status",
+      });
+      expect(toItem(row({ ownerUserId: "user-1" }), emails, manager, NOW, undefined, undefined, null).permissions.canDelete).toBe(true);
     });
 
     it("tells a plain user what they may do with the owner: hand over their own, take an unowned one, nothing else", () => {
@@ -201,7 +232,7 @@ describe("toItem", () => {
     });
 
     it("lets nobody change the owner of a closed quote, and says why; the revision of a Won quote may", () => {
-      const CLOSED = "A closed quote keeps its owner - revise it";
+      const CLOSED = "Quoted by cannot be changed on a closed quote - revise it";
       for (const status of ["quoted", "feedback", "won", "lost", "expired", "replaced"]) {
         expect(permissions({ ownerUserId: "user-1", status, sentAt: SENT, firstSentAt: SENT }, manager), status).toMatchObject({ canChangeOwner: "none", ownerChangeBlockedReason: CLOSED });
         expect(permissions({ ownerUserId: "user-1", status, sentAt: SENT, firstSentAt: SENT }, martin), status).toMatchObject({ canChangeOwner: "none", ownerChangeBlockedReason: CLOSED });
@@ -219,21 +250,26 @@ describe("toItem", () => {
         ownerChangeBlockedReason: REASSIGN_MANAGERS_ONLY,
         canDelete: false,
         deleteBlockedReason: MANAGERS_ONLY,
+        deleteBlockedBy: "role",
         canApproveMargin: false,
       });
-      expect(permissions({ ownerLabel: "Petr" }, martin)).toEqual({ canChangeOwner: "claim", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, canApproveMargin: false });
-      // Their own quote that is with the customer, and one that was and is a Draft again.
+      expect(permissions({ ownerLabel: "Petr" }, martin)).toEqual({ canChangeOwner: "claim", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, deleteBlockedBy: "role", canApproveMargin: false });
+      // Their own quote that is with the customer, and one that was and is a Draft again: kept for the reports.
       expect(permissions({ ownerUserId: "user-1", status: "quoted", sentAt: SENT, firstSentAt: SENT }, martin)).toMatchObject({
         canDelete: false,
-        deleteBlockedReason: MANAGERS_ONLY,
+        deleteBlockedReason: "the quote is Quoted - it went to the customer and stays for the reports; mark it Lost instead, or revise it",
+        deleteBlockedBy: "status",
       });
       expect(permissions({ ownerUserId: "user-1", status: "draft", sentAt: SENT, firstSentAt: SENT }, martin)).toMatchObject({
         canDelete: false,
-        deleteBlockedReason: MANAGERS_ONLY,
+        deleteBlockedReason: SENT_BEFORE,
+        deleteBlockedBy: "status",
       });
     });
 
-    it("reads from the history whether a Draft ever went out: one that left Quoted without a sent date is a manager's delete", () => {
+    const SENT_BEFORE = "the quote went to the customer before and stays for the reports; mark it Lost instead";
+
+    it("reads from the history whether a Draft ever went out: one that left Quoted without a sent date stays for the reports", () => {
       const history = (...timeline: Record<string, unknown>[]) => ({
         ownerUserId: "user-1",
         data: { reference: "QCZ20261010001", quoteStatus: "draft", timeline },
@@ -241,8 +277,8 @@ describe("toItem", () => {
       const at = SENT.toISOString();
       // Set to Quoted in bulk before sendings were dated, then Lost, then a Draft again.
       const reopened = history({ kind: "status", status: "lost", from: "quoted", at }, { kind: "status", status: "draft", at });
-      expect(permissions(reopened, martin)).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, canApproveMargin: false });
-      expect(permissions(reopened, manager).canDelete).toBe(true);
+      expect(permissions(reopened, martin)).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: SENT_BEFORE, deleteBlockedBy: "status", canApproveMargin: false });
+      expect(permissions(reopened, manager).canDelete).toBe(false);
       // A Draft whose history shows no sending - also one a shipment had made Won for a while.
       const neverSent = history(
         { kind: "status", status: "draft", at },
@@ -255,19 +291,24 @@ describe("toItem", () => {
     });
 
     it("lets nobody delete a quote a shipment is linked to, and names the shipment", () => {
-      expect(permissions({ ownerUserId: "user-1", ...SHIPMENT }, martin)).toMatchObject({ canDelete: false, deleteBlockedReason: BLOCKED_BY_SHIPMENT });
+      expect(permissions({ ownerUserId: "user-1", ...SHIPMENT }, martin)).toMatchObject({ canDelete: false, deleteBlockedReason: BLOCKED_BY_SHIPMENT, deleteBlockedBy: "shipment" });
       expect(permissions({ ownerUserId: "user-1", ...SHIPMENT }, manager)).toEqual({
         canChangeOwner: "any",
         canDelete: false,
         deleteBlockedReason: BLOCKED_BY_SHIPMENT,
+        deleteBlockedBy: "shipment",
         canApproveMargin: true,
       });
     });
 
-    it("judges the delete on the stored status: an expired quote is still the Quoted quote it is stored as", () => {
+    it("judges the delete on the status shown: an expired quote is told as Expired", () => {
       const expired = { ownerUserId: "user-1", status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-09" };
-      expect(permissions(expired, martin).canDelete).toBe(false);
-      expect(permissions(expired, manager).canDelete).toBe(true);
+      for (const actor of [martin, manager]) {
+        expect(permissions(expired, actor), actor.role).toMatchObject({
+          canDelete: false,
+          deleteBlockedReason: "the quote is Expired - it went to the customer and stays for the reports; revise it instead",
+        });
+      }
     });
 
     it("carries no reason when the quote may be deleted", () => {

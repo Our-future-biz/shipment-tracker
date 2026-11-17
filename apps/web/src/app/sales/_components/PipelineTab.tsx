@@ -271,7 +271,7 @@ function CustomerCard({ card, sheet, live }: CustomerCardProps) {
             <span className="mt-0.5 flex items-center gap-2 text-xs font-normal text-slate-500">
               {card.label && <CustomerAccountTypeBadge label={card.label} />}
               <span className={`min-w-0 truncate ${card.label ? "" : "pl-2.5"}`}>
-                {card.salesOwner.trim() ? <SalesOwnerText owner={card.salesOwner} linked={ownerLinked} /> : "No sales owner"}
+                {card.salesOwner.trim() ? <SalesOwnerText owner={card.salesOwner} linked={ownerLinked} /> : "Quoted by nobody"}
               </span>
             </span>
           </span>
@@ -365,7 +365,7 @@ export function PipelineTab() {
   const ownerView: OwnerView = owner === "" ? "all" : me && owner.toLowerCase() === me.toLowerCase() ? "mine" : "";
   const ownerOptions = [
     ...sortedUsers(users).map((u) => ({ value: u.email, label: u.displayName || u.email, user: u })),
-    { value: "none", label: "No sales owner", user: undefined },
+    { value: "none", label: "Quoted by nobody", user: undefined },
   ];
 
   const more = async (stage: PipelineStage) => {
@@ -481,8 +481,8 @@ export function PipelineTab() {
             options={LABEL_OPTIONS}
           />
           <Select<string>
-            aria-label="Sales owner"
-            placeholder="Sales owner"
+            aria-label="Quoted by"
+            placeholder="Quoted by"
             className="w-56"
             showSearch
             allowClear
@@ -490,7 +490,7 @@ export function PipelineTab() {
             value={owner || undefined}
             onChange={(value) => setOwnerPick(value ?? "")}
             options={ownerOptions}
-            filterOption={(input, option) => (option?.user ? userMatches(option.user, input) : "no sales owner".includes(input.trim().toLowerCase()))}
+            filterOption={(input, option) => (option?.user ? userMatches(option.user, input) : "quoted by nobody".includes(input.trim().toLowerCase()))}
           />
         </div>
       </div>

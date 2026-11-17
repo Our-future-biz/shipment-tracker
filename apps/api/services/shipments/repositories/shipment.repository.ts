@@ -1,4 +1,4 @@
-import { and, eq, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql, getTableColumns, type SQL } from "drizzle-orm";
+import { and, eq, ne, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql, getTableColumns, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
@@ -401,6 +401,37 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       ))
       .returning({ id: shipmentTable.id });
     return rows.length > 0;
+  }
+
+  /**
+   * A quote's reference took the letters of its Freight Mode (quote-renamed): every shipment of the
+   * company that names the quote under another spelling (compared without the letters) names it
+   * as `to`, each with a line in its history for its Sales Reference, old → new, as `userId`, in
+   * one transaction. The rows are read locked and only those that still differ are rewritten, so
+   * the same event delivered again - at the same time too - finds nothing left and writes no second
+   * line. The job numbers rewritten.
+   */
+  async followQuoteRename(companyId: string, from: string, to: string, userId: string): Promise<string[]> {
+    return this.db.transaction(async (tx) => {
+      const naming = await tx
+        .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, salesNumber: shipmentTable.salesNumber })
+        .from(shipmentTable)
+        .where(and(
+          eq(shipmentTable.companyId, companyId),
+          sql`${plainSalesReferenceSql(shipmentTable.salesNumber)} = ${plainSalesReference(from)}`,
+          ne(shipmentTable.salesNumber, to),
+        ))
+        .for("update");
+      if (!naming.length) return [];
+      await tx
+        .update(shipmentTable)
+        .set({ salesNumber: to })
+        .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, naming.map((s) => s.id))));
+      await tx.insert(shipmentAuditTable).values(
+        naming.map((s) => ({ companyId, shipmentId: s.id, userId, field: "salesNumber", oldValue: s.salesNumber, newValue: to })),
+      );
+      return naming.map((s) => s.jobNumber);
+    });
   }
 
   /** The base update - inside a write turn when `tx` is given. */

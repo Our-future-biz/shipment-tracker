@@ -275,6 +275,11 @@ class ConsignmentService {
   // ---- reading -----------------------------------------------------------------------------------
 
   /** The consignment and its live trip; 404 when it is not one of the company's. */
+  /** The refs of the company's consignments that name the quote (Sales asks before a quote is deleted). */
+  async refsNamingQuote(companyId: string, quoteNumber: string): Promise<string[]> {
+    return consignmentRepository.refsNamingQuote(companyId, quoteNumber.trim());
+  }
+
   async load(companyId: string, id: string): Promise<{ c: TruckingConsignmentRecord; trip: TruckingTripRecord | null }> {
     const c = isUuid(id) ? await consignmentRepository.find(companyId, id) : null;
     if (!c) throw APIError.notFound("Consignment not found");

@@ -210,6 +210,20 @@ class ConsignmentRepository {
     return row ?? null;
   }
 
+  /**
+   * The refs of the consignments that name a quote, the oldest first: priced from it or with its
+   * number typed, cancelled ones too - each is a record that points at the quote. Compared
+   * without the letters of the quote's Freight Mode, as liveByQuote.
+   */
+  async refsNamingQuote(companyId: string, quoteNumber: string): Promise<string[]> {
+    const rows = await db
+      .select({ ref: c.ref })
+      .from(c)
+      .where(and(eq(c.companyId, companyId), isNull(c.deletedAt), sql`${plainSalesReferenceSql(c.quoteNumber)} = ${plainSalesReference(quoteNumber)}`))
+      .orderBy(c.createdAt, c.id);
+    return rows.map((r) => r.ref);
+  }
+
   /** The leg of an FTL consignment on its trip. */
   async insertLeg(tx: Tx, companyId: string, consignmentId: string, tripId: string): Promise<void> {
     await tx.insert(truckingLegTable).values({ companyId, consignmentId, tripId, seq: 1, kind: "DIRECT", status: "PLANNED" });

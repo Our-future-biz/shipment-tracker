@@ -28,12 +28,17 @@ export interface StatusChange {
 // dates, the validity and the history line - so a status change leaves the same trace wherever it
 // is made. The rates a sent quote keeps are the server's to stamp (today's ČNB fixing and ROE %);
 // the browser never sends them.
-export function transitionRequest(change: StatusChange): controllers.SalesQuoteTransitionRequest {
+// `seen` is the status the screen showed when the user chose (the effective one, so "expired"
+// for a quote whose validity has passed): the server then refuses the change once the quote is in
+// another - a status change writes no document, so the document's version alone would let a page
+// that still shows Quoted set a quote a colleague made Won meanwhile.
+export function transitionRequest(change: StatusChange, seen?: string): controllers.SalesQuoteTransitionRequest {
   const { status } = change;
   return {
     to: status,
     comment: change.comment?.trim() || undefined,
     validUntil: status === "quoted" ? change.validUntil : undefined,
     lostReason: status === "lost" ? change.lostReason : undefined,
+    ...(seen ? { expectedStatus: seen } : {}),
   };
 }

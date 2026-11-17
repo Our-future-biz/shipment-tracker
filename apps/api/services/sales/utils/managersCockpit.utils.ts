@@ -315,7 +315,7 @@ export function buildSalesCockpit(input: SalesCockpitInput): SalesManagersCockpi
   const extra = new Map<string, Signal[]>();
   const addExtra = (quoteNumber: string, s: Signal) => extra.set(quoteNumber, [...(extra.get(quoteNumber) ?? []), s]);
   for (const n of input.lines?.inquiriesOnClosedQuotes ?? []) addExtra(n, attention(9, "Inquiry on a closed quote · decide or close it"));
-  for (const n of input.lines?.answersNobodyReceived ?? []) addExtra(n, attention(9, "Answer nobody received · tell the new owner"));
+  for (const n of input.lines?.answersNobodyReceived ?? []) addExtra(n, attention(9, "Answer nobody received · tell the person in Quoted by"));
   const read = new Set(input.quotes.map((q) => q.quoteNumber));
   const loose: Ranked[] = [];
   for (const [quoteNumber, signals] of extra) {

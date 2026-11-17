@@ -514,6 +514,19 @@ async function lettersCaughtUp(companyId: string): Promise<void> {
   }
 }
 
+// Throws when the policy says the quote may not be deleted, as it is shown at `at` (salesPolicy
+// quoteDeletePermission). `replaces`: the Replaced quote it is the revision of, null when that was
+// not looked up. A shipment linked or what the quote is stops everybody, so it is the request
+// that cannot be met as things stand; otherwise it is this user who may not.
+function refuseDelete(actor: Actor, quote: SalesQuoteRecord, at: Date, replaces: string | null): void {
+  const state = stateOf(quote);
+  const everSent = wasEverSent(state, isPlainObject(quote.data) ? quote.data.timeline : undefined);
+  const shown = effectiveStatus(state.status, state.validUntil, businessDay(at));
+  const permission = quoteDeletePermission(actor, { ...state, status: shown, everSent, replaces });
+  if (permission.allowed) return;
+  throw permission.blockedBy === "role" ? APIError.permissionDenied(permission.reason) : APIError.failedPrecondition(permission.reason);
+}
+
 class SalesQuoteService {
   // What every read of sales quotes starts with: quotes written by code from before the server
   // owned the lifecycle get their columns, and owner texts nobody compared with the users yet
@@ -534,8 +547,14 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    const [margins, states] = await Promise.all([marginsFor(actor.companyID, [stored], at), linkedStatesOf([stored], at)]);
-    return toItem(stored, people.emails, actor, at, margins, states);
+    // Whether a Draft is the revision a Replaced quote handed its offer on to: the page then does
+    // not offer the delete the server refuses. Asked of a Draft only - nothing else is deleted.
+    const [margins, states, replaces] = await Promise.all([
+      marginsFor(actor.companyID, [stored], at),
+      linkedStatesOf([stored], at),
+      stored.status === "draft" ? salesQuoteRepository.liveReplacedBy(actor.companyID, stored.quoteNumber) : null,
+    ]);
+    return toItem(stored, people.emails, actor, at, margins, states, replaces);
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -1245,37 +1264,38 @@ class SalesQuoteService {
 
   // Deletes a quote: it is gone from Sales for everybody, while its row and history stay - who
   // deleted it and when is the last line - and its reference is never given out again. Who may
-  // is the policy's call, made on the quote as locked; while a shipment is linked to it, nobody
-  // may. Its attachments go in the same transaction.
+  // is the policy's call, made on the quote as locked: only a Draft that never went out, that no
+  // shipment or trucking job names and that is not the revision of a Replaced quote. Its
+  // attachments go in the same transaction.
   async delete(actor: Actor, quoteNumber: string): Promise<void> {
+    const at = new Date();
+    // What the quote is says no to most deletes - it went to the customer, a shipment is linked,
+    // the user may not: told first, in those words, without asking other services.
+    const before = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
+    if (!before) throw notFound();
+    refuseDelete(actor, before, at, null);
     // A shipment that names the quote in its Sales Number blocks the delete even when the quote's
-    // own link is empty (a call that should have set it failed). Asked before the lock: the
-    // shipments service is not called while the row is held.
-    const { shipments: naming } = await shipments._internalShipmentsNamingQuote({ reference: quoteNumber });
+    // own link is empty (a call that should have set it failed), and so does a trucking job that
+    // names it. Asked before the lock: other services are not called while the row is held.
+    const [{ shipments: naming }, { consignments }] = await Promise.all([
+      shipments._internalShipmentsNamingQuote({ reference: quoteNumber }),
+      trucking._internalTruckingNamingQuote({ reference: quoteNumber }),
+    ]);
     if (naming.length > 0) {
       throw APIError.failedPrecondition(
         `shipment ${naming.map((s) => s.jobNumber).join(", ")} names this quote in its Sales Reference - change that first`,
       );
     }
-    const at = new Date();
+    if (consignments.length > 0) {
+      throw APIError.failedPrecondition(`trucking job ${consignments.join(", ")} names this quote - mark the quote Lost instead`);
+    }
     const ctx = contextOf(actor, at, await companyPeople(actor));
     const deleted = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
+      // Judged again on the quote as locked: it may have changed since it was read above. Only a
+      // Draft can be the revision that matters here: anything else is refused by its status.
+      const replaces = stateOf(quote).status === "draft" ? await salesQuoteRepository.liveReplacedBy(quote.companyId, quote.quoteNumber, tx) : null;
+      refuseDelete(actor, quote, at, replaces);
       const state = stateOf(quote);
-      const everSent = wasEverSent(state, isPlainObject(quote.data) ? quote.data.timeline : undefined);
-      const permission = quoteDeletePermission(actor, { ...state, everSent });
-      if (!permission.allowed) {
-        // While a shipment is linked nobody may, so it is the request that cannot be met as
-        // things stand; otherwise it is this user who may not.
-        throw permission.blockedBy === "shipment" ? APIError.failedPrecondition(permission.reason) : APIError.permissionDenied(permission.reason);
-      }
-      // A revision is the offer the quote it replaced handed on to: deleted, it would leave that
-      // quote Replaced for good (Replaced has no way out), its offer never to be Won or Lost.
-      const replaced = await salesQuoteRepository.liveReplacedBy(tx, quote.companyId, quote.quoteNumber);
-      if (replaced) {
-        throw APIError.failedPrecondition(
-          `${quote.quoteNumber} is the revision that replaced ${replaced}: deleted, it would leave ${replaced} Replaced for good - mark it Lost instead, or keep working on it`,
-        );
-      }
       await salesQuoteRepository.writeLifecycle(tx, quote, { state, entries: [deletionEntry(ctx)], deleted: { by: actor.userID, at } });
       await quoteAttachmentRepository.deleteForQuote(tx, quote.quoteNumber, quote.companyId, at);
       // A question waiting on it could never be answered: it is withdrawn with it.
