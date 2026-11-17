@@ -9,6 +9,7 @@ import * as shipmentCommentReadSchema from "../schemas/shipmentCommentRead.schem
 import * as shipmentClaimSchema from "../schemas/shipmentClaim.schema";
 import * as shipmentNoteSchema from "../schemas/shipmentNote.schema";
 import * as shipmentEventOutboxSchema from "../schemas/shipmentEventOutbox.schema";
+import * as shipmentPushOutboxSchema from "../schemas/shipmentPushOutbox.schema";
 import * as shipmentTaskSchema from "../schemas/shipmentTask.schema";
 import * as shipmentAttachmentSchema from "../schemas/shipmentAttachment.schema";
 import * as userPreferenceSchema from "../schemas/userPreference.schema";
@@ -38,6 +39,7 @@ export const db = drizzle(pool, {
     ...shipmentClaimSchema,
     ...shipmentNoteSchema,
     ...shipmentEventOutboxSchema,
+    ...shipmentPushOutboxSchema,
     ...shipmentTaskSchema,
     ...shipmentAttachmentSchema,
     ...userPreferenceSchema,

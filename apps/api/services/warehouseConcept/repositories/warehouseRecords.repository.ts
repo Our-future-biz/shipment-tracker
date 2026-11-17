@@ -186,14 +186,19 @@ class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockS
       .orderBy(asc(ds.startsAt), asc(ds.createdAt));
   }
 
-  // The booked slots of positions taken out of the warehouse are cancelled, so they stop
-  // holding the dock door (slots in progress or done stay as the record of what happened).
+  // The slots of positions taken out of the warehouse (deleted, archived, removed) stop holding the
+  // dock door: a booked one is cancelled, and one in progress is completed - the work at the door
+  // ends with the record, and the slot stays as the record of what happened (done ones stay as they are).
   async cancelForMovements(tx: Tx, movementIds: string[], companyId: string, note: string): Promise<number> {
     if (!movementIds.length) return 0;
     const rows = await tx
       .update(ds)
-      .set({ status: "Cancelled", note: sql`trim(both ' ·' from ${ds.note} || ' · ' || ${note})`, updatedAt: new Date() })
-      .where(and(eq(ds.companyId, companyId), inArray(ds.movementId, movementIds), isNull(ds.deletedAt), inArray(ds.status, ["Booked", "Overdue"])))
+      .set({
+        status: sql`CASE WHEN ${ds.status} = 'In progress' THEN 'Completed' ELSE 'Cancelled' END`,
+        note: sql`trim(both ' ·' from ${ds.note} || ' · ' || ${note})`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(ds.companyId, companyId), inArray(ds.movementId, movementIds), isNull(ds.deletedAt), inArray(ds.status, ["Booked", "Overdue", "In progress"])))
       .returning({ id: ds.id });
     return rows.length;
   }

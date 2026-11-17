@@ -43,9 +43,18 @@ export interface PrepareResult {
   fileName: string;
 }
 
+/** A shipment or master job of the company that a reading's B/L is on already. */
+export interface ReadingMadeAlready {
+  id: string;
+  /** The shipment's job number, or the master job's MCZ number. */
+  number: string;
+}
+
 export interface ExtractMblResult {
   mblInfo: Record<string, string> | null;
   message?: string;
+  /** The company's live master job that has this Master B/L already: the pre-alert's houses go to it. */
+  existingMasterJob?: ReadingMadeAlready | null;
 }
 
 /** The pages of one House B/L, cut out of the pre-alert as its own file. */
@@ -64,6 +73,12 @@ export interface ExtractHblResult {
   shipments: Record<string, string>[];
   /** The House B/L's own pages for each shipment, in the same order; null when they couldn't be cut out. */
   documents: (HblDocument | null)[];
+  /**
+   * For each shipment, in the same order: the company's live shipment that has its House B/L
+   * already (it is not created again), or null. Looked up on every answer, so a house created
+   * since the batch was read shows too.
+   */
+  existing?: (ReadingMadeAlready | null)[];
   batchIndex: number;
   totalBatches: number;
   totalExtracted: number;

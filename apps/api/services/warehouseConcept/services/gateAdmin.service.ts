@@ -263,7 +263,7 @@ class GateAdminService {
       if (archived) {
         await syncStockForMovement(tx, companyId, id, { by, why: `position archived: ${why}` });
         if (m) published = await takeBackPublished(tx, archived, { positionRef: m.positionRef, shipmentId: m.shipmentId }, companyId, userId, role);
-        // Its booked dock slots stop holding the door, its open exceptions are closed (as when a position is removed).
+        // Its dock slots stop holding the door (booked ones cancelled, one in progress completed), its open exceptions are closed (as when a position is removed).
         await dockSlotRepository.cancelForMovements(tx, [id], companyId, `gate record archived: ${why}`);
         await gateExceptionRepository.closeForMovements(tx, [id], companyId, by, `Closed: the gate record was archived — ${why}`);
       }
@@ -354,7 +354,7 @@ class GateAdminService {
       for (const r of rows) {
         if (await takeBackPublished(tx, r, { positionRef: task.taskId, shipmentId: task.shipmentId ?? null }, companyId, userId, role)) published.push(r.id);
       }
-      // Its booked dock slots stop holding the door; its open exceptions are closed.
+      // Its dock slots stop holding the door (booked ones cancelled, one in progress completed); its open exceptions are closed.
       const ids = rows.map((r) => r.id);
       await dockSlotRepository.cancelForMovements(tx, ids, companyId, `position ${task.taskId} removed`);
       await gateExceptionRepository.closeForMovements(tx, ids, companyId, by, `Closed: position ${task.taskId} removed — ${archiveReason}`);

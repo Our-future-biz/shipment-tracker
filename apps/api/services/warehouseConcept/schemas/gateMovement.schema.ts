@@ -141,8 +141,10 @@ export const gateMovementTable = pgTable(
     dangerousGoods: boolean("dangerous_goods"),
     customerContactPhone: text("customer_contact_phone").notNull().default(""),
     unNumber: text("un_number").notNull().default(""),
-    // Copied once from the shipment job when the position was recorded; never synced back.
-    // (Only the gate stamps write to the shipment: its warehouse dates, reference and plate.)
+    // Copied from the shipment job when the position was recorded (and by "Refresh from shipment");
+    // never synced back - only the gate stamps write to the shipment: its warehouse dates, reference
+    // and plate. A person's change of the shipment's ETA (eta) and plate reaches the record too
+    // (services/shipmentChanges, lib/shipmentPush).
     jobNumber: text("job_number").notNull().default(""),
     pol: text("pol").notNull().default(""),
     pod: text("pod").notNull().default(""),

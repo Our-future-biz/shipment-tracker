@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { masterJobTable, type MasterJobRecord } from "../schemas/masterJob.schema";
@@ -8,6 +8,10 @@ import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
 import { masterJobContainerTable } from "../schemas/masterJobContainer.schema";
 import { containerTable } from "../schemas/container.schema";
 import { containsAllWords } from "../../../lib/db/textSearch";
+import { BILL_OF_LADING_KEY_PATTERN, billOfLadingKey } from "../../../lib/billOfLading";
+
+// The Master B/L as two are compared (lib/billOfLading): letters and digits only, upper case.
+const MASTER_BOL_KEY = sql<string>`regexp_replace(upper(${masterJobTable.masterBolNumber}), ${BILL_OF_LADING_KEY_PATTERN}, '', 'g')`;
 
 /**
  * What the main search looks in for a master job: its MCZ number, master B/L and booking, the
@@ -61,6 +65,41 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
       const [created] = await tx.insert(masterJobTable).values({ companyId, mczNumber, createdBy }).returning();
       return created!;
     });
+  }
+
+  /**
+   * The master job a document reading files its houses under, for its Master B/L: the company's
+   * live master job with that Master B/L (compared by billOfLadingKey; the oldest) when there is
+   * one, else a new one under the next MCZ number, holding the Master B/L. Check and insert are one
+   * transaction under an advisory lock on the B/L, so two readings of one pre-alert at the same
+   * moment make one master job.
+   */
+  async findOrCreateForMasterBol(companyId: string, masterBol: string, createdBy = ""): Promise<{ row: MasterJobRecord; reused: boolean }> {
+    const key = billOfLadingKey(masterBol);
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`master-job-mbl:${companyId}:${key}`}))`);
+      const [found] = await tx
+        .select()
+        .from(masterJobTable)
+        .where(and(eq(masterJobTable.companyId, companyId), isNull(masterJobTable.deletedAt), sql`${MASTER_BOL_KEY} = ${key}`))
+        .orderBy(asc(masterJobTable.createdAt), asc(masterJobTable.id));
+      if (found) return { row: found, reused: true };
+      const mczNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "MCZ");
+      const [created] = await tx.insert(masterJobTable).values({ companyId, mczNumber, createdBy, masterBolNumber: masterBol.trim() }).returning();
+      return { row: created!, reused: false };
+    });
+  }
+
+  /** The company's live master job with this Master B/L (by billOfLadingKey; the oldest), or null. */
+  async liveByMasterBol(companyId: string, masterBol: string): Promise<{ id: string; mczNumber: string } | null> {
+    const key = billOfLadingKey(masterBol);
+    if (!key) return null;
+    const [row] = await this.db
+      .select({ id: masterJobTable.id, mczNumber: masterJobTable.mczNumber })
+      .from(masterJobTable)
+      .where(and(eq(masterJobTable.companyId, companyId), isNull(masterJobTable.deletedAt), sql`${MASTER_BOL_KEY} = ${key}`))
+      .orderBy(asc(masterJobTable.createdAt), asc(masterJobTable.id));
+    return row ?? null;
   }
 
   /**

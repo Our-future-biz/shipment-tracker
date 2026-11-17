@@ -208,6 +208,13 @@ interface ShipmentCreateRequest {
   fromQuoteNumber?: string & MaxLen<50>;
   /** With fromQuoteNumber: create the shipment although the quote already has one. */
   allowSecondShipment?: boolean;
+  /**
+   * The House B/L a document reading (a pre-alert's house) creates the shipment for, stored as its
+   * House BoL Number. A House B/L is one shipment: when a live shipment of the company has it
+   * already (letters and digits compared, any case) nothing is created and the request is refused
+   * with HTTP 409 and details { shipmentId, jobNumber } of that shipment - also for two at once.
+   */
+  fromHouseBol?: string & MaxLen<100>;
 
   // No claim: it is derived from the shipment's claims (shipmentClaim.repository), never set here.
   // No createdBy: the server stamps who created the shipment from the signed-in user.

@@ -67,7 +67,7 @@ import { isPriced, promise, roundToStep, showPostcode } from "../lib/rateEngine"
 import { formatDay } from "../lib/format";
 import { LINK_DAYS_AFTER_PICKUP, linkExpiry } from "../lib/haulierToken";
 import { quoteRefusal, quoteSellLines } from "../lib/quoteRules";
-import { isUniqueViolation } from "../../../lib/db/errors";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { isManager, requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { eurRate, rateService } from "./rate.service";
@@ -84,6 +84,13 @@ import { internalBillingService } from "./internalBilling.service";
 export const CONSIGNMENT_CONFLICT = "The consignment was changed by someone else. Reload and try again.";
 const HOLIDAY_WINDOW_DAYS = 45;
 const bad = (message: string) => APIError.invalidArgument(message);
+// One live consignment per quote, however it is priced (decision 10): from the quote, or at an
+// agreed or tariff price that names it.
+const quoteTaken = (quoteNumber: string, ref: string) => APIError.alreadyExists(`Quote ${quoteNumber} is already on consignment ${ref}: one consignment per quote`);
+// Two bookings naming one quote at the same moment: the unique index keeps one.
+const isQuoteTaken = (err: unknown) => isUniqueViolation(err) && constraintOf(err) === "trucking_consignment_quote_unique";
+const quoteTakenMeanwhile = (quoteNumber: string | null) =>
+  APIError.alreadyExists(`Quote ${quoteNumber ?? ""} is already on another consignment: one consignment per quote`);
 
 export interface ConsignmentCreateInput extends ConsignmentFields {
   /** null = a Road / Domestic job is created */
@@ -139,12 +146,18 @@ type BillingActor = Pick<Actor, "userID" | "role" | "companyID">;
 const DEPARTMENT_PAGE = 200;
 const BASICS_MAX = 500;
 
-/** The departments of jobs as Shipments has them now, by id (a job it no longer has is left out). */
-async function jobDepartments(shipmentIds: string[]): Promise<Map<string, string>> {
+/**
+ * The departments of jobs as Shipments has them now, by id (a job it no longer has is left out).
+ * Asked as `actor`: a haulier's POD (the link, the portal) comes with no signed-in user whose auth
+ * Encore could pass along, and without it Shipments refuses the call - the POD then froze the
+ * department the consignment had before.
+ */
+async function jobDepartments(actor: BillingActor, shipmentIds: string[]): Promise<Map<string, string>> {
   const ids = [...new Set(shipmentIds)];
   const out = new Map<string, string>();
+  const as = { authData: { userID: actor.userID, companyID: actor.companyID, role: actor.role } };
   for (let i = 0; i < ids.length; i += BASICS_MAX) {
-    const { shipments: found } = await shipments._internalShipmentBasics({ ids: ids.slice(i, i + BASICS_MAX) });
+    const { shipments: found } = await shipments._internalShipmentBasics({ ids: ids.slice(i, i + BASICS_MAX) }, as);
     for (const j of found) out.set(j.id, j.department ?? "");
   }
   return out;
@@ -451,8 +464,7 @@ class ConsignmentService {
     }
     const refusal = quoteRefusal(quote, { customerId, fromPostcode: f.pickup.postcode, toPostcode: f.delivery.postcode, scope: scopeOf(f), today: today() });
     if (refusal) throw APIError.failedPrecondition(refusal);
-    const used = await consignmentRepository.liveByQuote(companyId, quote.quoteNumber);
-    if (used && used.id !== exceptId) throw APIError.alreadyExists(`Quote ${quote.quoteNumber} already prices consignment ${used.ref}: one consignment per quote`);
+    await this.assertQuoteFree(companyId, quote.quoteNumber, exceptId);
     const sold = quoteSellLines(quote);
     if (!sold.ok) throw APIError.failedPrecondition(sold.reason);
     const rp = (quote.data as { roadPricing: QuoteRoadPricing }).roadPricing;
@@ -478,6 +490,13 @@ class ConsignmentService {
       chargeableKg: null,
       quoteNumber: quote.quoteNumber,
     };
+  }
+
+  /** Refuses a quote another live consignment names already, whatever either is priced by (409). */
+  private async assertQuoteFree(companyId: string, quoteNumber: string | null, exceptId?: string): Promise<void> {
+    if (!quoteNumber) return;
+    const used = await consignmentRepository.liveByQuote(companyId, quoteNumber);
+    if (used && used.id !== exceptId) throw quoteTaken(quoteNumber, used.ref);
   }
 
   // A quote's total in CZK: EUR at the rate the quote was priced with, else the ČNB rate of the pick-up day.
@@ -566,6 +585,8 @@ class ConsignmentService {
     const customerName = await this.customerName(input.customerId);
     const existingJob = input.shipmentId ? await this.job(input.shipmentId, input.customerId) : null;
     const priced = await this.price(companyId, input.customerId, f);
+    // A quote priced from was checked with its price; one named at another price is checked here.
+    if (priced.sell.source !== "QUOTE") await this.assertQuoteFree(companyId, f.quoteNumber);
     const { marginFloor, hub } = await settingsService.get(companyId);
     const belowFloor = marginOf(priced.sell.totalCzk, priced.estBuyCzk, marginFloor).belowFloor;
     const by = await userName(actor.userID);
@@ -646,8 +667,8 @@ class ConsignmentService {
       // The job made for this consignment above (another database) is taken back: no empty job is
       // left linked to the quote.
       if (!existingJob) await this.retireJob(actor, job.shipmentId, job.jobNumber);
-      // Two bookings from one quote at once: the unique index keeps one (decision 10).
-      if (priced.sell.source === "QUOTE" && isUniqueViolation(err)) throw APIError.alreadyExists(`Quote ${priced.quoteNumber ?? f.quoteNumber} already prices a consignment: one consignment per quote`);
+      // Two bookings naming one quote at once: the unique index keeps one (decision 10).
+      if (isQuoteTaken(err)) throw quoteTakenMeanwhile(priced.quoteNumber ?? f.quoteNumber);
       throw err;
     });
     await deliverDue(created.id);
@@ -703,6 +724,10 @@ class ConsignmentService {
       internal,
     };
     const changes = changedFields(c, values);
+    // A quote the consignment names from now on is held to one consignment per quote (one priced
+    // from the quote was checked with its price).
+    const namesNewQuote = !!values.quoteNumber && !(c.quoteNumber && sameSalesReference(values.quoteNumber, c.quoteNumber));
+    if (namesNewQuote && priced?.sell.source !== "QUOTE") await this.assertQuoteFree(companyId, values.quoteNumber ?? null, id);
     if (plan.kind === "frozen") await this.warnFrozenDepartment(c, plan.department, await userName(actor.userID));
     if (!Object.keys(changes).length && !priced) return this.get(actor, id);
     if (legPlan?.refusal && legPlan.changed) throw APIError.failedPrecondition(legPlan.refusal);
@@ -743,9 +768,22 @@ class ConsignmentService {
         },
       });
       await truckingOutboxRepository.enqueue(tx, companyId, owes);
+    }).catch((err: unknown) => {
+      if (isQuoteTaken(err)) throw quoteTakenMeanwhile(values.quoteNumber ?? null);
+      throw err;
     });
     await deliverDue(id);
     return this.get(actor, id);
+  }
+
+  /**
+   * The job's pick-up date moved in Shipments (a person's change, lib/shipmentPush): the consignment
+   * takes it as an edit of its own pick-up date would - every rule of `update` (the stored price
+   * kept, the promise counted again, the FTL trip's planned pick-up and the haulier's link moved,
+   * the job told the new promise). The caller decided the consignment still holds the old date.
+   */
+  async followJobPickupDate(actor: Actor, c: TruckingConsignmentRecord, pickupDate: string): Promise<void> {
+    await this.update(actor, c.id, { ...storedFields(c), pickupDate, version: c.version, reprice: false });
   }
 
   /**
@@ -791,7 +829,7 @@ class ConsignmentService {
     if (!live.length) return 0;
     let departments: Map<string, string>;
     try {
-      departments = await jobDepartments(live.map((c) => c.shipmentId));
+      departments = await jobDepartments(actor, live.map((c) => c.shipmentId));
     } catch (err) {
       log.warn("trucking: job departments not read", { error: err instanceof Error ? err.message : String(err) });
       return 0;

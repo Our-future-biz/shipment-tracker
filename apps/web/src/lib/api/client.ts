@@ -3466,11 +3466,11 @@ export namespace shipments {
         }
 
         /**
-         * Creates an empty master job under the next free MCZ number.
+         * Creates an empty master job under the next free MCZ number - or, for a Master B/L, finds its own.
          */
-        public async masterJobCreate(): Promise<controllers.MasterJobCreateResponse> {
+        public async masterJobCreate(params: controllers.MasterJobCreateRequest = {}): Promise<controllers.MasterJobCreateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/master-jobs`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/master-jobs`, JSON.stringify(params))
             return await resp.json() as controllers.MasterJobCreateResponse
         }
 
@@ -9328,8 +9328,21 @@ export namespace controllers {
         shipments: interfaces.MasterJobShipmentItem[]
     }
 
+    export interface MasterJobCreateRequest {
+        /**
+         * The Master B/L the master job is for (a pre-alert's reading): when a live master job of the
+         * company has it already (letters and digits compared, any case), that one is answered instead of
+         * a new one (reused: true); otherwise the new one holds it. Without it an empty master job is made.
+         */
+        masterBolNumber?: string
+    }
+
     export interface MasterJobCreateResponse {
         masterJob: interfaces.MasterJobItem
+        /**
+         * The master job had the Master B/L already: nothing was created.
+         */
+        reused: boolean
     }
 
     export interface MasterJobDocumentCreateRequest {
@@ -10857,6 +10870,14 @@ export namespace controllers {
          * With fromQuoteNumber: create the shipment although the quote already has one.
          */
         allowSecondShipment?: boolean
+
+        /**
+         * The House B/L a document reading (a pre-alert's house) creates the shipment for, stored as its
+         * House BoL Number. A House B/L is one shipment: when a live shipment of the company has it
+         * already (letters and digits compared, any case) nothing is created and the request is refused
+         * with HTTP 409 and details { shipmentId, jobNumber } of that shipment - also for two at once.
+         */
+        fromHouseBol?: string
     }
 
     export interface ShipmentCreateResponse {
@@ -15479,6 +15500,13 @@ export namespace interfaces {
          */
         documents: (HblDocument | null)[]
 
+        /**
+         * For each shipment, in the same order: the company's live shipment that has its House B/L
+         * already (it is not created again), or null. Looked up on every answer, so a house created
+         * since the batch was read shows too.
+         */
+        existing?: (ReadingMadeAlready | null)[]
+
         batchIndex: number
         totalBatches: number
         totalExtracted: number
@@ -15488,6 +15516,10 @@ export namespace interfaces {
     export interface ExtractMblResult {
         mblInfo: { [key: string]: string } | null
         message?: string
+        /**
+         * The company's live master job that has this Master B/L already: the pre-alert's houses go to it.
+         */
+        existingMasterJob?: ReadingMadeAlready | null
     }
 
     export interface ExtractionResult {
@@ -20456,6 +20488,17 @@ export namespace interfaces {
          * Currencies ČNB no longer publishes on the date (BGN after 2025-12-31): no rate, not missing
          */
         retired: RetiredCurrencyItem[]
+    }
+
+    /**
+     * A shipment or master job of the company that a reading's B/L is on already.
+     */
+    export interface ReadingMadeAlready {
+        id: string
+        /**
+         * The shipment's job number, or the master job's MCZ number.
+         */
+        number: string
     }
 
     /**

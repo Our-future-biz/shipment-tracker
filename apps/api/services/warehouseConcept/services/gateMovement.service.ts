@@ -1035,7 +1035,7 @@ class GateMovementService {
         if (!archived) throw notDeleted;
         // Outbound cargo received by its typed date only has no stamp: its stock line closes here.
         await syncStockForMovement(tx, companyId, id, { by, why: "position deleted" });
-        // Its booked dock slots stop holding the door, its open exceptions are closed (as when a position is removed).
+        // Its dock slots stop holding the door (booked ones cancelled, one in progress completed), its open exceptions are closed (as when a position is removed).
         await dockSlotRepository.cancelForMovements(tx, [id], companyId, "gate record deleted");
         await gateExceptionRepository.closeForMovements(tx, [id], companyId, by, "Closed: the gate record was deleted");
         return archived;

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, integer, numeric, date, boolean, jsonb, uuid, timestamp, index, uniqueIndex, check, primaryKey, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT } from "../../../lib/salesReference";
 import type {
   ConsignmentScope,
   ConsignmentStatus,
@@ -132,10 +133,12 @@ export const truckingConsignmentTable = pgTable(
     index("trucking_consignment_customer_idx").on(table.companyId, table.customerId),
     // The trip table is declared below; the callback runs after the module has loaded.
     foreignKey({ name: "trucking_consignment_trip_fk", columns: [table.tripId], foreignColumns: [truckingTripTable.id] }).onDelete("restrict"),
-    // One live consignment per quote it is priced from (decision 10); a cancelled one frees the quote.
+    // One live consignment per quote (decision 10), however it is priced - from the quote or at an
+    // agreed price naming it; a cancelled one frees the quote. The number is compared without the
+    // letters of the quote's Freight Mode, as everywhere a quote is looked up (lib/salesReference).
     uniqueIndex("trucking_consignment_quote_unique")
-      .on(table.companyId, table.quoteNumber)
-      .where(sql`quote_number IS NOT NULL AND cancelled_at IS NULL AND deleted_at IS NULL AND sell->>'source' = 'QUOTE'`),
+      .on(table.companyId, sql`regexp_replace(${table.quoteNumber}, ${sql.raw(`'${LETTERED_SALES_REFERENCE}'`)}, ${sql.raw(`'${PLAIN_SALES_REFERENCE_REPLACEMENT}'`)})`)
+      .where(sql`quote_number IS NOT NULL AND cancelled_at IS NULL AND deleted_at IS NULL`),
     check("trucking_consignment_scope_check", sql`${table.scope} IN ('FTL', 'LTL')`),
     check("trucking_consignment_last_mile_check", sql`${table.lastMile} IS NULL OR ${table.lastMile} IN ('OWN_RUN', 'PARTNER')`),
     check(

@@ -26,6 +26,7 @@ import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 import { addDays, businessToday } from "@/lib/date";
 import { dayParamOf } from "@/app/warehouse-concept/_lib/urlDay";
+import { dockDayRefusal, dockHolidayName } from "@/app/warehouse-concept/_lib/dockDays";
 import type { Tone } from "@/components/Badge";
 import { BTN, BTN_PRIMARY, HINT, LINK, REF } from "@/styles/ui";
 
@@ -154,6 +155,8 @@ function DockSchedule() {
   };
   const [editing, setEditing] = useState<{ slot?: DockSlot; preset?: Partial<interfaces.WarehouseDockSlotInput> } | null>(null);
   const daySlots = useMemo(() => items.filter((s) => s.date === date).sort((a, b) => a.time.localeCompare(b.time)), [items, date]);
+  // A Czech public holiday: the docks do not work, so the day offers no booking (the server refuses one).
+  const holiday = dockHolidayName(date);
   // The docks and hours from Warehouse settings, and any other door name used on this day.
   const { settings } = useWarehouseSettings();
   const setDocks = settings?.docks.docks.length ? settings.docks.docks : DEFAULT_DOCKS;
@@ -221,7 +224,8 @@ function DockSchedule() {
       full: true,
       placeholder: legacy ? "Booked before slots were linked — pick its position" : "WCZ… · customer · direction",
     },
-    { name: "date", label: "Date", type: "date", required: true },
+    // A slot already on a holiday keeps its day (it can still be closed); none is booked or moved onto one.
+    { name: "date", label: "Date", type: "date", required: true, validate: (v) => (v === editing?.slot?.date ? null : dockDayRefusal(v)) },
     { name: "time", label: "Time", type: "time", required: true },
     { name: "durationMin", label: "Duration", type: "select", options: durationOptions, required: true },
     { name: "dock", label: "Dock", type: "select", options: docks, required: true },
@@ -275,12 +279,19 @@ function DockSchedule() {
               Today
             </Button>
             <Button size="small" icon={<RightOutlined />} onClick={() => setDate(shiftDate(date, 1))} aria-label="Next day" />
-            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ preset: { date, direction: "IN", status: "Booked", durationMin: 60 } })}>
+            <Button
+              size="small"
+              type="primary"
+              icon={<PlusOutlined />}
+              disabled={!!holiday}
+              onClick={() => setEditing({ preset: { date, direction: "IN", status: "Booked", durationMin: 60 } })}
+            >
               Book slot
             </Button>
           </>
         }
       >
+        {holiday && <p className={`mt-0 mb-2 ${HINT}`}>{holiday} — a Czech public holiday: the docks do not work, so no slot can be booked.</p>}
         <div className="overflow-x-auto">
           <div className="min-w-[860px]">
             <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: gridCols }}>
@@ -302,16 +313,25 @@ function DockSchedule() {
                   <div className="text-xs font-semibold text-slate-700 self-center" style={{ gridRow: `1 / span ${lanes}` }}>
                     {dock}
                   </div>
-                  {HOURS.map((h, i) => (
-                    <button
-                      key={h}
-                      type="button"
-                      aria-label={`Book ${dock} at ${h}:00`}
-                      onClick={() => setEditing({ preset: { date, time: `${h}:00`, dock, direction: "IN", status: "Booked", durationMin: 60 } })}
-                      style={{ gridColumn: i + 2, gridRow: `1 / span ${lanes}` }}
-                      className="rounded-md border border-dashed border-slate-200 bg-slate-50/60 hover:border-indigo-300 hover:bg-indigo-50/40 cursor-pointer"
-                    />
-                  ))}
+                  {HOURS.map((h, i) =>
+                    holiday ? (
+                      <div
+                        key={h}
+                        aria-hidden
+                        style={{ gridColumn: i + 2, gridRow: `1 / span ${lanes}` }}
+                        className="rounded-md border border-slate-200 bg-slate-100"
+                      />
+                    ) : (
+                      <button
+                        key={h}
+                        type="button"
+                        aria-label={`Book ${dock} at ${h}:00`}
+                        onClick={() => setEditing({ preset: { date, time: `${h}:00`, dock, direction: "IN", status: "Booked", durationMin: 60 } })}
+                        style={{ gridColumn: i + 2, gridRow: `1 / span ${lanes}` }}
+                        className="rounded-md border border-dashed border-slate-200 bg-slate-50/60 hover:border-indigo-300 hover:bg-indigo-50/40 cursor-pointer"
+                      />
+                    ),
+                  )}
                   {placed.map(({ slot: s, col, span, lane }) => (
                     <Tooltip key={s.id} title={`${s.time}–${s.end || "?"} · ${s.positionRef || s.reference || "—"} · ${s.party || "—"} · ${s.status}`}>
                       <button

@@ -19,6 +19,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
   shipmentRepository: {
     createWithJobNumber: vi.fn(),
     createFromQuote: vi.fn(),
+    createForHouseBol: vi.fn(),
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
     softDeleteForCompany: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock("../../repositories/commercialInvoice.repository", () => ({
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 vi.mock("../../services/shipmentEvents.service", () => ({ deliverShipmentEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
+vi.mock("../../repositories/shipmentPushOutbox.repository", () => ({ shipmentPushOutboxRepository: { enqueue: vi.fn(), claimDue: vi.fn(), markSent: vi.fn(), markRetry: vi.fn(), markFailed: vi.fn() } }));
 
 import log from "encore.dev/log";
 import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
@@ -86,6 +88,7 @@ import { shipmentService } from "../../services/shipment.service";
 import { shipmentPartiesChanged } from "../../topics";
 import { RELEASED_BEFORE_RECEIVED } from "../../lib/shipmentEditRule";
 import { addDays, businessDay } from "../../../../lib/businessDate";
+import { shipmentPushOutboxRepository } from "../../repositories/shipmentPushOutbox.repository";
 
 const repository = vi.mocked(shipmentRepository);
 const links = vi.mocked(quoteLinksService);
@@ -208,6 +211,98 @@ describe("create", () => {
       message: expect.stringMatching(/no charges to invoice/),
     });
     expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+  });
+});
+
+// X6: a pre-alert read twice made a House B/L twice. The create a reading makes names the House
+// B/L, and the repository finds the shipment that has it under one lock on the B/L.
+// F6: a person's change of a shipment reaches Trucking's jobs and the gate records, through an
+// outbox row written in the shipment's write turn; the app's own writes (theirs) owe nothing back.
+describe("changes passed on to Trucking and the gate", () => {
+  const pushes = vi.mocked(shipmentPushOutboxRepository);
+  beforeEach(() => {
+    stored.set(SHIPMENT, row({ pickupDate: "2026-11-18", plateNumber: "3AB 1234", estimatedArrival: "2026-11-24", personInCharge: "", holidayCover: "", jobNumber: "CZROAD00000101", freightMode: "Road Freight", loadType: "Full Load" }));
+    pushes.claimDue.mockResolvedValue([]);
+  });
+
+  it("owes each side the fields it keeps that a person's edit changed, in the write's turn, and sends them after it", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { pickupDate: "2026-11-19", plateNumber: "4CD 5678", etaWarehouse: "2026-11-21" } as never, USER, "manager");
+    expect(pushes.enqueue).toHaveBeenCalledTimes(1);
+    const [tx, rows] = pushes.enqueue.mock.calls[0]!;
+    expect(tx).toBe(TX);
+    const owed = { companyId: COMPANY, shipmentId: SHIPMENT, actingUserId: USER, actingRole: "manager" };
+    expect(rows).toEqual([
+      { ...owed, target: "trucking", changes: { pickupDate: { from: "2026-11-18", to: "2026-11-19" }, plateNumber: { from: "3AB 1234", to: "4CD 5678" } } },
+      { ...owed, target: "warehouse", changes: { plateNumber: { from: "3AB 1234", to: "4CD 5678" } } },
+    ]);
+    expect(pushes.claimDue).toHaveBeenCalledWith(expect.any(Number), SHIPMENT);
+  });
+
+  it("owes them for the master job's values a person saved onto its houses", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { plateNumber: "4CD 5678" } as never, USER, undefined, "master_job");
+    expect(pushes.enqueue.mock.calls[0]![1]).toEqual([
+      expect.objectContaining({ target: "trucking", actingRole: "user", changes: { plateNumber: { from: "3AB 1234", to: "4CD 5678" } } }),
+      expect.objectContaining({ target: "warehouse" }),
+    ]);
+  });
+
+  it("owes nothing for the app's own write (Trucking's or the gate's update of the shipment), so a change never loops", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { pickupDate: "2026-11-19", plateNumber: "4CD 5678" } as never, USER);
+    expect(pushes.enqueue).not.toHaveBeenCalled();
+    expect(pushes.claimDue).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when the edit changes none of the fields the others keep", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { etaWarehouse: "2026-11-21", pickupDate: "2026-11-18" } as never, USER, "manager");
+    expect(pushes.enqueue).not.toHaveBeenCalled();
+    expect(pushes.claimDue).not.toHaveBeenCalled();
+  });
+});
+
+describe("create for a House B/L of a reading", () => {
+  const forHouse = (houseBol: string, over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { fromHouseBol: houseBol, ...over } as never);
+  const key = (v: unknown) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  beforeEach(() => {
+    repository.createForHouseBol.mockImplementation(async (_companyId, houseBol, data) => {
+      const existing = [...stored.values()].find((r) => key(r.houseBolNumber) === key(houseBol));
+      if (existing) return { existing: { id: existing.id, jobNumber: existing.jobNumber } };
+      const created = row({ ...(data as Record<string, unknown>) });
+      stored.set(created.id, created);
+      return { created };
+    });
+  });
+
+  it("stores the House B/L as the shipment's House BoL Number, created under the B/L's lock", async () => {
+    const result = await forHouse("  HBLTEST-A1 ", { pol: "Shanghai" });
+    const [companyId, houseBol, data] = repository.createForHouseBol.mock.calls[0]!;
+    expect([companyId, houseBol]).toEqual([COMPANY, "HBLTEST-A1"]);
+    expect(data).toMatchObject({ houseBolNumber: "HBLTEST-A1", pol: "Shanghai" });
+    expect(data).not.toHaveProperty("fromHouseBol");
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+    expect(result.shipment).toMatchObject({ id: SHIPMENT, houseBolNumber: "HBLTEST-A1" });
+  });
+
+  it("refuses a second shipment of the same House B/L, however it is written, naming the shipment that has it", async () => {
+    stored.set(SHIPMENT, row({ jobNumber: "CZLCL00000134", houseBolNumber: "HBLTEST-A1" }));
+    await expect(forHouse("hbltest a1")).rejects.toMatchObject({
+      code: "already_exists",
+      message: "House B/L hbltest a1 is already on shipment CZLCL00000134, so it is not created again",
+      details: { shipmentId: SHIPMENT, jobNumber: "CZLCL00000134" },
+    });
+    expect(stored.size).toBe(1);
+  });
+
+  it("refuses a House B/L without letters or digits, and one together with a quote", async () => {
+    await expect(forHouse(" / - ")).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(forHouse("HBLTEST-A1", { fromQuoteNumber: REF })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.createForHouseBol).not.toHaveBeenCalled();
+    expect(repository.createFromQuote).not.toHaveBeenCalled();
+  });
+
+  it("creates as before when the reading names no House B/L", async () => {
+    await forHouse("   ");
+    expect(repository.createForHouseBol).not.toHaveBeenCalled();
+    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(1);
   });
 });
 

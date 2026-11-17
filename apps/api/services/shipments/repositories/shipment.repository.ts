@@ -20,6 +20,7 @@ import { JOB_NUMBER_PATTERN, referenceSearchDigits } from "../../../lib/jobNumbe
 import type { PeopleRewrite, ShipmentPeople } from "../lib/people";
 import { plainSalesReference } from "../../../lib/salesReference";
 import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
+import { BILL_OF_LADING_KEY_PATTERN, billOfLadingKey } from "../../../lib/billOfLading";
 
 /** A new shipment's own fields; the repository sets the company and the job number. */
 export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">;
@@ -350,6 +351,9 @@ const SALES_NUMBER = sql<string>`btrim(${shipmentTable.salesNumber})`;
 // names that quote, also before the quote-renamed event has moved the copy.
 const PLAIN_SALES_NUMBER = plainSalesReferenceSql(SALES_NUMBER);
 
+// The House B/L as two are compared (lib/billOfLading): letters and digits only, upper case.
+const HOUSE_BOL_KEY = sql<string>`regexp_replace(upper(${shipmentTable.houseBolNumber}), ${BILL_OF_LADING_KEY_PATTERN}, '', 'g')`;
+
 // The columns of a ShipmentReference.
 const REFERENCE_FIELDS = {
   id: shipmentTable.id,
@@ -603,6 +607,46 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       if (alongside) await alongside(tx, created!);
       return created!;
     });
+  }
+
+  /**
+   * Inserts the shipment a document reading makes for one House B/L - unless a live shipment of the
+   * company already has that House B/L (compared by billOfLadingKey): then nothing is inserted and
+   * that shipment (the oldest) is returned. Check and insert are one transaction under an advisory
+   * lock on the B/L, so of two creates at the same moment (a reading sent twice) the second finds
+   * the shipment of the first. `alongside` as in createWithJobNumber.
+   */
+  async createForHouseBol(
+    companyId: string,
+    houseBol: string,
+    data: NewShipmentData,
+    alongside?: (tx: Tx, created: ShipmentRecord) => Promise<void>,
+  ): Promise<{ created: ShipmentRecord } | { existing: NamingShipment }> {
+    const key = billOfLadingKey(houseBol);
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`shipment-house-bol:${companyId}:${key}`}))`);
+      const [existing] = await tx
+        .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber })
+        .from(shipmentTable)
+        .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${HOUSE_BOL_KEY} = ${key}`))
+        .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
+      if (existing) return { existing };
+      const jobNumber = await nextJobNumber(tx, companyId, data);
+      const [created] = await tx.insert(shipmentTable).values({ ...data, jobNumber, companyId }).returning();
+      if (alongside) await alongside(tx, created!);
+      return { created: created! };
+    });
+  }
+
+  /** The company's live shipments whose House B/L is one of `houseBols` (by billOfLadingKey), with that key, the oldest first. */
+  async liveByHouseBols(companyId: string, houseBols: string[]): Promise<(NamingShipment & { key: string })[]> {
+    const keys = [...new Set(houseBols.map(billOfLadingKey).filter(Boolean))];
+    if (!keys.length) return [];
+    return this.db
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, key: HOUSE_BOL_KEY })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), inArray(HOUSE_BOL_KEY, keys)))
+      .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
   }
 
   /** A live shipment as it is inside its write turn: what every write before the turn was taken left. Null when there is none. */

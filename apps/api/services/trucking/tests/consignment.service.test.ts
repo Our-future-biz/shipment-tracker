@@ -33,6 +33,9 @@ vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") 
 
 import { customers, quotes, shipments } from "~encore/clients";
 import { consignmentService, type ConsignmentCreateInput } from "../services/consignment.service";
+import { shipmentChangesService } from "../services/shipmentChanges.service";
+import { tripService } from "../services/trip.service";
+import { APIError } from "../../../lib/tests/encoreApi.stub";
 import { eurRate, rateService } from "../services/rate.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { recordSellingDifferences } from "../services/sellingDifference.service";
@@ -266,7 +269,7 @@ describe("create and price sources", () => {
     it("a won quote prices it; a second consignment from the same quote is refused, a cancelled one frees it", async () => {
       vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ status: "won", effectiveStatus: "won" }) as never);
       const first = await consignmentService.create(user, input(asQuote));
-      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ code: "already_exists", message: `Quote QCZ20261010001 already prices consignment ${first.ref}: one consignment per quote` });
+      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ code: "already_exists", message: `Quote QCZ20261010001 is already on consignment ${first.ref}: one consignment per quote` });
       // Repricing the same consignment from its own quote is not a second use.
       const again = await consignmentService.update(user, first.id, { ...input(asQuote), version: store.consignments[0]!.version, reprice: true });
       expect(again.sell).toMatchObject({ source: "QUOTE", total: 15000 });
@@ -283,14 +286,40 @@ describe("create and price sources", () => {
       expect(shipments._internalShipmentCreateRoad).toHaveBeenCalledWith(expect.objectContaining({ quoteNumber: "QCZROAD20261010001" }));
       await expect(consignmentService.create(user, input({ ...asQuote, quoteNumber: "QCZROAD20261010001" }))).rejects.toMatchObject({
         code: "already_exists",
-        message: `Quote QCZROAD20261010001 already prices consignment ${first.ref}: one consignment per quote`,
+        message: `Quote QCZROAD20261010001 is already on consignment ${first.ref}: one consignment per quote`,
       });
+    });
+
+    // T4: the rule holds whatever the consignment is priced by - an agreed price naming the quote
+    // takes it as one priced from it does, in any letter form of its number.
+    it("refuses an agreed-price consignment naming a quote another consignment is priced from, and the other way round", async () => {
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ quoteNumber: "QCZROAD20261010001", status: "won", effectiveStatus: "won" }) as never);
+      const manual = { price: { source: "MANUAL" as const, total: 400, currency: "EUR" as const, reason: "Agreed by phone" } };
+      const fromQuote = await consignmentService.create(user, input(asQuote));
+      await expect(consignmentService.create(user, input({ ...manual, quoteNumber: "QCZ20261010001" }))).rejects.toMatchObject({
+        code: "already_exists",
+        message: `Quote QCZ20261010001 is already on consignment ${fromQuote.ref}: one consignment per quote`,
+      });
+      await expect(consignmentService.create(user, input({ ...manual, quoteNumber: "QCZROAD20261010001" }))).rejects.toMatchObject({ code: "already_exists" });
+      await consignmentService.cancel(manager, fromQuote.id, "Booked twice");
+
+      const agreed = await consignmentService.create(user, input({ ...manual, quoteNumber: "QCZ20261010001" }));
+      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({
+        code: "already_exists",
+        message: `Quote QCZROAD20261010001 is already on consignment ${agreed.ref}: one consignment per quote`,
+      });
+      // Nor can another consignment take the quote by an edit; the consignment's own number stays its own.
+      const other = await consignmentService.create(user, input(manual));
+      const row = () => store.consignments.find((x) => x.id === other.id)!;
+      await expect(consignmentService.update(user, other.id, { ...input({ ...manual, quoteNumber: "QCZROAD20261010001" }), version: row().version, reprice: false })).rejects.toMatchObject({ code: "already_exists" });
+      const own = store.consignments.find((x) => x.id === agreed.id)!;
+      await expect(consignmentService.update(user, agreed.id, { ...input({ ...manual, quoteNumber: "QCZ20261010001", pickupDate: "2026-10-19" }), version: own.version, reprice: false })).resolves.toMatchObject({ pickupDate: "2026-10-19" });
     });
 
     it("takes back the job it made when the consignment can't be saved (two bookings of one quote at once)", async () => {
       vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ status: "won", effectiveStatus: "won" }) as never);
       vi.mocked(consignmentRepository.insert).mockRejectedValueOnce(Object.assign(new Error("duplicate key"), { cause: { code: "23505", constraint: "trucking_consignment_quote_unique" } }));
-      await expect(consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }))).rejects.toMatchObject({ code: "already_exists" });
+      await expect(consignmentService.create(user, input({ ...asQuote, shipmentId: undefined }))).rejects.toMatchObject({ code: "already_exists", message: "Quote QCZ20261010001 is already on another consignment: one consignment per quote" });
       expect(shipments._internalShipmentRoadRetire).toHaveBeenCalledWith({ shipmentId: SHIPMENT }, { authData: { userID: user.userID, companyID: user.companyID, role: user.role } });
       expect(store.consignments).toEqual([]);
     });
@@ -586,6 +615,60 @@ describe("update", () => {
     expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-20");
     expect(store.links[0]!.expiresAt.toISOString()).toBe("2026-11-29T22:59:59.000Z");
     expect(eventsOf("consignment_updated").at(-1)!.payload).not.toHaveProperty("facts");
+  });
+});
+
+// F6: a person moved the job's pick-up date or changed its plate in Shipments: its consignment takes
+// it through Trucking's own edit, unless it holds its own value or may not change any more.
+describe("a job's change in Shipments", () => {
+  const moved = { pickupDate: { from: "2026-10-16", to: "2026-10-30" } };
+
+  it("moves the consignment's pick-up date and its trip's planned pick-up, as an edit in Trucking would", async () => {
+    const { c } = await seed({}, { trip: true });
+    await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).resolves.toEqual({ kept: [] });
+    expect(row(c.id).pickupDate).toBe("2026-10-30");
+    expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-30");
+    expect(eventsOf("consignment_updated").at(-1)).toMatchObject({ byUserId: user.userID });
+    // Sent again (a retry): it holds the date already, nothing more is written.
+    const version = row(c.id).version;
+    await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).resolves.toEqual({ kept: [] });
+    expect(row(c.id).version).toBe(version);
+  });
+
+  it("keeps a date changed in Trucking since, and one picked up already - saying why, without failing", async () => {
+    const { c } = await seed({ pickupDate: "2026-10-20" });
+    const picked = await seed({ pickedUpAt: new Date(), status: "PICKED_UP" });
+    const { kept } = await shipmentChangesService.follow(user, SHIPMENT, moved);
+    expect(kept).toHaveLength(2);
+    expect(kept).toEqual(
+      expect.arrayContaining([`${c.ref} pick-up date: its pick-up date was changed in Trucking (2026-10-20)`, `${picked.c.ref} pick-up date: the cargo is picked up already`]),
+    );
+    expect(row(c.id).pickupDate).toBe("2026-10-20");
+    expect(row(picked.c.id).pickupDate).toBe("2026-10-16");
+  });
+
+  it("keeps the date when Trucking's own edit refuses it (its sentence kept), and lets a conflict be tried again", async () => {
+    const { c } = await seed();
+    const follow = vi.spyOn(consignmentService, "followJobPickupDate").mockRejectedValueOnce(APIError.failedPrecondition("A leg of the groupage is on its way already"));
+    try {
+      await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).resolves.toEqual({ kept: [`${c.ref} pick-up date: A leg of the groupage is on its way already`] });
+      follow.mockRejectedValueOnce(APIError.aborted("The consignment was changed meanwhile"));
+      await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).rejects.toMatchObject({ code: "aborted" });
+    } finally {
+      follow.mockRestore();
+    }
+  });
+
+  // The trip takes it through its own edit (tripService.update, tested with the trips).
+  it("sets an FTL trip's tractor plate that still has the job's old one, as Trucking writes plates", async () => {
+    const { trip } = await seed({}, { trip: true });
+    const follow = vi.spyOn(tripService, "followJobPlate").mockResolvedValue();
+    try {
+      await expect(shipmentChangesService.follow(user, SHIPMENT, { plateNumber: { from: "", to: "4cd 5678" } })).resolves.toEqual({ kept: [] });
+      expect(follow).toHaveBeenCalledWith(user, expect.objectContaining({ id: trip!.id }), "4CD5678");
+    } finally {
+      follow.mockRestore();
+    }
   });
 });
 

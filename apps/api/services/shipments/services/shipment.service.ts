@@ -52,6 +52,8 @@ import type {
 import { mainSearchNumber } from "../../../lib/mainSearch";
 import { iso } from "../../../lib/db/serialize";
 import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
+import { billOfLadingKey } from "../../../lib/billOfLading";
+import { deliverShipmentPushes, owePushes } from "./shipmentPush.service";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
@@ -137,6 +139,8 @@ interface FromQuote {
   fromQuoteNumber?: string;
   /** Create it although a live shipment was already created from that quote. */
   allowSecondShipment?: boolean;
+  /** The House B/L a document reading creates the shipment for: each House B/L once (createForHouseBol). */
+  fromHouseBol?: string;
 }
 
 /**
@@ -1107,7 +1111,12 @@ class ShipmentService {
     creatorUserId?: string,
     { allowUnfinishedQuote = false, creatorRole }: { allowUnfinishedQuote?: boolean; creatorRole?: string } = {},
   ): Promise<CreatedShipment> {
-    const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
+    const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, fromHouseBol, ...rest } = data;
+    const houseBol = (fromHouseBol ?? "").trim();
+    if (houseBol && fromQuoteNumber?.trim()) throw APIError.invalidArgument("A shipment is created from a quote or from a House B/L, not from both");
+    if (houseBol && !billOfLadingKey(houseBol)) throw APIError.invalidArgument("The House B/L number has no letters or digits");
+    // The reading's House B/L is the shipment's House BoL Number from the start: the check below finds it.
+    if (houseBol) rest.houseBolNumber = houseBol;
     const badOffice = customsOfficeRefusal(rest.customsOffice);
     if (badOffice) throw APIError.invalidArgument(badOffice);
     // A new shipment has no charges yet, so none of them is invoiced.
@@ -1182,11 +1191,19 @@ class ShipmentService {
     // written leaves no shipment behind, so the request fails as a whole and a retry can't make a
     // second one. (One made from a quote reports such a failure instead - see createFromQuote.)
     const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
-    const shipment = await shipmentRepository.createWithJobNumber(
-      companyId,
-      shipmentData,
-      hasDetailRows(rows) ? (tx, created) => this.writeDetailRows(tx, created.id, companyId, rows) : undefined,
-    );
+    const alongside = hasDetailRows(rows) ? (tx: Tx, created: ShipmentRecord) => this.writeDetailRows(tx, created.id, companyId, rows) : undefined;
+    let shipment: ShipmentRecord;
+    if (houseBol) {
+      // A reading sent again (or twice at once) finds the shipment it made: a House B/L is one shipment.
+      const made = await shipmentRepository.createForHouseBol(companyId, houseBol, shipmentData, alongside);
+      if ("existing" in made) {
+        const { id, jobNumber } = made.existing;
+        throw APIError.alreadyExists(`House B/L ${houseBol} is already on shipment ${jobNumber}, so it is not created again`).withDetails({ shipmentId: id, jobNumber });
+      }
+      shipment = made.created;
+    } else {
+      shipment = await shipmentRepository.createWithJobNumber(companyId, shipmentData, alongside);
+    }
     await this.recalcCustomerRollups(shipment.customerId, companyId);
     // Billed in its customer's default currency from the start.
     if (shipment.customerId) await startShipmentBilling(shipment.id);
@@ -1382,6 +1399,10 @@ class ShipmentService {
     // One write turn (shipmentRepository.writeTurn): the audit entries of the changed fields
     // and detail-row lists, the detail rows and the shipment row land together or not at all.
     const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
+    // A person's write - an edit, or the master job's values a person saved - owes Trucking and the
+    // gate the fields they keep (lib/shipmentPush); the app's own writes (theirs) owe nothing.
+    const byPerson = role !== undefined || origin === "master_job";
+    let pushesOwed = false;
     const updated = await shipmentRepository.writeTurn(id, companyId, async (tx) => {
       if (stillHolds) {
         const current = await shipmentRepository.getInTurn(tx, id, companyId);
@@ -1404,8 +1425,11 @@ class ShipmentService {
       await this.writeTrackingFacts(tx, existing, shipmentData, userId, role !== undefined, origin);
       if (Object.keys(shipmentData).length === 0) return null;
       const saved = await shipmentRepository.updateForCompany(id, companyId, shipmentData, tx);
+      if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
     });
+    // Sent after the commit; what can't go now is retried by the push outbox's cron. Never throws.
+    if (pushesOwed) await deliverShipmentPushes(id);
     // The truck's other shipments take a typed plate after the write, on their own: inside the
     // turn, two shipments of one truck saved at once could each wait for the other's row.
     if (truck && plateTyped) {

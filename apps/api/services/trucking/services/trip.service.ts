@@ -251,6 +251,18 @@ class TripService {
 
   // ---- update / cancel ---------------------------------------------------------------------------
 
+  /** The job's plate changed in Shipments (lib/shipmentPush): the trip takes it as an edit of its tractor plate would, the rest kept. */
+  async followJobPlate(actor: Actor, trip: TruckingTripRecord, tractorPlate: string): Promise<void> {
+    await this.update(actor, trip.id, {
+      version: trip.version,
+      vehicleTypeCode: trip.vehicleTypeCode,
+      tractorPlate,
+      trailerPlate: trip.trailerPlate ?? "",
+      driverName: trip.driverName ?? "",
+      driverPhone: trip.driverPhone ?? "",
+    });
+  }
+
   /** Any user, with the version read: vehicle, plates (upper case, no spaces) and driver. A new tractor plate goes to the job. */
   async update(actor: Actor, id: string, input: TripUpdateInput): Promise<TripDetail> {
     const companyId = actor.companyID;
