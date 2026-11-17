@@ -29,8 +29,9 @@ import type { interfaces } from "@/lib/api/client";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { CustomerLinkField } from "../_components/CustomerLinkField";
 import { EditableCell } from "../_components/EditableCell";
-import { customsTabGroups, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
+import { customsTabGroups, documentGroupOf, isReviewedDocumentType, receivedDocumentsByType } from "@/lib/documentTypes";
 import { LABEL, ROW } from "../_components/detailStyles";
+import { NOT_FOR_CUSTOMS, RequiredMilestones } from "./RequiredMilestones";
 import { CountChip } from "@/components/SectionCard";
 import { BTN, BTN_DANGER, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, TH } from "@/styles/ui";
 
@@ -324,7 +325,9 @@ export function CustomsTab({
     (f) => f.key !== "customsStatus" && !(civOnLeft && f.key === "commercialInvoiceValue"),
   );
 
-  const { attachments, refresh: refreshDocuments, previewSource } = useShipmentAttachments(shipment.id);
+  const { attachments, isLoading: documentsLoading, refresh: refreshDocuments, previewSource } = useShipmentAttachments(shipment.id);
+  // The required documents, as on the shipment's Documents tab: on the Customs section's Documents tab.
+  const receivedByType = useMemo(() => receivedDocumentsByType(attachments), [attachments]);
 
   const [declining, setDeclining] = useState<string | null>(null);
   // A regular user changes an approved document by a request for a manager's approval, with the new file.
@@ -429,6 +432,13 @@ export function CustomsTab({
           onSend={(attachmentId, file, reason) => changeRequests.ask.mutateAsync({ attachmentId, file, reason })}
           onClose={() => setChanging(null)}
         />
+      )}
+      {/* Right below the Customs section's tabs: which required documents are in, read-only here,
+          without the booking confirmation and the CMR / POD, which customs does not need. */}
+      {section === "documents" && (
+        <section aria-labelledby="req-docs-title" className={`${CARD} px-4 pt-3.5 pb-3`}>
+          <RequiredMilestones byType={receivedByType} loading={documentsLoading} dangerous={isDangerousShipment(shipment)} leaveOut={NOT_FOR_CUSTOMS} />
+        </section>
       )}
       {section !== "details" && customsTabGroups(isDangerousShipment(shipment), attachments.map((a) => a.documentType)).map((group, index) => {
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;

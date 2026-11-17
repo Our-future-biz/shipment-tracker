@@ -9,7 +9,6 @@ import { ChangeAfterApprovalModal, ChangeRequestNote } from "./ChangeAfterApprov
 import {
   InboxOutlined,
   FileTextOutlined,
-  CheckOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
@@ -20,13 +19,11 @@ import { PreviewButton } from "@/components/PreviewButton";
 import { isDangerousShipment } from "@/lib/cargo";
 import { fileToBase64 } from "@/lib/files";
 import { formatFileSize, docPlural, ExtBadge, CustomsPill } from "./docsShared";
+import { RequiredMilestones } from "./RequiredMilestones";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatDate } from "@/lib/date";
 import {
   DOCUMENT_TYPES,
-  REQUIRED_DOCUMENT_TYPES,
-  SAFETY_PAPERWORK_TYPES,
-  requiredDocumentTypes,
   receivedDocumentsByType,
   guessDocumentType,
   isReviewedDocumentType,
@@ -48,7 +45,6 @@ import {
   CARD_TITLE,
   EMPTY,
   INPUT,
-  LABEL_TEXT,
   LINK,
   TD,
   TH,
@@ -76,115 +72,6 @@ function CardBar({ id, icon, title, right }: { id?: string; icon: React.ReactNod
         {title}
       </h3>
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
-    </div>
-  );
-}
-
-/**
- * The required documents as milestones, in the look of the shipment's progress bar: one full-length
- * segment per document, its name above and its state below - green and Received once a file of that
- * type is in, grey and Missing until then. A missing one is a button: it opens the file picker with
- * that type chosen.
- */
-function RequiredMilestones({
-  byType,
-  onPick,
-  loading,
-  dangerous,
-}: {
-  byType: Map<string, AttachmentFile>;
-  onPick: (type: string) => void;
-  /** While the list loads the states are not known yet: grey bars, no Missing. */
-  loading: boolean;
-  /** Dangerous goods: the safety paperwork is required too. */
-  dangerous: boolean;
-}) {
-  const required = requiredDocumentTypes(dangerous);
-  const have = required.filter((t) => byType.has(t)).length;
-  const left = required.length - have;
-  const milestone = (type: string) => {
-      const file = byType.get(type);
-      const done = !!file;
-      const label = documentTypeLabel(type);
-      const body = (
-        <>
-          <span
-            className={`block truncate text-center text-[13px] leading-4 mb-1.5 ${
-              done ? "text-slate-700" : "text-slate-900 font-medium group-hover:text-indigo-700"
-            }`}
-          >
-            {label}
-          </span>
-          <span
-            aria-hidden
-            className={`block h-1.5 w-full rounded-full transition-colors ${
-              loading ? "bg-slate-100 animate-pulse" : done ? "bg-emerald-500" : "bg-slate-200 group-hover:bg-indigo-300"
-            }`}
-          />
-          {!loading && (
-            <span
-              className={`mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide ${
-                done ? "text-emerald-700" : "text-amber-700"
-              }`}
-            >
-              {done && <CheckOutlined aria-hidden className="text-[10px]" />}
-              {done ? "Received" : "Missing"}
-            </span>
-          )}
-        </>
-      );
-      return (
-        <li key={type} className="min-w-0">
-          {done || loading ? (
-            <Tooltip title={file?.fileName}>
-              <div className="px-1 py-1">{body}</div>
-            </Tooltip>
-          ) : (
-            <Tooltip title={`Add the ${label === "MSDS" ? label : label.toLowerCase()}`}>
-              <button
-                type="button"
-                onClick={() => onPick(type)}
-                className={`group block w-full px-1 py-1 rounded-md border-0 bg-transparent cursor-pointer hover:bg-slate-50 transition-colors ${FOCUS}`}
-              >
-                {body}
-              </button>
-            </Tooltip>
-          )}
-        </li>
-      );
-  };
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-2.5">
-        <h3 id="req-docs-title" className={`m-0 ${LABEL_TEXT}`}>
-          Required documents
-        </h3>
-        <span className="text-[12px] font-medium text-indigo-600 tabular-nums">
-          {have} / {required.length}
-        </span>
-        {!loading && (
-          <span className={`ml-auto text-[13px] font-medium ${left ? "text-amber-700" : "text-emerald-700"}`}>
-            {left
-              ? left === 1
-                ? "1 required document is missing"
-                : `${left} required documents are missing`
-              : "All required documents are in place"}
-          </span>
-        )}
-      </div>
-      <ol aria-labelledby="req-docs-title" className="list-none m-0 p-0 grid grid-cols-3 md:grid-cols-6 gap-x-1.5 gap-y-3">
-        {REQUIRED_DOCUMENT_TYPES.map(milestone)}
-      </ol>
-      {dangerous && (
-        <div className="mt-3">
-          <h3 id="safety-docs-title" className={`m-0 mb-2.5 ${LABEL_TEXT}`}>
-            Safety Paperwork
-          </h3>
-          <ol aria-labelledby="safety-docs-title" className="list-none m-0 p-0 grid grid-cols-2 md:grid-cols-3 gap-x-1.5 gap-y-3">
-            {SAFETY_PAPERWORK_TYPES.map(milestone)}
-          </ol>
-        </div>
-      )}
     </div>
   );
 }
