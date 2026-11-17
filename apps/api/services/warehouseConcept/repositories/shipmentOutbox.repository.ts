@@ -97,12 +97,16 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
   // would hold this record's rows back. Returns this record's rows changed.
   async retryNow(movementId: string, companyId: string) {
     const keepClaim = sql`CASE WHEN ${o.lockedUntil} > now() THEN ${o.lockedUntil} ELSE NULL END`;
+    // Due by the database's clock, which the claim reads ("next_attempt_at <= now()"): stamped with
+    // the app's clock, a database clock a moment behind would not find the row due yet, and the send
+    // right after would leave it for the next round.
+    const dueNow = sql`now()`;
     return db.transaction(async (tx) => {
       const rows = await tx
         .update(o)
         .set({
           status: "pending",
-          nextAttemptAt: new Date(),
+          nextAttemptAt: dueNow,
           lockedUntil: keepClaim,
           attempts: sql`CASE WHEN ${o.status} = 'failed' THEN 0 ELSE ${o.attempts} END`,
           updatedAt: new Date(),
@@ -113,7 +117,7 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
       if (shipmentIds.length) {
         await tx
           .update(o)
-          .set({ nextAttemptAt: new Date(), lockedUntil: keepClaim, updatedAt: new Date() })
+          .set({ nextAttemptAt: dueNow, lockedUntil: keepClaim, updatedAt: new Date() })
           .where(and(eq(o.companyId, companyId), inArray(o.shipmentId, shipmentIds), eq(o.status, "pending"), isNull(o.deletedAt)));
       }
       return rows;

@@ -2,12 +2,15 @@ import { and, eq, not, type SQL } from "drizzle-orm";
 import log from "encore.dev/log";
 import { db } from "../db/db";
 import { gateMovementRepository, hasStamp, hasStampSql } from "../repositories/gateMovement.repository";
-import { gateMovementTable, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
+import { gateMovementTable, type GateTransportLeg, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import { gateDecisions, type ShipmentChanges } from "../../../lib/shipmentPush";
 import { userName } from "./users";
 
 const t = gateMovementTable;
 const shown = (v: string) => v || "—";
+// A record whose vehicle a Trucking trip announced (a leg it filled): its plate is the trip's. A leg
+// typed by hand - every record imported from a shipment has its blank ones - says nothing of that.
+const announcedByTrip = (legs: readonly GateTransportLeg[] | null | undefined) => (legs ?? []).some((l) => l.source?.kind === "trucking");
 
 // What a person changed on a shipment in Shipments, taken by the shipment's live gate records
 // (lib/shipmentPush): its ETA, and the plate before the gate saw the vehicle. A record that holds
@@ -22,7 +25,7 @@ class ShipmentChangesService {
     let by: string | null = null;
     for (const m of records) {
       const name = m.positionRef || m.gateRef;
-      const d = gateDecisions({ eta: m.eta, plate: m.plate, stamped: hasStamp(m), fromTrip: (m.transportLegs ?? []).length > 0 }, changes);
+      const d = gateDecisions({ eta: m.eta, plate: m.plate, stamped: hasStamp(m), fromTrip: announcedByTrip(m.transportLegs) }, changes);
       const set: Partial<NewGateMovementRecord> = {};
       const guards: SQL[] = [];
       const details: string[] = [];

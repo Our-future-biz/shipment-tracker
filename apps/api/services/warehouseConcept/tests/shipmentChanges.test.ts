@@ -55,6 +55,16 @@ describe("a shipment's change on its gate record", () => {
     expect((await gateMovementRepository.findById(id, c))!).toMatchObject({ eta: "2026-11-26", plate: "3AB 1234" });
   });
 
+  it("keeps the plate a Trucking trip announced, and still takes the ETA", async () => {
+    const { c, s, id } = await linked();
+    const m = (await gateMovementRepository.findById(id, c))!;
+    const legs = m.transportLegs.map((l, i) => (i === 0 ? { ...l, plate: "3AB 1234", source: { kind: "trucking" as const, tripRef: "LCZ2026000001" } } : l));
+    await gateMovementRepository.update(id, c, { transportLegs: legs });
+    const { kept } = await shipmentChangesService.follow(c, user, s, { estimatedArrival: { from: "2026-11-24", to: "2026-11-25" }, plateNumber: { from: "3AB 1234", to: "4CD 5678" } });
+    expect(kept).toEqual([expect.stringMatching(/plate: its vehicle comes from its Trucking trip/)]);
+    expect((await gateMovementRepository.findById(id, c))!).toMatchObject({ eta: "2026-11-25", plate: "3AB 1234" });
+  });
+
   it("touches no other company's records", async () => {
     const { c, s, id } = await linked();
     await shipmentChangesService.follow(randomUUID(), user, s, { estimatedArrival: { from: "2026-11-24", to: "2026-11-25" } });
