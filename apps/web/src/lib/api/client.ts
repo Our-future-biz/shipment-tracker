@@ -1518,6 +1518,18 @@ export namespace invoicing {
             this.sellingAmountRequestList = this.sellingAmountRequestList.bind(this)
             this.sellingAmountRequestSeen = this.sellingAmountRequestSeen.bind(this)
             this.sellingAmountRequestWithdraw = this.sellingAmountRequestWithdraw.bind(this)
+            this.supplierInvoiceApprove = this.supplierInvoiceApprove.bind(this)
+            this.supplierInvoiceDetails = this.supplierInvoiceDetails.bind(this)
+            this.supplierInvoiceDocument = this.supplierInvoiceDocument.bind(this)
+            this.supplierInvoiceForMe = this.supplierInvoiceForMe.bind(this)
+            this.supplierInvoiceGet = this.supplierInvoiceGet.bind(this)
+            this.supplierInvoiceLinkSupplier = this.supplierInvoiceLinkSupplier.bind(this)
+            this.supplierInvoiceList = this.supplierInvoiceList.bind(this)
+            this.supplierInvoicePaid = this.supplierInvoicePaid.bind(this)
+            this.supplierInvoiceRefuse = this.supplierInvoiceRefuse.bind(this)
+            this.supplierInvoiceSeen = this.supplierInvoiceSeen.bind(this)
+            this.supplierInvoiceTakeBackApproval = this.supplierInvoiceTakeBackApproval.bind(this)
+            this.supplierInvoiceTakeBackPayment = this.supplierInvoiceTakeBackPayment.bind(this)
         }
 
         /**
@@ -1898,11 +1910,13 @@ export namespace invoicing {
          */
         public async invoicingPostInvoiceLines(params: interfaces.InvoiceLinesInput): Promise<{
     rows: interfaces.InvoiceLinesRow[]
+    supplierInvoiceId: string | null
 }> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/invoice-lines`, JSON.stringify(params))
             return await resp.json() as {
     rows: interfaces.InvoiceLinesRow[]
+    supplierInvoiceId: string | null
 }
         }
 
@@ -2105,6 +2119,91 @@ export namespace invoicing {
             return await resp.json() as {
     request: interfaces.SellingAmountRequestItem
 }
+        }
+
+        public async supplierInvoiceApprove(id: string, params: controllers.VersionRequest): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/approve`, JSON.stringify(params))
+            return await resp.json() as interfaces.PayableDetailResponse
+        }
+
+        public async supplierInvoiceDetails(id: string, params: controllers.DetailsRequest): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/supplier-invoices/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as interfaces.PayableDetailResponse
+        }
+
+        /**
+         * Keeps the read document with the invoice (D18).
+         */
+        public async supplierInvoiceDocument(id: string, params: controllers.DocumentRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/document`, JSON.stringify(params))
+        }
+
+        /**
+         * The bell: how many wait for a manager's approval, and invoices booked on the user's jobs.
+         */
+        public async supplierInvoiceForMe(): Promise<interfaces.PayablesForMeResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/supplier-invoices/for-me`)
+            return await resp.json() as interfaces.PayablesForMeResponse
+        }
+
+        public async supplierInvoiceGet(id: string): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/supplier-invoices/${encodeURIComponent(id)}`)
+            return await resp.json() as interfaces.PayableDetailResponse
+        }
+
+        /**
+         * Links an invoice booked under a typed name to its supplier in the Customer Database.
+         */
+        public async supplierInvoiceLinkSupplier(id: string, params: controllers.LinkSupplierRequest): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/link-supplier`, JSON.stringify(params))
+            return await resp.json() as interfaces.PayableDetailResponse
+        }
+
+        /**
+         * The page: every supplier invoice, the estimates still waiting for one, Trucking's for superadmins.
+         */
+        public async supplierInvoiceList(): Promise<interfaces.PayablesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/supplier-invoices`)
+            return await resp.json() as interfaces.PayablesResponse
+        }
+
+        public async supplierInvoicePaid(id: string, params: controllers.PaidRequest): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/paid`, JSON.stringify(params))
+            return await resp.json() as interfaces.PayableDetailResponse
+        }
+
+        /**
+         * Refuses it with a reason: its lines leave the jobs (an estimate goes back to it), and the number is free again.
+         */
+        public async supplierInvoiceRefuse(id: string, params: controllers.ReasonRequest): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/refuse`, JSON.stringify(params))
+            return await resp.json() as interfaces.PayableDetailResponse
+        }
+
+        public async supplierInvoiceSeen(params: {
+    ids: string[]
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/supplier-invoices/seen`, JSON.stringify(params))
+        }
+
+        public async supplierInvoiceTakeBackApproval(id: string, params: controllers.ReasonRequest): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/take-back-approval`, JSON.stringify(params))
+            return await resp.json() as interfaces.PayableDetailResponse
+        }
+
+        public async supplierInvoiceTakeBackPayment(id: string, params: controllers.ReasonRequest): Promise<interfaces.PayableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/take-back-payment`, JSON.stringify(params))
+            return await resp.json() as interfaces.PayableDetailResponse
         }
     }
 }
@@ -7206,6 +7305,26 @@ export namespace controllers {
          * yyyy-mm-dd; "" takes it back
          */
         noticeDate?: string
+
+        /**
+         * Claims on costs only: the supplier invoice's id; "" unties it.
+         */
+        supplierInvoiceId?: string
+
+        /**
+         * Claims on costs only: a decimal with at most 2 places ("120.50"); "" clears it.
+         */
+        claimAmount?: string
+
+        /**
+         * Claims on costs only: a 3-letter code ("EUR"); "" clears it.
+         */
+        claimCurrency?: string
+
+        /**
+         * Claims on costs only. Accepted, rejected or withdrawn closes it (stamped when and by whom); open reopens it.
+         */
+        status?: string
     }
 
     export interface ClaimListResponse {
@@ -7227,6 +7346,26 @@ export namespace controllers {
          * yyyy-mm-dd; "" takes it back
          */
         noticeDate?: string
+
+        /**
+         * Claims on costs only: the supplier invoice's id; "" unties it.
+         */
+        supplierInvoiceId?: string
+
+        /**
+         * Claims on costs only: a decimal with at most 2 places ("120.50"); "" clears it.
+         */
+        claimAmount?: string
+
+        /**
+         * Claims on costs only: a 3-letter code ("EUR"); "" clears it.
+         */
+        claimCurrency?: string
+
+        /**
+         * Claims on costs only. Accepted, rejected or withdrawn closes it (stamped when and by whom); open reopens it.
+         */
+        status?: string
     }
 
     export interface CollectionDatesRequest {
@@ -8100,6 +8239,28 @@ export namespace controllers {
         name: string
     }
 
+    export interface DetailsRequest {
+        /**
+         * yyyy-mm-dd; "" clears
+         */
+        issueDate?: string
+
+        dueDate?: string
+        /**
+         * decimal strings; "" clears
+         */
+        totalNet?: string
+
+        vatAmount?: string
+        totalGross?: string
+        currency?: string
+        kind?: "invoice" | "credit_note"
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
+    }
+
     export interface DockSlotListResponse {
         slots: interfaces.WarehouseDockSlotItem[]
     }
@@ -8178,6 +8339,16 @@ export namespace controllers {
 
     export interface DocumentListResponse {
         data: interfaces.DocumentItem[]
+    }
+
+    export interface DocumentRequest {
+        /**
+         * The shipment the read document is kept on, and its attachment there
+         */
+        shipmentId: string
+
+        attachmentId: string
+        name: string
     }
 
     export interface EmailAddressForgetRequest {
@@ -9044,6 +9215,14 @@ export namespace controllers {
         shipment: interfaces.ShipmentItem
     }
 
+    export interface LinkSupplierRequest {
+        supplierCustomerId: string
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
+    }
+
     export interface ListColumnTemplatesRequest {
         scope?: string
     }
@@ -9366,6 +9545,18 @@ export namespace controllers {
          * The currency rates are shown against; CZK (as ČNB publishes them) when left out
          */
         base?: string
+    }
+
+    export interface PaidRequest {
+        /**
+         * The day it was paid (yyyy-mm-dd)
+         */
+        paidOn: string
+
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
     }
 
     export interface PdfResponse {
@@ -9834,6 +10025,30 @@ export namespace controllers {
 
     export interface RatesOnRequest {
         date?: IsoDate
+    }
+
+    export interface ReasonRequest {
+        reason: string
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
+    }
+
+    export interface ReasonRequest {
+        reason: string
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
+    }
+
+    export interface ReasonRequest {
+        reason: string
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
     }
 
     export interface RegistrationLinkCreateRequest {
@@ -11048,10 +11263,32 @@ export namespace controllers {
          * only answer the split, write nothing
          */
         dryRun?: boolean
+
+        /**
+         * the supplier picked from the Customer Database: every part links it and is booked Received (Accounts Payable)
+         */
+        supplierCustomerId?: string
+
+        /**
+         * refuse the post without a supplier picked
+         */
+        requireSupplier?: boolean
+
+        /**
+         * as read from the document (yyyy-mm-dd; a decimal string), kept on its Accounts Payable record
+         */
+        issueDate?: string
+
+        dueDate?: string
+        totalGross?: string
     }
 
     export interface SplitCostResponse {
         lines: interfaces.CostSplitResultLine[]
+        /**
+         * the supplier invoice on Accounts Payable the parts are booked on; null for a dry run
+         */
+        supplierInvoiceId: string | null
     }
 
     export interface StaffListResponse {
@@ -12389,6 +12626,13 @@ export namespace controllers {
         users: services.AuthUserInfo[]
     }
 
+    export interface VersionRequest {
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
+    }
+
     export interface WarehouseClaimUpdateRequest {
         job?: string
         against?: string
@@ -13216,7 +13460,7 @@ export namespace interfaces {
         invoiceNumber: string
         reason: string
         /**
-         * Disputed amount, with currency.
+         * Disputed amount, with currency, as typed (free text).
          */
         amount: string
 
@@ -13226,12 +13470,44 @@ export namespace interfaces {
         noticeDate: string | null
 
         createdAt: string
+        /**
+         * Of a claim on costs: the supplier invoice (invoicing's supplier_invoice id) it is raised against; null when none.
+         */
+        supplierInvoiceId: string | null
+
+        /**
+         * The claimed amount as a decimal ("120.50"); null when not given.
+         */
+        claimAmount: string | null
+
+        /**
+         * 3-letter currency of claimAmount; "" when not given.
+         */
+        claimCurrency: string
+
+        status: ClaimStatus
+        /**
+         * When it was accepted, rejected or withdrawn; null while open.
+         */
+        closedAt: string | null
+
+        /**
+         * Who closed it, by e-mail; "" while open.
+         */
+        closedBy: string
     }
 
     /**
      * cargo = claim on the shipment · cost = claim on a supplier's invoice
      */
     export type ClaimKind = "cargo" | "cost"
+
+    /**
+     * Where a claim on costs stands: open = disputed with the supplier (it holds the supplier
+     * invoice's payment) · accepted = the supplier agreed, a credit note is expected · rejected = the
+     * supplier refused it · withdrawn = we dropped it.
+     */
+    export type ClaimStatus = "open" | "accepted" | "rejected" | "withdrawn"
 
     /**
      * What managers did, or what happened to records, in the last `days` days.
@@ -16791,6 +17067,11 @@ export namespace interfaces {
          */
         supplierCustomerId: string | null
 
+        /**
+         * The supplier invoice (Finance → Accounts Payable) the line is on; null for a line with no invoice number yet. Its payment is noted there.
+         */
+        supplierInvoiceId: string | null
+
         sortOrder: number
         /**
          * The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then.
@@ -17023,6 +17304,27 @@ export namespace interfaces {
          * only answer what it comes to, write nothing
          */
         dryRun?: boolean
+
+        /**
+         * the supplier picked from the Customer Database: every row links it (Accounts Payable D13)
+         */
+        supplierCustomerId?: string
+
+        /**
+         * refuse the post without a supplier picked (Document Reading's new invoices)
+         */
+        requireSupplier?: boolean
+
+        /**
+         * as read from the document as a whole (yyyy-mm-dd; decimal strings), kept on its Accounts Payable record
+         */
+        issueDate?: string
+
+        dueDate?: string
+        totalNet?: string
+        vatAmount?: string
+        totalGross?: string
+        currency?: string
     }
 
     /**
@@ -17042,6 +17344,11 @@ export namespace interfaces {
          * the real cost goes onto the shipment's estimate of the charge (one with no real cost or invoice yet), not a new row
          */
         ontoEstimate: boolean
+
+        /**
+         * the same supplier's invoice of this number is booked already on other jobs: posting it needs allowRepeat
+         */
+        bookedElsewhere: boolean
     }
 
     /**
@@ -18139,6 +18446,328 @@ export namespace interfaces {
     }
 
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
+
+    export interface PayableClaimItem {
+        id: string
+        shipmentId: string
+        /**
+         * open | accepted | rejected | withdrawn
+         */
+        status: string
+
+        reason: string
+        claimAmount: string | null
+        claimCurrency: string
+        /**
+         * The amount as it was typed before claims had a number
+         */
+        amountText: string
+
+        /**
+         * Tied to this invoice (false: matched by the job and the number typed)
+         */
+        linked: boolean
+    }
+
+    export interface PayableCounts {
+        all: number
+        toPay: number
+        overdue: number
+        toApprove: number
+        refused: number
+        claimed: number
+        paid: number
+        expected: number
+    }
+
+    export interface PayableDetailResponse {
+        invoice: PayableInvoiceItem
+        events: PayableEventItem[]
+        /**
+         * The lines as they were when it was refused
+         */
+        refusedLines: {
+            kind: "job" | "master_job"
+            ownerId: string
+            category: string
+            description: string
+            amount: number | null
+            currency: string
+        }[]
+
+        canDecide: boolean
+    }
+
+    export interface PayableEventItem {
+        id: string
+        action: string
+        fromStatus: string
+        toStatus: string
+        by: string
+        reason: string
+        payload: { [key: string]: any }
+        at: string
+    }
+
+    /**
+     * An estimated cost no invoice has come for yet (the Expected tab: what to accrue at month-end).
+     */
+    export interface PayableExpectedItem {
+        lineId: string
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        category: string
+        description: string
+        vendor: string
+        supplierCustomerId: string | null
+        estimate: number
+        currency: string
+        jobStatus: string
+        /**
+         * The job's ETD (export) or ETA (import) month is not known here: the job's created day is the closest
+         */
+        createdOn: string
+
+        mine: boolean
+        jobBilled: boolean
+    }
+
+    /**
+     * A haulier invoice from Trucking, as Accounts Payable shows it (read-only; acted on in Trucking).
+     */
+    export interface PayableHaulierItem {
+        id: string
+        haulierCustomerId: string
+        haulierName: string
+        invoiceNumber: string
+        issueDate: string | null
+        dueDate: string | null
+        currency: string
+        net: number
+        vat: number
+        gross: number
+        /**
+         * Trucking's own status (DRAFT, NEEDS_APPROVAL, BLOCKED, APPROVED, REJECTED…)
+         */
+        status: string
+
+        paidOn: string | null
+        claimed: number
+        refs: string[]
+        daysOverdue: number
+    }
+
+    /**
+     * A supplier invoice as Accounts Payable lists it.
+     */
+    export interface PayableInvoiceItem {
+        id: string
+        supplierCustomerId: string | null
+        haulierId: string | null
+        /**
+         * The supplier's name: the Customer Database's, else as written on the lines
+         */
+        supplier: string
+
+        vendor: string
+        invoiceNumber: string
+        kind: "invoice" | "credit_note"
+        issueDate: string | null
+        /**
+         * The due day: the invoice's own, else the booked day plus the supplier's payment days
+         */
+        due: string | null
+
+        dueSource: "invoice" | "terms" | "none"
+        daysOverdue: number
+        /**
+         * The day it was booked (yyyy-mm-dd)
+         */
+        bookedOn: string
+
+        /**
+         * What its lines bill, per currency, without VAT
+         */
+        amounts: {
+            currency: string
+            amount: number
+        }[]
+
+        /**
+         * As read from the document (null: not read)
+         */
+        totalNet: string | null
+
+        vatAmount: string | null
+        totalGross: string | null
+        currency: string
+        status: PayableStatus
+        paidOn: string | null
+        paidBy: string
+        decidedBy: string
+        decidedAt: string | null
+        decisionReason: string
+        selfDecision: boolean
+        source: "reading" | "typed" | "master_job" | "backfill"
+        enteredBy: string
+        document: {
+            shipmentId: string
+            attachmentId: string
+            name: string
+        } | null
+        lines: PayableLineItem[]
+        /**
+         * The job numbers it bills, in order
+         */
+        jobs: string[]
+
+        marks: PayableMarkItem[]
+        claims: PayableClaimItem[]
+        /**
+         * An open claim disputes it (its payment is held)
+         */
+        claimed: boolean
+
+        /**
+         * The signed-in user is the Person in Charge or Holiday Cover of one of its jobs
+         */
+        mine: boolean
+
+        /**
+         * One of its lines bills more than estimated
+         */
+        aboveEstimate: boolean
+
+        /**
+         * One of its jobs is invoiced to the customer already
+         */
+        jobBilled: boolean
+
+        /**
+         * It was booked on or after the day one of its jobs was first invoiced to the customer: a cost that came after billing
+         */
+        arrivedAfterBilling: boolean
+
+        version: number
+    }
+
+    /**
+     * One line of a supplier invoice: a cost on a job, or on a master job.
+     */
+    export interface PayableLineItem {
+        lineId: string
+        /**
+         * "job" = a shipment's Costs Breakdown line; "master_job" = a master job's line (shared out to its jobs)
+         */
+        kind: "job" | "master_job"
+
+        shipmentId: string | null
+        masterJobId: string | null
+        /**
+         * The job's or master job's number
+         */
+        jobNumber: string
+
+        customer: string
+        category: string
+        description: string
+        /**
+         * What the line was estimated at, in its estimate currency (null: no estimate)
+         */
+        estimate: number | null
+
+        estCurrency: string
+        /**
+         * What the invoice bills on the line
+         */
+        amount: number | null
+
+        currency: string
+        /**
+         * amount − estimate, when both are in one currency
+         */
+        difference: number | null
+
+        /**
+         * The job's Invoicing Status (Invoiced: its customer was billed)
+         */
+        jobInvoicingStatus: string
+    }
+
+    export type PayableMarkItem = "not_linked" | "vat_unreliable" | "account_not_published" | "bank_changed" | "supplier_pending" | "supplier_declined" | "low_rating" | "no_terms" | "same_number_other_supplier"
+
+    /**
+     * What the bell shows of Accounts Payable.
+     */
+    export interface PayableNoticeItem {
+        invoiceId: string
+        supplier: string
+        invoiceNumber: string
+        jobs: string[]
+        amounts: {
+            currency: string
+            amount: number
+        }[]
+        aboveEstimate: boolean
+        jobBilled: boolean
+        bookedAt: string
+    }
+
+    export type PayableStatus = "booked" | "approved" | "refused"
+
+    export interface PayablesForMeResponse {
+        /**
+         * Invoices waiting for a manager's approval (0 for anyone else)
+         */
+        toApprove: number
+
+        /**
+         * Invoices booked in the last 7 days on jobs the user is Person in Charge or Holiday Cover of, not yet opened
+         */
+        booked: PayableNoticeItem[]
+    }
+
+    export interface PayablesResponse {
+        invoices: PayableInvoiceItem[]
+        expected: PayableExpectedItem[]
+        /**
+         * More invoices than the list holds: the oldest are left out
+         */
+        truncated: boolean
+
+        haulier: {
+            status: "included" | "hidden" | "unavailable"
+            invoices: PayableHaulierItem[]
+            truncated: boolean
+        }
+        counts: PayableCounts
+        /**
+         * Per currency, without VAT: what is still to pay, what of it is overdue, and what is expected
+         */
+        totals: {
+            toPay: {
+                currency: string
+                amount: number
+            }[]
+            overdue: {
+                currency: string
+                amount: number
+            }[]
+            expected: {
+                currency: string
+                amount: number
+            }[]
+        }
+
+        dueThisWeek: number
+        /**
+         * Whether the signed-in user may approve, refuse and mark paid (a manager)
+         */
+        canDecide: boolean
+
+        today: string
+    }
 
     /**
      * What the people backfill did to the company's live shipments.

@@ -67,7 +67,7 @@ interface DeleteBuyingResponse {
 export const invoicingDeleteBuyingCost = api(
   { expose: true, auth: true, method: "DELETE", path: "/invoicing/:shipmentId/buying/:costId" },
   async (req: DeleteBuyingRequest): Promise<DeleteBuyingResponse> => {
-    await invoicingService.deleteBuyingCost(req.costId, getAuthData()!.companyID, req.shipmentId);
+    await invoicingService.deleteBuyingCost(req.costId, getAuthData()!.companyID, req.shipmentId, getAuthData()!.userID);
     return { ok: true };
   },
 );
@@ -83,6 +83,6 @@ interface RestoreBuyingRequest {
 export const invoicingRestoreBuyingCost = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/buying/:costId/restore" },
   async ({ shipmentId, costId, sortOrder }: RestoreBuyingRequest): Promise<BuyingResponse> => {
-    return { cost: await invoicingService.restoreBuyingCost(costId, getAuthData()!.companyID, shipmentId, sortOrder) };
+    return { cost: await invoicingService.restoreBuyingCost(costId, getAuthData()!.companyID, shipmentId, sortOrder, getAuthData()!.userID) };
   },
 );

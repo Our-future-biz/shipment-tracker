@@ -6,6 +6,8 @@ import type { ClaimInput, ClaimItem, ClaimKind } from "../interfaces/interfaces"
 // Claims of a shipment: on the shipment itself ("cargo") and on a supplier's costs ("cost").
 
 const company = () => getAuthData()!.companyID;
+// Who closes a claim on costs is stamped by e-mail.
+const user = () => getAuthData()!.userID;
 
 interface ClaimCreateRequest extends ClaimInput {
   shipmentId: string;
@@ -26,14 +28,14 @@ export const claimList = api(
 export const claimCreate = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/claims" },
   async ({ shipmentId, kind, ...input }: ClaimCreateRequest): Promise<{ claim: ClaimItem }> => ({
-    claim: await claimService.create(shipmentId, company(), kind, input),
+    claim: await claimService.create(shipmentId, company(), kind, input, user()),
   }),
 );
 
 export const claimUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/shipments/:shipmentId/claims/:claimId" },
   async ({ claimId, shipmentId, ...input }: ClaimUpdateRequest): Promise<{ claim: ClaimItem }> => ({
-    claim: await claimService.update(shipmentId, claimId, company(), input),
+    claim: await claimService.update(shipmentId, claimId, company(), input, user()),
   }),
 );
 

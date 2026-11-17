@@ -178,6 +178,39 @@ class HaulierInvoiceRepository {
       .where(and(...clauses))
       .orderBy(desc(i.issueDate), desc(i.createdAt))
       .limit(MAX_LIST);
+    return this.withLines(companyId, invoices);
+  }
+
+  /**
+   * A page of live invoices, newest issued first then by id (so pages never overlap), each with its lines, and how
+   * many match in all. An invoice matches when its stored status is one of `statuses` or its id is one of `ids`
+   * (an open invoice whose status as worked out now was asked for); with neither given, every invoice matches.
+   */
+  async page(
+    companyId: string,
+    filter: { statuses?: HaulierInvoiceStatus[]; ids?: string[] },
+    limit: number,
+    offset: number,
+  ): Promise<{ stored: StoredInvoice[]; total: number }> {
+    const clauses: SQL[] = [eq(i.companyId, companyId), isNull(i.deletedAt)];
+    if (filter.statuses || filter.ids) {
+      const which: SQL[] = [];
+      if (filter.statuses?.length) which.push(inArray(i.status, filter.statuses));
+      if (filter.ids?.length) which.push(inArray(i.id, filter.ids));
+      // Asked for, but nothing can match: no query (an empty IN list is not valid SQL everywhere).
+      if (!which.length) return { stored: [], total: 0 };
+      clauses.push(or(...which)!);
+    }
+    const where = and(...clauses);
+    const [invoices, [count]] = await Promise.all([
+      db.select().from(i).where(where).orderBy(desc(i.issueDate), desc(i.id)).limit(limit).offset(offset),
+      db.select({ n: sql<number>`count(*)::int` }).from(i).where(where),
+    ]);
+    return { stored: await this.withLines(companyId, invoices), total: Number(count?.n ?? 0) };
+  }
+
+  /** The invoices with their live lines (oldest line first). */
+  private async withLines(companyId: string, invoices: TruckingHaulierInvoiceRecord[]): Promise<StoredInvoice[]> {
     if (!invoices.length) return [];
     const lines = await db
       .select()

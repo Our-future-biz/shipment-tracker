@@ -89,6 +89,15 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
     return new Map(rows.map((r) => [r.id, r.mczNumber]));
   }
 
+  /** Number and Person in Charge of the company's live master jobs among `ids` (for Accounts Payable). */
+  async basicsByIds(companyId: string, ids: string[]): Promise<{ id: string; mczNumber: string; personInCharge: string }[]> {
+    if (!ids.length) return [];
+    return this.db
+      .select({ id: masterJobTable.id, mczNumber: masterJobTable.mczNumber, personInCharge: masterJobTable.personInCharge })
+      .from(masterJobTable)
+      .where(and(eq(masterJobTable.companyId, companyId), inArray(masterJobTable.id, ids), isNull(masterJobTable.deletedAt)));
+  }
+
   /** Live shipments per master job, for the given ids. */
   async shipmentCounts(masterJobIds: string[], companyId: string): Promise<Map<string, number>> {
     if (masterJobIds.length === 0) return new Map();

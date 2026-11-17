@@ -514,7 +514,49 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .where(and(eq(customerTable.companyId, companyId), inArray(customerTable.id, ids), isNull(customerTable.deletedAt)));
     return rows.map((r) => ({ id: r.id, creditLimit: Number(r.creditLimit) || 0, currency: r.currency }));
   }
+
+  /** The supplier terms, checks, approval and rating of the company's live companies among `ids` (Finance → Accounts Payable). */
+  async supplierFactsOf(companyId: string, ids: string[]): Promise<SupplierFactsRow[]> {
+    if (!ids.length) return [];
+    return this.db
+      .select({
+        id: customerTable.id,
+        companyName: customerTable.companyName,
+        country: customerTable.country,
+        dic: customerTable.dic,
+        roles: customerTable.roles,
+        supplierPaymentDays: customerTable.supplierPaymentDays,
+        supplierCurrency: customerTable.supplierCurrency,
+        supplierVatUnreliable: customerTable.supplierVatUnreliable,
+        supplierBankAccountPublished: customerTable.supplierBankAccountPublished,
+        supplierVatCheckedAt: customerTable.supplierVatCheckedAt,
+        supplierBankAccountsChangedAt: customerTable.supplierBankAccountsChangedAt,
+        supplierBankAccountsChangedByUserId: customerTable.supplierBankAccountsChangedByUserId,
+        approvalStatus: customerTable.approvalStatus,
+        supplierRating: customerTable.supplierRating,
+      })
+      .from(customerTable)
+      .where(and(eq(customerTable.companyId, companyId), inArray(customerTable.id, ids), isNull(customerTable.deletedAt)));
+  }
 }
+
+export type SupplierFactsRow = Pick<
+  CustomerRecord,
+  | "id"
+  | "companyName"
+  | "country"
+  | "dic"
+  | "roles"
+  | "supplierPaymentDays"
+  | "supplierCurrency"
+  | "supplierVatUnreliable"
+  | "supplierBankAccountPublished"
+  | "supplierVatCheckedAt"
+  | "supplierBankAccountsChangedAt"
+  | "supplierBankAccountsChangedByUserId"
+  | "approvalStatus"
+  | "supplierRating"
+>;
 
 export type CustomerRefRow = Pick<CustomerRecord, "id" | "companyName" | "label">;
 

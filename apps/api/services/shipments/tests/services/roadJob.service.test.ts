@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
-vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { getByIdForCompany: vi.fn() } }));
+vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { getByIdForCompany: vi.fn(), basicsByIds: vi.fn() } }));
 vi.mock("../../services/shipment.service", () => ({
   shipmentService: { create: vi.fn(async () => ({ shipment: { id: "s1", jobNumber: "CZ00000099" } })), softDelete: vi.fn() },
 }));
@@ -100,5 +100,31 @@ describe("taking back a job Trucking made for a consignment it could not save", 
     vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue(null);
     await expect(roadJobService.retire(COMPANY, JOB, "u1", "user")).resolves.toBeUndefined();
     expect(shipmentService.softDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe("the basics of jobs", () => {
+  const JOB = "00000000-0000-0000-0000-0000000000a1";
+  const COMPANY = "00000000-0000-0000-0000-000000000001";
+
+  it("carry the Person in Charge, the Holiday Cover and the Invoicing Status as stored, with what Trucking reads", async () => {
+    const row = {
+      id: JOB,
+      jobNumber: "CZ00000042",
+      customerId: null,
+      customer: "Alfa",
+      status: "Billing [DOM]",
+      tradeDirection: "Domestic",
+      freightMode: "Road Freight",
+      pickupDate: "2026-10-15",
+      plannedDeliveryDate: null,
+      department: "Road Department",
+      personInCharge: "jana@firma.cz",
+      holidayCover: "",
+      invoicingStatus: "Invoiced",
+    };
+    vi.mocked(shipmentRepository.basicsByIds).mockResolvedValue([row]);
+    await expect(roadJobService.basics(COMPANY, [JOB, JOB, "no id"])).resolves.toEqual([row]);
+    expect(shipmentRepository.basicsByIds).toHaveBeenCalledWith(COMPANY, [JOB]);
   });
 });

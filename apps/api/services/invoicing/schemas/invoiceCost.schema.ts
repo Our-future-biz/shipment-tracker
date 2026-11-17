@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, uuid, integer, boolean, index, date, timestamp, check } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, integer, boolean, index, date, timestamp, check, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { supplierInvoiceTable } from "./supplierInvoice.schema";
 
 export const invoiceCostTable = pgTable(
   "invoice_cost",
@@ -62,6 +63,12 @@ export const invoiceCostTable = pgTable(
      * invoice, a master job's split) never lands on it, so it is neither overwritten nor taken for that cost.
      */
     postedFromLines: boolean("posted_from_lines").notNull().default(false),
+    /**
+     * The supplier invoice the line is billed on (Accounts Payable): set for every live line entered here with
+     * an invoice number, by its supplier and number (repositories/supplierInvoice.repository sync). Null for an estimate, and
+     * for Trucking's rows and a master job's shares, whose invoices are kept elsewhere.
+     */
+    supplierInvoiceId: uuid("supplier_invoice_id"),
   },
   (table) => [
     ...defaultTableIndexes("invoice_cost", table),
@@ -86,6 +93,8 @@ export const invoiceCostTable = pgTable(
     index("invoice_cost_haulier_used_idx").on(table.companyId, table.haulierId).where(sql`deleted_at IS NULL AND haulier_id IS NOT NULL`),
     // A cost is paid only once its invoice was received (also when two people change it at once).
     check("invoice_cost_paid_check", sql`${table.paidOn} IS NULL OR ${table.received}`),
+    index("invoice_cost_supplier_invoice_idx").on(table.supplierInvoiceId).where(sql`supplier_invoice_id IS NOT NULL`),
+    foreignKey({ columns: [table.supplierInvoiceId], foreignColumns: [supplierInvoiceTable.id], name: "invoice_cost_supplier_invoice_fk" }).onDelete("set null"),
   ],
 );
 

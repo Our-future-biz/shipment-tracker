@@ -125,3 +125,42 @@ export interface HaulierInvoiceCandidate {
   /** Already on another invoice that is not rejected (and not approved yet) */
   alreadyInvoiced: boolean;
 }
+
+/**
+ * A haulier invoice as Finance → Accounts Payable reads it (read only: every action stays in Trucking). The status
+ * and block reasons are as Trucking shows them, an open invoice's worked out now; no lines, only what they add up to.
+ */
+export interface HaulierInvoiceFact {
+  id: string;
+  haulierCustomerId: string;
+  haulierName: string;
+  invoiceNumber: string;
+  /** YYYY-MM-DD (always set on a Trucking invoice) */
+  issueDate: string | null;
+  dueDate: string | null;
+  /** Datum uskutečnění zdanitelného plnění */
+  duzp: string | null;
+  currency: "CZK" | "EUR";
+  net: number;
+  vat: number;
+  /** With VAT */
+  gross: number;
+  status: HaulierInvoiceStatus;
+  /** Why payment may not be approved (BLOCKED) */
+  blockReasons: string[];
+  /** ISO time; null until approved */
+  approvedAt: string | null;
+  approvedBy: string;
+  /** ISO time; null unless rejected */
+  rejectedAt: string | null;
+  rejectReason: string;
+  /** YYYY-MM-DD; null while unpaid */
+  paidOn: string | null;
+  paidBy: string;
+  /** What its lines claim against the haulier, in all (0 if nothing) */
+  claimed: number;
+  /** The trips (LCZ…) and partner deliveries (TCZ…) its lines bill */
+  refs: string[];
+  /** ISO time */
+  createdAt: string;
+}

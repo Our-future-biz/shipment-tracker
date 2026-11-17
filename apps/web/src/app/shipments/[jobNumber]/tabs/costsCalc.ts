@@ -50,6 +50,9 @@ export interface BuyingRow {
   /** Who noted it paid (e-mail) and when (ISO); "" / null while unpaid. */
   paidBy: string;
   paidAt: string | null;
+  /** The supplier invoice on Finance → Accounts Payable the line is on (once it has an invoice number); null
+   *  otherwise. Its payment is noted there, for the whole invoice (Council Outlay 9, D11). */
+  supplierInvoiceId: string | null;
 }
 
 export interface SellingRow {

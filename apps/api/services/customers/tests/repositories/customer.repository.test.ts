@@ -48,3 +48,19 @@ describe("pipelineList", () => {
     expect(Object.keys(fake.state.reads[0]!.fields)).toEqual(["id", "companyName", "status", "label", "salesOwner", "roles", "createdAt"]);
   });
 });
+
+describe("supplierFactsOf", () => {
+  const ID = "0b6a1c1e-1111-4a4a-8a8a-000000000001";
+
+  it("reads only live companies of the company among the ids", async () => {
+    await customerRepository.supplierFactsOf(COMPANY, [ID]);
+    const { sql, params } = new PgDialect().sqlToQuery(fake.state.reads[0]!.where as SQL);
+    expect(sql).toBe('("customer"."company_id" = $1 and "customer"."id" in ($2) and "customer"."deleted_at" is null)');
+    expect(params).toEqual([COMPANY, ID]);
+  });
+
+  it("asks nothing for no id", async () => {
+    await expect(customerRepository.supplierFactsOf(COMPANY, [])).resolves.toEqual([]);
+    expect(fake.state.reads).toEqual([]);
+  });
+});

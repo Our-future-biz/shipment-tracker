@@ -17,6 +17,7 @@ import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
 import { SoldAtCostAmount, SoldAtCostRemove } from "./SoldAtCostAmount";
 import { invalidateInvoicingDerived } from "@/hooks/useInvoiceQueue";
+import { supplierInvoiceKeys } from "@/hooks/supplierInvoiceKeys";
 import { invoicePdfSource, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { billingDocs, isOpenInvoice, notInvoicedMark } from "@/app/invoicing/_lib/openInvoices";
@@ -31,6 +32,7 @@ import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { isDetailsManager } from "@/lib/shipmentEditRule";
 import { SupplierPicker, type SupplierValue } from "@/components/SupplierPicker";
 import { CostPaidCell } from "./CostPaidCell";
+import { apInvoiceHref } from "./supplierInvoiceLink";
 import { SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import { CurrencyPicker } from "@/components/CurrencyPicker";
@@ -162,7 +164,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   /* Row locking: a filled row turns read-only once left, a double-click opens it again.
      The ids of unlocked rows are kept; every other filled row is locked. */
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
-  // A billed shipment's buying stays shut (buyLocked); its selling rows open as anywhere until invoiced.
+  // A billed shipment's buying stays shut (buyLocked) but for its invoice number (D6); its selling rows open as anywhere until invoiced.
   const unlock = (id: string) => setUnlocked((p) => new Set(p).add(id));
   const lock = (id: string) => setUnlocked((p) => {
     const n = new Set(p);
@@ -274,6 +276,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     queryClient.invalidateQueries({ queryKey: ["supplier-usage"] });
     return queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
   };
+  // A buying line is matched to its supplier invoice on Finance → Accounts Payable by its number (Council Outlay 9):
+  // a change of one books, moves or sends back for approval an invoice there, so those lists refresh too.
+  const invalidateBuy = () => {
+    queryClient.invalidateQueries({ queryKey: supplierInvoiceKeys.all });
+    return invalidate();
+  };
 
   /** A failed write must be shown — it used to be swallowed, and the button seemed to do nothing. */
   const showError = (what: string) => (e: unknown) => {
@@ -310,18 +318,18 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       realQty: "1", realCurrency: billingCur,
       sortOrder: buyRows.length,
     }),
-    onSuccess: (res) => { unlock(res.cost.id); return invalidate(); },
+    onSuccess: (res) => { unlock(res.cost.id); return invalidateBuy(); },
     onError: showError("Could not add the buying cost"),
   });
   const updateBuy = useMutation({
     mutationFn: async ({ id, ...params }: { id: string } & controllers.UpdateBuyingRequest) =>
       api.invoicing.invoicingUpdateBuyingCost(shipment.id, id, cleanAmounts(params)),
-    onSuccess: invalidate,
+    onSuccess: invalidateBuy,
     onError: showError("Could not save the change"),
   });
   const deleteBuy = useMutation({
     mutationFn: (id: string) => api.invoicing.invoicingDeleteBuyingCost(shipment.id, id),
-    onSuccess: invalidate,
+    onSuccess: invalidateBuy,
     onError: showError("Could not delete the row"),
   });
 
@@ -483,7 +491,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
-    await invalidate();
+    await invalidateBuy();
   };
 
   // Remembered once it is deleted, as a buying row is: a row the server kept (one on an issued
@@ -525,7 +533,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     await Promise.all(buyRows.flatMap((row, i) => i > index && ownRow(row)
       ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
-    await invalidate();
+    await invalidateBuy();
   };
 
   // A copy of a row on an issued invoice is a new charge, not one more line of the same: it is not
@@ -555,7 +563,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const changeInvoiceNumber = (r: BuyingRow, field: HTMLInputElement) => {
     const value = field.value;
     if (value === r.invoiceNumber) return;
-    const save = () => updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() });
+    // A refused number (a paid supplier invoice's line, …) shows the stored one again; onError says why.
+    const save = () =>
+      updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() }, { onError: () => { field.value = r.invoiceNumber; } });
     if (value.trim() || !r.paidOn) return save();
     modal.confirm({
       title: "Take back the payment?",
@@ -627,7 +637,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     setQuoteErr("");
     try {
       const copied = await api.invoicing.invoicingImportQuote(shipment.id, { quoteNumber, target: "both", force: quoteAgain || undefined });
-      invalidate();
+      invalidateBuy();
       const counts = [
         copied.buying ? `${copied.buying} buying` : "",
         copied.selling ? `${copied.selling} selling` : "",
@@ -678,7 +688,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
           showIcon
           icon={<LockOutlined />}
           message="This shipment is billed: what is invoiced is locked"
-          description="The rows on the issued invoice and the buying costs stay as they are until the invoice is credited. Selling rows can still be added and changed: they go on the next invoice. A supplier's invoice can still be posted through Document / Text Reading, and paid dates can still be noted."
+          description="The rows on the issued invoice and the buying costs stay as they are until the invoice is credited. Selling rows can still be added and changed: they go on the next invoice. A supplier's invoice that comes later can still be booked on its line: its invoice number, here or through Document / Text Reading. Its payment is noted on Finance → Accounts Payable."
         />
       )}
       {/* ═══════════ 1. BUYING COSTS ═══════════ */}
@@ -754,8 +764,13 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       <td className={`${CELL} text-center`}>
                         <span className="inline-flex items-center gap-1.5">
                           <Checkbox checked={r.received} disabled aria-label="Supplier invoice received" />
-                          <Checkbox checked={!!r.paidOn} disabled aria-label="Supplier invoice paid" />
+                          {r.supplierInvoiceId ? (
+                            <CostPaidCell received={r.received} receivedAt={r.receivedAt} paidOn={r.paidOn} paidBy={r.paidBy} paidAt={r.paidAt} supplierInvoiceId={r.supplierInvoiceId} onChange={() => undefined} />
+                          ) : (
+                            <Checkbox checked={!!r.paidOn} disabled aria-label="Supplier invoice paid" />
+                          )}
                         </span>
+                        {r.supplierInvoiceId && <ApInvoiceLink id={r.supplierInvoiceId} />}
                       </td>
                       <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-900`}>{buyRowTotal(r)}</td>
                       <td className={CELL} />
@@ -763,7 +778,6 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   );
                 }
                 const locked = buyLocked(r);
-                const fld = lockedField(locked);
                 const fromQuote = quoteRefs.get(r.id);
                 // the quote's fields look like text and do not open, whatever the rest of the row does
                 const fixed = lockedField(locked || !!fromQuote);
@@ -771,11 +785,25 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 // one typed before the quote's lines came stays open until it is cleared
                 const estClosed = !!fromQuote || (quotePriced && !num(r.estQty) && !num(r.estAmount));
                 const est = lockedField(locked || estClosed);
+                // A line of a supplier invoice marked paid stays as paid: its real cost, number and vendor are
+                // refused until the payment is taken back on Finance → Accounts Payable (Council Outlay 9, D11).
+                const invoicePaid = !!r.supplierInvoiceId && !!r.paidOn;
+                const realLocked = locked || invoicePaid;
+                const real = lockedField(realLocked);
+                // On a billed shipment the invoice number stays open (D6): a supplier's invoice that comes after
+                // the billing is booked on the line it bills, and Received follows it as anywhere.
+                const numberLocked = billed ? invoicePaid : realLocked;
                 return (
                 <tr
                   key={r.id}
                   className={`hover:bg-slate-50/60 ${locked && !billed ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
-                  title={billed ? "Billed: the buying costs stay as they are until the invoice is credited" : locked ? "Double-click to edit" : undefined}
+                  title={
+                    billed
+                      ? `Billed: the buying costs stay as they are until the invoice is credited${invoicePaid ? "" : " - a supplier's invoice number can still be filled in"}`
+                      : invoicePaid
+                        ? "On a supplier invoice marked paid: its real cost, invoice number and vendor stay as paid until the payment is taken back on Finance → Accounts Payable"
+                        : locked ? "Double-click to edit" : undefined
+                  }
                   data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
                   {...rowKeys(r.id, locked)}
@@ -804,7 +832,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     />
                   </td>
                   <td className={CELL}>
-                    <VendorCell row={r} locked={locked} className={fld} onSave={(change, onFailed) => updateBuy.mutate({ id: r.id, ...change }, { onError: onFailed })} />
+                    <VendorCell row={r} locked={realLocked} className={real} onSave={(change, onFailed) => updateBuy.mutate({ id: r.id, ...change }, { onError: onFailed })} />
                   </td>
                   {/* Estimated */}
                   <td className={CELL}>
@@ -837,8 +865,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   {/* Real */}
                   <td className={`${CELL} ${SPLIT}`}>
                     <input
-                      className={`${FIELD} text-center${fld}`}
-                      {...closed(locked)}
+                      className={`${FIELD} text-center${real}`}
+                      {...closed(realLocked)}
                       defaultValue={amountInBox(r.realQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
@@ -855,8 +883,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     }
                   >
                     <input
-                      className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
-                      {...closed(locked)}
+                      className={`${FIELD} text-right${real} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
+                      {...closed(realLocked)}
                       defaultValue={amountInBox(r.realAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
@@ -864,13 +892,14 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker locked={locked} value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
+                    <CurrencyPicker locked={realLocked} value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD}${fld}`}
-                      {...closed(locked)}
+                      className={`${FIELD}${lockedField(numberLocked)}`}
+                      {...closed(numberLocked)}
                       defaultValue={r.invoiceNumber}
+                      aria-label="Invoice number"
                       onBlur={(e) => changeInvoiceNumber(r, e.target)}
                     />
                   </td>
@@ -888,9 +917,11 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         paidOn={r.paidOn}
                         paidBy={r.paidBy}
                         paidAt={r.paidAt}
+                        supplierInvoiceId={r.supplierInvoiceId}
                         onChange={(paidOn) => updateBuy.mutate({ id: r.id, paidOn })}
                       />
                     </span>
+                    {r.supplierInvoiceId && <ApInvoiceLink id={r.supplierInvoiceId} />}
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-900`}>{buyRowTotal(r)}</td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
@@ -1572,6 +1603,17 @@ function QuoteProfitRows({ quoteRef, data, loading, rates, profitCZK, hasAny }: 
         ))}
       </tr>
     </>
+  );
+}
+
+// Where a line's supplier invoice is paid (Council Outlay 9, D11): Accounts Payable, opened on that invoice.
+function ApInvoiceLink({ id }: { id: string }) {
+  return (
+    <Tooltip title="Its payment is noted for the whole invoice on Finance → Accounts Payable">
+      <Link href={apInvoiceHref(id)} className={`${LINK} block mt-0.5 text-[11px] leading-[14px]`}>
+        Accounts Payable
+      </Link>
+    </Tooltip>
   );
 }
 

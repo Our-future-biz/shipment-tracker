@@ -64,14 +64,16 @@ const NAV_ITEMS: NavItem[] = [
   },
   { path: "/tariffs", label: "Tariffs", icon: ReceiptIcon, description: "Our suppliers' tariffs, by kind of transport.", children: TARIFF_NAV },
   { path: "/documents", label: "Document / Text Reading", icon: FileMagnifyingGlassIcon },
-  // Finance's pages keep their own addresses (/invoicing, /exchange); /finance is its overview.
+  // Finance's pages keep their own addresses (/invoicing, /accounts-payable, /exchange); /finance is its
+  // overview. Accounts Payable sits right after Invoicing, its sibling for invoices received (Council Outlay 9, D4).
   {
     path: "/finance",
     label: "Finance",
     icon: CurrencyCircleDollarIcon,
-    description: "Invoicing of the jobs, and the exchange rates the app works with.",
+    description: "Invoicing of the jobs, the invoices from suppliers (Accounts Payable), and the exchange rates the app works with.",
     children: [
       { path: "/invoicing", label: "Invoicing", description: "Invoices to customers for the jobs." },
+      { path: "/accounts-payable", label: "Accounts Payable", description: "Invoices from suppliers: booked, approved, refused, claimed and paid." },
       { path: "/exchange", label: "Exchange", description: "The exchange rates amounts are converted with." },
     ],
   },

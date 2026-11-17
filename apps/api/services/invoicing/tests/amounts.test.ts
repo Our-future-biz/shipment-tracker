@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
+// Accounts Payable's record is matched after each cost write (services/supplierInvoice): stood in for here.
+vi.mock("../services/supplierInvoice.service", () => ({ supplierInvoiceService: { beforeLineChange: vi.fn(async () => undefined), afterLineWrite: vi.fn(async () => []) } }));
+vi.mock("../repositories/supplierInvoice.repository", () => ({
+  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined) },
+}));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({ APIError: { invalidArgument: (msg: string) => new Error(msg) } }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));

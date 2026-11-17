@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anyToSplit, blKey, invoicePostLines, lineAmount, lineFlagged, linesTotals, lineTarget, matchLine, matchNote, namesBls, SPLIT_TARGET, type BlShipment, type InvoiceLineDraft, creditAmount, creditLines, creditLinesAbove0, invoiceLinesInvalid } from "./invoiceLines";
+import { anyToSplit, blKey, invoicePostLines, lineAmount, lineFlagged, linesTotals, lineTarget, matchLine, matchNote, namesBls, SPLIT_TARGET, type BlShipment, type InvoiceLineDraft, creditAmount, creditLines, creditLinesAbove0, invoiceLinesInvalid, invoiceDocumentDetails, readDay } from "./invoiceLines";
 
 const shipments: BlShipment[] = [
   { shipmentId: "s1", jobNumber: "CZ00000001", houseBol: "GLSL26060771" },
@@ -260,5 +260,40 @@ describe("a credit note", () => {
   it("keeps a charge among the credits, so the lines still add up to the credit", () => {
     expect(creditLines([draft("100"), draft("-10")]).map((l) => l.amount)).toEqual(["-100.00", "10.00"]);
     expect(creditLines([draft("-100"), draft("10")]).map((l) => l.amount)).toEqual(["-100", "10"]);
+  });
+});
+
+describe("the document as a whole (Accounts Payable D6)", () => {
+  it("reads a day as the reader writes it, or as printed, into yyyy-mm-dd", () => {
+    expect(readDay("17/11/2026")).toBe("2026-11-17");
+    expect(readDay("7.1.2026")).toBe("2026-01-07");
+    expect(readDay(" 2026-11-17 ")).toBe("2026-11-17");
+  });
+
+  it("leaves out a day that is none", () => {
+    expect(readDay("31/02/2026")).toBe("");
+    expect(readDay("Nov 17, 2026")).toBe("");
+    expect(readDay("")).toBe("");
+    expect(readDay(undefined)).toBe("");
+  });
+
+  it("sends the days, the grand total and the currency read", () => {
+    expect(invoiceDocumentDetails({ invoice_date: "17/11/2026", due_date: "01/12/2026", total_amount: "1,177.20", currency: "eur" }, false)).toEqual({
+      issueDate: "2026-11-17",
+      dueDate: "2026-12-01",
+      totalGross: "1177.20",
+      currency: "EUR",
+    });
+  });
+
+  it("leaves out what was not read, or makes no sense", () => {
+    expect(invoiceDocumentDetails({}, false)).toEqual({});
+    expect(invoiceDocumentDetails({ total_amount: "ten", currency: "€", due_date: "soon" }, false)).toEqual({});
+    expect(invoiceDocumentDetails({ total_amount: "-50" }, false)).toEqual({});
+  });
+
+  it("sends a credit note's total minus, as its rows are posted", () => {
+    expect(invoiceDocumentDetails({ total_amount: "250.00" }, true)).toEqual({ totalGross: "-250.00" });
+    expect(invoiceDocumentDetails({ total_amount: "-250" }, true)).toEqual({ totalGross: "-250.00" });
   });
 });

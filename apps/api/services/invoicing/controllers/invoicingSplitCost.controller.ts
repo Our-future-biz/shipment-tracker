@@ -18,10 +18,20 @@ interface SplitCostRequest {
   overwriteShipmentIds?: string[];
   /** only answer the split, write nothing */
   dryRun?: boolean;
+  /** the supplier picked from the Customer Database: every part links it and is booked Received (Accounts Payable) */
+  supplierCustomerId?: string & MaxLen<64>;
+  /** refuse the post without a supplier picked */
+  requireSupplier?: boolean;
+  /** as read from the document (yyyy-mm-dd; a decimal string), kept on its Accounts Payable record */
+  issueDate?: string & MaxLen<20>;
+  dueDate?: string & MaxLen<20>;
+  totalGross?: string & MaxLen<20>;
 }
 
 interface SplitCostResponse {
   lines: CostSplitResultLine[];
+  /** the supplier invoice on Accounts Payable the parts are booked on; null for a dry run */
+  supplierInvoiceId: string | null;
 }
 
 /**
@@ -33,7 +43,9 @@ interface SplitCostResponse {
 export const invoicingSplitCost = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/cost-split" },
   async (req: SplitCostRequest): Promise<SplitCostResponse> => {
-    return { lines: await invoicingService.splitCost(getAuthData()!.companyID, req) };
+    const lines = await invoicingService.splitCost(getAuthData()!.companyID, req, getAuthData()!.userID);
+    const supplierInvoiceId = req.dryRun ? null : await invoicingService.bookedSplit(getAuthData()!.companyID, req);
+    return { lines, supplierInvoiceId };
   },
 );
 
@@ -45,7 +57,6 @@ export const invoicingSplitCost = api(
  */
 export const invoicingPostInvoiceLines = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/invoice-lines" },
-  async (req: InvoiceLinesInput): Promise<{ rows: InvoiceLinesRow[] }> => ({
-    rows: await invoicingService.postInvoiceLines(getAuthData()!.companyID, req),
-  }),
+  async (req: InvoiceLinesInput): Promise<{ rows: InvoiceLinesRow[]; supplierInvoiceId: string | null }> =>
+    invoicingService.postInvoiceLines(getAuthData()!.companyID, req, getAuthData()!.userID),
 );

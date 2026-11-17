@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Buying costs posted by charge code (master jobs, document reading) and the split of one
 // invoice over shipments, run for real against an in-memory stand-in for the cost lines.
+// Accounts Payable's record is matched after each cost write (services/supplierInvoice): stood in for here.
+vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceService: { beforeLineChange: vi.fn(async () => undefined), afterLineWrite: vi.fn(async () => []) } }));
+vi.mock("../../repositories/supplierInvoice.repository", () => ({
+  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined) },
+}));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 const customerGet = vi.hoisted(() => vi.fn());
@@ -56,6 +61,7 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
     sourceTruckingRef: null,
     sourceMasterJobRef: null,
     postedFromLines: false,
+    supplierInvoiceId: null,
   });
   return {
     rows,

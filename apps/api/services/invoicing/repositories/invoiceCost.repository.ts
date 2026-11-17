@@ -306,7 +306,16 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
     companyId: string,
     invoiceNumber: string,
     rows: InvoiceRowWrite[],
-    opts: { vendor: string; fillEstimates: boolean; allowRepeat: boolean; check: () => Promise<void> },
+    opts: {
+      vendor: string;
+      fillEstimates: boolean;
+      allowRepeat: boolean;
+      check: () => Promise<void>;
+      /** The supplier picked for the invoice (Accounts Payable D13): every row written links it */
+      supplierCustomerId?: string | null;
+      /** The invoice came (D6): every row written is ticked Received, stamped now unless it was already */
+      received?: boolean;
+    },
   ): Promise<"repeated" | { ontoEstimate: boolean[] }> {
     return this.db.transaction(async (tx) => {
       const shipmentIds = [...new Set(rows.map((r) => r.shipmentId))].sort();
@@ -335,6 +344,8 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
                 postedFromLines: true,
                 updatedAt: new Date(),
                 ...(vendor ? { vendor, supplierCustomerId: sql`CASE WHEN ${t.vendor} = ${vendor} THEN ${t.supplierCustomerId} ELSE NULL END` } : {}),
+                ...(opts.supplierCustomerId ? { supplierCustomerId: opts.supplierCustomerId } : {}),
+                ...(opts.received ? { received: true, receivedAt: sql`coalesce(${t.receivedAt}, now())` } : {}),
               })
               // Open still: someone may have typed a real cost on it since it was read.
               .where(and(eq(t.id, estimateId), eq(t.companyId, companyId), eq(t.shipmentId, row.shipmentId), OPEN_ESTIMATE))
@@ -353,7 +364,16 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
         const values = fresh.map((row) => {
           const sortOrder = next.get(row.shipmentId) ?? 0;
           next.set(row.shipmentId, sortOrder + 1);
-          return { ...row, companyId, vendor, invoiceNumber, postedFromLines: true, sortOrder };
+          return {
+            ...row,
+            companyId,
+            vendor,
+            invoiceNumber,
+            postedFromLines: true,
+            sortOrder,
+            ...(opts.supplierCustomerId ? { supplierCustomerId: opts.supplierCustomerId } : {}),
+            ...(opts.received ? { received: true, receivedAt: new Date() } : {}),
+          };
         });
         await tx.insert(t).values(values);
       }
@@ -367,7 +387,7 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
    * rows of an invoice or credit note read line by line (postedFromLines): a later invoice never
    * overwrites them, and a credit is never taken for the real cost a shipment already has.
    */
-  async findByCategory(shipmentId: string, companyId: string, category: string): Promise<InvoiceCostRecord | null> {
+  async findByCategory(shipmentId: string, companyId: string, category: string, invoiceNumber?: string): Promise<InvoiceCostRecord | null> {
     const [row] = await this.db
       .select()
       .from(t)
@@ -380,6 +400,8 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
           isNull(t.sourceTruckingRef),
           isNull(t.sourceMasterJobRef),
           eq(t.postedFromLines, false),
+          // The line that invoice is on already (Accounts Payable D19: posted again, it goes onto its own line).
+          invoiceNumber === undefined ? undefined : sql`upper(regexp_replace(${t.invoiceNumber}, '[[:space:]]+', '', 'g')) = ${invoiceNumberKey(invoiceNumber)}`,
         ),
       )
       .orderBy(asc(t.sortOrder), asc(t.createdAt))

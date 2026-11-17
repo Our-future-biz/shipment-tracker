@@ -1,12 +1,27 @@
-import { eq, and, isNull, asc, sql } from "drizzle-orm";
+import { eq, and, or, isNull, asc, inArray, sql, type SQL } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentClaimTable, type NewShipmentClaimRecord, type ShipmentClaimRecord } from "../schemas/shipmentClaim.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 
-/** The fields of a claim a user fills in. */
+/** The fields of a claim a user fills in, and the stamps of closing one. */
 export type ClaimFields = Partial<
-  Pick<NewShipmentClaimRecord, "cargoState" | "note" | "supplier" | "invoiceNumber" | "reason" | "amount" | "noticeDate">
+  Pick<
+    NewShipmentClaimRecord,
+    | "cargoState"
+    | "note"
+    | "supplier"
+    | "invoiceNumber"
+    | "reason"
+    | "amount"
+    | "noticeDate"
+    | "supplierInvoiceId"
+    | "claimAmount"
+    | "claimCurrency"
+    | "status"
+    | "closedAt"
+    | "closedBy"
+  >
 >;
 
 const claimOf = (id: string, shipmentId: string, companyId: string) =>
@@ -30,6 +45,40 @@ class ShipmentClaimRepository extends TenantRepository<typeof shipmentClaimTable
       .orderBy(asc(shipmentClaimTable.createdAt));
   }
 
+  /** One live claim of the shipment. */
+  async findClaim(id: string, shipmentId: string, companyId: string): Promise<ShipmentClaimRecord | null> {
+    const [row] = await this.db.select().from(shipmentClaimTable).where(claimOf(id, shipmentId, companyId)).limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * The company's live claims on costs of live shipments that are on any of `shipmentIds` or raised
+   * against any of `supplierInvoiceIds`, the oldest first. A deleted shipment's claims are not shown,
+   * so they hold no supplier invoice either. Nothing is read when both lists are empty.
+   */
+  async listCostClaims(companyId: string, shipmentIds: string[], supplierInvoiceIds: string[]): Promise<ShipmentClaimRecord[]> {
+    const matches: SQL[] = [];
+    if (shipmentIds.length) matches.push(inArray(shipmentClaimTable.shipmentId, shipmentIds));
+    if (supplierInvoiceIds.length) matches.push(inArray(shipmentClaimTable.supplierInvoiceId, supplierInvoiceIds));
+    if (!matches.length) return [];
+    const rows = await this.db
+      .select({ claim: shipmentClaimTable })
+      .from(shipmentClaimTable)
+      .innerJoin(shipmentTable, eq(shipmentTable.id, shipmentClaimTable.shipmentId))
+      .where(
+        and(
+          eq(shipmentClaimTable.companyId, companyId),
+          eq(shipmentClaimTable.kind, "cost"),
+          isNull(shipmentClaimTable.deletedAt),
+          eq(shipmentTable.companyId, companyId),
+          isNull(shipmentTable.deletedAt),
+          or(...matches),
+        ),
+      )
+      .orderBy(asc(shipmentClaimTable.createdAt), asc(shipmentClaimTable.id));
+    return rows.map((r) => r.claim);
+  }
+
   async updateClaim(id: string, shipmentId: string, companyId: string, data: ClaimFields): Promise<ShipmentClaimRecord | null> {
     const [row] = await this.db
       .update(shipmentClaimTable)
@@ -51,7 +100,8 @@ class ShipmentClaimRepository extends TenantRepository<typeof shipmentClaimTable
 
   /**
    * Keeps the shipment's "Claim" field in step with its claims: Yes while at
-   * least one claim row has something filled in, No otherwise. A row freshly
+   * least one claim row has something filled in (a supplier invoice or a claimed
+   * amount among them), No otherwise. A row freshly
    * added with "+" is still blank and does not count. A deleted shipment is
    * left as it was deleted.
    */
@@ -64,7 +114,8 @@ class ShipmentClaimRepository extends TenantRepository<typeof shipmentClaimTable
           WHERE c.shipment_id = ${shipmentId}
             AND c.company_id = ${companyId}
             AND c.deleted_at IS NULL
-            AND btrim(c.cargo_state || c.note || c.supplier || c.invoice_number || c.reason || c.amount) <> ''
+            AND (btrim(c.cargo_state || c.note || c.supplier || c.invoice_number || c.reason || c.amount || c.claim_currency) <> ''
+              OR c.supplier_invoice_id IS NOT NULL OR c.claim_amount IS NOT NULL)
         ) THEN 'Yes' ELSE 'No' END`,
       })
       .where(and(eq(shipmentTable.id, shipmentId), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));

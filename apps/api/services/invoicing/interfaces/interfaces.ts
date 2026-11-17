@@ -27,6 +27,8 @@ export interface InvoiceCostItem {
   haulierId: string | null;
   /** the supplier `vendor` names when it was picked from the Customer Database; null for a vendor only typed */
   supplierCustomerId: string | null;
+  /** The supplier invoice (Finance → Accounts Payable) the line is on; null for a line with no invoice number yet. Its payment is noted there. */
+  supplierInvoiceId: string | null;
   sortOrder: number;
   /** The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then. */
   sourceTruckingRef: string | null;
@@ -223,6 +225,14 @@ export interface CostSplitInput {
   overwriteShipmentIds?: string[];
   /** only answer the split, write nothing */
   dryRun?: boolean;
+  /** the supplier picked from the Customer Database: every part links it, and is booked Received (Accounts Payable D6, D13) */
+  supplierCustomerId?: string;
+  /** refuse the post without a supplier picked (Document Reading's new invoices) */
+  requireSupplier?: boolean;
+  /** as read from the document as a whole (yyyy-mm-dd; a decimal string), kept on its Accounts Payable record */
+  issueDate?: string;
+  dueDate?: string;
+  totalGross?: string;
 }
 
 /** One line of an invoice read line by line. */
@@ -265,6 +275,17 @@ export interface InvoiceLinesInput {
   allowRepeat?: boolean;
   /** only answer what it comes to, write nothing */
   dryRun?: boolean;
+  /** the supplier picked from the Customer Database: every row links it (Accounts Payable D13) */
+  supplierCustomerId?: string & MaxLen<64>;
+  /** refuse the post without a supplier picked (Document Reading's new invoices) */
+  requireSupplier?: boolean;
+  /** as read from the document as a whole (yyyy-mm-dd; decimal strings), kept on its Accounts Payable record */
+  issueDate?: string & MaxLen<20>;
+  dueDate?: string & MaxLen<20>;
+  totalNet?: string & MaxLen<20>;
+  vatAmount?: string & MaxLen<20>;
+  totalGross?: string & MaxLen<20>;
+  currency?: string & MaxLen<10>;
 }
 
 /** A buying row an invoice comes to. */
@@ -277,6 +298,8 @@ export interface InvoiceLinesRow {
   repeated: boolean;
   /** the real cost goes onto the shipment's estimate of the charge (one with no real cost or invoice yet), not a new row */
   ontoEstimate: boolean;
+  /** the same supplier's invoice of this number is booked already on other jobs: posting it needs allowRepeat */
+  bookedElsewhere: boolean;
 }
 
 /** A shipment's part of a split cost. */
@@ -1079,4 +1102,211 @@ export interface InvoiceChangeRequestItem {
   comment: string;
   selfDecision: boolean;
   answerSeenAt: string | null;
+}
+
+// ── Accounts Payable (Council Outlay 9, 17 Nov 2026) ──
+
+export type PayableStatus = "booked" | "approved" | "refused";
+export type PayableMarkItem =
+  | "not_linked"
+  | "vat_unreliable"
+  | "account_not_published"
+  | "bank_changed"
+  | "supplier_pending"
+  | "supplier_declined"
+  | "low_rating"
+  | "no_terms"
+  | "same_number_other_supplier";
+
+/** One line of a supplier invoice: a cost on a job, or on a master job. */
+export interface PayableLineItem {
+  lineId: string;
+  /** "job" = a shipment's Costs Breakdown line; "master_job" = a master job's line (shared out to its jobs) */
+  kind: "job" | "master_job";
+  shipmentId: string | null;
+  masterJobId: string | null;
+  /** The job's or master job's number */
+  jobNumber: string;
+  customer: string;
+  category: string;
+  description: string;
+  /** What the line was estimated at, in its estimate currency (null: no estimate) */
+  estimate: number | null;
+  estCurrency: string;
+  /** What the invoice bills on the line */
+  amount: number | null;
+  currency: string;
+  /** amount − estimate, when both are in one currency */
+  difference: number | null;
+  /** The job's Invoicing Status (Invoiced: its customer was billed) */
+  jobInvoicingStatus: string;
+}
+
+export interface PayableClaimItem {
+  id: string;
+  shipmentId: string;
+  /** open | accepted | rejected | withdrawn */
+  status: string;
+  reason: string;
+  claimAmount: string | null;
+  claimCurrency: string;
+  /** The amount as it was typed before claims had a number */
+  amountText: string;
+  /** Tied to this invoice (false: matched by the job and the number typed) */
+  linked: boolean;
+}
+
+/** A supplier invoice as Accounts Payable lists it. */
+export interface PayableInvoiceItem {
+  id: string;
+  supplierCustomerId: string | null;
+  haulierId: string | null;
+  /** The supplier's name: the Customer Database's, else as written on the lines */
+  supplier: string;
+  vendor: string;
+  invoiceNumber: string;
+  kind: "invoice" | "credit_note";
+  issueDate: string | null;
+  /** The due day: the invoice's own, else the booked day plus the supplier's payment days */
+  due: string | null;
+  dueSource: "invoice" | "terms" | "none";
+  daysOverdue: number;
+  /** The day it was booked (yyyy-mm-dd) */
+  bookedOn: string;
+  /** What its lines bill, per currency, without VAT */
+  amounts: { currency: string; amount: number }[];
+  /** As read from the document (null: not read) */
+  totalNet: string | null;
+  vatAmount: string | null;
+  totalGross: string | null;
+  currency: string;
+  status: PayableStatus;
+  paidOn: string | null;
+  paidBy: string;
+  decidedBy: string;
+  decidedAt: string | null;
+  decisionReason: string;
+  selfDecision: boolean;
+  source: "reading" | "typed" | "master_job" | "backfill";
+  enteredBy: string;
+  document: { shipmentId: string; attachmentId: string; name: string } | null;
+  lines: PayableLineItem[];
+  /** The job numbers it bills, in order */
+  jobs: string[];
+  marks: PayableMarkItem[];
+  claims: PayableClaimItem[];
+  /** An open claim disputes it (its payment is held) */
+  claimed: boolean;
+  /** The signed-in user is the Person in Charge or Holiday Cover of one of its jobs */
+  mine: boolean;
+  /** One of its lines bills more than estimated */
+  aboveEstimate: boolean;
+  /** One of its jobs is invoiced to the customer already */
+  jobBilled: boolean;
+  /** It was booked on or after the day one of its jobs was first invoiced to the customer: a cost that came after billing */
+  arrivedAfterBilling: boolean;
+  version: number;
+}
+
+/** An estimated cost no invoice has come for yet (the Expected tab: what to accrue at month-end). */
+export interface PayableExpectedItem {
+  lineId: string;
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  category: string;
+  description: string;
+  vendor: string;
+  supplierCustomerId: string | null;
+  estimate: number;
+  currency: string;
+  jobStatus: string;
+  /** The job's ETD (export) or ETA (import) month is not known here: the job's created day is the closest */
+  createdOn: string;
+  mine: boolean;
+  jobBilled: boolean;
+}
+
+/** A haulier invoice from Trucking, as Accounts Payable shows it (read-only; acted on in Trucking). */
+export interface PayableHaulierItem {
+  id: string;
+  haulierCustomerId: string;
+  haulierName: string;
+  invoiceNumber: string;
+  issueDate: string | null;
+  dueDate: string | null;
+  currency: string;
+  net: number;
+  vat: number;
+  gross: number;
+  /** Trucking's own status (DRAFT, NEEDS_APPROVAL, BLOCKED, APPROVED, REJECTED…) */
+  status: string;
+  paidOn: string | null;
+  claimed: number;
+  refs: string[];
+  daysOverdue: number;
+}
+
+export interface PayableCounts {
+  all: number;
+  toPay: number;
+  overdue: number;
+  toApprove: number;
+  refused: number;
+  claimed: number;
+  paid: number;
+  expected: number;
+}
+
+export interface PayablesResponse {
+  invoices: PayableInvoiceItem[];
+  expected: PayableExpectedItem[];
+  /** More invoices than the list holds: the oldest are left out */
+  truncated: boolean;
+  haulier: { status: "included" | "hidden" | "unavailable"; invoices: PayableHaulierItem[]; truncated: boolean };
+  counts: PayableCounts;
+  /** Per currency, without VAT: what is still to pay, what of it is overdue, and what is expected */
+  totals: { toPay: { currency: string; amount: number }[]; overdue: { currency: string; amount: number }[]; expected: { currency: string; amount: number }[] };
+  dueThisWeek: number;
+  /** Whether the signed-in user may approve, refuse and mark paid (a manager) */
+  canDecide: boolean;
+  today: string;
+}
+
+export interface PayableEventItem {
+  id: string;
+  action: string;
+  fromStatus: string;
+  toStatus: string;
+  by: string;
+  reason: string;
+  payload: Record<string, unknown>;
+  at: string;
+}
+
+export interface PayableDetailResponse {
+  invoice: PayableInvoiceItem;
+  events: PayableEventItem[];
+  /** The lines as they were when it was refused */
+  refusedLines: { kind: "job" | "master_job"; ownerId: string; category: string; description: string; amount: number | null; currency: string }[];
+  canDecide: boolean;
+}
+
+/** What the bell shows of Accounts Payable. */
+export interface PayableNoticeItem {
+  invoiceId: string;
+  supplier: string;
+  invoiceNumber: string;
+  jobs: string[];
+  amounts: { currency: string; amount: number }[];
+  aboveEstimate: boolean;
+  jobBilled: boolean;
+  bookedAt: string;
+}
+
+export interface PayablesForMeResponse {
+  /** Invoices waiting for a manager's approval (0 for anyone else) */
+  toApprove: number;
+  /** Invoices booked in the last 7 days on jobs the user is Person in Charge or Holiday Cover of, not yet opened */
+  booked: PayableNoticeItem[];
 }

@@ -17,6 +17,6 @@ interface UpsertCostResponse {
 export const invoicingUpsertCost = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/costs" },
   async ({ shipmentId, category, ...input }: UpsertCostRequest): Promise<UpsertCostResponse> => {
-    return { cost: await invoicingService.upsertCost(shipmentId, getAuthData()!.companyID, category, input) };
+    return { cost: await invoicingService.upsertCost(shipmentId, getAuthData()!.companyID, category, input, getAuthData()!.userID) };
   },
 );

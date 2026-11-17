@@ -18,6 +18,7 @@ import type {
   HaulierInvoice,
   HaulierInvoiceCandidate,
   HaulierInvoiceCounts,
+  HaulierInvoiceFact,
   HaulierInvoiceInput,
   HaulierInvoiceLineInput,
   HaulierInvoiceStatus,
@@ -151,6 +152,50 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
     createdAt: r.createdAt.toISOString(),
     createdBy: r.createdBy,
     version: r.version,
+  };
+}
+
+/** At most this many invoices are handed to Accounts Payable at once (and handed when it does not say). */
+const MAX_FACTS = 1000;
+/** At most this many open invoices are read to work their status out when only some open statuses are asked for. */
+const MAX_OPEN_READ = 10_000;
+/** What a partner delivery's line ref adds to the consignment ref ("TCZ… partner delivery"). */
+const PARTNER_SUFFIX = partnerLegRef("");
+
+/** A whole number from `min` to `max`; `fallback` when not given. */
+function wholeIn(value: unknown, min: number, max: number, fallback: number, what: string): number {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) throw bad(`${what} must be a whole number from ${min} to ${max}`);
+  return value;
+}
+
+/** The invoice as Accounts Payable reads it: what it owes and where it stands, its lines only added up. */
+function toFact(inv: HaulierInvoice): HaulierInvoiceFact {
+  // The bare trip / consignment refs (LCZ…, TCZ…), each once, so Finance can find them in Trucking.
+  const refs = [...new Set(inv.lines.map((l) => (l.target.ref.endsWith(PARTNER_SUFFIX) ? l.target.ref.slice(0, -PARTNER_SUFFIX.length) : l.target.ref)).filter(Boolean))];
+  return {
+    id: inv.id,
+    haulierCustomerId: inv.haulierCustomerId,
+    haulierName: inv.haulierName,
+    invoiceNumber: inv.invoiceNumber,
+    issueDate: inv.issueDate,
+    dueDate: inv.dueDate,
+    duzp: inv.duzp,
+    currency: inv.currency,
+    net: inv.totalNet,
+    vat: inv.vatAmount,
+    gross: inv.totalGross,
+    status: inv.status,
+    blockReasons: inv.blockReasons,
+    approvedAt: inv.approval?.at ?? null,
+    approvedBy: inv.approval?.byName ?? "",
+    rejectedAt: inv.rejection?.at ?? null,
+    rejectReason: inv.rejection?.reason ?? "",
+    paidOn: inv.payment?.paidOn ?? null,
+    paidBy: inv.payment?.byName ?? "",
+    claimed: round2(inv.lines.reduce((sum, l) => sum + l.claimed, 0)),
+    refs,
+    createdAt: inv.createdAt,
   };
 }
 
@@ -780,6 +825,51 @@ class HaulierInvoiceService {
       paymentTracked: paymentTracked({ paidOn: null, approvedAt: r.approvedAt }, since),
     }));
     return { invoices, truncated: rows.length > MAX_UNPAID };
+  }
+
+  /** Stored invoices as Trucking shows them: an open one's status and block reasons worked out against its haulier's profile now. */
+  private async shownAll(companyId: string, stored: StoredInvoice[]): Promise<HaulierInvoice[]> {
+    if (!stored.length) return [];
+    const [profiles, since] = await Promise.all([
+      haulierRepository.findMany(companyId, [...new Set(stored.map((s) => s.invoice.haulierCustomerId))]),
+      haulierInvoiceRepository.paymentTrackingSince(),
+    ]);
+    const profileOf = new Map(profiles.map((p) => [p.profile.customerId, toProfile(p)]));
+    return stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null, since));
+  }
+
+  /**
+   * The company's live invoices for Finance → Accounts Payable (read only), newest issued first: a page of them,
+   * how many match in all, and whether that is more than handed. Filtered by the status Trucking shows, so an
+   * open invoice is matched on its status worked out now, never the stored one. No statuses = every invoice.
+   */
+  async factsOf(
+    companyId: string,
+    req: { statuses?: unknown; limit?: unknown; offset?: unknown },
+  ): Promise<{ invoices: HaulierInvoiceFact[]; total: number; truncated: boolean }> {
+    if (req.statuses !== undefined && req.statuses !== null && !Array.isArray(req.statuses)) throw bad("Unknown status");
+    const asked = (req.statuses ?? []) as unknown[];
+    if (asked.some((s) => !INVOICE_STATUSES.includes(s as HaulierInvoiceStatus))) throw bad("Unknown status");
+    const wanted = asked.length ? [...new Set(asked as HaulierInvoiceStatus[])] : null;
+    const limit = wholeIn(req.limit, 1, MAX_FACTS, MAX_FACTS, "limit");
+    const offset = wholeIn(req.offset, 0, Number.MAX_SAFE_INTEGER, 0, "offset");
+
+    // An open invoice stays open when its status is worked out again (DRAFT, NEEDS_APPROVAL or BLOCKED among
+    // themselves), so the stored status filters exactly unless only some open statuses are asked for: then the
+    // open invoices are worked out first and the ones now in an asked status are matched by id.
+    let filter: { statuses?: HaulierInvoiceStatus[]; ids?: string[] } = wanted ? { statuses: wanted } : {};
+    let openCut = false;
+    const openWanted = (wanted ?? []).filter((s) => OPEN_STATUSES.includes(s));
+    if (openWanted.length && openWanted.length < OPEN_STATUSES.length) {
+      const open = await haulierInvoiceRepository.page(companyId, { statuses: OPEN_STATUSES }, MAX_OPEN_READ, 0);
+      openCut = open.total > open.stored.length;
+      const ids = (await this.shownAll(companyId, open.stored)).filter((inv) => openWanted.includes(inv.status)).map((inv) => inv.id);
+      filter = { statuses: wanted!.filter((s) => !OPEN_STATUSES.includes(s)), ids };
+    }
+    const { stored, total } = await haulierInvoiceRepository.page(companyId, filter, limit, offset);
+    // Worked out again for the page: one whose haulier changed between the two reads is left out, never mis-labelled.
+    const invoices = (await this.shownAll(companyId, stored)).filter((inv) => !wanted || wanted.includes(inv.status)).map(toFact);
+    return { invoices, total, truncated: openCut || offset + stored.length < total };
   }
 
   /**

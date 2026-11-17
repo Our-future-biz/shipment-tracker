@@ -13,6 +13,8 @@ interface CostPaidCellProps {
   paidOn: string;
   paidBy: string;
   paidAt: string | null;
+  /** The supplier invoice on Finance → Accounts Payable the line is on; its payment is noted there (D11). */
+  supplierInvoiceId?: string | null;
   /** A day marks it paid, "" takes the payment back. */
   onChange: (paidOn: string) => void;
 }
@@ -21,7 +23,9 @@ interface CostPaidCellProps {
 // (today by default, never after it, K5, nor before the day its invoice was received, C-8), with who noted it
 // and when shown once paid (K6). A click only opens the box, so a row is never paid or unpaid by an
 // accidental click.
-export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, onChange }: CostPaidCellProps) {
+// A line on a supplier invoice (Council Outlay 9, D11) shows its payment as it is: Paid is noted once for the
+// whole invoice on Finance → Accounts Payable, and the server refuses it on the line.
+export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, supplierInvoiceId, onChange }: CostPaidCellProps) {
   const [open, setOpen] = useState(false);
   const [day, setDay] = useState<Dayjs | null>(null);
   const today = dayjs(businessToday());
@@ -39,6 +43,18 @@ export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, onC
   }
 
   const who = paidOn ? [paidBy, paidAt ? businessDateTime(paidAt) : ""].filter(Boolean).join(", ") : "";
+
+  if (supplierInvoiceId) {
+    return (
+      <Tooltip
+        title={`${paidOn ? `Paid on ${formatDate(paidOn)}${who ? ` · ${who}` : ""}` : "Unpaid"}. Its payment is noted for the whole invoice on Finance → Accounts Payable.`}
+      >
+        <span>
+          <Checkbox checked={!!paidOn} disabled aria-label={paidOn ? `Paid on ${formatDate(paidOn)}, noted on Accounts Payable` : "Unpaid, noted on Accounts Payable"} />
+        </span>
+      </Tooltip>
+    );
+  }
   const save = (value: string) => {
     onChange(value);
     setOpen(false);

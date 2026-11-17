@@ -19,8 +19,9 @@ import {
 } from "antd";
 import { BarChartOutlined, DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, apiErrorMessage } from "@/lib/api";
-import type { interfaces } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { CANCELLED_STATUS, FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber, sameMczNumber } from "@/lib/mcz";
@@ -29,6 +30,8 @@ import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipm
 import { ShipmentPicker } from "@/app/sales/quote/[ref]/_components/CopyFromModal";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
 import { invoicingKey } from "@/hooks/useInvoicing";
+import { supplierInvoiceKeys } from "@/hooks/supplierInvoiceKeys";
+import type { SupplierValue } from "@/components/SupplierPicker";
 import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/lib/documentTypes";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
@@ -95,7 +98,7 @@ import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
 import { InvoiceHeaderFields } from "./InvoiceHeaderFields";
-import { anyToSplit, creditAmount, creditLines, invoiceLinesInvalid, invoicePostLines, lineAmount, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
+import { anyToSplit, creditAmount, creditLines, invoiceDocumentDetails, invoiceLinesInvalid, invoicePostLines, lineAmount, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
 import { shipmentFreight } from "@/lib/freightTons";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
@@ -106,7 +109,8 @@ const HBL_PREFETCH_AHEAD = 3;
 
 const DESTINATION_OPTIONS = [
   { value: "shipment", label: "Shipments" },
-  { value: "invoicing", label: "Invoicing" },
+  // Booked on Finance → Accounts Payable as the supplier's invoice (Council Outlay 9, D18); the value stays.
+  { value: "invoicing", label: "Supplier invoice" },
   { value: "quote", label: "Quote" },
   { value: "masterjob", label: "Master Job" },
   { value: "booking", label: "Booking Confirmation" },
@@ -116,7 +120,7 @@ const DESTINATION_OPTIONS = [
 const DESTINATION_HINT: Record<Destination, string> = {
   shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns; an uploaded file is also saved to the shipment's documents.",
   invoicing:
-    "Extract cost data (invoice, debit note) — amount, vendor, invoice number — into one shipment, or split it over the shipments of a master job.",
+    "Extract a supplier's invoice (or debit note) — amount, supplier, invoice number — into one shipment, or split it over the shipments of a master job. It is booked on Finance → Accounts Payable.",
   quote: "Read a customer's request (inquiry email, rate request, packing list) into a Sales quote: customer, route, cargo and readiness date. Prices are not read.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ); each House B/L's pages are saved to its shipment's documents.",
   booking: "Read a carrier's booking confirmation into a new or an existing Master Job (MCZ); its details also reach the master job's shipments.",
@@ -179,12 +183,16 @@ async function withPartyLinks<T extends { shipper?: string; consignee?: string; 
 
 export function DocumentReadingWorkflow() {
   const toast = useToast();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { shipments, createShipment, updateShipment, linkMasterJob } = useShipments();
   const quoteReading = useQuoteReading();
+  const searchParams = useSearchParams();
 
   // Workflow
-  const [destination, setDestination] = useState<Destination>("shipment");
+  // Accounts Payable's "Read an invoice" opens the page with ?destination=invoicing (Council Outlay 9, the page):
+  // read once, as the first choice; any other value is ignored and the user changes it as ever.
+  const [destination, setDestination] = useState<Destination>(() => (searchParams.get("destination") === "invoicing" ? "invoicing" : "shipment"));
   const [inputMode, setInputMode] = useState<InputMode>("file");
   const [step, setStep] = useState<Step>("upload");
   const [error, setError] = useState<string | null>(null);
@@ -253,11 +261,21 @@ export function DocumentReadingWorkflow() {
   const [splitPreview, setSplitPreview] = useState<interfaces.CostSplitResultLine[] | null>(null);
   const [splitError, setSplitError] = useState("");
   const [splitSaving, setSplitSaving] = useState(false);
-  const [splitDone, setSplitDone] = useState<{ written: string[]; kept: string[]; docs: number } | null>(null);
+  // What a post came to; supplierInvoiceId is its Accounts Payable record, docFiled whether the PDF is kept there.
+  const [splitDone, setSplitDone] = useState<{
+    written: string[];
+    kept: string[];
+    docs: number;
+    supplierInvoiceId: string | null;
+    docFiled: boolean;
+  } | null>(null);
   // The invoice's charge rows, when it lists them: naming a B/L, it is sorted by them (invoiceLines).
   const [invoiceLines, setInvoiceLines] = useState<InvoiceLineDraft[]>([]);
   const [linesPreview, setLinesPreview] = useState<interfaces.InvoiceLinesRow[] | null>(null);
   const [allowRepeat, setAllowRepeat] = useState(false);
+  // The supplier the invoice is booked for, picked from the Customer Database (Council Outlay 9, D13); its
+  // name is invoiceData.vendor. null until picked: each new read starts without one.
+  const [invoiceSupplierId, setInvoiceSupplierId] = useState<string | null>(null);
   // The invoice listed more charge rows than one reading holds: only its header was read.
   const [invoiceLinesSkipped, setInvoiceLinesSkipped] = useState(false);
 
@@ -361,21 +379,28 @@ export function DocumentReadingWorkflow() {
   const invoiceTotal = lineAmount(invoiceData.total_amount) ?? 0;
   // As read, or as the user chose it: "" while there is none to post.
   const invoiceCurrency = readCurrency(invoiceData.currency);
-  // The split as the server will post it; asked as a dry run while the user reviews.
-  const splitRequest = useMemo(
-    () =>
-      splitMethod && invoiceCategory && invoiceTotal > 0 && invoiceCurrency && invoiceData.invoice_number?.trim() && invoiceTicked.size > 0
-        ? {
-            category: invoiceCategory,
-            total: invoiceTotal.toFixed(2),
-            currency: invoiceCurrency,
-            invoiceNumber: invoiceData.invoice_number.trim(),
-            vendor: invoiceData.vendor?.trim() || undefined,
-            lines: splitLines(invoiceRows, invoiceTicked, splitMethod),
-          }
-        : null,
-    [splitMethod, invoiceCategory, invoiceTotal, invoiceCurrency, invoiceData.invoice_number, invoiceData.vendor, invoiceRows, invoiceTicked],
-  );
+  // The split as the server will post it; asked as a dry run while the user reviews. Booked on Accounts
+  // Payable like an invoice posted line by line: for the supplier picked (D13), with what was read of the
+  // document as a whole (D6; its currency is the split's own). A split is never a credit note.
+  const splitRequest = useMemo((): controllers.SplitCostRequest | null => {
+    if (!(splitMethod && invoiceCategory && invoiceTotal > 0 && invoiceCurrency && invoiceData.invoice_number?.trim() && invoiceTicked.size > 0)) return null;
+    const { issueDate, dueDate, totalGross } = invoiceDocumentDetails(
+      { invoice_date: invoiceData.invoice_date, due_date: invoiceData.due_date, total_amount: invoiceData.total_amount },
+      false,
+    );
+    return {
+      category: invoiceCategory,
+      total: invoiceTotal.toFixed(2),
+      currency: invoiceCurrency,
+      invoiceNumber: invoiceData.invoice_number.trim(),
+      vendor: invoiceData.vendor?.trim() || undefined,
+      lines: splitLines(invoiceRows, invoiceTicked, splitMethod),
+      ...(invoiceSupplierId ? { supplierCustomerId: invoiceSupplierId } : {}),
+      ...(issueDate ? { issueDate } : {}),
+      ...(dueDate ? { dueDate } : {}),
+      ...(totalGross ? { totalGross } : {}),
+    };
+  }, [splitMethod, invoiceCategory, invoiceTotal, invoiceCurrency, invoiceData.invoice_number, invoiceData.vendor, invoiceData.invoice_date, invoiceData.due_date, invoiceData.total_amount, invoiceSupplierId, invoiceRows, invoiceTicked]);
   const splitReady = !!splitRequest && invoiceMissingWm.length === 0;
   // An invoice whose lines name a B/L goes line by line; W/M or per shipment is only for what can't be placed.
   const invoiceByBl = invoiceToMaster && namesBls(invoiceLines);
@@ -411,11 +436,19 @@ export function DocumentReadingWorkflow() {
     const invoiceNumber = invoiceData.invoice_number?.trim();
     if (!invoiceNumber) return null;
     const vendor = invoiceData.vendor?.trim() || undefined;
+    // Booked on Accounts Payable for the supplier picked (D13), with what was read of the document as a whole (D6).
+    const booking = {
+      ...(invoiceSupplierId ? { supplierCustomerId: invoiceSupplierId } : {}),
+      ...invoiceDocumentDetails(
+        { invoice_date: invoiceData.invoice_date, due_date: invoiceData.due_date, total_amount: invoiceData.total_amount, currency: invoiceCurrency },
+        creditNote,
+      ),
+    };
     const onMaster = invoiceToMaster ? { masterJobId: invoiceMasterJobId, splitMethod: splitMethod ?? undefined } : {};
     if (invoiceToMaster && !invoiceMasterJobId) return null;
     if (invoiceByBl) {
       const lines = invoicePostLines(invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency);
-      return lines ? { invoiceNumber, vendor, lines, creditNote, ...onMaster } : null;
+      return lines ? { invoiceNumber, vendor, lines, creditNote, ...onMaster, ...booking } : null;
     }
     // An invoice for one shipment, or a credit note without B/Ls, is one line: on its shipment, or a
     // credit note's shared out as an invoice would be. Its amount goes as the plain decimal the server
@@ -423,16 +456,29 @@ export function DocumentReadingWorkflow() {
     const amount = creditNote ? creditAmount(invoiceData.total_amount) : invoiceTotal > 0 ? invoiceTotal.toFixed(2) : "";
     if (!invoiceCategory || !invoiceCurrency || !(creditNote ? Number(amount) < 0 : Number(amount) > 0)) return null;
     const line = { category: invoiceCategory, amount, currency: invoiceCurrency, item: invoiceData.description?.trim().slice(0, 300) || undefined };
-    if (!invoiceToMaster) return invoiceTargetShipmentId ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, shipmentId: invoiceTargetShipmentId }] } : null;
+    if (!invoiceToMaster) return invoiceTargetShipmentId ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, shipmentId: invoiceTargetShipmentId }], ...booking } : null;
     // A master job's invoice without B/Ls is split by splitRequest.
     if (!creditNote) return null;
     const split = splitMethod ? splitLines(lineRows, lineTicked, splitMethod) : [];
-    return split.some((l) => l.weight > 0) ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, split }], ...onMaster } : null;
-  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceMasterJobId, invoiceTargetShipmentId, invoiceCategory, invoiceTotal, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency]);
+    return split.some((l) => l.weight > 0) ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, split }], ...onMaster, ...booking } : null;
+  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceMasterJobId, invoiceTargetShipmentId, invoiceCategory, invoiceTotal, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceData.invoice_date, invoiceData.due_date, invoiceSupplierId, invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency]);
+  const editInvoiceData = (patch: Partial<InvoiceExtracted>) => setInvoiceData((d) => ({ ...d, ...patch }));
   const linesReady = !!linesRequest && !linesInvalid && (!linesToSplit || lineMissingWm.length === 0);
   const linesRepeated = !!linesPreview?.some((r) => r.repeated);
+  // The same supplier's invoice of this number is booked already on other jobs: maybe the same invoice read
+  // twice. Like a repeat, it is posted only once the user says so (allowRepeat).
+  const linesBookedElsewhere = !!linesPreview?.some((r) => r.bookedElsewhere);
+  const linesNeedAllow = linesRepeated || linesBookedElsewhere;
+  // Every supplier invoice, posted line by line or split, is booked on Accounts Payable for a supplier of
+  // the Customer Database only (D13).
+  const supplierMissing = destination === "invoicing" && !invoiceSupplierId;
+  const pickSupplier = (next: SupplierValue) => {
+    editInvoiceData({ vendor: next.name });
+    // Another supplier is another check of where its invoice is booked: a "post anyway" given before is asked again.
+    if (next.supplierCustomerId !== invoiceSupplierId) setAllowRepeat(false);
+    setInvoiceSupplierId(next.supplierCustomerId);
+  };
   const postShipments = new Set(linesPreview?.map((r) => r.shipmentId)).size;
-  const editInvoiceData = (patch: Partial<InvoiceExtracted>) => setInvoiceData((d) => ({ ...d, ...patch }));
   const invoiceTotalValid = creditNote ? invoiceTotal !== 0 : invoiceTotal > 0;
   // What one shipment's review shows of the reading beside the fields the user corrects.
   const invoiceReadOnly = Object.entries(invoiceData)
@@ -446,33 +492,36 @@ export function DocumentReadingWorkflow() {
       return next;
     });
 
-  // The file Review offers to save to the shipment: the uploaded invoice of a master job, or
-  // the current House B/L's own pages of a pre-alert. A Shipments read saves its files
-  // through shipmentDocs instead (pasted text has no file).
+  // The file Review offers to save to the shipment: the uploaded invoice (of one shipment or a master
+  // job: its PDF is also kept with the invoice on Accounts Payable, D18), or the current House B/L's own
+  // pages of a pre-alert. A Shipments read saves its files through shipmentDocs instead (pasted text has no file).
   const masterDoc = destination === "masterjob" ? masterDocs[masterIdx] ?? null : null;
   const docToSave =
-    invoiceToMaster && inputMode === "file" && fileBase64
+    destination === "invoicing" && inputMode === "file" && fileBase64
       ? { base64: fileBase64, type: fileMeta.type, size: fileMeta.size, name: fileName }
       : masterDoc
         ? { base64: masterDoc.fileBase64, type: masterDoc.fileType, size: masterDoc.fileSize, name: masterDoc.fileName }
         : null;
   // A pre-alert's shipments share the Master B/L and the booking, so only the House B/L names one.
   const docFields = masterDoc ? masterFields.filter((f) => f.column === "House BoL Number") : fields;
-  // A master job's vendor invoice is named after its invoice number and filed among the
-  // suppliers' invoices by its cost category (Seafreight Charges, …), else as "Other" - never as
+  // A supplier's invoice is named after its invoice number and filed among the suppliers'
+  // invoices by its cost category (Seafreight Charges, …), else as "Other" - never as
   // "Invoice", which customs would take for the shipment's commercial invoice.
   const docName =
     docNameEdit ??
     (!docToSave
       ? ""
-      : invoiceToMaster
+      : destination === "invoicing"
         ? numberedFileName(invoiceData.invoice_number ?? "", docToSave.name)
         : savedDocumentName(docFields, docToSave.name));
   const docType =
-    docTypeEdit ?? (invoiceToMaster ? supplierInvoiceType(invoiceCategory) || "Other" : suggestedDocumentType(docFields, docToSave?.name ?? ""));
+    docTypeEdit ??
+    (destination === "invoicing" ? supplierInvoiceType(invoiceCategory) || "Other" : suggestedDocumentType(docFields, docToSave?.name ?? ""));
   const docNumberLabel = documentNumber(docFields).label;
   const docHint = invoiceToMaster
-    ? `Saved to each ticked shipment the invoice is posted to, named after the invoice number. Original file: ${fileName}`
+    ? `Saved to each ticked shipment the ${docWord.toLowerCase()} is posted to, named after the invoice number. The first copy is kept with it on Accounts Payable. Original file: ${fileName}`
+    : invoiceToShipment
+    ? `Saved to ${invoiceShipment?.jobNumber || "the shipment"}'s documents, named after the invoice number, and kept with the ${docWord.toLowerCase()} on Accounts Payable. Original file: ${fileName}`
     : masterDoc
     ? `${masterDoc.pages.length === 1 ? "Page" : "Pages"} ${masterDoc.pages.join(", ")} of ${masterDoc.sourceFileName}, named after the House B/L number.`
     : docNumberLabel
@@ -512,6 +561,9 @@ export function DocumentReadingWorkflow() {
     if (shipmentMode === "new") return `New shipment ${committedJobNumber} created`;
     return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
   })();
+  // Where a post is booked on Finance → Accounts Payable (D6), and whether its PDF is kept there (D18).
+  const payablesNote = (done: { supplierInvoiceId: string | null; docFiled: boolean }) =>
+    done.supplierInvoiceId ? ` Booked on Accounts Payable as Received${done.docFiled ? ", with its PDF" : ""}.` : "";
   const successSubtitle =
     destination === "masterjob"
       ? masterCreatedJobs.length > 0
@@ -519,12 +571,13 @@ export function DocumentReadingWorkflow() {
           (masterDocsSaved > 0 ? ` · ${masterDocsSaved} House B/L${masterDocsSaved !== 1 ? "s" : ""} saved to their shipments' documents` : "")
         : `Master Job ${activeMcz}`
       : creditNote && splitDone
-        ? `${splitDone.written.length > 1 ? "Each has a new buying row" : "It has a new buying row"} with the minus amount.${splitDone.docs > 0 ? ` The credit note is in the documents of ${splitDone.docs} shipment${splitDone.docs !== 1 ? "s" : ""}.` : ""}`
+        ? `${splitDone.written.length > 1 ? "Each has a new buying row" : "It has a new buying row"} with the minus amount.${splitDone.docs > 0 ? ` The credit note is in the documents of ${splitDone.docs} shipment${splitDone.docs !== 1 ? "s" : ""}.` : ""}${payablesNote(splitDone)}`
       : destination === "invoicing" && splitDone
         ? [
             splitDone.written.length > 0 && `Real cost posted to ${splitDone.written.join(", ")}.`,
             splitDone.kept.length > 0 && `${splitDone.kept.join(", ")} kept the cost they had.`,
             splitDone.docs > 0 && `The invoice is in the documents of ${splitDone.docs} shipment${splitDone.docs !== 1 ? "s" : ""}.`,
+            payablesNote(splitDone).trim(),
           ]
             .filter(Boolean)
             .join(" ")
@@ -717,6 +770,8 @@ export function DocumentReadingWorkflow() {
         setInvoiceLines(creditNote ? creditLines(readLines) : readLines);
         setInvoiceLinesSkipped(!!result.invoiceLinesSkipped);
         setAllowRepeat(false);
+        // Picked for this invoice only: the next one's vendor may be another company.
+        setInvoiceSupplierId(null);
         setStep("review");
       } else if (destination === "customs") {
         const result =
@@ -882,16 +937,16 @@ export function DocumentReadingWorkflow() {
 
   // Saves a read file to the shipment's documents: by default the one shown on Review, when the
   // user left it ticked. The shipment's customs status follows its documents as for any other
-  // upload. A failure doesn't undo the fields already written. True when a document was saved.
+  // upload. A failure doesn't undo the fields already written. The saved attachment's id, null when none was saved.
   const saveReadDocument = async (
     shipmentId: string,
     jobNumber: string,
     doc = docToSave && saveDocument ? { ...docToSave, name: docName.trim(), documentType: docType } : null,
-  ): Promise<boolean> => {
-    if (!doc) return false;
+  ): Promise<string | null> => {
+    if (!doc) return null;
     const name = doc.name;
     try {
-      await api.shipments.attachmentCreate(shipmentId, {
+      const { attachment } = await api.shipments.attachmentCreate(shipmentId, {
         fileName: name,
         fileSize: doc.size,
         fileType: doc.type || "application/octet-stream",
@@ -900,9 +955,25 @@ export function DocumentReadingWorkflow() {
       });
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
-      return true;
+      return attachment.id;
     } catch {
       toast.error(`The fields were written, but ${name} could not be saved to ${jobNumber || "the shipment"}. Add it on its Documents tab.`);
+      return null;
+    }
+  };
+
+  // The read PDF, saved to a shipment's documents, is kept with the invoice's Accounts Payable record too (D18),
+  // so it opens from its row. The invoice stays booked when this fails: only said. True when it is kept.
+  const keepWithInvoice = async (supplierInvoiceId: string, saved: { shipmentId: string; attachmentId: string }): Promise<boolean> => {
+    const name = docName.trim();
+    try {
+      await api.invoicing.supplierInvoiceDocument(supplierInvoiceId, { ...saved, name });
+      queryClient.invalidateQueries({ queryKey: supplierInvoiceKeys.all });
+      return true;
+    } catch (err) {
+      toast.warning(
+        `The ${docWord.toLowerCase()} is booked, but ${name} could not be kept with it on Accounts Payable (${apiErrorMessage(err)}). It is in ${jobOf(saved.shipmentId)}'s documents.`,
+      );
       return false;
     }
   };
@@ -926,7 +997,8 @@ export function DocumentReadingWorkflow() {
     };
   }, [step, invoiceToMaster, postsLines, splitReady, splitRequest]);
 
-  // What each shipment gets from the lines (asked of the server without writing anything).
+  // What each shipment gets from the lines (asked of the server without writing anything). Asked before a
+  // supplier is picked too (without requireSupplier), so the review shows it; the post itself requires one.
   useEffect(() => {
     if (step !== "review" || !postsLines || !linesReady || !linesRequest) {
       setLinesPreview(null);
@@ -959,14 +1031,25 @@ export function DocumentReadingWorkflow() {
     if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
     setSplitSaving(true);
     try {
-      const { rows } = await api.invoicing.invoicingPostInvoiceLines({ ...linesRequest, allowRepeat });
+      // A new invoice is booked for a supplier of the Customer Database: the server refuses it without one (D13).
+      const { rows, supplierInvoiceId } = await api.invoicing.invoicingPostInvoiceLines({ ...linesRequest, allowRepeat, requireSupplier: true });
       const posted = [...new Set(rows.map((r) => r.shipmentId))];
       for (const id of posted) queryClient.invalidateQueries({ queryKey: invoicingKey(id) });
+      // Booked on Accounts Payable as Received (D6): its list, the bell and Billing approvals follow.
+      queryClient.invalidateQueries({ queryKey: supplierInvoiceKeys.all });
       if (invoiceToShipment) setCommittedJobNumber(jobOf(invoiceTargetShipmentId));
-      // The invoice goes to the documents of each shipment it was posted to.
+      // The invoice goes to the documents of each shipment it was posted to, and the first copy is kept with
+      // its Accounts Payable record (D18).
       let docs = 0;
-      for (const id of posted) if (await saveReadDocument(id, jobOf(id))) docs += 1;
-      setSplitDone({ written: posted.map(jobOf), kept: [], docs });
+      let first: { shipmentId: string; attachmentId: string } | null = null;
+      for (const id of posted) {
+        const attachmentId = await saveReadDocument(id, jobOf(id));
+        if (!attachmentId) continue;
+        docs += 1;
+        first ??= { shipmentId: id, attachmentId };
+      }
+      const docFiled = !!supplierInvoiceId && !!first && (await keepWithInvoice(supplierInvoiceId, first));
+      setSplitDone({ written: posted.map(jobOf), kept: [], docs, supplierInvoiceId, docFiled });
       setStep("committed");
     } catch (err) {
       toast.error(`Failed to post the ${docWord.toLowerCase()}: ${apiErrorMessage(err)}`);
@@ -981,17 +1064,34 @@ export function DocumentReadingWorkflow() {
     if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
     setSplitSaving(true);
     try {
-      const { lines } = await api.invoicing.invoicingSplitCost({ ...splitRequest, overwriteShipmentIds: [...splitOverwrite] });
+      // Refused without a supplier, as a post line by line is (D13); the dry run asks without requireSupplier.
+      const { lines, supplierInvoiceId } = await api.invoicing.invoicingSplitCost({
+        ...splitRequest,
+        overwriteShipmentIds: [...splitOverwrite],
+        requireSupplier: true,
+      });
       const jobOf = (id: string) => invoiceRows.find((r) => r.shipmentId === id)?.jobNumber ?? id;
       const written = lines.filter((l) => l.written);
       for (const l of written) queryClient.invalidateQueries({ queryKey: invoicingKey(l.shipmentId) });
-      // The invoice goes to the documents of each shipment it was posted to.
+      // Booked on Accounts Payable as Received (D6): its list, the bell and Billing approvals follow.
+      queryClient.invalidateQueries({ queryKey: supplierInvoiceKeys.all });
+      // The invoice goes to the documents of each shipment it was posted to, and the first copy is kept with
+      // its Accounts Payable record (D18).
       let docs = 0;
-      for (const l of written) if (await saveReadDocument(l.shipmentId, jobOf(l.shipmentId))) docs += 1;
+      let first: { shipmentId: string; attachmentId: string } | null = null;
+      for (const l of written) {
+        const attachmentId = await saveReadDocument(l.shipmentId, jobOf(l.shipmentId));
+        if (!attachmentId) continue;
+        docs += 1;
+        first ??= { shipmentId: l.shipmentId, attachmentId };
+      }
+      const docFiled = !!supplierInvoiceId && !!first && (await keepWithInvoice(supplierInvoiceId, first));
       setSplitDone({
         written: written.map((l) => jobOf(l.shipmentId)),
         kept: lines.filter((l) => !l.written).map((l) => jobOf(l.shipmentId)),
         docs,
+        supplierInvoiceId,
+        docFiled,
       });
       setStep("committed");
     } catch (err) {
@@ -1351,6 +1451,7 @@ export function DocumentReadingWorkflow() {
     setInvoiceLinesSkipped(false);
     setLinesPreview(null);
     setAllowRepeat(false);
+    setInvoiceSupplierId(null);
     setInvoiceCategory("");
     setInvoiceShipment(null);
     setInvoiceTarget("shipment");
@@ -1385,15 +1486,22 @@ export function DocumentReadingWorkflow() {
     </p>
   );
 
-  const repeatedAlert = linesRepeated && (
+  // A repeat on these shipments, or the same supplier's invoice booked on another job (Accounts Payable):
+  // either is posted only once the user ticks it.
+  const repeatedAlert = linesNeedAllow && (
     <Alert
       className="mb-3"
       type="warning"
       showIcon
-      message={`${docWord} ${invoiceData.invoice_number ?? ""} is already on these shipments under the same charge`}
+      message={
+        <>
+          {linesRepeated && <div>{`${docWord} ${invoiceData.invoice_number ?? ""} is already on these shipments under the same charge`}</div>}
+          {linesBookedElsewhere && <div>{`This supplier's ${docWord.toLowerCase()} ${invoiceData.invoice_number ?? ""} is booked already on another job`}</div>}
+        </>
+      }
       description={
         <Checkbox checked={allowRepeat} onChange={(e) => setAllowRepeat(e.target.checked)}>
-          Post it again anyway (it would count twice)
+          {linesRepeated ? "Post it again anyway (it would count twice)" : "Post it anyway (it is another invoice, or it is shared by the jobs)"}
         </Checkbox>
       }
     />
@@ -1828,7 +1936,14 @@ export function DocumentReadingWorkflow() {
         <SectionCard title={`${docWord} for master job ${invoiceMcz}`}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           {linesSkippedAlert}
-          <InvoiceHeaderFields docWord={docWord} data={invoiceData} onChange={editInvoiceData} totalValid={invoiceTotalValid} className="mb-4" />
+          <InvoiceHeaderFields
+            docWord={docWord}
+            data={invoiceData}
+            onChange={editInvoiceData}
+            totalValid={invoiceTotalValid}
+            className="mb-4"
+            supplier={{ supplierCustomerId: invoiceSupplierId, onChange: pickSupplier }}
+          />
           {invoiceByBl ? (
             <>
               <InvoiceLinesTable
@@ -1923,7 +2038,7 @@ export function DocumentReadingWorkflow() {
             {postsLines ? (
               <Button
                 type="primary"
-                disabled={!linesReady || !linesPreview?.length || !!splitError || docNameMissing || (linesRepeated && !allowRepeat)}
+                disabled={!linesReady || !linesPreview?.length || !!splitError || docNameMissing || supplierMissing || (linesNeedAllow && !allowRepeat)}
                 loading={splitSaving}
                 onClick={commitInvoiceLines}
               >
@@ -1936,7 +2051,7 @@ export function DocumentReadingWorkflow() {
             ) : (
               <Button
                 type="primary"
-                disabled={!splitReady || !splitPreview || !!splitError || docNameMissing}
+                disabled={!splitReady || !splitPreview || !!splitError || docNameMissing || supplierMissing}
                 loading={splitSaving}
                 onClick={commitMasterInvoice}
               >
@@ -1952,7 +2067,13 @@ export function DocumentReadingWorkflow() {
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           {linesSkippedAlert}
           {invoiceReadOnly.length > 0 && <Descriptions bordered size="small" column={2} className="mb-4" items={invoiceReadOnly} />}
-          <InvoiceHeaderFields docWord={docWord} data={invoiceData} onChange={editInvoiceData} totalValid={invoiceTotalValid} />
+          <InvoiceHeaderFields
+            docWord={docWord}
+            data={invoiceData}
+            onChange={editInvoiceData}
+            totalValid={invoiceTotalValid}
+            supplier={{ supplierCustomerId: invoiceSupplierId, onChange: pickSupplier }}
+          />
           {creditNote && <p className={`mt-1.5 mb-0 ${HINT}`}>Deducted from buying as a minus, however it is printed.</p>}
           <div className="mt-4">
             <div className={`${LABEL_TEXT} mb-1.5`}>
@@ -1977,15 +2098,26 @@ export function DocumentReadingWorkflow() {
             {repeatedAlert}
             {splitError && <Alert className="mb-3" type="error" showIcon message={splitError} />}
           </div>
+          {docToSave && (
+            <SaveDocumentBox
+              checked={saveDocument}
+              onCheck={setSaveDocument}
+              name={docName}
+              onName={setDocNameEdit}
+              hint={docHint}
+              type={docType}
+              onType={setDocTypeEdit}
+            />
+          )}
           <div className="flex gap-2 mt-4">
             <Button onClick={() => setStep("upload")}>Back</Button>
             <Button
               type="primary"
-              disabled={!linesReady || !linesPreview?.length || !!splitError || (linesRepeated && !allowRepeat)}
+              disabled={!linesReady || !linesPreview?.length || !!splitError || docNameMissing || supplierMissing || (linesNeedAllow && !allowRepeat)}
               loading={splitSaving}
               onClick={commitInvoiceLines}
             >
-              {creditNote ? "Deduct from buying (Real Cost)" : "Write to invoicing (Real Cost)"}
+              {creditNote ? "Deduct from buying (Real Cost)" : "Book supplier invoice (Real Cost)"}
             </Button>
           </div>
         </SectionCard>
@@ -2222,6 +2354,11 @@ export function DocumentReadingWorkflow() {
                   New Extraction
                 </Button>
                 {destination === "quote" && quoteReading.written && <QuoteOpenButton quoteNumber={quoteReading.written.quoteNumber} />}
+                {destination === "invoicing" && splitDone?.supplierInvoiceId && (
+                  <Button onClick={() => router.push(`/accounts-payable?invoice=${encodeURIComponent(splitDone.supplierInvoiceId!)}`)}>
+                    Open in Accounts Payable
+                  </Button>
+                )}
               </Space>
             }
           />

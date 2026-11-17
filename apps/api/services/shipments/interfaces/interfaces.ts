@@ -474,6 +474,15 @@ export interface MasterJobInvoiceHouseItem extends MasterJobHouseItem {
   cancelled: boolean;
 }
 
+/** What Accounts Payable shows of a master job a supplier invoice is booked to. */
+export interface MasterJobBasics {
+  id: string;
+  /** The master job's own number, as the app shows it ("MCZ00000006") */
+  mczNumber: string;
+  /** The Person in Charge's e-mail as stored; "" when none */
+  personInCharge: string;
+}
+
 /** A house shipment as listed on its master job. */
 export interface MasterJobShipmentItem {
   id: string;
@@ -542,6 +551,13 @@ export interface CommentItem {
 /** cargo = claim on the shipment · cost = claim on a supplier's invoice */
 export type ClaimKind = "cargo" | "cost";
 
+/**
+ * Where a claim on costs stands: open = disputed with the supplier (it holds the supplier
+ * invoice's payment) · accepted = the supplier agreed, a credit note is expected · rejected = the
+ * supplier refused it · withdrawn = we dropped it.
+ */
+export type ClaimStatus = "open" | "accepted" | "rejected" | "withdrawn";
+
 /** One note of a shipment's notepad. */
 export interface ShipmentNoteItem {
   id: string;
@@ -588,11 +604,22 @@ export interface ClaimItem {
   supplier: string;
   invoiceNumber: string;
   reason: string;
-  /** Disputed amount, with currency. */
+  /** Disputed amount, with currency, as typed (free text). */
   amount: string;
   /** The day the carrier or supplier was given notice; null when not yet. */
   noticeDate: string | null;
   createdAt: string;
+  /** Of a claim on costs: the supplier invoice (invoicing's supplier_invoice id) it is raised against; null when none. */
+  supplierInvoiceId: string | null;
+  /** The claimed amount as a decimal ("120.50"); null when not given. */
+  claimAmount: string | null;
+  /** 3-letter currency of claimAmount; "" when not given. */
+  claimCurrency: string;
+  status: ClaimStatus;
+  /** When it was accepted, rejected or withdrawn; null while open. */
+  closedAt: string | null;
+  /** Who closed it, by e-mail; "" while open. */
+  closedBy: string;
 }
 
 export interface ClaimInput {
@@ -604,6 +631,35 @@ export interface ClaimInput {
   amount?: string;
   /** yyyy-mm-dd; "" takes it back */
   noticeDate?: string;
+  /** Claims on costs only: the supplier invoice's id; "" unties it. */
+  supplierInvoiceId?: string;
+  /** Claims on costs only: a decimal with at most 2 places ("120.50"); "" clears it. */
+  claimAmount?: string;
+  /** Claims on costs only: a 3-letter code ("EUR"); "" clears it. */
+  claimCurrency?: string;
+  /** Claims on costs only. Accepted, rejected or withdrawn closes it (stamped when and by whom); open reopens it. */
+  status?: string;
+}
+
+/** A live claim on costs, as Accounts Payable (the invoicing service) reads it. */
+export interface CostClaimFact {
+  id: string;
+  shipmentId: string;
+  /** The supplier invoice it is raised against; null when it is not tied to one yet. */
+  supplierInvoiceId: string | null;
+  supplier: string;
+  invoiceNumber: string;
+  reason: string;
+  /** The disputed amount as typed (free text, from before claimAmount). */
+  amount: string;
+  /** The claimed amount as a decimal ("120.50"); null when not given. */
+  claimAmount: string | null;
+  claimCurrency: string;
+  /** open | accepted | rejected | withdrawn: an open claim holds the invoice's payment. */
+  status: string;
+  /** YYYY-MM-DD; null when no notice was given yet. */
+  noticeDate: string | null;
+  createdAt: string;
 }
 
 /** Unread chat messages of one shipment, for the user asking. */
@@ -854,6 +910,12 @@ export interface RoadJobBasics {
   plannedDeliveryDate: string | null;
   /** The owning department ("Road Department", …); Trucking bills other departments internally */
   department: string;
+  /** The Person in Charge's e-mail as stored; "" when none */
+  personInCharge: string;
+  /** The Holiday Cover's e-mail as stored; "" when none */
+  holidayCover: string;
+  /** The Invoicing Status as stored */
+  invoicingStatus: string;
 }
 
 /** A name the people backfill could not turn into a user's e-mail: it fits no user, or more than one. */

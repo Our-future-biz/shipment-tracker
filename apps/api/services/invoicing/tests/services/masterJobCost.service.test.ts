@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // A master job's Costs Breakdown run for real - the split, which shipment carries what, and the
 // rows handed to the write - against stand-ins for the shipments service and the repositories.
+// Accounts Payable's record is matched after each cost write (services/supplierInvoice): stood in for here.
+vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceService: { beforeLineChange: vi.fn(async () => undefined), afterLineWrite: vi.fn(async () => []) } }));
+vi.mock("../../repositories/supplierInvoice.repository", () => ({
+  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined) },
+}));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 const houses = vi.hoisted(() => vi.fn());

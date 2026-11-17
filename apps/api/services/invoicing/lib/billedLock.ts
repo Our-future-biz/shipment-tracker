@@ -17,8 +17,10 @@ import { invoiceRepository } from "../repositories/invoice.repository";
 export const BILLED = "This shipment is billed: its buying costs can't be changed. Credit the invoice first";
 
 // The supplier links change no amount: a supplier invoice posted after the billing is still linked
-// to its supplier, so it counts in what the company owes them (lib/supplierCosts).
-const BUYING_STILL_OPEN = new Set(["sortOrder", "received", "paidOn", "supplierCustomerId", "haulierId"]);
+// to its supplier, so it counts in what the company owes them (lib/supplierCosts). Its invoice number
+// changes no amount either: a supplier's invoice that comes after the billing is booked on the line it
+// bills, which then counts in Accounts Payable (Council Outlay 9, D6).
+const BUYING_STILL_OPEN = new Set(["sortOrder", "received", "paidOn", "supplierCustomerId", "haulierId", "invoiceNumber"]);
 
 const only = (input: object, open: Set<string>) => Object.entries(input).every(([key, value]) => value === undefined || open.has(key));
 

@@ -39,6 +39,11 @@ describe("what still goes on a billed shipment", () => {
     expect(leavesBuyingCostAlone({ realAmount: "10" })).toBe(false);
     expect(leavesBuyingCostAlone({ estAmount: "10" })).toBe(false);
     expect(leavesBuyingCostAlone({ estCurrency: "EUR", sortOrder: 1 })).toBe(false);
-    expect(leavesBuyingCostAlone({ invoiceNumber: "F1", paidOn: "" })).toBe(false);
+    expect(leavesBuyingCostAlone({ invoiceNumber: "F1", realAmount: "10" })).toBe(false);
+  });
+
+  it("the number of the supplier's invoice that came after the billing (Accounts Payable D6)", () => {
+    expect(leavesBuyingCostAlone({ invoiceNumber: "F1", paidOn: "" })).toBe(true);
+    expect(leavesBuyingCostAlone({ invoiceNumber: "F1", received: true })).toBe(true);
   });
 });

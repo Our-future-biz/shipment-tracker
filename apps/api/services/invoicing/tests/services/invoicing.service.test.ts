@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The import of a quote's costs is run for real - with the mapping of its lines - against a
 // stand-in for the quotes service and for the repository that writes the rows.
+// Accounts Payable's record is matched after each cost write (services/supplierInvoice): stood in for here.
+vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceService: { beforeLineChange: vi.fn(async () => undefined), afterLineWrite: vi.fn(async () => []) } }));
+vi.mock("../../repositories/supplierInvoice.repository", () => ({
+  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined) },
+}));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() }, shipments: { shipmentGet: vi.fn() }, customers: { customerGet: vi.fn(), _internalCompaniesWithRole: vi.fn() } }));

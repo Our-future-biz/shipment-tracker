@@ -13,7 +13,10 @@ import { userEmailOf } from "../../../lib/companyUsers";
 import { constraintOf } from "../../../lib/db/errors";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
-import { invoiceLineProblem, invoiceRows, invoiceRowsProblem, onMasterJob, ontoEstimates } from "../lib/invoiceLines";
+import { invoiceLineProblem, invoiceNumberKey, invoiceRows, invoiceRowsProblem, onMasterJob, ontoEstimates } from "../lib/invoiceLines";
+import { supplierKeyOf } from "../lib/supplierInvoices";
+import { supplierInvoiceRepository } from "../repositories/supplierInvoice.repository";
+import { supplierInvoiceService } from "./supplierInvoice.service";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { additionalChargeRepository } from "../repositories/additionalCharge.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
@@ -81,6 +84,7 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   vendor: r.vendor,
   haulierId: r.haulierId,
   supplierCustomerId: r.supplierCustomerId,
+  supplierInvoiceId: r.supplierInvoiceId ?? null,
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
   sourceMasterJobRef: r.sourceMasterJobRef,
@@ -200,6 +204,27 @@ export function receiptChanges(
   return out;
 }
 
+/** What was read of the document as a whole, checked: a day that is no date, or an amount that is no number, is left out. */
+function readDetails(input: InvoiceLinesInput) {
+  const day = (v: string | undefined) => (v && isRealYmd(v.trim()) ? v.trim() : null);
+  const money = (v: string | undefined) => {
+    try {
+      return v?.trim() ? (toDecimal(v.trim(), "amount") ?? null) : null;
+    } catch {
+      return null;
+    }
+  };
+  const currency = input.currency?.trim().toUpperCase() ?? "";
+  return {
+    issueDate: day(input.issueDate),
+    dueDate: day(input.dueDate),
+    totalNet: money(input.totalNet),
+    vatAmount: money(input.vatAmount),
+    totalGross: money(input.totalGross),
+    currency: /^[A-Z]{3}$/.test(currency) ? currency : null,
+  };
+}
+
 /** Who sets a paid day, looked up only when one is set. */
 async function payer(changes: Partial<NewInvoiceCostRecord>, actorUserId: string) {
   return changes.paidOn ? { userId: actorUserId, email: await userEmailOf(actorUserId) } : null;
@@ -209,7 +234,7 @@ async function payer(changes: Partial<NewInvoiceCostRecord>, actorUserId: string
  * A line links only a live company of the Customer Database with a supplier role (m8): read as the user, so
  * one they cannot open is refused too. Only a link that changes is checked.
  */
-async function assertSupplierCompany(id: string | null | undefined, current: string | null): Promise<void> {
+export async function assertSupplierCompany(id: string | null | undefined, current: string | null): Promise<void> {
   if (!id || id === current) return;
   let roles: string[];
   try {
@@ -361,7 +386,17 @@ class InvoicingService {
     await assertShipmentExists(shipmentId);
     await assertSupplierCompany(changes.supplierCustomerId, null);
     if (setsEstimate(values) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
-    return toCostItem(await invoiceCostRepository.createForCompany(companyId, values));
+    // A line with a number joins its supplier invoice: not a paid one, and an approved one is approved again.
+    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, { supplierInvoiceId: null, shipmentId }, values);
+    const created = await invoiceCostRepository.createForCompany(companyId, values);
+    return this.matched(created, companyId, actorUserId, "typed");
+  }
+
+  /** After a write of a job's line: it is matched to its supplier invoice (Accounts Payable), and answered as it is then. */
+  private async matched(row: InvoiceCostRecord, companyId: string, actorUserId: string, source: "typed" | "reading"): Promise<InvoiceCostItem> {
+    const touched = await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: actorUserId }, { shipmentIds: [row.shipmentId] }, source);
+    const now = touched.length ? await invoiceCostRepository.findLine(row.id, companyId, row.shipmentId) : null;
+    return toCostItem(now ?? row);
   }
 
   // A row copied from a quote keeps the quote's charge, words and estimate (QUOTE_FIXED_FIELDS):
@@ -377,6 +412,11 @@ class InvoicingService {
       throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: its category, description and estimate stay as the quote has them`);
     }
     if (!current.sourceQuoteNumber && setsEstimate(changes) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
+    // A line of a supplier invoice (Accounts Payable): paid for the whole invoice there, kept as paid once it is.
+    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, current as unknown as Parameters<typeof supplierInvoiceService.beforeLineChange>[1], {
+      ...changes,
+      ...unlinkOnVendorChange(current, changes),
+    });
     const now = new Date();
     const receipt = receiptChanges(current, changes, now, businessDay(now), await payer(changes, actorUserId));
     // Ticking Received is stamped by the database, from the row as it is when written: the line read above may
@@ -392,18 +432,20 @@ class InvoicingService {
       throw err;
     }
     if (!row) throw APIError.notFound("Buying cost not found");
-    return toCostItem(row);
+    return this.matched(row, companyId, actorUserId, "typed");
   }
 
   // A row copied from a quote is not deleted: the estimate stays the quote's.
-  async deleteBuyingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
+  async deleteBuyingCost(id: string, companyId: string, shipmentId: string, actorUserId = ""): Promise<void> {
     await assertNotBilled(shipmentId, companyId);
     const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
     if (!current) throw APIError.notFound("Buying cost not found");
     if (current.sourceQuoteNumber) {
       throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: it stays as the quote has it`);
     }
+    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, current as unknown as Parameters<typeof supplierInvoiceService.beforeLineChange>[1], "delete");
     if (!(await invoiceCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Buying cost not found");
+    await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: actorUserId }, { shipmentIds: [shipmentId] }, "typed");
   }
 
   /**
@@ -411,15 +453,17 @@ class InvoicingService {
    * noted it - at `sortOrder` when given, not as a new line. One with an estimate of its own is refused once the
    * shipment's estimate is its quote's.
    */
-  async restoreBuyingCost(id: string, companyId: string, shipmentId: string, sortOrder?: number): Promise<InvoiceCostItem> {
+  async restoreBuyingCost(id: string, companyId: string, shipmentId: string, sortOrder?: number, actorUserId = ""): Promise<InvoiceCostItem> {
     await assertNotBilled(shipmentId, companyId);
     await assertShipmentExists(shipmentId);
     const deleted = await invoiceCostRepository.findDeletedLine(id, companyId, shipmentId);
     if (!deleted) throw APIError.notFound("Deleted buying cost not found");
     if (!deleted.sourceQuoteNumber && setsEstimate(deleted) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
+    // Back onto its invoice: not a paid one (it would bill more than was paid), an approved one is approved again.
+    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, { supplierInvoiceId: null, shipmentId }, { ...deleted, supplierInvoiceId: null });
     const row = await invoiceCostRepository.restoreLine(id, companyId, shipmentId, sortOrder);
     if (!row) throw APIError.notFound("Deleted buying cost not found");
-    return toCostItem(row);
+    return this.matched(row, companyId, actorUserId, "typed");
   }
 
   /**
@@ -427,31 +471,77 @@ class InvoicingService {
    * shipment's first line of that code - so a real cost lands on the estimate it belongs to
    * instead of a second line - and a line is created when the shipment has none. On a billed
    * shipment (lib/billedLock) an estimate is not changed, and a real cost never replaces one the
-   * line has already: the supplier's invoice comes as a new line.
+   * line has already: the supplier's invoice comes as a new line. A line holding another invoice's number keeps
+   * it: the second invoice for the charge comes as a new line, never over the first (Accounts Payable D19) - unless
+   * the user asked to replace it (`replace`: a split's Replace), when its invoice is matched again.
    */
-  async upsertCost(shipmentId: string, companyId: string, category: string, input: CategoryCostInput): Promise<InvoiceCostItem> {
+  async upsertCost(
+    shipmentId: string,
+    companyId: string,
+    category: string,
+    input: CategoryCostInput,
+    actorUserId = "",
+    opts: { replace?: boolean; supplierCustomerId?: string | null; received?: boolean } = {},
+  ): Promise<InvoiceCostItem> {
     const code = toChargeCode(category);
     await assertNotKeptByTrucking(companyId, [shipmentId], code);
     const changes = buyingChanges(input);
+    // A supplier's invoice posted from a read document: linked to its supplier and booked Received (Accounts Payable D6, D13).
+    if (opts.supplierCustomerId) changes.supplierCustomerId = opts.supplierCustomerId;
+    if (opts.received) changes.received = true;
     const billed = await isBilled(shipmentId, companyId);
     if (billed && (changes.estAmount !== undefined || changes.estCurrency !== undefined)) throw APIError.failedPrecondition(BILLED);
     // Checked again under the shipment's trucking-lines lock, so a Trucking push running at the
     // same moment can't slip its line in between the check and this write.
     return truckingLinesRepository.withShipmentLock(shipmentId, async () => {
       await assertNotKeptByTrucking(companyId, [shipmentId], code);
-      const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, code);
+      // An invoice posted again goes onto the line it is on already, not the charge's first line (D19).
+      const sameInvoice = changes.invoiceNumber && invoiceNumberKey(changes.invoiceNumber) ? await invoiceCostRepository.findByCategory(shipmentId, companyId, code, changes.invoiceNumber) : null;
+      const existing = sameInvoice ?? (await invoiceCostRepository.findByCategory(shipmentId, companyId, code));
       // On a shipment priced from a quote the real cost lands and the estimate stays the quote's.
       const quoted = existing?.sourceQuoteNumber || (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId));
       const kept = quoted ? definedOnly({ ...changes, estAmount: undefined, estCurrency: undefined }) : changes;
       const posted = !!existing && (existing.realAmount !== null || !!existing.invoiceNumber.trim());
-      if (existing && !(billed && posted)) {
-        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, { ...kept, ...unlinkOnVendorChange(existing, kept) });
+      const newNumber = kept.invoiceNumber !== undefined ? invoiceNumberKey(kept.invoiceNumber) : "";
+      const otherInvoice = !opts.replace && !!existing && !!newNumber && !!invoiceNumberKey(existing.invoiceNumber) && invoiceNumberKey(existing.invoiceNumber) !== newNumber;
+      if (existing && !(billed && posted) && !otherInvoice) {
+        const renumbered = !!newNumber && invoiceNumberKey(existing.invoiceNumber) !== newNumber;
+        const write = {
+          ...kept,
+          ...unlinkOnVendorChange(existing, kept),
+          // A part replacing another invoice's: its own amount (not times the old quantity), booked when it came.
+          ...(opts.replace && renumbered && kept.realAmount !== undefined ? { realQty: null } : {}),
+          ...(kept.received && (!existing.received || renumbered) ? { receivedAt: new Date() } : {}),
+        };
+        await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, existing as unknown as Parameters<typeof supplierInvoiceService.beforeLineChange>[1], write);
+        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, write);
         if (!row) throw APIError.notFound("Buying cost not found");
-        return toCostItem(row);
+        return row;
       }
       await assertShipmentExists(shipmentId);
-      return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category: code, ...kept }));
-    });
+      const fresh = otherInvoice ? definedOnly({ ...kept, estAmount: undefined, estQty: undefined, estCurrency: undefined }) : kept;
+      await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, { supplierInvoiceId: null, shipmentId }, fresh);
+      return invoiceCostRepository.createForCompany(companyId, { shipmentId, category: code, ...fresh, ...(fresh.received ? { receivedAt: new Date() } : {}) });
+    }).then((row) => this.matched(row, companyId, actorUserId, "reading"));
+  }
+
+  /**
+   * The Accounts Payable record a split invoice was booked on, with what was read of the document kept on it;
+   * null when none (no part was written).
+   */
+  async bookedSplit(companyId: string, input: CostSplitInput): Promise<string | null> {
+    const supplierCustomerId = companyIdOf(input.supplierCustomerId, "supplierCustomerId") ?? null;
+    const key = supplierKeyOf({ supplierCustomerId, haulierId: null, vendor: input.vendor ?? "" });
+    const id = await supplierInvoiceRepository.idOf(companyId, key, invoiceNumberKey(input.invoiceNumber));
+    if (id) {
+      const read = readDetails({ ...input, lines: [], totalNet: undefined, vatAmount: undefined } as unknown as InvoiceLinesInput);
+      try {
+        await supplierInvoiceRepository.fillFromReading(companyId, id, read);
+      } catch (err) {
+        log.warn(err, "the read invoice's details could not be kept on its record");
+      }
+    }
+    return id;
   }
 
   /**
@@ -462,10 +552,15 @@ class InvoicingService {
    * keeps it whatever is asked (lib/billedLock), and says so; its part is not handed to the
    * others. `dryRun` only answers the split and what each shipment has.
    */
-  async splitCost(companyId: string, input: CostSplitInput): Promise<CostSplitResultLine[]> {
+  async splitCost(companyId: string, input: CostSplitInput, actorUserId = ""): Promise<CostSplitResultLine[]> {
     const code = toChargeCode(input.category);
     const total = toDecimal(input.total, "total");
     if (!total || Number(total) <= 0) throw APIError.invalidArgument("total must be above 0");
+    const supplierCustomerId = companyIdOf(input.supplierCustomerId, "supplierCustomerId") ?? null;
+    if (input.requireSupplier && !input.dryRun && !supplierCustomerId) {
+      throw APIError.invalidArgument("Pick the supplier from the Customer Database: an invoice is booked for a supplier");
+    }
+    await assertSupplierCompany(supplierCustomerId, null);
     const ids = input.lines.map((l) => l.shipmentId);
     if (!ids.every(isUuid)) throw APIError.invalidArgument("shipmentId must be a shipment id");
     if (new Set(ids).size !== ids.length) throw APIError.invalidArgument("a shipment is listed twice");
@@ -493,7 +588,7 @@ class InvoicingService {
           realCurrency: input.currency,
           invoiceNumber: input.invoiceNumber.trim(),
           ...(input.vendor?.trim() ? { vendor: input.vendor.trim() } : {}),
-        });
+        }, actorUserId, { replace: !!existing, supplierCustomerId, received: !!supplierCustomerId });
       }
       result.push({ shipmentId: line.shipmentId, amount, existing, written: write, billed });
     }
@@ -509,11 +604,16 @@ class InvoicingService {
    * master job's invoice only reaches the master job's live shipments (onMasterJob). A dry run makes
    * every check the post makes and writes nothing.
    */
-  async postInvoiceLines(companyId: string, input: InvoiceLinesInput): Promise<InvoiceLinesRow[]> {
+  async postInvoiceLines(companyId: string, input: InvoiceLinesInput, actorUserId = ""): Promise<{ rows: InvoiceLinesRow[]; supplierInvoiceId: string | null }> {
     const invoiceNumber = input.invoiceNumber.trim();
     if (!invoiceNumber) throw APIError.invalidArgument("the invoice number is missing");
     if (!input.lines.length) throw APIError.invalidArgument("the invoice has no lines");
     const creditNote = input.creditNote === true;
+    // A new invoice names its supplier from the Customer Database (Accounts Payable D13).
+    const supplierCustomerId = companyIdOf(input.supplierCustomerId, "supplierCustomerId") ?? null;
+    if (input.requireSupplier && !supplierCustomerId) throw APIError.invalidArgument("Pick the supplier from the Customer Database: an invoice is booked for a supplier");
+    await assertSupplierCompany(supplierCustomerId, null);
+    const read = readDetails(input);
     let lines = input.lines.map((line) => {
       const label = line.item?.trim() || line.category || "A line";
       const ids = [line.shipmentId, ...(line.split ?? []).map((s) => s.shipmentId)].filter((id): id is string => id !== undefined);
@@ -550,22 +650,54 @@ class InvoicingService {
     const key = (r: { shipmentId: string; category: string }) => `${r.shipmentId} ${r.category}`;
     const earlier = new Set((await invoiceCostRepository.ofInvoiceNumber(companyId, shipmentIds, invoiceNumber)).map(key));
     const repeatedRefusal = () => APIError.failedPrecondition(`${creditNote ? "Credit note" : "Invoice"} ${invoiceNumber} is already on one of these shipments under the same charge`);
+    // The same supplier's invoice of this number booked already on other jobs (Accounts Payable): maybe the same
+    // invoice read twice. Said like a repeat, and refused unless allowed.
+    const supplierKey = supplierKeyOf({ supplierCustomerId, haulierId: null, vendor: input.vendor ?? "" });
+    const bookedElsewhere = await supplierInvoiceRepository.bookedOnOtherJobs(companyId, supplierKey, invoiceNumberKey(invoiceNumber), shipmentIds);
     const answer = (ontoEstimate: boolean[]): InvoiceLinesRow[] =>
-      rows.map((r, i) => ({ shipmentId: r.shipmentId, category: r.category, amount: r.amount, currency: r.currency, repeated: earlier.has(key(r)), ontoEstimate: ontoEstimate[i] ?? false }));
+      rows.map((r, i) => ({
+        shipmentId: r.shipmentId,
+        category: r.category,
+        amount: r.amount,
+        currency: r.currency,
+        repeated: earlier.has(key(r)),
+        ontoEstimate: ontoEstimate[i] ?? false,
+        bookedElsewhere: bookedElsewhere.length > 0,
+      }));
     if (input.dryRun) {
       const open = creditNote ? [] : await invoiceCostRepository.openEstimateRows(companyId, shipmentIds, [...new Set(rows.map((r) => r.category))]);
-      return answer(ontoEstimates(rows, open).map((id) => id !== null));
+      return { rows: answer(ontoEstimates(rows, open).map((id) => id !== null)), supplierInvoiceId: null };
     }
     if (earlier.size && rows.some((r) => earlier.has(key(r))) && !input.allowRepeat) throw repeatedRefusal();
+    // Not onto a paid invoice, whatever is allowed; an approved one is approved again (D8, D11).
+    await supplierInvoiceService.beforeLineChange(
+      { companyID: companyId, userID: actorUserId },
+      { supplierInvoiceId: null, shipmentId: shipmentIds[0] ?? "" },
+      { invoiceNumber, vendor: input.vendor ?? "", supplierCustomerId },
+    );
+    if (bookedElsewhere.length && !input.allowRepeat) {
+      const jobs = bookedElsewhere.length === 1 ? "another job" : `${bookedElsewhere.length} other jobs`;
+      throw APIError.failedPrecondition(`${creditNote ? "Credit note" : "Invoice"} ${invoiceNumber} of this supplier is booked already on ${jobs}: see it on Finance → Accounts Payable`);
+    }
     // The repeat is checked again under the locks, where two posts of one invoice wait for each other.
     const written = await invoiceCostRepository.addInvoiceRows(
       companyId,
       invoiceNumber,
       rows.map((r) => ({ shipmentId: r.shipmentId, category: r.category, description: r.description, realAmount: r.amount, realCurrency: r.currency })),
-      { vendor: input.vendor?.trim() ?? "", fillEstimates: !creditNote, allowRepeat: input.allowRepeat === true, check: kept },
+      { vendor: input.vendor?.trim() ?? "", fillEstimates: !creditNote, allowRepeat: input.allowRepeat === true, check: kept, supplierCustomerId, received: true },
     );
     if (written === "repeated") throw repeatedRefusal();
-    return answer(written.ontoEstimate);
+    // Booked on Accounts Payable (D6): the invoice record takes what was read of the document as a whole.
+    await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: actorUserId }, { shipmentIds }, "reading");
+    const supplierInvoiceId = await supplierInvoiceRepository.idOf(companyId, supplierKey, invoiceNumberKey(invoiceNumber));
+    if (supplierInvoiceId) {
+      try {
+        await supplierInvoiceRepository.fillFromReading(companyId, supplierInvoiceId, { ...read, kind: creditNote ? "credit_note" : "invoice" });
+      } catch (err) {
+        log.warn(err, "the read invoice's details could not be kept on its record");
+      }
+    }
+    return { rows: answer(written.ontoEstimate), supplierInvoiceId };
   }
 
   // ── Selling costs ──

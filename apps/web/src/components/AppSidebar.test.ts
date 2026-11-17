@@ -57,7 +57,7 @@ describe("the menu", () => {
       for (const page of section.children!) expect(page.description).toBeTruthy();
       expect(navLabelOf(`${path}/`, { role: "user" })).toBe(section.label);
     }
-    expect(navSection("/finance")?.children?.map((c) => c.label)).toEqual(["Invoicing", "Exchange"]);
+    expect(navSection("/finance")?.children?.map((c) => c.label)).toEqual(["Invoicing", "Accounts Payable", "Exchange"]);
     // A leaf is no section.
     expect(navSection("/dashboard")).toBeUndefined();
     // Calendar's own page is Calendar itself; its one page under it keeps its name.
@@ -248,11 +248,13 @@ describe("the menu", () => {
     }
   });
 
-  it("groups Invoicing and Exchange under Finance", () => {
+  it("groups Invoicing, Accounts Payable and Exchange under Finance", () => {
     for (const role of ["user", "manager", "admin", "superadmin"]) {
       const finance = visibleNavItems({ role }).find((i) => i.label === "Finance");
-      expect(finance?.children?.map((c) => c.label)).toEqual(["Invoicing", "Exchange"]);
+      // Accounts Payable right after Invoicing, for everyone (Council Outlay 9, D4, D5).
+      expect(finance?.children?.map((c) => c.label)).toEqual(["Invoicing", "Accounts Payable", "Exchange"]);
       expect(labels(role)).not.toContain("Invoicing");
+      expect(labels(role)).not.toContain("Accounts Payable");
       expect(labels(role)).not.toContain("Exchange");
     }
   });
@@ -261,9 +263,11 @@ describe("the menu", () => {
     const finance = visibleNavItems({ role: "user" }).find((i) => i.label === "Finance")!;
     expect(navItemOwns(finance, "/invoicing")).toBe(true);
     expect(navItemOwns(finance, "/exchange/rates")).toBe(true);
+    expect(navItemOwns(finance, "/accounts-payable")).toBe(true);
     expect(navItemOwns(finance, "/shipments")).toBe(false);
     expect(navLabelOf("/invoicing/", { role: "user" })).toBe("Invoicing");
     expect(navLabelOf("/exchange/", { role: "user" })).toBe("Exchange");
+    expect(navLabelOf("/accounts-payable", { role: "user" })).toBe("Accounts Payable");
   });
 
   it("keeps role rules", () => {

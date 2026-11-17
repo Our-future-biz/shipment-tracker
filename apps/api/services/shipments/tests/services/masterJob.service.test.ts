@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), inf
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/masterJob.repository", () => ({
-  masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn() },
+  masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn(), basicsByIds: vi.fn() },
 }));
 vi.mock("../../repositories/masterJobContainer.repository", () => ({ masterJobContainerRepository: {} }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { findByMasterJobId: vi.fn() } }));
@@ -303,5 +303,22 @@ describe("attaching a shipment to a master job", () => {
     expect(unassign).not.toHaveBeenCalled();
     sync.mockRestore();
     unassign.mockRestore();
+  });
+});
+
+describe("the basics of master jobs (for Accounts Payable)", () => {
+  it("are the company's live master jobs among the ids, each id once; ids that are no ids are left out", async () => {
+    const found = [{ id: JOB, mczNumber: "MCZ00000006", personInCharge: "jana@firma.cz" }];
+    repository.basicsByIds.mockResolvedValue(found);
+    await expect(masterJobService.basics(COMPANY, [JOB, JOB.toUpperCase(), "MCZ00000006"])).resolves.toEqual(found);
+    expect(repository.basicsByIds).toHaveBeenCalledWith(COMPANY, [JOB]);
+  });
+
+  it("ask nothing for no ids, and refuse more than 500", async () => {
+    await expect(masterJobService.basics(COMPANY, ["nope"])).resolves.toEqual([]);
+    await expect(masterJobService.basics(COMPANY, [])).resolves.toEqual([]);
+    expect(repository.basicsByIds).not.toHaveBeenCalled();
+    const many = Array.from({ length: 501 }, (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`);
+    await expect(masterJobService.basics(COMPANY, many)).rejects.toMatchObject({ code: "invalid_argument" });
   });
 });

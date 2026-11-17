@@ -12,6 +12,7 @@ import { formatAmount } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { useCreditNoteRequests } from "@/hooks/useCreditNoteRequests";
 import { useInvoiceChangeRequests } from "@/hooks/useInvoiceChangeRequests";
+import { useSupplierInvoiceNotices } from "@/hooks/useSupplierInvoiceNotices";
 import { INVOICE_FIX_LABELS } from "@/app/invoicing/_lib/invoiceFixes";
 import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, TD, TEXTAREA, TH } from "@/styles/ui";
 
@@ -21,6 +22,8 @@ import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_T
 //   It can be answered on the issue day only; one still waiting at midnight (Prague) expires.
 // - a partial credit note, line by line with a reason: approving issues the credit note at once.
 // Either is rejected with a reason; the answer shows on the invoice and goes back to whoever asked.
+// Supplier invoices are approved on Finance → Accounts Payable (Council Outlay 9, D10), where the invoice,
+// its lines and its file are; this tab only counts what waits and links there, so it stays the one place to look.
 
 const HEAD = `${TH} first:pl-4 last:pr-4`;
 const CELL = `${TD} !align-top first:pl-4 last:pr-4`;
@@ -34,6 +37,7 @@ type Answering = { id: string; decision: Decision } | null;
 export function BillingApprovals() {
   return (
     <div className="flex flex-col gap-4">
+      <SupplierInvoiceApprovals />
       <InvoiceChangeApprovals />
       <CreditNoteApprovals />
     </div>
@@ -163,6 +167,28 @@ function useAnswering() {
     setComment("");
   };
   return { answering, comment, setComment, start, stop: () => setAnswering(null) };
+}
+
+/** Supplier invoices waiting for a manager: the count, and the way to Accounts Payable's To approve tab (D10). */
+function SupplierInvoiceApprovals() {
+  const { toApprove, isLoading, isError } = useSupplierInvoiceNotices();
+  // Shown at 0 too, as the other sections show an empty list: a manager sees nothing waits, not a missing card.
+  const count = isError ? "–" : isLoading ? "…" : toApprove;
+  return (
+    <section className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD_BAR} flex-wrap justify-between`}>
+        <div>
+          <h3 className={CARD_TITLE}>Supplier invoices to approve: {count}</h3>
+          <div className={isError ? "text-[12px] text-red-600" : HINT}>
+            {isError ? "Could not load the count." : "Approved or refused on Accounts Payable, where the invoice, its lines and its file are."}
+          </div>
+        </div>
+        <Link href="/accounts-payable" className={`${BTN} !text-slate-700 hover:!text-slate-900`}>
+          Open Accounts Payable
+        </Link>
+      </div>
+    </section>
+  );
 }
 
 const CHANGE_STATUS: Record<"approved" | "rejected" | "withdrawn" | "expired", { label: string; tone: "green" | "red" | "slate" }> = {

@@ -22,7 +22,7 @@ interface CreateMasterJobCostRequest extends MasterJobCostInput {
 export const invoicingMasterJobCostAdd = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/master-jobs/:masterJobId/costs" },
   async ({ masterJobId, ...input }: CreateMasterJobCostRequest): Promise<MasterJobCostsView> =>
-    masterJobCostService.add(getAuthData()!.companyID, masterJobId, input),
+    masterJobCostService.add(getAuthData()!.companyID, masterJobId, input, getAuthData()!.userID),
 );
 
 interface UpdateMasterJobCostRequest extends MasterJobCostUpdate {
@@ -33,7 +33,7 @@ interface UpdateMasterJobCostRequest extends MasterJobCostUpdate {
 export const invoicingMasterJobCostUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/master-jobs/:masterJobId/costs/:costId" },
   async ({ masterJobId, costId, ...input }: UpdateMasterJobCostRequest): Promise<MasterJobCostsView> =>
-    masterJobCostService.update(getAuthData()!.companyID, masterJobId, costId, input),
+    masterJobCostService.update(getAuthData()!.companyID, masterJobId, costId, input, getAuthData()!.userID),
 );
 
 /** Puts the split into the shipments' Costs Breakdowns: nothing else does. */
@@ -50,5 +50,5 @@ interface DeleteMasterJobCostRequest {
 export const invoicingMasterJobCostDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/invoicing/master-jobs/:masterJobId/costs/:costId" },
   async ({ masterJobId, costId }: DeleteMasterJobCostRequest): Promise<MasterJobCostsView> =>
-    masterJobCostService.remove(getAuthData()!.companyID, masterJobId, costId),
+    masterJobCostService.remove(getAuthData()!.companyID, masterJobId, costId, getAuthData()!.userID),
 );

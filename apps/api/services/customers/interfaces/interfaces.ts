@@ -236,6 +236,31 @@ export interface SupplierTerms {
   bankAccountsChangedBy: string;
 }
 
+/** What Finance → Accounts Payable marks a supplier's invoices by: its terms, VAT register checks, approval and rating. */
+export interface SupplierFacts {
+  id: string;
+  companyName: string;
+  country: string;
+  /** The VAT id as stored; "" when none. */
+  dic: string;
+  roles: string[];
+  /** Days we have to pay it, and the currency it is paid in; null until set. */
+  paymentDays: number | null;
+  currency: string | null;
+  vatUnreliable: boolean;
+  /** Its account is published in the VAT register. */
+  bankAccountPublished: boolean;
+  /** yyyy-mm-dd of the last VAT register check; null when never. */
+  vatCheckedAt: string | null;
+  /** When an account was last added (ISO), and by which user; null when never. */
+  bankAccountsChangedAt: string | null;
+  bankAccountsChangedByUserId: string | null;
+  /** "" approved (or never asked), "pending" waits for a manager, "declined". */
+  approvalStatus: string;
+  /** 0–5 stars; null when not rated. */
+  rating: number | null;
+}
+
 /** One change of a supplier's rating, as it was made. */
 export interface SupplierRatingEntry {
   id: string;

@@ -213,6 +213,17 @@ class InvoiceRepository extends TenantRepository<typeof t> {
     return rows.map((r) => r.shipmentId);
   }
 
+  /** The day each of these shipments was first billed by an invoice that stands (Accounts Payable: arrived after billing). */
+  async firstBilledOn(companyId: string, shipmentIds: string[]): Promise<Map<string, string>> {
+    if (!shipmentIds.length) return new Map();
+    const rows = await this.db
+      .select({ shipmentId: t.shipmentId, first: sql<string>`min(${t.issueDate})::text` })
+      .from(t)
+      .where(and(openInvoice(companyId), inArray(t.shipmentId, shipmentIds)))
+      .groupBy(t.shipmentId);
+    return new Map(rows.filter((r) => r.shipmentId && r.first).map((r) => [r.shipmentId as string, r.first]));
+  }
+
   async countOpenInvoices(shipmentId: string, companyId: string): Promise<number> {
     const [row] = await this.db
       .select({ n: sql<number>`count(*)::int` })

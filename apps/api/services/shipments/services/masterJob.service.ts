@@ -28,6 +28,7 @@ import type {
   MasterJobContainerLine,
   MasterJobItem,
   MasterJobHouseItem,
+  MasterJobBasics,
   MasterJobInvoiceHouseItem,
   MasterJobShipmentItem,
   MasterJobDetail,
@@ -58,6 +59,9 @@ const MASTER_JOB_PEOPLE = { personInCharge: "Handled By", holidayCover: "Holiday
 type MasterJobPerson = keyof typeof MASTER_JOB_PEOPLE;
 
 /** Why a person may not change the master job's people (lib/shipmentEditRule, as on a shipment). */
+/** At most this many master jobs in one ask for their basics (the endpoint caps it too). */
+export const MASTER_JOB_BASICS_MAX = 500;
+
 export const MASTER_JOB_PEOPLE_REFUSAL =
   "Only the user in this master job's Handled By or Holiday Cover, or a manager, can change its Handled By and Holiday Cover";
 
@@ -388,6 +392,14 @@ class MasterJobService {
   }
 
   /** The master job's live shipments with their freight tons (W/M), what its costs are split over. */
+  /** The company's live master jobs among `ids`; ids that are no ids, deleted or unknown ones are left out. */
+  async basics(companyId: string, ids: string[]): Promise<MasterJobBasics[]> {
+    const wanted = [...new Set((ids ?? []).filter(isUuid).map((v) => v.toLowerCase()))];
+    if (wanted.length > MASTER_JOB_BASICS_MAX) throw APIError.invalidArgument(`At most ${MASTER_JOB_BASICS_MAX} master jobs at once`);
+    if (!wanted.length) return [];
+    return masterJobRepository.basicsByIds(companyId, wanted);
+  }
+
   async houses(id: string, companyId: string): Promise<MasterJobHouseItem[]> {
     return (await this.invoiceHouses(id, companyId)).map(({ shipmentId, jobNumber, freightTon }) => ({ shipmentId, jobNumber, freightTon }));
   }

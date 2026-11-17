@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // An invoice read line by line, posted for real - its checks, its rows and where they go - against an
 // in-memory stand-in for the cost lines that writes as the repository does (lib/invoiceLines decides
 // which estimate a row goes onto) and a stand-in for the master job's shipments.
+// Accounts Payable's record is matched after each cost write (services/supplierInvoice): stood in for here.
+vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceService: { beforeLineChange: vi.fn(async () => undefined), afterLineWrite: vi.fn(async () => []) } }));
+vi.mock("../../repositories/supplierInvoice.repository", () => ({
+  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined) },
+}));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 const houses = vi.hoisted(() => vi.fn());
@@ -149,7 +154,7 @@ const post = (over: Partial<Parameters<typeof invoicingService.postInvoiceLines>
     masterJobId: MASTER,
     lines: [{ category: "ocean_freight", amount: "2100.00", currency: "USD", item: "OCEAN FREIGHT(D)", bl: "GLSL26060771", shipmentId: A }],
     ...over,
-  });
+  }).then((r) => r.rows);
 
 beforeEach(() => {
   rows.length = 0;
@@ -161,7 +166,7 @@ beforeEach(() => {
 describe("an invoice's real cost on a shipment priced from its quote", () => {
   it("goes onto the estimate it belongs to, so buying is counted once", async () => {
     quoteEstimate(A);
-    await expect(post()).resolves.toEqual([{ shipmentId: A, category: "ocean_freight", amount: "2100.00", currency: "USD", repeated: false, ontoEstimate: true }]);
+    await expect(post()).resolves.toEqual([{ shipmentId: A, category: "ocean_freight", amount: "2100.00", currency: "USD", repeated: false, ontoEstimate: true, bookedElsewhere: false }]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ estAmount: "2000.00", realAmount: "2100.00", invoiceNumber: "AS260707595", description: "Ocean freight", postedFromLines: true });
     expect(counted(A)).toBe(2100);
@@ -321,8 +326,8 @@ describe("a master job's shared line", () => {
 describe("one shipment's credit note", () => {
   it("is posted to its shipment as before, without a master job", async () => {
     await expect(
-      invoicingService.postInvoiceLines(COMPANY, { invoiceNumber: "CN-5", creditNote: true, lines: [{ category: "customs", amount: "-45.00", currency: "CZK", shipmentId: A }] }),
-    ).resolves.toEqual([{ shipmentId: A, category: "customs", amount: "-45.00", currency: "CZK", repeated: false, ontoEstimate: false }]);
+      invoicingService.postInvoiceLines(COMPANY, { invoiceNumber: "CN-5", creditNote: true, lines: [{ category: "customs", amount: "-45.00", currency: "CZK", shipmentId: A }] }).then((r) => r.rows),
+    ).resolves.toEqual([{ shipmentId: A, category: "customs", amount: "-45.00", currency: "CZK", repeated: false, ontoEstimate: false, bookedElsewhere: false }]);
     expect(houses).not.toHaveBeenCalled();
   });
 });

@@ -7,6 +7,8 @@ import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { sameCostCodes } from "../utils/truckingLines.utils";
 import { assertNotKeptByTrucking, buyingChanges } from "./invoicing.service";
+import { supplierInvoiceService } from "./supplierInvoice.service";
+import { supplierInvoiceRepository } from "../repositories/supplierInvoice.repository";
 import { housesInSplit, masterJobRef, splitLine, splitWeights, type SplitHouse } from "../lib/masterJobSplit";
 import { lineVsEstimate, totalVsEstimate, type LineVsEstimate } from "../lib/masterJobVsEstimate";
 import type { MasterJobCostRecord, MasterJobSplitMethod, NewMasterJobCostRecord } from "../schemas/masterJobCost.schema";
@@ -173,16 +175,19 @@ class MasterJobCostService {
     return withVsEstimate({ lines: lines.map(toItem), houses, shares, split });
   }
 
-  async add(companyId: string, masterJobId: string, input: MasterJobCostInput): Promise<MasterJobCostsView> {
+  async add(companyId: string, masterJobId: string, input: MasterJobCostInput, actorUserId = ""): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
     const values = { category: "", ...changesOf(input) };
     // housesOf also refuses a master job that is not the company's.
     await assertNotKeptByTruckingFor(companyId, await housesOf(masterJobId), { category: values.category ?? "", splitMethod: values.splitMethod ?? "wm", inSplit: values.inSplit });
+    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, { supplierInvoiceId: null }, values);
     await masterJobCostRepository.create(companyId, masterJobId, values);
+    // A master job's invoice is one row of Accounts Payable, payable once (D16).
+    await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: actorUserId }, { masterJobIds: [masterJobId] }, "master_job");
     return this.view(companyId, masterJobId);
   }
 
-  async update(companyId: string, masterJobId: string, id: string, input: MasterJobCostUpdate): Promise<MasterJobCostsView> {
+  async update(companyId: string, masterJobId: string, id: string, input: MasterJobCostUpdate, actorUserId = ""): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
     if (!isUuid(id)) throw APIError.notFound("Master job cost not found");
     const { excludedShipmentIds, ...fields } = input;
@@ -203,14 +208,20 @@ class MasterJobCostService {
       const backIn = houses.filter((h) => current.excludedShipmentIds.includes(h.shipmentId) && !next.excludedShipmentIds.includes(h.shipmentId));
       await assertNotKeptByTruckingFor(companyId, backIn, next);
     }
+    await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, current as unknown as Parameters<typeof supplierInvoiceService.beforeLineChange>[1], changes);
     const row = await masterJobCostRepository.update(id, companyId, masterJobId, changes);
     if (!row) throw APIError.notFound("Master job cost not found");
+    await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: actorUserId }, { masterJobIds: [masterJobId] }, "master_job");
     return this.view(companyId, masterJobId);
   }
 
-  async remove(companyId: string, masterJobId: string, id: string): Promise<MasterJobCostsView> {
+  async remove(companyId: string, masterJobId: string, id: string, actorUserId = ""): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
-    if (!isUuid(id) || !(await masterJobCostRepository.softDelete(id, companyId, masterJobId))) throw APIError.notFound("Master job cost not found");
+    if (!isUuid(id)) throw APIError.notFound("Master job cost not found");
+    const current = await masterJobCostRepository.get(id, companyId, masterJobId);
+    if (current) await supplierInvoiceService.beforeLineChange({ companyID: companyId, userID: actorUserId }, current as unknown as Parameters<typeof supplierInvoiceService.beforeLineChange>[1], "delete");
+    if (!(await masterJobCostRepository.softDelete(id, companyId, masterJobId))) throw APIError.notFound("Master job cost not found");
+    await supplierInvoiceService.afterLineWrite({ companyID: companyId, userID: actorUserId }, { masterJobIds: [masterJobId] }, "master_job");
     return this.view(companyId, masterJobId);
   }
 
@@ -226,6 +237,8 @@ class MasterJobCostService {
       const [houses, lines] = await Promise.all([housesOf(masterJobId), masterJobCostRepository.list(companyId, masterJobId)]);
       return splitRows(masterJobId, lines, await sharesAsWritten(companyId, lines, houses));
     });
+    // New shares of a line whose invoice is paid are paid too (D16).
+    await supplierInvoiceRepository.sharesFollowPaid(null, companyId, { masterJobId });
     return this.view(companyId, masterJobId);
   }
 

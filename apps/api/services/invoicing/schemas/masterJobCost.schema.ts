@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, uuid, integer, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, integer, boolean, index, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { supplierInvoiceTable } from "./supplierInvoice.schema";
 
 /** How a master job's cost line is shared out over its shipments: by freight tons (W/M), or equally. */
 export type MasterJobSplitMethod = "wm" | "shipment";
@@ -35,11 +36,15 @@ export const masterJobCostTable = pgTable(
     /** The shipments taken out of this line's split; one linked later is in it until someone takes it out. */
     excludedShipmentIds: text("excluded_shipment_ids").array().notNull().default(sql`'{}'::text[]`),
     sortOrder: integer("sort_order").notNull().default(0),
+    /** The supplier invoice the line is billed on (Accounts Payable): one row there for the master job's bill, paid once. */
+    supplierInvoiceId: uuid("supplier_invoice_id"),
   },
   (table) => [
     ...defaultTableIndexes("master_job_cost", table),
     tenantIndex("master_job_cost", table),
     index("master_job_cost_master_job_id_idx").on(table.companyId, table.masterJobId),
+    index("master_job_cost_supplier_invoice_idx").on(table.supplierInvoiceId).where(sql`supplier_invoice_id IS NOT NULL`),
+    foreignKey({ columns: [table.supplierInvoiceId], foreignColumns: [supplierInvoiceTable.id], name: "master_job_cost_supplier_invoice_fk" }).onDelete("set null"),
   ],
 );
 

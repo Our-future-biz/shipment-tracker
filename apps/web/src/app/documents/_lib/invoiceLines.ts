@@ -195,3 +195,49 @@ export function creditLines(lines: readonly InvoiceLineDraft[]): InvoiceLineDraf
     return amount === null ? l : { ...l, amount: (-amount).toFixed(2) };
   });
 }
+
+/**
+ * A day as the reader gives it (DD/MM/YYYY, or printed 17.11.2026, or already 2026-11-17) in the API's
+ * yyyy-mm-dd; "" when it is no real day (31/02/2026), so it is left out rather than sent wrong.
+ */
+export function readDay(text: string | undefined): string {
+  const s = (text ?? "").trim();
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+  const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(s);
+  const [y, m, d] = iso ? [iso[1], iso[2], iso[3]] : dmy ? [dmy[3], dmy[2], dmy[1]] : [];
+  if (!y || !m || !d) return "";
+  const day = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+  if (day.getUTCFullYear() !== Number(y) || day.getUTCMonth() !== Number(m) - 1 || day.getUTCDate() !== Number(d)) return "";
+  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+/** What was read of an invoice as a whole, as InvoiceExtracted holds it. */
+export interface InvoiceDocumentRead {
+  invoice_date?: string;
+  due_date?: string;
+  total_amount?: string;
+  currency?: string;
+}
+
+/**
+ * What was read of the document as a whole, kept on its Accounts Payable record (Council Outlay 9, D6): its
+ * days, its grand total (with VAT: the reader takes the final total) and its currency - only what was read and
+ * makes sense; the reader gives no total without VAT, nor the VAT. A credit note's total goes minus, as its
+ * rows are posted.
+ */
+export function invoiceDocumentDetails(
+  read: InvoiceDocumentRead,
+  creditNote: boolean,
+): { issueDate?: string; dueDate?: string; totalGross?: string; currency?: string } {
+  const issueDate = readDay(read.invoice_date);
+  const dueDate = readDay(read.due_date);
+  const total = lineAmount(read.total_amount);
+  const totalGross = total === null || total === 0 ? "" : creditNote ? (-Math.abs(total)).toFixed(2) : total > 0 ? total.toFixed(2) : "";
+  const currency = (read.currency ?? "").trim().toUpperCase();
+  return {
+    ...(issueDate ? { issueDate } : {}),
+    ...(dueDate ? { dueDate } : {}),
+    ...(totalGross ? { totalGross } : {}),
+    ...(/^[A-Z]{3}$/.test(currency) ? { currency } : {}),
+  };
+}

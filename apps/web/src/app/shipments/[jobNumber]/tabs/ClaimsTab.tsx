@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button, Tooltip } from "antd";
 import { FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,12 +9,17 @@ import { api, apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { formatDate } from "@/lib/date";
-import { ADD_BTN, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, TD, TH } from "@/styles/ui";
+import { businessDateTime, businessDayOf, formatDate } from "@/lib/date";
+import { useInvoicing } from "@/hooks/useInvoicing";
+import { supplierInvoiceKeys } from "@/hooks/supplierInvoiceKeys";
+import { Pill } from "@/components/Pill";
+import { ADD_BTN, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, LINK, TD, TH } from "@/styles/ui";
 import { noticeWords } from "./tracking/trackingText";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { ClaimFormModal, type ClaimValues } from "./ClaimFormModal";
+import { claimAmountText, claimStatusOf } from "./claimValues";
+import { apInvoiceHref, supplierInvoiceOptions } from "./supplierInvoiceLink";
 
 // Claim tab: claims on the shipment itself (how the cargo arrived) and claims on a
 // supplier's costs. Each card holds as many claims as needed: "+" opens a dialog to fill one in,
@@ -43,7 +49,13 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
     queryClient.invalidateQueries({ queryKey: ["shipment-claims", shipment.id] });
     // The shipment's Claim field (Yes/No) follows the claims.
     queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    // An open claim on costs holds its supplier invoice's payment on Accounts Payable, where it shows (D15).
+    queryClient.invalidateQueries({ queryKey: supplierInvoiceKeys.all });
   };
+  // The supplier invoices this shipment's buying lines are on (the Costs tab's own query): what a claim on
+  // costs can name (Council Outlay 9, D15).
+  const { data: invoicing } = useInvoicing(shipment.id);
+  const invoiceOptions = supplierInvoiceOptions(invoicing?.costs ?? []);
   // the server's reason with it (not found: the claim was deleted meanwhile, …)
   const onError = (what: string) => (e: unknown) => toast.error(`${what}: ${apiErrorMessage(e)}`);
 
@@ -115,7 +127,7 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
         </Tooltip>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] table-fixed border-collapse">
+        <table className={`w-full ${kind === "cost" ? "min-w-[720px]" : "min-w-[560px]"} table-fixed border-collapse`}>
           <thead>
             <tr>
               {columns.map((c) => (
@@ -149,6 +161,7 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
         <ClaimFormModal
           kind={form.kind}
           claim={form.claim}
+          invoiceOptions={invoiceOptions}
           saving={create.isPending || update.isPending}
           onClose={() => setForm(null)}
           onSave={saveForm}
@@ -193,18 +206,49 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
           "Claim on costs",
           <FileTextOutlined />,
           "cost",
-          [{ label: "Supplier", width: "w-[24%]" }, { label: "Invoice number", width: "w-[18%]" }, { label: "Claim reason" }, { label: "Disputed amount", width: "w-[140px]" }],
+          [
+            { label: "Supplier", width: "w-[20%]" },
+            { label: "Invoice number", width: "w-[17%]" },
+            { label: "Claim reason" },
+            { label: "Amount", width: "w-[130px]" },
+            { label: "Status", width: "w-[150px]" },
+          ],
           claims
             .filter((c) => c.kind === "cost")
-            .map((c) => (
-              <tr key={c.id} className="hover:bg-slate-50">
-                <td className={CELL}>{read(c.supplier)}</td>
-                <td className={CELL}>{read(c.invoiceNumber)}</td>
-                <td className={CELL}>{read(c.reason, "two")}</td>
-                <td className={CELL}>{read(c.amount)}</td>
-                {deleteCell(c)}
-              </tr>
-            )),
+            .map((c) => {
+              const status = claimStatusOf(c.status);
+              return (
+                <tr key={c.id} className="hover:bg-slate-50">
+                  <td className={CELL}>{read(c.supplier)}</td>
+                  <td className={CELL}>
+                    {read(c.invoiceNumber)}
+                    {/* the supplier invoice it disputes, on Finance → Accounts Payable (D15) */}
+                    {c.supplierInvoiceId && (
+                      <Link href={apInvoiceHref(c.supplierInvoiceId)} className={`${LINK} text-[12px]`}>
+                        Accounts Payable
+                      </Link>
+                    )}
+                  </td>
+                  <td className={CELL}>{read(c.reason, "two")}</td>
+                  {/* the claimed figure; an older claim's amount typed as text */}
+                  <td className={`${CELL} tabular-nums`}>{read(claimAmountText(c))}</td>
+                  <td className={CELL}>
+                    <Pill tone={status.tone}>{status.label}</Pill>
+                    {c.status === "open" ? (
+                      c.supplierInvoiceId && <div className={HINT}>Holds the invoice&apos;s payment</div>
+                    ) : (
+                      c.closedAt && (
+                        <div className={`${HINT} truncate`} title={[businessDateTime(c.closedAt), c.closedBy].filter(Boolean).join(" · ")}>
+                          {formatDate(businessDayOf(c.closedAt))}
+                          {c.closedBy && ` · ${c.closedBy}`}
+                        </div>
+                      )
+                    )}
+                  </td>
+                  {deleteCell(c)}
+                </tr>
+              );
+            }),
           "No claim on costs — add one with +.",
         )}
       </div>

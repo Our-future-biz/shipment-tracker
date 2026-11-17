@@ -441,3 +441,26 @@ describe("rewritePeople", () => {
     expect(fake.state.steps).toEqual([]);
   });
 });
+
+describe("basicsByIds", () => {
+  const JOB = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
+
+  it("reads, with what Trucking reads, the Person in Charge, the Holiday Cover and the Invoicing Status of the company's live shipments", async () => {
+    await shipmentRepository.basicsByIds(COMPANY, [JOB]);
+    const [read] = fake.state.plainReads;
+    expect(read!.fields).toMatchObject({
+      id: shipmentTable.id,
+      jobNumber: shipmentTable.jobNumber,
+      department: shipmentTable.department,
+      personInCharge: shipmentTable.personInCharge,
+      holidayCover: shipmentTable.holidayCover,
+      invoicingStatus: shipmentTable.invoicingStatus,
+    });
+    expect(sent(read!.where)).toEqual({ sql: '("shipment"."company_id" = $1 and "shipment"."id" in ($2) and "shipment"."deleted_at" is null)', params: [COMPANY, JOB] });
+  });
+
+  it("reads nothing for no ids", async () => {
+    await expect(shipmentRepository.basicsByIds(COMPANY, [])).resolves.toEqual([]);
+    expect(fake.state.plainReads).toEqual([]);
+  });
+});
