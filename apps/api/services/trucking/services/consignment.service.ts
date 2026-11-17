@@ -772,6 +772,16 @@ class ConsignmentService {
   }
 
   /**
+   * The job's pick-up date moved in Shipments (a person's change, lib/shipmentPush): the consignment
+   * takes it as an edit of its own pick-up date would - every rule of `update` (the stored price
+   * kept, the promise counted again, the FTL trip's planned pick-up and the haulier's link moved,
+   * the job told the new promise). The caller decided the consignment still holds the old date.
+   */
+  async followJobPickupDate(actor: Actor, c: TruckingConsignmentRecord, pickupDate: string): Promise<void> {
+    await this.update(actor, c.id, { ...storedFields(c), pickupDate, version: c.version, reprice: false });
+  }
+
+  /**
    * The job's department changed sides (Road ↔ another department): what the job's Costs get
    * instead. Internal now: the selling lines and the haulier's costs leave the job (an LTL trip
    * is settled again without the job), the internal line is sent as it stands. Road again: the

@@ -33,6 +33,9 @@ vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") 
 
 import { customers, quotes, shipments } from "~encore/clients";
 import { consignmentService, type ConsignmentCreateInput } from "../services/consignment.service";
+import { shipmentChangesService } from "../services/shipmentChanges.service";
+import { tripService } from "../services/trip.service";
+import { APIError } from "../../../lib/tests/encoreApi.stub";
 import { eurRate, rateService } from "../services/rate.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { recordSellingDifferences } from "../services/sellingDifference.service";
@@ -612,6 +615,60 @@ describe("update", () => {
     expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-20");
     expect(store.links[0]!.expiresAt.toISOString()).toBe("2026-11-29T22:59:59.000Z");
     expect(eventsOf("consignment_updated").at(-1)!.payload).not.toHaveProperty("facts");
+  });
+});
+
+// F6: a person moved the job's pick-up date or changed its plate in Shipments: its consignment takes
+// it through Trucking's own edit, unless it holds its own value or may not change any more.
+describe("a job's change in Shipments", () => {
+  const moved = { pickupDate: { from: "2026-10-16", to: "2026-10-30" } };
+
+  it("moves the consignment's pick-up date and its trip's planned pick-up, as an edit in Trucking would", async () => {
+    const { c } = await seed({}, { trip: true });
+    await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).resolves.toEqual({ kept: [] });
+    expect(row(c.id).pickupDate).toBe("2026-10-30");
+    expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-30");
+    expect(eventsOf("consignment_updated").at(-1)).toMatchObject({ byUserId: user.userID });
+    // Sent again (a retry): it holds the date already, nothing more is written.
+    const version = row(c.id).version;
+    await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).resolves.toEqual({ kept: [] });
+    expect(row(c.id).version).toBe(version);
+  });
+
+  it("keeps a date changed in Trucking since, and one picked up already - saying why, without failing", async () => {
+    const { c } = await seed({ pickupDate: "2026-10-20" });
+    const picked = await seed({ pickedUpAt: new Date(), status: "PICKED_UP" });
+    const { kept } = await shipmentChangesService.follow(user, SHIPMENT, moved);
+    expect(kept).toHaveLength(2);
+    expect(kept).toEqual(
+      expect.arrayContaining([`${c.ref} pick-up date: its pick-up date was changed in Trucking (2026-10-20)`, `${picked.c.ref} pick-up date: the cargo is picked up already`]),
+    );
+    expect(row(c.id).pickupDate).toBe("2026-10-20");
+    expect(row(picked.c.id).pickupDate).toBe("2026-10-16");
+  });
+
+  it("keeps the date when Trucking's own edit refuses it (its sentence kept), and lets a conflict be tried again", async () => {
+    const { c } = await seed();
+    const follow = vi.spyOn(consignmentService, "followJobPickupDate").mockRejectedValueOnce(APIError.failedPrecondition("A leg of the groupage is on its way already"));
+    try {
+      await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).resolves.toEqual({ kept: [`${c.ref} pick-up date: A leg of the groupage is on its way already`] });
+      follow.mockRejectedValueOnce(APIError.aborted("The consignment was changed meanwhile"));
+      await expect(shipmentChangesService.follow(user, SHIPMENT, moved)).rejects.toMatchObject({ code: "aborted" });
+    } finally {
+      follow.mockRestore();
+    }
+  });
+
+  // The trip takes it through its own edit (tripService.update, tested with the trips).
+  it("sets an FTL trip's tractor plate that still has the job's old one, as Trucking writes plates", async () => {
+    const { trip } = await seed({}, { trip: true });
+    const follow = vi.spyOn(tripService, "followJobPlate").mockResolvedValue();
+    try {
+      await expect(shipmentChangesService.follow(user, SHIPMENT, { plateNumber: { from: "", to: "4cd 5678" } })).resolves.toEqual({ kept: [] });
+      expect(follow).toHaveBeenCalledWith(user, expect.objectContaining({ id: trip!.id }), "4CD5678");
+    } finally {
+      follow.mockRestore();
+    }
   });
 });
 

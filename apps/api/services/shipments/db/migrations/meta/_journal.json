@@ -589,6 +589,13 @@
       "when": 1794933902675,
       "tag": "0083_claim_supplier_invoice",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794945180305,
+      "tag": "0084_shipment_push_outbox",
+      "breakpoints": true
     }
   ]
 }

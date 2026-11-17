@@ -1,7 +1,14 @@
 // Stand-in for encore.dev/api in the service tests: the real module loads the Encore runtime,
 // which a unit test does not have. Only what the services use of it - errors that carry the
 // code the API answers with, and the details some of them add.
-export const ErrCode = { NotFound: "not_found" } as const;
+export const ErrCode = {
+  NotFound: "not_found",
+  InvalidArgument: "invalid_argument",
+  FailedPrecondition: "failed_precondition",
+  AlreadyExists: "already_exists",
+  PermissionDenied: "permission_denied",
+  Unavailable: "unavailable",
+} as const;
 
 export class APIError extends Error {
   constructor(

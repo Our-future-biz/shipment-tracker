@@ -51,6 +51,7 @@ import type {
 import { iso } from "../../../lib/db/serialize";
 import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import { billOfLadingKey } from "../../../lib/billOfLading";
+import { deliverShipmentPushes, owePushes } from "./shipmentPush.service";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
@@ -1350,6 +1351,10 @@ class ShipmentService {
     // One write turn (shipmentRepository.writeTurn): the audit entries of the changed fields
     // and detail-row lists, the detail rows and the shipment row land together or not at all.
     const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
+    // A person's write - an edit, or the master job's values a person saved - owes Trucking and the
+    // gate the fields they keep (lib/shipmentPush); the app's own writes (theirs) owe nothing.
+    const byPerson = role !== undefined || origin === "master_job";
+    let pushesOwed = false;
     const updated = await shipmentRepository.writeTurn(id, companyId, async (tx) => {
       if (stillHolds) {
         const current = await shipmentRepository.getInTurn(tx, id, companyId);
@@ -1372,8 +1377,11 @@ class ShipmentService {
       await this.writeTrackingFacts(tx, existing, shipmentData, userId, role !== undefined, origin);
       if (Object.keys(shipmentData).length === 0) return null;
       const saved = await shipmentRepository.updateForCompany(id, companyId, shipmentData, tx);
+      if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
     });
+    // Sent after the commit; what can't go now is retried by the push outbox's cron. Never throws.
+    if (pushesOwed) await deliverShipmentPushes(id);
     // The truck's other shipments take a typed plate after the write, on their own: inside the
     // turn, two shipments of one truck saved at once could each wait for the other's row.
     if (truck && plateTyped) {
