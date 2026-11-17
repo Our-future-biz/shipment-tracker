@@ -111,6 +111,22 @@ const warehouse: Source<interfaces.SearchWarehouseItem> = {
   // No "Show all": the Warehouse pages list a shipment by where it is, not by its reference.
 };
 
+// Superadmins only, as the Warehouse Concept's pages are (the server refuses anyone else).
+const warehouseConcept: Source<interfaces.SearchGateRecordItem> = {
+  kind: "warehouseConcept",
+  label: "Warehouse Concept",
+  fetch: (q, limit) => api.warehouseConcept.searchWarehouseConcept({ q, limit }),
+  hit: (g) => ({
+    key: `warehouse-concept-${g.id}`,
+    // The record's Gate Log page.
+    href: `/warehouse-concept/gate-log/${encodeURIComponent(g.id)}`,
+    title: g.reference,
+    isRef: true,
+    subtitle: line(g.jobNumber, g.customer),
+  }),
+  // No "Show all": the Gate Log lists records by their day, not by their reference.
+};
+
 const customers: Source<interfaces.SearchCustomerItem> = {
   kind: "customers",
   label: "Customer Database",
@@ -159,10 +175,11 @@ const invoices: Source<interfaces.SearchInvoiceItem> = {
   }),
 };
 
-const SOURCES = [shipments, masterJobs, containers, warehouse, customers, quotes, invoices] as const;
+const SOURCES = [shipments, masterJobs, containers, warehouse, warehouseConcept, customers, quotes, invoices] as const;
 
-function useSourceGroup<T>(source: Source<T>, q: string, limit: number): SearchGroup {
-  const enabled = q.length >= MIN_QUERY;
+/** `allowed` false leaves a kind out for this user (it is not asked, and shows no group). */
+function useSourceGroup<T>(source: Source<T>, q: string, limit: number, allowed = true): SearchGroup {
+  const enabled = allowed && q.length >= MIN_QUERY;
   const query = useQuery({
     queryKey: ["global-search", source.kind, q, limit],
     queryFn: () => source.fetch(q, limit),
@@ -210,9 +227,10 @@ export function useGlobalSearch(q: string, limit: number): SearchGroup[] {
     useSourceGroup(SOURCES[1], q, limit),
     useSourceGroup(SOURCES[2], q, limit),
     useSourceGroup(SOURCES[3], q, limit),
-    useSourceGroup(SOURCES[4], q, limit),
+    useSourceGroup(SOURCES[4], q, limit, user?.role === "superadmin"),
     useSourceGroup(SOURCES[5], q, limit),
     useSourceGroup(SOURCES[6], q, limit),
+    useSourceGroup(SOURCES[7], q, limit),
   ];
   return [pages, ...found];
 }

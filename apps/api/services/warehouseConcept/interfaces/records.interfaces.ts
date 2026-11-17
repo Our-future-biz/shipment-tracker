@@ -1,3 +1,4 @@
+import type { MaxLen } from "encore.dev/validate";
 // ---------- Containers ----------
 
 export interface WarehouseContainerFields {
@@ -431,4 +432,28 @@ export interface WarehouseReportSummary {
   quality: QualityMetrics;
   storage: StorageSummary;
   shipmentUpdates: ShipmentUpdateHealth;
+}
+
+export interface SearchGateRecordsRequest {
+  /** What was typed; a reference is looked for from 4 characters (spaces left out). */
+  q: string & MaxLen<200>;
+  /** Rows to give: 5 when left out, 1 to 50. */
+  limit?: number;
+}
+
+/** A Warehouse Concept gate record the main search found by its warehouse reference (WCZ…). */
+export interface SearchGateRecordItem {
+  /** The gate record (its Gate Log page). */
+  id: string;
+  /** Its warehouse reference (WCZ…), else its gate reference. */
+  reference: string;
+  jobNumber: string;
+  customer: string;
+}
+
+export interface SearchGateRecordsResponse {
+  /** The newest matching records, at most `limit`. */
+  items: SearchGateRecordItem[];
+  /** How many records match in all. */
+  total: number;
 }

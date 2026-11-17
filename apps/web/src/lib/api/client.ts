@@ -5739,6 +5739,7 @@ export namespace warehouseConcept {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.searchWarehouseConcept = this.searchWarehouseConcept.bind(this)
             this.gateExceptionCreate = this.gateExceptionCreate.bind(this)
             this.gateExceptionResolve = this.gateExceptionResolve.bind(this)
             this.gateFileContent = this.gateFileContent.bind(this)
@@ -5846,6 +5847,18 @@ export namespace warehouseConcept {
             this.warehouseZoneDelete = this.warehouseZoneDelete.bind(this)
             this.warehouseZoneList = this.warehouseZoneList.bind(this)
             this.warehouseZoneUpdate = this.warehouseZoneUpdate.bind(this)
+        }
+
+        public async searchWarehouseConcept(params: interfaces.SearchGateRecordsRequest): Promise<interfaces.SearchGateRecordsResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/warehouse-concept`, undefined, {query})
+            return await resp.json() as interfaces.SearchGateRecordsResponse
         }
 
         public async gateExceptionCreate(id: string, params: {
@@ -21400,6 +21413,51 @@ export namespace interfaces {
          * The newest matching records, at most `limit`.
          */
         items: SearchWarehouseItem[]
+
+        /**
+         * How many records match in all.
+         */
+        total: number
+    }
+
+    /**
+     * A Warehouse Concept gate record the main search found by its warehouse reference (WCZ…).
+     */
+    export interface SearchGateRecordItem {
+        /**
+         * The gate record (its Gate Log page).
+         */
+        id: string
+
+        /**
+         * Its warehouse reference (WCZ…), else its gate reference.
+         */
+        reference: string
+
+        jobNumber: string
+        customer: string
+    }
+
+    /**
+     * GET /search/warehouse-concept: the typed text and how many rows to give (superadmins only).
+     */
+    export interface SearchGateRecordsRequest {
+        /**
+         * What was typed; a reference is looked for from 4 characters (spaces left out).
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchGateRecordsResponse {
+        /**
+         * The newest matching records, at most `limit`.
+         */
+        items: SearchGateRecordItem[]
 
         /**
          * How many records match in all.

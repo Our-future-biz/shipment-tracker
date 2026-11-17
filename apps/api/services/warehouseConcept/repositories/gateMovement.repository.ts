@@ -469,3 +469,31 @@ class GateMovementRepository {
 }
 
 export const gateMovementRepository = new GateMovementRepository();
+
+/**
+ * The main search (the top bar) in the Warehouse Concept: the company's live gate records whose
+ * warehouse reference (WCZ…) or gate reference, in capitals, holds `text` - or, with `digits` (a
+ * reference typed with other letters or none), whose WCZ number starts with them - the newest
+ * first, `limit` of them, and how many match in all.
+ */
+export async function searchGateRecordsMain(companyId: string, text: string, digits: string | null, limit: number) {
+  const ref = sql`upper(coalesce(${warehouseTaskTable.taskId}, ''))`;
+  const byNumber = digits ? sql` OR substring(${ref} from '^WCZ([0-9]+)$') LIKE ${`${digits}%`}` : sql``;
+  const where = and(
+    liveRow(companyId),
+    sql`(${ref} LIKE ${`%${text}%`} OR upper(${gateMovementTable.gateRef}) LIKE ${`%${text}%`}${byNumber})`,
+  );
+  const from = db
+    .select({ id: gateMovementTable.id, positionRef: warehouseTaskTable.taskId, gateRef: gateMovementTable.gateRef, jobNumber: gateMovementTable.jobNumber, customer: gateMovementTable.customer })
+    .from(gateMovementTable)
+    .leftJoin(warehouseTaskTable, and(eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId), eq(warehouseTaskTable.companyId, companyId)));
+  const [rows, [counted]] = await Promise.all([
+    from.where(where).orderBy(desc(gateMovementTable.createdAt), desc(gateMovementTable.id)).limit(limit),
+    db
+      .select({ value: sql<number>`count(*)` })
+      .from(gateMovementTable)
+      .leftJoin(warehouseTaskTable, and(eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId), eq(warehouseTaskTable.companyId, companyId)))
+      .where(where),
+  ]);
+  return { rows, total: Number(counted?.value ?? 0) };
+}

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /** The kinds of things the main search finds, in the order its groups are shown. */
-export const SEARCH_KINDS = ["pages", "shipments", "masterJobs", "containers", "warehouse", "customers", "quotes", "invoices"] as const;
+export const SEARCH_KINDS = ["pages", "shipments", "masterJobs", "containers", "warehouse", "warehouseConcept", "customers", "quotes", "invoices"] as const;
 export type SearchKind = (typeof SEARCH_KINDS)[number];
 
 /** One thing found, as a row of the dropdown or of the results page. */
