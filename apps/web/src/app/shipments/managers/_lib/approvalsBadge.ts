@@ -1,6 +1,7 @@
-// The count on the Approvals tab of Shipments → Managers: the requests waiting in its queues
-// (releases on prepayment, changes of Customs Office, changes of an approved document), each read
-// on its own. However many queues there are, the rule is one: add up what was read, and say so
+// The count on the Approvals tab of Shipments → Managers: the requests waiting in its four queues
+// (releases on prepayment, changes of Customs Office, changes of an approved document, selling a
+// cost on below what it costs), each read on its own. What is answered on another page - billing
+// approvals, supplier invoices - is not counted. However many queues there are, the rule is one: add up what was read, and say so
 // when a queue was not.
 
 /** One queue as its hook reports it: `isError` when it could not be read (its `waiting` is then 0). */

@@ -1,11 +1,14 @@
+import { inArray } from "drizzle-orm";
 import { gateMovementRepository, hasStamp, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { gateEventOutboxRepository } from "../repositories/gateEventOutbox.repository";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
 import { settingsRepository } from "../repositories/settings.repository";
 import { containerRepository } from "../repositories/warehouseRecords.repository";
+import { gateEventOutboxTable } from "../schemas/gateEventOutbox.schema";
 import type { CockpitDelivery, WarehouseManagersCockpit } from "../interfaces/cockpit.interfaces";
-import type { StorageSummary } from "../interfaces/records.interfaces";
+import type { GateMovementItem } from "../interfaces/gate.interfaces";
+import type { StorageSummary, WarehouseContainerItem } from "../interfaces/records.interfaces";
 import { containerService } from "./container.service";
 import { gateMovementService } from "./gateMovement.service";
 import { buildCockpit } from "./managersCockpit";
@@ -33,31 +36,29 @@ const within = (at: Date | string | null | undefined, days: number, now: Date) =
   return !Number.isNaN(t) && t >= now.getTime() - days * DAY;
 };
 
+/** The gate records the cockpit judges, and what their neighbours know about them. */
+export interface RecordFacts {
+  /** Every live record read: the company's, or those of the shipments asked for. */
+  rows: GateMovementRow[];
+  /** Of them, the records that still matter, as the Gate Log returns them. */
+  items: GateMovementItem[];
+  /** Gate record id → the events for Trucking it failed to send for good. */
+  truckingNotSent: Map<string, string[]>;
+  /** Gate record id → the customs regime it left under with no MRN or customs document. */
+  leftWithoutDocument: Map<string, string>;
+}
+
+/** The containers not gone out yet, and (for a scoped read) which gate records each is linked to. */
+export interface ContainerFacts {
+  items: WarehouseContainerItem[];
+  /** Container id → the gate record ids it is linked to (its houses, or the legacy one-position link). */
+  movementIds: Map<string, string[]>;
+}
+
 class ManagersCockpitService {
   async cockpit(companyId: string, now = new Date()): Promise<WarehouseManagersCockpit> {
-    // Every live record (a full read, kept): which records still matter is judged below by rules
-    // (stamps, holds, owed updates, recent events) the cockpit applies to each of them.
-    const rows = await gateMovementRepository.listAll(companyId);
-    const unsent = new Set(await shipmentOutboxRepository.unsentMovementIds(companyId));
-    const truckingFailed = await gateEventOutboxRepository.failedWhere(companyId);
-    const truckingNotSent = new Map<string, string[]>();
-    for (const r of truckingFailed) truckingNotSent.set(r.movementId, [...(truckingNotSent.get(r.movementId) ?? []), GATE_EVENT_WHAT[r.event.kind] ?? r.event.kind]);
-    const held = new Set(await gateExceptionRepository.openMovementIds(companyId));
-    const leftWithoutDocument = await this.leftWithoutDocument(companyId, now);
-    const matters = (m: GateMovementRow) =>
-      (!m.impRelease && !m.leftAt) ||
-      unsent.has(m.id) ||
-      truckingNotSent.has(m.id) ||
-      held.has(m.id) ||
-      leftWithoutDocument.has(m.id) ||
-      within(m.impRelease ?? m.leftAt, RELEASED_CHARGEABLE_DAYS, now) ||
-      !!correctionNeeded(m.events) ||
-      m.events.some((e) => e.kind === "shipmentDeleted" || (e.kind === FLOOR_WRITE_LOST_EVENT && within(e.at, FLOOR_WRITE_LOST_DAYS, now)));
-    const matter = rows.filter(matters);
-    const items = await gateMovementService.itemsFor(matter, companyId);
-
-    const containerRows = (await containerRepository.listForCompany(companyId, 5000)).filter((c) => !c.gateOutAt);
-    const containers = await containerService.items(containerRows, companyId, now);
+    const { rows, items, truckingNotSent, leftWithoutDocument } = await this.recordFacts(companyId, now);
+    const { items: containers } = await this.containerFacts(companyId, now);
 
     const archived = await gateMovementRepository.listArchived(companyId);
     const shipmentUpdates = await shipmentOutboxRepository.health(companyId);
@@ -84,6 +85,56 @@ class ManagersCockpitService {
       delivery,
       now,
     });
+  }
+
+  /**
+   * The records the cockpit judges and what it needs to judge them — shared by the cockpit (every
+   * live record of the company) and the operations facts Shipments → Managers asks for
+   * (`shipmentIds`: only the live records of those shipments), so a position reads the same on both
+   * pages. The side reads are narrowed to those records then; the bonded register is read whole
+   * either way (its closed entries are cut at a limit, so a narrowed read could see other ones).
+   */
+  async recordFacts(companyId: string, now: Date, scope?: { shipmentIds: string[] }): Promise<RecordFacts> {
+    // Every live record (a full read, kept): which records still matter is judged below by rules
+    // (stamps, holds, owed updates, recent events) the cockpit applies to each of them.
+    const rows = scope ? await gateMovementRepository.listForShipments(scope.shipmentIds, companyId) : await gateMovementRepository.listAll(companyId);
+    if (scope && !rows.length) return { rows, items: [], truckingNotSent: new Map(), leftWithoutDocument: new Map() };
+    const ids = scope ? rows.map((m) => m.id) : undefined;
+    const unsent = new Set(await shipmentOutboxRepository.unsentMovementIds(companyId, ids));
+    const truckingFailed = await gateEventOutboxRepository.failedWhere(companyId, ids ? inArray(gateEventOutboxTable.movementId, ids) : undefined);
+    const truckingNotSent = new Map<string, string[]>();
+    for (const r of truckingFailed) truckingNotSent.set(r.movementId, [...(truckingNotSent.get(r.movementId) ?? []), GATE_EVENT_WHAT[r.event.kind] ?? r.event.kind]);
+    const held = new Set(await gateExceptionRepository.openMovementIds(companyId, ids));
+    const leftWithoutDocument = await this.leftWithoutDocument(companyId, now);
+    const matters = (m: GateMovementRow) =>
+      (!m.impRelease && !m.leftAt) ||
+      unsent.has(m.id) ||
+      truckingNotSent.has(m.id) ||
+      held.has(m.id) ||
+      leftWithoutDocument.has(m.id) ||
+      within(m.impRelease ?? m.leftAt, RELEASED_CHARGEABLE_DAYS, now) ||
+      !!correctionNeeded(m.events) ||
+      m.events.some((e) => e.kind === "shipmentDeleted" || (e.kind === FLOOR_WRITE_LOST_EVENT && within(e.at, FLOOR_WRITE_LOST_DAYS, now)));
+    const matter = rows.filter(matters);
+    const items = await gateMovementService.itemsFor(matter, companyId);
+    return { rows, items, truckingNotSent, leftWithoutDocument };
+  }
+
+  /**
+   * The containers not gone out yet: the company's latest (the cockpit), or with `movementIds`
+   * those linked to these gate records (as a house, or the legacy way) — the operations facts.
+   */
+  async containerFacts(companyId: string, now: Date, movementIds?: string[]): Promise<ContainerFacts> {
+    if (!movementIds) {
+      const containerRows = (await containerRepository.listForCompany(companyId, 5000)).filter((c) => !c.gateOutAt);
+      return { items: await containerService.items(containerRows, companyId, now), movementIds: new Map() };
+    }
+    const links = await containerRepository.listForMovements(movementIds, companyId);
+    if (!links.length) return { items: [], movementIds: new Map() };
+    const linked = new Map<string, string[]>();
+    for (const l of links) linked.set(l.id, [...(linked.get(l.id) ?? []), l.movementId]);
+    const containerRows = (await containerRepository.findByIds([...linked.keys()], companyId)).filter((c) => !c.gateOutAt);
+    return { items: containerRows.length ? await containerService.items(containerRows, companyId, now) : [], movementIds: linked };
   }
 
   // Bonded entries whose goods left (WH release, or stuffed in a container that went out) under

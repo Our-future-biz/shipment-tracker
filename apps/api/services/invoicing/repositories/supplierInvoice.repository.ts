@@ -374,6 +374,42 @@ class SupplierInvoiceRepository {
       .limit(limit);
   }
 
+  /**
+   * The live supplier invoices on these jobs (Shipments → Managers, the Money tab): those a live line of one of them
+   * points to, and the refused ones whose lines - taken off the job, kept on the record - were on one. One statement.
+   */
+  async listOfShipments(companyId: string, shipmentIds: string[]): Promise<SupplierInvoiceRecord[]> {
+    const ids = [...new Set(shipmentIds)];
+    if (!ids.length) return [];
+    const onLines = db
+      .select({ id: c.supplierInvoiceId })
+      .from(c)
+      .where(and(eq(c.companyId, companyId), isNull(c.deletedAt), isNotNull(c.supplierInvoiceId), inArray(c.shipmentId, ids)));
+    const refusedOnJobs = sql`(${t.status} = 'refused' and exists (select 1 from jsonb_array_elements(${t.refusedLines}) as "kept"("line") where "kept"."line"->>'table' = 'invoice_cost' and "kept"."line"->>'ownerId' in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})))`;
+    return db.select().from(t).where(and(LIVE(companyId), or(inArray(t.id, onLines), refusedOnJobs)));
+  }
+
+  /** These jobs' estimates still waiting for an invoice: the lines of expectedLines (the Expected tab), for the jobs asked. */
+  async expectedLinesOfShipments(companyId: string, shipmentIds: string[]): Promise<InvoiceCostRecord[]> {
+    const ids = [...new Set(shipmentIds)];
+    if (!ids.length) return [];
+    return db
+      .select()
+      .from(c)
+      .where(
+        and(
+          eq(c.companyId, companyId),
+          isNull(c.deletedAt),
+          ...ENTERED_HERE,
+          isNotNull(c.estAmount),
+          isNull(c.realAmount),
+          sql`btrim(${c.invoiceNumber}) = ''`,
+          sql`round(${c.estAmount} * coalesce(${c.estQty}, 1), 2) <> 0`,
+          inArray(c.shipmentId, ids),
+        ),
+      );
+  }
+
   async events(companyId: string, invoiceId: string): Promise<SupplierInvoiceEventRecord[]> {
     return db.select().from(ev).where(and(eq(ev.companyId, companyId), eq(ev.invoiceId, invoiceId))).orderBy(desc(ev.createdAt));
   }

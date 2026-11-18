@@ -1119,3 +1119,54 @@ export interface TruckingLinksNormalizeResult {
   /** The names left as they are, most frequent first. */
   unmatched: TruckingUnmatchedName[];
 }
+
+// ==== Shipments → Managers: Trucking's facts by job (Council Outlay 11, step 5; POST /internal/trucking/operations-facts) ====
+
+/** What Trucking judges wrong with a consignment now. */
+export type TruckingIssueKind = "no_haulier" | "haulier_not_confirmed" | "not_picked_up" | "failed_delivery" | "exception_open" | "pod_missing";
+
+export interface TruckingIssue {
+  kind: TruckingIssueKind;
+  /** In Trucking's words, e.g. "Pick-up within 24 h and no trip", "Delivered 3 working days ago — POD missing" */
+  text: string;
+  urgent: boolean;
+  /** Since when it stands: an ISO time, or the day (YYYY-MM-DD) where only the day is known (a missed pick-up); null when not known */
+  since: string | null;
+}
+
+/** A consignment still in play: not cancelled, not Ready to bill, without its POD or with a delivery exception not closed. */
+export interface TruckingConsignmentFacts {
+  id: string;
+  /** TCZ… */
+  ref: string;
+  /** As the Trucking pages show it: "Booked", "Ordered", "Picked up", "At our warehouse", … */
+  status: string;
+  /** Planned pick-up day */
+  pickupDate: string | null;
+  /** Promised (planned) delivery day */
+  deliveryDate: string | null;
+  /** Trucking's own judgement of what is wrong now; empty when nothing is */
+  issues: TruckingIssue[];
+}
+
+export interface TruckingShipmentFacts {
+  shipmentId: string;
+  consignments: TruckingConsignmentFacts[];
+  /** Trucking's updates to this job pending longer than its stale limit (10 min); null when the updates could not be read */
+  updatesWaiting: number | null;
+  /** …and those that failed for good (a manager can send them again); null when not read */
+  updatesFailed: number | null;
+}
+
+export interface TruckingOperationsFacts {
+  /** The jobs asked that have a consignment in play or an update waiting / failed, in the order asked; the others are left out */
+  shipments: TruckingShipmentFacts[];
+  /** What could not be read, in plain words; its issues / figures are not given */
+  notKnown: string[];
+  /** The consignments, trips and delivery exceptions were all read: the issues are complete (the holidays aside, see notKnown) */
+  issuesRead: boolean;
+  /** The updates to the jobs were read: a job left out has none waiting or failed */
+  updatesRead: boolean;
+}
+
+// ==== end of Shipments → Managers: Trucking's facts by job ====

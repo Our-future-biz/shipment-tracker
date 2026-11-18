@@ -79,6 +79,41 @@ class ShipmentClaimRepository extends TenantRepository<typeof shipmentClaimTable
     return rows.map((r) => r.claim);
   }
 
+  /**
+   * The company's OPEN live claims on costs on any of `shipmentIds`, the oldest first: what the
+   * Money tab of Shipments → Managers says of them (lib/managersMoney) - the claimed amount and
+   * currency, the supplier invoice it is tied to, when it was raised, and the typed fields that
+   * tell a claim from a row nobody filled in. One statement, by the jobs' ids (the jobs were read
+   * as live ones of the company, so the shipment is not joined). Nothing is read for no ids.
+   */
+  async openCostClaimsByShipmentIds(companyId: string, shipmentIds: readonly string[]) {
+    if (!shipmentIds.length) return [];
+    return this.db
+      .select({
+        shipmentId: shipmentClaimTable.shipmentId,
+        createdAt: shipmentClaimTable.createdAt,
+        claimAmount: shipmentClaimTable.claimAmount,
+        claimCurrency: shipmentClaimTable.claimCurrency,
+        supplierInvoiceId: shipmentClaimTable.supplierInvoiceId,
+        supplier: shipmentClaimTable.supplier,
+        invoiceNumber: shipmentClaimTable.invoiceNumber,
+        reason: shipmentClaimTable.reason,
+        amount: shipmentClaimTable.amount,
+        note: shipmentClaimTable.note,
+      })
+      .from(shipmentClaimTable)
+      .where(
+        and(
+          eq(shipmentClaimTable.companyId, companyId),
+          eq(shipmentClaimTable.kind, "cost"),
+          eq(shipmentClaimTable.status, "open"),
+          isNull(shipmentClaimTable.deletedAt),
+          inArray(shipmentClaimTable.shipmentId, [...shipmentIds]),
+        ),
+      )
+      .orderBy(asc(shipmentClaimTable.createdAt), asc(shipmentClaimTable.id));
+  }
+
   async updateClaim(id: string, shipmentId: string, companyId: string, data: ClaimFields): Promise<ShipmentClaimRecord | null> {
     const [row] = await this.db
       .update(shipmentClaimTable)

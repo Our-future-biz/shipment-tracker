@@ -100,6 +100,19 @@ class GateMovementRepository {
   }
 
   /**
+   * The live records whose live task is linked to one of these shipments, newest first (as listAll):
+   * the operations facts Shipments → Managers asks for its jobs. Ids that are not uuids match nothing.
+   */
+  async listForShipments(shipmentIds: string[], companyId: string): Promise<GateMovementRow[]> {
+    const ids = shipmentIds.filter(isUuid);
+    if (!ids.length) return [];
+    const rows = await this.select()
+      .where(and(liveRow(companyId), inArray(warehouseTaskTable.shipmentId, ids)))
+      .orderBy(desc(gateMovementTable.createdAt));
+    return rows.map(toRow);
+  }
+
+  /**
    * The records the customs follow reads next, picked in SQL: live, linked to a shipment, not
    * released or left, whose shipment was not deleted (`goneEvent` in their log), and not read
    * since `checkedBefore` - never read first, then the longest ago (ties newest first), at most `limit`.

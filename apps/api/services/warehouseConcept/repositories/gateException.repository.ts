@@ -15,11 +15,13 @@ class GateExceptionRepository extends TenantRepository<typeof warehouseException
 
   // The company's gate records with an open exception (the managers' cockpit reads them even
   // after the release: the exception is still open there).
-  async openMovementIds(companyId: string): Promise<string[]> {
+  // With `movementIds`, only among those records (the operations facts of a few shipments).
+  async openMovementIds(companyId: string, movementIds?: string[]): Promise<string[]> {
+    if (movementIds && !movementIds.length) return [];
     const rows = await db
       .selectDistinct({ movementId: x.movementId })
       .from(x)
-      .where(and(eq(x.companyId, companyId), eq(x.status, "open"), isNull(x.deletedAt)));
+      .where(and(eq(x.companyId, companyId), eq(x.status, "open"), isNull(x.deletedAt), movementIds ? inArray(x.movementId, movementIds) : undefined));
     return rows.map((r) => r.movementId);
   }
 

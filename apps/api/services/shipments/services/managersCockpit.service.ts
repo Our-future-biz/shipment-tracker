@@ -27,7 +27,8 @@ import { companyHolidays } from "./companyHolidays";
 import { DISMISSALS_NOT_KNOWN, cutoffDismissalsOf } from "./cutoffDismissal.service";
 import { AUDIT_PARTS, managersAuditLine } from "./managersCockpitAudit.service";
 import { extraSignals } from "./managersCockpitExtra.service";
-import { cockpitUsers, teamFacts } from "./managersCockpitTeam.service";
+import { handoverFacts } from "./managersCockpitHandover.service";
+import { cockpitUsers, teamFacts, type CockpitUser } from "./managersCockpitTeam.service";
 import { attentionFactsOf } from "./trackingAttention.service";
 
 export interface OpsCockpitFilters {
@@ -90,6 +91,10 @@ async function boxesOf(jobs: readonly OpsCockpitJob[], companyId: string, today:
   return byShipment<CockpitBox & { shipmentId: string }>(await containerRepository.listByShipmentIds(ids, companyId));
 }
 
+/** The e-mails of the users who name `userId` in "Reports to"; null when the users could not be read. */
+export const reportEmailsOf = (users: readonly CockpitUser[] | null, userId: string): Set<string> | null =>
+  users && new Set(users.filter((u) => u.reportsToUserId === userId).map((u) => u.email));
+
 // Shipments → Managers: the company's active jobs, what Needs Attention knows about them, what
 // their timelines and the tables beside them say, the company's users and its holidays, judged
 // by the pure rules of lib/managersCockpit on one `now`. It only reads. The jobs and Needs
@@ -103,6 +108,12 @@ async function boxesOf(jobs: readonly OpsCockpitJob[], companyId: string, today:
 // statements when it is read, none while a line read within the last minutes is kept). The
 // users are read once and with whom each reports to - "My reports" is the one thing here that
 // cannot be answered without them, and is refused then.
+//
+// Step 5 adds the warehouse's and Trucking's own word on the jobs (services/managersCockpitHandover.service):
+// one call to each, for every job read whatever the page's filters, each failing on its own, none
+// while a company's answer of the last two minutes is kept. They are started first, and not
+// through the limiter: they hold no connection of this pool, and the statements run meanwhile;
+// each is waited for six seconds at most (HANDOVER_CALL_TIMEOUT_MS).
 //
 // The page asks every minute and the pool has ten connections (lib/db/pool), so every statement
 // of one answer - this file's own and those of the readers it calls, which are handed the limiter -
@@ -121,6 +132,10 @@ class ManagersCockpitService {
     const ids = jobs.map((j) => j.id);
     const extraHolidays = uploaded ?? [];
     const emailOf = users && new Map(users.map((u) => [u.id, u.email]));
+    // The warehouse and Trucking first: their calls hold none of this pool's connections, so they
+    // are no statement of the limiter's, and they run while the statements do. Every job read, not
+    // only the page's: the answers are kept per company, and the filters applied to them afterwards.
+    const handoverRead = handoverFacts(ids, { companyId, now });
     // Every statement from here on goes through the one limiter, in the order it is asked for.
     const run = readLimiter(COCKPIT_READS_AT_ONCE);
     // The events are read once, for the timeline rules and for Needs Attention's free time clocks.
@@ -128,7 +143,7 @@ class ManagersCockpitService {
     // failed they are asked for again, by themselves, and the answer fails only if that fails too.
     const events = part(NOT_KNOWN.timeline, () => run(() => shipmentTrackingEventRepository.ofKinds(ids, companyId, EVENT_KINDS)));
     const clockEvents = events.then((rows) => (rows ? rows.filter(isOfKinds(CLOCK_EVENT_KINDS)) : run(() => shipmentTrackingEventRepository.ofKinds(ids, companyId, CLOCK_EVENT_KINDS))));
-    const [facts, moved, timeline, boxes, extra, team, dismissed, audit] = await Promise.all([
+    const [facts, moved, timeline, boxes, extra, team, dismissed, audit, handover] = await Promise.all([
       attentionFactsOf(jobs, companyId, today, clockEvents, run),
       run(() => shipmentRepository.dateMovedLately(companyId, ids)),
       events.then((rows) => rows && timelineOf(rows)),
@@ -144,6 +159,7 @@ class ManagersCockpitService {
         log.warn(err, "a part of Shipments → Managers could not be read", { part: AUDIT_PARTS.all });
         return { audit: null, notKnown: [AUDIT_PARTS.all] };
       }),
+      handoverRead,
     ]);
     const extraByJob: ReadonlyMap<string, readonly OpsSignal[]> = extra?.byJob ?? new Map();
     const masterJobRows: readonly OpsMasterJobRow[] = extra?.masterJobRows ?? [];
@@ -163,6 +179,7 @@ class ManagersCockpitService {
       // dismissals could not be read nothing is treated as dismissed: a tag too many, never one too few.
       cutoffsKept: (jobId, cutoffs) => withoutDismissed(cutoffs, dismissed?.get(jobId)),
       audit: audit.audit,
+      handover,
       notKnown: [
         ...(timeline ? [] : [NOT_KNOWN.timeline]),
         ...(boxes ? [] : [NOT_KNOWN.boxes]),
@@ -170,6 +187,7 @@ class ManagersCockpitService {
         ...(team ? team.notKnown : [NOT_KNOWN.team]),
         ...(dismissed ? [] : [DISMISSALS_NOT_KNOWN]),
         ...audit.notKnown,
+        ...handover.notKnown,
       ],
       capped: rows.length > COCKPIT_JOB_LIMIT,
       mode: filters.mode,
@@ -177,7 +195,7 @@ class ManagersCockpitService {
       handledBy: filters.handledBy,
       reports: filters.reports,
       // Whoever names the caller in "Reports to". Read only for "mine", which is refused above without the users.
-      reportEmails: users && new Set(users.filter((u) => u.reportsToUserId === filters.userId).map((u) => u.email)),
+      reportEmails: reportEmailsOf(users, filters.userId),
       now,
     });
   }

@@ -17,6 +17,13 @@ const fake = vi.hoisted(() => {
             },
           }),
         }),
+        // A read of the claims alone, with no shipment joined (openCostClaimsByShipmentIds).
+        where: (where: unknown) => ({
+          orderBy: async (...orderBy: unknown[]) => {
+            state.reads.push({ fields, joinOn: null, where, orderBy });
+            return state.found;
+          },
+        }),
       }),
     }),
   };
@@ -64,6 +71,39 @@ describe("listCostClaims", () => {
 
   it("reads nothing when it is given no ids", async () => {
     await expect(shipmentClaimRepository.listCostClaims(COMPANY, [], [])).resolves.toEqual([]);
+    expect(fake.state.reads).toEqual([]);
+  });
+});
+
+describe("openCostClaimsByShipmentIds", () => {
+  it("reads the company's open live claims on costs on the jobs asked about, the oldest first - one statement, no shipment joined", async () => {
+    fake.state.found = [{ shipmentId: SHIPMENT }];
+    await expect(shipmentClaimRepository.openCostClaimsByShipmentIds(COMPANY, [SHIPMENT, INVOICE])).resolves.toEqual([{ shipmentId: SHIPMENT }]);
+    expect(fake.state.reads).toHaveLength(1);
+    const [read] = fake.state.reads;
+    expect(read!.joinOn).toBeNull();
+    // What the Money tab reads of a claim: when it was raised, what it claims, and the typed fields that tell it from a blank row.
+    expect(read!.fields).toEqual({
+      shipmentId: shipmentClaimTable.shipmentId,
+      createdAt: shipmentClaimTable.createdAt,
+      claimAmount: shipmentClaimTable.claimAmount,
+      claimCurrency: shipmentClaimTable.claimCurrency,
+      supplierInvoiceId: shipmentClaimTable.supplierInvoiceId,
+      supplier: shipmentClaimTable.supplier,
+      invoiceNumber: shipmentClaimTable.invoiceNumber,
+      reason: shipmentClaimTable.reason,
+      amount: shipmentClaimTable.amount,
+      note: shipmentClaimTable.note,
+    });
+    expect(sent(read!.where)).toEqual({
+      sql: '("shipment_claim"."company_id" = $1 and "shipment_claim"."kind" = $2 and "shipment_claim"."status" = $3 and "shipment_claim"."deleted_at" is null and "shipment_claim"."shipment_id" in ($4, $5))',
+      params: [COMPANY, "cost", "open", SHIPMENT, INVOICE],
+    });
+    expect(read!.orderBy.map((o) => sent(o).sql)).toEqual(['"shipment_claim"."created_at" asc', '"shipment_claim"."id" asc']);
+  });
+
+  it("reads nothing when it is given no job", async () => {
+    await expect(shipmentClaimRepository.openCostClaimsByShipmentIds(COMPANY, [])).resolves.toEqual([]);
     expect(fake.state.reads).toEqual([]);
   });
 });

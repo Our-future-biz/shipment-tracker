@@ -86,6 +86,15 @@ describe("Shipments → Managers, Team: where a row leads", () => {
     expect(params.get("signal")).toBeNull();
   });
 
+  it("keeps what the Money tab's cards are narrowed to: each tab keeps its own narrowing", () => {
+    expect(teamRowHref(person("jana@cto.cz"), { ...everyone, msignal: "margin" })).toBe("/shipments/managers?handledBy=jana%40cto.cz&msignal=margin");
+    expect(teamRowHref(person("jana@cto.cz"), { ...everyone, msignal: null })).toBe("/shipments/managers?handledBy=jana%40cto.cz");
+    expect(teamRows([person("jana@cto.cz"), person("eva@cto.cz", { active: 0, covers: 2 })], { mode: "sea", direction: "all", reports: "all", msignal: "accrual" }).map((r) => r.href)).toEqual([
+      "/shipments/managers?mode=sea&handledBy=jana%40cto.cz&msignal=accrual",
+      null,
+    ]);
+  });
+
   it("opens the jobs nobody handles for Nobody", () => {
     expect(teamRowHref(person("", { active: 5 }), { ...everyone, mode: "sea" })).toBe("/shipments/managers?mode=sea&handledBy=nobody");
   });

@@ -1,11 +1,8 @@
 import { APIError, api, type Query } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
-import type { OpsCockpitDirection, OpsCockpitMode, OpsCockpitReports, ShipmentsManagersCockpit } from "../interfaces/interfaces";
+import type { ShipmentsManagersCockpit } from "../interfaces/interfaces";
+import { managersFilters } from "../lib/managersFilters";
 import { managersCockpitService } from "../services/managersCockpit.service";
-
-const MODES: readonly OpsCockpitMode[] = ["all", "sea", "air", "rail", "road"];
-const DIRECTIONS: readonly OpsCockpitDirection[] = ["all", "import", "export", "domestic"];
-const REPORTS: readonly OpsCockpitReports[] = ["all", "mine"];
 
 interface ShipmentManagersCockpitRequest {
   /** How the jobs travel: sea, air, rail or road; all of them when left out. */
@@ -28,14 +25,9 @@ export const shipmentManagersCockpit = api(
   { expose: true, auth: true, method: "GET", path: "/shipments/managers-cockpit" },
   async ({ mode, direction, handledBy, reports }: ShipmentManagersCockpitRequest): Promise<{ cockpit: ShipmentsManagersCockpit }> => {
     const { companyID, userID } = requireRole("superadmin", "admin", "manager");
-    const chosenMode = MODES.find((m) => m === (mode ?? "all"));
-    if (!chosenMode) throw APIError.invalidArgument(`mode must be one of ${MODES.join(", ")}`);
-    const chosenDirection = DIRECTIONS.find((d) => d === (direction ?? "all"));
-    if (!chosenDirection) throw APIError.invalidArgument(`direction must be one of ${DIRECTIONS.join(", ")}`);
-    const chosenReports = REPORTS.find((r) => r === (reports ?? "all"));
-    if (!chosenReports) throw APIError.invalidArgument(`reports must be one of ${REPORTS.join(", ")}`);
-    return {
-      cockpit: await managersCockpitService.cockpit(companyID, { mode: chosenMode, direction: chosenDirection, handledBy: handledBy?.trim() || null, reports: chosenReports, userId: userID }),
-    };
+    // The page's filters, read as the Money tab reads them (lib/managersFilters).
+    const chosen = managersFilters({ mode, direction, handledBy, reports });
+    if ("problem" in chosen) throw APIError.invalidArgument(chosen.problem);
+    return { cockpit: await managersCockpitService.cockpit(companyID, { ...chosen.filters, userId: userID }) };
   },
 );

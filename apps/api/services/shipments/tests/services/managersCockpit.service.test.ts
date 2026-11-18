@@ -9,6 +9,7 @@ const extra = vi.hoisted(() => ({ extraSignals: vi.fn() }));
 const team = vi.hoisted(() => ({ cockpitUsers: vi.fn(), teamFacts: vi.fn() }));
 const dismissals = vi.hoisted(() => ({ cutoffDismissalsOf: vi.fn(), DISMISSALS_NOT_KNOWN: "dismissed cut-offs" }));
 const auditLine = vi.hoisted(() => ({ managersAuditLine: vi.fn(), AUDIT_PARTS: { all: "the audit line" } }));
+const handover = vi.hoisted(() => ({ handoverFacts: vi.fn() }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ holidays }));
@@ -19,12 +20,15 @@ vi.mock("../../services/managersCockpitExtra.service", () => extra);
 vi.mock("../../services/managersCockpitTeam.service", () => team);
 vi.mock("../../services/cutoffDismissal.service", () => dismissals);
 vi.mock("../../services/managersCockpitAudit.service", () => auditLine);
+// And step 5's calls to the warehouse and Trucking (tests/services/managersCockpitHandover.service.test.ts).
+vi.mock("../../services/managersCockpitHandover.service", () => handover);
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: events }));
 vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: notices }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: containers }));
 
 import { COCKPIT_JOB_LIMIT } from "../../lib/cockpitThresholds";
+import { handoverFactsOf } from "../../lib/managersCockpitHandover";
 import { NO_TEAM_FACTS, type TeamFacts } from "../../lib/managersCockpitTeam";
 import { NOT_KNOWN, REPORTS_NOT_KNOWN, managersCockpitService } from "../../services/managersCockpit.service";
 import { trackingAttentionService } from "../../services/trackingAttention.service";
@@ -46,6 +50,8 @@ const USERS = [
 /** Everything read, nothing found: no signal, and every figure of the people line a 0. */
 const QUIET_TEAM: TeamFacts = { byJob: new Map(), known: { todos: true, mentions: true, touched: true, coverSince: true }, notKnown: [] };
 const NO_AUDIT = { audit: { days: 7, items: [] }, notKnown: [] };
+/** The warehouse and Trucking asked, and nothing in play there. */
+const QUIET_HANDOVER = handoverFactsOf({ shipments: [], notKnown: [] }, { shipments: [], notKnown: [], issuesRead: true, updatesRead: true });
 /** A person of the people line with nothing on them but their jobs. */
 const person = (handledBy: string, over = {}) => ({
   handledBy,
@@ -145,6 +151,7 @@ beforeEach(() => {
   team.teamFacts.mockResolvedValue(QUIET_TEAM);
   dismissals.cutoffDismissalsOf.mockResolvedValue(new Map());
   auditLine.managersAuditLine.mockResolvedValue(NO_AUDIT);
+  handover.handoverFacts.mockResolvedValue(QUIET_HANDOVER);
 });
 
 describe("Shipments → Managers' reads", () => {
@@ -500,6 +507,67 @@ describe("Shipments → Managers' reads", () => {
       await expect(managersCockpitService.cockpit(COMPANY, { ...EVERYONE, reports: "mine" }, NOW)).rejects.toThrow(REPORTS_NOT_KNOWN);
       // Everybody's jobs need no users to be listed.
       expect((await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW)).tiles.active).toBe(4);
+    });
+  });
+
+  describe("the warehouse and Trucking (step 5)", () => {
+    // A Domestic job whose pick-up day passed with nothing on its timeline, and one arriving to our warehouse.
+    const jobs = () => [
+      row(1, { tradeDirection: "Domestic", freightMode: "", pickupDate: "2026-11-17" }),
+      row(2, { etaWarehouse: "2026-11-16", personInCharge: "eva@firma.cz" }),
+      row(3),
+    ];
+    const issue = (over = {}) => ({ kind: "not_picked_up" as const, text: "Pick-up date passed and no pick-up stamped", urgent: true, since: "2026-11-17", ...over });
+    const consignment = (ref: string, issues: ReturnType<typeof issue>[]) => ({ id: `c-${ref}`, ref, status: "Ordered", pickupDate: "2026-11-17", deliveryDate: null, issues });
+    const record = (ref: string, signals: { text: string; urgent: boolean }[]) => ({ id: `r-${ref}`, ref, lifecycle: "Expected", signals });
+    const warehouseAnswer = {
+      shipments: [
+        { shipmentId: "id-1", records: [], updatesWaiting: 0, updatesFailed: 0 },
+        { shipmentId: "id-2", records: [record("WCZ00012", [{ text: "Not arrived: expected 16.11.2026", urgent: true }])], updatesWaiting: 2, updatesFailed: 1 },
+        { shipmentId: "id-3", records: [], updatesWaiting: 0, updatesFailed: 0 },
+      ],
+      notKnown: [],
+    };
+    const truckingAnswer = { shipments: [{ shipmentId: "id-1", consignments: [consignment("TCZ00031", [issue()])], updatesWaiting: 1, updatesFailed: 0 }], notKnown: [], issuesRead: true, updatesRead: true };
+    const byJob = (c: Awaited<ReturnType<typeof managersCockpitService.cockpit>>) =>
+      [...c.urgent.rows, ...c.attention.rows].map((r) => [r.jobNumber, r.tags.map((t) => t.text)]);
+
+    it("asks about every job read - not only the page's - on the one `now`, first, and not through the answer's limiter", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, mode: "air", handledBy: "eva@firma.cz" }, NOW);
+      expect(handover.handoverFacts).toHaveBeenCalledTimes(1);
+      expect(handover.handoverFacts).toHaveBeenCalledWith(["id-1", "id-2", "id-3"], { companyId: COMPANY, now: NOW });
+      // Before any statement of the answer's own.
+      const first = handover.handoverFacts.mock.invocationCallOrder[0]!;
+      for (const read of [events.ofKinds, shipments.dateMovedLately, extra.extraSignals, team.teamFacts, auditLine.managersAuditLine]) expect(read.mock.invocationCallOrder[0]!).toBeGreaterThan(first);
+    });
+
+    it("tags the jobs in the modules' own words, drops step 2's tags of the same meaning, and counts the hand-overs of the page's jobs", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      handover.handoverFacts.mockResolvedValue(handoverFactsOf(warehouseAnswer, truckingAnswer));
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(byJob(c)).toEqual([
+        ["CZFCL00000002", ["Warehouse · WCZ00012: Not arrived: expected 16.11.2026"]],
+        ["CZFCL00000001", ["Trucking · TCZ00031: Pick-up date passed and no pick-up stamped"]],
+      ]);
+      expect(c.tiles.signals).toMatchObject({ warehouse: 1, road: 1 });
+      expect(c.handover).toEqual({ warehouseUpdatesWaiting: 2, warehouseUpdatesFailed: 1, truckingUpdatesWaiting: 1, truckingUpdatesFailed: 0 });
+      expect(c.notKnown).toEqual([]);
+      // The filters narrow the line as they narrow the tiles.
+      const eva = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, handledBy: "eva@firma.cz" }, NOW);
+      expect(eva.handover).toEqual({ warehouseUpdatesWaiting: 2, warehouseUpdatesFailed: 1, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 0 });
+    });
+
+    it("keeps step 2's own tags, and gives no figure, of a module that could not be read - and names it", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      handover.handoverFacts.mockResolvedValue(handoverFactsOf(null, null));
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(byJob(c)).toEqual([
+        ["CZFCL00000002", ["ETA warehouse 16.11. passed, not received"]],
+        ["CZFCL00000001", ["Pick-up 17.11. passed, not picked up"]],
+      ]);
+      expect(c.handover).toEqual({ warehouseUpdatesWaiting: null, warehouseUpdatesFailed: null, truckingUpdatesWaiting: null, truckingUpdatesFailed: null });
+      expect(c.notKnown).toEqual(["the warehouse's records", "Trucking's consignments"]);
     });
   });
 

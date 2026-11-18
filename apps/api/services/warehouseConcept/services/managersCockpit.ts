@@ -363,7 +363,8 @@ function freeTimeText(s: Item["storage"]): string {
 type Ranked = RankedRow<CockpitRow>;
 const rank = (row: Omit<CockpitRow, "tags">, signals: Signal[]): Ranked | null => rankRow<CockpitRow>(row, signals);
 
-const positionRow = (m: Item): Omit<CockpitRow, "tags"> => ({
+// Also the operations facts (Shipments → Managers): a record's ref and lifecycle read the same there.
+export const positionRow = (m: Item): Omit<CockpitRow, "tags"> => ({
   kind: "position",
   id: m.id,
   ref: m.positionRef || m.gateRef,
@@ -375,7 +376,7 @@ const positionRow = (m: Item): Omit<CockpitRow, "tags"> => ({
   freeTime: freeTimeText(m.storage),
 });
 
-const containerRow = (c: Container): Omit<CockpitRow, "tags"> => ({
+export const containerRow = (c: Container): Omit<CockpitRow, "tags"> => ({
   kind: "container",
   id: c.id,
   ref: c.number || "(no number)",

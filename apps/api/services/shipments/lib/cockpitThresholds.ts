@@ -158,3 +158,71 @@ export const APPROVAL_RATE_MIN_DECIDED = 10;
 export const AUDIT_LINE_KEPT_MINUTES = 5;
 /** Connections of the pool (ten, lib/db/pool) one cockpit answer holds at once: half, so a page that polls never takes them all. */
 export const COCKPIT_READS_AT_ONCE = 5;
+
+// ─── The Money tab (lib/managersMoney) ──────────────────────────────────
+// Step 4 (D15, D24-D27): what a job's money asks of a manager. Profit and margin are Costs
+// Breakdown's own, in CZK at the job's rates; every other amount stays in its currency.
+// "Not invoiced" turns URGENT at the cockpit's own tax-date number (lib/trackingThresholds
+// TAX_DATE_LATE_DAYS): it is read from there, not repeated here.
+
+/** Margin: a job with selling lines whose margin is under this many per cent… */
+export const MONEY_MARGIN_LOW_PCT = 5;
+/** …or whose profit is under this many CZK. */
+export const MONEY_PROFIT_LOW_CZK = 1000;
+/** Margin: the real cost above the estimate by more than this many per cent… */
+export const MONEY_COST_OVER_ESTIMATE_PCT = 10;
+/** …AND by more than this many CZK. */
+export const MONEY_COST_OVER_ESTIMATE_CZK = 2000;
+/** Not invoiced: a job in Billing for more than this many working days with no invoice. */
+export const MONEY_IN_BILLING_WORKING_DAYS = 2;
+/** Estimates with no supplier invoice, this many days after the job's tax date… */
+export const MONEY_ACCRUAL_DAYS = 30;
+/** …and URGENT from this many (or once the job is invoiced). */
+export const MONEY_ACCRUAL_URGENT_DAYS = 60;
+/** A supplier invoice waiting for approval for more than this many working days. */
+export const MONEY_SUPPLIER_INVOICE_WAITING_WORKING_DAYS = 2;
+/** A cost claim open for more than this many days… */
+export const MONEY_COST_CLAIM_DAYS = 30;
+/** …and URGENT when open for more than this many. */
+export const MONEY_COST_CLAIM_URGENT_DAYS = 60;
+/**
+ * Jobs that read Invoiced are no active jobs, yet a late supplier invoice, an estimate nobody
+ * invoiced and a loss are about exactly them: the Money tab reads them too, for this many days
+ * after their tax date (their creation when they have none). Long enough for a late supplier
+ * invoice to arrive, short enough for the read to stay small.
+ */
+export const MONEY_INVOICED_LOOKBACK_DAYS = 90;
+/** Invoiced jobs the Money tab reads at most, the newest first; the answer says when there were more. */
+export const MONEY_INVOICED_JOB_LIMIT = 1000;
+/** A supplier invoice that came after billing is said for this many days after it was booked: then the tag clears by itself. */
+export const MONEY_COST_AFTER_BILLING_DAYS = 30;
+/** A refused supplier invoice is said for this many days after the last one was refused. */
+export const MONEY_REFUSED_DAYS = 14;
+/** How many of a job's supplier invoices a tag names before "and N more". */
+export const MONEY_TAG_NAMES = 2;
+/** Minutes a Money answer is kept in memory per company and filter set: the page asks every five minutes. */
+export const MONEY_ANSWER_KEPT_MINUTES = 5;
+/** Job ids (and customer ids) one call to Invoicing (to Customers) carries at most: what each of the two endpoints takes. */
+export const MONEY_IDS_PER_CALL = 2000;
+
+// ─── Facts from the warehouse and Trucking (lib/managersCockpitHandover) ──────────
+// Step 5 (D29, D30): the Warehouse cockpit's and Trucking's own judgement of the jobs, asked by
+// shipment so the cockpits never disagree. Their thresholds are their own: none is repeated here.
+
+/**
+ * Minutes a module's answer is kept in memory per company. The page asks every minute, per open
+ * page, and the warehouse's answer alone is some twenty-five statements on its side: kept for two
+ * minutes it is asked at most once in two polls whoever has the page open, and a fact it states is
+ * never older than that. Kept by company only - the page's filters are applied to it afterwards,
+ * so a filter changed costs no new call. An answer that failed or names a part it could not read
+ * is not kept: the next ask tries again.
+ */
+export const HANDOVER_FACTS_KEPT_MINUTES = 2;
+/**
+ * Milliseconds the cockpit waits for each module's answer. The page asks every minute and must not
+ * hang on a module that is slow: past this the module counts as not read for this answer (it is
+ * named, "… (no answer within 6 s)", and gives no tag), while its call goes on - an answer that
+ * comes whole after all is kept for the next poll. lib/managersCockpitHandover NO_ANSWER_IN_TIME
+ * says the same number in words.
+ */
+export const HANDOVER_CALL_TIMEOUT_MS = 6_000;

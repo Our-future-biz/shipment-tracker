@@ -1,14 +1,16 @@
 import type { OpsCockpitDirection, OpsCockpitFilter, OpsCockpitMode, OpsCockpitReports, OpsCockpitRow, OpsCockpitTiles } from "@/hooks/useShipmentsManagersCockpit";
 
-// Shipments → Managers keeps what it shows in its address - the tab (?tab=team, ?tab=approvals),
-// the mode (?mode=), the Trade Direction (?direction=), the Handled By person (?handledBy=), "My
-// reports" (?reports=mine) and the signal its cards are narrowed to (?signal=, read by
-// _lib/cockpitSignals) - so it survives a reload and can be linked to. This file reads that address, writes it, and builds the addresses the page
-// leads to: the Shipments list behind a list tile, the shipment or the Master Job behind a row.
+// Shipments → Managers keeps what it shows in its address - the tab (?tab=team, ?tab=money,
+// ?tab=approvals), the mode (?mode=), the Trade Direction (?direction=), the Handled By person
+// (?handledBy=), "My reports" (?reports=mine), the signal the Cockpit's cards are narrowed to
+// (?signal=, read by _lib/cockpitSignals) and the one the Money tab's cards are (?msignal=, read by
+// _lib/cockpitMoney) - so it survives a reload and can be linked to. This file reads that address,
+// writes it, and builds the addresses the page leads to: the Shipments list behind a list tile, the
+// shipment or the Master Job behind a row.
 
 const SHIPMENTS_MANAGERS_PATH = "/shipments/managers";
 
-/** Who opens the page; the server asks for the same roles (requireRole on the cockpit and on both approvals). */
+/** Who opens the page; the server asks for the same roles (on the cockpit, on the money, and to answer each of the four approval queues). */
 const SHIPMENTS_MANAGER_ROLES: readonly string[] = ["superadmin", "admin", "manager"];
 export const canOpenShipmentsManagers = (user: { role: string } | null | undefined): boolean => !!user && SHIPMENTS_MANAGER_ROLES.includes(user.role);
 
@@ -30,7 +32,7 @@ export const OPS_DIRECTIONS: { value: OpsCockpitDirection; label: string }[] = [
 /** A row's mode in words; "" for a job with no Freight Mode (it gets no chip). */
 export const modeLabel = (mode: string): string => OPS_MODES.find((m) => m.key !== "all" && m.key === mode)?.label ?? "";
 
-export type ShipmentsManagersTab = "cockpit" | "team" | "approvals";
+export type ShipmentsManagersTab = "cockpit" | "team" | "money" | "approvals";
 
 /** The Handled By filter's value for the jobs nobody handles, in the address and in the request. */
 export const NOBODY = "nobody";
@@ -39,7 +41,7 @@ export const NOBODY = "nobody";
 export const EVERYONE = "everyone";
 
 /** The tab an address names, or the cockpit. */
-export const tabOf = (value: string | null): ShipmentsManagersTab => (value === "approvals" || value === "team" ? value : "cockpit");
+export const tabOf = (value: string | null): ShipmentsManagersTab => (value === "approvals" || value === "team" || value === "money" ? value : "cockpit");
 
 /** The mode an address names, or All. */
 export const modeOf = (value: string | null): OpsCockpitMode => OPS_MODES.find((m) => m.key === value)?.key ?? "all";
@@ -59,7 +61,11 @@ export function handledByOf(value: string | null): string | null {
 /** Whose jobs an address asks for: "mine" for the signed-in manager's reports - and the jobs of people who are no longer users - (?reports=mine), everyone's for anything else. */
 export const reportsOf = (value: string | null): OpsCockpitReports => ((value ?? "").trim().toLowerCase() === "mine" ? "mine" : "all");
 
-/** The page's address, leaving out what is the default. `signal` is a signal family's key (_lib/cockpitSignals), null for none. */
+/**
+ * The page's address, leaving out what is the default. `signal` is a signal family's key
+ * (_lib/cockpitSignals) and `msignal` a money family's (_lib/cockpitMoney), null for none: each
+ * tab keeps its own, so coming back to a tab finds its cards as they were left.
+ */
 export function shipmentsManagersHref({
   tab = "cockpit",
   mode = "all",
@@ -67,7 +73,8 @@ export function shipmentsManagersHref({
   handledBy = null,
   reports = "all",
   signal = null,
-}: { tab?: ShipmentsManagersTab; signal?: string | null } & Partial<OpsCockpitFilter> = {}): string {
+  msignal = null,
+}: { tab?: ShipmentsManagersTab; signal?: string | null; msignal?: string | null } & Partial<OpsCockpitFilter> = {}): string {
   const params = new URLSearchParams();
   if (tab !== "cockpit") params.set("tab", tab);
   if (mode !== "all") params.set("mode", mode);
@@ -75,6 +82,7 @@ export function shipmentsManagersHref({
   if (handledBy) params.set("handledBy", handledBy);
   if (reports === "mine") params.set("reports", "mine");
   if (signal) params.set("signal", signal);
+  if (msignal) params.set("msignal", msignal);
   const qs = params.toString();
   return qs ? `${SHIPMENTS_MANAGERS_PATH}?${qs}` : SHIPMENTS_MANAGERS_PATH;
 }
@@ -168,6 +176,12 @@ const AREA_TAB: Record<OpsCockpitRow["area"], string | null> = {
   finance: "costs",
   details: null,
 };
+
+/** The shipment page's tab where a job's money is worked on: Costs Breakdown, as for the cockpit's finance rows. */
+const MONEY_TAB = AREA_TAB.finance;
+
+/** Where a row of the Money tab leads: the job's shipment, on its Costs tab. Every Money row is a job. */
+export const moneyRowHref = (row: { id: string }): string => `/shipments/${encodeURIComponent(row.id)}${MONEY_TAB ? `?tab=${MONEY_TAB}` : ""}`;
 
 // A Master Job is a row only while no shipment is linked to it, and Linked Shipments is the tab
 // where one is linked (master-jobs MasterJobsView: ?open=<id>&tab=<key>).

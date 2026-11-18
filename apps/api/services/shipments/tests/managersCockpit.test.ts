@@ -42,6 +42,7 @@ import {
   type TimelineEvent,
   type TimelineFacts,
 } from "../lib/managersCockpit";
+import { handoverFactsOf } from "../lib/managersCockpitHandover";
 import type { TeamFacts, TeamJobFacts } from "../lib/managersCockpitTeam";
 import { attentionFlags, type AttentionFacts } from "../lib/trackingAttention";
 import { freightKindOf } from "../lib/trackingEvents";
@@ -1344,6 +1345,8 @@ describe("the cockpit", () => {
       attention: { total: 0, rows: [] },
       people: [],
       audit: null,
+      // No facts of the warehouse and Trucking handed in: none of their figures (tests/managersCockpitHandover.test.ts).
+      handover: { warehouseUpdatesWaiting: null, warehouseUpdatesFailed: null, truckingUpdatesWaiting: null, truckingUpdatesFailed: null },
       capped: false,
       holidaysKnown: true,
       notKnown: [],
@@ -2243,6 +2246,206 @@ describe("the cockpit", () => {
       const audit = { days: 7, items: [{ key: "deleted", count: 2 }, { key: "requests_decided", count: 12, approvalRate: 0.5 }] };
       expect(cockpit([job()], { audit, mode: "air", handledBy: "eva@firma.cz", reports: "mine", reportEmails: new Set() }).audit).toEqual(audit);
       expect(cockpit([job()]).audit).toBeNull();
+    });
+  });
+});
+
+// Step 5: the warehouse's and Trucking's own word on the jobs, on the cards (their rules are tests/managersCockpitHandover.test.ts).
+describe("the warehouse and Trucking", () => {
+  const trucking = (over: Partial<OpsCockpitJob> = {}) => job({ tradeDirection: "Domestic", freightMode: "Road Freight", ...over });
+  const tagsOf = (c: ReturnType<typeof cockpit>) => [...c.urgent.rows, ...c.attention.rows].map((r) => [r.jobNumber, r.tags.map((t) => t.text)]);
+  const record = (ref: string, text: string, urgent = true) => ({ id: `r-${ref}`, ref, lifecycle: "Expected", signals: [{ text, urgent }] });
+  const consignment = (ref: string, text: string, urgent = true) => ({ id: `c-${ref}`, ref, status: "Ordered", pickupDate: "2026-11-17", deliveryDate: null, issues: [{ kind: "not_picked_up" as const, text, urgent, since: null }] });
+  const warehouseOf = (shipments: { shipmentId: string; records?: ReturnType<typeof record>[]; updatesWaiting?: number | null; updatesFailed?: number | null }[], notKnown: string[] = []) => ({
+    shipments: shipments.map((s) => ({ records: [], updatesWaiting: 0, updatesFailed: 0, ...s })),
+    notKnown,
+  });
+  const truckingOf = (
+    shipments: { shipmentId: string; consignments?: ReturnType<typeof consignment>[]; updatesWaiting?: number | null; updatesFailed?: number | null }[],
+    notKnown: string[] = [],
+    read: { issuesRead?: boolean; updatesRead?: boolean } = {},
+  ) => ({
+    shipments: shipments.map((s) => ({ consignments: [], updatesWaiting: 0, updatesFailed: 0, ...s })),
+    notKnown,
+    issuesRead: read.issuesRead ?? true,
+    updatesRead: read.updatesRead ?? true,
+  });
+
+  it("puts their tags on the job's row, in their own words, of the families warehouse and road, worked on in Tracking", () => {
+    const a = job();
+    const b = trucking();
+    const c = cockpit([a, b], {
+      handover: handoverFactsOf(
+        warehouseOf([{ shipmentId: a.id, records: [record("WCZ00012", "Pick-up PIN: locked 23.10. 09:12"), record("WCZ00013", "MRN missing", false)] }]),
+        truckingOf([{ shipmentId: b.id, consignments: [consignment("TCZ00031", "Delivered 3 working days ago — POD missing", false)] }]),
+      ),
+    });
+    expect(c.urgent.rows.map((r) => [r.jobNumber, r.area, r.tags])).toEqual([
+      [
+        a.jobNumber,
+        "tracking",
+        [
+          { text: "Warehouse · WCZ00012: Pick-up PIN: locked 23.10. 09:12", urgent: true, kind: "warehouse" },
+          { text: "Warehouse · WCZ00013: MRN missing", urgent: false, kind: "warehouse" },
+        ],
+      ],
+    ]);
+    expect(c.attention.rows.map((r) => [r.jobNumber, r.tags.map((t) => [t.text, t.kind])])).toEqual([[b.jobNumber, [["Trucking · TCZ00031: Delivered 3 working days ago — POD missing", "road"]]]]);
+    expect(c.tiles.signals).toMatchObject({ warehouse: 1, road: 1 });
+  });
+
+  it("ranks an urgent one after step 2's delivery and road ones, before free time", () => {
+    const late = job({ plannedDeliveryDate: "2026-11-16" });
+    const stuck = job();
+    const c = cockpit([stuck, late], { handover: handoverFactsOf(warehouseOf([{ shipmentId: stuck.id, records: [record("WCZ00012", "Refused 17.11. 09:00")] }]), truckingOf([])) });
+    expect(c.urgent.rows.map((r) => r.jobNumber)).toEqual([late.jobNumber, stuck.jobNumber]);
+  });
+
+  describe("the road: Trucking's word on a job it answered about, or step 2's", () => {
+    // Pick-up today with no haulier confirmed, a pick-up passed, a delivery with no POD for 5 working days - all off the timeline.
+    const jobs = () => [trucking({ pickupDate: TODAY }), trucking({ pickupDate: "2026-11-16" }), trucking({ actualDeliveryDate: "2026-11-10" })];
+    const STEP_TWO = ["Pick-up today, haulier not confirmed", "Pick-up 16.11. passed, not picked up", "Delivered 10.11., no POD · 5 working days"];
+    /** Each job of `of` with a consignment in play in Trucking and nothing wrong with it. */
+    const inPlay = (...of: OpsCockpitJob[]) => of.map((j) => ({ shipmentId: j.id, consignments: [{ ...consignment(`TCZ-${j.id}`, ""), issues: [] }] }));
+
+    it("gives step 2's road tags when Trucking was not asked or could not be read", () => {
+      for (const handover of [undefined, handoverFactsOf(warehouseOf([]), null), handoverFactsOf(warehouseOf([]), "late")]) {
+        expect(tagsOf(cockpit(jobs(), { handover })).flatMap(([, tags]) => tags)).toEqual(STEP_TWO);
+      }
+    });
+
+    it("keeps step 2's on a job Trucking has nothing of - a Domestic job nobody booked in Trucking yet - though Trucking answered whole", () => {
+      const c = cockpit(jobs(), { handover: handoverFactsOf(warehouseOf([]), truckingOf([])) });
+      expect(tagsOf(c).flatMap(([, tags]) => tags)).toEqual(STEP_TWO);
+    });
+
+    it("gives none of them on a job Trucking answered about with nothing wrong: Trucking sees nothing wrong with its truck", () => {
+      const all = jobs();
+      const c = cockpit(all, { handover: handoverFactsOf(warehouseOf([]), truckingOf(inPlay(...all))) });
+      expect(c.urgent.total + c.attention.total).toBe(0);
+    });
+
+    it("gives Trucking's words instead on the job it answered about with issues - the others keep step 2's", () => {
+      const [today, passed, delivered] = jobs();
+      const c = cockpit([today!, passed!, delivered!], {
+        handover: handoverFactsOf(warehouseOf([]), truckingOf([{ shipmentId: passed!.id, consignments: [consignment("TCZ00031", "Pick-up date passed and no pick-up stamped")] }])),
+      });
+      expect(tagsOf(c)).toEqual([
+        // Step 2's urgent road tags rank 59, Trucking's 62.
+        [today!.jobNumber, ["Pick-up today, haulier not confirmed"]],
+        [delivered!.jobNumber, ["Delivered 10.11., no POD · 5 working days"]],
+        [passed!.jobNumber, ["Trucking · TCZ00031: Pick-up date passed and no pick-up stamped"]],
+      ]);
+    });
+
+    it("does not count a job Trucking lists for its updates only: it has no consignment in play there", () => {
+      const all = jobs();
+      const c = cockpit(all, { handover: handoverFactsOf(warehouseOf([]), truckingOf(all.map((j) => ({ shipmentId: j.id, updatesWaiting: 1 })))) });
+      expect(tagsOf(c).flatMap(([, tags]) => tags)).toEqual(STEP_TWO);
+    });
+
+    it("keeps step 2's when Trucking could not read its consignments, trips or exceptions (issuesRead false): a tag too many rather than one too few", () => {
+      const all = jobs();
+      const c = cockpit(all, { handover: handoverFactsOf(warehouseOf([]), truckingOf(inPlay(...all), ["Trucking's trips (haulier and pick-up issues)"], { issuesRead: false })) });
+      expect(tagsOf(c).flatMap(([, tags]) => tags)).toEqual(STEP_TWO);
+    });
+
+    it("goes by issuesRead, not by what else Trucking could not read: its holidays not read still leaves its issues whole", () => {
+      const all = jobs();
+      const c = cockpit(all, { handover: handoverFactsOf(warehouseOf([]), truckingOf(inPlay(...all), ["the company's holidays (POD missing counted on public holidays only)"])) });
+      expect(c.urgent.total + c.attention.total).toBe(0);
+    });
+  });
+
+  describe("a warehouse signal the job says already", () => {
+    it("gives no detention tag beside the job's free time clock - one with no clock keeps it", () => {
+      const clocked = job();
+      const unclocked = job();
+      const box = record("MSKU1234567", "Detention expires in 1 day (19.11.2026) — book the empty return");
+      const c = cockpit([clocked, unclocked], {
+        facts: new Map([[clocked.id, { proposed: [], lastEventDay: null, arrivedAtHub: false, lastNotice: null, clocks: [{ containerNumber: "MSKU1234567", clock: { state: "ending", startDay: null, lastFreeDay: "2026-11-19", daysLeft: 1, chargeableDays: 0, stopDay: null } }] }]]),
+        handover: handoverFactsOf(warehouseOf([{ shipmentId: clocked.id, records: [box] }, { shipmentId: unclocked.id, records: [box] }]), truckingOf([])),
+      });
+      const tags = Object.fromEntries(tagsOf(c));
+      expect(tags[unclocked.jobNumber]).toEqual(["Warehouse · MSKU1234567: Detention expires in 1 day (19.11.2026) — book the empty return"]);
+      expect(tags[clocked.jobNumber]).toEqual(["Free time ends · MSKU1234567 in 1 d"]);
+    });
+
+    it("gives no stuffing tag against a closing beside the job's Closing - one against the ETD, or with no Closing tag, stays", () => {
+      const closing = job({ tradeDirection: "Export", closingDate: "2026-11-19" });
+      const plain = job({ tradeDirection: "Export" });
+      const stuffing = record("MSKU7654321", "Stuffing: 2 houses not stuffed · closing in 1 day (19.11.2026)");
+      const byEtd = record("MSKU7654322", "Stuffing: 1 house not stuffed · ETD in 1 day (19.11.2026)");
+      const c = cockpit([closing, plain], {
+        handover: handoverFactsOf(warehouseOf([{ shipmentId: closing.id, records: [stuffing, byEtd] }, { shipmentId: plain.id, records: [stuffing] }]), truckingOf([])),
+      });
+      const tags = Object.fromEntries(tagsOf(c));
+      expect(tags[closing.jobNumber]).toEqual(["Closing tomorrow", "Warehouse · MSKU7654322: Stuffing: 1 house not stuffed · ETD in 1 day (19.11.2026)"]);
+      expect(tags[plain.jobNumber]).toEqual(["Warehouse · MSKU7654321: Stuffing: 2 houses not stuffed · closing in 1 day (19.11.2026)"]);
+    });
+  });
+
+  describe("the warehouse: step 2's two tags give way only to a warehouse signal of the same meaning", () => {
+    const due = () => job({ etaWarehouse: "2026-11-16" });
+    const idle = () => job({ warehouseReceivedDate: "2026-11-12" });
+
+    it("drops \"ETA warehouse passed, not received\" when a record is not arrived; keeps it beside another signal", () => {
+      const a = due();
+      const b = due();
+      const c = cockpit([a, b], {
+        handover: handoverFactsOf(warehouseOf([{ shipmentId: a.id, records: [record("WCZ00012", "Not arrived: expected 16.11.2026")] }, { shipmentId: b.id, records: [record("WCZ00013", "Pick-up PIN: locked 23.10. 09:12")] }]), truckingOf([])),
+      });
+      expect(tagsOf(c)).toEqual([
+        [b.jobNumber, ["ETA warehouse 16.11. passed, not received", "Warehouse · WCZ00013: Pick-up PIN: locked 23.10. 09:12"]],
+        [a.jobNumber, ["Warehouse · WCZ00012: Not arrived: expected 16.11.2026"]],
+      ]);
+    });
+
+    it("drops \"In our warehouse since …, no planned delivery\" when a record is ready with no pick-up booked", () => {
+      const a = idle();
+      const c = cockpit([a], { handover: handoverFactsOf(warehouseOf([{ shipmentId: a.id, records: [record("WCZ00012", "Ready for release, no pick-up booked · 1 free day left", false)] }]), truckingOf([])) });
+      expect(tagsOf(c)).toEqual([[a.jobNumber, ["Warehouse · WCZ00012: Ready for release, no pick-up booked · 1 free day left"]]]);
+    });
+
+    it("keeps both when the warehouse has nothing for the job, or could not be read", () => {
+      for (const handover of [handoverFactsOf(warehouseOf([]), truckingOf([])), handoverFactsOf(null, truckingOf([]))]) {
+        expect(tagsOf(cockpit([due(), idle()], { handover })).flatMap(([, tags]) => tags)).toEqual(["ETA warehouse 16.11. passed, not received", "In our warehouse since 12.11., no planned delivery"]);
+      }
+    });
+  });
+
+  describe("the hand-over line", () => {
+    it("counts the jobs the page shows - its mode, direction, Handled By and \"My reports\" - from the one answer of every job", () => {
+      const sea = job();
+      const air = job({ freightMode: "Air Freight", personInCharge: "eva@firma.cz" });
+      const handover = handoverFactsOf(
+        warehouseOf([{ shipmentId: sea.id, updatesWaiting: 2, updatesFailed: 1 }, { shipmentId: air.id, updatesWaiting: 1 }]),
+        truckingOf([{ shipmentId: air.id, updatesFailed: 3 }]),
+      );
+      expect(cockpit([sea, air], { handover }).handover).toEqual({ warehouseUpdatesWaiting: 3, warehouseUpdatesFailed: 1, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 3 });
+      expect(cockpit([sea, air], { handover, mode: "sea" }).handover).toEqual({ warehouseUpdatesWaiting: 2, warehouseUpdatesFailed: 1, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 0 });
+      expect(cockpit([sea, air], { handover, handledBy: "eva@firma.cz" }).handover).toEqual({ warehouseUpdatesWaiting: 1, warehouseUpdatesFailed: 0, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 3 });
+      expect(cockpit([sea, air], { handover, reports: "mine", reportEmails: new Set(["jan@firma.cz"]) }).handover).toEqual({ warehouseUpdatesWaiting: 2, warehouseUpdatesFailed: 1, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 0 });
+    });
+
+    it("is null for Trucking - not 0 - when Trucking could not read its updates, also on a page that keeps only jobs Trucking left out", () => {
+      const sea = job();
+      const air = job({ freightMode: "Air Freight", personInCharge: "eva@firma.cz" });
+      const handover = handoverFactsOf(warehouseOf([{ shipmentId: sea.id }, { shipmentId: air.id }]), truckingOf([{ shipmentId: air.id, consignments: [consignment("TCZ00031", "Damage: not decided", false)], updatesWaiting: null, updatesFailed: null }], ["Trucking's updates to the jobs"], { updatesRead: false }));
+      const unread = { warehouseUpdatesWaiting: 0, warehouseUpdatesFailed: 0, truckingUpdatesWaiting: null, truckingUpdatesFailed: null };
+      expect(cockpit([sea, air], { handover }).handover).toEqual(unread);
+      // Only the sea job, which Trucking left out: not known either.
+      expect(cockpit([sea, air], { handover, mode: "sea" }).handover).toEqual(unread);
+      // Read, the same page counts 0.
+      const read = handoverFactsOf(warehouseOf([{ shipmentId: sea.id }]), truckingOf([{ shipmentId: air.id, updatesWaiting: 2 }]));
+      expect(cockpit([sea, air], { handover: read, mode: "sea" }).handover).toEqual({ warehouseUpdatesWaiting: 0, warehouseUpdatesFailed: 0, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 0 });
+    });
+
+    it("is null for a module that could not be read, and the answer names it", () => {
+      const a = job();
+      const c = cockpit([a], { handover: handoverFactsOf(null, truckingOf([])), notKnown: handoverFactsOf(null, truckingOf([])).notKnown });
+      expect(c.handover).toEqual({ warehouseUpdatesWaiting: null, warehouseUpdatesFailed: null, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 0 });
+      expect(c.notKnown).toEqual(["the warehouse's records"]);
     });
   });
 });

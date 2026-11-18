@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("~encore/clients", () => ({ auth: {}, customers: {}, invoicing: {}, quotes: {}, warehouse: {} }));
+vi.mock("~encore/clients", () => ({ auth: {}, customers: {}, invoicing: {}, quotes: {}, warehouse: {}, warehouseConcept: {}, trucking: {} }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["u1", "jan@firma.cz"]]) }));
 

@@ -703,3 +703,44 @@ describe("countOfCustomer", () => {
     });
   });
 });
+
+describe("managersMoneyRows", () => {
+  // What makes a job one of the Money tab's: active as the cockpit reads it, or Invoiced since lately.
+  const ACTIVE_JOB = '"shipment"."invoicing_status" IS DISTINCT FROM \'Invoiced\' AND "shipment"."status" IS DISTINCT FROM $2';
+  const TAX_DATE = `CASE
+      WHEN (lower("shipment"."trade_direction") = 'domestic' OR lower("shipment"."department") = $4) THEN "shipment"."actual_delivery_date"
+      WHEN lower("shipment"."trade_direction") = 'export' THEN "shipment"."actual_departure"
+      ELSE "shipment"."actual_arrival" END`;
+  // Taxed or last changed since then: an old tax date does not hide a job that was invoiced lately, and GREATEST skips a tax date it does not have.
+  const INVOICED_LATELY = `"shipment"."invoicing_status" = 'Invoiced' AND "shipment"."status" IS DISTINCT FROM $3 AND GREATEST(${TAX_DATE}, ("shipment"."updated_at" AT TIME ZONE 'Europe/Prague')::date) >= $5::date`;
+
+  it("reads the active jobs and those that read Invoiced, not cancelled, that were taxed - or last changed - on the day given or later: one statement", async () => {
+    fake.state.found = [{ id: "shipment-1" }];
+    await expect(shipmentRepository.managersMoneyRows(COMPANY, "2026-08-20", 3002)).resolves.toEqual([{ id: "shipment-1" }]);
+    expect(fake.state.steps).toEqual(["db read"]);
+    const [read] = fake.state.reads;
+    expect(sent(read!.where)).toEqual({
+      sql: `(${LIVE} and (${ACTIVE_JOB} OR (${INVOICED_LATELY})))`,
+      params: [COMPANY, "Cancelled Shipment", "Cancelled Shipment", "road department", "2026-08-20"],
+    });
+    // The active jobs first, each group the newest first: a cut leaves out invoiced jobs before an active one.
+    expect(read!.orderBy.map((order) => sent(order).sql)).toEqual(['("shipment"."invoicing_status" IS NOT DISTINCT FROM \'Invoiced\')', '"shipment"."created_at" desc', '"shipment"."id" desc']);
+    expect(fake.state.limits).toEqual([3002]);
+  });
+
+  it("reads the cockpit's own columns of each job - but the arrival notice, which no money rule reads - with its Invoicing Status and its linked customer", async () => {
+    await shipmentRepository.managersCockpitRows(COMPANY, 10);
+    await shipmentRepository.managersMoneyRows(COMPANY, "2026-08-20", 10);
+    const [cockpit, money] = fake.state.reads;
+    const { invoicingStatus, customerId, ...shared } = money!.fields;
+    expect(invoicingStatus).toBe(shipmentTable.invoicingStatus);
+    expect(customerId).toBe(shipmentTable.customerId);
+    // The one intended difference: whether the customer was sent an arrival notice is a subquery a row, and the Money tab has no use for it.
+    const { arrivalNoticeSent, ...cockpitColumns } = cockpit!.fields;
+    expect(arrivalNoticeSent).toBeDefined();
+    expect(shared.arrivalNoticeSent).toBeUndefined();
+    // Otherwise column for column the same: a column added to the one read and not the other fails here.
+    expect(Object.keys(shared)).toEqual(Object.keys(cockpitColumns));
+    for (const [key, column] of Object.entries(cockpitColumns)) expect(shared[key], key).toBe(column);
+  });
+});

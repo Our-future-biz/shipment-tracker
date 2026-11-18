@@ -1429,12 +1429,27 @@ export interface ShipmentsManagersCockpit {
   people: OpsCockpitPerson[];
   /** The audit line; null when none of it could be read (then `notKnown` says so). */
   audit: OpsCockpitAudit | null;
+  /** The updates the warehouse and Trucking owe the jobs of the page (after its filters): waiting too long, or failed. */
+  handover: OpsCockpitHandover;
   /** True when the company has more active jobs than were read (COCKPIT_JOB_LIMIT, the newest): the counts cover only those read. */
   capped: boolean;
   /** False when the company's own holidays could not be read: working days then skip only the weekends and the statutory public holidays. */
   holidaysKnown: boolean;
   /** What could not be read right now, in words for the page ("tracking events", "containers"…): it gave no signal, which is not the same as none (D29). Empty when everything was read. */
   notKnown: string[];
+}
+
+/**
+ * The hand-over line (step 5, D30): over the jobs of the page - its mode, direction, Handled By
+ * and "My reports" - the updates the warehouse and Trucking have for them that wait longer than
+ * that module's own stale limit, and those that failed for good. A figure is null - not 0 - when
+ * that module, or its updates, could not be read (`notKnown` says so).
+ */
+export interface OpsCockpitHandover {
+  warehouseUpdatesWaiting: number | null;
+  warehouseUpdatesFailed: number | null;
+  truckingUpdatesWaiting: number | null;
+  truckingUpdatesFailed: number | null;
 }
 
 /** A fact a read document states, for a person to look over. */
@@ -1757,3 +1772,109 @@ export interface HandledByCount {
 }
 
 // ─── end of builder M's block ───
+
+// ─── Shipments → Managers, step 4: the Money tab (builder S's block; keep additions inside it) ───
+
+/** An amount in its own currency. Amounts of different currencies are never added (D24). */
+export interface MoneyAmount {
+  currency: string;
+  amount: number;
+}
+
+/** One money signal of a job, as a tag: its words, whether it is urgent, and its family (lib/managersMoney MONEY_SIGNAL_KINDS). */
+export interface OpsMoneyTag {
+  text: string;
+  urgent: boolean;
+  /** margin | not_invoiced | unticked | cost_after_billing | accrual | supplier_invoice | cost_claim | credit | not_recharged */
+  kind: string;
+}
+
+/** A row of a Money card: one job - active, or invoiced within the last 90 days - with everything its money asks of a manager. The web opens it on its Costs tab. */
+export interface OpsMoneyRow {
+  id: string;
+  jobNumber: string;
+  customer: string;
+  /** "sea" | "air" | "rail" | "road", "" when the job has no Freight Mode - as on the cockpit's rows. */
+  mode: string;
+  tradeDirection: string;
+  status: string;
+  /** Handled By as stored (an e-mail), "" when nobody. */
+  handledBy: string;
+  holidayCover: string;
+  /** The job reads Invoicing Status "Invoiced": no active job - it is here for a loss, a supplier invoice after billing, estimates nobody invoiced, supplier invoices, a cost claim or what was not recharged. */
+  invoiced: boolean;
+  /** Every money signal of the job, the urgent ones first. */
+  tags: OpsMoneyTag[];
+}
+
+export interface OpsMoneyList {
+  /** Every row of the card; `rows` holds at most 200 of them. */
+  total: number;
+  rows: OpsMoneyRow[];
+}
+
+/**
+ * One person's money, over the jobs they are named on in Handled By (of the chosen mode and
+ * direction, and with "My reports" only the caller's reports'; not narrowed by the Handled By
+ * filter) - the jobs that read Invoiced since lately too, except in the work not yet invoiced.
+ * No ranking (D27): the cockpit's people order, by their active jobs. A figure whose part could
+ * not be read is null, never 0 (D29).
+ */
+export interface OpsMoneyPerson {
+  /** The e-mail in Handled By, "" for nobody. */
+  handledBy: string;
+  /** False when the e-mail is not an active user (nobody is none); null when the users could not be read - as on the cockpit's people. */
+  isUser: boolean | null;
+  /** Their active jobs (those that read Invoiced are none): what the people are ordered by. */
+  active: number;
+  /** Work not yet invoiced on their active jobs, per currency ([] for none); null when Invoicing could not be read. */
+  notYetInvoiced: MoneyAmount[] | null;
+  /** Their jobs whose profit is below zero, at any stage - still being worked on, in Billing or invoiced (a job whose margin is not known is none of them); null when the selling and cost lines could not be read. */
+  jobsAtLoss: number | null;
+  /** Estimated buy lines with no supplier invoice yet, on their jobs; null when Invoicing could not be read. */
+  estimatesOpen: number | null;
+  /** Supplier invoices of their jobs waiting for approval; null when Invoicing could not be read. */
+  supplierInvoicesWaiting: number | null;
+  /** Open cost claims on their jobs; null when the cost claims could not be read. */
+  costClaimsOpen: number | null;
+}
+
+export interface OpsMoneyTiles {
+  /** Work not yet invoiced on the ACTIVE jobs counted, per currency ([] for none); null when Invoicing could not be read. */
+  notYetInvoiced: MoneyAmount[] | null;
+  /** The same as one CZK figure at today's ČNB rates - the only place currencies are added - with `label` "at today's ČNB rate (dd.mm.)"; `label` is "" when every amount is in CZK already (no rate was used: the page shows no CZK line). Null when a currency has no rate that day (`notKnown` names it) - and when Invoicing could not be read. */
+  notYetInvoicedCzk: { amount: number; label: string } | null;
+  /** How many of the jobs counted have work not yet invoiced; null when Invoicing could not be read. */
+  notYetInvoicedJobs: number | null;
+  /** Per signal family: the rows carrying a tag of that kind. Every family is there, 0 for none - but see `signalsNotKnown`. */
+  signals: Record<string, number>;
+  /** The families that could not be judged in this answer (their part was not read): their 0 in `signals` says nothing and the page shows no figure for them. */
+  signalsNotKnown: string[];
+  /** Jobs whose margin could not be worked out - a ČNB rate is missing, or the job's rates are not fixed yet and could not be read (`notKnown` says how many of each); null when Invoicing could not be read. */
+  marginNotKnown: number | null;
+}
+
+/** GET /shipments/managers-money: the Money tab of Shipments → Managers. Read-only; its facts are kept for five minutes per company, mode, direction and "My reports" - picking a Handled By reads nothing. */
+export interface ShipmentsManagersMoney {
+  /** When the facts were read (the answer may be up to five minutes old). */
+  asOf: string;
+  /** The Prague business day everything was judged on. */
+  today: string;
+  mode: OpsCockpitMode;
+  direction: OpsCockpitDirection;
+  /** The Handled By e-mail the tiles and cards are narrowed to, "nobody", or null for everyone. */
+  handledBy: string | null;
+  reports: OpsCockpitReports;
+  tiles: OpsMoneyTiles;
+  urgent: OpsMoneyList;
+  attention: OpsMoneyList;
+  people: OpsMoneyPerson[];
+  /** The company has more active jobs - or more jobs invoiced within the last 90 days - than were read. */
+  capped: boolean;
+  /** False when the company's own holidays could not be read: working days then skip only weekends and the statutory holidays. */
+  holidaysKnown: boolean;
+  /** What could not be read, in the words the page shows: it gives no figure and no signal. */
+  notKnown: string[];
+}
+
+// ─── end of builder S's block ───

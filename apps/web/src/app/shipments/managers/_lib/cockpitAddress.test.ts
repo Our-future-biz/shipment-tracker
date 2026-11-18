@@ -8,6 +8,7 @@ import {
   handledByOf,
   modeLabel,
   modeOf,
+  moneyRowHref,
   reportsOf,
   rowHref,
   shipmentsManagersHref,
@@ -29,6 +30,8 @@ describe("Shipments → Managers: its address", () => {
   it("reads the tab, the cockpit for anything it does not know", () => {
     expect(tabOf("approvals")).toBe("approvals");
     expect(tabOf("team")).toBe("team");
+    expect(tabOf("money")).toBe("money");
+    expect(tabOf("Money")).toBe("cockpit");
     expect(tabOf("Team")).toBe("cockpit");
     expect(tabOf("cockpit")).toBe("cockpit");
     expect(tabOf("inquiries")).toBe("cockpit");
@@ -228,5 +231,30 @@ describe("Shipments → Managers: where a row leads", () => {
     const id = "5d0c2a1e-7b1f-4c7e-8a55-0e9c1b2d3f40";
     expect(rowHref({ kind: "masterJob", id, area: "details" })).toBe(`/master-jobs?open=${id}&tab=shipments`);
     expect(rowHref({ kind: "masterJob", id, area: "tracking" })).toBe(`/master-jobs?open=${id}&tab=shipments`);
+  });
+});
+
+describe("Shipments → Managers: the Money tab in the address", () => {
+  it("names the tab, and keeps the filters the page has", () => {
+    expect(shipmentsManagersHref({ tab: "money" })).toBe("/shipments/managers?tab=money");
+    expect(shipmentsManagersHref({ tab: "money", mode: "sea", direction: "import", handledBy: "jana@cto.cz", reports: "mine" })).toBe(
+      "/shipments/managers?tab=money&mode=sea&direction=import&handledBy=jana%40cto.cz&reports=mine",
+    );
+  });
+
+  it("names the money signal its cards are narrowed to, beside the Cockpit's own", () => {
+    expect(shipmentsManagersHref({ tab: "money", msignal: "margin" })).toBe("/shipments/managers?tab=money&msignal=margin");
+    expect(shipmentsManagersHref({ tab: "money", msignal: null })).toBe("/shipments/managers?tab=money");
+    // Each tab keeps its own: coming back to the other finds its cards as they were left.
+    expect(shipmentsManagersHref({ tab: "money", signal: "cutoff", msignal: "accrual" })).toBe("/shipments/managers?tab=money&signal=cutoff&msignal=accrual");
+    expect(shipmentsManagersHref({ signal: "cutoff", msignal: "accrual" })).toBe("/shipments/managers?signal=cutoff&msignal=accrual");
+  });
+
+  it("opens a Money row's job on Costs Breakdown, by the shipment's id", () => {
+    const id = "0b9d6f0e-1c1e-4e0a-9d43-2f0c0f3f7a11";
+    expect(moneyRowHref({ id })).toBe(`/shipments/${id}?tab=costs`);
+    // The same place a finance row of the Cockpit leads to.
+    expect(moneyRowHref({ id })).toBe(rowHref({ id, area: "finance" }));
+    expect(moneyRowHref({ id: "a b/c" })).toBe("/shipments/a%20b%2Fc?tab=costs");
   });
 });

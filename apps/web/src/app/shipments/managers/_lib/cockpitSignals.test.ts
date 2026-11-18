@@ -3,13 +3,18 @@ import type { OpsCockpitRow, OpsCockpitTiles } from "@/hooks/useShipmentsManager
 import { shipmentsManagersHref } from "./cockpitAddress";
 import {
   CARD_TAG_LIMIT,
+  EMPTY_WITH_SIGNAL,
   SIGNAL_FAMILIES,
   LOAD_FAILED,
+  cardWithSignal,
+  familyOf,
   figureText,
   hasSignal,
+  isAnswerLoading,
   listWithSignal,
   loadFailedText,
   notKnownText,
+  showingLabel,
   signalFigure,
   signalOf,
   tagsShown,
@@ -95,7 +100,7 @@ describe("Shipments → Managers: the signal tiles", () => {
       "Customs to look at",
       "Paperwork not ready",
       "Free time",
-      "Delivery and POD",
+      "Delivery, warehouse and road",
       "Departure and arrival late",
       "Waiting for approval",
       "Handled By is not a user",
@@ -131,6 +136,14 @@ describe("Shipments → Managers: the signal tiles", () => {
   it("puts delivery, road and warehouse on one tile, departure and arrival on another", () => {
     expect(family("delivery").kinds).toEqual(["delivery", "road", "warehouse"]);
     expect(family("departure").kinds).toEqual(["departure", "arrival"]);
+  });
+
+  it("names the warehouse and the road on the delivery tile, and on its chip (step 5)", () => {
+    const delivery = family("delivery");
+    expect(delivery.label).toBe("Delivery, warehouse and road");
+    expect(delivery.showing).toBeUndefined();
+    expect(showingLabel(delivery)).toBe("Delivery, warehouse and road");
+    expect(delivery.hint).toBe("Planned delivery or pick-up passed, POD missing, the haulier not confirmed, and what our warehouse or Trucking reports on the job");
   });
 
   it("names Customs for every customs tag it counts, and lists them in its hint", () => {
@@ -394,6 +407,93 @@ describe("Shipments → Managers: a load that failed", () => {
     expect(loadFailedText(undefined)).toBe(LOAD_FAILED);
     expect(loadFailedText("unavailable")).toBe(LOAD_FAILED);
     expect(LOAD_FAILED).toBe("Could not load Operations.");
+  });
+
+  it("says another tab's plain line when given one - and still the server's own words when it refuses", () => {
+    const plain = "Could not load the money.";
+    expect(loadFailedText({ code: "internal", message: "an internal error occurred" }, plain)).toBe(plain);
+    expect(loadFailedText(null, plain)).toBe(plain);
+    const said = "Who reports to you could not be read just now: try again in a moment";
+    expect(loadFailedText({ code: "unavailable", message: said }, plain)).toBe(said);
+  });
+});
+
+describe("Shipments → Managers: an answer that is still to come", () => {
+  const asked = { enabled: true, isPending: false, isPlaceholderData: false };
+
+  it("is loading while there is no answer yet - also when nothing is being fetched: no connection, the request held back", () => {
+    // What the query reports offline on a first load: pending, and not fetching. It must not read as zeros.
+    expect(isAnswerLoading({ ...asked, isPending: true })).toBe(true);
+  });
+
+  it("is loading while only the answer to an earlier filter is at hand", () => {
+    expect(isAnswerLoading({ ...asked, isPlaceholderData: true })).toBe(true);
+  });
+
+  it("is not loading once the answer is there, nor after the load failed", () => {
+    expect(isAnswerLoading(asked)).toBe(false);
+  });
+
+  it("is never loading for a question that is not asked: another tab is shown", () => {
+    expect(isAnswerLoading({ enabled: false, isPending: true, isPlaceholderData: false })).toBe(false);
+    expect(isAnswerLoading({ enabled: false, isPending: false, isPlaceholderData: true })).toBe(false);
+  });
+});
+
+describe("Shipments → Managers: families of another tab", () => {
+  const families: SignalFamily[] = [
+    { key: "margin", kinds: ["margin"], label: "Margin", hint: "" },
+    { key: "suppliers", kinds: ["supplier_invoice", "cost_after_billing"], label: "Suppliers", showing: "Supplier invoices", hint: "" },
+  ];
+
+  it("finds a family among the families given, by its key or by one of its kinds", () => {
+    expect(familyOf(families, "margin")?.key).toBe("margin");
+    expect(familyOf(families, " Margin ")?.key).toBe("margin");
+    expect(familyOf(families, "cost_after_billing")?.key).toBe("suppliers");
+    // The Cockpit's families are not these.
+    expect(familyOf(families, "cutoff")).toBeNull();
+    expect(familyOf(families, "")).toBeNull();
+    expect(familyOf(families, null)).toBeNull();
+    expect(signalOf("margin")).toBeNull();
+  });
+
+  it("narrows any row that carries tags with a kind, and keeps the row as it is", () => {
+    const rows = [
+      { id: "a", tags: [{ text: "Loss", urgent: true, kind: "margin" }] },
+      { id: "b", tags: [{ text: "Claimed", urgent: false, kind: "supplier_invoice" }] },
+      { id: "c", tags: [{ text: "Loss", urgent: true, kind: "margin" }, { text: "After billing", urgent: false, kind: "cost_after_billing" }] },
+    ];
+    const narrowed = listWithSignal({ total: 250, rows }, families[1]!);
+    expect(narrowed.rows.map((r) => r.id)).toEqual(["b", "c"]);
+    expect(narrowed).toMatchObject({ total: 2, listed: 3, cut: true });
+    expect(listWithSignal({ total: 3, rows }, null)).toEqual({ total: 3, rows, listed: 3, cut: false });
+  });
+});
+
+describe("Shipments → Managers: a card in the words of what it shows", () => {
+  const card = { title: "Urgent", window: "act today", empty: "Nothing urgent.", dialog: "URGENT jobs", linkLabel: "Show" };
+  const customs = family("customs");
+  const cutoff = family("cutoff");
+
+  it("is the card as it is for no signal", () => {
+    expect(cardWithSignal(card, "urgent", null, { listed: 200, cut: true })).toBe(card);
+  });
+
+  it("narrowed, names the signal in the dialog's title and claims no more than none with this signal", () => {
+    expect(cardWithSignal(card, "urgent", customs, { listed: 12, cut: false })).toEqual({
+      ...card,
+      empty: EMPTY_WITH_SIGNAL.urgent,
+      dialog: "URGENT jobs · Customs to look at",
+    });
+    expect(cardWithSignal(card, "attention", customs, undefined).empty).toBe("No ATTENTION job with this signal.");
+    // The chip's shorter name where the family has one.
+    expect(showingLabel(cutoff)).toBe("Cut-offs");
+    expect(cardWithSignal(card, "urgent", cutoff, undefined).dialog).toBe("URGENT jobs · Cut-offs");
+  });
+
+  it("narrowed in a card the server cut, says among how many it looked", () => {
+    expect(cardWithSignal(card, "urgent", customs, { listed: 200, cut: true }).window).toBe("act today · among the first 200");
+    expect(cardWithSignal(card, "urgent", customs, { listed: 12, cut: false }).window).toBe("act today");
   });
 });
 

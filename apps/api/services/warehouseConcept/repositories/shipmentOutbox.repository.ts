@@ -69,13 +69,31 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
   }
 
   // Rows that have not reached the shipment yet (pending or failed) for the given records.
-  // The company's gate records that still owe their shipment an update (pending or failed).
-  async unsentMovementIds(companyId: string): Promise<string[]> {
+  // The company's gate records that still owe their shipment an update (pending or failed); with
+  // `movementIds`, only among those records (the operations facts of a few shipments).
+  async unsentMovementIds(companyId: string, movementIds?: string[]): Promise<string[]> {
+    if (movementIds && !movementIds.length) return [];
     const rows = await db
       .selectDistinct({ movementId: o.movementId })
       .from(o)
-      .where(and(eq(o.companyId, companyId), isNull(o.deletedAt), inArray(o.status, ["pending", "failed"])));
+      .where(and(eq(o.companyId, companyId), isNull(o.deletedAt), inArray(o.status, ["pending", "failed"]), movementIds ? inArray(o.movementId, movementIds) : undefined));
     return rows.map((r) => r.movementId);
+  }
+
+  // The delivery line's figures (unsentHealth: failed for good, or still pending after `minutes`)
+  // per shipment, for these shipments only — one grouped statement. Shipments with none are left out.
+  async unsentHealthByShipment(minutes: number, companyId: string, shipmentIds: string[]): Promise<Map<string, { failed: number; stalePending: number }>> {
+    if (!shipmentIds.length) return new Map();
+    const rows = await db
+      .select({
+        shipmentId: o.shipmentId,
+        failed: sql<number>`count(*) FILTER (WHERE ${o.status} = 'failed')`,
+        stale: sql<number>`count(*) FILTER (WHERE ${o.status} = 'pending' AND ${o.createdAt} < now() - make_interval(mins => ${minutes}))`,
+      })
+      .from(o)
+      .where(and(eq(o.companyId, companyId), inArray(o.status, ["pending", "failed"]), isNull(o.deletedAt), inArray(o.shipmentId, shipmentIds)))
+      .groupBy(o.shipmentId);
+    return new Map(rows.map((r) => [r.shipmentId, { failed: Number(r.failed ?? 0), stalePending: Number(r.stale ?? 0) }]));
   }
 
   async openForMovements(movementIds: string[], companyId: string) {

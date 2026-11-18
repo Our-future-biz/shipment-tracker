@@ -1735,3 +1735,138 @@ export interface ReceivableWaitingLine {
 export interface ReceivableWaitingResponse {
   lines: ReceivableWaitingLine[];
 }
+
+// ─── Shipments → Managers, the Money tab (Council Outlay 11, step 4) ────────────────────────────
+// The money facts of many jobs in one read (POST /internal/invoicing/operations-money). Read only: nothing
+// here gathers a supplier invoice or fixes a job's rates. Money is never added across currencies.
+
+export interface MoneyAmount {
+  currency: string;
+  amount: number;
+}
+
+/** A job's dates as Shipments holds them (YYYY-MM-DD or null): what chooses the ČNB rates of a job whose rates are not fixed yet. */
+export interface OperationsMoneyJobDates {
+  shipmentId: string;
+  tradeDirection: string;
+  estimatedArrival: string | null;
+  estimatedDeparture: string | null;
+  actualArrival: string | null;
+  actualDeparture: string | null;
+}
+
+/**
+ * Why the currencies in `missingCurrencies` have no rate: "" - none is missing; "missing" - the job's rates are
+ * known and ČNB has none for them; "not_fixed" - the job's rates are not fixed yet and its dates were not handed
+ * in; "unreadable" - the job's rates could not be read (fx did not answer, or could not value the job).
+ */
+export type OperationsMoneyRatesNote = "" | "missing" | "not_fixed" | "unreadable";
+
+/** Costs Breakdown's own totals in CZK at the job's rates (lib/jobCostTotals); a figure is null when a rate it needs is missing. */
+export interface OperationsMoneyTotals {
+  /** Selling lines ticked for Invoice */
+  sellingCzk: number | null;
+  /** Every estimate (the footer of the Est. column) */
+  estimateCzk: number | null;
+  /** The real costs filled in so far (the footer of the Real column) - not what profit counts: see costCzk */
+  realCzk: number | null;
+  /**
+   * Like for like, over ONLY the buy lines with both an estimate and a real cost: their estimates, and their real
+   * costs. 0 and 0 when no line has both; both null when one of those lines has a currency with no rate. (A real
+   * cost with no estimate is in neither: it is no overrun of an estimate.)
+   */
+  estimateOfRealCzk: number | null;
+  realOfEstimatedCzk: number | null;
+  /** What profit counts as cost: a line's real cost once it is filled in, its estimate until then */
+  costCzk: number | null;
+  /** sellingCzk - costCzk */
+  profitCzk: number | null;
+  /** Profit as a percentage of selling; null also when nothing is sold */
+  marginPct: number | null;
+  /** The currencies with no rate known that left a figure out */
+  missingCurrencies: string[];
+  /** Why they have none; "" exactly when `missingCurrencies` is empty */
+  ratesNote: OperationsMoneyRatesNote;
+}
+
+/** A supplier invoice not yet paid, booked after the day the job was first invoiced: what it bills on this job, per currency. */
+export interface OperationsMoneyLateInvoice {
+  id: string;
+  number: string;
+  supplier: string;
+  /** The day it was booked (YYYY-MM-DD), as Accounts Payable shows it: its first line's Received stamp, else when the record was made */
+  bookedOn: string;
+  currency: string;
+  amount: number;
+  /** A line of it on this job is above its estimate (as Accounts Payable marks a line) */
+  aboveEstimate: boolean;
+}
+
+/** The supplier invoices on a job, counted as Accounts Payable counts them. */
+export interface OperationsMoneySupplierInvoices {
+  /** Booked, waiting for a manager */
+  toApprove: number;
+  refused: number;
+  /** The day of the newest refusal among the job's refused invoices; null when none is refused (a refusal always stamps its moment) */
+  lastRefusedOn: string | null;
+  /** With an open cost claim that holds the payment; null when the cost claims could not be read */
+  claimed: number | null;
+  /**
+   * Approved, not paid, past the due day. When the suppliers' payment days could not be read, the invoices overdue
+   * by the due day stored on them are still counted (then "at least"); null only when none is and one of the
+   * job's approved invoices has its due day hanging on the payment days - not known, never a 0 that isn't.
+   */
+  approvedOverdue: number | null;
+  /** The day the oldest invoice still to approve was booked */
+  oldestWaitingSince: string | null;
+  /** Booked after the day the job was first invoiced (the same day is not "after"), and not paid (a paid one is history); refused ones are not among them */
+  afterBilling: OperationsMoneyLateInvoice[];
+}
+
+/** A delay charge bought on a job and not sold on, in one currency. */
+export interface OperationsMoneyNotRecharged extends MoneyAmount {
+  /** The charge code (lib/chargeCodes) and what it reads as */
+  code: string;
+  label: string;
+}
+
+/** A job's estimates with no supplier invoice yet. */
+export interface OperationsMoneyEstimates {
+  lines: number;
+  /** The day the oldest of them was entered */
+  oldestSince: string | null;
+  amounts: MoneyAmount[];
+}
+
+export interface OperationsMoneyJob {
+  shipmentId: string;
+  /** Valued selling lines NOT on an open invoice - the "work not yet invoiced" rule (lib/receivables unbilledOf: ticked or not) */
+  notYetInvoiced: MoneyAmount[];
+  /** Of those, the lines not ticked for Invoice - they keep the job from reading Invoiced while profit ignores them */
+  untickedSelling: MoneyAmount[];
+  /** Selling / cost lines with a value; null when the lines could not be read */
+  sellingLines: number | null;
+  costLines: number | null;
+  totals: OperationsMoneyTotals;
+  /** The first open customer invoice's issue day, null when none - "billed" for the rules of the Money tab */
+  invoicedOn: string | null;
+  /** Buy lines of the demurrage / detention / storage / waiting kinds that no selling line sells on, per charge code and currency */
+  notRecharged: OperationsMoneyNotRecharged[];
+  /** Supplier invoices on this job; null when they could not be read */
+  supplierInvoices: OperationsMoneySupplierInvoices | null;
+  /** Estimated buy lines with no supplier invoice yet (Accounts Payable's Expected); null when they could not be read */
+  estimatesOpen: OperationsMoneyEstimates | null;
+}
+
+export interface OperationsMoney {
+  jobs: OperationsMoneyJob[];
+  /**
+   * Whether the customer invoices were read: true, a job's `invoicedOn: null` and empty `notYetInvoiced` mean "none";
+   * false, they mean "not known" (and no supplier invoice is said to have come after billing).
+   */
+  invoicesRead: boolean;
+  /** Ids asked about that could not be read (no id of a job) */
+  unreadable: string[];
+  /** The parts that could not be read: their figures are null or empty for every job, never 0 */
+  notKnown: string[];
+}

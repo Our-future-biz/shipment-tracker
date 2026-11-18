@@ -36,6 +36,7 @@ import {
 } from "./cockpitThresholds";
 import { clockApplies } from "./detentionClock";
 import { isCreditApproved } from "./fieldDefaults";
+import { NO_HANDOVER_FACTS, handoverLine, handoverSignals, stepTwoWarehouseTagStays, truckingSpeaksForRoad, type HandoverFacts } from "./managersCockpitHandover";
 import { highLoadAbove, type TeamFacts } from "./managersCockpitTeam";
 import { personEmail } from "./shipmentEditRule";
 import { attentionFlags, workingDaysSince, type AttentionFacts, type AttentionRules, type AttentionShipment } from "./trackingAttention";
@@ -64,6 +65,12 @@ import { freightKindOf, isTruckingJob, type FreightKind } from "./trackingEvents
 // people line, "My reports" (D3: only the jobs handled by the users who report to the caller)
 // and a missed cut-off a manager dismissed, which gives no tag while its date stands
 // (lib/cutoffDismissals).
+//
+// Step 5 (D29, D30): what the warehouse and Trucking themselves say of the jobs - the Warehouse
+// cockpit's signals of each record, Trucking's issues of each consignment - as tags in their own
+// words, with no tag of step 2 that says the same once the module does and no warehouse tag the
+// job already says itself (lib/managersCockpitHandover), and the hand-over line: the updates the
+// two owe the page's jobs.
 
 /** An active job (not invoiced, not cancelled) as the cockpit reads it. */
 export interface OpsCockpitJob extends AttentionShipment {
@@ -188,6 +195,12 @@ export interface OpsCockpitInput {
   cutoffsKept: (jobId: string, cutoffs: CutoffDue[]) => CutoffDue[];
   /** The audit line, as read; null when none of it could be. Not narrowed by any filter: it is the company's. */
   audit: OpsCockpitAudit | null;
+  /**
+   * What the warehouse and Trucking said of the jobs (lib/managersCockpitHandover), a module that
+   * could not be read null. Left out, neither was asked: no tag or figure of theirs, and step 2's
+   * own road and warehouse tags as they are.
+   */
+  handover?: HandoverFacts;
   /** What could not be read, in the words the page shows; the cockpit adds nothing to it. */
   notKnown: readonly string[];
   /** The company has more active jobs than `jobs` holds. */
@@ -301,7 +314,7 @@ export const isOfReports = (job: Pick<OpsCockpitJob, "personInCharge">, reports:
   reports === "all" || isReportOrNoUser(personEmail(job.personInCharge), reports, reportEmails, userEmails);
 
 /** How the job travels, as its row shows it: "" when it has no Freight Mode and is no Trucking job. */
-const modeOf = (job: OpsCockpitJob): string => (job.freightMode.trim() || isTruckingJob(job) ? freightKindOf(job) : "");
+export const modeOf = (job: Pick<OpsCockpitJob, "tradeDirection" | "freightMode" | "department">): string => (job.freightMode.trim() || isTruckingJob(job) ? freightKindOf(job) : "");
 
 const directionOf = (job: Pick<OpsCockpitJob, "tradeDirection">) => job.tradeDirection.trim().toLowerCase();
 
@@ -364,7 +377,9 @@ const attention = (rank: number, kind: SignalKind, area: Area, text: string): Op
 // (lib/managersCockpitExtra EXTRA_RANK): times EXTRA_RANK_SCALE they fall in place here. The
 // signals of the people around a job are ranked on this scale itself (lib/managersCockpitTeam
 // TEAM_RANK): a release request with the other requests (60); URGENT 96-97, before "nobody";
-// ATTENTION 410-430, after everything else.
+// ATTENTION 410-430, after everything else. So are the warehouse's and Trucking's own
+// (lib/managersCockpitHandover HANDOVER_RANK): URGENT 61-62, after the delivery and road ones and
+// before free time; ATTENTION 251-252, after the delivery, warehouse and road warnings.
 export const OPS_RANK = {
   customsUrgent: 30,
   customsHold: 32,
@@ -679,10 +694,18 @@ export function customsSignals(job: Pick<OpsCockpitJob, "customsPriority" | "cus
  * list compares - in any case, nothing trimmed - so the tile counts the rows the list opens.
  */
 export function isUnbilledArrival(job: Pick<OpsCockpitJob, "tradeDirection" | "department" | "status" | "actualDeliveryDate" | "actualDeparture" | "actualArrival">): boolean {
+  return !!unbilledTaxDate(job) && !job.status.toLowerCase().startsWith("bill");
+}
+
+/**
+ * The actual date isUnbilledArrival reads as the job's tax date, null (or "") until there is one:
+ * the delivery of a Domestic job or one of the Road Department, an export's ATD, any other job's
+ * ATA. The Money tab (lib/managersMoney) counts its days from it.
+ */
+export function unbilledTaxDate(job: Pick<OpsCockpitJob, "tradeDirection" | "department" | "actualDeliveryDate" | "actualDeparture" | "actualArrival">): string | null {
   const direction = job.tradeDirection.toLowerCase();
   const deliveryDated = direction === "domestic" || job.department.toLowerCase() === ROAD_DEPARTMENT.toLowerCase();
-  const taxDateReached = deliveryDated ? !!job.actualDeliveryDate : direction === "export" ? !!job.actualDeparture : !!job.actualArrival;
-  return taxDateReached && !job.status.toLowerCase().startsWith("bill");
+  return deliveryDated ? job.actualDeliveryDate : direction === "export" ? job.actualDeparture : job.actualArrival;
 }
 
 // ─── Before departure: booking, cargo, MAWB, B/L, credit ───────────────────
@@ -942,24 +965,30 @@ interface Judged {
 /** Every signal of one job: its own columns, the timeline, Needs Attention's flags and what the other tables say. */
 export function jobSignals(
   job: OpsCockpitJob,
-  input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "team" | "cutoffsKept" | "now">,
+  input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "team" | "cutoffsKept" | "now" | "handover">,
   day: OpsDay,
 ): { signals: OpsSignal[]; flags: TrackingAttentionFlag[] } {
   // A job with no event of these kinds has no entry: its timeline is known, and empty.
   const timeline = input.timeline ? (input.timeline.get(job.id) ?? NO_TIMELINE) : null;
   const cargoIsIn = cargoIn(job, timeline);
   const flags = attentionFlags(job, input.facts.get(job.id) ?? NO_FACTS, day.today, attentionRulesFor(freightKindOf(job), day.holidays));
+  const handover = input.handover ?? NO_HANDOVER_FACTS;
+  const cutoffs = input.cutoffsKept(job.id, cutoffsOf(job, day, cargoIsIn));
+  // What the job says itself that a warehouse signal would say again (lib/managersCockpitHandover WAREHOUSE_SAID_BY_THE_JOB).
+  const says = { freeTimeClock: flags.some((f) => f.kind === "free_time"), closing: cutoffs.some((c) => c.key === "closingDate") };
   const signals: OpsSignal[] = [
     ...handledBySignals(job, input.userEmails),
     ...customsSignals(job, timeline, input.now, day.today),
-    ...cutoffSignals(input.cutoffsKept(job.id, cutoffsOf(job, day, cargoIsIn)), day.today),
+    ...cutoffSignals(cutoffs, day.today),
     ...bookingSignals(job, day.today),
     ...cargoReadySignals(job, cargoIsIn, day.today),
     ...mawbSignals(job, day.today),
     ...rolledSignals(timeline),
     ...deliverySignals(job, day),
-    ...warehouseSignals(job, day),
-    ...roadSignals(job, timeline, day),
+    // Step 2's own, but not where the warehouse or Trucking says the same itself (lib/managersCockpitHandover).
+    ...warehouseSignals(job, day).filter((s) => stepTwoWarehouseTagStays(s, job.id, handover)),
+    ...(truckingSpeaksForRoad(job.id, handover) ? [] : roadSignals(job, timeline, day)),
+    ...handoverSignals(job.id, handover, says),
     ...bolSignals(job, day),
     ...arrivalNoticeSignals(job, day.today),
     ...boxSignals(job, input.boxes ? (input.boxes.get(job.id) ?? []) : null, day.today),
@@ -1075,7 +1104,12 @@ function peopleOf(team: readonly Judged[], pool: readonly Judged[], input: Pick<
   // A load that stands out among the people with jobs of their own - never "nobody", who is no person.
   const above = highLoadAbove([...people.values()].filter((p) => p.handledBy !== "").map((p) => p.active));
   for (const person of people.values()) person.highLoad = above !== null && person.handledBy !== "" && person.active > above;
-  return [...people.values()].sort((a, b) => b.active - a.active || Number(a.handledBy === "") - Number(b.handledBy === "") || a.handledBy.localeCompare(b.handledBy));
+  return [...people.values()].sort(byActiveThenEmail);
+}
+
+/** The people line's order: the most active first, nobody ("") after anyone as active, then by e-mail. The Money tab's people stand in the same order. */
+export function byActiveThenEmail(a: { handledBy: string; active: number }, b: { handledBy: string; active: number }): number {
+  return b.active - a.active || Number(a.handledBy === "") - Number(b.handledBy === "") || a.handledBy.localeCompare(b.handledBy);
 }
 
 export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpit {
@@ -1136,6 +1170,8 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
     attention: cockpitCard(rows.filter((r) => !r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
     people: peopleOf(scoped, pool, input, (email) => isReportOrNoUser(email, reports, input.reportEmails, input.userEmails)),
     audit: input.audit,
+    // Over the jobs of the page, as the tiles: its mode, direction, "My reports" and Handled By.
+    handover: handoverLine(input.handover ?? NO_HANDOVER_FACTS, shown.map((j) => j.job.id)),
     capped: input.capped,
     holidaysKnown: input.holidaysKnown,
     notKnown: [...new Set(input.notKnown)],

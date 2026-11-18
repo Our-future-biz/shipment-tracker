@@ -1,10 +1,12 @@
-import type { OpsCockpitList, OpsCockpitRow, ShipmentsManagersCockpit } from "@/hooks/useShipmentsManagersCockpit";
+import type { OpsCockpitRow, ShipmentsManagersCockpit } from "@/hooks/useShipmentsManagersCockpit";
 
 // The signal tiles of Shipments → Managers. Every tag on a row says what kind of signal it is
 // (`kind`, the server's stable keys: cutoff, booking, customs…). A signal tile counts the rows that
 // carry a tag of its kinds and, clicked, narrows the two cards to them (?signal= in the address).
 // The narrowing is done here, over the rows the server sent: a card the server cut at its limit is
 // narrowed among the rows listed, and the page says so.
+// The Money tab's tiles work the same way over its own rows and families (_lib/cockpitMoney,
+// ?msignal=): what narrows, cuts and orders tags here takes any row that carries tags with a kind.
 
 /** What a signal tile stands for: one kind of tag, or a few that are worked on together. */
 export interface SignalFamily {
@@ -61,9 +63,12 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
   },
   {
     key: "delivery",
+    // Step 5: what our warehouse (kind `warehouse`) and Trucking (kind `road`) report on the job
+    // joins the job's own delivery dates - one tile, as one person works on them.
     kinds: ["delivery", "road", "warehouse"],
-    label: "Delivery and POD",
-    hint: "A planned delivery or pick-up passed or not ready (no plate number, haulier not confirmed), cargo not received or waiting in our warehouse, or a delivery with no POD",
+    // The chip ("Showing only") says the label too: the tile names all the cards then hold.
+    label: "Delivery, warehouse and road",
+    hint: "Planned delivery or pick-up passed, POD missing, the haulier not confirmed, and what our warehouse or Trucking reports on the job",
   },
   { key: "departure", kinds: ["departure", "arrival"], label: "Departure and arrival late", hint: "ETD passed with no ATD, ETA passed with no ATA, or a job that was rolled" },
   {
@@ -98,25 +103,36 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
 
 /**
  * The family an address names (?signal=), or null for none. One of a family's kinds names the
- * family too (?signal=road is Delivery and POD); anything else is no filter.
+ * family too (?signal=road is Delivery, warehouse and road); anything else is no filter.
  */
-export function signalOf(value: string | null): SignalFamily | null {
+export const signalOf = (value: string | null): SignalFamily | null => familyOf(SIGNAL_FAMILIES, value);
+
+/** The family of `families` a value names - by its key, or by one of its kinds; null for none. */
+export function familyOf(families: readonly SignalFamily[], value: string | null): SignalFamily | null {
   const named = (value ?? "").trim().toLowerCase();
   if (!named) return null;
-  return SIGNAL_FAMILIES.find((f) => f.key === named) ?? SIGNAL_FAMILIES.find((f) => f.kinds.includes(named)) ?? null;
+  return families.find((f) => f.key === named) ?? families.find((f) => f.kinds.includes(named)) ?? null;
 }
 
-type Tag = OpsCockpitRow["tags"][number];
+/** A tag as the tiles read it: by its kind (a tag from before step 2 has none). */
+interface KindTag {
+  kind?: string;
+}
 
-const isOf = (family: SignalFamily) => (tag: Pick<Tag, "kind">) => !!tag.kind && family.kinds.includes(tag.kind);
+/** A row the tiles can narrow to: the cockpit's, the Money tab's. */
+interface TaggedRow {
+  tags: readonly KindTag[];
+}
+
+const isOf = (family: SignalFamily) => (tag: KindTag) => !!tag.kind && family.kinds.includes(tag.kind);
 
 /** Whether a row carries a tag of the family. */
-export const hasSignal = (row: Pick<OpsCockpitRow, "tags">, family: SignalFamily): boolean => row.tags.some(isOf(family));
+export const hasSignal = (row: TaggedRow, family: SignalFamily): boolean => row.tags.some(isOf(family));
 
 /** A card as the page draws it. */
-export interface ShownList {
+export interface ShownList<R = OpsCockpitRow> {
   total: number;
-  rows: OpsCockpitRow[];
+  rows: R[];
   /** How many rows the server listed, before any narrowing: what a narrowed card was looked through. */
   listed: number;
   /** The server listed only the first of the card's rows. */
@@ -127,7 +143,7 @@ export interface ShownList {
  * A card narrowed to a family; the card as it is for no family. Narrowed, `total` counts the rows
  * found among those listed - of a cut card the rest is not here to be looked through.
  */
-export function listWithSignal(list: OpsCockpitList, family: SignalFamily | null): ShownList {
+export function listWithSignal<R extends TaggedRow = OpsCockpitRow>(list: { total: number; rows: R[] }, family: SignalFamily | null): ShownList<R> {
   const listed = list.rows.length;
   const cut = list.total > listed;
   if (!family) return { total: list.total, rows: list.rows, listed, cut };
@@ -139,7 +155,31 @@ export function listWithSignal(list: OpsCockpitList, family: SignalFamily | null
  * A narrowed card's window, beside its count: of a card the server cut, the count is what was
  * found among the rows it listed ("among the first 200" - the rows listed, not the rows found).
  */
-export const windowWithSignal = (window: string, list: Pick<ShownList, "listed" | "cut"> | undefined): string => (list?.cut ? `${window} · among the first ${list.listed}` : window);
+export const windowWithSignal = (window: string, list: Pick<ShownList<unknown>, "listed" | "cut"> | undefined): string => (list?.cut ? `${window} · among the first ${list.listed}` : window);
+
+/** What an empty card says while the cards are narrowed to a signal: "nothing urgent" would be more than is known. */
+export const EMPTY_WITH_SIGNAL = {
+  urgent: "No URGENT job with this signal.",
+  attention: "No ATTENTION job with this signal.",
+} as const;
+
+/** What the cards are narrowed to, as the chip and the dialog's title name it. */
+export const showingLabel = (family: SignalFamily): string => family.showing ?? family.label;
+
+/**
+ * A card in the words of what it shows now: as it is for no family; narrowed to one, its window
+ * says among how many when the server cut it, its empty text claims no more than "none with this
+ * signal", and its dialog's title names the family.
+ */
+export function cardWithSignal<C extends { window: string; empty: string; dialog: string }>(
+  card: C,
+  key: keyof typeof EMPTY_WITH_SIGNAL,
+  family: SignalFamily | null,
+  list: Pick<ShownList<unknown>, "listed" | "cut"> | undefined,
+): C {
+  if (!family) return card;
+  return { ...card, window: windowWithSignal(card.window, list), empty: EMPTY_WITH_SIGNAL[key], dialog: `${card.dialog} · ${showingLabel(family)}` };
+}
 
 /** A signal tile's figure: `count` null when it is not known, `atLeast` when there may be more. */
 export interface SignalFigure {
@@ -182,10 +222,19 @@ export const CARD_TAG_LIMIT = 4;
  * the cards are narrowed to in front - so the reason a row is listed is never behind "+N more".
  * `more` holds what did not fit under `limit`.
  */
-export function tagsShown<T extends Pick<Tag, "kind">>(tags: readonly T[], family: SignalFamily | null, limit = Infinity): { shown: T[]; more: T[] } {
+export function tagsShown<T extends KindTag>(tags: readonly T[], family: SignalFamily | null, limit = Infinity): { shown: T[]; more: T[] } {
   const ordered = family ? [...tags.filter(isOf(family)), ...tags.filter((t) => !isOf(family)(t))] : [...tags];
   return { shown: ordered.slice(0, limit), more: ordered.slice(limit) };
 }
+
+/**
+ * Whether an answer the page asks for is still to come: the question is asked (`enabled`) and no
+ * answer to it is there yet - none at all (`isPending`: also while the request is held back, as
+ * with no connection, when nothing is "fetching"), or only the answer to an earlier filter
+ * (`isPlaceholderData`). Until then the page shows "…", never figures of zero.
+ */
+export const isAnswerLoading = ({ enabled, isPending, isPlaceholderData }: { enabled: boolean; isPending: boolean; isPlaceholderData: boolean }): boolean =>
+  enabled && (isPending || isPlaceholderData);
 
 /** What the cards and the Team table say when the answer could not be loaded. */
 export const LOAD_FAILED = "Could not load Operations.";
@@ -194,12 +243,13 @@ export const LOAD_FAILED = "Could not load Operations.";
  * Why the load failed, in words for the page. The server's own words when it says it cannot
  * answer just now (code "unavailable": with "My reports" on and the users unreadable it says who
  * reports to whom could not be read - an empty page would read as "nobody has anything");
- * anything else - no connection, a fault - is the page's plain line.
+ * anything else - no connection, a fault - is the page's plain line (`plain`: the Money tab has
+ * its own).
  */
-export function loadFailedText(error: unknown): string {
-  if (typeof error !== "object" || error === null) return LOAD_FAILED;
+export function loadFailedText(error: unknown, plain: string = LOAD_FAILED): string {
+  if (typeof error !== "object" || error === null) return plain;
   const { code, message } = error as { code?: unknown; message?: unknown };
-  return code === "unavailable" && typeof message === "string" && message.trim() ? message.trim() : LOAD_FAILED;
+  return code === "unavailable" && typeof message === "string" && message.trim() ? message.trim() : plain;
 }
 
 /**

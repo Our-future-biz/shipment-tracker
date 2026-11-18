@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api";
+import { isAnswerLoading } from "@/app/shipments/managers/_lib/cockpitSignals";
 
 export type ShipmentsManagersCockpit = interfaces.ShipmentsManagersCockpit;
 export type OpsCockpitRow = interfaces.OpsCockpitRow;
@@ -71,7 +72,8 @@ export const useShipmentsManagersCockpit = (filter: OpsCockpitFilter, enabled: b
     cockpit: waiting ? null : (query.data ?? null),
     /** Who the Handled By filter is picked from; the earlier answer's while the next one loads. */
     people: query.data?.people ?? [],
-    isLoading: query.isLoading || waiting,
+    // Also while the request is held back (no connection): no answer yet is "…", never zeros.
+    isLoading: isAnswerLoading({ enabled, isPending: query.isPending, isPlaceholderData: waiting }),
     isError,
     /** Why the load failed, for the page to word (the server says when "My reports" could not be answered). */
     error: isError ? (query.error as unknown) : null,

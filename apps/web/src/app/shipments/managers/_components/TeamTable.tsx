@@ -7,13 +7,14 @@ import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
 import type { OpsCockpitFilter, OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
 import { CARD, CARD_BAR, CARD_TITLE, HINT, LINK } from "@/styles/ui";
-import { teamFigure, teamRows, type TeamRow } from "../_lib/cockpitTeam";
+import { teamRows, type TeamRow } from "../_lib/cockpitTeam";
+import { columnHead as head, figure } from "./CockpitParts";
 
 interface TeamTableProps {
   /** The server's `people`; undefined until the answer is there. */
   people: readonly OpsCockpitPerson[] | undefined;
-  /** The mode, direction and "My reports" on screen: what the figures are counted over, and what a row's link keeps. */
-  filter: OpsCockpitFilter;
+  /** The mode, direction and "My reports" on screen: what the figures are counted over, and what a row's link keeps - with what the Money tab's cards are narrowed to (`msignal`), which is that tab's to keep. */
+  filter: OpsCockpitFilter & { msignal?: string | null };
   /** What the figures are counted over, in words: "all modes · Import". */
   scope: string;
   isLoading: boolean;
@@ -21,15 +22,6 @@ interface TeamTableProps {
   /** What the table says when the answer could not be loaded. */
   loadFailed: string;
 }
-
-// A figure in the table: "–" when it was not read, quiet when it is none, in its colour when it counts something.
-const figure = (value: number | null, hot = "text-slate-900") => (
-  <span className={`tabular-nums ${value === null ? "text-slate-400" : value > 0 ? `font-semibold ${hot}` : "text-slate-400"}`} aria-label={value === null ? "Not known" : undefined}>
-    {teamFigure(value)}
-  </span>
-);
-
-const head = (label: string, hint: string) => <span title={hint}>{label}</span>;
 
 const COLUMNS: ColumnsType<TeamRow> = [
   {

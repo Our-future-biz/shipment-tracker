@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // One answer of Shipments → Managers from end to end - the cockpit's service and every reader it
 // calls (Needs Attention's facts, the other tables' signals, the people around the jobs, the
-// dismissed cut-offs, the audit line) as they are - against stand-ins for the repositories only:
-// each of their methods is a statement that holds a connection for a moment. How many statements
-// an answer sends, and that it never holds more than five of the pool's ten at once.
+// dismissed cut-offs, the audit line, the calls to the warehouse and Trucking) as they are - against
+// stand-ins for the repositories and the two modules only: each repository method is a statement
+// that holds a connection for a moment; each module's endpoint is a call that holds none of
+// Shipments' connections, and is slow here. How many statements and calls an answer sends, that
+// the calls start first and outside the limiter, and that the statements never hold more than
+// five connections at once.
 const db = vi.hoisted(() => {
-  const state = { running: 0, peak: 0, sent: [] as string[] };
+  const state = { running: 0, peak: 0, sent: [] as string[], calls: [] as { name: string; statementsBefore: number; statementsDoneAtEnd: number }[], done: 0 };
   /** A repository of which every method is a statement answering `answers[method]` ([] when not named). */
   const repository = (name: string, answers: Record<string, () => unknown> = {}) =>
     new Proxy(
@@ -17,13 +20,27 @@ const db = vi.hoisted(() => {
           state.sent.push(`${name}.${method}`);
           await new Promise((done) => setTimeout(done, 1));
           state.running -= 1;
+          state.done += 1;
           return answers[method] ? answers[method]!() : [];
         },
       },
     );
-  return { state, repository, jobs: [] as unknown[] };
+  /** A module's endpoint: a slow call (40 ms), counted apart from the statements, that answers nothing in play. */
+  const call = (name: string) => async () => {
+    const entry = { name, statementsBefore: state.sent.length, statementsDoneAtEnd: 0 };
+    state.calls.push(entry);
+    await new Promise((done) => setTimeout(done, 40));
+    entry.statementsDoneAtEnd = state.done;
+    return { shipments: [], notKnown: [], issuesRead: true, updatesRead: true };
+  };
+  return { state, repository, call, jobs: [] as unknown[] };
 });
-const clients = vi.hoisted(() => ({ auth: { usersList: vi.fn() }, holidays: { _internalHolidaysCzNational: vi.fn() } }));
+const clients = vi.hoisted(() => ({
+  auth: { usersList: vi.fn() },
+  holidays: { _internalHolidaysCzNational: vi.fn() },
+  warehouseConcept: { _internalWarehouseOperationsFacts: vi.fn(db.call("call.warehouseConcept")) },
+  trucking: { _internalTruckingOperationsFacts: vi.fn(db.call("call.trucking")) },
+}));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => clients);
@@ -46,6 +63,7 @@ vi.mock("../../repositories/shipmentCutoffDismissal.repository", () => ({ shipme
 import { COCKPIT_READS_AT_ONCE } from "../../lib/cockpitThresholds";
 import { managersCockpitService } from "../../services/managersCockpit.service";
 import { forgetAuditLines } from "../../services/managersCockpitAudit.service";
+import { forgetHandoverFacts } from "../../services/managersCockpitHandover.service";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 // Wednesday 18 Nov 2026, 11:00 in Prague.
@@ -143,12 +161,18 @@ const EVERY_ANSWER = [
 ];
 /** The audit line, when it is read (services/managersCockpitAudit.service). */
 const AUDIT_LINE = ["history.changesSince", "releaseOverride.listSince", "attachment.ownApprovalsSince", "documentRequest.decidedSince", "officeRequest.decidedSince", "releaseRequest.decidedSince"];
+/** The calls to the warehouse and Trucking, when they are made (services/managersCockpitHandover.service): one each. */
+const HANDOVER_CALLS = ["call.warehouseConcept", "call.trucking"];
+const callsMade = () => db.state.calls.map((c) => c.name);
 
 beforeEach(() => {
   forgetAuditLines();
+  forgetHandoverFacts();
   db.state.running = 0;
   db.state.peak = 0;
   db.state.sent.length = 0;
+  db.state.calls.length = 0;
+  db.state.done = 0;
   // Jobs that give every read something to ask about: a missed cut-off, a Full Load import arriving, a Holiday Cover.
   db.jobs = [
     job(1, { vgmClosing: "2026-11-16", vgm: "Pending (Red)", estimatedDeparture: "2026-11-20" }),
@@ -170,11 +194,28 @@ describe("one answer of Shipments → Managers, every statement of it", () => {
     const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
 
     expect(COCKPIT_READS_AT_ONCE).toBe(5);
+    // The peak counts Shipments' statements only: the calls hold none of its connections.
     expect(db.state.peak).toBe(5);
     expect([...db.state.sent].sort()).toEqual([...EVERY_ANSWER, ...AUDIT_LINE].sort());
     expect(db.state.sent).toHaveLength(28);
+    // And 2 calls, started first - right after the jobs were read - and outside the limiter: the
+    // statements all ran while the two slow calls were out.
+    expect(callsMade()).toEqual(HANDOVER_CALLS);
+    for (const c of db.state.calls) {
+      expect(c.statementsBefore).toBe(1);
+      expect(c.statementsDoneAtEnd).toBe(28);
+    }
+    // Each module is asked once, about every job read.
+    expect(clients.warehouseConcept._internalWarehouseOperationsFacts).toHaveBeenCalledWith({ shipmentIds: ["id-1", "id-2", "id-3"] });
+    expect(clients.trucking._internalTruckingOperationsFacts).toHaveBeenCalledWith({ shipmentIds: ["id-1", "id-2", "id-3"] });
     // And it is a whole answer: everything was read.
-    expect(c).toMatchObject({ tiles: { active: 3 }, notKnown: [], holidaysKnown: true, audit: { days: 7 } });
+    expect(c).toMatchObject({
+      tiles: { active: 3 },
+      notKnown: [],
+      holidaysKnown: true,
+      audit: { days: 7 },
+      handover: { warehouseUpdatesWaiting: 0, warehouseUpdatesFailed: 0, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 0 },
+    });
     expect(c.urgent.rows.map((r) => r.tags.map((t) => t.text))).toEqual([["VGM overdue 2 days"]]);
     expect(c.people.map((p) => [p.handledBy, p.active, p.covers])).toEqual([
       ["jan@firma.cz", 3, 0],
@@ -182,13 +223,15 @@ describe("one answer of Shipments → Managers, every statement of it", () => {
     ]);
   });
 
-  it("sends six statements fewer while the company's audit line is kept: 22, and still five at once", async () => {
+  it("sends six statements fewer and no call while the company's audit line and the modules' answers are kept: 22, and still five at once", async () => {
     await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
     db.state.sent.length = 0;
+    db.state.calls.length = 0;
     db.state.peak = 0;
     const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, mode: "sea" }, new Date(NOW.getTime() + 60_000));
     expect([...db.state.sent].sort()).toEqual([...EVERY_ANSWER].sort());
     expect(db.state.sent).toHaveLength(22);
+    expect(callsMade()).toEqual([]);
     expect(db.state.peak).toBe(5);
     expect(c.audit).toEqual({ days: 7, items: expect.any(Array) });
   });

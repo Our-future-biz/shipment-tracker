@@ -65,3 +65,46 @@ export interface WarehouseTaskPatch {
   notes?: string;
   data?: unknown;
 }
+
+// ─── Operations facts (Shipments → Managers, Council Outlay 11 step 5, D29/D30) ──────────────
+// What the Warehouse cockpit itself says about the warehouse records of some shipments, so the
+// Shipments cockpit never disagrees with it. Read only.
+
+/** One signal of a record, in the Warehouse cockpit's own words ("Pick-up PIN: locked 23.10. 09:12"). */
+export interface WarehouseOperationsSignal {
+  text: string;
+  /** Act today (red); otherwise attention (amber). */
+  urgent: boolean;
+}
+
+/** A warehouse record of the shipment still in play: a position (gate record) or a container its cargo is on. */
+export interface WarehouseOperationsRecord {
+  /** The gate record's id, or the container's id. */
+  id: string;
+  /** WCZ ref of a position (its gate ref without one), or the container number ("(no number)"). */
+  ref: string;
+  /** The position's lifecycle label ("In warehouse", "Ready · Refused"); a container's status. */
+  lifecycle: string;
+  /** Its signals as the Warehouse cockpit tags them (urgent first, then by rank); empty when none. */
+  signals: WarehouseOperationsSignal[];
+}
+
+export interface WarehouseShipmentFacts {
+  shipmentId: string;
+  /** Each warehouse record (position) of the shipment that is still in play, with the Warehouse cockpit's OWN signals for it */
+  records: WarehouseOperationsRecord[];
+  /**
+   * Updates from the warehouse to this shipment waiting longer than the module's stale limit
+   * (STALE_PENDING_MINUTES), or failed. null when they could not be read (`notKnown` says so) —
+   * never 0 for "not known".
+   */
+  updatesWaiting: number | null;
+  updatesFailed: number | null;
+}
+
+export interface WarehouseOperationsFacts {
+  /** One per shipment id asked for (each once, in the order asked; ids that are not uuids are left out). */
+  shipments: WarehouseShipmentFacts[];
+  /** What could not be read, in plain words ("the warehouse's records"); none of its figures are given. */
+  notKnown: string[];
+}

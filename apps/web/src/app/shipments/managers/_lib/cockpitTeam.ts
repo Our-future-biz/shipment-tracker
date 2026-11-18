@@ -31,15 +31,19 @@ export function coversText(person: Pick<OpsCockpitPerson, "covers" | "coversSinc
   return since ? `${person.covers} · since ${since}` : String(person.covers);
 }
 
+/** What a Team row's address keeps of the page's: the filters, and the Money tab's own narrowing. */
+export type TeamPage = Pick<OpsCockpitFilter, "mode" | "direction" | "reports"> & { msignal?: string | null };
+
 /**
  * Where a row leads: the Cockpit tab narrowed to the person, in the mode, direction and "My
- * reports" the Team tab is in. The signal the cards were last narrowed to does not go along: the
- * person's cards open whole. Null for somebody with no job of their own (a Holiday Cover only):
- * the cards go by Handled By, so narrowed to them they would be empty.
+ * reports" the Team tab is in. The signal the Cockpit's cards were last narrowed to does not go
+ * along: the person's cards open whole. What the Money tab's cards are narrowed to (?msignal=) is
+ * that tab's own and stays in the address. Null for somebody with no job of their own (a Holiday
+ * Cover only): the cards go by Handled By, so narrowed to them they would be empty.
  */
-export function teamRowHref(person: Pick<OpsCockpitPerson, "handledBy" | "active">, page: Pick<OpsCockpitFilter, "mode" | "direction" | "reports">): string | null {
+export function teamRowHref(person: Pick<OpsCockpitPerson, "handledBy" | "active">, page: TeamPage): string | null {
   if (person.active <= 0) return null;
-  return shipmentsManagersHref({ tab: "cockpit", mode: page.mode, direction: page.direction, reports: page.reports, handledBy: filterValueOf(person) });
+  return shipmentsManagersHref({ tab: "cockpit", mode: page.mode, direction: page.direction, reports: page.reports, handledBy: filterValueOf(person), msignal: page.msignal ?? null });
 }
 
 /** A row of the Team table, in the words and figures it shows. */
@@ -71,7 +75,7 @@ export interface TeamRow {
 }
 
 /** The Team table's rows, in the server's order. */
-export function teamRows(people: readonly OpsCockpitPerson[], page: Pick<OpsCockpitFilter, "mode" | "direction" | "reports">): TeamRow[] {
+export function teamRows(people: readonly OpsCockpitPerson[], page: TeamPage): TeamRow[] {
   return people.map((p) => {
     const nobody = p.handledBy === "";
     return {

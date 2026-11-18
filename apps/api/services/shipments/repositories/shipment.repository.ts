@@ -1178,6 +1178,95 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   }
 
   /**
+   * The jobs the Money tab of Shipments → Managers reads (lib/managersMoney): every ACTIVE job as
+   * managersCockpitRows reads them - the same columns, keep the two lists the same, but for
+   * `arrivalNoticeSent`, which no money rule reads and which costs a subquery a row - PLUS the
+   * jobs that read Invoiced and are not cancelled, and were either taxed or last changed on
+   * `invoicedSince` or later: the tax date is the ATA, an export's ATD, the delivery of a Domestic
+   * job or one of the Road Department (the rule of lib/managersCockpit unbilledTaxDate, as
+   * TAX_DATE_REACHED reads it); the last change is the Prague day of `updated_at`, so a job with an
+   * old tax date that was invoiced lately - or has no tax date at all - is still read. That takes
+   * a job too many (one merely edited lately), never one too few; the caller caps them. A supplier
+   * invoice that comes after billing, an estimate nobody invoiced and a loss are about exactly
+   * those jobs, and the cockpit's read has none of them.
+   *
+   * With each job its Invoicing Status (which of the two it is) and its linked customer. The
+   * active jobs come first, each group the newest first: a cut at `limit` leaves out invoiced
+   * jobs before it leaves out an active one. One statement; it judges nothing.
+   */
+  async managersMoneyRows(companyId: string, invoicedSince: string, limit: number) {
+    const taxDate = sql`CASE
+      WHEN ${IS_DELIVERY_DATED} THEN ${shipmentTable.actualDeliveryDate}
+      WHEN lower(${shipmentTable.tradeDirection}) = 'export' THEN ${shipmentTable.actualDeparture}
+      ELSE ${shipmentTable.actualArrival} END`;
+    // GREATEST skips a tax date the job does not have.
+    const invoicedLately = sql`(${INVOICED} AND ${NOT_CANCELLED} AND GREATEST(${taxDate}, (${shipmentTable.updatedAt} AT TIME ZONE 'Europe/Prague')::date) >= ${invoicedSince}::date)`;
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customer: shipmentTable.customer,
+        tradeDirection: shipmentTable.tradeDirection,
+        freightMode: shipmentTable.freightMode,
+        department: shipmentTable.department,
+        status: shipmentTable.status,
+        estimatedDeparture: shipmentTable.estimatedDeparture,
+        actualDeparture: shipmentTable.actualDeparture,
+        estimatedArrival: shipmentTable.estimatedArrival,
+        actualArrival: shipmentTable.actualArrival,
+        etaWarehouse: shipmentTable.etaWarehouse,
+        warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+        plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+        actualDeliveryDate: shipmentTable.actualDeliveryDate,
+        personInCharge: shipmentTable.personInCharge,
+        holidayCover: shipmentTable.holidayCover,
+        closingDate: shipmentTable.closingDate,
+        vgmClosing: shipmentTable.vgmClosing,
+        vgmClosingTime: shipmentTable.vgmClosingTime,
+        vgm: shipmentTable.vgm,
+        siClosing: shipmentTable.siClosing,
+        siClosingTime: shipmentTable.siClosingTime,
+        shippingInstructions: shipmentTable.shippingInstructions,
+        ams: shipmentTable.ams,
+        amsDeadline: shipmentTable.amsDeadline,
+        amsDeadlineTime: shipmentTable.amsDeadlineTime,
+        isf: shipmentTable.isf,
+        isfDeadline: shipmentTable.isfDeadline,
+        isfDeadlineTime: shipmentTable.isfDeadlineTime,
+        customsPriority: shipmentTable.customsPriority,
+        customsStatus: shipmentTable.customsStatus,
+        customsDeadline: shipmentTable.customsDeadline,
+        bookingConfirmation: shipmentTable.bookingConfirmation,
+        claim: shipmentTable.claim,
+        cargoReadinessDate: shipmentTable.cargoReadinessDate,
+        pickupDate: shipmentTable.pickupDate,
+        closingTime: shipmentTable.closingTime,
+        masterBolNumber: shipmentTable.masterBolNumber,
+        masterBolType: shipmentTable.masterBolType,
+        houseBolType: shipmentTable.houseBolType,
+        houseBolRelease: shipmentTable.houseBolRelease,
+        bolDraft: shipmentTable.bolDraft,
+        plateNumber: shipmentTable.plateNumber,
+        creditCheck: shipmentTable.creditCheck,
+        dangerous: shipmentTable.dangerous,
+        loadType: shipmentTable.loadType,
+        masterJobId: shipmentTable.masterJobId,
+        customsProcedure: shipmentTable.customsProcedure,
+        customsOffice: shipmentTable.customsOffice,
+        mrn: shipmentTable.mrn,
+        warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
+        createdAt: shipmentTable.createdAt,
+        updatedAt: shipmentTable.updatedAt,
+        invoicingStatus: shipmentTable.invoicingStatus,
+        customerId: shipmentTable.customerId,
+      })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`(${ACTIVE} OR ${invoicedLately})`))
+      .orderBy(sql`(${shipmentTable.invoicingStatus} IS NOT DISTINCT FROM 'Invoiced')`, desc(shipmentTable.createdAt), desc(shipmentTable.id))
+      .limit(limit);
+  }
+
+  /**
    * How many ACTIVE jobs name this e-mail in Handled By, and how many in Holiday Cover - the Users
    * page's warning before a user is deactivated (D13). Handled By is matched by the list's own
    * filter (handledByMatch), Holiday Cover the same way; `email` is a person's, lower-cased.
