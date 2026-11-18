@@ -106,7 +106,7 @@ vi.mock("../../db/db", () => ({ db: fake.db }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
 import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
-import { searchMatch, searchedColumns, shipmentRepository } from "../../repositories/shipment.repository";
+import { handledByMatch, modeMatch, searchMatch, searchedColumns, shipmentRepository, tilePredicate } from "../../repositories/shipment.repository";
 import { shipmentTable } from "../../schemas/shipment.schema";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -424,6 +424,106 @@ describe("searchMatch", () => {
     // Every column is still in the text that is searched.
     expect(text).toContain('"shipment"."house_bol_number"');
     expect(text).toContain('string_agg("container"."seal_number"');
+  });
+});
+
+// What Shipments → Managers' tiles open the list with. Only the statements are checked here; what
+// they find in real rows - and that it is what the cockpit counts - is tests/db/managersListFilters.
+describe("the list's Handled By filter", () => {
+  const EMAIL = `lower(btrim(split_part("shipment"."person_in_charge", ' — ', 1), $1))`;
+  // What is trimmed off the stored value, as JavaScript's trim() does for typed or pasted text:
+  // space, tab, line feed, carriage return, no-break space.
+  const TRIMMED = " \t\n\r\u00a0";
+
+  it("finds the jobs whose Handled By names the e-mail, trimmed and in any case, before any name after it", () => {
+    expect(sent(handledByMatch(" Jan@Firma.cz "))).toEqual({ sql: `${EMAIL} = $2`, params: [TRIMMED, "jan@firma.cz"] });
+    expect(sent(handledByMatch("\tjan@firma.cz\n"))).toEqual({ sql: `${EMAIL} = $2`, params: [TRIMMED, "jan@firma.cz"] });
+  });
+
+  it("trims a stored value of the whitespace the cockpit's personEmail trims", () => {
+    expect([...TRIMMED].map((c) => c.codePointAt(0))).toEqual([32, 9, 10, 13, 160]);
+    expect(`${TRIMMED}jan@firma.cz${TRIMMED}`.trim()).toBe("jan@firma.cz");
+  });
+
+  it("finds the jobs with nobody in Handled By for \"nobody\"", () => {
+    expect(sent(handledByMatch("nobody"))).toEqual({ sql: `${EMAIL} = $2`, params: [TRIMMED, ""] });
+    expect(sent(handledByMatch(" Nobody "))).toEqual({ sql: `${EMAIL} = $2`, params: [TRIMMED, ""] });
+  });
+
+  it("asks nothing when no person is given", () => {
+    expect(handledByMatch(undefined)).toBeUndefined();
+    expect(handledByMatch("   ")).toBeUndefined();
+  });
+});
+
+describe("the list's mode filter", () => {
+  // freightKindOf (lib/trackingEvents), rule for rule: a Trucking job or "road" in the Freight
+  // Mode is road; otherwise a mode starting with "air" is air, with "rail" rail; the rest is sea.
+  const ROAD = `(("shipment"."trade_direction" ~* '^\\s*domestic\\s*$' OR "shipment"."department" ~* $1) OR "shipment"."freight_mode" ~* 'road')`;
+  const AIR = `"shipment"."freight_mode" ~* '^\\s*air'`;
+  const RAIL = `"shipment"."freight_mode" ~* '^\\s*rail'`;
+  const TRUCKING_DEPARTMENT = ["^\\s*Road Department\\s*$"];
+
+  it("reads road, air, rail and sea as freightKindOf does, road first and sea as what is left", () => {
+    expect(sent(modeMatch("road"))).toEqual({ sql: ROAD, params: TRUCKING_DEPARTMENT });
+    expect(sent(modeMatch("air"))).toEqual({ sql: `(NOT ${ROAD} AND ${AIR})`, params: TRUCKING_DEPARTMENT });
+    expect(sent(modeMatch("rail"))).toEqual({ sql: `(NOT ${ROAD} AND ${RAIL})`, params: TRUCKING_DEPARTMENT });
+    expect(sent(modeMatch("sea"))).toEqual({ sql: `(NOT ${ROAD} AND NOT ${AIR} AND NOT ${RAIL})`, params: TRUCKING_DEPARTMENT });
+  });
+
+  it("asks nothing for all modes, none, or a word that is no mode - an object's own names among them", () => {
+    for (const mode of [undefined, "", "all", "Sea", "ocean", "constructor", "toString"]) expect(modeMatch(mode)).toBeUndefined();
+  });
+});
+
+describe("the tiles Shipments → Managers opens the list with", () => {
+  const ACTIVE = `"shipment"."invoicing_status" IS DISTINCT FROM 'Invoiced' AND "shipment"."status" IS DISTINCT FROM $1`;
+  const TODAY = "(now() AT TIME ZONE 'Europe/Prague')::date";
+
+  it("cutoffs: an active job with one of the five cut-offs due today or tomorrow, or a filing overdue on a job that has not sailed", () => {
+    const { sql, params } = sent(tilePredicate("cutoffs"));
+    const NOT_DEPARTED = `("shipment"."estimated_departure" IS NULL OR "shipment"."estimated_departure" >= ${TODAY})`;
+    // A filing counts while its date is ahead and, once it has passed, until the ETD has too.
+    const filing = (date: string) => `((${date}) >= ${TODAY} OR ${NOT_DEPARTED}) AND (${date}) <= ${TODAY} + ?::int`;
+    const fourDaysBeforeEtd = `"shipment"."estimated_departure" - 4`;
+    // The numbers of the parameters aside, the statement in full: the closing date only while it is
+    // ahead, then VGM, SI, AMS and ISF - and none of the list's other deadlines (ETD, ETA, cargo
+    // readiness, warehouse, delivery).
+    expect(sql.replace(/\$\d+/g, "?")).toBe(
+      `${ACTIVE.replace("$1", "?")} AND (` +
+        [
+          `("shipment"."closing_date") BETWEEN ${TODAY} AND ${TODAY} + ?::int`,
+          filing(`CASE WHEN NOT (lower("shipment"."vgm") LIKE ? OR lower("shipment"."vgm") LIKE ?)\n      THEN "shipment"."vgm_closing" END`),
+          filing(`CASE WHEN NOT lower("shipment"."shipping_instructions") LIKE ? THEN "shipment"."si_closing" END`),
+          filing(`CASE WHEN lower("shipment"."ams") LIKE ? THEN COALESCE("shipment"."ams_deadline", ${fourDaysBeforeEtd}) END`),
+          filing(`CASE WHEN lower("shipment"."isf") LIKE ? THEN COALESCE("shipment"."isf_deadline", ${fourDaysBeforeEtd}) END`),
+        ].join(" OR ") +
+        ")",
+    );
+    // Every window is the cockpit's CUTOFF_URGENT_DAYS: today or tomorrow.
+    expect(params.filter((p) => typeof p === "number")).toEqual([1, 1, 1, 1, 1]);
+    expect(params.filter((p) => typeof p === "string")).toEqual(["Cancelled Shipment", "%confirmed%", "%not applicable%", "%confirmed%", "%not applicable%", "%confirmed%", "%confirmed%", "%pending%", "%pending%", "%pending%", "%pending%"]);
+  });
+
+  it("booking-pending: an active job whose Booking Confirmation says pending, in any case", () => {
+    expect(sent(tilePredicate("booking-pending"))).toEqual({ sql: `${ACTIVE} AND lower("shipment"."booking_confirmation") LIKE $2`, params: ["Cancelled Shipment", "%pending%"] });
+  });
+
+  it("claims: an active job with an open claim", () => {
+    expect(sent(tilePredicate("claims"))).toEqual({ sql: `${ACTIVE} AND "shipment"."claim" = 'Yes'`, params: ["Cancelled Shipment"] });
+  });
+
+  it("keeps the tiles the list had, and asks nothing for all or a word that is no tile", () => {
+    expect(sent(tilePredicate("active"))).toEqual({ sql: ACTIVE, params: ["Cancelled Shipment"] });
+    for (const tile of ["attention", "etamoved", "import", "export", "week", "nextweek"]) expect(tilePredicate(tile)).toBeDefined();
+    for (const tile of [undefined, "", "all", "free-time", "constructor"]) expect(tilePredicate(tile)).toBeUndefined();
+  });
+});
+
+describe("what Shipments → Managers reads", () => {
+  it("asks for no shipment when it is handed none: whose ETD or ETA moved", async () => {
+    expect(await shipmentRepository.dateMovedLately(COMPANY, [])).toEqual([]);
+    expect(fake.state.steps).toEqual([]);
   });
 });
 

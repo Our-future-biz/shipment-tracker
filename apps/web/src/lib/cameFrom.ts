@@ -18,19 +18,28 @@ export interface CameFrom {
 
 const segmentsOf = (href: string) => href.replace(/\?.*$/, "").split("/").filter(Boolean);
 
+// Pages that sit where a section's records do without being one: /shipments/managers is the
+// managers' cockpit, not a shipment called "managers".
+const OWN_PAGES: Record<string, ReadonlySet<string>> = { shipments: new Set(["managers"]) };
+const isOwnPage = (section: string, href: string) => {
+  const [first, second] = segmentsOf(href);
+  return first === section && !!second && !!OWN_PAGES[section]?.has(second);
+};
+
 /** The id of the `section` record a page shows (/customers/<id>/), or null for any other page. */
 export function recordIdOf(section: string, href: string): string | null {
   const [first, id] = segmentsOf(href);
-  return first === section && id ? id : null;
+  return first === section && id && !isOwnPage(section, href) ? id : null;
 }
 
 // What to remember after moving from `previous` to `current`. Only opening a record's page changes
 // it. Coming from the section's own list or another of its records there is nothing to offer beyond
 // the link to the list; moving within the same record's page keeps what was noted when it opened.
+// A page of its own under the section (Shipments' Managers) is a place to go back to like any other.
 export function nextCameFrom(section: string, stored: CameFrom | null, previous: string | null, current: string): CameFrom | null {
   const id = recordIdOf(section, current);
   if (!id || previous === null) return stored;
-  if (segmentsOf(previous)[0] === section) return recordIdOf(section, previous) === id ? stored : null;
+  if (segmentsOf(previous)[0] === section && !isOwnPage(section, previous)) return recordIdOf(section, previous) === id ? stored : null;
   return { id, href: previous };
 }
 

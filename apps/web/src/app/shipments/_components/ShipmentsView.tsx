@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Button } from "antd";
+import { XIcon } from "@phosphor-icons/react";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
@@ -12,10 +13,15 @@ import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { MasterJobDialog, linkEach, linkedCount } from "./MasterJobDialog";
 import { apiErrorMessage } from "@/lib/api";
 import { searchColumnsFor, searchesAllFields, shownColumnsParams } from "../_lib/allFieldsSearch";
+import { addressFiltersOf, withoutAddressFilter, type AddressFilterParam } from "../_lib/addressFilters";
+import { HINT } from "@/styles/ui";
 
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
 // instead of only the rows already in the browser.
+// A link may narrow the list further by its address alone (?handledBy=, ?mode=, ?customs=,
+// ?invoicing=, and the tiles of Shipments → Managers): those go to the same server-side query and
+// each shows as a chip over the table, so the list never is short without saying why (_lib/addressFilters).
 export const ShipmentsView = () => {
   const router = useRouter();
   const pathname = usePathname();
@@ -32,8 +38,14 @@ export const ShipmentsView = () => {
   // results led here: then in every field, as the main search does, to list what it counted.
   const [shownColumns, setShownColumns] = useState<string[]>();
   const allFields = searchesAllFields(searchParams);
+  const { request: addressRequest, chips } = addressFiltersOf(searchParams);
   const { shipments, total, isLoading, isError, createShipment, linkMasterJob, isCreating } =
-    useShipments({ search, searchColumns: searchColumnsFor(searchParams, shownColumns), statusBucket, tile });
+    useShipments({ search, searchColumns: searchColumnsFor(searchParams, shownColumns), statusBucket, tile, ...addressRequest });
+  // A chip's ×: its parameter leaves the address, everything else in it stays.
+  const clearAddressFilter = (param: AddressFilterParam) => {
+    const qs = withoutAddressFilter(searchParams, param).toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);
@@ -97,20 +109,45 @@ export const ShipmentsView = () => {
         isError={isError}
         onVisibleColumnsChange={setShownColumns}
         notice={
-          allFields && (
-            // Says why rows show that match nowhere in their columns, and how to go back to the list's own search.
-            <Alert
-              type="info"
-              showIcon
-              className="!mb-3"
-              message={`Searching every field for “${searchParams.get("q")?.trim()}”, as the main search does, so some shipments match in fields that aren't shown as columns.`}
-              action={
-                <Button size="small" onClick={() => router.replace(`${pathname}?${shownColumnsParams(searchParams).toString()}`, { scroll: false })}>
-                  Search shown columns only
-                </Button>
-              }
-            />
-          )
+          <>
+            {chips.length > 0 && (
+              // The filters the address holds and no control on the page shows: why the list is short, and the way out.
+              <div role="group" aria-label="Filters on this list" className="flex flex-wrap items-center gap-2">
+                <span className={HINT}>Showing only:</span>
+                {chips.map((chip) => (
+                  <span
+                    key={chip.param}
+                    className="inline-flex max-w-full items-center gap-1 h-7 pl-2.5 pr-1 rounded-lg border border-indigo-200 bg-indigo-50 text-[12px] font-medium text-indigo-700"
+                  >
+                    <span className="truncate">{chip.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => clearAddressFilter(chip.param)}
+                      aria-label={`Clear filter ${chip.label}`}
+                      title="Clear this filter"
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded cursor-pointer text-indigo-500 hover:bg-indigo-100 hover:text-indigo-800 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    >
+                      <XIcon size={12} weight="bold" aria-hidden />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {allFields && (
+              // Says why rows show that match nowhere in their columns, and how to go back to the list's own search.
+              <Alert
+                type="info"
+                showIcon
+                className="!mb-3"
+                message={`Searching every field for “${searchParams.get("q")?.trim()}”, as the main search does, so some shipments match in fields that aren't shown as columns.`}
+                action={
+                  <Button size="small" onClick={() => router.replace(`${pathname}?${shownColumnsParams(searchParams).toString()}`, { scroll: false })}>
+                    Search shown columns only
+                  </Button>
+                }
+              />
+            )}
+          </>
         }
         onCreateClick={() => setCreateOpen(true)}
         onAddMasterJob={(ids) => {

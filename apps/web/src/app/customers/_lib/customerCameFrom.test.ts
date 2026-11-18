@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cameFromLabel, nextCameFrom as next, openMasterJobOf } from "@/lib/cameFrom";
+import { cameFromLabel, nextCameFrom as next, openMasterJobOf, recordIdOf } from "@/lib/cameFrom";
 
 // The way back from a record's page (lib/cameFrom), as a customer's and a shipment's page use it.
 const nextCameFrom = (stored: Parameters<typeof next>[1], previous: string | null, current: string) => next("customers", stored, previous, current);
@@ -70,6 +70,29 @@ describe("where a shipment's page was opened from", () => {
     const noted = { id: "ship-id", href: fromMasterJob };
     expect(next("shipments", noted, SHIPMENT, `${SHIPMENT}?tab=cargo`)).toBe(noted);
     expect(next("shipments", noted, "/shipments/?q=CZ", SHIPMENT)).toBeNull();
+  });
+
+  it("never takes Shipments → Managers for a shipment", () => {
+    const MANAGERS = "/shipments/managers/?mode=air&handledBy=jan%40firma.cz";
+    expect(recordIdOf("shipments", MANAGERS)).toBeNull();
+    expect(recordIdOf("shipments", "/shipments/managers")).toBeNull();
+    expect(recordIdOf("shipments", SHIPMENT)).toBe("ship-id");
+    // Only Shipments has such a page: a customer may not be told apart by its id.
+    expect(recordIdOf("customers", "/customers/managers/")).toBe("managers");
+    // Arriving on it notes nothing, and leaves a shipment's note alone.
+    const noted = { id: "ship-id", href: fromMasterJob };
+    expect(next("shipments", null, "/dashboard/", MANAGERS)).toBeNull();
+    expect(next("shipments", noted, "/dashboard/", MANAGERS)).toBe(noted);
+    expect(next("shipments", noted, SHIPMENT, MANAGERS)).toBe(noted);
+  });
+
+  it("notes Shipments → Managers, as it was left, when a shipment is opened from it", () => {
+    const MANAGERS = "/shipments/managers/?mode=air";
+    expect(next("shipments", null, MANAGERS, `${SHIPMENT}?tab=customs`)).toEqual({ id: "ship-id", href: MANAGERS });
+    expect(next("shipments", { id: "ship-id", href: fromMasterJob }, MANAGERS, SHIPMENT)).toEqual({ id: "ship-id", href: MANAGERS });
+    for (const role of ["user", "manager", "admin", "superadmin"]) expect(cameFromLabel(MANAGERS, { role })).toBe("Managers");
+    // A customer opened from it is led back to it by its name, not to a shipment.
+    expect(next("customers", null, MANAGERS, "/customers/alza-id/")).toEqual({ id: "alza-id", href: MANAGERS });
   });
 
   it("knows which master job the page had open", () => {

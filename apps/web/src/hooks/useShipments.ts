@@ -81,6 +81,12 @@ export interface ShipmentQueryParams {
   warehouse?: string;
   /** Customs page filter (urgent), matched server-side. */
   customs?: string;
+  /** Handled By: a user's e-mail, or "nobody" for the jobs nobody handles; matched server-side. */
+  handledBy?: string;
+  /** How the job travels (sea | air | rail | road), matched server-side. */
+  mode?: string;
+  /** Invoicing filter (unbilled-arrivals: arrived, not released for billing), matched server-side. */
+  invoicing?: string;
   /** The houses of the master job with this MCZ number, matched server-side. */
   masterJobMcz?: string;
   /** Refresh every this many ms — for lists that depend on the clock. */
@@ -370,6 +376,9 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   const tile = params.tile && params.tile !== "all" ? params.tile : undefined;
   const warehouse = params.warehouse || undefined;
   const customs = params.customs || undefined;
+  const handledBy = params.handledBy?.trim() || undefined;
+  const mode = params.mode || undefined;
+  const invoicing = params.invoicing || undefined;
   const masterJobMcz = params.masterJobMcz?.trim() || undefined;
   // The columns only matter to a search: changing them without one doesn't reload the list.
   const searchColumns = search && params.searchColumns?.length ? params.searchColumns : undefined;
@@ -377,9 +386,21 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   // Search and status are applied server-side (scoped to the company), so they cover the
   // whole dataset rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? "", customs ?? "", masterJobMcz ?? "", searchColumns?.join(",") ?? ""],
+    queryKey: [
+      "shipments",
+      search ?? "",
+      statusBucket ?? "",
+      tile ?? "",
+      warehouse ?? "",
+      customs ?? "",
+      masterJobMcz ?? "",
+      searchColumns?.join(",") ?? "",
+      handledBy ?? "",
+      mode ?? "",
+      invoicing ?? "",
+    ],
     queryFn: () =>
-      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz }),
+      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz, handledBy, mode, invoicing }),
     placeholderData: (prev) => prev,
     refetchInterval: params.refetchInterval,
     enabled: params.enabled ?? true,

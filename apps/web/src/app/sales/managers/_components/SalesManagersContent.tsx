@@ -3,12 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Alert, Button, Modal, Spin, Table, Tabs } from "antd";
-import { WarningFilled } from "@ant-design/icons";
+import { Alert, Button, Spin, Tabs } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PillTabs } from "@/components/SectionCard";
 import { LINK_CLASS } from "@/components/linkClass";
 import { Pill } from "@/components/Pill";
+import { CockpitCard, CockpitDialog, cockpitCards, plural, type CockpitCardKey } from "@/components/cockpit/CockpitCard";
+import { CockpitFigure as Figure, CockpitLine as Line, CockpitNote, type CockpitNoteTone } from "@/components/cockpit/CockpitLine";
+import { CockpitTiles, tileValue } from "@/components/cockpit/CockpitTiles";
 import { formatAmount } from "@/lib/money";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSalesManagersCockpit, type SalesCockpitMode, type SalesCockpitRow, type SalesManagersCockpit as Cockpit } from "@/hooks/useSalesManagersCockpit";
@@ -27,7 +29,6 @@ import { BillingApprovals } from "./BillingApprovals";
 import { useCreditNoteRequests } from "@/hooks/useCreditNoteRequests";
 import { useInvoiceChangeRequests } from "@/hooks/useInvoiceChangeRequests";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
-import { BTN, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 // Sales → Managers (Council Outlay 6, step 2): what the sales team needs from a manager today.
 // Tiles over the company's quotes, then what to act on today (URGENT) and within 48 hours
@@ -36,32 +37,13 @@ import { BTN, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, MODAL_TITLE } from "
 // disagree with each other. For those who manage Sales; anybody else is told it is not theirs.
 
 const PAGE = SALES_PAGES.managers;
-// A card lists only its first few; the count shows the total and the link opens them all.
-const VISIBLE_ROWS = 3;
 
 // The Quotes list filters by one freight mode; Sea is three of them, so it is not passed on.
 const LIST_SERVICE: Partial<Record<SalesCockpitMode, string>> = { air: "Air", rail: "Rail", road: "Road" };
 
-type CardKey = "urgent" | "attention";
-// A card's tone.border has "!": on the card it replaces CARD's own slate frame.
-const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string; empty: string; dialog: string; tone: { border: string; header: string; icon: string; link: string } }> = {
-  urgent: {
-    title: "Urgent",
-    window: "act today",
-    linkLabel: "Click here to show URGENT quotes",
-    empty: "Nothing urgent in Sales.",
-    dialog: "URGENT quotes",
-    tone: { border: "!border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" },
-  },
-  attention: {
-    title: "Attention",
-    window: "within 48 hours",
-    linkLabel: "Click here to show ATTENTION quotes",
-    empty: "Nothing to watch within 48 hours.",
-    dialog: "ATTENTION quotes",
-    tone: { border: "!border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" },
-  },
-};
+// The cards, the tiles and the lines are the cockpits' shared parts (components/cockpit), in their
+// own look; this page brings the quotes' wording, columns and links.
+const CARDS = cockpitCards("quotes", "Nothing urgent in Sales.");
 
 type TileKey = keyof Cockpit["tiles"];
 interface TileDef {
@@ -86,7 +68,6 @@ const TILES: TileDef[] = [
   { key: "lostThisMonth", label: "Lost this month", href: (s) => quotesHref({ status: "lost", month: "1" }, s) },
 ];
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const czk = (amount: number) => formatAmount(Math.round(amount), "CZK");
 const dash = <span className="text-slate-300">—</span>;
 const PRAGUE_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -151,32 +132,22 @@ const DIALOG_COLUMNS: ColumnsType<SalesCockpitRow> = [
 ];
 
 function Tiles({ cockpit, isLoading, isError, service, mode }: { cockpit: Cockpit | null; isLoading: boolean; isError: boolean; service: string | undefined; mode: SalesCockpitMode }) {
-  const valueOf = (key: TileDef["key"]): string => {
-    // A failed request must not read as "nothing to do".
-    if (!cockpit) return isLoading ? "…" : isError ? "–" : "0";
-    const t = cockpit.tiles;
-    return key === "openQuotes" ? `${t.openQuotes}${t.openQuotes ? ` · ${czk(t.openSellingCzk)}` : ""}` : String(t[key]);
-  };
+  const valueOf = (key: TileDef["key"]): string =>
+    tileValue(cockpit, { isLoading, isError }, ({ tiles: t }) => (key === "openQuotes" ? `${t.openQuotes}${t.openQuotes ? ` · ${czk(t.openSellingCzk)}` : ""}` : String(t[key])));
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {TILES.map((t) => {
-        const value = valueOf(t.key);
-        const hot = t.danger && !!cockpit && cockpit.tiles[t.key] > 0;
-        return (
-          <Link
-            key={t.key}
-            href={t.href(service, mode)}
-            aria-label={`${t.label}: ${value}`}
-            className={`${BTN} !text-slate-700 hover:!text-slate-900`}
-          >
-            <span className="font-medium">{t.label}:</span>
-            <span className={`font-bold tabular-nums ${hot ? "text-red-600" : "text-slate-900"}`}>{value}</span>
-          </Link>
-        );
-      })}
-    </div>
+    <CockpitTiles
+      tiles={TILES.map((t) => ({
+        key: t.key,
+        label: t.label,
+        value: valueOf(t.key),
+        hot: t.danger && !!cockpit && cockpit.tiles[t.key] > 0,
+        href: t.href(service, mode),
+      }))}
+    />
   );
 }
+
+const HEALTH_TONE: CockpitNoteTone = { frame: "border-amber-200 bg-amber-50", text: "text-amber-800" };
 
 // What keeps the figures from being whole: quotes whose margin can't be worked out, and a read
 // that stopped at its limit. Quiet when there is nothing to say.
@@ -184,7 +155,7 @@ function HealthLine({ cockpit }: { cockpit: Cockpit }) {
   const { marginUnknown, sentNoCustomer, capped } = cockpit.health;
   if (!marginUnknown && !sentNoCustomer && !capped) return null;
   return (
-    <div role="status" className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+    <CockpitNote tone={HEALTH_TONE}>
       {marginUnknown > 0 && (
         <span>
           <b>Margin unknown:</b> {plural(marginUnknown, "open quote")} (a ČNB rate is missing; their selling counts what converts)
@@ -200,25 +171,11 @@ function HealthLine({ cockpit }: { cockpit: Cockpit }) {
           <b>Part of the quotes:</b> more matched than the cockpit reads; the figures are of the newest.
         </span>
       )}
-    </div>
+    </CockpitNote>
   );
 }
 
 const pct = (v: number | null) => (v === null ? "–" : `${v} %`);
-
-function Line({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className={`flex flex-wrap items-baseline gap-x-5 gap-y-1 ${CARD} px-4 py-2 text-xs text-slate-700`}>
-      <span className={LABEL_TEXT}>{label}</span>
-      {children}
-    </div>
-  );
-}
-const Figure = ({ label, value, hot }: { label: string; value: React.ReactNode; hot?: boolean }) => (
-  <span>
-    {label} <b className={`tabular-nums ${hot ? "text-red-600" : "text-slate-900"}`}>{value}</b>
-  </span>
-);
 
 // The audit line (H2): what managers were asked about margins over the last days and how they
 // answered, company-wide. Self-approvals are allowed and counted here, by name in the quote's history (D9).
@@ -329,7 +286,7 @@ function SalesManagersCockpit() {
   const { waiting: creditNotesWaiting } = useCreditNoteRequests();
   const { waiting: invoiceChangesWaiting } = useInvoiceChangeRequests();
   const billingWaiting = creditNotesWaiting + invoiceChangesWaiting;
-  const [openCard, setOpenCard] = useState<CardKey | null>(null);
+  const [openCard, setOpenCard] = useState<CockpitCardKey | null>(null);
   const service = LIST_SERVICE[mode];
 
   // A row opens its quote (or Follow-up for a task); its reference is a link, so the keyboard reaches it too.
@@ -340,52 +297,22 @@ function SalesManagersCockpit() {
     },
   });
 
-  const renderCard = (key: CardKey) => {
-    const { title, window, linkLabel, empty, tone } = CARDS[key];
-    const list = cockpit?.[key];
-    const total = list?.total ?? 0;
-    const hot = total > 0;
-    return (
-      <section aria-label={`${title} — ${window}`} className={`${CARD} overflow-hidden ${hot ? tone.border : ""}`}>
-        {/* The card's bar (CARD_BAR), in the card's own warning colour while it holds something. */}
-        <div className={hot ? `flex items-center gap-2.5 min-h-[42px] px-4 py-2 border-b ${tone.border} ${tone.header}` : CARD_BAR}>
-          <WarningFilled className={hot ? tone.icon : "text-slate-300"} />
-          <span className={CARD_TITLE}>{title}</span>
-          <span
-            aria-label={isError ? "Count unavailable" : plural(total, "item")}
-            className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${hot ? tone.link : "text-slate-500"}`}
-          >
-            {isError ? "–" : isLoading ? "…" : total}
-          </span>
-          <span className="text-[13px] text-slate-500">{window}</span>
-        </div>
-        <Table<SalesCockpitRow>
-          size="small"
-          rowKey={(r) => `${r.kind}:${r.id}`}
-          showHeader={false}
-          loading={isLoading}
-          locale={{
-            emptyText: isError ? <span className="text-[13px] text-red-500">Could not load Sales.</span> : <span className="text-[13px] text-slate-400">{empty}</span>,
-          }}
-          footer={
-            hot
-              ? () => (
-                  <button type="button" onClick={() => setOpenCard(key)} className={`p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer hover:underline ${tone.link}`}>
-                    {linkLabel}
-                  </button>
-                )
-              : undefined
-          }
-          dataSource={(list?.rows ?? []).slice(0, VISIBLE_ROWS)}
-          columns={CARD_COLUMNS}
-          tableLayout="fixed"
-          pagination={false}
-          rowClassName="cursor-pointer"
-          onRow={rowProps}
-        />
-      </section>
-    );
-  };
+  const rowKey = (r: SalesCockpitRow) => `${r.kind}:${r.id}`;
+
+  const renderCard = (key: CockpitCardKey) => (
+    <CockpitCard<SalesCockpitRow>
+      card={CARDS[key]}
+      list={cockpit?.[key]}
+      isLoading={isLoading}
+      isError={isError}
+      loadFailed="Could not load Sales."
+      onShowAll={() => setOpenCard(key)}
+      columns={CARD_COLUMNS}
+      rowKey={rowKey}
+      rowClassName="cursor-pointer"
+      onRow={rowProps}
+    />
+  );
 
   const openList = openCard ? cockpit?.[openCard] : undefined;
 
@@ -482,36 +409,15 @@ function SalesManagersCockpit() {
         </>
       )}
 
-      {/* Wide enough for the columns; the table scrolls sideways rather than spill out on a narrow window. */}
-      <Modal
-        open={!!openCard}
-        onCancel={() => setOpenCard(null)}
-        title={
-          openCard && (
-            <div>
-              <div className={MODAL_TITLE}>{CARDS[openCard].dialog}</div>
-              <div className={`${HINT} font-normal mt-0.5`}>
-                {plural(openList?.total ?? 0, "item")} — {CARDS[openCard].window}
-                {openList && openList.total > openList.rows.length ? ` · the first ${openList.rows.length} are listed` : ""}
-              </div>
-            </div>
-          )
-        }
-        width="min(1200px, calc(100vw - 48px))"
-        footer={null}
-        destroyOnHidden
-      >
-        <Table<SalesCockpitRow>
-          size="small"
-          rowKey={(r) => `${r.kind}:${r.id}`}
-          scroll={{ x: "max-content" }}
-          dataSource={openList?.rows ?? []}
-          columns={DIALOG_COLUMNS}
-          pagination={{ pageSize: 15, hideOnSinglePage: true, size: "small" }}
-          rowClassName="cursor-pointer"
-          onRow={rowProps}
-        />
-      </Modal>
+      <CockpitDialog<SalesCockpitRow>
+        card={openCard ? CARDS[openCard] : null}
+        list={openList}
+        onClose={() => setOpenCard(null)}
+        columns={DIALOG_COLUMNS}
+        rowKey={rowKey}
+        rowClassName="cursor-pointer"
+        onRow={rowProps}
+      />
     </SalesPage>
   );
 }

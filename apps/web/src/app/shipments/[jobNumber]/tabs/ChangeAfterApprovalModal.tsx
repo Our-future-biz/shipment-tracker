@@ -140,7 +140,7 @@ export function ChangeRequestNote({
       <small className="col-span-2 block w-full whitespace-normal text-[11px] leading-4 text-amber-700">
         {request.requestedByName || "Someone"} asked to replace it with {newFile}: waiting for a manager&apos;s approval.
         {canAnswer && (
-          <Link href="/warehouse-concept/managers?tab=approvals" className={`${LINK} ml-1`}>
+          <Link href="/shipments/managers?tab=approvals" className={`${LINK} ml-1`}>
             Answer in Approvals
           </Link>
         )}

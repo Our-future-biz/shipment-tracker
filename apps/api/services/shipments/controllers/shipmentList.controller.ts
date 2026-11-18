@@ -14,8 +14,12 @@ interface ShipmentListRequest {
   status?: string;
   /** Coarse UI status bucket: active | in-transit | customs | delivered */
   statusBucket?: string;
-  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek */
+  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek | cutoffs | booking-pending | claims */
   tile?: string;
+  /** Handled By: a user's e-mail (in any case), or "nobody" for the jobs nobody handles */
+  handledBy?: string;
+  /** How the job travels: sea | air | rail | road */
+  mode?: string;
   /** Warehouse page filter: in | stock | out */
   warehouse?: string;
   /** Customs page filter: urgent */
@@ -45,6 +49,8 @@ export const shipmentList = api(
       status: req.status,
       statusBucket: req.statusBucket,
       tile: req.tile,
+      handledBy: req.handledBy?.trim() || undefined,
+      mode: req.mode,
       warehouse: req.warehouse,
       customs: req.customs,
       invoicing: req.invoicing,

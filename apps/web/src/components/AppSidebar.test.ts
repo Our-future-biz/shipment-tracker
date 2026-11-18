@@ -24,6 +24,71 @@ describe("the menu", () => {
     }
   });
 
+  it("puts Managers under Shipments for managers and admins, and leaves Shipments a plain item for everyone else", () => {
+    for (const role of ["manager", "admin", "superadmin"]) {
+      const shipments = visibleNavItems({ role }).find((i) => i.label === "Shipments")!;
+      // Its own page is still the list.
+      expect(shipments.path).toBe("/shipments");
+      expect(shipments.children?.map((c) => [c.label, c.path])).toEqual([["Managers", "/shipments/managers"]]);
+    }
+    // No pages under it: no arrow, nothing to unfold, no flyout - the item it always was.
+    for (const user of [{ role: "user" }, null]) {
+      const shipments = visibleNavItems(user).find((i) => i.label === "Shipments")!;
+      expect(shipments.path).toBe("/shipments");
+      expect(shipments.children).toBeUndefined();
+      expect(navGroupHolding(visibleNavItems(user), "/shipments")).toBeNull();
+      expect(navGroupHolding(visibleNavItems(user), "/shipments/managers")).toBeNull();
+    }
+    // Its gate is its own: whether somebody may manage Sales plays no part in it.
+    const managers = navSection("/shipments")!.children![0]!;
+    expect(managers.roles).toEqual(["superadmin", "admin", "manager"]);
+    expect(managers.managersOnly).toBeUndefined();
+  });
+
+  it("lights Shipments on its list and on a job's page, and Managers only on the managers' page", () => {
+    for (const role of ["manager", "admin", "superadmin"]) {
+      const items = visibleNavItems({ role });
+      const shipments = items.find((i) => i.label === "Shipments")!;
+      for (const page of ["/shipments", "/shipments/CZFCL00000025", "/shipments/0b7c2e1a-1111-4111-8111-111111111111", "/shipments/managers-of-nothing"]) {
+        expect(navGroupHolding(items, page), page).toBe("/shipments");
+        expect(navItemOwns(shipments, page), page).toBe(true);
+        // No page under Shipments is lit: Shipments itself is the one marked (its own page).
+        expect(navActiveChild(shipments.children!, page), page).toBeUndefined();
+        // The rows as AppSidebar draws them once the page is reached: Shipments solid, Managers not.
+        const holding = navGroupHolding(items, page);
+        const looks = navLooks(nextNavGroups({ open: null, selected: null }, { type: "arrive", holding }), holding);
+        const current = navActiveChild(shipments.children!, page);
+        const holdsPage = navItemOwns(shipments, page);
+        expect(looks.group(shipments.path, holdsPage, holdsPage && !current), page).toBe("active");
+        for (const c of shipments.children!) expect(looks.child(c === current), page).toBe("idle");
+      }
+      expect(navGroupHolding(items, "/shipments/managers")).toBe("/shipments");
+      expect(navActiveChild(shipments.children!, "/shipments/managers")?.label).toBe("Managers");
+      // Unfolded over it, Shipments is tinted and Managers marked; folded, Shipments is marked.
+      const onManagers = navLooks({ open: "/shipments", selected: null }, "/shipments");
+      expect(onManagers.child(true)).toBe("active");
+      expect(onManagers.group("/shipments", true, false)).toBe("lit");
+      expect(navLooks({ open: null, selected: "/shipments" }, "/shipments").group("/shipments", true, false)).toBe("active");
+    }
+    // A plain user's Shipments is lit by anything under it, as before.
+    const plain = visibleNavItems({ role: "user" }).find((i) => i.label === "Shipments")!;
+    expect(navItemOwns(plain, "/shipments/CZFCL00000025")).toBe(true);
+  });
+
+  it("opens the Shipments list on a click on Shipments, from a job's page and from Managers too", () => {
+    const items = visibleNavItems({ role: "manager" });
+    const arrivedOn = (page: string) => nextNavGroups({ open: null, selected: null }, { type: "arrive", holding: navGroupHolding(items, page) });
+    // From outside, from a job's page and from Managers: the list.
+    expect(sectionClickOpensPage(arrivedOn("/dashboard"), navGroupHolding(items, "/dashboard"), false)).toBe(true);
+    expect(sectionClickOpensPage(arrivedOn("/shipments/CZFCL00000025"), "/shipments", false)).toBe(true);
+    expect(sectionClickOpensPage(arrivedOn("/shipments/managers"), "/shipments", false)).toBe(true);
+    // On the list itself the click only folds or unfolds Managers.
+    expect(sectionClickOpensPage(arrivedOn("/shipments"), "/shipments", true)).toBe(false);
+    // The folded menu's flyout stays open when its own section's page arrives under the pointer.
+    expect(flyoutAfterArrival("/shipments", navGroupHolding(items, "/shipments/managers"))).toBe("/shipments");
+    expect(flyoutAfterArrival("/shipments", navGroupHolding(visibleNavItems({ role: "user" }), "/shipments/managers"))).toBeNull();
+  });
+
   it("shows the normal Warehouse to everyone and the concepts to superadmins only", () => {
     for (const role of ["user", "manager", "admin"]) {
       expect(labels(role)).toContain("Warehouse");
@@ -193,7 +258,7 @@ describe("the menu", () => {
       }
       return solid;
     };
-    const pages = ["/dashboard", "/customers", "/sales", "/sales/pipeline", "/sales/managers", "/sales/quote/Q-1", "/tariffs", "/invoicing", "/calendar", "/calendar/public-holidays", "/warehouse-concept/gate-log", "/warehouse-concept/managers"];
+    const pages = ["/dashboard", "/shipments", "/shipments/CZFCL00000025", "/shipments/managers", "/customers", "/sales", "/sales/pipeline", "/sales/managers", "/sales/quote/Q-1", "/tariffs", "/invoicing", "/calendar", "/calendar/public-holidays", "/warehouse-concept/gate-log", "/warehouse-concept/managers"];
     const clicks: NavGroupEvent[] = [
       { type: "open", group: "/sales" },
       { type: "open", group: "/tariffs" },
@@ -236,6 +301,17 @@ describe("the menu", () => {
     expect(navLabelOf("/warehouse-concept/managers/", { role: "superadmin" })).toBe("Managers");
     expect(navLabelOf("/warehouse-concept/", { role: "superadmin" })).toBe("Warehouse Concept");
     expect(navLabelOf("/shipments/", { role: "user" })).toBe("Shipments");
+    for (const role of ["user", "manager", "admin", "superadmin"]) {
+      expect(navLabelOf("/shipments/", { role })).toBe("Shipments");
+      expect(navLabelOf("/shipments", { role })).toBe("Shipments");
+      // A job's page is Shipments, never Managers.
+      expect(navLabelOf("/shipments/CZFCL00000025/", { role })).toBe("Shipments");
+      expect(navLabelOf("/shipments/0b7c2e1a-1111-4111-8111-111111111111", { role })).toBe("Shipments");
+      // The managers' page keeps its name for a user whose menu does not list it, as Sales' does.
+      expect(navLabelOf("/shipments/managers/", { role })).toBe("Managers");
+      expect(navLabelOf("/shipments/managers", { role })).toBe("Managers");
+      expect(navLabelOf("/sales/managers/", { role })).toBe("Managers");
+    }
     // A page the user's menu does not list still has its name.
     expect(navLabelOf("/trucking/", { role: "user" })).toBe("Trucking Concept");
     expect(navLabelOf("/nowhere/", null)).toBeNull();

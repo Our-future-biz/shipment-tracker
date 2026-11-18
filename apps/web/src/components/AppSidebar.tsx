@@ -30,11 +30,15 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV, type SalesNavItem } from "@/app/sales/_lib/tabs";
 import { TARIFF_NAV } from "@/app/tariffs/_lib/tariffPages";
 import { ContainerHookIcon } from "@/components/icons/ContainerHookIcon";
-import { MonitorChartIcon } from "@/components/icons/MonitorChartIcon";
 import { ICON_BTN_GHOST } from "@/styles/ui";
 
-// An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
-type NavChild = SalesNavItem;
+// An item of a submenu. Its shape is defined with the Sales menu, the one that uses most of it.
+// `roles` is the menu's own gate, as on a top-level item: the page is listed only for these roles
+// (Shipments' Managers). Sales' managers' pages are gated by the server's answer instead (`managersOnly`).
+type NavChild = SalesNavItem & { roles?: string[] };
+
+// Who a managers' cockpit is for (the server asks for the same three roles).
+const MANAGER_ROLES = ["superadmin", "admin", "manager"];
 
 export interface NavItem {
   path: string;
@@ -52,7 +56,16 @@ export interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { path: "/dashboard", label: "Dashboard", icon: SquaresFourIcon },
-  { path: "/shipments", label: "Shipments", icon: ContainerHookIcon },
+  // Shipments opens its list, as it always did. Managers and admins get the operations cockpit under
+  // it (Council Outlay 11, D1, D2); for everybody else it stays a plain item (visibleNavItems).
+  {
+    path: "/shipments",
+    label: "Shipments",
+    icon: ContainerHookIcon,
+    children: [
+      { path: "/shipments/managers", label: "Managers", roles: MANAGER_ROLES, description: "What the operations team needs from a manager today." },
+    ],
+  },
   { path: "/master-jobs", label: "Master Jobs", icon: StackIcon },
   { path: "/customers", label: "Customer Database", icon: AddressBookIcon },
   {
@@ -106,7 +119,6 @@ const NAV_ITEMS: NavItem[] = [
   // The same page for admins and managers, who don't see the rest of the concept module.
   { path: "/warehouse-concept/managers", label: "Warehouse Managers", icon: ClipboardTextIcon, roles: ["admin", "manager"] },
   { path: "/trucking", label: "Trucking Concept", icon: TruckIcon, roles: ["superadmin"] },
-  { path: "/cockpit", label: "Cockpit", icon: MonitorChartIcon },
   {
     path: "/calendar",
     label: "Calendar",
@@ -124,8 +136,19 @@ export function navItemVisible(item: Pick<NavItem, "roles">, user: { role: strin
   return !item.roles || (user != null && item.roles.includes(user.role));
 }
 
-/** The menu items `user` sees. */
-export const visibleNavItems = (user: { role: string } | null) => NAV_ITEMS.filter((item) => navItemVisible(item, user));
+// The items `user`'s role lets them see, each still with every page under it.
+const itemsFor = (user: { role: string } | null) => NAV_ITEMS.filter((item) => navItemVisible(item, user));
+
+// A section as `user` sees it: without the pages their role does not list. Left with none, it is a
+// plain item - no arrow, nothing to unfold, no flyout (Shipments for anyone but a manager).
+function withVisiblePages(item: NavItem, user: { role: string } | null): NavItem {
+  if (!item.children?.some((c) => c.roles)) return item;
+  const children = item.children.filter((c) => navItemVisible(c, user));
+  return { ...item, children: children.length > 0 ? children : undefined };
+}
+
+/** The menu items `user` sees, each with the pages under it that `user` sees. */
+export const visibleNavItems = (user: { role: string } | null) => itemsFor(user).map((item) => withVisiblePages(item, user));
 
 /** The section at `path` (a menu item with pages under it), for its own page. */
 export const navSection = (path: string): NavItem | undefined => NAV_ITEMS.find((i) => i.children && i.path === path);
@@ -275,12 +298,13 @@ export function navLooks({ open, selected }: NavGroups, holding: string | null) 
 /**
  * What `user`'s menu calls the page at `pathname`: its submenu item when it has one, otherwise its
  * item. The item `user` sees comes first (an admin's Warehouse Managers, a superadmin's Managers
- * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's.
+ * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's
+ * (Shipments' Managers is "Managers" for a plain user too, as Sales' is).
  */
 export function navLabelOf(pathname: string, user: { role: string } | null): string | null {
   const path = pathname.replace(/\/$/, "");
   const owns = (i: NavItem) => navItemOwns(i, path);
-  const item = visibleNavItems(user).find(owns) ?? NAV_ITEMS.find(owns);
+  const item = itemsFor(user).find(owns) ?? NAV_ITEMS.find(owns);
   return item?.children?.find((c) => isUnder(path, c.path))?.label ?? item?.label ?? null;
 }
 
@@ -292,8 +316,8 @@ export function AppSidebar() {
   const { user } = useAuth();
   const { canManageSales } = useSalesPermissions();
 
-  // Hide role-restricted items the current user can't access.
-  const navItems = NAV_ITEMS.filter((item) => navItemVisible(item, user));
+  // Hide role-restricted items, and pages under an item, the current user can't access.
+  const navItems = visibleNavItems(user);
   const holding = navGroupHolding(navItems, pathname);
 
   // The unfolded group and the one you last clicked (nextNavGroups). Arriving on a page resets them

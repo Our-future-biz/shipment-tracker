@@ -7,7 +7,7 @@ import type { interfaces } from "@/lib/api/client";
 export type CustomsOfficeRequestItem = interfaces.CustomsOfficeRequestItem;
 
 // Changing a shipment's chosen Customs Office: a regular user asks on the shipment, a manager
-// answers in the Warehouse Managers page's Approvals tab, and the answer reaches the one who asked
+// answers in the Approvals tab of Shipments → Managers, and the answer reaches the one who asked
 // under the bell.
 
 const keys = {

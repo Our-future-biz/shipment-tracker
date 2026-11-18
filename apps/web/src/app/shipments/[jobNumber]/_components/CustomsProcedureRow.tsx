@@ -134,7 +134,7 @@ function RequestStatus({ request, office, canAnswer }: { request: CustomsOfficeR
       <div className={`basis-full ${HINT} !text-amber-700`}>
         {request.requestedByName || "Someone"} asked to change it to {request.toOffice}: waiting for a manager&apos;s approval.
         {canAnswer && (
-          <Link href="/warehouse-concept/managers?tab=approvals" className={`${LINK} ml-1`}>
+          <Link href="/shipments/managers?tab=approvals" className={`${LINK} ml-1`}>
             Answer in Approvals
           </Link>
         )}

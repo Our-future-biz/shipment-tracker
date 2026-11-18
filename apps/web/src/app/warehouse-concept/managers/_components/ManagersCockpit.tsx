@@ -3,10 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Modal, Table, Tabs, Tooltip } from "antd";
-import { WarningFilled } from "@ant-design/icons";
+import { Tabs } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PageHeader } from "@/components/PageHeader";
+import { CockpitCard, CockpitDialog, cockpitCards, plural, type CockpitCardKey, type CockpitCardLook, type CockpitTone } from "@/components/cockpit/CockpitCard";
+import { CockpitNote, NOTE_TONES } from "@/components/cockpit/CockpitLine";
+import { CockpitTiles, tileValue, type CockpitTileLook } from "@/components/cockpit/CockpitTiles";
 import { useManagersCockpit, type CockpitRow, type ManagersCockpit as Cockpit } from "@/hooks/useManagersCockpit";
 import { Badge, VISIT_TONE, nf } from "../../gate-log/_lib/gate";
 import { TERMS } from "../../_lib/glossary";
@@ -14,12 +16,12 @@ import { CHIPS, type ChipId } from "../../_lib/worklist";
 import { HealthLine } from "../../_components/tabs/ReportsTab";
 import { useWarehouseInquiries } from "@/hooks/useWarehouseInquiries";
 import { QuoteInquiries } from "./QuoteInquiries";
-import { CustomsOfficeApprovals } from "./CustomsOfficeApprovals";
+import { shipmentsManagersHref } from "@/app/shipments/managers/_lib/cockpitAddress";
 import { useCustomsOfficeApprovals } from "@/hooks/useCustomsOfficeRequests";
 import { useDocumentChangeApprovals } from "@/hooks/useDocumentChangeRequests";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { isWarehouseManagerOnly } from "@/lib/concepts";
-import { CARD_TITLE, EMPTY, HINT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
+import { CARD, EMPTY, HEADING, HINT, LINK, REF } from "@/styles/ui";
 
 // The warehouse managers' cockpit (Council Outlay 5, steps 1 to 3): the Positions quick filters as
 // tiles, then what to act on today (URGENT) and within 48 hours (ATTENTION), the link with
@@ -28,28 +30,19 @@ import { CARD_TITLE, EMPTY, HINT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 // out over every record of the company in Prague time, so the counts never disagree with each other.
 // Same anatomy as the Shipments page's Needs Attention cards.
 
-// A card lists only its first few; the count shows the total and the link opens them all.
-const VISIBLE_ROWS = 3;
-
-type CardKey = "urgent" | "attention";
-
-const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string; empty: string; dialog: string; tone: { border: string; header: string; icon: string; count: string } }> = {
-  urgent: {
-    title: "Urgent",
-    window: "act today",
-    linkLabel: "Click here to show URGENT positions",
-    empty: "Nothing urgent in the warehouse.",
-    dialog: "URGENT positions",
-    tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", count: "text-red-600" },
-  },
-  attention: {
-    title: "Attention",
-    window: "within 48 hours",
-    linkLabel: "Click here to show ATTENTION positions",
-    empty: "Nothing to watch within 48 hours.",
-    dialog: "ATTENTION positions",
-    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", count: "text-amber-600" },
-  },
+// The cards, the tiles and the lines are the cockpits' shared parts (components/cockpit). This page
+// was drawn before them and keeps its own look: a plain frame and bar, a grey tile, an indigo link.
+const TONES: Record<CockpitCardKey, CockpitTone> = {
+  urgent: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", text: "text-red-600" },
+  attention: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", text: "text-amber-600" },
+};
+const CARDS = cockpitCards("positions", "Nothing urgent in the warehouse.", TONES);
+const CARD_LOOK: CockpitCardLook = {
+  frame: (tone) => `bg-white border rounded-xl shadow-sm overflow-hidden ${tone ? tone.border : "border-slate-200"}`,
+  bar: (tone) => `flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${tone ? tone.header : "bg-slate-50"}`,
+  window: HINT,
+  error: "text-[13px] text-red-600",
+  showAll: () => `${LINK} p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer`,
 };
 
 // The tiles open Positions with the quick filter of the same name and count by its rule.
@@ -66,7 +59,6 @@ const chipOf = (id: ChipId) => CHIPS.find((c) => c.id === id)!;
 const tileLabel = (key: TileKey, chip: ChipId) => (key === "needsAttention" ? TERMS.needsAttention : chipOf(chip).label);
 
 const rowHref = (r: CockpitRow) => (r.kind === "container" ? `/warehouse-concept/containers/${r.id}` : `/warehouse-concept/gate-log/${r.id}`);
-const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 const dash = <span className={EMPTY}>—</span>;
 
 const PRAGUE_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -136,45 +128,30 @@ const dialogColumns = (linked: boolean): ColumnsType<CockpitRow> => [
   signalsColumn,
 ];
 
-// The tile's look; `linked` adds the hover of a link to Positions.
+// The tile's look; a link to Positions adds the hover.
 const TILE = "flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] !text-slate-600";
+const TILE_LOOK: CockpitTileLook = { link: `${TILE} hover:border-slate-300 hover:bg-slate-50 transition-colors`, plain: TILE };
 
 function Tiles({ cockpit, isLoading, isError, linked }: { cockpit: Cockpit | null; isLoading: boolean; isError: boolean; linked: boolean }) {
-  const valueOf = (key: TileKey): string => {
-    // A failed request must not read as "nothing in the warehouse".
-    if (!cockpit) return isLoading ? "…" : isError ? "–" : "0";
-    const t = cockpit.tiles;
-    return key === "chargeable" ? `${t.chargeable}${t.chargeable ? ` · est. CZK ${nf(t.chargeableCzk)}` : ""}` : String(t[key]);
-  };
+  const valueOf = (key: TileKey): string =>
+    tileValue(cockpit, { isLoading, isError }, ({ tiles: t }) => (key === "chargeable" ? `${t.chargeable}${t.chargeable ? ` · est. CZK ${nf(t.chargeableCzk)}` : ""}` : String(t[key])));
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {TILES.map((t) => {
+    <CockpitTiles
+      look={TILE_LOOK}
+      tiles={TILES.map((t) => {
         const label = tileLabel(t.key, t.chip);
         const value = valueOf(t.key);
-        const hot = t.danger && !!cockpit && cockpit.tiles[t.key] > 0;
-        const body = (
-          <>
-            <span className="font-medium">{label}:</span>
-            <span className={`font-bold tabular-nums ${hot ? "text-red-600" : "text-slate-900"}`}>{value}</span>
-          </>
-        );
-        return (
-          <Tooltip key={t.key} title={chipOf(t.chip).hint} mouseEnterDelay={0.4}>
-            {linked ? (
-              <Link
-                href={`/warehouse-concept?view=${t.chip}`}
-                aria-label={`${label}: ${value} — open in Positions`}
-                className={`${TILE} hover:border-slate-300 hover:bg-slate-50 transition-colors`}
-              >
-                {body}
-              </Link>
-            ) : (
-              <span className={TILE}>{body}</span>
-            )}
-          </Tooltip>
-        );
+        return {
+          key: t.key,
+          label,
+          value,
+          hot: t.danger && !!cockpit && cockpit.tiles[t.key] > 0,
+          href: linked ? `/warehouse-concept?view=${t.chip}` : undefined,
+          ariaLabel: `${label}: ${value} — open in Positions`,
+          hint: chipOf(t.chip).hint,
+        };
       })}
-    </div>
+    />
   );
 }
 
@@ -184,9 +161,9 @@ function DeliveryLine({ cockpit, linked }: { cockpit: Cockpit; linked: boolean }
   const d = cockpit.delivery;
   const failed = d.truckingFailed + d.supplierEmailsFailed > 0;
   const waiting = d.shipmentUpdatesWaiting + d.truckingWaiting > 0;
-  const tone = failed ? "border-red-200 bg-red-50 text-red-700" : waiting ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-700";
+  const tone = failed ? NOTE_TONES.red : waiting ? NOTE_TONES.amber : NOTE_TONES.plain;
   return (
-    <div role="status" className={`flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border px-4 py-2 text-xs ${tone}`}>
+    <CockpitNote tone={tone}>
       <span>
         <b>Waiting over {d.staleMinutes} min:</b> {plural(d.shipmentUpdatesWaiting, "shipment update")} · {plural(d.truckingWaiting, "event")} for Trucking
       </span>
@@ -201,7 +178,7 @@ function DeliveryLine({ cockpit, linked }: { cockpit: Cockpit; linked: boolean }
           </Link>
         )}
       </span>
-    </div>
+    </CockpitNote>
   );
 }
 
@@ -216,7 +193,7 @@ function AuditLine({ cockpit, linked }: { cockpit: Cockpit; linked: boolean }) {
   ];
   const any = a.overrides + a.voids + a.refusals + a.archivedWithStamps + a.shipmentsDeleted > 0;
   return (
-    <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700">
+    <CockpitNote tight>
       <b>Last {a.days} days:</b>
       <span>{parts.join(" · ")}</span>
       {linked && any && (
@@ -224,12 +201,45 @@ function AuditLine({ cockpit, linked }: { cockpit: Cockpit; linked: boolean }) {
           Open the Gate Log
         </Link>
       )}
-    </div>
+    </CockpitNote>
+  );
+}
+
+// The requests to change a Customs Office or an approved document are answered on Shipments →
+// Managers → Approvals (Council Outlay 11, D14). This page keeps how many wait and the way there.
+// `partial`: one of the two lists could not be read, so the count is not the whole of it;
+// `loading`: one of them is not there yet, so there is no count to show.
+function ApprovalsMoved({ waiting, partial, loading }: { waiting: number; partial: boolean; loading: boolean }) {
+  return (
+    <section className={`${CARD} flex flex-col gap-1.5 px-4 py-4`}>
+      <h2 className={HEADING}>Document changes and Customs Office changes are decided on Shipments → Managers</h2>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-slate-700">
+        {loading ? (
+          // Not known is not zero.
+          <span aria-label="Loading the approvals" className="text-slate-500">
+            …
+          </span>
+        ) : partial ? (
+          <span className="text-red-600">
+            {waiting > 0 ? `At least ${waiting} waiting for approval: part of the approvals could not be read.` : "How many are waiting is not known: the approvals could not be read."}
+          </span>
+        ) : waiting > 0 ? (
+          <span>
+            <b className="tabular-nums text-slate-900">{waiting}</b> waiting for approval
+          </span>
+        ) : (
+          <span className="text-slate-500">Nothing waiting for approval.</span>
+        )}
+        <Link href={shipmentsManagersHref({ tab: "approvals" })} className={`${LINK} font-semibold`}>
+          Open Shipments → Managers → Approvals
+        </Link>
+      </div>
+    </section>
   );
 }
 
 // The page's tabs: the cockpit, Sales' questions waiting for the warehouse (?tab=inquiries), and
-// what waits for a manager's approval (?tab=approvals).
+// the approvals that moved to Shipments → Managers (?tab=approvals: the count and the way there).
 type PageTab = "cockpit" | "inquiries" | "approvals";
 const PAGE_TABS: readonly PageTab[] = ["cockpit", "inquiries", "approvals"];
 
@@ -238,8 +248,9 @@ export function ManagersCockpit() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuth();
-  // An admin or a manager comes here for the approvals and sees nothing else of Warehouse Concept:
-  // the page opens on Approvals for them, and what leads into the concept module is plain text.
+  // An admin or a manager came here for the approvals and sees nothing else of Warehouse Concept:
+  // the page still opens on Approvals for them - it leads on to Shipments → Managers, where the
+  // approvals are answered now - and what leads into the concept module is plain text.
   const managerOnly = isWarehouseManagerOnly(user);
   const linked = !managerOnly;
   const defaultTab: PageTab = managerOnly ? "approvals" : "cockpit";
@@ -247,11 +258,11 @@ export function ManagersCockpit() {
   const tab: PageTab = PAGE_TABS.find((t) => t === asked) ?? defaultTab;
   const setTab = (next: PageTab) => router.replace(next === defaultTab ? pathname : `${pathname}?tab=${next}`);
   const { waiting: inquiriesWaiting } = useWarehouseInquiries();
-  const { waiting: officesWaiting } = useCustomsOfficeApprovals();
-  const { waiting: documentsWaiting } = useDocumentChangeApprovals();
+  const { waiting: officesWaiting, isError: officesFailed, isLoading: officesLoading } = useCustomsOfficeApprovals();
+  const { waiting: documentsWaiting, isError: documentsFailed, isLoading: documentsLoading } = useDocumentChangeApprovals();
   const approvalsWaiting = officesWaiting + documentsWaiting;
   const { cockpit, isLoading, isError } = useManagersCockpit();
-  const [openCard, setOpenCard] = useState<CardKey | null>(null);
+  const [openCard, setOpenCard] = useState<CockpitCardKey | null>(null);
 
   // A row opens its record; its Warehouse ref is a link, so the keyboard reaches it too.
   const rowProps = (r: CockpitRow) =>
@@ -264,56 +275,23 @@ export function ManagersCockpit() {
         }
       : {};
 
-  const renderCard = (key: CardKey) => {
-    const { title, window, linkLabel, empty, tone } = CARDS[key];
-    const list = cockpit?.[key];
-    const total = list?.total ?? 0;
-    const hot = total > 0;
-    return (
-      <section aria-label={`${title} — ${window}`} className={`bg-white border rounded-xl shadow-sm overflow-hidden ${hot ? tone.border : "border-slate-200"}`}>
-        <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${hot ? tone.header : "bg-slate-50"}`}>
-          <WarningFilled className={hot ? tone.icon : "text-slate-300"} />
-          <span className={CARD_TITLE}>{title}</span>
-          <span
-            aria-label={isError ? "Count unavailable" : plural(total, "item")}
-            className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${hot ? tone.count : "text-slate-500"}`}
-          >
-            {isError ? "–" : isLoading ? "…" : total}
-          </span>
-          <span className={HINT}>{window}</span>
-        </div>
-        {/* No header row: the card's own header already says what the list is. */}
-        <Table<CockpitRow>
-          size="small"
-          rowKey={(r) => `${r.kind}:${r.id}`}
-          showHeader={false}
-          loading={isLoading}
-          locale={{
-            emptyText: isError ? <span className="text-[13px] text-red-600">Could not load the warehouse.</span> : <span className="text-[13px] text-slate-400">{empty}</span>,
-          }}
-          footer={
-            hot
-              ? () => (
-                  <button
-                    type="button"
-                    onClick={() => setOpenCard(key)}
-                    className={`${LINK} p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer`}
-                  >
-                    {linkLabel}
-                  </button>
-                )
-              : undefined
-          }
-          dataSource={(list?.rows ?? []).slice(0, VISIBLE_ROWS)}
-          columns={cardColumns(linked)}
-          tableLayout="fixed"
-          pagination={false}
-          rowClassName={linked ? "cursor-pointer" : undefined}
-          onRow={rowProps}
-        />
-      </section>
-    );
-  };
+  const rowKey = (r: CockpitRow) => `${r.kind}:${r.id}`;
+
+  const renderCard = (key: CockpitCardKey) => (
+    <CockpitCard<CockpitRow>
+      card={CARDS[key]}
+      look={CARD_LOOK}
+      list={cockpit?.[key]}
+      isLoading={isLoading}
+      isError={isError}
+      loadFailed="Could not load the warehouse."
+      onShowAll={() => setOpenCard(key)}
+      columns={cardColumns(linked)}
+      rowKey={rowKey}
+      rowClassName={linked ? "cursor-pointer" : undefined}
+      onRow={rowProps}
+    />
+  );
 
   const openList = openCard ? cockpit?.[openCard] : undefined;
 
@@ -381,7 +359,7 @@ export function ManagersCockpit() {
         {tab === "inquiries" ? (
           <QuoteInquiries />
         ) : tab === "approvals" ? (
-          <CustomsOfficeApprovals />
+          <ApprovalsMoved waiting={approvalsWaiting} partial={officesFailed || documentsFailed} loading={officesLoading || documentsLoading} />
         ) : (
           <>
         <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} linked={linked} />
@@ -402,36 +380,15 @@ export function ManagersCockpit() {
         )}
       </div>
 
-      {/* Wide enough for the columns; the table scrolls sideways rather than spill out on a narrow window. */}
-      <Modal
-        open={!!openCard}
-        onCancel={() => setOpenCard(null)}
-        title={
-          openCard && (
-            <div>
-              <div className={MODAL_TITLE}>{CARDS[openCard].dialog}</div>
-              <div className={`${HINT} font-normal mt-0.5`}>
-                {plural(openList?.total ?? 0, "item")} — {CARDS[openCard].window}
-                {openList && openList.total > openList.rows.length ? ` · the first ${openList.rows.length} are listed` : ""}
-              </div>
-            </div>
-          )
-        }
-        width="min(1200px, calc(100vw - 48px))"
-        footer={null}
-        destroyOnHidden
-      >
-        <Table<CockpitRow>
-          size="small"
-          rowKey={(r) => `${r.kind}:${r.id}`}
-          scroll={{ x: "max-content" }}
-          dataSource={openList?.rows ?? []}
-          columns={dialogColumns(linked)}
-          pagination={{ pageSize: 15, hideOnSinglePage: true, size: "small" }}
-          rowClassName={linked ? "cursor-pointer" : undefined}
-          onRow={rowProps}
-        />
-      </Modal>
+      <CockpitDialog<CockpitRow>
+        card={openCard ? CARDS[openCard] : null}
+        list={openList}
+        onClose={() => setOpenCard(null)}
+        columns={dialogColumns(linked)}
+        rowKey={rowKey}
+        rowClassName={linked ? "cursor-pointer" : undefined}
+        onRow={rowProps}
+      />
     </div>
   );
 }

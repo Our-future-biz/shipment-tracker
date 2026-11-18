@@ -1,4 +1,5 @@
 import type { MaxLen } from "encore.dev/validate";
+import type { CockpitTag } from "../../../lib/cockpit";
 
 // The detail lines' MaxLens are bounds, not format rules: the columns are text and older rows
 // were never checked, so each sits well above any real value a client echoes back.
@@ -1237,6 +1238,96 @@ export interface TrackingAttentionItem {
   tradeDirection: string;
   status: string;
   flags: TrackingAttentionFlag[];
+}
+
+// ── Shipments → Managers (the operations managers' cockpit, Council Outlay 11) ──────────────
+
+/** Which jobs the cockpit counts: all, or those travelling one way (lib/trackingEvents freightKindOf). */
+export type OpsCockpitMode = "all" | "sea" | "air" | "rail" | "road";
+/** Which jobs the cockpit counts by their Trade Direction. */
+export type OpsCockpitDirection = "all" | "import" | "export" | "domestic";
+
+/** A row of a cockpit card: one active job, with everything that asks for a manager's look. */
+export interface OpsCockpitRow {
+  /** The shipment's id. */
+  id: string;
+  jobNumber: string;
+  customer: string;
+  /** "sea" | "air" | "rail" | "road", "" when the job has no Freight Mode (the Sea filter still counts it, as the app reads such a job as sea). */
+  mode: string;
+  tradeDirection: string;
+  status: string;
+  /** Handled By as stored (an e-mail), "" when nobody. */
+  handledBy: string;
+  holidayCover: string;
+  /** Where the row's first tag is best worked on: the shipment tab the web opens. */
+  area: "tracking" | "customs" | "finance" | "details";
+  /** Every signal of the job, the urgent ones first. */
+  tags: CockpitTag[];
+}
+
+export interface OpsCockpitList {
+  /** Every row of the card; `rows` holds at most COCKPIT_LIST_LIMIT of them. */
+  total: number;
+  rows: OpsCockpitRow[];
+}
+
+/** Counts over the active jobs read, of the chosen mode, direction and Handled By. */
+export interface OpsCockpitTiles {
+  active: number;
+  /** Jobs with a cut-off (Closing, VGM, SI, AMS, ISF) today or tomorrow, or an overdue filing. */
+  cutoffsDue: number;
+  noHandledBy: number;
+  /** Handled By names somebody who is not an active user of the company; null when the users could not be read. */
+  handledByNotUser: number | null;
+  /** Booking Confirmation still Pending. */
+  bookingPending: number;
+  /** An ETD or ETA that moved lately. */
+  etdEtaMoved: number;
+  /** A container's free time ending or over. */
+  freeTime: number;
+  /** Customs priority Urgent, not released, the deadline within 24 hours or passed. */
+  customsUrgent: number;
+  /** Tax date reached, not yet in Billing — the same rule as the list's unbilled-arrivals. */
+  notReleased: number;
+  openClaims: number;
+}
+
+/** One person named in Handled By, over the active jobs of the chosen mode and direction. */
+export interface OpsCockpitPerson {
+  /** The e-mail in Handled By, "" for nobody. */
+  handledBy: string;
+  /** False when the e-mail is not an active user (nobody is none); null when the users could not be read. */
+  isUser: boolean | null;
+  active: number;
+  /** Of those, the jobs on the URGENT card… */
+  urgent: number;
+  /** …and on the ATTENTION card. */
+  attention: number;
+  /** Active jobs where this person is the Holiday Cover. */
+  covers: number;
+}
+
+export interface ShipmentsManagersCockpit {
+  /** ISO time the answer was worked out. */
+  asOf: string;
+  /** The Prague business day (YYYY-MM-DD) every rule was judged on. */
+  today: string;
+  mode: OpsCockpitMode;
+  direction: OpsCockpitDirection;
+  /** The Handled By e-mail the tiles and cards are narrowed to, "nobody", or null for everyone. */
+  handledBy: string | null;
+  tiles: OpsCockpitTiles;
+  urgent: OpsCockpitList;
+  attention: OpsCockpitList;
+  /**
+   * Everyone named in Handled By on an active job of the chosen mode and direction (NOT narrowed
+   * by handledBy: the page picks a person from it), the most active first; "" (nobody) is among
+   * them when it has jobs.
+   */
+  people: OpsCockpitPerson[];
+  /** True when the company has more active jobs than were read (COCKPIT_JOB_LIMIT, the newest): the counts cover only those read. */
+  capped: boolean;
 }
 
 /** A fact a read document states, for a person to look over. */

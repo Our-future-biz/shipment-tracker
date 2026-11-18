@@ -6,8 +6,8 @@ import { shipmentTable } from "./shipment.schema";
 export type CustomsOfficeRequestStatus = "pending" | "approved" | "rejected";
 
 // A regular user asking for a shipment's chosen Customs Office to be changed: a manager approves
-// (the new office then goes on the shipment) or rejects with a reason on the Warehouse Managers
-// page, and the answer reaches whoever asked. A row is never written over - a new request is a new
+// (the new office then goes on the shipment) or rejects with a reason on Shipments → Managers
+// (its Approvals tab), and the answer reaches whoever asked. A row is never written over - a new request is a new
 // row - so every request and answer stays on record. At most one waits per shipment.
 export const customsOfficeRequestTable = pgTable(
   "customs_office_request",

@@ -1,4 +1,5 @@
 import { addDays, businessDay } from "../../../lib/businessDate";
+import { attentionSignal as attention, cockpitCard, rankRow, urgentSignal as urgent, type CockpitSignal as Signal, type RankedRow } from "../../../lib/cockpit";
 import { plainSalesReference } from "../../../lib/salesReference";
 import { workingDaysAfter } from "../../../lib/workingDays";
 import type { SalesManagersFacts, SalesManagersQuoteFact } from "../../quotes/interfaces/interfaces";
@@ -7,7 +8,6 @@ import type {
   SalesCockpitList,
   SalesCockpitMode,
   SalesCockpitRow,
-  SalesCockpitTag,
   SalesCockpitTeam,
   SalesCockpitTiles,
   SalesManagersCockpit,
@@ -133,13 +133,6 @@ function stampText(iso: string): string {
   return `${p.day}.${p.month}. ${p.hour}:${p.minute}`;
 }
 
-interface Signal extends SalesCockpitTag {
-  /** Lower comes first. */
-  rank: number;
-}
-const urgent = (rank: number, text: string): Signal => ({ rank, text, urgent: true });
-const attention = (rank: number, text: string): Signal => ({ rank, text, urgent: false });
-
 /** The signals of one quote on `today`. */
 export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date): Signal[] {
   const out: Signal[] = [];
@@ -230,24 +223,11 @@ export function taskSignals(t: CockpitTask, today: string): Signal[] {
   return out;
 }
 
-interface Ranked {
-  row: SalesCockpitRow;
-  urgent: boolean;
-  rank: number;
-}
-
-function ranked(row: Omit<SalesCockpitRow, "tags">, signals: Signal[]): Ranked | null {
-  if (!signals.length) return null;
-  const isUrgent = signals.some((s) => s.urgent);
-  const ordered = [...signals].sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.rank - b.rank);
-  const lead = ordered.filter((s) => s.urgent === isUrgent);
-  return { row: { ...row, tags: ordered.map(({ text, urgent: u }) => ({ text, urgent: u })) }, urgent: isUrgent, rank: Math.min(...lead.map((s) => s.rank)) };
-}
-
-function card(rows: Ranked[]): SalesCockpitList {
-  const sorted = [...rows].sort((a, b) => a.rank - b.rank || b.row.ref.localeCompare(a.row.ref));
-  return { total: sorted.length, rows: sorted.slice(0, COCKPIT_LIST_LIMIT).map((r) => r.row) };
-}
+// The signals, the ranking and the cards are lib/cockpit's, shared with the other managers' cockpits.
+type Ranked = RankedRow<SalesCockpitRow>;
+const ranked = (row: Omit<SalesCockpitRow, "tags">, signals: Signal[]): Ranked | null => rankRow<SalesCockpitRow>(row, signals);
+// Rows of one rank: by their reference, the highest first (so the newest quote).
+const card = (rows: Ranked[]): SalesCockpitList => cockpitCard(rows, COCKPIT_LIST_LIMIT, (a, b) => b.ref.localeCompare(a.ref));
 
 const quoteRow = (q: SalesManagersQuoteFact): Omit<SalesCockpitRow, "tags"> => ({
   kind: "quote",

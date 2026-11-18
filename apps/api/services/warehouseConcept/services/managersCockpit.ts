@@ -1,7 +1,8 @@
 import type { GateEvent } from "../schemas/gateMovement.schema";
 import type { GateMovementItem } from "../interfaces/gate.interfaces";
 import type { WarehouseContainerItem, ShipmentUpdateHealth, StorageSummary } from "../interfaces/records.interfaces";
-import type { CockpitAudit, CockpitDelivery, CockpitList, CockpitRow, CockpitTag, CockpitTiles, WarehouseManagersCockpit } from "../interfaces/cockpit.interfaces";
+import { attentionSignal, cockpitCard, rankRow, urgentSignal, type CockpitSignal as Signal, type RankedRow } from "../../../lib/cockpit";
+import type { CockpitAudit, CockpitDelivery, CockpitList, CockpitRow, CockpitTiles, WarehouseManagersCockpit } from "../interfaces/cockpit.interfaces";
 import { CUSTOMS_CLEARED } from "./customs";
 import { isDomestic } from "./direction";
 import { DEFAULT_FREE_DAYS, dayNo, pragueDate } from "./storage";
@@ -120,11 +121,10 @@ const customsDue = (c: CustomsClockInfo) => c.state === "warning" || c.state ===
 // ─── Signals ───────────────────────────────────────────────────
 
 // Lower rank = higher in its card. State blockers first, then the clocks by time left, then the rest.
-interface Signal extends CockpitTag {
-  rank: number;
-}
-const urgent = (text: string, rank: number): Signal => ({ text, urgent: true, rank });
-const attention = (text: string, rank: number): Signal => ({ text, urgent: false, rank });
+// The signals, the ranking and the cards are lib/cockpit's, shared with the other managers'
+// cockpits; here a signal is written text first.
+const urgent = (text: string, rank: number): Signal => urgentSignal(rank, text);
+const attention = (text: string, rank: number): Signal => attentionSignal(rank, text);
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 const notOkGates = (m: Item) => m.releaseGates.filter((g) => g.s !== "OK" && !/empty return/i.test(g.g));
@@ -360,19 +360,8 @@ function freeTimeText(s: Item["storage"]): string {
   return `${plural(s.freeDaysLeft, "free day")} left`;
 }
 
-interface Ranked {
-  row: CockpitRow;
-  urgent: boolean;
-  rank: number;
-}
-
-function rank(row: Omit<CockpitRow, "tags">, signals: Signal[]): Ranked | null {
-  if (!signals.length) return null;
-  const isUrgent = signals.some((s) => s.urgent);
-  const ordered = [...signals].sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.rank - b.rank);
-  const lead = ordered.filter((s) => s.urgent === isUrgent);
-  return { row: { ...row, tags: ordered.map(({ text, urgent: u }) => ({ text, urgent: u })) }, urgent: isUrgent, rank: Math.min(...lead.map((s) => s.rank)) };
-}
+type Ranked = RankedRow<CockpitRow>;
+const rank = (row: Omit<CockpitRow, "tags">, signals: Signal[]): Ranked | null => rankRow<CockpitRow>(row, signals);
 
 const positionRow = (m: Item): Omit<CockpitRow, "tags"> => ({
   kind: "position",
@@ -398,10 +387,8 @@ const containerRow = (c: Container): Omit<CockpitRow, "tags"> => ({
   freeTime: "",
 });
 
-const card = (ranked: Ranked[]): CockpitList => {
-  const sorted = [...ranked].sort((a, b) => a.rank - b.rank || a.row.ref.localeCompare(b.row.ref));
-  return { total: sorted.length, rows: sorted.slice(0, COCKPIT_LIST_LIMIT).map((r) => r.row) };
-};
+// Rows of one rank: by their reference.
+const card = (ranked: Ranked[]): CockpitList => cockpitCard(ranked, COCKPIT_LIST_LIMIT, (a, b) => a.ref.localeCompare(b.ref));
 
 // ─── Audit ─────────────────────────────────────────────────────
 

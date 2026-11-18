@@ -48,6 +48,7 @@ import { ShipmentChatDrawer } from "./ChatPanel";
 import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { searchesAllFields, typedSearchParams } from "@/app/shipments/_lib/allFieldsSearch";
+import { addressFiltersKey, arrivesByLink } from "@/app/shipments/_lib/addressFilters";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
@@ -329,6 +330,11 @@ export const ShipmentsTable = ({
     restored.current = true;
     // "Show all" from the main search opens on exactly what it found, as many as it counted.
     if (searchesAllFields(searchParams)) return;
+    // So does a link that names a tile or a filter of its own (a tile of Shipments → Managers): it
+    // opens the rows it counted, not fewer. Nothing is cleared - what is remembered stays so for the
+    // next plain arrival - and this runs on arrival only, never on a tile clicked on the page. The
+    // views (Warehouse) take no such links.
+    if (!viewKey && arrivesByLink(searchParams)) return;
     let stored: { status?: string; filters?: ColFilter[] } | null = null;
     try {
       stored = JSON.parse(localStorage.getItem(storageKey) ?? "null");
@@ -357,7 +363,7 @@ export const ShipmentsTable = ({
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     }
     // Runs once (the `restored` guard): restoring is what happens when the page is entered.
-  }, [searchParams, storageKey, router, pathname]);
+  }, [searchParams, storageKey, router, pathname, viewKey]);
 
   const applyFilters = (next: ColFilter[]) => {
     setFilters(next);
@@ -727,10 +733,12 @@ export const ShipmentsTable = ({
     [filtered, safePage, pageSize],
   );
 
-  // Reset to the first page whenever the result set or page size changes.
+  // Reset to the first page whenever the result set or page size changes - also when a filter the
+  // address holds (Handled By, mode, customs, invoicing) is set, changed or cleared by its chip.
+  const linkFilters = addressFiltersKey(searchParams);
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, statusFilter, quick, activeFilters, pageSize, activeTile]);
+  }, [search, statusFilter, quick, activeFilters, pageSize, activeTile, linkFilters]);
 
   return (
     <div className="flex flex-col gap-5">

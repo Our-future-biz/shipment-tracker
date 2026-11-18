@@ -5,7 +5,7 @@ import type { CustomsOfficeRequestItem } from "../interfaces/interfaces";
 import { customsOfficeRequestService as service } from "../services/customsOfficeRequest.service";
 
 // Changing a shipment's chosen Customs Office: a regular user asks, a manager approves or rejects
-// on the Warehouse Managers page (its Approvals tab), and the answer reaches the one who asked
+// on Shipments → Managers (its Approvals tab), and the answer reaches the one who asked
 // under the bell. The service checks the roles.
 
 interface CustomsOfficeAskRequest {

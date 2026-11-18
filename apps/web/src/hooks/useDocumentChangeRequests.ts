@@ -10,7 +10,7 @@ import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
 export type DocumentChangeRequestItem = interfaces.DocumentChangeRequestItem;
 
 // Replacing a document customs has approved: a regular user asks in the Customs module with the new
-// file, a manager answers in the Warehouse Managers page's Approvals tab, and the answer reaches the
+// file, a manager answers in the Approvals tab of Shipments → Managers, and the answer reaches the
 // one who asked under the bell.
 
 const keys = {

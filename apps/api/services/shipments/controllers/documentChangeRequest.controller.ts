@@ -6,7 +6,7 @@ import type { DocumentChangeRequestItem } from "../interfaces/interfaces";
 import { documentChangeRequestService as service } from "../services/documentChangeRequest.service";
 
 // Replacing a document customs has approved: a regular user asks with the new file, a manager
-// approves or rejects on the Warehouse Managers page (its Approvals tab), and the answer reaches the
+// approves or rejects on Shipments → Managers (its Approvals tab), and the answer reaches the
 // one who asked under the bell. The service checks the roles.
 
 interface DocumentChangeAskRequest {

@@ -6,7 +6,7 @@ import { Segmented } from "antd";
 import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
-import { errorMessage } from "../../gate-log/_lib/gate";
+import { errorMessage } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { Pill } from "@/components/Pill";
 import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF, TD, TEXTAREA, TH } from "@/styles/ui";
 

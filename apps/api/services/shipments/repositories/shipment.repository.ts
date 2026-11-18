@@ -4,6 +4,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
+import { CUTOFF_URGENT_DAYS } from "../lib/cockpitThresholds";
 import { DATE_MOVED_WINDOW_DAYS } from "../lib/trackingThresholds";
 import { ROAD_DEPARTMENT } from "../../../lib/deliveryDated";
 import { shipmentAuditTable } from "../schemas/shipmentAudit.schema";
@@ -187,6 +188,10 @@ const DEADLINE_DEFS = {
 };
 type DeadlineDef = (typeof DEADLINE_DEFS)[keyof typeof DEADLINE_DEFS];
 const DEADLINES = Object.values(DEADLINE_DEFS);
+// The cut-offs among them: what the carrier closes or an authority wants filed before the vessel
+// sails. Shipments → Managers counts these five alone (lib/managersCockpit cutoffsOf is their copy
+// in TypeScript: change a rule here and there together).
+const CUTOFF_DEADLINES = [DEADLINE_DEFS.closingDate, DEADLINE_DEFS.vgmClosing, DEADLINE_DEFS.siClosing, DEADLINE_DEFS.amsDeadline, DEADLINE_DEFS.isfDeadline];
 
 /** Deadline fields that stay due after their date has passed, until their status is confirmed. */
 export const OVERDUE_DEADLINE_FIELDS: ReadonlySet<string> = new Set(
@@ -225,6 +230,11 @@ const TILE_PREDICATES = {
   active: ACTIVE,
   attention: sql`${ACTIVE} AND ${anyDueWithin(1)}`,
   etamoved: sql`${ACTIVE} AND ${DATE_MOVED_LATELY}`,
+  // The three below are opened from Shipments → Managers; its tiles count the same in TypeScript
+  // (lib/managersCockpit), on the rows of managersCockpitRows.
+  cutoffs: sql`${ACTIVE} AND (${sql.join(CUTOFF_DEADLINES.map((d) => isDueWithin(d, CUTOFF_URGENT_DAYS)), sql` OR `)})`,
+  "booking-pending": sql`${ACTIVE} AND ${statusHas(shipmentTable.bookingConfirmation, "pending")}`,
+  claims: sql`${ACTIVE} AND ${shipmentTable.claim} = 'Yes'`,
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import' AND ${NOT_CANCELLED}`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export' AND ${NOT_CANCELLED}`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
@@ -236,6 +246,57 @@ const TILE_PREDICATES = {
 } as const;
 
 export type TileId = keyof typeof TILE_PREDICATES;
+
+/** The rows a tile of this id opens; undefined for "all" and for an id that is no tile. */
+export function tilePredicate(tile: string | undefined): SQL | undefined {
+  return tile && Object.hasOwn(TILE_PREDICATES, tile) ? TILE_PREDICATES[tile as TileId] : undefined;
+}
+
+// Who a person field names: the e-mail, before the name an old value may carry after it
+// ("a@b.cz — Name"), trimmed and lower-cased - lib/shipmentEditRule personEmail, in SQL. btrim
+// alone takes off spaces only; JavaScript's trim() also takes what typed or pasted text carries
+// (tab, line feed, carriage return, no-break space), so those are named.
+const TRIMMED_WHITESPACE = " \t\n\r\u00a0";
+const personEmailOf = (column: PgColumn) => sql`lower(btrim(split_part(${column}, ' — ', 1), ${TRIMMED_WHITESPACE}))`;
+
+/** The value of the list's Handled By filter that asks for the jobs nobody handles. */
+// A legacy Handled By typed as "nobody" collides with this word and cannot be asked for: accepted, new values are user e-mails.
+const HANDLED_BY_NOBODY = "nobody";
+
+/**
+ * The list's Handled By filter: the jobs whose Handled By names this e-mail (in any case), or
+ * with "nobody" the jobs it names nobody on. Undefined when nothing is asked for.
+ */
+export function handledByMatch(handledBy: string | undefined): SQL | undefined {
+  const asked = (handledBy ?? "").trim().toLowerCase();
+  if (!asked) return undefined;
+  return sql`${personEmailOf(shipmentTable.personInCharge)} = ${asked === HANDLED_BY_NOBODY ? "" : asked}`;
+}
+
+// How a job travels - lib/trackingEvents freightKindOf, in SQL. Keep the two the same, rule for rule:
+//   road  a Trucking job (Trade Direction Domestic, or the Road Department: lib/deliveryDated
+//         isDeliveryDated, both trimmed, in any case), or "road" anywhere in the Freight Mode;
+//   air   otherwise, a Freight Mode that starts with "air";
+//   rail  otherwise, one that starts with "rail";
+//   sea   everything else - a job with no Freight Mode too.
+// tests/db/managersListFilters.db.test.ts reads the same rows both ways.
+const IS_TRUCKING_JOB = sql`(${shipmentTable.tradeDirection} ~* '^\\s*domestic\\s*$' OR ${shipmentTable.department} ~* ${`^\\s*${ROAD_DEPARTMENT}\\s*$`})`;
+const IS_ROAD = sql`(${IS_TRUCKING_JOB} OR ${shipmentTable.freightMode} ~* 'road')`;
+const IS_AIR = sql`${shipmentTable.freightMode} ~* '^\\s*air'`;
+const IS_RAIL = sql`${shipmentTable.freightMode} ~* '^\\s*rail'`;
+const MODE_PREDICATES = {
+  road: IS_ROAD,
+  air: sql`(NOT ${IS_ROAD} AND ${IS_AIR})`,
+  rail: sql`(NOT ${IS_ROAD} AND ${IS_RAIL})`,
+  sea: sql`(NOT ${IS_ROAD} AND NOT ${IS_AIR} AND NOT ${IS_RAIL})`,
+} as const;
+
+export type ModeFilterId = keyof typeof MODE_PREDICATES;
+
+/** The list's mode filter (sea | air | rail | road); undefined for anything else, "all" among it. */
+export function modeMatch(mode: string | undefined): SQL | undefined {
+  return mode && Object.hasOwn(MODE_PREDICATES, mode) ? MODE_PREDICATES[mode as ModeFilterId] : undefined;
+}
 
 /**
  * The shipments list's warehouse filter, by the two dates a shipment carries (written back
@@ -270,8 +331,12 @@ const CUSTOMS_PREDICATES = {
 export type CustomsFilterId = keyof typeof CUSTOMS_PREDICATES;
 
 export interface ShipmentListFilters {
-  /** Overview tile filter: active | attention | import | export | week | nextweek */
+  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek, and Shipments → Managers' cutoffs | booking-pending | claims */
   tile?: string;
+  /** Handled By: an e-mail (in any case), or "nobody" for the jobs with nobody in it. */
+  handledBy?: string;
+  /** How the job travels: sea | air | rail | road (lib/trackingEvents freightKindOf). */
+  mode?: string;
   customerId?: string;
   /** The houses of the master job with this MCZ number. */
   masterJobMcz?: string;
@@ -837,9 +902,13 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       }
     }
     if (f.tile && f.tile !== "all") {
-      const predicate = TILE_PREDICATES[f.tile as TileId];
+      const predicate = tilePredicate(f.tile);
       if (predicate) clauses.push(predicate);
     }
+    const handledBy = handledByMatch(f.handledBy);
+    if (handledBy) clauses.push(handledBy);
+    const mode = modeMatch(f.mode);
+    if (mode) clauses.push(mode);
     if (f.warehouse) {
       const predicate = WAREHOUSE_PREDICATES[f.warehouse as WarehouseSectionId];
       if (predicate) clauses.push(predicate);
@@ -1022,6 +1091,62 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         desc(shipmentTable.createdAt),
       )
       .limit(limit);
+  }
+
+  /**
+   * Every active job of the company as Shipments → Managers reads it, the newest first: what
+   * lib/trackingAttention needs, who handles it, its cut-offs with their statuses, customs, the
+   * booking confirmation and the claim flag. The rules are lib/managersCockpit; this judges nothing.
+   */
+  async managersCockpitRows(companyId: string, limit: number) {
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customer: shipmentTable.customer,
+        tradeDirection: shipmentTable.tradeDirection,
+        freightMode: shipmentTable.freightMode,
+        department: shipmentTable.department,
+        status: shipmentTable.status,
+        estimatedDeparture: shipmentTable.estimatedDeparture,
+        actualDeparture: shipmentTable.actualDeparture,
+        estimatedArrival: shipmentTable.estimatedArrival,
+        actualArrival: shipmentTable.actualArrival,
+        etaWarehouse: shipmentTable.etaWarehouse,
+        warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+        plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+        actualDeliveryDate: shipmentTable.actualDeliveryDate,
+        personInCharge: shipmentTable.personInCharge,
+        holidayCover: shipmentTable.holidayCover,
+        closingDate: shipmentTable.closingDate,
+        vgmClosing: shipmentTable.vgmClosing,
+        vgm: shipmentTable.vgm,
+        siClosing: shipmentTable.siClosing,
+        shippingInstructions: shipmentTable.shippingInstructions,
+        ams: shipmentTable.ams,
+        amsDeadline: shipmentTable.amsDeadline,
+        isf: shipmentTable.isf,
+        isfDeadline: shipmentTable.isfDeadline,
+        customsPriority: shipmentTable.customsPriority,
+        customsStatus: shipmentTable.customsStatus,
+        customsDeadline: shipmentTable.customsDeadline,
+        bookingConfirmation: shipmentTable.bookingConfirmation,
+        claim: shipmentTable.claim,
+      })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), ACTIVE))
+      .orderBy(desc(shipmentTable.createdAt), desc(shipmentTable.id))
+      .limit(limit);
+  }
+
+  /** Those of these shipments whose ETD or ETA moved lately (the list's "ETD / ETA moved" tile), by id. */
+  async dateMovedLately(companyId: string, shipmentIds: readonly string[]): Promise<string[]> {
+    if (shipmentIds.length === 0) return [];
+    const rows = await this.db
+      .select({ id: shipmentTable.id })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, [...shipmentIds]), isNull(shipmentTable.deletedAt), DATE_MOVED_LATELY));
+    return rows.map((r) => r.id);
   }
 
   /** The plate number of a truck (TCZ…): the one its shipments carry, "" if none has it yet. */

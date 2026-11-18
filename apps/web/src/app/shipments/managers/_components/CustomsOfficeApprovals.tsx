@@ -5,7 +5,7 @@ import { useDocumentChangeApprovals } from "@/hooks/useDocumentChangeRequests";
 import { apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { HINT, LINK } from "@/styles/ui";
-import { ApprovalsCard } from "./ApprovalsCard";
+import { ApprovalsCard } from "@/components/cockpit/ApprovalsCard";
 
 // What waits for a manager's approval: requests to change a chosen Customs Office, and to replace a
 // document customs has approved.

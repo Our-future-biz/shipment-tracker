@@ -119,6 +119,14 @@ export namespace lib {
          */
         actingCompany?: string
     }
+
+    /**
+     * What a row shows of one signal.
+     */
+    export interface CockpitTag {
+        text: string
+        urgent: boolean
+    }
 }
 
 export namespace auth {
@@ -3285,6 +3293,7 @@ export namespace shipments {
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
             this.shipmentLinksNormalize = this.shipmentLinksNormalize.bind(this)
             this.shipmentList = this.shipmentList.bind(this)
+            this.shipmentManagersCockpit = this.shipmentManagersCockpit.bind(this)
             this.shipmentNeedsAttention = this.shipmentNeedsAttention.bind(this)
             this.shipmentNextJobNumber = this.shipmentNextJobNumber.bind(this)
             this.shipmentPeopleNormalize = this.shipmentPeopleNormalize.bind(this)
@@ -4068,9 +4077,11 @@ export namespace shipments {
             const query = makeRecord<string, string | string[]>({
                 customerId:    params.customerId,
                 customs:       params.customs,
+                handledBy:     params.handledBy,
                 invoicing:     params.invoicing,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 masterJobMcz:  params.masterJobMcz,
+                mode:          params.mode,
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
                 searchColumns: params.searchColumns?.map((v) => v),
@@ -4084,6 +4095,28 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments`, undefined, {query})
             return await resp.json() as controllers.ShipmentListResponse
+        }
+
+        /**
+         * Shipments → Managers (Council Outlay 11): what operations need from a manager today, counted
+         * over the company's active jobs by the rules the app already has. Read-only. For superadmins,
+         * admins and managers; the page polls it every minute.
+         */
+        public async shipmentManagersCockpit(params: controllers.ShipmentManagersCockpitRequest): Promise<{
+    cockpit: interfaces.ShipmentsManagersCockpit
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                direction: params.direction,
+                handledBy: params.handledBy,
+                mode:      params.mode,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/managers-cockpit`, undefined, {query})
+            return await resp.json() as {
+    cockpit: interfaces.ShipmentsManagersCockpit
+}
         }
 
         /**
@@ -11519,9 +11552,19 @@ export namespace controllers {
         statusBucket?: string
 
         /**
-         * Overview tile filter: active | attention | etamoved | import | export | week | nextweek
+         * Overview tile filter: active | attention | etamoved | import | export | week | nextweek | cutoffs | booking-pending | claims
          */
         tile?: string
+
+        /**
+         * Handled By: a user's e-mail (in any case), or "nobody" for the jobs nobody handles
+         */
+        handledBy?: string
+
+        /**
+         * How the job travels: sea | air | rail | road
+         */
+        mode?: string
 
         /**
          * Warehouse page filter: in | stock | out
@@ -11552,6 +11595,23 @@ export namespace controllers {
             limit: number
         }
         data: interfaces.ShipmentItem[]
+    }
+
+    export interface ShipmentManagersCockpitRequest {
+        /**
+         * How the jobs travel: sea, air, rail or road; all of them when left out.
+         */
+        mode?: string
+
+        /**
+         * The jobs' Trade Direction: import, export or domestic; all of them when left out.
+         */
+        direction?: string
+
+        /**
+         * One person's jobs, by the e-mail in Handled By, or "nobody" for the jobs nobody handles; everyone's when left out.
+         */
+        handledBy?: string
     }
 
     export interface ShipmentNeedsAttentionResponse {
@@ -19486,6 +19546,135 @@ export namespace interfaces {
         podCountries: string[]
     }
 
+    /**
+     * Which jobs the cockpit counts by their Trade Direction.
+     */
+    export type OpsCockpitDirection = "all" | "import" | "export" | "domestic"
+
+    export interface OpsCockpitList {
+        /**
+         * Every row of the card; `rows` holds at most COCKPIT_LIST_LIMIT of them.
+         */
+        total: number
+
+        rows: OpsCockpitRow[]
+    }
+
+    /**
+     * Which jobs the cockpit counts: all, or those travelling one way (lib/trackingEvents freightKindOf).
+     */
+    export type OpsCockpitMode = "all" | "sea" | "air" | "rail" | "road"
+
+    /**
+     * One person named in Handled By, over the active jobs of the chosen mode and direction.
+     */
+    export interface OpsCockpitPerson {
+        /**
+         * The e-mail in Handled By, "" for nobody.
+         */
+        handledBy: string
+
+        /**
+         * False when the e-mail is not an active user (nobody is none); null when the users could not be read.
+         */
+        isUser: boolean | null
+
+        active: number
+        /**
+         * Of those, the jobs on the URGENT card…
+         */
+        urgent: number
+
+        /**
+         * …and on the ATTENTION card.
+         */
+        attention: number
+
+        /**
+         * Active jobs where this person is the Holiday Cover.
+         */
+        covers: number
+    }
+
+    /**
+     * A row of a cockpit card: one active job, with everything that asks for a manager's look.
+     */
+    export interface OpsCockpitRow {
+        /**
+         * The shipment's id.
+         */
+        id: string
+
+        jobNumber: string
+        customer: string
+        /**
+         * "sea" | "air" | "rail" | "road", "" when the job has no Freight Mode (the Sea filter still counts it, as the app reads such a job as sea).
+         */
+        mode: string
+
+        tradeDirection: string
+        status: string
+        /**
+         * Handled By as stored (an e-mail), "" when nobody.
+         */
+        handledBy: string
+
+        holidayCover: string
+        /**
+         * Where the row's first tag is best worked on: the shipment tab the web opens.
+         */
+        area: "tracking" | "customs" | "finance" | "details"
+
+        /**
+         * Every signal of the job, the urgent ones first.
+         */
+        tags: lib.CockpitTag[]
+    }
+
+    /**
+     * Counts over the active jobs read, of the chosen mode, direction and Handled By.
+     */
+    export interface OpsCockpitTiles {
+        active: number
+        /**
+         * Jobs with a cut-off (Closing, VGM, SI, AMS, ISF) today or tomorrow, or an overdue filing.
+         */
+        cutoffsDue: number
+
+        noHandledBy: number
+        /**
+         * Handled By names somebody who is not an active user of the company; null when the users could not be read.
+         */
+        handledByNotUser: number | null
+
+        /**
+         * Booking Confirmation still Pending.
+         */
+        bookingPending: number
+
+        /**
+         * An ETD or ETA that moved lately.
+         */
+        etdEtaMoved: number
+
+        /**
+         * A container's free time ending or over.
+         */
+        freeTime: number
+
+        /**
+         * Customs priority Urgent, not released, the deadline within 24 hours or passed.
+         */
+        customsUrgent: number
+
+        /**
+         * Tax date reached, not yet in Billing — the same rule as the list's unbilled-arrivals.
+         */
+        notReleased: number
+
+        openClaims: number
+    }
+
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     export interface PayableClaimItem {
@@ -23893,6 +24082,40 @@ export namespace interfaces {
          * Oldest pending update (ISO); null when none.
          */
         oldestPendingAt: string | null
+    }
+
+    export interface ShipmentsManagersCockpit {
+        /**
+         * ISO time the answer was worked out.
+         */
+        asOf: string
+
+        /**
+         * The Prague business day (YYYY-MM-DD) every rule was judged on.
+         */
+        today: string
+
+        mode: OpsCockpitMode
+        direction: OpsCockpitDirection
+        /**
+         * The Handled By e-mail the tiles and cards are narrowed to, "nobody", or null for everyone.
+         */
+        handledBy: string | null
+
+        tiles: OpsCockpitTiles
+        urgent: OpsCockpitList
+        attention: OpsCockpitList
+        /**
+         * Everyone named in Handled By on an active job of the chosen mode and direction (NOT narrowed
+         * by handledBy: the page picks a person from it), the most active first; "" (nobody) is among
+         * them when it has jobs.
+         */
+        people: OpsCockpitPerson[]
+
+        /**
+         * True when the company has more active jobs than were read (COCKPIT_JOB_LIMIT, the newest): the counts cover only those read.
+         */
+        capped: boolean
     }
 
     /**

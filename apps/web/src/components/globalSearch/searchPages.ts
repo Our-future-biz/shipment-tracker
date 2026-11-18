@@ -18,7 +18,11 @@ interface MenuItem {
   children?: { path: string; label: string; description?: string; managersOnly?: boolean }[];
 }
 
-/** Every page the user's menu lists, sections first and then their pages, each once. */
+/**
+ * Every page the user's menu lists, sections first and then their pages, each once. `items` are the
+ * user's own menu (visibleNavItems): what their role does not list - Shipments' Managers for anyone
+ * but a manager or an admin - is not among them. Sales' managers' pages go by the server's answer.
+ */
 export function menuPages(items: MenuItem[], canManageSales: boolean): SearchPage[] {
   const pages: SearchPage[] = [];
   const seen = new Set<string>();
