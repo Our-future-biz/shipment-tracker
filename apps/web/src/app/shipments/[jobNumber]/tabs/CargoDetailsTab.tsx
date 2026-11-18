@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Checkbox, Tooltip } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
@@ -11,7 +11,8 @@ import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
 import { RemeasuredCard } from "./RemeasuredCard";
-import { ADD_BTN, CARD, EMPTY, EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
+import { isAirFreight } from "@/lib/chargeBasis";
+import { ADD_BTN, CARD, EMPTY, EMPTY_STATE, HINT, LABEL_TEXT } from "@/styles/ui";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useOpenRows } from "@/hooks/useOpenRows";
 import { useIsMutating } from "@tanstack/react-query";
@@ -42,6 +43,7 @@ import {
   compareFigure,
   civByCurrency,
   shipmentDeclaredFigures,
+  cargoContainers,
   type CargoItemLine,
   type CargoDimensionLine,
   type ContainerLine,
@@ -125,8 +127,8 @@ const NO_PIECES_HINT = "Type Pcs first — a total is for all the pieces of the 
 type DeleteRequest = { table: "dims"; line: CargoDimensionLine } | { table: "items"; line: CargoItemLine };
 
 // How many lines the panel of a line holds.
-const panelSize = <T extends { containerId?: string | null }>(list: T[], line: T) =>
-  list.filter((l) => keyOf(l.containerId) === keyOf(line.containerId)).length;
+const panelSize = <T extends { containerId?: string | null }>(list: T[], line: T, key: (containerId: string | null | undefined) => string = keyOf) =>
+  list.filter((l) => key(l.containerId) === key(line.containerId)).length;
 
 // The figures of lines nothing declares any for (outside the containers of a shipment with some).
 const NOTHING_DECLARED = { packages: "", grossWeight: "", volume: "" } as ContainerLine;
@@ -206,10 +208,15 @@ export function CargoDetailsTab({
   // Containers that made it to the server (they have ids cargo lines can point
   // at). A row still being typed in the Container tab gets its panel after its
   // first save round-trips.
-  const containers = useMemo(
-    () => (shipment.containers ?? []).filter((c): c is ContainerLine & { id: string } => !!c.id),
-    [shipment.containers],
-  );
+  // On an air job none (lib/cargo cargoContainers): its lines are one table, checked against the
+  // shipment's own figures, whatever container rows it carries; a line keeps the container it names.
+  const containers = useMemo(() => cargoContainers(shipment), [shipment]);
+  const air = isAirFreight(shipment.freightMode);
+  // The panel a line is shown in: its container's, or the shipment's own (always on an air job).
+  const lineKey = useCallback((containerId: string | null | undefined) => (air ? NONE : keyOf(containerId)), [air]);
+  // An air job that carries container rows (copied or read in): said under the check, so its pills
+  // reading the shipment's figures, not the container's, are no surprise.
+  const airWithBoxes = air && (shipment.containers ?? []).some((c) => !!c.id);
 
   const [items, setItems] = useState<CargoItemLine[]>(() => shipment.cargoItems ?? []);
   // Dimension lines are held in their own unit (cm or inches) and sent in cm (lineInCm).
@@ -261,7 +268,7 @@ export function CargoDetailsTab({
     const s = shipmentRef.current;
     const serverItems = s.cargoItems ?? [];
     const serverDims = s.cargoDimensions ?? [];
-    const keys = panelKeysFor((s.containers ?? []).flatMap((c) => (c.id ? [c.id] : [])), serverItems, serverDims);
+    const keys = panelKeysFor(cargoContainers(s).map((c) => c.id), serverItems, serverDims);
     const keepOpen = <T extends object>(local: T[], open: Set<number>, isEmpty: (l: T) => boolean, force: boolean) =>
       force ? local.filter((l, i) => open.has(i) && !isEmpty(l) && !refused!.rows.has(rowKey(l))) : [];
     const forceItems = refused?.table === "items";
@@ -269,7 +276,7 @@ export function CargoDetailsTab({
     if (iKey !== sentItems.current && (forceItems || openRef.current.items.size === 0)) {
       sentItems.current = iKey;
       const kept = keepOpen(itemsRef.current, openRef.current.items, itemIsEmpty, forceItems);
-      setItems(withPanelRows([...serverItems, ...kept], keys, (l) => keyOf(l.containerId), emptyItem));
+      setItems(withPanelRows([...serverItems, ...kept], keys, (l) => lineKey(l.containerId), emptyItem));
       openItems.set(kept.map((_, j) => serverItems.length + j));
     }
     const forceDims = refused?.table === "dims";
@@ -277,7 +284,7 @@ export function CargoDetailsTab({
     if (dKey !== sentDims.current && (forceDims || openRef.current.dims.size === 0)) {
       sentDims.current = dKey;
       const kept = keepOpen(dimsRef.current, openRef.current.dims, dimIsEmpty, forceDims);
-      setDims(withPanelRows([...serverDims.map(lineInUnit), ...kept], keys, (l) => keyOf(l.containerId), (c) => emptyDim(c)));
+      setDims(withPanelRows([...serverDims.map(lineInUnit), ...kept], keys, (l) => lineKey(l.containerId), (c) => emptyDim(c)));
       openDims.set(kept.map((_, j) => serverDims.length + j));
     }
   };
@@ -292,13 +299,13 @@ export function CargoDetailsTab({
 
   // Seed each panel with an empty line to type into (kept local until edited —
   // empty lines are filtered out of every save). Keyed by the panels as text, so it runs
-  // when a panel comes or goes, not on every edit.
+  // when a panel comes or goes (or the job turns air or back), not on every edit.
   const panelKeysText = panelKeys.join("|");
   useEffect(() => {
     const keys = panelKeysText.split("|");
-    setItems((prev) => withPanelRows(prev, keys, (l) => keyOf(l.containerId), emptyItem));
-    setDims((prev) => withPanelRows(prev, keys, (l) => keyOf(l.containerId), emptyDim));
-  }, [panelKeysText]);
+    setItems((prev) => withPanelRows(prev, keys, (l) => lineKey(l.containerId), emptyItem));
+    setDims((prev) => withPanelRows(prev, keys, (l) => lineKey(l.containerId), emptyDim));
+  }, [panelKeysText, lineKey]);
 
   // Jumping in from the Container tab (a container number was clicked): open its tab.
   useEffect(() => {
@@ -408,7 +415,7 @@ export function CargoDetailsTab({
   // A new line takes the unit of the last line of its panel (cm when there is none).
   const addDim = (panelKey: string) =>
     setDims((r) => {
-      const last = [...r].reverse().find((l) => keyOf(l.containerId) === panelKey);
+      const last = [...r].reverse().find((l) => lineKey(l.containerId) === panelKey);
       return [...r, emptyDim(panelKey === NONE ? null : panelKey, last?.dimensionUnit === "in" ? "in" : "cm")];
     });
 
@@ -421,7 +428,7 @@ export function CargoDetailsTab({
     const list = itemsRef.current;
     if (!list.includes(line)) return;
     const next =
-      panelSize(list, line) > 1 ? list.filter((l) => l !== line) : list.map((l) => (l === line ? emptyItem(l.containerId ?? null) : l));
+      panelSize(list, line, lineKey) > 1 ? list.filter((l) => l !== line) : list.map((l) => (l === line ? emptyItem(l.containerId ?? null) : l));
     setItems(next);
     openItems.reset();
     sendItems(next);
@@ -449,7 +456,7 @@ export function CargoDetailsTab({
     const list = dimsRef.current;
     if (!list.includes(line)) return;
     const next =
-      panelSize(list, line) > 1
+      panelSize(list, line, lineKey) > 1
         ? list.filter((l) => l !== line)
         : list.map((l) => (l === line ? emptyDim(l.containerId ?? null, l.dimensionUnit === "in" ? "in" : "cm") : l));
     setDims(next);
@@ -473,8 +480,8 @@ export function CargoDetailsTab({
     // own. Lines outside the containers of a shipment that has some have none ("/ —"): the pills
     // still show, as every table shows them.
     const declared = container ?? shipmentDeclared ?? NOTHING_DECLARED;
-    const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
-    const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
+    const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
+    const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
     const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
     const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
@@ -830,6 +837,11 @@ export function CargoDetailsTab({
                   <CheckPill against={against} label="Volume" m={check.m3} decimals={3} unit="m³" />
                 </>,
               )}
+            {airWithBoxes && (
+              <div className={`mt-2 px-1 ${HINT}`}>
+                Air freight: the lines are checked against the shipment&apos;s Pcs, Total Weight and Total Volume. The container on Container Details is not used here.
+              </div>
+            )}
           </div>
         </div>
       </SectionCard>

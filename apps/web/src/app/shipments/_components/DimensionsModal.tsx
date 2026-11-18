@@ -12,6 +12,7 @@ import {
   STACKABLE_OPTIONS,
   checkConsistency,
   shipmentDeclaredFigures,
+  cargoContainers,
   dimensionTotals,
   dimensionVolumePerPiece,
   hasAllSizes,
@@ -91,8 +92,10 @@ export function DimensionsModal({
   const [saving, setSaving] = useState(false);
 
   // The shipment's saved containers, in their order. With one, every line belongs to it
-  // (also a line typed before the container existed).
-  const containers = (shipment?.containers ?? []).filter((c): c is ContainerLine & { id: string } => !!c.id);
+  // (also a line typed before the container existed). On an air job none (lib/cargo
+  // cargoContainers): its lines are one table, checked against the shipment's own figures, and a
+  // line keeps the container it names.
+  const containers: (ContainerLine & { id: string })[] = shipment ? cargoContainers(shipment) : [];
   const containerIds = containers.map((c) => c.id);
   const only = containers.length === 1 ? containers[0]!.id : null;
 

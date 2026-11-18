@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { isAirFreight } from "./chargeBasis";
 
 // ── Dictionaries (mirrored 1:1 from the agreed spec; the backend derives TEU
 // with the same 20'→1 / 40'→2 rule) ──
@@ -347,6 +348,19 @@ export interface ConsistencyCheck {
 export function compareFigure(sum: number, declared: number, decimals: number): FigureCheck {
   const empty = !sum && !declared;
   return { sum, declared, empty, ok: empty || fmtFixed(sum, decimals) === fmtFixed(declared, decimals) };
+}
+
+/**
+ * The containers a shipment's cargo lines are grouped and checked by (Cargo Details, the grid's
+ * Dimensions dialog): its saved ones (with an id) - none on an air job (owner decision, 18 Nov 2026).
+ * Air cargo does not travel in the shipment's sea containers, so a container row an air job carries
+ * (copied or read in) neither splits its lines nor declares their figures: they are checked against
+ * the shipment's own Pcs, Total Weight and Total Volume. The rows stay on Container Details, and a
+ * line keeps the container it names when saved.
+ */
+export function cargoContainers<C extends { id?: string | null }>(s: { freightMode?: string | null; containers?: C[] | null }): (C & { id: string })[] {
+  if (isAirFreight(s.freightMode)) return [];
+  return (s.containers ?? []).filter((c): c is C & { id: string } => !!c.id);
 }
 
 /**

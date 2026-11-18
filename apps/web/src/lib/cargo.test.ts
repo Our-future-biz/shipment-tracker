@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cargoContainers,
   shipmentDeclaredFigures,
   piecesOf,
   perPieceText,
@@ -321,5 +322,20 @@ describe("adrUnText", () => {
     expect(adrUnText({ adrUn: "un2382" })).toBe("UN 2382");
     expect(adrUnText({ adrUn: "" })).toBe("");
     expect(adrUnText({})).toBe("");
+  });
+});
+
+describe("cargoContainers", () => {
+  type Row = { id?: string; containerNumber: string };
+  const box: Row = { id: "c1", containerNumber: "ACLU9821217" };
+  const unsaved: Row = { containerNumber: "not saved yet" };
+  it("are a sea job's saved containers", () => {
+    expect(cargoContainers({ freightMode: "Sea Freight", containers: [box, unsaved] })).toEqual([box]);
+    expect(cargoContainers({ freightMode: "Sea Freight", containers: null })).toEqual([]);
+  });
+
+  it("are none on an air job, whatever container rows it carries", () => {
+    expect(cargoContainers({ freightMode: "Air Freight", containers: [box] })).toEqual([]);
+    expect(cargoContainers({ freightMode: " air freight", containers: [box] })).toEqual([]);
   });
 });
