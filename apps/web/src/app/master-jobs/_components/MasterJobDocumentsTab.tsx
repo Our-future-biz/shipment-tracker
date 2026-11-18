@@ -12,7 +12,7 @@ import { useFilePreview } from "@/hooks/useFilePreview";
 import { PreviewButton } from "@/components/PreviewButton";
 import { useMasterJobDocuments, type MasterJobDocumentItem } from "@/hooks/useMasterJobDocuments";
 import { downloadDataUrl, fileDataUrl, fileToBase64 } from "@/lib/files";
-import { houseBolsNotice } from "../_lib/houseBols";
+import { COMMERCIAL_PAPERWORK_WORDS, HOUSE_BOL_WORDS, docsDownloadNotice, type DocsDownloadWords } from "../_lib/shipmentDocsDownload";
 import { formatDate } from "@/lib/date";
 import { DOCUMENT_GROUPS, DOCUMENT_TYPES, documentGroupOf, documentTypeLabel, guessDocumentType } from "@/lib/documentTypes";
 import { ExtBadge, docPlural, formatFileSize } from "@/app/shipments/[jobNumber]/tabs/docsShared";
@@ -53,6 +53,39 @@ const clearedWhenDone = (list: PendingFile[]) => (list.every((p) => p.status ===
 
 const TYPE_OPTIONS = DOCUMENT_TYPES.map((t) => ({ value: t, label: documentTypeLabel(t) }));
 
+interface ShipmentDocsDownloadButtonProps {
+  label: string;
+  hint: string;
+  words: DocsDownloadWords;
+  load: () => Promise<interfaces.MasterJobDocumentsZip>;
+}
+
+/**
+ * A button that downloads some of the linked shipments' documents in one ZIP (the House BLs, the
+ * commercial paperwork); what came down, and which houses have none, is said after.
+ */
+function ShipmentDocsDownloadButton({ label, hint, words, load }: ShipmentDocsDownloadButtonProps) {
+  const toast = useToast();
+  const download = useMutation({
+    mutationFn: load,
+    onSuccess: (res) => {
+      if (res.file) downloadDataUrl(fileDataUrl(res.file, "application/zip"), res.file.fileName);
+      const notice = docsDownloadNotice(res, words);
+      if (notice.kind === "success") toast.success(notice.text);
+      else toast.warning(notice.text);
+    },
+    onError: (e) => toast.error(`Could not ${label.charAt(0).toLowerCase()}${label.slice(1)}: ${apiErrorMessage(e)}`),
+  });
+  return (
+    <Tooltip title={hint}>
+      <button type="button" onClick={() => download.mutate()} disabled={download.isPending} className={`${BTN_BAR} gap-1.5`}>
+        {download.isPending ? <LoadingOutlined aria-hidden /> : <DownloadOutlined aria-hidden />}
+        {label}
+      </button>
+    </Tooltip>
+  );
+}
+
 export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.MasterJobItem }) {
   const toast = useToast();
   const filePreview = useFilePreview();
@@ -74,18 +107,6 @@ export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.Mas
     });
     setPending((p) => [...p, ...next]);
   };
-
-  // Every linked shipment's Bill of Lading in one ZIP; what came down, and which houses have none, is said after.
-  const houseBols = useMutation({
-    mutationFn: () => api.shipments.masterJobHouseBols(masterJob.id),
-    onSuccess: (res) => {
-      if (res.file) downloadDataUrl(fileDataUrl(res.file, "application/zip"), res.file.fileName);
-      const notice = houseBolsNotice(res);
-      if (notice.kind === "success") toast.success(notice.text);
-      else toast.warning(notice.text);
-    },
-    onError: (e) => toast.error(`Could not download the House BLs: ${apiErrorMessage(e)}`),
-  });
 
   // The file is removed from storage too, so Delete asks first.
   const [confirmDelete, setConfirmDelete] = useState<MasterJobDocumentItem | null>(null);
@@ -332,12 +353,18 @@ export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.Mas
             Documents
           </h3>
           <div className="ml-auto flex items-center gap-3">
-            <Tooltip title="The Bills of Lading of every linked shipment, in one ZIP">
-              <button type="button" onClick={() => houseBols.mutate()} disabled={houseBols.isPending} className={`${BTN_BAR} gap-1.5`}>
-                {houseBols.isPending ? <LoadingOutlined aria-hidden /> : <DownloadOutlined aria-hidden />}
-                Download House BLs
-              </button>
-            </Tooltip>
+            <ShipmentDocsDownloadButton
+              label="Download House BLs"
+              hint="The Bills of Lading of every linked shipment, in one ZIP"
+              words={HOUSE_BOL_WORDS}
+              load={() => api.shipments.masterJobHouseBols(masterJob.id)}
+            />
+            <ShipmentDocsDownloadButton
+              label="Download all commercial paperwork"
+              hint="The Commercial Invoices and packing lists of every linked shipment, in one ZIP with a folder per shipment"
+              words={COMMERCIAL_PAPERWORK_WORDS}
+              load={() => api.shipments.masterJobCommercialPaperwork(masterJob.id)}
+            />
             <CountChip count={docPlural(documents.length)} />
             <label className={`${INPUT} flex items-center gap-2 w-[200px] sm:w-[240px] focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100`}>
               <SearchOutlined aria-hidden className="text-slate-400" />

@@ -3,7 +3,7 @@ import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { masterJobDocumentService } from "../services/masterJobDocument.service";
 import { writeFileResponse, writeNotFound } from "../../../lib/fileContent";
-import type { MasterJobDocumentItem, MasterJobHouseBols } from "../interfaces/interfaces";
+import type { MasterJobDocumentItem, MasterJobDocumentsZip } from "../interfaces/interfaces";
 
 // A master job's Documents tab: its own files, apart from the shipments' documents.
 
@@ -70,7 +70,7 @@ export const masterJobDocumentDelete = api(
   },
 );
 
-interface MasterJobHouseBolsRequest {
+interface MasterJobShipmentDocsRequest {
   masterJobId: string;
 }
 
@@ -78,8 +78,17 @@ interface MasterJobHouseBolsRequest {
 // Anyone who sees the master job may: each shipment's documents are open to the whole company.
 export const masterJobHouseBols = api(
   { expose: true, auth: true, method: "GET", path: "/master-jobs/:masterJobId/house-bols" },
-  async (req: MasterJobHouseBolsRequest): Promise<MasterJobHouseBols> => {
+  async (req: MasterJobShipmentDocsRequest): Promise<MasterJobDocumentsZip> => {
     return masterJobDocumentService.houseBols(req.masterJobId, getAuthData()!.companyID);
+  },
+);
+
+// The linked shipments' Commercial Invoices and packing lists in one ZIP, a folder per shipment, for
+// the Documents tab's "Download all commercial paperwork". Open to the same people as the House BLs.
+export const masterJobCommercialPaperwork = api(
+  { expose: true, auth: true, method: "GET", path: "/master-jobs/:masterJobId/commercial-paperwork" },
+  async (req: MasterJobShipmentDocsRequest): Promise<MasterJobDocumentsZip> => {
+    return masterJobDocumentService.commercialPaperwork(req.masterJobId, getAuthData()!.companyID);
   },
 );
 

@@ -3254,6 +3254,7 @@ export namespace shipments {
             this.importInstructionsGet = this.importInstructionsGet.bind(this)
             this.importInstructionsReject = this.importInstructionsReject.bind(this)
             this.importInstructionsWaiting = this.importInstructionsWaiting.bind(this)
+            this.masterJobCommercialPaperwork = this.masterJobCommercialPaperwork.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
             this.masterJobDocumentContent = this.masterJobDocumentContent.bind(this)
@@ -3772,6 +3773,16 @@ export namespace shipments {
         }
 
         /**
+         * The linked shipments' Commercial Invoices and packing lists in one ZIP, a folder per shipment, for
+         * the Documents tab's "Download all commercial paperwork". Open to the same people as the House BLs.
+         */
+        public async masterJobCommercialPaperwork(masterJobId: string): Promise<interfaces.MasterJobDocumentsZip> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}/commercial-paperwork`)
+            return await resp.json() as interfaces.MasterJobDocumentsZip
+        }
+
+        /**
          * Replaces the master BL's containers and their house assignments, then copies
          * each house's assigned containers onto it.
          */
@@ -3826,10 +3837,10 @@ export namespace shipments {
          * The linked shipments' Bills of Lading in one ZIP, for the Documents tab's "Download House BLs".
          * Anyone who sees the master job may: each shipment's documents are open to the whole company.
          */
-        public async masterJobHouseBols(masterJobId: string): Promise<interfaces.MasterJobHouseBols> {
+        public async masterJobHouseBols(masterJobId: string): Promise<interfaces.MasterJobDocumentsZip> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}/house-bols`)
-            return await resp.json() as interfaces.MasterJobHouseBols
+            return await resp.json() as interfaces.MasterJobDocumentsZip
         }
 
         /**
@@ -18876,11 +18887,13 @@ export namespace interfaces {
     }
 
     /**
-     * A master job's house Bills of Lading in one ZIP ("Download House BLs" on its Documents tab).
+     * A master job's linked shipments' documents of some types in one ZIP, from its Documents tab:
+     * "Download House BLs" (their Bills of Lading) or "Download all commercial paperwork" (their
+     * Commercial Invoices and packing lists).
      */
-    export interface MasterJobHouseBols {
+    export interface MasterJobDocumentsZip {
         /**
-         * The ZIP; null when none of the linked shipments has a Bill of Lading.
+         * The ZIP; null when none of the linked shipments has such a file.
          */
         file: {
             fileName: string
@@ -18894,9 +18907,9 @@ export namespace interfaces {
         fileCount: number
 
         /**
-         * The linked shipments without a Bill of Lading, by job number.
+         * The linked shipments without any such file, by job number.
          */
-        withoutBol: string[]
+        withoutFiles: string[]
 
         /**
          * Files listed but no longer in storage, left out ("<job number> - <file name>").

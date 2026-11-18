@@ -6,7 +6,7 @@ import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { attachmentBucket } from "../storage/attachmentBucket";
-import { HOUSE_BOL_TYPE, houseBolZip, houseBolZipName, type HouseBolFile } from "../lib/houseBolZip";
+import { COMMERCIAL_PAPERWORK, HOUSE_BOLS, shipmentDocsZip, shipmentDocsZipName, type ShipmentDocFile, type ShipmentDocsDownload } from "../lib/shipmentDocsZip";
 import type { MasterJobDocumentRecord } from "../schemas/masterJobDocument.schema";
 import { masterJobDocumentBucket } from "../storage/masterJobDocumentBucket";
 import { canManageDocuments } from "../lib/documentRules";
@@ -15,7 +15,7 @@ import { companyOfMasterJobDocumentToken, masterJobDocumentContentUrl } from "..
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import type { FileContent } from "../../../lib/fileContent";
-import type { MasterJobDocumentItem, MasterJobHouseBols } from "../interfaces/interfaces";
+import type { MasterJobDocumentItem, MasterJobDocumentsZip } from "../interfaces/interfaces";
 
 // A master job's Documents tab: its own files, kept apart from the shipments' documents (their own
 // table and bucket), so linking or unlinking a house never moves one. The rules are the shipments'
@@ -122,22 +122,32 @@ class MasterJobDocumentService {
   }
 
   // The master job, in the caller's company. An id that is not one is not found either (it never reaches SQL).
+  /** The Bills of Lading of the master job's linked shipments (typed "Bill of Lading" on their Documents tabs) in one ZIP. */
+  houseBols(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
+    return this.shipmentDocs(masterJobId, companyId, HOUSE_BOLS);
+  }
+
+  /** The linked shipments' commercial paperwork (Commercial Invoices and packing lists) in one ZIP, a folder per shipment. */
+  commercialPaperwork(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
+    return this.shipmentDocs(masterJobId, companyId, COMMERCIAL_PAPERWORK);
+  }
+
   /**
-   * The Bills of Lading of the master job's linked shipments (the files typed "Bill of Lading" on
-   * each shipment's Documents tab) in one ZIP, with the shipments that have none. A deleted shipment
-   * is no longer linked, so its files are not in it.
+   * The linked shipments' files of the download's types in one ZIP, by job number and each one's
+   * files oldest first, with the shipments that have none. A deleted shipment is no longer linked,
+   * so its files are not in it.
    */
-  async houseBols(masterJobId: string, companyId: string): Promise<MasterJobHouseBols> {
+  private async shipmentDocs(masterJobId: string, companyId: string, download: ShipmentDocsDownload): Promise<MasterJobDocumentsZip> {
     const masterJob = isUuid(masterJobId) ? await masterJobRepository.getByIdForCompany(masterJobId, companyId) : null;
     if (!masterJob) throw APIError.notFound("Master job not found");
     const shipments = (await shipmentRepository.findByMasterJobId(masterJobId, companyId)).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
     const jobNumberOf = new Map(shipments.map((s) => [s.id, s.jobNumber]));
-    const rows = await shipmentAttachmentRepository.listByShipmentIdsOfType(shipments.map((s) => s.id), companyId, HOUSE_BOL_TYPE);
+    const rows = await shipmentAttachmentRepository.listByShipmentIdsOfTypes(shipments.map((s) => s.id), companyId, download.types);
     // In the order of the shipments, each one's files oldest first.
     const order = new Map(shipments.map((s, i) => [s.id, i]));
     rows.sort((a, b) => (order.get(a.shipmentId) ?? 0) - (order.get(b.shipmentId) ?? 0));
 
-    const files: HouseBolFile[] = [];
+    const files: ShipmentDocFile[] = [];
     const unreadable: string[] = [];
     for (const row of rows) {
       const jobNumber = jobNumberOf.get(row.shipmentId) ?? "";
@@ -145,18 +155,22 @@ class MasterJobDocumentService {
         if (!row.storageKey) throw new Error("no storage key");
         files.push({ jobNumber, fileName: row.fileName, bytes: await attachmentBucket.download(row.storageKey) });
       } catch (err) {
-        log.warn(err, "house BL missing from storage", { attachmentId: row.id });
+        log.warn(err, "shipment document missing from storage", { attachmentId: row.id });
         unreadable.push(`${jobNumber} - ${row.fileName}`);
       }
     }
 
-    const withBol = new Set(rows.map((r) => r.shipmentId));
+    const withFiles = new Set(rows.map((r) => r.shipmentId));
     return {
       file: files.length
-        ? { fileName: houseBolZipName(masterJob.mczNumber), contentType: "application/zip", fileBase64: houseBolZip(files).toString("base64") }
+        ? {
+            fileName: shipmentDocsZipName(masterJob.mczNumber, download),
+            contentType: "application/zip",
+            fileBase64: shipmentDocsZip(files, download.layout).toString("base64"),
+          }
         : null,
       fileCount: files.length,
-      withoutBol: shipments.filter((s) => !withBol.has(s.id)).map((s) => s.jobNumber),
+      withoutFiles: shipments.filter((s) => !withFiles.has(s.id)).map((s) => s.jobNumber),
       unreadable,
     };
   }

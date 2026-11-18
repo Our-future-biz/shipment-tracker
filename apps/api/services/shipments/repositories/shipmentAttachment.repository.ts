@@ -35,16 +35,16 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
       .orderBy(asc(shipmentAttachmentTable.createdAt));
   }
 
-  /** The shipments' files of one document type, oldest first (a master job's house Bills of Lading). */
-  async listByShipmentIdsOfType(shipmentIds: string[], companyId: string, documentType: string): Promise<ShipmentAttachmentRecord[]> {
-    if (shipmentIds.length === 0) return [];
+  /** The shipments' files of the given document types, oldest first (a master job's house BLs or commercial paperwork). */
+  async listByShipmentIdsOfTypes(shipmentIds: string[], companyId: string, documentTypes: readonly string[]): Promise<ShipmentAttachmentRecord[]> {
+    if (shipmentIds.length === 0 || documentTypes.length === 0) return [];
     return this.db
       .select()
       .from(shipmentAttachmentTable)
       .where(and(
         eq(shipmentAttachmentTable.companyId, companyId),
         inArray(shipmentAttachmentTable.shipmentId, shipmentIds),
-        eq(shipmentAttachmentTable.documentType, documentType),
+        inArray(shipmentAttachmentTable.documentType, [...documentTypes]),
         isNull(shipmentAttachmentTable.deletedAt),
       ))
       .orderBy(asc(shipmentAttachmentTable.createdAt));

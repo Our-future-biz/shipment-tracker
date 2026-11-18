@@ -13,7 +13,7 @@ const masterJobs = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const tokens = vi.hoisted(() => ({ companyOfMasterJobDocumentToken: vi.fn() }));
 const shipments = vi.hoisted(() => ({ findByMasterJobId: vi.fn() }));
-const attachments = vi.hoisted(() => ({ listByShipmentIdsOfType: vi.fn() }));
+const attachments = vi.hoisted(() => ({ listByShipmentIdsOfTypes: vi.fn() }));
 const attachmentBucket = vi.hoisted(() => ({ download: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
@@ -184,7 +184,7 @@ describe("deleting a document", () => {
   });
 });
 
-describe("downloading the house BLs", () => {
+describe("downloading the linked shipments' documents in one ZIP", () => {
   const S1 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c11";
   const S2 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c12";
   const S3 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c13";
@@ -198,15 +198,15 @@ describe("downloading the house BLs", () => {
       { id: S1, jobNumber: "CZFCL00000060" },
       { id: S3, jobNumber: "CZFCL00000062" },
     ]);
-    attachments.listByShipmentIdsOfType.mockResolvedValue([bl("a2", S2, "HBL.pdf"), bl("a1", S1, "HBL.pdf")]);
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a2", S2, "HBL.pdf"), bl("a1", S1, "HBL.pdf")]);
     attachmentBucket.download.mockImplementation(async (key: string) => Buffer.from(`%PDF ${key}`));
   });
 
   it("puts every linked shipment's Bill of Lading in one ZIP, by job number, and names the shipments without one", async () => {
     const res = await masterJobDocumentService.houseBols(MJ, "c1");
     expect(shipments.findByMasterJobId).toHaveBeenCalledWith(MJ, "c1");
-    expect(attachments.listByShipmentIdsOfType).toHaveBeenCalledWith([S1, S2, S3], "c1", "Bill of Lading");
-    expect(res).toMatchObject({ fileCount: 2, withoutBol: ["CZFCL00000062"], unreadable: [] });
+    expect(attachments.listByShipmentIdsOfTypes).toHaveBeenCalledWith([S1, S2, S3], "c1", ["Bill of Lading"]);
+    expect(res).toMatchObject({ fileCount: 2, withoutFiles: ["CZFCL00000062"], unreadable: [] });
     expect(res.file).toMatchObject({ fileName: "MCZFULL00000006 House BLs.zip", contentType: "application/zip" });
     const { unzipSync } = await import("fflate");
     const files = unzipSync(new Uint8Array(Buffer.from(res.file!.fileBase64, "base64")));
@@ -215,15 +215,28 @@ describe("downloading the house BLs", () => {
   });
 
   it("leaves out a file gone from storage and says which, and gives no ZIP when nothing is left", async () => {
-    attachments.listByShipmentIdsOfType.mockResolvedValue([bl("a1", S1, "HBL.pdf"), bl("a2", S2, "old.pdf", null)]);
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a1", S1, "HBL.pdf"), bl("a2", S2, "old.pdf", null)]);
     attachmentBucket.download.mockRejectedValueOnce(new Error("missing"));
     const res = await masterJobDocumentService.houseBols(MJ, "c1");
-    expect(res).toEqual({ file: null, fileCount: 0, withoutBol: ["CZFCL00000062"], unreadable: ["CZFCL00000060 - HBL.pdf", "CZFCL00000061 - old.pdf"] });
+    expect(res).toEqual({ file: null, fileCount: 0, withoutFiles: ["CZFCL00000062"], unreadable: ["CZFCL00000060 - HBL.pdf", "CZFCL00000061 - old.pdf"] });
+  });
+
+  it("gives the commercial paperwork (Commercial Invoices and packing lists) in a folder per shipment", async () => {
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a3", S2, "Invoice 77.pdf"), bl("a1", S1, "Invoice 12.pdf"), bl("a2", S1, "PL.xlsx")]);
+    const res = await masterJobDocumentService.commercialPaperwork(MJ, "c1");
+    expect(attachments.listByShipmentIdsOfTypes).toHaveBeenCalledWith([S1, S2, S3], "c1", ["Invoice", "Packing list"]);
+    expect(res).toMatchObject({ fileCount: 3, withoutFiles: ["CZFCL00000062"], unreadable: [] });
+    expect(res.file!.fileName).toBe("MCZFULL00000006 Commercial paperwork.zip");
+    const { unzipSync } = await import("fflate");
+    const files = unzipSync(new Uint8Array(Buffer.from(res.file!.fileBase64, "base64")));
+    expect(Object.keys(files)).toEqual(["CZFCL00000060/Invoice 12.pdf", "CZFCL00000060/PL.xlsx", "CZFCL00000061/Invoice 77.pdf"]);
   });
 
   it("is refused for a master job of another company, and for an id that is none", async () => {
     masterJobs.getByIdForCompany.mockResolvedValueOnce(null);
     await expect(masterJobDocumentService.houseBols(MJ, "c2")).rejects.toMatchObject({ code: "not_found" });
+    masterJobs.getByIdForCompany.mockResolvedValueOnce(null);
+    await expect(masterJobDocumentService.commercialPaperwork(MJ, "c2")).rejects.toMatchObject({ code: "not_found" });
     await expect(masterJobDocumentService.houseBols("MCZ00000045", "c1")).rejects.toMatchObject({ code: "not_found" });
     expect(shipments.findByMasterJobId).not.toHaveBeenCalled();
   });
