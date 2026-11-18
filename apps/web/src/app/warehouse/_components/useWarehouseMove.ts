@@ -1,7 +1,10 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
+import type { controllers } from "@/lib/api/client";
 import { useShipmentMutations } from "@/hooks/useShipments";
+import { moveOutcome, noneMoved, notMovedText, type MoveOutcome } from "../_lib/moveOutcome";
 import { useToast } from "@/lib/toast";
 import { todayIso } from "@/lib/date";
 
@@ -23,12 +26,23 @@ export const NOTHING_TICKED = "Tick the shipments in the table first";
 
 type WarehouseDate = "warehouseReceivedDate" | "warehouseReleasedDate";
 
+/** What a move may bring along: a manager's reason to release a job stopped for prepayment (Accounts Receivable step 7). */
+export interface MoveOptions {
+  paymentOverrideReason?: string;
+  /** The dialog shows the stopped shipments itself: no toast for them. */
+  stopsShown?: boolean;
+}
+
+type ShipmentsCache = { data?: { id: string; jobNumber?: string | null }[]; shipment?: { id: string; jobNumber?: string | null } };
+
 /**
  * Moves the ticked shipments to `movedTo` by setting each given date to today ("today")
  * or emptying it ("clear"). With `assignReference` each shipment is also given its
  * warehouse reference first; if that fails nothing is moved. `clearTruck` takes the
  * shipments off their truck; a `truck` passed to the move itself puts them on one.
- * The move resolves to whether it went through.
+ * Each shipment is written on its own: the move resolves to what became of each one -
+ * moved, stopped for prepayment (the server's refusal, which a manager may send again with
+ * a reason), or refused otherwise - and says so per job.
  */
 export function useWarehouseMove(
   dates: Partial<Record<WarehouseDate, "today" | "clear">>,
@@ -37,34 +51,52 @@ export function useWarehouseMove(
 ) {
   const { updateShipment } = useShipmentMutations();
   const toast = useToast();
+  const queryClient = useQueryClient();
 
-  return async (ids: string[], truck?: string): Promise<boolean> => {
+  // The job number of a shipment, as a cached list or the shipment's own read holds it.
+  const jobOf = (id: string): string => {
+    for (const [, cached] of queryClient.getQueriesData<ShipmentsCache>({ queryKey: ["shipments"] })) {
+      const found = cached?.shipment?.id === id ? cached.shipment : cached?.data?.find((s) => s.id === id);
+      if (found?.jobNumber) return found.jobNumber;
+    }
+    return "";
+  };
+
+  return async (ids: string[], truck?: string, options: MoveOptions = {}): Promise<MoveOutcome> => {
     if (ids.length === 0) {
       toast.error(NOTHING_TICKED);
-      return false;
+      return noneMoved(ids, NOTHING_TICKED);
     }
+    const today = todayIso();
+    // An empty string is how the API is told to clear a date.
+    const data: controllers.ShipmentUpdateRequest = Object.fromEntries(
+      Object.entries(dates).map(([field, to]) => [field, to === "today" ? today : ""]),
+    );
+    if (clearTruck) data.warehouseTruck = "";
+    if (truck) data.warehouseTruck = truck;
+    // Sent only with a release a manager gives a reason for; the server records it only when the job was stopped.
+    const reason = (options.paymentOverrideReason ?? "").trim();
+    if (reason) data.paymentOverrideReason = reason;
+    let refs: { shipmentId: string; reference: string }[] = [];
     try {
-      const today = todayIso();
-      // An empty string is how the API is told to clear a date.
-      const data: Record<string, string> = Object.fromEntries(
-        Object.entries(dates).map(([field, to]) => [field, to === "today" ? today : ""]),
-      );
-      if (clearTruck) data.warehouseTruck = "";
-      if (truck) data.warehouseTruck = truck;
-      const refs = assignReference ? (await api.warehouse.warehouseEnsureRefs({ shipmentIds: ids })).refs : [];
-      const referenceOf = new Map(refs.map((r) => [r.shipmentId, r.reference]));
-      await Promise.all(
-        ids.map((id) => {
-          const warehouseReference = referenceOf.get(id);
-          return updateShipment({ id, data: warehouseReference ? { ...data, warehouseReference } : data });
-        }),
-      );
-      toast.success(`${ids.length} shipment${ids.length === 1 ? "" : "s"} moved to ${movedTo}${truck ? ` on truck ${truck}` : ""}`);
-      return true;
+      refs = assignReference ? (await api.warehouse.warehouseEnsureRefs({ shipmentIds: ids })).refs : [];
     } catch (err) {
-      // The server's reason: a received date only a manager may clear, a release before the receipt.
       toast.error(`Could not move the shipments to ${movedTo}: ${apiErrorMessage(err)}`);
-      return false;
+      return noneMoved(ids, apiErrorMessage(err));
     }
+    const referenceOf = new Map(refs.map((r) => [r.shipmentId, r.reference]));
+    const results = await Promise.allSettled(
+      ids.map((id) => {
+        const warehouseReference = referenceOf.get(id);
+        return updateShipment({ id, data: warehouseReference ? { ...data, warehouseReference } : data });
+      }),
+    );
+    const outcome = moveOutcome(ids, results, apiErrorMessage);
+    const n = outcome.moved.length;
+    if (n > 0) toast.success(`${n} shipment${n === 1 ? "" : "s"} moved to ${movedTo}${truck ? ` on truck ${truck}` : ""}`);
+    // The server's reason, per job: a received date only a manager may clear, a release before the receipt, a stop.
+    const notMoved = notMovedText(outcome, jobOf, !options.stopsShown);
+    if (notMoved) toast.error(`Could not move to ${movedTo}: ${notMoved}`);
+    return outcome;
   };
 }

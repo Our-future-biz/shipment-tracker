@@ -24,6 +24,7 @@ import { ShipmentPicker } from "@/app/sales/quote/[ref]/_components/CopyFromModa
 import { SHIPMENT_SOURCE_STATUSES, shipmentFromQuoteBlockedText } from "@/app/sales/_lib/shipmentLink";
 import { quoteToCreateRequest, quotePreview } from "./quoteToShipment";
 import { copiedLinks } from "@/app/shipments/_lib/parties";
+import { CreditWarning } from "@/components/finance/CreditWarning";
 import type { controllers, interfaces } from "@/lib/api/client";
 
 interface CreateShipmentWizardProps {
@@ -455,6 +456,9 @@ export const CreateShipmentWizard = ({
                 </div>
               )}
               {selectedQuote && <ExchangeRatesError exchange={exchange} className="mt-3" />}
+              {/* The quote's customer's credit warning (Council Outlay 10, D21) and its prepayment terms (D22):
+                  for the operator to read before creating, never a stop. */}
+              {selectedQuote?.data.customerId && <CreditWarning customerId={selectedQuote.data.customerId} showPrepayment className="mt-3" />}
 
               {/* A quote the wizard is opened for may be one no shipment is made from: the picker never offers one. */}
               {blocked && <Alert className="mt-3" type="warning" showIcon message={blocked} />}

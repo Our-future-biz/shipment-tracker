@@ -14,6 +14,8 @@ interface CustomerInvoicePostRequest {
   status: InvoiceStatus;
   /** yyyy-mm-dd, or "" */
   issuedAt: string;
+  /** The issued document's id in Invoicing (an invoice or a credit note); older deliveries carry none. */
+  invoiceId?: string;
 }
 
 interface CustomerInvoicePostResponse {
@@ -21,8 +23,8 @@ interface CustomerInvoicePostResponse {
 }
 
 // Internal only (Invoicing's outbox, after issuing an invoice or a credit note): the document in the
-// customer's invoice list. Safe to send again - the same number updates the entry it made. Company
-// from the caller's auth.
+// customer's invoice list, posted by Invoicing (changed only by a credit note). Safe to send again -
+// the same number updates the entry it made. Company from the caller's auth.
 export const _internalCustomerInvoicePost = api(
   { expose: false, auth: true, method: "POST", path: "/internal/customers/:customerId/invoices/issued" },
   async ({ customerId, ...input }: CustomerInvoicePostRequest): Promise<CustomerInvoicePostResponse> => ({

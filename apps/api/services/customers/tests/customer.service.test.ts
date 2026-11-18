@@ -27,12 +27,17 @@ vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } })
 const topics = vi.hoisted(() => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }));
 vi.mock("../topics", () => topics);
 const userLookup = vi.hoisted(() => vi.fn());
-// What the shipments and quotes services count of a customer before it is deleted.
-const uses = vi.hoisted(() => ({ shipments: vi.fn(async () => ({ count: 0 })), openQuotes: vi.fn(async () => ({ count: 0 })) }));
+// What the shipments, quotes and invoicing services count of a customer before it is deleted.
+const uses = vi.hoisted(() => ({
+  shipments: vi.fn(async () => ({ count: 0 })),
+  openQuotes: vi.fn(async () => ({ count: 0 })),
+  unpaidInvoices: vi.fn(async () => ({ count: 0 })),
+}));
 vi.mock("~encore/clients", () => ({
   auth: { userLookup },
   shipments: { _internalCustomerShipmentCount: uses.shipments },
   quotes: { _internalCustomerOpenQuoteCount: uses.openQuotes },
+  invoicing: { _internalCustomerUnpaidCount: uses.unpaidInvoices },
 }));
 const logger = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn() }));
 vi.mock("encore.dev/log", () => ({ default: logger }));
@@ -49,7 +54,10 @@ vi.mock("encore.dev/api", () => ({
   },
 }));
 
+import { getTableColumns } from "drizzle-orm";
 import { customerService } from "../services/customer.service";
+import { customerTable } from "../schemas/customer.schema";
+import { CUSTOMER_LANGUAGES, isCustomerLanguage } from "../interfaces/interfaces";
 import { contactService } from "../services/contact.service";
 
 const COMPANY = "00000000-0000-0000-0000-000000000001";
@@ -233,6 +241,41 @@ describe("manager-only fields", () => {
   });
 });
 
+describe("the language a customer is written to in (reminders and statements)", () => {
+  it("is set by a manager, an admin or a superadmin, as the payment terms are", async () => {
+    customers.updateForCompany.mockResolvedValue({ id: "c1", language: "cs", createdAt: now, updatedAt: now });
+    for (const role of ["manager", "admin", "superadmin"]) {
+      await customerService.update("c1", COMPANY, role, { language: "cs" });
+    }
+    expect(customers.updateForCompany).toHaveBeenCalledTimes(3);
+    expect(customers.updateForCompany).toHaveBeenLastCalledWith("c1", COMPANY, { language: "cs" });
+  });
+
+  it("is not a plain user's to change", async () => {
+    await expect(customerService.update("c1", COMPANY, "user", { language: "en" })).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(customerService.update("c1", COMPANY, "user", { language: "cs", paymentTerms: "30 days" })).rejects.toThrow(
+      "Only a manager can change: paymentTerms, language",
+    );
+    expect(customers.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("is Czech or English only (German later)", async () => {
+    for (const language of ["de", "CS", "", "cz"]) {
+      await expect(customerService.update("c1", COMPANY, "manager", { language: language as "cs" })).rejects.toThrow("The language is Czech (cs) or English (en)");
+    }
+    expect(customers.updateForCompany).not.toHaveBeenCalled();
+    expect(CUSTOMER_LANGUAGES).toEqual(["cs", "en"]);
+    expect([isCustomerLanguage("cs"), isCustomerLanguage("en"), isCustomerLanguage("de"), isCustomerLanguage(null)]).toEqual([true, true, false, false]);
+  });
+
+  it("is English for every customer until a manager sets it, and the customer's read gives it", async () => {
+    const column = getTableColumns(customerTable).language;
+    expect([column.default, column.notNull]).toEqual(["en", true]);
+    customers.updateForCompany.mockResolvedValue({ id: "c1", language: "en", createdAt: now, updatedAt: now });
+    await expect(customerService.update("c1", COMPANY, "user", { companyWebsite: "https://x.cz" })).resolves.toMatchObject({ language: "en" });
+  });
+});
+
 describe("company analysis set by hand", () => {
   it("stores the overrides trimmed and the registration date as a date, \"\" clearing it", async () => {
     customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
@@ -399,10 +442,32 @@ describe("deleting a customer that shipments or quotes still name", () => {
     uses.openQuotes.mockRejectedValueOnce(new Error("quotes down"));
     await expect(customerService.softDelete("c1", COMPANY)).rejects.toMatchObject({
       code: "unavailable",
-      message: "Could not check whether Alfa s.r.o. still has shipments or open quotes, so it was not deleted: try again in a moment",
+      message: "Could not check whether Alfa s.r.o. still has shipments, open quotes or unpaid invoices, so it was not deleted: try again in a moment",
     });
     expect(customers.softDeleteWithChildren).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it("is refused while invoicing says it still owes invoices (D24)", async () => {
+    customers.getByIdForCompany.mockResolvedValue(live());
+    uses.unpaidInvoices.mockResolvedValueOnce({ count: 2 });
+    await expect(customerService.softDelete("c1", COMPANY)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Alfa s.r.o. can't be deleted while it still owes 2 invoices: set it Inactive instead",
+    });
+    expect(uses.unpaidInvoices).toHaveBeenCalledWith({ customerId: "c1" });
+    expect(customers.softDeleteWithChildren).not.toHaveBeenCalled();
+    expect(topics.customerChanged.publish).not.toHaveBeenCalled();
+  });
+
+  it("is refused, not done on a guess, when invoicing can't be asked", async () => {
+    customers.getByIdForCompany.mockResolvedValue(live());
+    uses.unpaidInvoices.mockRejectedValueOnce(new Error("invoicing down"));
+    await expect(customerService.softDelete("c1", COMPANY)).rejects.toMatchObject({
+      code: "unavailable",
+      message: "Could not check whether Alfa s.r.o. still has shipments, open quotes or unpaid invoices, so it was not deleted: try again in a moment",
+    });
+    expect(customers.softDeleteWithChildren).not.toHaveBeenCalled();
   });
 
   it("goes ahead when nothing names it any more", async () => {

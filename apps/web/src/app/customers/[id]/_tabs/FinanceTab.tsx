@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Button, Spin } from "antd";
 import { PillTabs } from "@/components/SectionCard";
-import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
+import { useCustomerOwed } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
 import { summarizeInvoices, unconvertedReason } from "../../_lib/customerInvoices";
 import { useLatestRates } from "@/lib/fx";
@@ -14,6 +14,8 @@ import { CustomerInvoicesCard } from "../_components/CustomerInvoicesCard";
 import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
 import { CustomerPaymentTermsCard } from "../_components/CustomerPaymentTermsCard";
 import { CustomerProfitabilityView } from "../_components/CustomerProfitabilityView";
+import { CustomerStatementMenu } from "../_components/CustomerStatementMenu";
+import { statementCurrencies } from "../../_lib/customerStatement";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 
 const DEFAULT_VIEW = "invoices";
@@ -35,7 +37,7 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { customer } = useCustomer(customerId);
-  const { invoices, isLoading, isError, refetch } = useCustomerInvoices(customerId);
+  const { ledger, today, truncated, canAct, isLoading, isError, refetch } = useCustomerOwed(customerId);
   const { rates, fixingLabel, isLoading: ratesLoading, isError: ratesError } = useLatestRates();
 
   // The sub-view lives in the URL (?view=) next to ?tab=, so it survives a reload and can be linked to.
@@ -53,9 +55,10 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
   if (!customer) return null;
 
   const { creditLimit, currency } = customer;
-  // One summary feeds the tiles, the bar and the aging buckets, so they cannot disagree with each other.
+  // One summary feeds the tiles, the bar and the aging buckets, so they cannot disagree with each other - nor with
+  // Accounts Receivable: the issued invoices count with what is left to pay, the typed rows with their amount.
   // Invoices in other currencies are converted into the customer's currency at today's rates.
-  const summary = summarizeInvoices(invoices, { currency, rates });
+  const summary = summarizeInvoices(ledger, { currency, rates }, today);
   // Shown when anything is owed in a currency other than the customer's: what the converted total is made of.
   // (A currency that nets to zero, e.g. an invoice and its credit note, adds nothing to the breakdown.)
   const owed = summary.byCurrency.filter((c) => roundCents(c.amount) !== 0);
@@ -91,6 +94,13 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
           ) : (
             <Spin spinning={isLoading || ratesLoading}>
               <div className="space-y-5">
+                {truncated && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="This customer has more invoices than can be read at once: the figures and the list below may leave some out."
+                  />
+                )}
                 {summary.unconverted.length > 0 && (
                   <Alert
                     type="warning"
@@ -116,7 +126,7 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
                     tone={utilizationTone(utilization)}
                   />
                   <CustomerKpiTile
-                    label="Open"
+                    label="Not yet due"
                     value={fmtMoney(summary.openAmount, currency)}
                     hint={invoiceCountLabel(summary.openCount)}
                   />
@@ -131,12 +141,17 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
                 {/* Keyed so an edit still being saved never carries over to another customer. */}
                 <CustomerPaymentTermsCard key={customer.id} customer={customer} />
                 <CustomerCreditCard customer={customer} outstanding={summary.outstanding} utilization={utilization} />
-                <CustomerAgingCard aging={summary.aging} currency={currency} />
+                <CustomerAgingCard
+                  aging={summary.aging}
+                  currency={currency}
+                  // A statement per currency the customer owes in (step 7), of the invoices issued in Invoicing.
+                  extra={<CustomerStatementMenu customerId={customerId} customer={customer.companyName} currencies={statementCurrencies(ledger.issued)} canSend={canAct} />}
+                />
               </div>
             </Spin>
           )}
 
-          <CustomerInvoicesCard customerId={customerId} currency={currency} />
+          <CustomerInvoicesCard customerId={customerId} currency={currency} today={today} />
         </>
       )}
     </div>

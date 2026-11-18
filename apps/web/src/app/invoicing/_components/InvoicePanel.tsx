@@ -53,6 +53,8 @@ import { useShipmentCreditRequests } from "@/hooks/useCreditOptions";
 import { useShipmentChangeRequests } from "@/hooks/useInvoiceChangeAsk";
 import { InvoiceChangeModal } from "./InvoiceChangeModal";
 import { InvoiceCustomerSelect } from "./InvoiceCustomerSelect";
+import { useShipmentReceivables, type ReceivableItem } from "@/hooks/useReceivables";
+import { arInvoiceHref, statusLabel as receivableStatusLabel, statusTitle as receivableStatusTitle, statusTone as receivableStatusTone } from "@/lib/accountsReceivable";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
 // Offered for a shipment without a customer; one with a customer is billed in that customer's currencies.
@@ -187,6 +189,22 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
     duzp,
     previewKey,
   });
+
+  // Has the customer paid? Each issued invoice's payment state, as Finance → Accounts Receivable reads it (D19).
+  const receivables = useShipmentReceivables(shipment.id);
+  const receivableOf = useMemo(() => new Map((receivables.data?.rows ?? []).map((r) => [r.id, r])), [receivables.data]);
+  const receivablesFailed = receivables.isError && !receivables.data;
+  const refetchReceivables = receivables.refetch;
+  // An invoice or a credit note issued here changes what is owed: read again when the job's documents change.
+  const docsSignature = docsLoaded ? docs.map((d) => `${d.id}:${d.status}`).join(",") : "";
+  const lastDocsSignature = useRef<string | null>(null);
+  useEffect(() => {
+    if (!docsSignature) return;
+    if (lastDocsSignature.current !== null && lastDocsSignature.current !== docsSignature) void refetchReceivables();
+    lastDocsSignature.current = docsSignature;
+  }, [docsSignature, refetchReceivables]);
+  const paymentChip = (d: InvoiceDoc) =>
+    d.kind === "invoice" && d.status === "issued" ? <PaymentChip row={receivableOf.get(d.id)} failed={receivablesFailed} /> : null;
 
   // Issuing runs on to its PDF and the email: until both are done the holder must keep the panel.
   const busy = isIssuing || isCrediting || downloading !== null;
@@ -961,7 +979,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                           <td className={`${TD} text-right tabular-nums`}>{d.lines.length}</td>
                           <td className={`${TD} text-right tabular-nums font-medium`}>{money(Number(d.grossCzk))}</td>
                           <td className={`${TD} !pl-6 !pr-4`}>
-                            <Pill tone={status.tone}>{status.label}</Pill>
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
+                              <Pill tone={status.tone}>{status.label}</Pill>
+                              {paymentChip(d)}
+                            </span>
                           </td>
                         </tr>
                         {open && (
@@ -1037,6 +1058,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                             <Pill tone="amber">Partly credited</Pill>
                           )}
                           {d.kind === "invoice" && d.status === "issued" && waitingCredit(d.id) && <Pill tone="indigo">Partial credit waiting</Pill>}
+                          {paymentChip(d)}
                         </span>
                       </td>
                       <td className={`${TD} !text-slate-500`}>{czDate(d.issueDate)}</td>
@@ -1174,5 +1196,34 @@ function LineTextInput({ row, muted, onSave }: { row: interfaces.SellingCostItem
       aria-label={`Text on the invoice for ${fallback}`}
       className={`!text-[13px] w-full${muted ? " !text-slate-400" : ""}`}
     />
+  );
+}
+
+/**
+ * Whether the customer paid an issued invoice (D19): its status on Finance → Accounts Receivable and, when it is
+ * late, its days overdue (counted by the server, by the day in Prague), leading to the invoice there. Credited and
+ * cancelled invoices say so with their own pill; credit notes need none.
+ */
+function PaymentChip({ row, failed }: { row: ReceivableItem | undefined; failed: boolean }) {
+  if (!row) {
+    // Not known is said, never left to read as nothing owed.
+    return failed ? (
+      <Pill tone="slate" title="Accounts Receivable could not be read">
+        Payment not known
+      </Pill>
+    ) : null;
+  }
+  const overdue = row.marks.includes("overdue");
+  return (
+    <Tooltip title={`${receivableStatusTitle(row.status)}. Open on Accounts Receivable`}>
+      <Link
+        href={arInvoiceHref(row.id)}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex flex-wrap items-center gap-1 no-underline hover:opacity-80"
+      >
+        <Pill tone={receivableStatusTone(row.status)}>{receivableStatusLabel(row.status)}</Pill>
+        {overdue && <Pill tone="red">{`${row.daysOverdue} day${row.daysOverdue === 1 ? "" : "s"} overdue`}</Pill>}
+      </Link>
+    </Tooltip>
   );
 }

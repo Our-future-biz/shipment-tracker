@@ -281,6 +281,20 @@
       "when": 1794903545238,
       "tag": "0039_invoice_cancelled_status",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794985200000,
+      "tag": "0040_customer_invoice_receivable",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794988800000,
+      "tag": "0041_customer_language",
+      "breakpoints": true
     }
   ]
 }

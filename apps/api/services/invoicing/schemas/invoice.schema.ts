@@ -128,6 +128,8 @@ export const invoiceTable = pgTable(
     uniqueIndex("invoice_company_number_unique").on(table.companyId, table.number),
     uniqueIndex("invoice_company_idempotency_unique").on(table.companyId, table.idempotencyKey),
     index("invoice_corrects_invoice_id_idx").on(table.correctsInvoiceId),
+    // Finance → Accounts Receivable reads the company's invoices by kind, status and due day (migration 0036).
+    index("invoice_receivable_idx").on(table.companyId, table.kind, table.status, table.dueDate).where(sql`deleted_at IS NULL`),
     foreignKey({ columns: [table.correctsInvoiceId], foreignColumns: [table.id], name: "invoice_corrects_invoice_id_fk" }),
     check("invoice_kind_check", sql`${table.kind} IN ('invoice', 'credit_note')`),
     // cancelled: withdrawn on the day it was issued, a manager approving a change (services/invoiceChangeRequest)

@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } })
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn(), _internalReleaseCheck: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
   warehouse: { _internalPickupPlates: vi.fn() },
 }));
@@ -38,6 +38,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
     listFiltered: vi.fn(),
     renameJobNumber: vi.fn(),
     markJobNumberFinal: vi.fn(),
+    openJobIdsOfCustomer: vi.fn(),
     writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
     moveSalesNumber: vi.fn(async () => true),
   },
@@ -65,6 +66,7 @@ vi.mock("../../repositories/commercialInvoice.repository", () => ({
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 vi.mock("../../services/shipmentEvents.service", () => ({ deliverShipmentEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
+vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipmentReleaseOverrideRepository: { create: vi.fn() } }));
 vi.mock("../../repositories/shipmentPushOutbox.repository", () => ({ shipmentPushOutboxRepository: { enqueue: vi.fn(), claimDue: vi.fn(), markSent: vi.fn(), markRetry: vi.fn(), markFailed: vi.fn() } }));
 
 import log from "encore.dev/log";
@@ -89,6 +91,8 @@ import { shipmentPartiesChanged } from "../../topics";
 import { RELEASED_BEFORE_RECEIVED } from "../../lib/shipmentEditRule";
 import { addDays, businessDay } from "../../../../lib/businessDate";
 import { shipmentPushOutboxRepository } from "../../repositories/shipmentPushOutbox.repository";
+import { shipmentReleaseOverrideRepository } from "../../repositories/shipmentReleaseOverride.repository";
+import { PAYMENT_UNCHECKED, RELEASE_CHANGED_MEANWHILE } from "../../lib/prepaymentStop";
 
 const repository = vi.mocked(shipmentRepository);
 const links = vi.mocked(quoteLinksService);
@@ -124,6 +128,9 @@ const row = (over: Record<string, unknown> = {}) =>
     deletedAt: null,
     ...over,
   }) as unknown as ShipmentRecord;
+
+// Invoicing's word on a job that is not stopped for payment (its _internalReleaseCheck).
+const PAID = { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUnpaid: false };
 
 const synced = (over: Partial<QuoteSyncResult> = {}): QuoteSyncResult => ({
   quoteNumber: REF,
@@ -191,6 +198,8 @@ beforeEach(() => {
   vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: [] });
   // Every charge on an open invoice unless a test says otherwise: Invoiced may then be set.
   vi.mocked(invoicing._internalChargeCount).mockResolvedValue({ invoiced: 2, total: 2 });
+  // The job is paid, or not on prepayment, unless a test says otherwise: a release goes through.
+  vi.mocked(invoicing._internalReleaseCheck).mockResolvedValue(PAID);
   vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
@@ -2361,5 +2370,189 @@ describe("the main search in containers", () => {
     await expect(shipmentService.searchContainers(COMPANY, "gmbh hamburg", 5)).resolves.toEqual({ items: [], total: 0 });
     await expect(shipmentService.searchContainers(COMPANY, "msc", 5)).resolves.toEqual({ items: [], total: 0 });
     expect(search).not.toHaveBeenCalled();
+  });
+});
+
+// Accounts Receivable step 7 (D20's later yes): a job on prepayment that is not paid is not released - the House BoL,
+// or Warehouse Released set from empty - unless a manager gives a reason, recorded with the release. The app's own
+// writes are never stopped, and Invoicing is asked only by a write that releases.
+describe("the prepayment stop", () => {
+  const today = businessDay(new Date());
+  const earlier = addDays(today, -3);
+  const check = vi.mocked(invoicing._internalReleaseCheck);
+  const overrides = vi.mocked(shipmentReleaseOverrideRepository.create);
+  const UNPAID = {
+    warn: true,
+    customer: "Firma s.r.o.",
+    prepayment: true,
+    customerOverdueCount: 0,
+    unpaid: [{ invoiceId: "inv-1", number: "FV2026-0012", leftToPay: 1200, currency: "EUR", daysOverdue: 0 }],
+    prepaymentUnpaid: true,
+  };
+  const inStock = (over: Record<string, unknown> = {}) =>
+    stored.set(SHIPMENT, row({ personInCharge: "", holidayCover: "", warehouseReceivedDate: earlier, warehouseReleasedDate: null, houseBolRelease: "", ...over }));
+  const release = (role: string | undefined, paymentOverrideReason?: string, data: Record<string, unknown> = { warehouseReleasedDate: today }) =>
+    shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role, undefined, undefined, { paymentOverrideReason });
+  const releaseBol = (role: string, paymentOverrideReason?: string) => shipmentService.releaseHouseBol(SHIPMENT, COMPANY, USER, { role, paymentOverrideReason });
+  const nothingWritten = () => {
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(overrides).not.toHaveBeenCalled();
+  };
+
+  beforeEach(() => inStock());
+
+  it("refuses a user Warehouse Released on an unpaid prepayment job, naming the invoice, and writes nothing", async () => {
+    check.mockResolvedValue(UNPAID);
+    await expect(release("user")).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Warehouse Released can't be set: the job is on prepayment and not paid - FV2026-0012 (1,200.00 EUR left to pay). A manager can release it with a reason",
+    });
+    expect(check).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+    // A user's reason doesn't count.
+    await expect(release("user", "Paid by phone")).rejects.toMatchObject({ code: "failed_precondition" });
+    nothingWritten();
+  });
+
+  it("refuses a manager without a reason (or a too short one), telling them to give one", async () => {
+    check.mockResolvedValue(UNPAID);
+    for (const reason of [undefined, "", "  ", "ok"]) {
+      await expect(release("manager", reason)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/FV2026-0012.*give a reason \(at least 3 characters\)/) });
+    }
+    nothingWritten();
+  });
+
+  it("lets a manager release it with a reason, recorded in the release's own turn", async () => {
+    check.mockResolvedValue(UNPAID);
+    await expect(release("manager", "  Customer sent the payment proof  ")).resolves.toBeTruthy();
+    expect(repository.updateForCompany).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.objectContaining({ warehouseReleasedDate: today }), TX);
+    expect(overrides).toHaveBeenCalledTimes(1);
+    expect(overrides).toHaveBeenCalledWith(TX, {
+      companyId: COMPANY,
+      shipmentId: SHIPMENT,
+      kind: "warehouse_released",
+      reason: "Customer sent the payment proof",
+      invoices: [{ number: "FV2026-0012", leftToPay: 1200, currency: "EUR" }],
+      checked: true,
+      byUserId: USER,
+      by: JAN.email,
+    });
+    // A line in the shipment's history and a note on its Tracking tab, in the same turn.
+    expect(shipmentAuditRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ shipmentId: SHIPMENT, field: "paymentOverride", oldValue: null, newValue: expect.stringContaining("reason: Customer sent the payment proof") }),
+      TX,
+    );
+    expect(shipmentTrackingEventRepository.add).toHaveBeenCalledWith(
+      expect.objectContaining({ shipmentId: SHIPMENT, kind: "note", source: "user", recordedById: USER, note: expect.stringContaining("FV2026-0012 (1,200.00 EUR left to pay)") }),
+      TX,
+    );
+  });
+
+  it("never stops a job that is not on unpaid prepayment, and records no reason sent with it", async () => {
+    await expect(release("user")).resolves.toBeTruthy();
+    // Overdue debt of the customer stays a warning only.
+    inStock();
+    check.mockResolvedValue({ ...UNPAID, prepayment: false, customerOverdueCount: 2, prepaymentUnpaid: false });
+    await expect(release("user")).resolves.toBeTruthy();
+    inStock();
+    await expect(release("manager", "Not needed")).resolves.toBeTruthy();
+    expect(repository.updateForCompany).toHaveBeenCalledTimes(3);
+    expect(overrides).not.toHaveBeenCalled();
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalledWith(expect.objectContaining({ field: "paymentOverride" }), TX);
+  });
+
+  it("refuses when Invoicing can't be asked, and lets a manager release with a reason, recorded as unchecked", async () => {
+    check.mockRejectedValue(new APIError("unavailable", "invoicing down"));
+    await expect(release("user")).rejects.toMatchObject({ code: "failed_precondition", message: `${PAYMENT_UNCHECKED}. A manager can release it with a reason` });
+    await expect(release("manager")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining(PAYMENT_UNCHECKED) });
+    nothingWritten();
+    await expect(release("manager", "Cash at the counter")).resolves.toBeTruthy();
+    expect(overrides).toHaveBeenCalledWith(TX, expect.objectContaining({ kind: "warehouse_released", reason: "Cash at the counter", invoices: [], checked: false }));
+  });
+
+  it("asks Invoicing only when the write sets Warehouse Released from empty", async () => {
+    check.mockResolvedValue(UNPAID);
+    await expect(release("user", undefined, { vessel: "SEASPAN" })).resolves.toBeTruthy();
+    await expect(release("user", undefined, { warehouseReleasedDate: "" })).resolves.toBeTruthy();
+    inStock({ warehouseReleasedDate: earlier });
+    // Cleared, or moved to another day once released: no release from empty.
+    await expect(release("user", undefined, { warehouseReleasedDate: "" })).resolves.toBeTruthy();
+    inStock({ warehouseReleasedDate: earlier });
+    await expect(release("user", undefined, { warehouseReleasedDate: today })).resolves.toBeTruthy();
+    inStock({ warehouseReleasedDate: earlier });
+    await expect(release("manager", undefined, { warehouseReceivedDate: addDays(earlier, -1) })).resolves.toBeTruthy();
+    expect(check).not.toHaveBeenCalled();
+    expect(overrides).not.toHaveBeenCalled();
+  });
+
+  it("never stops the app's own writes: the gate's, Trucking's, Invoicing's", async () => {
+    check.mockResolvedValue(UNPAID);
+    await expect(release(undefined)).resolves.toBeTruthy();
+    await expect(shipmentService.releaseHouseBol(SHIPMENT, COMPANY, USER)).resolves.toBeTruthy();
+    expect(check).not.toHaveBeenCalled();
+    expect(overrides).not.toHaveBeenCalled();
+  });
+
+  it("asks again a release decided on a row whose Warehouse Released was emptied in between", async () => {
+    check.mockResolvedValue(UNPAID);
+    inStock({ warehouseReleasedDate: earlier });
+    repository.getInTurn.mockResolvedValueOnce(row({ warehouseReceivedDate: earlier, warehouseReleasedDate: null }));
+    await expect(release("user", undefined, { warehouseReleasedDate: today })).rejects.toMatchObject({ code: "failed_precondition", message: RELEASE_CHANGED_MEANWHILE });
+    nothingWritten();
+  });
+
+  it("records no override when another release got there first: this write sets no release from empty", async () => {
+    check.mockResolvedValue(UNPAID);
+    repository.getInTurn.mockResolvedValueOnce(row({ warehouseReceivedDate: earlier, warehouseReleasedDate: earlier }));
+    await expect(release("manager", "Customer sent the payment proof")).resolves.toBeTruthy();
+    expect(overrides).not.toHaveBeenCalled();
+  });
+
+  describe("the House BoL release", () => {
+    it("refuses a user on an unpaid prepayment job, naming the invoice", async () => {
+      check.mockResolvedValue(UNPAID);
+      await expect(releaseBol("user")).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "The House BoL can't be released: the job is on prepayment and not paid - FV2026-0012 (1,200.00 EUR left to pay). A manager can release it with a reason",
+      });
+      await expect(releaseBol("manager")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("give a reason") });
+      nothingWritten();
+      expect(repository.writeTurn).not.toHaveBeenCalled();
+    });
+
+    it("lets a manager release it with a reason, stamped and recorded together", async () => {
+      check.mockResolvedValue(UNPAID);
+      await expect(releaseBol("admin", "Original B/L held by the bank")).resolves.toBeTruthy();
+      expect(repository.updateForCompany).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.objectContaining({ houseBolRelease: expect.stringMatching(/^jan@firma\.cz — /) }), TX);
+      expect(overrides).toHaveBeenCalledWith(TX, expect.objectContaining({ kind: "house_bol", reason: "Original B/L held by the bank", checked: true, by: JAN.email }));
+    });
+
+    it("releases a job that is paid or not on prepayment for anyone, and refuses a user when Invoicing can't be asked", async () => {
+      await expect(releaseBol("user")).resolves.toBeTruthy();
+      expect(overrides).not.toHaveBeenCalled();
+      inStock();
+      check.mockRejectedValue(new Error("timeout"));
+      await expect(releaseBol("user")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining(PAYMENT_UNCHECKED) });
+      await expect(releaseBol("manager", "Paid in cash")).resolves.toBeTruthy();
+      expect(overrides).toHaveBeenCalledWith(TX, expect.objectContaining({ kind: "house_bol", checked: false, invoices: [] }));
+    });
+  });
+});
+
+describe("the customer's open jobs (Accounts Receivable's work not yet invoiced)", () => {
+  const CUSTOMER = "3f1d2c4b-5a6e-4f70-8a9b-0c1d2e3f4a5b";
+  it("lists the live, not Cancelled jobs, newest first, capped at 5000", async () => {
+    repository.openJobIdsOfCustomer.mockResolvedValueOnce(["s3", "s2", "s1"]);
+    await expect(shipmentService.openJobIdsOfCustomer(COMPANY, CUSTOMER)).resolves.toEqual({ shipmentIds: ["s3", "s2", "s1"], capped: false });
+    expect(repository.openJobIdsOfCustomer).toHaveBeenCalledWith(COMPANY, CUSTOMER, 5001);
+    const many = Array.from({ length: 5001 }, (_, i) => `s${i}`);
+    repository.openJobIdsOfCustomer.mockResolvedValueOnce(many);
+    const answer = await shipmentService.openJobIdsOfCustomer(COMPANY, CUSTOMER);
+    expect(answer.capped).toBe(true);
+    expect(answer.shipmentIds).toEqual(many.slice(0, 5000));
+  });
+
+  it("answers nothing for what is not a customer id, without asking the database", async () => {
+    await expect(shipmentService.openJobIdsOfCustomer(COMPANY, "not-an-id")).resolves.toEqual({ shipmentIds: [], capped: false });
+    expect(repository.openJobIdsOfCustomer).not.toHaveBeenCalled();
   });
 });

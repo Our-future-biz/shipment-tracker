@@ -11,6 +11,8 @@ import type { KpiTone } from "./CustomerKpiTile";
 import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 import { apiErrorMessage } from "@/lib/api";
 import { LABEL_TEXT } from "@/styles/ui";
+import { UNBILLED_NOT_READ, unbilledLine } from "@/lib/paymentWarnings";
+import { useCustomerUnbilled } from "./useCustomerStatement";
 
 const AMBER_FROM_PCT = 70;
 const RED_FROM_PCT = 90;
@@ -39,7 +41,9 @@ interface CustomerCreditCardProps {
   utilization: number | null;
 }
 
-// How much of the credit limit is in use, and the only place where the limit is edited.
+// How much of the credit limit is in use, and the only place where the limit is edited. Beside it, the work done on
+// the customer's open jobs that is not yet invoiced (Accounts Receivable step 7): its own line per currency, never
+// added to what is used.
 export function CustomerCreditCard({ customer, outstanding, utilization }: CustomerCreditCardProps) {
   const toast = useToast();
   const inputId = useId();
@@ -47,6 +51,8 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
   // The limit is a manager's decision; the server refuses anyone else.
   const canManage = useCanManageCustomers();
   const { creditLimit, currency } = customer;
+  const unbilled = useCustomerUnbilled(customer.id);
+  const unbilledText = unbilled.data ? unbilledLine(unbilled.data) : null;
 
   const [draft, setDraft] = useState<number | null>(creditLimit);
   // What the field is compared with. It moves to a newly saved value at once; the refetched customer arrives a moment later.
@@ -105,6 +111,12 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
               ? "Set a credit limit to track how much of it is in use."
               : `${fmtMoney(outstanding, currency)} of ${fmtMoney(creditLimit, currency)} used`}
           </div>
+          {/* Information only: never part of "used" nor of the utilization. */}
+          {unbilled.isError && !unbilled.data ? (
+            <div className="mt-1 text-xs text-slate-500">{UNBILLED_NOT_READ}</div>
+          ) : (
+            unbilledText && <div className="mt-1 text-xs text-slate-700">{unbilledText}</div>
+          )}
         </div>
 
         <div>

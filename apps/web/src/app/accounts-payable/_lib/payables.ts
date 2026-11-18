@@ -2,7 +2,9 @@ import type { interfaces } from "@/lib/api/client";
 import type { PillTone } from "@/components/Pill";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { fold } from "@/lib/fold";
-import { formatAmount, round2 } from "@/lib/money";
+import { round2 } from "@/lib/money";
+import type { Amounts } from "@/lib/amounts";
+import type { CheckDef } from "@/lib/tableModel";
 import { formatDate } from "@/lib/date";
 import { INVOICE_STATUS_CHIP } from "@/app/trucking/_lib/haulierInvoices";
 // A haulier invoice opens in Trucking, where approving and paying it stay (D17).
@@ -18,7 +20,6 @@ export type PayableInvoice = interfaces.PayableInvoiceItem;
 export type PayableHaulier = interfaces.PayableHaulierItem;
 export type PayableExpected = interfaces.PayableExpectedItem;
 export type PayableMark = interfaces.PayableMarkItem;
-type Amounts = { currency: string; amount: number }[];
 
 /** A row of the invoices table: one supplier invoice (D1), or a haulier invoice from Trucking, read-only (D17). */
 export type PayableRow = { source: "ap"; key: string; invoice: PayableInvoice } | { source: "haulier"; key: string; haulier: PayableHaulier };
@@ -160,17 +161,7 @@ export function rowMarks(i: PayableInvoice): (Chip & { key: string })[] {
 
 // ── Figures ──
 
-/** "1,200 EUR · 300 USD"; "—" for none. Never converted, never one grand total (D3, the page). */
-export function amountsText(amounts: Amounts): string {
-  return amounts.length ? amounts.map((a) => formatAmount(a.amount, a.currency)).join(" · ") : "—";
-}
-
-/** Amounts per currency added up, largest first (as the server orders them). */
-export function sumAmounts(lists: Amounts[]): Amounts {
-  const sums = new Map<string, number>();
-  for (const list of lists) for (const a of list) sums.set(a.currency, round2((sums.get(a.currency) ?? 0) + a.amount));
-  return [...sums.entries()].map(([currency, amount]) => ({ currency, amount })).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount) || a.currency.localeCompare(b.currency));
-}
+// amountsText and sumAmounts (one figure per currency, never converted) are in @/lib/amounts, shared with Accounts Receivable.
 
 export const haulierAmounts = (h: PayableHaulier): Amounts => [{ currency: h.currency, amount: h.gross }];
 
@@ -242,13 +233,6 @@ export const arrivedOnUnbilledJob = (i: Pick<PayableInvoice, "jobBilled" | "stat
 
 export type InvoiceCheck = "differs" | "unbilled_job" | "after_billing";
 export type ExpectedCheck = "job_billed";
-
-export interface CheckDef<K extends string> {
-  key: K;
-  /** The words of the chip and of the saved filter */
-  label: string;
-  tip: string;
-}
 
 export const INVOICE_CHECKS: CheckDef<InvoiceCheck>[] = [
   { key: "differs", label: "Differs from estimate", tip: "A line bills more or less than its job estimated" },

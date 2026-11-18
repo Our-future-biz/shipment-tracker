@@ -1330,3 +1330,408 @@ export interface PayablesForMeResponse {
   /** Invoices booked in the last 7 days on jobs the user is Person in Charge or Holiday Cover of, not yet opened */
   booked: PayableNoticeItem[];
 }
+
+// ── Accounts Receivable (Council Outlay 10, 18 Nov 2026) ──
+// One row per issued invoice, its credit notes folded in (D1); amounts with VAT in the invoice's currency, never
+// converted (D6). Statuses and marks are the words of D3 (the web turns them into text).
+
+/** written_off (step 7): nothing is left to pay, closed by confirmed write-offs or bank charges, no money paid */
+export type ReceivableStatus = "unpaid" | "part_paid" | "paid" | "written_off" | "credited" | "cancelled";
+export type ReceivableMark =
+  | "overdue"
+  | "part_credited"
+  | "to_refund"
+  | "prepayment"
+  | "promised"
+  | "promise_broken"
+  | "disputed"
+  | "reminded"
+  | "not_in_customer_list"
+  /** A write-off or bank charge waits for a second manager (step 7, D13) */
+  | "write_off_waiting"
+  /** A confirmed write-off counts on an invoice that also has money paid */
+  | "part_written_off"
+  /** A confirmed bank charge counts on it */
+  | "bank_charge";
+
+/** A line on an invoice's receivable: money paid, carried over, or (step 7) a write-off or bank charge. */
+export type ReceivableLineKind = "payment" | "carried_over" | "write_off" | "bank_charge";
+export type AgingBucket = "current" | "1-30" | "31-60" | "61-90" | "90+";
+
+export interface ReceivableAmount {
+  currency: string;
+  amount: number;
+}
+
+/** An issued invoice as Accounts Receivable lists it. */
+/** A credit note as the list row carries it: its number, day and amount (with VAT, negative, the invoice's currency), and who issued it. */
+export interface ReceivableRowCreditNote {
+  number: string;
+  issueDate: string;
+  gross: number;
+  /** Who issued it (e-mail); "" when unknown */
+  issuedBy: string;
+  /** Their display name (the e-mail when they have none); "" when unknown */
+  issuedByName: string;
+}
+
+export interface ReceivableItem {
+  /** The invoice id */
+  id: string;
+  number: string;
+  customerId: string;
+  /** The customer's name as on the invoice */
+  customer: string;
+  shipmentId: string;
+  jobNumber: string;
+  issueDate: string;
+  duzp: string;
+  dueDate: string;
+  currency: string;
+  net: number;
+  vat: number;
+  gross: number;
+  grossCzk: number;
+  /** What its credit notes took off (a positive number) */
+  credited: number;
+  /** What live payments paid (money: payments and carried over) */
+  paid: number;
+  /** Confirmed, live write-offs (step 7) */
+  writtenOff: number;
+  /** Confirmed, live bank charges (step 7) */
+  bankCharges: number;
+  /** gross − credited − paid − writtenOff − bankCharges; below 0 = to refund */
+  leftToPay: number;
+  status: ReceivableStatus;
+  marks: ReceivableMark[];
+  daysOverdue: number;
+  agingBucket: AgingBucket | null;
+  paymentTerms: string;
+  promisedOn: string | null;
+  disputed: boolean;
+  reminderLevel: number;
+  lastRemindedOn: string | null;
+  lastPaidOn: string | null;
+  creditNoteNumbers: string[];
+  /** The credit notes on it, oldest first: the CSV gives each its own line, as accounting books them (D1) */
+  creditNotes: ReceivableRowCreditNote[];
+  /** E-mails; "" when unknown */
+  personInCharge: string;
+  holidayCover: string;
+  salesOwner: string;
+  /** The user is the job's Person in Charge or Holiday Cover (the Accounts Payable rule) */
+  mine: boolean;
+  /** The user is the customer's Sales Owner */
+  myCustomer: boolean;
+  /** Who issued it (e-mail); "" when unknown */
+  issuedBy: string;
+  /** The receivable's version (1 before any write) */
+  version: number;
+}
+
+/** What one customer owes in one currency, by age. */
+export interface ReceivableCustomerRow {
+  customerId: string;
+  customer: string;
+  salesOwner: string;
+  currency: string;
+  unpaid: number;
+  current: number;
+  d1to30: number;
+  d31to60: number;
+  d61to90: number;
+  d90plus: number;
+  oldestDue: string | null;
+  invoices: number;
+  /** From the Customer Database (0 = none); the web converts */
+  creditLimit: number;
+  creditCurrency: string;
+}
+
+export type ReceivablePeriod = "90d" | "12m" | "all";
+
+export interface ReceivablesResponse {
+  /** Every unpaid / part-paid invoice (and one to refund) + the others issued in the period */
+  rows: ReceivableItem[];
+  /** More than 2000 rows: the page says so */
+  truncated: boolean;
+  period: ReceivablePeriod;
+  counts: {
+    unpaid: number;
+    overdue: number;
+    paid: number;
+    /** Status Written off (step 7) */
+    writtenOff: number;
+    creditedCancelled: number;
+    all: number;
+    promised: number;
+    disputed: number;
+    byCustomer: number;
+  };
+  totals: { toCollect: ReceivableAmount[]; overdue: ReceivableAmount[] };
+  dueThisWeek: number;
+  over60: number;
+  customersOwing: number;
+  /** One per customer and currency with something left to pay */
+  byCustomer: ReceivableCustomerRow[];
+  /** A manager: notes payments and takes them back */
+  canAct: boolean;
+  /** The job and customer facts could be read (else names and owners are blank) */
+  factsRead: boolean;
+  today: string;
+}
+
+export interface ReceivableLineItem {
+  description: string;
+  qty: number;
+  unit: string;
+  unitPrice: number;
+  /** The unit price's currency; net, VAT and gross are in the invoice's */
+  currency: string;
+  net: number;
+  vatRate: number;
+  vat: number;
+  gross: number;
+}
+
+export interface ReceivableCreditNoteItem {
+  id: string;
+  number: string;
+  issueDate: string;
+  /** Negative */
+  gross: number;
+  reason: string;
+  /** The credit note of the whole invoice (or of what partial ones left of it) */
+  full: boolean;
+  /** Who issued it (e-mail); "" when unknown (D25) */
+  issuedBy: string;
+  /** Their display name (the e-mail when they have none); "" when unknown */
+  issuedByName: string;
+}
+
+export interface ReceivablePaymentItem {
+  id: string;
+  kind: ReceivableLineKind;
+  /** null: carried over, the day not known; a write-off's or bank charge's day is the day it was written */
+  paidOn: string | null;
+  amount: number;
+  note: string;
+  /** Why a write-off or bank charge closes what is left ("" for a payment) */
+  reason: string;
+  /** One bank payment over several invoices: the same reference on each of its lines ("" when none) */
+  bankRef: string;
+  by: string;
+  at: string;
+  /** A write-off or bank charge counts once confirmed: by whom, when, and whether by the manager who wrote it (no other manager) */
+  confirmed: { by: string; at: string; self: boolean } | null;
+  /** A write-off or bank charge waiting for a second manager (not confirmed, not taken back) */
+  waiting: boolean;
+  /** The signed-in user may confirm this waiting line */
+  canConfirm: boolean;
+  takenBack: { by: string; at: string; reason: string } | null;
+}
+
+export interface ReceivableNoteItem {
+  id: string;
+  kind: "note" | "promise" | "dispute" | "dispute_closed" | "reminder";
+  text: string;
+  promisedOn: string | null;
+  reminderLevel: number | null;
+  recipient: string;
+  by: string;
+  at: string;
+}
+
+export interface ReceivableEventItem {
+  id: string;
+  action: string;
+  fromStatus: string;
+  toStatus: string;
+  by: string;
+  at: string;
+  reason: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ReceivableCustomerFacts {
+  paymentTerms: string;
+  creditLimit: number;
+  creditCurrency: string;
+  salesOwner: string;
+  /** What the customer owes on its invoices, per currency */
+  unpaid: ReceivableAmount[];
+  overdueCount: number;
+  /** Who a reminder goes to (by contact role); null when no contact has an e-mail */
+  reminderTo: { name: string; email: string; role: string } | null;
+}
+
+export interface ReceivableDetailResponse {
+  row: ReceivableItem;
+  lines: ReceivableLineItem[];
+  creditNotes: ReceivableCreditNoteItem[];
+  payments: ReceivablePaymentItem[];
+  notes: ReceivableNoteItem[];
+  events: ReceivableEventItem[];
+  /** null when the Customer Database could not be read */
+  customerFacts: ReceivableCustomerFacts | null;
+  canAct: boolean;
+  today: string;
+  /** A hand-over to the customer's list failed: a manager may send it again */
+  sendAgain: boolean;
+}
+
+export type ReceivableMilestone = "overdue_1" | "overdue_14" | "overdue_30" | "paid";
+
+/** What the bell shows of Accounts Receivable (D18). */
+export interface ReceivableNoticeItem {
+  /** `${invoiceId}:${milestone}` */
+  key: string;
+  invoiceId: string;
+  milestone: ReceivableMilestone;
+  number: string;
+  customer: string;
+  jobNumber: string;
+  leftToPay: number;
+  currency: string;
+  daysOverdue: number;
+  why: "sales_owner" | "person_in_charge";
+}
+
+export interface ReceivablesForMeResponse {
+  notices: ReceivableNoticeItem[];
+}
+
+/** Whether releasing a job's cargo or documents should warn about payment (D20): never a stop. */
+export interface ReleaseCheckResponse {
+  warn: boolean;
+  customer: string;
+  prepayment: boolean;
+  customerOverdueCount: number;
+  unpaid: { invoiceId: string; number: string; leftToPay: number; currency: string; daysOverdue: number }[];
+}
+
+export interface ReceivableRowsResponse {
+  rows: ReceivableItem[];
+}
+
+export interface ReceivableCustomerRowsResponse {
+  rows: ReceivableItem[];
+  truncated: boolean;
+  canAct: boolean;
+  today: string;
+}
+
+// ── Accounts Receivable, step 7 (18 Nov 2026) ──
+
+/** The release check as the shipments service asks it: the warning, and whether the prepayment stop applies (D20's later yes). */
+export interface ReleaseCheckInternalResponse extends ReleaseCheckResponse {
+  /** The job has an invoice on prepayment with something left to pay (unpaid or part paid): the release is refused for a user */
+  prepaymentUnpaid: boolean;
+}
+
+/** One line of the month-end list: an invoice as it stood at the end of the day asked. */
+export interface ReceivableAsAtRow {
+  invoiceId: string;
+  number: string;
+  customerId: string;
+  /** The name on the invoice */
+  customer: string;
+  shipmentId: string;
+  /** The job number printed on the invoice */
+  jobNumber: string;
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  gross: number;
+  /** Credit notes issued on or before the day */
+  credited: number;
+  /** Payments paid on or before the day, and those carried over */
+  paid: number;
+  /** Write-offs and bank charges confirmed on or before the day */
+  writtenOff: number;
+  /** What was left to pay at the end of the day, in the invoice's currency (above 0: it is listed) */
+  leftToPay: number;
+  /** The invoice's own rate: CZK per 1 unit (ČNB on its tax date) */
+  fxRate: number;
+  /** leftToPay × fxRate, rounded to 2 decimals */
+  leftToPayCzk: number;
+  /** Days overdue on the day (0 when not) */
+  daysOverdue: number;
+  agingBucket: AgingBucket | null;
+  /** A payment carried over from the customer's list counts: paid before Accounts Receivable, day not known */
+  carriedOver: boolean;
+}
+
+export interface ReceivablesAsAtResponse {
+  day: string;
+  rows: ReceivableAsAtRow[];
+  /** Per currency, in the invoices' own currencies */
+  totals: ReceivableAmount[];
+  /** The one grand total: every row's CZK, at each invoice's own ČNB rate */
+  totalCzk: number;
+  /** "at each invoice's own ČNB rate" - the words the page shows beside the CZK total */
+  czkRate: string;
+  /** More invoices than are read at once: the list is not complete */
+  truncated: boolean;
+  today: string;
+  /**
+   * Listed invoices whose old "Paid" in the Customer Database could not be checked just now (it could not be asked):
+   * they may already be paid. Absent when every listed invoice was checked.
+   */
+  unchecked?: number;
+  /** The words the page shows when `unchecked` is given */
+  uncheckedNote?: string;
+}
+
+/** Work done on the customer's open jobs not yet invoiced: shown beside the credit limit, never added to "used". */
+export interface ReceivableUnbilledResponse {
+  /** The selling lines' values (net, as priced), per currency, never converted */
+  amounts: ReceivableAmount[];
+  /** Open jobs with something not yet invoiced */
+  jobs: number;
+  /** The customer has more open jobs than are read (5000): the amounts are at least these */
+  capped: boolean;
+}
+
+export interface ReceivableSettingsResponse {
+  /** Reminders 1 and 2 sent by the app each day (only while e-mail from the app is switched on) */
+  autoReminders: boolean;
+  /** Reminder 1 at so many days overdue */
+  reminder1Days: number;
+  /** Reminder 2 at so many days overdue (more than reminder 1) */
+  reminder2Days: number;
+  /** Where a customer's answer goes; "" = the sender's own address */
+  replyTo: string;
+  /** Whether e-mail from the app is switched on (else nothing is sent: "E-mail from the app is switched off") */
+  emailOn: boolean;
+  /** A manager: may change the settings */
+  canEdit: boolean;
+  /** Who changed them last (e-mail), "" when never */
+  updatedBy: string;
+  updatedAt: string | null;
+}
+
+/** A write-off or bank charge waiting for a second manager (the Billing approvals count). */
+export interface ReceivableWaitingLine {
+  lineId: string;
+  invoiceId: string;
+  number: string;
+  customerId: string;
+  customer: string;
+  jobNumber: string;
+  currency: string;
+  kind: "write_off" | "bank_charge";
+  amount: number;
+  reason: string;
+  /** Who wrote it (e-mail) and when */
+  by: string;
+  at: string;
+  /** The receivable's version now (what a confirm sends back) */
+  version: number;
+  /** The signed-in user may confirm it */
+  canConfirm: boolean;
+}
+
+export interface ReceivableWaitingResponse {
+  lines: ReceivableWaitingLine[];
+}

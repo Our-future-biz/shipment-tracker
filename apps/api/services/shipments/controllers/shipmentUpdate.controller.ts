@@ -207,6 +207,12 @@ interface ShipmentUpdateRequest {
   quoteValidity?: string;
   validityStatus?: string;
   salesPerson?: string;
+  /**
+   * A manager's reason (at least 3 characters) to set Warehouse Released, from empty, on a job on prepayment that is
+   * not paid - or whose payment could not be checked (lib/prepaymentStop). Recorded with the release; not stored on
+   * the shipment, and ignored by any other edit.
+   */
+  paymentOverrideReason?: string & MaxLen<500>;
   // No claim: it is derived from the shipment's claims (shipmentClaim.repository), never set here.
 }
 
@@ -217,10 +223,10 @@ interface ShipmentUpdateResponse {
 export const shipmentUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/shipments/:shipmentId" },
   async (req: ShipmentUpdateRequest): Promise<ShipmentUpdateResponse> => {
-    const { shipmentId, ...data } = req;
+    const { shipmentId, paymentOverrideReason, ...data } = req;
     const auth = getAuthData()!;
     // A person's edit is held to what their role may change; the app's own updates are not (see AuthData.appWrite).
     const role = auth.appWrite ? undefined : auth.role;
-    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID, role) };
+    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID, role, undefined, undefined, { paymentOverrideReason }) };
   },
 );

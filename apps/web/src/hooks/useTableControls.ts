@@ -9,14 +9,29 @@ import { useColumnPrefs } from "@/hooks/useColumnPrefs";
 import { useColumnTemplates } from "@/hooks/useColumnTemplates";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { CHECK_KEY, knownFilters, normalizeColumns, type TableModel } from "../_lib/payableColumns";
+import { CHECK_KEY, knownFilters, normalizeColumns, type TableModel } from "@/lib/tableModel";
 
+// A Finance table's Filter and Columns state (Accounts Payable, Accounts Receivable), from its @/lib/tableModel model.
 // One table's Filter and Columns, wired as Finance → Invoicing's queue wires them (Council Outlay 9, the page): the
 // filter rows kept here, their named sets in the user's preferences, the columns shown per user in this browser and
 // their named sets on the server, all under the table's scope. The bar's check chips are filter rows too, so the
 // Filter panel shows them and a saved set keeps them.
 
-export function useTableControls<R, K extends string>(m: TableModel<R, K>) {
+/** What the bar and the table take from useTableControls. */
+export interface TableControls {
+  /** The Filter panel's rows that hold a value (the checks among them), for matchesTableFilters */
+  filters: { key: string; value: string }[];
+  clear: () => void;
+  /** Whether a check chip (by its label) is on */
+  hasCheck: (label: string) => boolean;
+  toggleCheck: (label: string) => void;
+  /** The column keys shown, in table order (for shownColumns) */
+  visible: string[];
+  filterProps: ColumnFiltersPopoverProps;
+  columnProps: ColumnPickerPopoverProps;
+}
+
+export function useTableControls<R, K extends string>(m: TableModel<R, K>): TableControls {
   const { user, token } = useAuth();
   const [filters, setFilters] = useState<GridFilter[]>([]);
   const active = useMemo(() => storedGridFilters(filters), [filters]);

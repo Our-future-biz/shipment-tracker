@@ -548,6 +548,7 @@ export namespace customers {
             this.contactUpdate = this.contactUpdate.bind(this)
             this.customerCreate = this.customerCreate.bind(this)
             this.customerCreateManual = this.customerCreateManual.bind(this)
+            this.customerCreditWarning = this.customerCreditWarning.bind(this)
             this.customerDelete = this.customerDelete.bind(this)
             this.customerDeletedList = this.customerDeletedList.bind(this)
             this.customerGet = this.customerGet.bind(this)
@@ -758,6 +759,16 @@ export namespace customers {
         }
 
         /**
+         * The credit warning on a new quote or shipment (Council Outlay 10 D21), for everyone: the credit limit, the terms,
+         * and what the customer owes and has overdue, per currency (services/creditFacts.service). A warning, never a stop.
+         */
+        public async customerCreditWarning(id: string): Promise<interfaces.CustomerCreditWarning> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(id)}/credit-warning`)
+            return await resp.json() as interfaces.CustomerCreditWarning
+        }
+
+        /**
          * Hides the customer with its contacts, addresses, notes, documents and invoices (soft delete:
          * the rows stay in the database and can be restored). Superadmins only.
          */
@@ -918,12 +929,18 @@ export namespace customers {
             return await resp.json() as controllers.DocumentListResponse
         }
 
+        /**
+         * An invoice typed into the customer's list: managers only (Council Outlay 10 D9) - invoices are issued in Invoicing.
+         */
         public async invoiceCreate(customerId: string, params: controllers.InvoiceCreateRequest): Promise<controllers.InvoiceCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(customerId)}/invoices`, JSON.stringify(params))
             return await resp.json() as controllers.InvoiceCreateResponse
         }
 
+        /**
+         * Refused for an invoice Invoicing posted, to everyone; a typed one only by a manager (Council Outlay 10 D9).
+         */
         public async invoiceDelete(id: string): Promise<controllers.InvoiceDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-invoices/${encodeURIComponent(id)}`)
@@ -936,6 +953,9 @@ export namespace customers {
             return await resp.json() as controllers.InvoiceListResponse
         }
 
+        /**
+         * Refused for an invoice Invoicing posted, to everyone; a typed one only by a manager (Council Outlay 10 D9).
+         */
         public async invoiceUpdate(id: string, params: controllers.InvoiceUpdateRequest): Promise<controllers.InvoiceUpdateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/customer-invoices/${encodeURIComponent(id)}`, JSON.stringify(params))
@@ -1454,6 +1474,11 @@ export namespace invoicing {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.bankStatementConfirm = this.bankStatementConfirm.bind(this)
+            this.bankStatementGet = this.bankStatementGet.bind(this)
+            this.bankStatementIgnore = this.bankStatementIgnore.bind(this)
+            this.bankStatementImport = this.bankStatementImport.bind(this)
+            this.bankStatementList = this.bankStatementList.bind(this)
             this.creditNoteRequestDecide = this.creditNoteRequestDecide.bind(this)
             this.creditNoteRequestForMe = this.creditNoteRequestForMe.bind(this)
             this.creditNoteRequestList = this.creditNoteRequestList.bind(this)
@@ -1512,6 +1537,30 @@ export namespace invoicing {
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
             this.jobProfitReportGet = this.jobProfitReportGet.bind(this)
+            this.receivableAccountingExports = this.receivableAccountingExports.bind(this)
+            this.receivableAsAt = this.receivableAsAt.bind(this)
+            this.receivableBatchPayment = this.receivableBatchPayment.bind(this)
+            this.receivableConfirmWriteOff = this.receivableConfirmWriteOff.bind(this)
+            this.receivableCustomerRows = this.receivableCustomerRows.bind(this)
+            this.receivableCustomerUnbilled = this.receivableCustomerUnbilled.bind(this)
+            this.receivableForMe = this.receivableForMe.bind(this)
+            this.receivableGet = this.receivableGet.bind(this)
+            this.receivableList = this.receivableList.bind(this)
+            this.receivableMailLog = this.receivableMailLog.bind(this)
+            this.receivableNote = this.receivableNote.bind(this)
+            this.receivablePayment = this.receivablePayment.bind(this)
+            this.receivablePohodaExport = this.receivablePohodaExport.bind(this)
+            this.receivableReleaseCheck = this.receivableReleaseCheck.bind(this)
+            this.receivableSeen = this.receivableSeen.bind(this)
+            this.receivableSendAgain = this.receivableSendAgain.bind(this)
+            this.receivableSettingsGet = this.receivableSettingsGet.bind(this)
+            this.receivableSettingsSave = this.receivableSettingsSave.bind(this)
+            this.receivableShipmentRows = this.receivableShipmentRows.bind(this)
+            this.receivableStatementFile = this.receivableStatementFile.bind(this)
+            this.receivableStatementSend = this.receivableStatementSend.bind(this)
+            this.receivableTakeBackPayment = this.receivableTakeBackPayment.bind(this)
+            this.receivableWaiting = this.receivableWaiting.bind(this)
+            this.receivableWriteOff = this.receivableWriteOff.bind(this)
             this.searchInvoices = this.searchInvoices.bind(this)
             this.sellingAmountRequestDecide = this.sellingAmountRequestDecide.bind(this)
             this.sellingAmountRequestForMe = this.sellingAmountRequestForMe.bind(this)
@@ -1530,6 +1579,36 @@ export namespace invoicing {
             this.supplierInvoiceSeen = this.supplierInvoiceSeen.bind(this)
             this.supplierInvoiceTakeBackApproval = this.supplierInvoiceTakeBackApproval.bind(this)
             this.supplierInvoiceTakeBackPayment = this.supplierInvoiceTakeBackPayment.bind(this)
+        }
+
+        public async bankStatementConfirm(id: string, entryId: string, params: controllers.ConfirmRequest): Promise<interfaces.BankStatementDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/bank-statements/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}/confirm`, JSON.stringify(params))
+            return await resp.json() as interfaces.BankStatementDetailResponse
+        }
+
+        public async bankStatementGet(id: string): Promise<interfaces.BankStatementDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/bank-statements/${encodeURIComponent(id)}`)
+            return await resp.json() as interfaces.BankStatementDetailResponse
+        }
+
+        public async bankStatementIgnore(id: string, entryId: string, params: controllers.IgnoreRequest): Promise<interfaces.BankStatementDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/bank-statements/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}/ignore`, JSON.stringify(params))
+            return await resp.json() as interfaces.BankStatementDetailResponse
+        }
+
+        public async bankStatementImport(params: controllers.ImportRequest): Promise<interfaces.BankStatementDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/bank-statements`, JSON.stringify(params))
+            return await resp.json() as interfaces.BankStatementDetailResponse
+        }
+
+        public async bankStatementList(): Promise<interfaces.BankStatementListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/bank-statements`)
+            return await resp.json() as interfaces.BankStatementListResponse
         }
 
         /**
@@ -2047,6 +2126,224 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/reports/job-profit`, undefined, {query})
             return await resp.json() as interfaces.JobProfitReport
+        }
+
+        public async receivableAccountingExports(): Promise<interfaces.AccountingExportsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/exports`)
+            return await resp.json() as interfaces.AccountingExportsResponse
+        }
+
+        /**
+         * Month-end: the receivables as they stood at the end of a day, per currency and in CZK at each invoice's own ČNB rate.
+         */
+        public async receivableAsAt(params: controllers.AsAtRequest): Promise<interfaces.ReceivablesAsAtResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                day: params.day,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/as-at`, undefined, {query})
+            return await resp.json() as interfaces.ReceivablesAsAtResponse
+        }
+
+        /**
+         * One bank payment over several invoices: all or nothing (managers).
+         */
+        public async receivableBatchPayment(params: controllers.BatchPaymentRequest): Promise<interfaces.ReceivableRowsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/payments/batch`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableRowsResponse
+        }
+
+        /**
+         * Another manager confirms a waiting write-off or bank charge (the same one only when the company has no other manager).
+         */
+        public async receivableConfirmWriteOff(invoiceId: string, lineId: string, params: controllers.ConfirmWriteOffRequest): Promise<interfaces.ReceivableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/${encodeURIComponent(invoiceId)}/write-offs/${encodeURIComponent(lineId)}/confirm`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableDetailResponse
+        }
+
+        /**
+         * The invoices billed to a customer (its Finance tab).
+         */
+        public async receivableCustomerRows(customerId: string): Promise<interfaces.ReceivableCustomerRowsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/customer/${encodeURIComponent(customerId)}`)
+            return await resp.json() as interfaces.ReceivableCustomerRowsResponse
+        }
+
+        /**
+         * Work done on the customer's open jobs not yet invoiced (beside the credit limit).
+         */
+        public async receivableCustomerUnbilled(customerId: string): Promise<interfaces.ReceivableUnbilledResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/customer/${encodeURIComponent(customerId)}/unbilled`)
+            return await resp.json() as interfaces.ReceivableUnbilledResponse
+        }
+
+        /**
+         * The bell: overdue invoices (first day, 14, 30 days) and late ones paid, of the user's jobs and customers.
+         */
+        public async receivableForMe(): Promise<interfaces.ReceivablesForMeResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/for-me`)
+            return await resp.json() as interfaces.ReceivablesForMeResponse
+        }
+
+        public async receivableGet(invoiceId: string): Promise<interfaces.ReceivableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/${encodeURIComponent(invoiceId)}`)
+            return await resp.json() as interfaces.ReceivableDetailResponse
+        }
+
+        /**
+         * The page: every invoice still owed, the others issued in the period, the tiles and By customer.
+         */
+        public async receivableList(params: controllers.ListRequest): Promise<interfaces.ReceivablesResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                period: params.period,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables`, undefined, {query})
+            return await resp.json() as interfaces.ReceivablesResponse
+        }
+
+        /**
+         * What the app e-mailed (reminders and statements), of a customer and/or an invoice, newest first.
+         */
+        public async receivableMailLog(params: controllers.MailLogRequest): Promise<interfaces.ReceivableMailResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                customerId: params.customerId,
+                invoiceId:  params.invoiceId,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/mail`, undefined, {query})
+            return await resp.json() as interfaces.ReceivableMailResponse
+        }
+
+        public async receivableNote(invoiceId: string, params: controllers.NoteRequest): Promise<interfaces.ReceivableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/${encodeURIComponent(invoiceId)}/notes`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableDetailResponse
+        }
+
+        public async receivablePayment(invoiceId: string, params: controllers.PaymentRequest): Promise<interfaces.ReceivableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/${encodeURIComponent(invoiceId)}/payments`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableDetailResponse
+        }
+
+        /**
+         * The file (Windows-1250 XML, base64), what was left out and why; records the export and its documents. A POST: it
+         * records something, so a re-fetch never makes a second export; the same idempotency key answers the first one again.
+         */
+        public async receivablePohodaExport(params: controllers.PohodaExportRequest): Promise<interfaces.PohodaExportResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/export/pohoda`, JSON.stringify(params))
+            return await resp.json() as interfaces.PohodaExportResponse
+        }
+
+        /**
+         * Whether releasing the job's cargo or documents should warn about payment (never a stop).
+         */
+        public async receivableReleaseCheck(shipmentId: string): Promise<interfaces.ReleaseCheckResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/release-check/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as interfaces.ReleaseCheckResponse
+        }
+
+        public async receivableSeen(params: {
+    keys: string[]
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/receivables/seen`, JSON.stringify(params))
+        }
+
+        /**
+         * Sends the invoice's failed hand-overs to the customer's list again (managers).
+         */
+        public async receivableSendAgain(invoiceId: string): Promise<interfaces.ReceivableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/${encodeURIComponent(invoiceId)}/send-again`)
+            return await resp.json() as interfaces.ReceivableDetailResponse
+        }
+
+        /**
+         * The reminder settings, and whether e-mail from the app is on.
+         */
+        public async receivableSettingsGet(): Promise<interfaces.ReceivableSettingsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/settings`)
+            return await resp.json() as interfaces.ReceivableSettingsResponse
+        }
+
+        public async receivableSettingsSave(params: controllers.SettingsRequest): Promise<interfaces.ReceivableSettingsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/receivables/settings`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableSettingsResponse
+        }
+
+        /**
+         * The job's invoices, any status (the payment chip on the shipment's invoice panel).
+         */
+        public async receivableShipmentRows(shipmentId: string): Promise<interfaces.ReceivableRowsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/shipment/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as interfaces.ReceivableRowsResponse
+        }
+
+        /**
+         * The customer's invoices still owed in one currency, as at today, as a PDF or a CSV.
+         */
+        public async receivableStatementFile(customerId: string, params: controllers.StatementFileRequest): Promise<interfaces.ReceivableStatementFile> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                currency: params.currency,
+                format:   params.format,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/customer/${encodeURIComponent(customerId)}/statement`, undefined, {query})
+            return await resp.json() as interfaces.ReceivableStatementFile
+        }
+
+        /**
+         * A manager e-mails the statement to the customer's reminder contact ("off" while e-mail from the app is off).
+         */
+        public async receivableStatementSend(customerId: string, params: controllers.StatementSendRequest): Promise<interfaces.ReceivableStatementSendResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/customer/${encodeURIComponent(customerId)}/statement/send`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableStatementSendResponse
+        }
+
+        public async receivableTakeBackPayment(invoiceId: string, paymentId: string, params: controllers.TakeBackRequest): Promise<interfaces.ReceivableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/${encodeURIComponent(invoiceId)}/payments/${encodeURIComponent(paymentId)}/take-back`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableDetailResponse
+        }
+
+        /**
+         * Write-offs and bank charges waiting for a second manager (the Billing approvals count).
+         */
+        public async receivableWaiting(): Promise<interfaces.ReceivableWaitingResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/waiting`)
+            return await resp.json() as interfaces.ReceivableWaitingResponse
+        }
+
+        /**
+         * A manager closes what is left as a write-off or a bank charge; it counts once a second manager confirms it.
+         */
+        public async receivableWriteOff(invoiceId: string, params: controllers.WriteOffRequest): Promise<interfaces.ReceivableDetailResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/receivables/${encodeURIComponent(invoiceId)}/write-offs`, JSON.stringify(params))
+            return await resp.json() as interfaces.ReceivableDetailResponse
         }
 
         /**
@@ -3468,7 +3765,7 @@ export namespace shipments {
         /**
          * Creates an empty master job under the next free MCZ number - or, for a Master B/L, finds its own.
          */
-        public async masterJobCreate(params: controllers.MasterJobCreateRequest = {}): Promise<controllers.MasterJobCreateResponse> {
+        public async masterJobCreate(params: controllers.MasterJobCreateRequest): Promise<controllers.MasterJobCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/master-jobs`, JSON.stringify(params))
             return await resp.json() as controllers.MasterJobCreateResponse
@@ -3818,11 +4115,12 @@ export namespace shipments {
         /**
          * Releasing the house BoL is its own action rather than a field edit: the
          * record of who released it is written from the authenticated user, so it
-         * cannot be typed in by hand.
+         * cannot be typed in by hand. A job on prepayment that is not paid is not released (lib/prepaymentStop),
+         * unless a manager gives a reason.
          */
-        public async shipmentReleaseHouseBol(shipmentId: string): Promise<controllers.ReleaseHouseBolResponse> {
+        public async shipmentReleaseHouseBol(shipmentId: string, params: controllers.ReleaseHouseBolRequest): Promise<controllers.ReleaseHouseBolResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/house-bol-release`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/house-bol-release`, JSON.stringify(params))
             return await resp.json() as controllers.ReleaseHouseBolResponse
         }
 
@@ -5739,7 +6037,6 @@ export namespace warehouseConcept {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
-            this.searchWarehouseConcept = this.searchWarehouseConcept.bind(this)
             this.gateExceptionCreate = this.gateExceptionCreate.bind(this)
             this.gateExceptionResolve = this.gateExceptionResolve.bind(this)
             this.gateFileContent = this.gateFileContent.bind(this)
@@ -5777,6 +6074,7 @@ export namespace warehouseConcept {
             this.gateMovementVoidStamp = this.gateMovementVoidStamp.bind(this)
             this.gatePeopleNormalize = this.gatePeopleNormalize.bind(this)
             this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
+            this.searchWarehouseConcept = this.searchWarehouseConcept.bind(this)
             this.warehouseBondedCreate = this.warehouseBondedCreate.bind(this)
             this.warehouseBondedDelete = this.warehouseBondedDelete.bind(this)
             this.warehouseBondedList = this.warehouseBondedList.bind(this)
@@ -5847,18 +6145,6 @@ export namespace warehouseConcept {
             this.warehouseZoneDelete = this.warehouseZoneDelete.bind(this)
             this.warehouseZoneList = this.warehouseZoneList.bind(this)
             this.warehouseZoneUpdate = this.warehouseZoneUpdate.bind(this)
-        }
-
-        public async searchWarehouseConcept(params: interfaces.SearchGateRecordsRequest): Promise<interfaces.SearchGateRecordsResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                limit: params.limit === undefined ? undefined : String(params.limit),
-                q:     params.q,
-            })
-
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/search/warehouse-concept`, undefined, {query})
-            return await resp.json() as interfaces.SearchGateRecordsResponse
         }
 
         public async gateExceptionCreate(id: string, params: {
@@ -6226,6 +6512,23 @@ export namespace warehouseConcept {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/pickup-pin/${encodeURIComponent(shipmentId)}`)
             return await resp.json() as controllers.PickupPinGenerateResponse
+        }
+
+        /**
+         * The main search (the top bar) in the Warehouse Concept: its gate records by their warehouse
+         * reference (WCZ…), also typed with other letters or none, the newest first, and how many match in
+         * all. Superadmins only, as the Warehouse Concept's pages are.
+         */
+        public async searchWarehouseConcept(params: interfaces.SearchGateRecordsRequest): Promise<interfaces.SearchGateRecordsResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/warehouse-concept`, undefined, {query})
+            return await resp.json() as interfaces.SearchGateRecordsResponse
         }
 
         public async warehouseBondedCreate(params: interfaces.WarehouseBondedEntryInput): Promise<{
@@ -7137,6 +7440,13 @@ export namespace controllers {
         tooMany: boolean
     }
 
+    export interface AsAtRequest {
+        /**
+         * The day the receivables are read as at (yyyy-mm-dd), e.g. a month's last day
+         */
+        day?: string
+    }
+
     export interface AskChangeRequest {
         /**
          * What is wrong with the invoice
@@ -7312,6 +7622,42 @@ export namespace controllers {
         accountNumber: string
         iban: string
         swift: string
+    }
+
+    export interface BatchPaymentItem {
+        invoiceId: string
+        /**
+         * The receivable's version the manager saw
+         */
+        version: number
+
+        /**
+         * In the invoice's currency, at most 2 decimals
+         */
+        amount: number
+    }
+
+    export interface BatchPaymentRequest {
+        /**
+         * The day it was paid (yyyy-mm-dd)
+         */
+        paidOn: string
+
+        note?: string
+        /**
+         * The bank's reference: the same on every line
+         */
+        bankRef?: string
+
+        /**
+         * The same key twice (a double click, a retry) notes the payment once
+         */
+        idempotencyKey?: string
+
+        /**
+         * 1–100 invoices, each once
+         */
+        items: BatchPaymentItem[]
     }
 
     export interface BondedUpdateRequest {
@@ -7621,10 +7967,6 @@ export namespace controllers {
         unread: interfaces.CommentUnreadItem[]
     }
 
-    export interface CoverNotesForMeResponse {
-        notices: interfaces.CoverNotesNotice[]
-    }
-
     export interface CompanyListResponse {
         companies: services.CompanyInfo[]
     }
@@ -7673,6 +8015,26 @@ export namespace controllers {
 
     export interface CompanyUsersListResponse {
         users: services.AuthUserInfo[]
+    }
+
+    export interface ConfirmRequest {
+        /**
+         * The entry's version the manager saw
+         */
+        version: number
+
+        /**
+         * The invoices it pays: amounts in the entry's currency, together at most the entry
+         */
+        items: {
+            invoiceId: string
+            receivableVersion: number
+            amount: number
+        }[]
+    }
+
+    export interface ConfirmWriteOffRequest {
+        version: number
     }
 
     export interface ContactCreateRequest {
@@ -7866,6 +8228,10 @@ export namespace controllers {
 
     export interface CountryUpdateRequest {
         code: string
+    }
+
+    export interface CoverNotesForMeResponse {
+        notices: interfaces.CoverNotesNotice[]
     }
 
     export interface CreateMasterJobCostRequest {
@@ -8198,6 +8564,11 @@ export namespace controllers {
         paymentTerms?: string
         freightPaymentTerms?: string
         dutyPaymentTerms?: string
+        /**
+         * The language its reminders and statements are written in (a manager's, as the payment terms are).
+         */
+        language?: interfaces.CustomerLanguage
+
         companyWebsite?: string
         nace?: string
         /**
@@ -9163,6 +9534,11 @@ export namespace controllers {
         fileName: string
     }
 
+    export interface IgnoreRequest {
+        version: number
+        reason: string
+    }
+
     export interface ImportInstructionsApproveRequest {
         /**
          * As edited in the preview.
@@ -9189,6 +9565,14 @@ export namespace controllers {
          * Copy although lines of this quote were already copied to that side of this shipment.
          */
         force?: boolean
+    }
+
+    export interface ImportRequest {
+        fileName: string
+        /**
+         * The file, base64 (a data URL is taken too); at most 10 MB
+         */
+        contentBase64: string
     }
 
     export interface ImportRunsRequest {
@@ -9311,6 +9695,13 @@ export namespace controllers {
         templates: interfaces.ColumnTemplateItem[]
     }
 
+    export interface ListRequest {
+        /**
+         * 90d (the default), 12m or all: how far back the invoices no longer owed are listed
+         */
+        period?: string
+    }
+
     export interface ListResponse {
         invoices: interfaces.InvoiceDocItem[]
     }
@@ -9329,6 +9720,11 @@ export namespace controllers {
 
     export interface LogoUploadResponse {
         customer: interfaces.CustomerItem
+    }
+
+    export interface MailLogRequest {
+        customerId?: string
+        invoiceId?: string
     }
 
     export interface MasterJobContainersUpdateRequest {
@@ -9493,6 +9889,25 @@ export namespace controllers {
         data: interfaces.NoteItem[]
     }
 
+    export interface NoteRequest {
+        kind: "note" | "promise" | "dispute" | "dispute_closed" | "reminder"
+        text: string
+        /**
+         * A promise: the day it is promised by (yyyy-mm-dd)
+         */
+        promisedOn?: string
+
+        /**
+         * A reminder: 1, 2 or 3 (the final notice, managers only)
+         */
+        reminderLevel?: number
+
+        /**
+         * A reminder: the e-mail it was sent to
+         */
+        recipient?: string
+    }
+
     export interface OceanDatesRequest {
         /**
          * The first day it prices, YYYY-MM-DD
@@ -9652,6 +10067,29 @@ export namespace controllers {
         version: number
     }
 
+    export interface PaymentRequest {
+        /**
+         * The receivable's version the manager saw: a change since is refused, to be looked at again
+         */
+        version: number
+
+        /**
+         * The day it was paid (yyyy-mm-dd)
+         */
+        paidOn: string
+
+        /**
+         * In the invoice's currency, at most 2 decimals
+         */
+        amount: number
+
+        note?: string
+        /**
+         * The same key twice (a double click, a retry) notes one payment
+         */
+        idempotencyKey?: string
+    }
+
     export interface PdfResponse {
         fileName: string
         /**
@@ -9704,6 +10142,24 @@ export namespace controllers {
     export interface PlaceSearchRequest {
         q: string
         countryCode?: string
+    }
+
+    export interface PohodaExportRequest {
+        /**
+         * The first and the last issue day (yyyy-mm-dd), both in
+         */
+        from: string
+
+        to: string
+        /**
+         * Also the documents exported before (Pohoda refuses a number it already has)
+         */
+        includeExported?: boolean
+
+        /**
+         * One per export the manager starts: the same key again answers that export (the same file and documents), recording nothing more
+         */
+        idempotencyKey?: string
     }
 
     export interface PortalFileResponse {
@@ -10128,6 +10584,22 @@ export namespace controllers {
         version: number
     }
 
+    export interface ReasonRequest {
+        reason: string
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
+    }
+
+    export interface ReasonRequest {
+        reason: string
+        /**
+         * The version the user saw: a change since is refused, to be looked at again
+         */
+        version: number
+    }
+
     export interface RegistrationLinkCreateRequest {
         roles: interfaces.CustomerRole[]
         /**
@@ -10139,6 +10611,14 @@ export namespace controllers {
     export interface RegistrationSettingsSaveRequest {
         termsName: string
         termsUrl: string
+    }
+
+    export interface ReleaseHouseBolRequest {
+        /**
+         * A manager's reason (at least 3 characters) to release a job on prepayment that is not paid - or whose payment
+         * could not be checked (lib/prepaymentStop). Recorded with the release; not needed, and not recorded, otherwise.
+         */
+        paymentOverrideReason?: string
     }
 
     export interface ReleaseHouseBolResponse {
@@ -10639,6 +11119,20 @@ export namespace controllers {
 
     export interface SetIssuedInvoiceNumberResponse {
         issuedInvoiceNumber: string
+    }
+
+    export interface SettingsRequest {
+        /**
+         * Reminders 1 and 2 sent by the app each day (only while e-mail from the app is on)
+         */
+        autoReminders: boolean
+
+        reminder1Days: number
+        reminder2Days: number
+        /**
+         * Where a customer's answer goes; "" = the sender's own address
+         */
+        replyTo: string
     }
 
     export interface ShipmentCreateRequest {
@@ -11293,6 +11787,12 @@ export namespace controllers {
         quoteValidity?: string
         validityStatus?: string
         salesPerson?: string
+        /**
+         * A manager's reason (at least 3 characters) to set Warehouse Released, from empty, on a job on prepayment that is
+         * not paid - or whose payment could not be checked (lib/prepaymentStop). Recorded with the release; not stored on
+         * the shipment, and ignored by any other edit.
+         */
+        paymentOverrideReason?: string
     }
 
     export interface ShipmentUpdateResponse {
@@ -11390,6 +11890,26 @@ export namespace controllers {
         shift?: string
         area?: string
         status?: string
+    }
+
+    export interface StatementFileRequest {
+        /**
+         * The currency of the statement (one per currency); left out: the one the customer owes in
+         */
+        currency?: string
+
+        /**
+         * pdf (the default) or csv
+         */
+        format?: string
+    }
+
+    export interface StatementSendRequest {
+        currency: string
+        /**
+         * The same key twice (a double click, a retry) sends one e-mail
+         */
+        idempotencyKey?: string
     }
 
     export interface StockLineUpdateRequest {
@@ -11512,6 +12032,11 @@ export namespace controllers {
 
     export interface SupplierTermsSetResponse {
         customer: interfaces.CustomerItem
+    }
+
+    export interface TakeBackRequest {
+        version: number
+        reason: string
     }
 
     export interface TaskListResponse {
@@ -13022,6 +13547,21 @@ export namespace controllers {
         task: interfaces.WarehouseTaskItem
     }
 
+    export interface WriteOffRequest {
+        /**
+         * The receivable's version the manager saw
+         */
+        version: number
+
+        kind: "write_off" | "bank_charge"
+        /**
+         * In the invoice's currency, at most 2 decimals; at most what is left to pay
+         */
+        amount: number
+
+        reason: string
+    }
+
     export interface ZoneUpdateRequest {
         code?: string
         name?: string
@@ -13098,6 +13638,30 @@ export namespace geo {
 }
 
 export namespace interfaces {
+    export interface AccountingExportSummary {
+        id: string
+        system: "pohoda"
+        from: string
+        to: string
+        documents: number
+        fileName: string
+        fileSha256: string
+        createdBy: string
+        createdAt: string
+    }
+
+    export interface AccountingExportsResponse {
+        /**
+         * The newest first (at most 200)
+         */
+        exports: AccountingExportSummary[]
+
+        /**
+         * A manager: may export
+         */
+        canExport: boolean
+    }
+
     export interface AdditionalChargeItem {
         id: string
         shipmentId: string
@@ -13138,6 +13702,8 @@ export namespace interfaces {
     export type AddressType = "Registered" | "Billing" | "Paperwork" | "Pickup" | "Delivery" | "Warehouse"
 
     export type AdrPackingGroup = "I" | "II" | "III"
+
+    export type AgingBucket = "current" | "1-30" | "31-60" | "61-90" | "90+"
 
     export interface ApprovalChat {
         threadId: string
@@ -13347,6 +13913,159 @@ export namespace interfaces {
      * TRIP = one price per trip/lane (line haul, FTL)
      */
     export type BandBasis = "KG" | "PALLET" | "LDM" | "TRIP"
+
+    export interface BankEntryAllocationItem {
+        invoiceId: string
+        number: string
+        amount: number
+        paymentId: string
+        /**
+         * The payment was taken back on the invoice since: it no longer counts, and the entry may be confirmed again for it
+         */
+        takenBack: boolean
+    }
+
+    /**
+     * An invoice the entry may pay, as it is now (re-worked whenever the statement is opened).
+     */
+    export interface BankEntryCandidateItem {
+        invoiceId: string
+        number: string
+        customer: string
+        jobNumber: string
+        leftToPay: number
+        currency: string
+        dueDate: string
+        reasons: string[]
+        score: number
+        /**
+         * The receivable's version: sent back as receivableVersion on confirm
+         */
+        version: number
+    }
+
+    export type BankEntryStatusWord = "proposed" | "no_match" | "confirmed" | "ignored" | "not_incoming"
+
+    export interface BankStatementCounts {
+        /**
+         * Money in still to be decided (proposed + no match)
+         */
+        toDecide: number
+
+        proposed: number
+        noMatch: number
+        confirmed: number
+        ignored: number
+        notIncoming: number
+        /**
+         * Entries of this file that were read before from another file (shown under this one, decided there)
+         */
+        seenBefore: number
+    }
+
+    export interface BankStatementDetailResponse {
+        statement: BankStatementSummary
+        entries: BankStatementEntryItem[]
+        /**
+         * A manager: may confirm and set aside
+         */
+        canAct: boolean
+
+        /**
+         * The file itself is not kept, only what was read from it
+         */
+        fileKept: boolean
+
+        /**
+         * More invoices are owed than the matching looked at (2000): an invoice may be missing from the candidates
+         */
+        candidatesCapped: boolean
+
+        today: string
+    }
+
+    export interface BankStatementEntryItem {
+        id: string
+        /**
+         * The bank's reference of the entry (with the account): the bank reference on the payments noted from it
+         */
+        entryKey: string
+
+        bookingDate: string | null
+        valueDate: string | null
+        amount: number
+        currency: string
+        credit: boolean
+        variableSymbol: string
+        constantSymbol: string
+        specificSymbol: string
+        endToEndId: string
+        counterpartyName: string
+        counterpartyAccount: string
+        message: string
+        status: BankEntryStatusWord
+        /**
+         * For an open entry: worked out now; for a decided one: as they were when it was read
+         */
+        candidates: BankEntryCandidateItem[]
+
+        allocations: BankEntryAllocationItem[]
+        /**
+         * Confirmed: the amount not put on any invoice (an overpayment, money for something else). Reopened: what is free to
+         * confirm again (the entry's amount less its payments not taken back).
+         */
+        unallocated: number
+
+        /**
+         * Confirmed before, and a payment it noted was taken back since: shown as to decide again (status proposed or
+         * no_match, candidates worked out for what is free) - a manager confirms it again or sets the rest aside.
+         */
+        reopened: boolean
+
+        decidedAt: string | null
+        decidedBy: string
+        decisionReason: string
+        version: number
+        /**
+         * Read first from another file (and decided there, if it was): that statement
+         */
+        firstReadIn: {
+            statementId: string
+            fileName: string
+        } | null
+    }
+
+    export interface BankStatementListResponse {
+        statements: BankStatementSummary[]
+        canAct: boolean
+    }
+
+    export interface BankStatementSummary {
+        id: string
+        fileName: string
+        /**
+         * e.g. camt.053
+         */
+        format: string
+
+        /**
+         * The statement's own id (Stmt/Id; several joined when the file holds more than one)
+         */
+        statementRef: string
+
+        accountIban: string
+        currency: string
+        fromDate: string | null
+        toDate: string | null
+        /**
+         * Booked entries in the file
+         */
+        entries: number
+
+        importedBy: string
+        importedAt: string
+        counts: BankStatementCounts
+    }
 
     export interface BillingOverrideItem {
         id: string
@@ -14720,6 +15439,35 @@ export namespace interfaces {
     }
 
     /**
+     * A shipment somebody else made the user the Handled By or Holiday Cover of, with the to-dos still
+     * open on it (the bell's "To-dos on shipments you now cover", lib/coverBell).
+     */
+    export interface CoverNotesNotice {
+        shipmentId: string
+        jobNumber: string
+        /**
+         * What the user was made.
+         */
+        role: "Handled By" | "Holiday Cover"
+
+        /**
+         * Who made them so, by e-mail; empty when unknown.
+         */
+        by: string
+
+        at: string
+        /**
+         * How many of its to-dos are open.
+         */
+        openCount: number
+
+        /**
+         * The first open to-dos' titles, in the Notes To-Do tab's order (starred first, then newest).
+         */
+        titles: string[]
+    }
+
+    /**
      * A lane asked for (rate calculator / quotes / consignments) that a tariff could not price.
      */
     export interface CoverageGap {
@@ -14858,6 +15606,58 @@ export namespace interfaces {
         role?: ContactRole
     }
 
+    /**
+     * The credit warning on a new quote or shipment (Council Outlay 10 D21): a warning only, never a stop.
+     */
+    export interface CustomerCreditWarning {
+        customerId: string
+        companyName: string
+        /**
+         * 0 = no limit set; in `currency`.
+         */
+        creditLimit: number
+
+        currency: string
+        paymentTerms: string
+        /**
+         * The payment terms ask for payment before the service.
+         */
+        prepayment: boolean
+
+        /**
+         * Left to pay on unpaid invoices, per currency, never converted.
+         */
+        unpaid: {
+            currency: string
+            amount: number
+        }[]
+
+        overdueCount: number
+        /**
+         * The due day of the oldest overdue invoice; null for none.
+         */
+        oldestOverdueDue: string | null
+
+        /**
+         * Work not yet invoiced (Finance → Accounts Receivable): the valued selling lines on the customer's open jobs that
+         * are on no issued invoice, per currency, never converted. Shown beside the limit, never added to what is owed.
+         */
+        unbilled: {
+            currency: string
+            amount: number
+        }[]
+
+        /**
+         * How many open jobs have such lines.
+         */
+        unbilledJobs: number
+
+        /**
+         * False when Invoicing could not be asked: `unbilled` is then empty and says nothing.
+         */
+        unbilledKnown: boolean
+    }
+
     export interface CustomerItem {
         id: string
         ico: string
@@ -14905,6 +15705,11 @@ export namespace interfaces {
         paymentTerms: string
         freightPaymentTerms: string
         dutyPaymentTerms: string
+        /**
+         * The language its reminders and statements are written in; "en" until a manager sets it.
+         */
+        language: CustomerLanguage
+
         companyWebsite: string
         /**
          * Where the browser loads the logo from (an API path with a short-lived token); "" when there is none.
@@ -14966,6 +15771,11 @@ export namespace interfaces {
     }
 
     export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK"
+
+    /**
+     * The language a customer is written to in (reminders, statements): Czech or English; German later.
+     */
+    export type CustomerLanguage = "cs" | "en"
 
     /**
      * Which companies a list holds: those with the customer role, or those with any supplier role. A company that is both is in each.
@@ -17297,6 +18107,11 @@ export namespace interfaces {
          */
         issuedAt: string
 
+        /**
+         * Posted by Invoicing: changed only by a credit note, its payments noted on Finance → Accounts Receivable.
+         */
+        source: InvoiceSource
+
         createdAt: string
         updatedAt: string
     }
@@ -17582,6 +18397,11 @@ export namespace interfaces {
          */
         missingForIssue: string[]
     }
+
+    /**
+     * Where an entry of the customer's invoice list came from: typed in here, or posted by Invoicing (an issued invoice or credit note).
+     */
+    export type InvoiceSource = "typed" | "invoicing"
 
     /**
      * Credited = reversed by a credit note; Cancelled = withdrawn on its issue day (Invoicing, with a
@@ -18899,6 +19719,15 @@ export namespace interfaces {
     }
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -18916,15 +19745,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -19157,6 +19977,73 @@ export namespace interfaces {
         buyTotalCzk: number | null
         transportOrderSent: boolean
         version: number
+    }
+
+    /**
+     * A document in the file the accountant should look at after the import (it goes as issued).
+     */
+    export interface PohodaExportNote {
+        number: string
+        note: string
+    }
+
+    export interface PohodaExportResponse {
+        /**
+         * The export's record (accounting_export)
+         */
+        exportId: string
+
+        fileName: string
+        /**
+         * The file's bytes, Windows-1250 encoded XML, as base64
+         */
+        contentBase64: string
+
+        contentType: string
+        encoding: "windows-1250"
+        /**
+         * The SHA-256 of the file's bytes, as recorded
+         */
+        fileSha256: string
+
+        /**
+         * The issue days covered (yyyy-mm-dd)
+         */
+        from: string
+
+        to: string
+        /**
+         * How many documents are in the file, and their numbers in the file's order
+         */
+        documents: number
+
+        invoices: number
+        creditNotes: number
+        numbers: string[]
+        /**
+         * Documents of the period left out: cancelled ones, ones exported before (unless included again), ones whose own figures do not add up
+         */
+        skipped: PohodaExportSkipped[]
+
+        /**
+         * Per document, what to check in Pohoda after the import
+         */
+        notes: PohodaExportNote[]
+
+        /**
+         * About the whole file (credit notes whose invoice Pohoda may not have, documents sent again)
+         */
+        warnings: string[]
+    }
+
+    /**
+     * A document of the period that is not in the file, and why.
+     */
+    export interface PohodaExportSkipped {
+        number: string
+        kind: "invoice" | "credit_note"
+        issueDate: string
+        reason: string
     }
 
     export interface PortalMe {
@@ -20514,6 +21401,664 @@ export namespace interfaces {
         number: string
     }
 
+    export interface ReceivableAmount {
+        currency: string
+        amount: number
+    }
+
+    /**
+     * One line of the month-end list: an invoice as it stood at the end of the day asked.
+     */
+    export interface ReceivableAsAtRow {
+        invoiceId: string
+        number: string
+        customerId: string
+        /**
+         * The name on the invoice
+         */
+        customer: string
+
+        shipmentId: string
+        /**
+         * The job number printed on the invoice
+         */
+        jobNumber: string
+
+        issueDate: string
+        dueDate: string
+        currency: string
+        gross: number
+        /**
+         * Credit notes issued on or before the day
+         */
+        credited: number
+
+        /**
+         * Payments paid on or before the day, and those carried over
+         */
+        paid: number
+
+        /**
+         * Write-offs and bank charges confirmed on or before the day
+         */
+        writtenOff: number
+
+        /**
+         * What was left to pay at the end of the day, in the invoice's currency (above 0: it is listed)
+         */
+        leftToPay: number
+
+        /**
+         * The invoice's own rate: CZK per 1 unit (ČNB on its tax date)
+         */
+        fxRate: number
+
+        /**
+         * leftToPay × fxRate, rounded to 2 decimals
+         */
+        leftToPayCzk: number
+
+        /**
+         * Days overdue on the day (0 when not)
+         */
+        daysOverdue: number
+
+        agingBucket: AgingBucket | null
+        /**
+         * A payment carried over from the customer's list counts: paid before Accounts Receivable, day not known
+         */
+        carriedOver: boolean
+    }
+
+    export interface ReceivableCreditNoteItem {
+        id: string
+        number: string
+        issueDate: string
+        /**
+         * Negative
+         */
+        gross: number
+
+        reason: string
+        /**
+         * The credit note of the whole invoice (or of what partial ones left of it)
+         */
+        full: boolean
+
+        /**
+         * Who issued it (e-mail); "" when unknown (D25)
+         */
+        issuedBy: string
+
+        /**
+         * Their display name (the e-mail when they have none); "" when unknown
+         */
+        issuedByName: string
+    }
+
+    export interface ReceivableCustomerFacts {
+        paymentTerms: string
+        creditLimit: number
+        creditCurrency: string
+        salesOwner: string
+        /**
+         * What the customer owes on its invoices, per currency
+         */
+        unpaid: ReceivableAmount[]
+
+        overdueCount: number
+        /**
+         * Who a reminder goes to (by contact role); null when no contact has an e-mail
+         */
+        reminderTo: {
+            name: string
+            email: string
+            role: string
+        } | null
+    }
+
+    /**
+     * What one customer owes in one currency, by age.
+     */
+    export interface ReceivableCustomerRow {
+        customerId: string
+        customer: string
+        salesOwner: string
+        currency: string
+        unpaid: number
+        current: number
+        d1to30: number
+        d31to60: number
+        d61to90: number
+        d90plus: number
+        oldestDue: string | null
+        invoices: number
+        /**
+         * From the Customer Database (0 = none); the web converts
+         */
+        creditLimit: number
+
+        creditCurrency: string
+    }
+
+    export interface ReceivableCustomerRowsResponse {
+        rows: ReceivableItem[]
+        truncated: boolean
+        canAct: boolean
+        today: string
+    }
+
+    export interface ReceivableDetailResponse {
+        row: ReceivableItem
+        lines: ReceivableLineItem[]
+        creditNotes: ReceivableCreditNoteItem[]
+        payments: ReceivablePaymentItem[]
+        notes: ReceivableNoteItem[]
+        events: ReceivableEventItem[]
+        /**
+         * null when the Customer Database could not be read
+         */
+        customerFacts: ReceivableCustomerFacts | null
+
+        canAct: boolean
+        today: string
+        /**
+         * A hand-over to the customer's list failed: a manager may send it again
+         */
+        sendAgain: boolean
+    }
+
+    export interface ReceivableEventItem {
+        id: string
+        action: string
+        fromStatus: string
+        toStatus: string
+        by: string
+        at: string
+        reason: string
+        payload: { [key: string]: any }
+    }
+
+    export interface ReceivableItem {
+        /**
+         * The invoice id
+         */
+        id: string
+
+        number: string
+        customerId: string
+        /**
+         * The customer's name as on the invoice
+         */
+        customer: string
+
+        shipmentId: string
+        jobNumber: string
+        issueDate: string
+        duzp: string
+        dueDate: string
+        currency: string
+        net: number
+        vat: number
+        gross: number
+        grossCzk: number
+        /**
+         * What its credit notes took off (a positive number)
+         */
+        credited: number
+
+        /**
+         * What live payments paid (money: payments and carried over)
+         */
+        paid: number
+
+        /**
+         * Confirmed, live write-offs (step 7)
+         */
+        writtenOff: number
+
+        /**
+         * Confirmed, live bank charges (step 7)
+         */
+        bankCharges: number
+
+        /**
+         * gross − credited − paid − writtenOff − bankCharges; below 0 = to refund
+         */
+        leftToPay: number
+
+        status: ReceivableStatus
+        marks: ReceivableMark[]
+        daysOverdue: number
+        agingBucket: AgingBucket | null
+        paymentTerms: string
+        promisedOn: string | null
+        disputed: boolean
+        reminderLevel: number
+        lastRemindedOn: string | null
+        lastPaidOn: string | null
+        creditNoteNumbers: string[]
+        /**
+         * The credit notes on it, oldest first: the CSV gives each its own line, as accounting books them (D1)
+         */
+        creditNotes: ReceivableRowCreditNote[]
+
+        /**
+         * E-mails; "" when unknown
+         */
+        personInCharge: string
+
+        holidayCover: string
+        salesOwner: string
+        /**
+         * The user is the job's Person in Charge or Holiday Cover (the Accounts Payable rule)
+         */
+        mine: boolean
+
+        /**
+         * The user is the customer's Sales Owner
+         */
+        myCustomer: boolean
+
+        /**
+         * Who issued it (e-mail); "" when unknown
+         */
+        issuedBy: string
+
+        /**
+         * The receivable's version (1 before any write)
+         */
+        version: number
+    }
+
+    export interface ReceivableLineItem {
+        description: string
+        qty: number
+        unit: string
+        unitPrice: number
+        /**
+         * The unit price's currency; net, VAT and gross are in the invoice's
+         */
+        currency: string
+
+        net: number
+        vatRate: number
+        vat: number
+        gross: number
+    }
+
+    /**
+     * A line on an invoice's receivable: money paid, carried over, or (step 7) a write-off or bank charge.
+     */
+    export type ReceivableLineKind = "payment" | "carried_over" | "write_off" | "bank_charge"
+
+    /**
+     * One e-mail the app sent (or tried to send) to a customer: a reminder of an invoice or a statement.
+     */
+    export interface ReceivableMailItem {
+        id: string
+        kind: "reminder" | "statement"
+        /**
+         * The invoice of a reminder; null for a statement
+         */
+        invoiceId: string | null
+
+        customerId: string
+        /**
+         * The statement's currency, or the reminded invoice's
+         */
+        currency: string
+
+        /**
+         * A reminder's level (1, 2, 3 the final notice); null for a statement
+         */
+        reminderLevel: number | null
+
+        recipient: string
+        /**
+         * cs | en: the language the text was written in
+         */
+        language: string
+
+        status: "sent" | "failed"
+        /**
+         * Why it was not sent; "" when sent
+         */
+        error: string
+
+        /**
+         * Sent by the daily run, not by a person
+         */
+        automatic: boolean
+
+        /**
+         * Who sent it (e-mail), or "Accounts Receivable (automatic)"
+         */
+        by: string
+
+        at: string
+    }
+
+    export interface ReceivableMailResponse {
+        mails: ReceivableMailItem[]
+        /**
+         * E-mail from the app is switched on
+         */
+        emailOn: boolean
+    }
+
+    export type ReceivableMark = "overdue" | "part_credited" | "to_refund" | "prepayment" | "promised" | "promise_broken" | "disputed" | "reminded" | "not_in_customer_list" | "write_off_waiting" | "part_written_off" | "bank_charge"
+
+    export type ReceivableMilestone = "overdue_1" | "overdue_14" | "overdue_30" | "paid"
+
+    export interface ReceivableNoteItem {
+        id: string
+        kind: "note" | "promise" | "dispute" | "dispute_closed" | "reminder"
+        text: string
+        promisedOn: string | null
+        reminderLevel: number | null
+        recipient: string
+        by: string
+        at: string
+    }
+
+    /**
+     * What the bell shows of Accounts Receivable (D18).
+     */
+    export interface ReceivableNoticeItem {
+        /**
+         * `${invoiceId}:${milestone}`
+         */
+        key: string
+
+        invoiceId: string
+        milestone: ReceivableMilestone
+        number: string
+        customer: string
+        jobNumber: string
+        leftToPay: number
+        currency: string
+        daysOverdue: number
+        why: "sales_owner" | "person_in_charge"
+    }
+
+    export interface ReceivablePaymentItem {
+        id: string
+        kind: ReceivableLineKind
+        /**
+         * null: carried over, the day not known; a write-off's or bank charge's day is the day it was written
+         */
+        paidOn: string | null
+
+        amount: number
+        note: string
+        /**
+         * Why a write-off or bank charge closes what is left ("" for a payment)
+         */
+        reason: string
+
+        /**
+         * One bank payment over several invoices: the same reference on each of its lines ("" when none)
+         */
+        bankRef: string
+
+        by: string
+        at: string
+        /**
+         * A write-off or bank charge counts once confirmed: by whom, when, and whether by the manager who wrote it (no other manager)
+         */
+        confirmed: {
+            by: string
+            at: string
+            self: boolean
+        } | null
+
+        /**
+         * A write-off or bank charge waiting for a second manager (not confirmed, not taken back)
+         */
+        waiting: boolean
+
+        /**
+         * The signed-in user may confirm this waiting line
+         */
+        canConfirm: boolean
+
+        takenBack: {
+            by: string
+            at: string
+            reason: string
+        } | null
+    }
+
+    export type ReceivablePeriod = "90d" | "12m" | "all"
+
+    /**
+     * A credit note as the list row carries it: its number, day and amount (with VAT, negative, the invoice's currency), and who issued it.
+     */
+    export interface ReceivableRowCreditNote {
+        number: string
+        issueDate: string
+        gross: number
+        /**
+         * Who issued it (e-mail); "" when unknown
+         */
+        issuedBy: string
+
+        /**
+         * Their display name (the e-mail when they have none); "" when unknown
+         */
+        issuedByName: string
+    }
+
+    export interface ReceivableRowsResponse {
+        rows: ReceivableItem[]
+    }
+
+    export interface ReceivableSettingsResponse {
+        /**
+         * Reminders 1 and 2 sent by the app each day (only while e-mail from the app is switched on)
+         */
+        autoReminders: boolean
+
+        /**
+         * Reminder 1 at so many days overdue
+         */
+        reminder1Days: number
+
+        /**
+         * Reminder 2 at so many days overdue (more than reminder 1)
+         */
+        reminder2Days: number
+
+        /**
+         * Where a customer's answer goes; "" = the sender's own address
+         */
+        replyTo: string
+
+        /**
+         * Whether e-mail from the app is switched on (else nothing is sent: "E-mail from the app is switched off")
+         */
+        emailOn: boolean
+
+        /**
+         * A manager: may change the settings
+         */
+        canEdit: boolean
+
+        /**
+         * Who changed them last (e-mail), "" when never
+         */
+        updatedBy: string
+
+        updatedAt: string | null
+    }
+
+    /**
+     * A customer's statement in one currency, as a file to save.
+     */
+    export interface ReceivableStatementFile {
+        fileName: string
+        contentBase64: string
+        contentType: string
+    }
+
+    export interface ReceivableStatementSendResponse {
+        status: StatementSendStatus
+        message: string
+    }
+
+    /**
+     * written_off (step 7): nothing is left to pay, closed by confirmed write-offs or bank charges, no money paid
+     */
+    export type ReceivableStatus = "unpaid" | "part_paid" | "paid" | "written_off" | "credited" | "cancelled"
+
+    /**
+     * Work done on the customer's open jobs not yet invoiced: shown beside the credit limit, never added to "used".
+     */
+    export interface ReceivableUnbilledResponse {
+        /**
+         * The selling lines' values (net, as priced), per currency, never converted
+         */
+        amounts: ReceivableAmount[]
+
+        /**
+         * Open jobs with something not yet invoiced
+         */
+        jobs: number
+
+        /**
+         * The customer has more open jobs than are read (5000): the amounts are at least these
+         */
+        capped: boolean
+    }
+
+    /**
+     * A write-off or bank charge waiting for a second manager (the Billing approvals count).
+     */
+    export interface ReceivableWaitingLine {
+        lineId: string
+        invoiceId: string
+        number: string
+        customerId: string
+        customer: string
+        jobNumber: string
+        currency: string
+        kind: "write_off" | "bank_charge"
+        amount: number
+        reason: string
+        /**
+         * Who wrote it (e-mail) and when
+         */
+        by: string
+
+        at: string
+        /**
+         * The receivable's version now (what a confirm sends back)
+         */
+        version: number
+
+        /**
+         * The signed-in user may confirm it
+         */
+        canConfirm: boolean
+    }
+
+    export interface ReceivableWaitingResponse {
+        lines: ReceivableWaitingLine[]
+    }
+
+    export interface ReceivablesAsAtResponse {
+        day: string
+        rows: ReceivableAsAtRow[]
+        /**
+         * Per currency, in the invoices' own currencies
+         */
+        totals: ReceivableAmount[]
+
+        /**
+         * The one grand total: every row's CZK, at each invoice's own ČNB rate
+         */
+        totalCzk: number
+
+        /**
+         * "at each invoice's own ČNB rate" - the words the page shows beside the CZK total
+         */
+        czkRate: string
+
+        /**
+         * More invoices than are read at once: the list is not complete
+         */
+        truncated: boolean
+
+        today: string
+        /**
+         * Listed invoices whose old "Paid" in the Customer Database could not be checked just now (it could not be asked):
+         * they may already be paid. Absent when every listed invoice was checked.
+         */
+        unchecked?: number
+
+        /**
+         * The words the page shows when `unchecked` is given
+         */
+        uncheckedNote?: string
+    }
+
+    export interface ReceivablesForMeResponse {
+        notices: ReceivableNoticeItem[]
+    }
+
+    export interface ReceivablesResponse {
+        /**
+         * Every unpaid / part-paid invoice (and one to refund) + the others issued in the period
+         */
+        rows: ReceivableItem[]
+
+        /**
+         * More than 2000 rows: the page says so
+         */
+        truncated: boolean
+
+        period: ReceivablePeriod
+        counts: {
+            unpaid: number
+            overdue: number
+            paid: number
+            /**
+             * Status Written off (step 7)
+             */
+            writtenOff: number
+
+            creditedCancelled: number
+            all: number
+            promised: number
+            disputed: number
+            byCustomer: number
+        }
+        totals: {
+            toCollect: ReceivableAmount[]
+            overdue: ReceivableAmount[]
+        }
+        dueThisWeek: number
+        over60: number
+        customersOwing: number
+        /**
+         * One per customer and currency with something left to pay
+         */
+        byCustomer: ReceivableCustomerRow[]
+
+        /**
+         * A manager: notes payments and takes them back
+         */
+        canAct: boolean
+
+        /**
+         * The job and customer facts could be read (else names and owners are blank)
+         */
+        factsRead: boolean
+
+        today: string
+    }
+
     /**
      * What the reference backfill (the letters of the Freight Mode and Load Type) did to the company's live shipments.
      */
@@ -20561,6 +22106,23 @@ export namespace interfaces {
     export interface RegistrationSettings {
         termsName: string
         termsUrl: string
+    }
+
+    /**
+     * Whether releasing a job's cargo or documents should warn about payment (D20): never a stop.
+     */
+    export interface ReleaseCheckResponse {
+        warn: boolean
+        customer: string
+        prepayment: boolean
+        customerOverdueCount: number
+        unpaid: {
+            invoiceId: string
+            number: string
+            leftToPay: number
+            currency: string
+            daysOverdue: number
+        }[]
     }
 
     export interface ResolvedRate {
@@ -21152,6 +22714,48 @@ export namespace interfaces {
     }
 
     /**
+     * A Warehouse Concept gate record the main search found by its warehouse reference (WCZ…).
+     */
+    export interface SearchGateRecordItem {
+        /**
+         * The gate record (its Gate Log page).
+         */
+        id: string
+
+        /**
+         * Its warehouse reference (WCZ…), else its gate reference.
+         */
+        reference: string
+
+        jobNumber: string
+        customer: string
+    }
+
+    export interface SearchGateRecordsRequest {
+        /**
+         * What was typed; a reference is looked for from 4 characters (spaces left out).
+         */
+        q: string
+
+        /**
+         * Rows to give: 5 when left out, 1 to 50.
+         */
+        limit?: number
+    }
+
+    export interface SearchGateRecordsResponse {
+        /**
+         * The newest matching records, at most `limit`.
+         */
+        items: SearchGateRecordItem[]
+
+        /**
+         * How many records match in all.
+         */
+        total: number
+    }
+
+    /**
      * An issued tax document (invoice or credit note) found by the main search.
      */
     export interface SearchInvoiceItem {
@@ -21413,51 +23017,6 @@ export namespace interfaces {
          * The newest matching records, at most `limit`.
          */
         items: SearchWarehouseItem[]
-
-        /**
-         * How many records match in all.
-         */
-        total: number
-    }
-
-    /**
-     * A Warehouse Concept gate record the main search found by its warehouse reference (WCZ…).
-     */
-    export interface SearchGateRecordItem {
-        /**
-         * The gate record (its Gate Log page).
-         */
-        id: string
-
-        /**
-         * Its warehouse reference (WCZ…), else its gate reference.
-         */
-        reference: string
-
-        jobNumber: string
-        customer: string
-    }
-
-    /**
-     * GET /search/warehouse-concept: the typed text and how many rows to give (superadmins only).
-     */
-    export interface SearchGateRecordsRequest {
-        /**
-         * What was typed; a reference is looked for from 4 characters (spaces left out).
-         */
-        q: string
-
-        /**
-         * Rows to give: 5 when left out, 1 to 50.
-         */
-        limit?: number
-    }
-
-    export interface SearchGateRecordsResponse {
-        /**
-         * The newest matching records, at most `limit`.
-         */
-        items: SearchGateRecordItem[]
 
         /**
          * How many records match in all.
@@ -22152,6 +23711,11 @@ export namespace interfaces {
          */
         oldestPendingAt: string | null
     }
+
+    /**
+     * sent: the e-mail went out; failed: the provider refused it or did not answer; off: e-mail from the app is switched off.
+     */
+    export type StatementSendStatus = "sent" | "failed" | "off"
 
     /**
      * Days under customs control and the EU temporary-storage deadline (display only).
@@ -23250,32 +24814,6 @@ export namespace interfaces {
         tradeDirection: string
         status: string
         flags: TrackingAttentionFlag[]
-    }
-
-    /**
-     * A shipment somebody else made the user the Handled By or Holiday Cover of, with the to-dos still
-     * open on it (the bell's "To-dos on shipments you now cover", lib/coverBell).
-     */
-    export interface CoverNotesNotice {
-        shipmentId: string
-        jobNumber: string
-        /**
-         * What the user was made.
-         */
-        role: "Handled By" | "Holiday Cover"
-        /**
-         * Who made them so, by e-mail; empty when unknown.
-         */
-        by: string
-        at: string
-        /**
-         * How many of its to-dos are open.
-         */
-        openCount: number
-        /**
-         * The first open to-dos' titles, in the Notes To-Do tab's order (starred first, then newest).
-         */
-        titles: string[]
     }
 
     /**

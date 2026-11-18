@@ -61,8 +61,10 @@ const outbox = vi.hoisted(() => {
 });
 const clients = vi.hoisted(() => ({
   shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
-  invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(), addressList: vi.fn(),
+  invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(), addressList: vi.fn(), invoiceReceivable: vi.fn(),
 }));
+// What the receivable_state follow-up reads when it is sent (Accounts Receivable): an invoice's figures, credit notes, payments.
+const receivables = vi.hoisted(() => ({ figuresOne: vi.fn(), creditNotesOf: vi.fn(), paymentsOf: vi.fn() }));
 
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: "user" }) }));
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
@@ -71,6 +73,7 @@ vi.mock("../repositories/invoiceChangeRequest.repository", () => ({ invoiceChang
 vi.mock("../db/db", () => ({ db: { transaction: async (work: (tx: unknown) => Promise<unknown>) => work({}) } }));
 vi.mock("../../../lib/companyUsers", () => ({ userEmailOf: async (id: string) => `${id}@test.cz` }));
 vi.mock("../repositories/invoiceFollowupOutbox.repository", () => ({ invoiceFollowupOutboxRepository: outbox }));
+vi.mock("../repositories/receivable.repository", () => ({ receivableRepository: receivables }));
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
   truckingLinesLock: trucking.lock,
@@ -91,6 +94,7 @@ vi.mock("~encore/clients", () => ({
     addressList: clients.addressList,
     _internalCustomerInvoicePost: clients.invoiceCreate,
     invoiceMarkCredited: clients.invoiceMarkCredited,
+    _internalCustomerInvoiceReceivable: clients.invoiceReceivable,
   },
   fx: fxClient,
 }));
@@ -161,6 +165,11 @@ beforeEach(() => {
   clients.addressList.mockResolvedValue({ data: [{ id: "addr-seat", types: ["Registered"], label: "", street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00", country: "CZ" }] });
   clients.invoiceCreate.mockResolvedValue({});
   clients.invoiceMarkCredited.mockResolvedValue({ updated: 1 });
+  clients.invoiceReceivable.mockResolvedValue({ ok: true });
+  // The invoice a receivable_state row names is not there unless a test says so (nothing is sent then).
+  receivables.figuresOne.mockResolvedValue(null);
+  receivables.creditNotesOf.mockResolvedValue([]);
+  receivables.paymentsOf.mockResolvedValue([]);
   repo.invoicedSellingRowIds.mockResolvedValue(new Set());
   // No credit note of the invoice so far, unless a test says otherwise.
   repo.creditNotesOf.mockResolvedValue([]);
@@ -684,7 +693,10 @@ describe("credit", () => {
     expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", status: "Credited" }), expect.anything());
     expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] }, expect.anything());
     // Each follow-up is a row of its own: the Credited mark is sent even when the list entry is not.
-    expect(outbox.rows.map((r) => r.kind)).toEqual(["customer_invoice", "mark_credited", "status_after_credit"]);
+    expect(outbox.rows.map((r) => r.kind)).toEqual(["customer_invoice", "mark_credited", "status_after_credit", "receivable_state"]);
+    // The credit note's own document id reaches the customer's list, and what is left of the invoice is told last.
+    expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "cn1" }), expect.anything());
+    expect(outbox.rows.at(-1)).toMatchObject({ invoiceId: "cn1", shipmentId: SHIPMENT, payload: { invoiceId: "inv1" } });
     // no open invoice left: the job goes back to Billing / Not Invoiced
     expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]"  }, { authData: expect.objectContaining({ appWrite: true }) });
   });
@@ -712,7 +724,7 @@ describe("credit", () => {
     clients.invoiceCreate.mockRejectedValue(Object.assign(new Error("customer gone"), { code: "failed_precondition" }));
     await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
     expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] }, expect.anything());
-    expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "failed"], ["mark_credited", "sent"], ["status_after_credit", "sent"]]);
+    expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "failed"], ["mark_credited", "sent"], ["status_after_credit", "sent"], ["receivable_state", "sent"]]);
   });
 
   it("answers the credit note of a double click's first request, found under the series lock", async () => {
@@ -805,7 +817,8 @@ describe("partial credit notes", () => {
     expect(rows).toEqual([expect.objectContaining({ sourceRowId: "s1", lineText: "THC", amount: 50, currency: "EUR", vatCode: "S21" })]);
     expect(written[0]!.sourceSellingCostId).toBe(rows[0].id);
     // In the customer's list as Open and negative, due with the invoice; the invoice is not marked Credited.
-    expect(outbox.rows.map((r) => r.kind)).toEqual(["customer_invoice", "status_after_credit"]);
+    expect(outbox.rows.map((r) => r.kind)).toEqual(["customer_invoice", "status_after_credit", "receivable_state"]);
+    expect(outbox.rows.at(-1)).toMatchObject({ invoiceId: "cn1", payload: { invoiceId: "inv1" } });
     expect(clients.invoiceCreate).toHaveBeenCalledWith(
       expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", amount: -60.5, status: "Open", dueDate: "2026-11-30" }),
       expect.anything(),

@@ -1,48 +1,29 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { Alert, Drawer, Spin, Tooltip } from "antd";
 import { FileTextOutlined } from "@ant-design/icons";
+import { Fact, Section } from "@/components/finance/DrawerParts";
 import { Pill } from "@/components/Pill";
 import { apiErrorMessage, apiFileUrl, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { chargeLabel } from "@/lib/chargeCodes";
+import { amountsText } from "@/lib/amounts";
 import { formatAmount } from "@/lib/money";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { useSupplierInvoice, useSupplierInvoiceSeen } from "@/hooks/useSupplierInvoices";
-import { EMPTY, HINT, LABEL_TEXT, LINK, MODAL_TITLE, REF, TD, TH } from "@/styles/ui";
+import { EMPTY, HINT, LINK, MODAL_TITLE, REF, TD, TH } from "@/styles/ui";
 import { MarkPills } from "./MarkPills";
 import { PayableActions } from "./PayableActions";
 import { PayableLines } from "./PayableLines";
 import { RaiseClaim } from "./RaiseClaim";
-import { amountsText, EVENT_LABELS, SOURCE_LABELS, statusChip, type PayableInvoice } from "../_lib/payables";
+import { EVENT_LABELS, SOURCE_LABELS, statusChip, type PayableInvoice } from "../_lib/payables";
 
 // One supplier invoice on a row click (or ?invoice=<id> from Costs Breakdown and the bell): its facts, lines,
 // document, claims and history, and what a manager may do to it. Amounts are not edited here (D1). A claim on
 // it can be raised here (build step 5, D15).
-
-function Fact({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <div className={LABEL_TEXT}>{label}</div>
-      <div className="mt-0.5 text-[13px] text-slate-700">{children}</div>
-    </div>
-  );
-}
-
-function Section({ title, children, extra }: { title: string; children: ReactNode; extra?: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="m-0 text-[13px] font-bold uppercase tracking-wider text-slate-900">{title}</h3>
-        {extra}
-      </div>
-      {children}
-    </section>
-  );
-}
 
 const none = <span className={EMPTY}>—</span>;
 const dayOrNone = (v: string | null) => (v ? <span className="tabular-nums">{formatDate(v)}</span> : none);

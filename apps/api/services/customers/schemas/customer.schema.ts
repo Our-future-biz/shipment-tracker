@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, integer, smallint, numeric, date, index, uniqueIndex, check, uuid, timestamp, boolean } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
-import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride, SupplierApprovalDecision, SupplierApprovalStatus } from "../interfaces/interfaces";
+import type { CustomerLabel, CustomerLanguage, CustomerRole, CustomerStatus, RiskLevelOverride, SupplierApprovalDecision, SupplierApprovalStatus } from "../interfaces/interfaces";
 
 export const customerTable = pgTable(
   "customer",
@@ -45,6 +45,9 @@ export const customerTable = pgTable(
     paymentTerms: text("payment_terms").notNull().default(""),
     freightPaymentTerms: text("freight_payment_terms").notNull().default(""),
     dutyPaymentTerms: text("duty_payment_terms").notNull().default(""),
+    // The language the customer is written to in (Accounts Receivable's reminders and statements): Czech or English
+    // for now, German later. Set with the payment terms, by a manager.
+    language: text("language").$type<CustomerLanguage>().notNull().default("en"),
     // What the company is to us; a haulier is a trucking subcontractor, a rail operator a rail supplier, a first / last mile
     // haulier trucks containers to and from ports and terminals, a shipping line sells ocean freight. Existing rows become customers.
     roles: text("roles").array().$type<CustomerRole[]>().notNull().default(sql`'{customer}'::text[]`),
@@ -125,6 +128,7 @@ export const customerTable = pgTable(
       "customer_label_check",
       sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'RISK')`,
     ),
+    check("customer_language_check", sql`${table.language} IN ('cs', 'en')`),
     check("customer_supplier_rating_check", sql`${table.supplierRating} BETWEEN 0 AND 5`),
     check("customer_approval_status_check", sql`${table.approvalStatus} IN ('', 'pending', 'declined')`),
     check("customer_approval_decision_check", sql`${table.approvalDecision} IN ('', 'approved', 'declined')`),

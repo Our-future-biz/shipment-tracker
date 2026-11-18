@@ -12,7 +12,7 @@ import { EMPTY, LINK, REF } from "@/styles/ui";
 import { PayableLines } from "./PayableLines";
 import { MarkPills } from "./MarkPills";
 import { haulierChip, haulierInvoiceHref, statusChip, type PayableRow } from "../_lib/payables";
-import { shownColumns } from "../_lib/payableColumns";
+import { shownColumns } from "@/lib/tableModel";
 
 // The invoices of a tab: one row per supplier invoice (D1), opened to its lines; Trucking's haulier invoices
 // beside them for superadmins, read-only, a click opening them in Trucking (D17).

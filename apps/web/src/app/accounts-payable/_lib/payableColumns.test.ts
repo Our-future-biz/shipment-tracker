@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import {
-  CHECK_KEY,
-  EXPECTED_TABLE,
-  INVOICE_TABLE,
-  expectedCellText,
-  invoiceCellText,
-  knownFilters,
-  matchesTableFilters,
-  normalizeColumns,
-  shownColumns,
-} from "./payableColumns";
+import { CHECK_KEY, knownFilters, matchesTableFilters, normalizeColumns } from "@/lib/tableModel";
+import { EXPECTED_TABLE, INVOICE_TABLE, expectedCellText, invoiceCellText } from "./payableColumns";
 import { apRow, haulierRow, type PayableExpected, type PayableHaulier, type PayableInvoice } from "./payables";
 
 const invoice = (over: Partial<PayableInvoice> = {}): PayableInvoice => ({
@@ -159,6 +150,5 @@ describe("Columns", () => {
     expect(normalizeColumns(INVOICE_TABLE, ["marks", "amount", "nope", "amount"])).toEqual(["supplier", "amount", "marks"]);
     expect(normalizeColumns(INVOICE_TABLE, null)).toEqual(["supplier"]);
     expect(INVOICE_TABLE.view.defaults).toEqual(INVOICE_TABLE.columns.map((c) => c.key));
-    expect(shownColumns([{ key: "supplier" }, { key: "jobs" }, { key: "due" }], ["due", "supplier"])).toEqual([{ key: "supplier" }, { key: "due" }]);
   });
 });

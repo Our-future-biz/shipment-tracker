@@ -64,15 +64,18 @@ const NAV_ITEMS: NavItem[] = [
   },
   { path: "/tariffs", label: "Tariffs", icon: ReceiptIcon, description: "Our suppliers' tariffs, by kind of transport.", children: TARIFF_NAV },
   { path: "/documents", label: "Document / Text Reading", icon: FileMagnifyingGlassIcon },
-  // Finance's pages keep their own addresses (/invoicing, /accounts-payable, /exchange); /finance is its
-  // overview. Accounts Payable sits right after Invoicing, its sibling for invoices received (Council Outlay 9, D4).
+  // Finance's pages keep their own addresses (/invoicing, /accounts-receivable, /accounts-payable, /exchange);
+  // /finance is its overview. They follow the money: issue, collect, pay. Accounts Receivable sits right after
+  // Invoicing (Council Outlay 10, D4), Accounts Payable after it, the sibling for invoices received (Council Outlay 9, D4).
   {
     path: "/finance",
     label: "Finance",
     icon: CurrencyCircleDollarIcon,
-    description: "Invoicing of the jobs, the invoices from suppliers (Accounts Payable), and the exchange rates the app works with.",
+    description:
+      "Invoicing of the jobs, what customers owe (Accounts Receivable), the invoices from suppliers (Accounts Payable), and the exchange rates the app works with.",
     children: [
-      { path: "/invoicing", label: "Invoicing", description: "Invoices to customers for the jobs." },
+      { path: "/invoicing", label: "Invoicing", description: "Issuing invoices to customers for the jobs." },
+      { path: "/accounts-receivable", label: "Accounts Receivable", description: "Invoices to customers: unpaid, overdue, paid and credited." },
       { path: "/accounts-payable", label: "Accounts Payable", description: "Invoices from suppliers: booked, approved, refused, claimed and paid." },
       { path: "/exchange", label: "Exchange", description: "The exchange rates amounts are converted with." },
     ],

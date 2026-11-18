@@ -743,6 +743,20 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * The customer's open jobs (Accounts Receivable's work not yet invoiced): live, not Cancelled, newest first, at
+   * most `limit` - the caller asks one more than it shows, to tell it was capped.
+   */
+  async openJobIdsOfCustomer(companyId: string, customerId: string, limit: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: shipmentTable.id })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), eq(shipmentTable.customerId, customerId), isNull(shipmentTable.deletedAt), NOT_CANCELLED))
+      .orderBy(desc(shipmentTable.createdAt), desc(shipmentTable.id))
+      .limit(limit);
+    return rows.map((r) => r.id);
+  }
+
   /** How many live shipments of the company are for the customer (the Customer Database asks before a delete). */
   async countOfCustomer(companyId: string, customerId: string): Promise<number> {
     const [{ value }] = await this.db

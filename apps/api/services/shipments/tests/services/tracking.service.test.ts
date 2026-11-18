@@ -134,6 +134,12 @@ describe("recording an event", () => {
     expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", occurredOn: "2026-11-05", effect: "applied", effectField: "actualArrival", effectValue: "2026-11-05", source: "user", note: "On the berth" }), TX);
   });
 
+  it("never sets Warehouse Released: gate out is not recorded here, so the prepayment stop stays where a manager can give a reason", async () => {
+    await expect(trackingService.record("s1", { ...ACTOR, role: "manager" }, { kind: "gate_out", occurredOn: "2026-11-05" }, NOW)).rejects.toThrow(`"gate_out" can't be recorded here`);
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.add).not.toHaveBeenCalled();
+  });
+
   it("leaves no event when the update refuses, as it does on an invoiced job", async () => {
     service.update.mockRejectedValueOnce(new Error("credit the invoice first"));
     await expect(record()).rejects.toThrow("credit the invoice first");

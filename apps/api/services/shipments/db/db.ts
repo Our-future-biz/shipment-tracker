@@ -22,6 +22,7 @@ import * as shipmentImportInstructionSchema from "../schemas/shipmentImportInstr
 import * as shipmentTrackingReadSchema from "../schemas/shipmentTrackingRead.schema";
 import * as shipmentNotesReadSchema from "../schemas/shipmentNotesRead.schema";
 import * as masterJobDocumentSchema from "../schemas/masterJobDocument.schema";
+import * as shipmentReleaseOverrideSchema from "../schemas/shipmentReleaseOverride.schema";
 
 export const DB = new SQLDatabase("shipments", {
   migrations: { path: "migrations", source: "drizzle" },
@@ -52,6 +53,7 @@ export const db = drizzle(pool, {
     ...shipmentTrackingReadSchema,
     ...shipmentNotesReadSchema,
     ...masterJobDocumentSchema,
+    ...shipmentReleaseOverrideSchema,
   },
 });
 

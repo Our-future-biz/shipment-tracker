@@ -42,6 +42,7 @@ export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerIte
   paymentTerms: r.paymentTerms,
   freightPaymentTerms: r.freightPaymentTerms,
   dutyPaymentTerms: r.dutyPaymentTerms,
+  language: r.language,
   companyWebsite: r.companyWebsite,
   logoUrl: logoLength(r) > 0 ? customerLogoUrl(r.id, r.companyId, `${r.logoUpdatedAt}-${logoLength(r)}`) : "",
   logoSource: r.logoSource,
@@ -153,6 +154,7 @@ export const toInvoiceItem = (r: CustomerInvoiceRecord): InvoiceItem => ({
   dueDate: dateOutput(r.dueDate),
   status: r.status,
   issuedAt: dateOutput(r.issuedAt),
+  source: r.source,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

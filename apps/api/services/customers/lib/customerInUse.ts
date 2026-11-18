@@ -4,13 +4,16 @@ export interface CustomerUses {
   shipments: number;
   /** Sales quotes still in play: not won, lost, replaced or expired. */
   openQuotes: number;
+  /** Issued invoices billed to it with something left to pay (Finance → Accounts Receivable). */
+  unpaidInvoices: number;
 }
 
 const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Why the customer can't be deleted yet - its live shipments and open quotes would name a deleted
- * company - with what to do instead; null when nothing holds it.
+ * company, and an unpaid invoice is still to be collected from it - with what to do instead; null
+ * when nothing holds it.
  */
 export function customerDeleteRefusal(companyName: string, uses: CustomerUses): string | null {
   const held: string[] = [];
@@ -23,6 +26,9 @@ export function customerDeleteRefusal(companyName: string, uses: CustomerUses): 
     held.push(counted(uses.openQuotes, "open quote", "open quotes"));
     todo.push(`mark ${uses.openQuotes === 1 ? "the quote" : "the quotes"} Lost`);
   }
-  if (!held.length) return null;
-  return `${companyName} can't be deleted while it has ${held.join(" and ")}: set it Inactive instead, or first ${todo.join(" and ")}`;
+  const owes = uses.unpaidInvoices > 0 ? `still owes ${counted(uses.unpaidInvoices, "invoice", "invoices")}` : "";
+  if (!held.length && !owes) return null;
+  const why = [held.length ? `has ${held.join(" and ")}` : "", owes].filter(Boolean).join(" and ");
+  const instead = todo.length ? `set it Inactive instead, or first ${todo.join(" and ")}` : "set it Inactive instead";
+  return `${companyName} can't be deleted while it ${why}: ${instead}`;
 }

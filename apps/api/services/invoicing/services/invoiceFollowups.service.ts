@@ -1,5 +1,7 @@
+import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { customers, shipments } from "~encore/clients";
+import { carryOverBeforeTelling, NOT_CHECKED } from "./receivableCarryOver";
 import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
 import type { InvoiceFollowupOutboxRecord, NewInvoiceFollowupOutboxRecord } from "../schemas/invoiceFollowupOutbox.schema";
 import type { InvoiceRecord } from "../schemas/invoice.schema";
@@ -8,6 +10,8 @@ import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { countInvoicedLines } from "../lib/billingQueue";
 import { statusesAfterCredit, statusesAfterIssue, type ChargeCount, type StatusPatch } from "../lib/shipmentStatus";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
+import { receivableRepository } from "../repositories/receivable.repository";
+import { customerListStateOf, lastPaidOnOf, settledOther } from "../lib/receivables";
 
 // What an issued invoice or credit note owes the other services (schemas/invoiceFollowupOutbox):
 // written in the issue's own transaction (followupsOfInvoice / followupsOfCreditNote), sent straight
@@ -26,6 +30,8 @@ const rowsOf = (doc: InvoiceRecord, shipmentId: string, actor: FollowupActor, ro
   rows.map((r) => ({ ...r, companyId: doc.companyId, invoiceId: doc.id, shipmentId, actingUserId: actor.userId, actingRole: actor.role }));
 
 const customerEntry = (doc: InvoiceRecord, status: "Open" | "Credited", dueDate = doc.dueDate) => ({
+  // The document itself, so the customer's row is linked to it (Accounts Receivable)
+  invoiceId: doc.id,
   customerId: doc.customerId,
   invoiceNumber: doc.number,
   amount: Number(doc.gross),
@@ -44,9 +50,21 @@ export function followupsOfInvoice(invoice: InvoiceRecord, actor: FollowupActor)
 }
 
 /**
+ * What is left to pay on an invoice (Finance → Accounts Receivable), on its row in the customer's list: read fresh when
+ * the row is sent, so it is safe to send again and a later state is never overwritten by an older one.
+ */
+const receivableState = (invoice: Pick<InvoiceRecord, "id">) => ({ kind: "receivable_state" as const, payload: { invoiceId: invoice.id } });
+
+/** A payment noted or taken back on Accounts Receivable: the customer's list follows (written in the same transaction). */
+export function followupsOfReceivable(invoice: InvoiceRecord, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
+  return rowsOf(invoice, invoice.shipmentId, actor, [receivableState(invoice)]);
+}
+
+/**
  * A credit note of the whole invoice (or of what partial ones left of it): in the customer's list as
  * Credited, the invoice it cancels and its partial credit notes marked Credited there too, and the
- * shipment back in the queue when a charge of it is no longer invoiced.
+ * shipment back in the queue when a charge of it is no longer invoiced. Last, what is left of the invoice
+ * (a payment kept: to refund, D14).
  */
 export function followupsOfCreditNote(
   creditNote: InvoiceRecord,
@@ -58,6 +76,7 @@ export function followupsOfCreditNote(
     { kind: "customer_invoice", payload: customerEntry(creditNote, "Credited") },
     { kind: "mark_credited", payload: { invoiceNumbers: [original.number, ...partialCreditNoteNumbers] } },
     { kind: "status_after_credit", payload: { shipmentId: original.shipmentId } },
+    receivableState(original),
   ]);
 }
 
@@ -75,12 +94,14 @@ export function followupsOfCancellation(invoice: InvoiceRecord, actor: FollowupA
 /**
  * A partial credit note (lib/partialCredit): in the customer's list as Open with its negative amount,
  * due with the invoice, so what the customer owes drops by it; the invoice stays Open with the rest.
- * The shipment's statuses are looked at again, as after any credit note.
+ * The shipment's statuses are looked at again, as after any credit note; last, what is left of the invoice
+ * (the credit note is netted into it on its row).
  */
 export function followupsOfPartialCreditNote(creditNote: InvoiceRecord, original: InvoiceRecord, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
   return rowsOf(creditNote, original.shipmentId, actor, [
     { kind: "customer_invoice", payload: customerEntry(creditNote, "Open", original.dueDate) },
     { kind: "status_after_credit", payload: { shipmentId: original.shipmentId } },
+    receivableState(original),
   ]);
 }
 
@@ -99,13 +120,57 @@ export async function chargeCountOf(shipmentId: string, companyId: string): Prom
 
 const changes = (patch: StatusPatch) => !!(patch.status || patch.invoicingStatus);
 
+/**
+ * What the customer's list is told of an invoice now: what is left to pay after its credit notes, live payments and
+ * confirmed write-offs / bank charges,
+ * the last day paid, whether it is settled, its own status (a credited or cancelled one is never Paid there), and its
+ * partial credit notes (netted into it). null when it is not there. An invoice whose old Paid in the customer's list
+ * was not carried over yet is carried over first, so that Paid is never overwritten by "owed"; when the customer's list
+ * can't be asked this throws a retryable error (the follow-up is sent again later).
+ */
+export async function receivableStateNow(companyId: string, invoiceId: string) {
+  let figures = await receivableRepository.figuresOne(companyId, invoiceId);
+  if (!figures) return null;
+  if (!figures.receivable?.carriedChecked) {
+    await carryOverBeforeTelling(companyId, invoiceId);
+    figures = await receivableRepository.figuresOne(companyId, invoiceId);
+    if (!figures) return null;
+    if (!figures.receivable?.carriedChecked) throw APIError.unavailable(NOT_CHECKED);
+  }
+  const invoice = figures.invoice;
+  const [creditNotes, payments] = await Promise.all([
+    receivableRepository.creditNotesOf(companyId, [invoice.id]),
+    receivableRepository.paymentsOf(companyId, [invoice.id]),
+  ]);
+  // A credited invoice's last credit note is the one of the whole invoice; the others were partial.
+  const partial = invoice.status === "credited" ? creditNotes.slice(0, -1) : creditNotes;
+  const { leftToPay, settled } = customerListStateOf({
+    invoiceStatus: invoice.status,
+    gross: Number(invoice.gross),
+    credited: figures.credited,
+    paid: figures.paid,
+    // A confirmed write-off or bank charge closes what is left too (step 7).
+    settledOther: settledOther(figures),
+  });
+  return {
+    customerId: invoice.customerId,
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.number,
+    leftToPay,
+    lastPaidOn: lastPaidOnOf(payments),
+    settled,
+    invoiceStatus: invoice.status,
+    creditNoteNumbers: partial.map((c) => c.number),
+  };
+}
+
 /** Sends one follow-up; throws when the service did not take it. Safe to send again. */
 export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<void> {
   const authData = { userID: row.actingUserId, companyID: row.companyId, role: row.actingRole };
   const payload = row.payload as Record<string, unknown>;
   switch (row.kind) {
     case "customer_invoice": {
-      const p = payload as { customerId: string; invoiceNumber: string; amount: number; currency: string; dueDate: string; status: "Open" | "Credited"; issuedAt: string };
+      const p = payload as { customerId: string; invoiceNumber: string; amount: number; currency: string; dueDate: string; status: "Open" | "Credited"; issuedAt: string; invoiceId?: string };
       await customers._internalCustomerInvoicePost(p, { authData });
       return;
     }
@@ -128,6 +193,14 @@ export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<vo
       if (changes(patch)) await shipments.shipmentUpdate({ shipmentId, ...patch }, { authData: { ...authData, appWrite: true } });
       return;
     }
+    case "receivable_state": {
+      // The state as it is now (not as when the row was written): safe to repeat, never older than what was sent.
+      const state = await receivableStateNow(row.companyId, String(payload.invoiceId));
+      if (!state) return;
+      // A row the customer's list does not have answers ok: false: nothing to update, not an error.
+      await customers._internalCustomerInvoiceReceivable(state, { authData });
+      return;
+    }
   }
 }
 
@@ -136,6 +209,7 @@ const WHAT: Record<string, string> = {
   mark_credited: "The credited or cancelled invoice could not be marked so in the customer's invoice list",
   status_after_issue: "The shipment's statuses could not be moved after the invoice",
   status_after_credit: "The shipment's statuses could not be moved after the credit note",
+  receivable_state: "What is left to pay could not be updated in the customer's invoice list",
 };
 
 const handlers: OutboxHandlers<InvoiceFollowupOutboxRecord> = {

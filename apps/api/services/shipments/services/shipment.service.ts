@@ -86,6 +86,8 @@ import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/pe
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
 import { dropSharesOfLeftShipments } from "../lib/masterJobCosts";
 import { startShipmentBilling } from "../lib/shipmentBilling";
+import { overrideLine, prepaymentStop, RELEASE_CHANGED_MEANWHILE, setsWarehouseRelease, type PaymentCheck, type ReleaseKind, type ReleaseOverride } from "../lib/prepaymentStop";
+import { shipmentReleaseOverrideRepository } from "../repositories/shipmentReleaseOverride.repository";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
@@ -175,6 +177,17 @@ export type ShipmentUpdateData = Partial<Omit<NewShipmentRecord, "customsPriorit
  * approved Customs Office): a write of the shipment made in between is seen here.
  */
 export type StillHolds = (current: ShipmentRecord) => void;
+
+/** What a release brings along to an update (the prepayment stop, lib/prepaymentStop). */
+export interface ReleaseExtras {
+  /** A manager's reason to set Warehouse Released on a job on prepayment that is not paid. */
+  paymentOverrideReason?: string;
+  /** The House BoL release's override, decided before the write (releaseHouseBol): recorded in its write turn. */
+  houseBolOverride?: ReleaseOverride;
+}
+
+// The most open jobs of a customer one answer lists (Accounts Receivable's work not yet invoiced).
+const MAX_OPEN_JOBS = 5000;
 
 // Project table rows down to the API line shapes (drop internal
 // shipmentId/companyId/timestamps; containers keep their id — cargo lines
@@ -1241,7 +1254,8 @@ class ShipmentService {
   // `role`: of the person editing, whose edit is held to what their role may change. Left out by
   // the app's own writes (a master job's sync, an approved request). `origin`: where the write comes
   // from, when the fields alone don't say, for the tracking events it causes. `stillHolds`: what the
-  // write was decided on, checked again in the write turn (StillHolds).
+  // write was decided on, checked again in the write turn (StillHolds). `extras`: what a release brings
+  // along (ReleaseExtras).
   async update(
     id: string,
     companyId: string,
@@ -1250,6 +1264,7 @@ class ShipmentService {
     role?: string,
     origin?: TrackingSource,
     stillHolds?: StillHolds,
+    extras: ReleaseExtras = {},
   ): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
@@ -1402,12 +1417,27 @@ class ShipmentService {
     // A person's write - an edit, or the master job's values a person saved - owes Trucking and the
     // gate the fields they keep (lib/shipmentPush); the app's own writes (theirs) owe nothing.
     const byPerson = role !== undefined || origin === "master_job";
+
+    // The prepayment stop (lib/prepaymentStop): a person's write that sets Warehouse Released from empty asks
+    // Invoicing whether the job is paid - only that write, so no other edit waits for it. A user is refused for a
+    // job on prepayment not paid; a manager's reason lets it through, recorded in the write's turn. The app's own
+    // writes (no role: Trucking, the gate, Invoicing) are never stopped.
+    const releaseChecked = role !== undefined && setsWarehouseRelease(existing, shipmentData);
+    const releaseOverride = role !== undefined && releaseChecked ? await this.releaseGate(id, "warehouse_released", role, extras.paymentOverrideReason) : null;
+    // Whether the turn looks at Warehouse Released again: a person's write of a date into it.
+    const watchesRelease = role !== undefined && !!(shipmentData.warehouseReleasedDate ?? "").trim();
+    const overrideBy = releaseOverride || extras.houseBolOverride ? await this.actorOf(userId) : "";
+
     let pushesOwed = false;
     const updated = await shipmentRepository.writeTurn(id, companyId, async (tx) => {
-      if (stillHolds) {
+      let setsRelease = false;
+      if (stillHolds || watchesRelease) {
         const current = await shipmentRepository.getInTurn(tx, id, companyId);
         if (!current) throw APIError.notFound("Shipment not found");
-        stillHolds(current);
+        stillHolds?.(current);
+        // Decided on the row as it was read: one emptied in between would be released unasked - asked again instead.
+        setsRelease = watchesRelease && setsWarehouseRelease(current, shipmentData);
+        if (setsRelease && !releaseChecked) throw APIError.failedPrecondition(RELEASE_CHANGED_MEANWHILE);
       }
       const audit = (field: string, oldValue: string | null, newValue: string | null) =>
         shipmentAuditRepository.create({ companyId, shipmentId: id, userId, field, oldValue, newValue }, tx);
@@ -1425,6 +1455,9 @@ class ShipmentService {
       await this.writeTrackingFacts(tx, existing, shipmentData, userId, role !== undefined, origin);
       if (Object.keys(shipmentData).length === 0) return null;
       const saved = await shipmentRepository.updateForCompany(id, companyId, shipmentData, tx);
+      // A manager's release of an unpaid prepayment job is recorded with the release, or not at all.
+      if (saved && setsRelease && releaseOverride) await this.recordOverride(tx, saved, "warehouse_released", releaseOverride, userId, overrideBy);
+      if (saved && extras.houseBolOverride) await this.recordOverride(tx, saved, "house_bol", extras.houseBolOverride, userId, overrideBy);
       if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
     });
@@ -1672,16 +1705,64 @@ class ShipmentService {
   // act: once stamped, the record stands - a second release is refused rather than rewriting who
   // did it. Checked again in the shipment's write turn, so of two releases at the same moment the
   // second finds the first one's stamp.
-  async releaseHouseBol(id: string, companyId: string, userId: string): Promise<ShipmentItem> {
+  // `person`: the person releasing (the endpoint), whose release is held to the prepayment stop
+  // (lib/prepaymentStop) - a manager's reason lets an unpaid prepayment job through, recorded with the release.
+  async releaseHouseBol(id: string, companyId: string, userId: string, person?: { role: string; paymentOverrideReason?: string }): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
     const notReleasedYet: StillHolds = ({ houseBolRelease }) => {
       if (houseBolRelease.trim()) throw APIError.failedPrecondition(`The House BoL was already released (${houseBolRelease.trim()})`);
     };
     notReleasedYet(existing);
+    const houseBolOverride = person ? await this.releaseGate(id, "house_bol", person.role, person.paymentOverrideReason) : null;
 
     const stamp = actionStamp(await this.actorOf(userId), new Date());
-    return this.update(id, companyId, { houseBolRelease: stamp }, userId, undefined, undefined, notReleasedYet);
+    return this.update(id, companyId, { houseBolRelease: stamp }, userId, undefined, undefined, notReleasedYet, houseBolOverride ? { houseBolOverride } : {});
+  }
+
+  // Invoicing's word on whether the job is paid, for the prepayment stop; null when it can't be asked.
+  private async paymentCheck(shipmentId: string): Promise<PaymentCheck | null> {
+    try {
+      return await invoicing._internalReleaseCheck({ shipmentId });
+    } catch (err) {
+      log.warn(err, "whether the job is paid not checked for its release", { shipmentId });
+      return null;
+    }
+  }
+
+  // The prepayment stop of a person's release (lib/prepaymentStop): throws its refusal, else gives the manager's
+  // override to record with the release (null when there is none to record).
+  private async releaseGate(shipmentId: string, kind: ReleaseKind, role: string, reason: string | undefined): Promise<ReleaseOverride | null> {
+    const verdict = prepaymentStop(kind, await this.paymentCheck(shipmentId), role, reason);
+    if ("refusal" in verdict) throw APIError.failedPrecondition(verdict.refusal);
+    return verdict.override;
+  }
+
+  // The record of a manager's release of an unpaid prepayment job, in the release's own turn: the override row, a
+  // line in the shipment's history and a note on its Tracking tab.
+  private async recordOverride(tx: Tx, shipment: ShipmentRecord, kind: ReleaseKind, override: ReleaseOverride, userId: string, by: string): Promise<void> {
+    const { companyId, id: shipmentId } = shipment;
+    await shipmentReleaseOverrideRepository.create(tx, {
+      companyId,
+      shipmentId,
+      kind,
+      reason: override.reason,
+      invoices: override.invoices,
+      checked: override.checked,
+      byUserId: userId,
+      by,
+    });
+    const line = overrideLine(kind, override);
+    await shipmentAuditRepository.create({ companyId, shipmentId, userId, field: "paymentOverride", oldValue: null, newValue: line }, tx);
+    await shipmentTrackingEventRepository.add({ companyId, shipmentId, kind: "note", occurredOn: businessDay(new Date()), source: "user", recordedById: userId, note: line }, tx);
+  }
+
+  /** The customer's open jobs - live, not Cancelled - newest first, at most MAX_OPEN_JOBS (`capped` when there are more). */
+  async openJobIdsOfCustomer(companyId: string, customerId: string): Promise<{ shipmentIds: string[]; capped: boolean }> {
+    // What is not an id names no customer, and is kept from SQL.
+    if (!isUuid(customerId)) return { shipmentIds: [], capped: false };
+    const ids = await shipmentRepository.openJobIdsOfCustomer(companyId, customerId, MAX_OPEN_JOBS + 1);
+    return { shipmentIds: ids.slice(0, MAX_OPEN_JOBS), capped: ids.length > MAX_OPEN_JOBS };
   }
 
   /**

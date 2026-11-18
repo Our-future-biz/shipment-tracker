@@ -100,6 +100,17 @@ import { CONTAINER_PARAM, containerToShow } from "../_lib/containerLink";
 import { NotesTab } from "./tabs/NotesTab";
 import { useShipmentNotes } from "@/hooks/useShipmentNotes";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
+import { ReleasedStopDialog, type ReleasedStop } from "./_components/ReleasedStopDialog";
+import {
+  OverrideReasonField,
+  ReleaseCheckBody,
+  ReleaseStopAlert,
+  useCanOverrideReleaseStop,
+  useReleaseCheckState,
+  WarningConfirm,
+} from "@/components/finance/ReleasePaymentWarning";
+import { CreditWarningLines, useCreditWarningView } from "@/components/finance/CreditWarning";
+import { overrideReasonOk, releaseStopLikely, releaseStopNote, releaseStopOf, warnsOnGreen, type ReleaseStop } from "@/lib/paymentWarnings";
 
 /** `links` go with a value that names a record: a picked contact's id. */
 export type CommitFn = (fieldKey: string, value: string, links?: ContactLinks) => void;
@@ -1028,6 +1039,9 @@ function CargoRow({
   if (INVOICE_FIELDS.has(field.key)) {
     return <InvoiceRow label={field.label} fieldKey={field.key} shipment={shipment} styleFor={styleFor} />;
   }
+  if (field.key === "creditCheck") {
+    return <CreditCheckRow label={field.label} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />;
+  }
   const value = getFieldValue(shipment, field.key);
   // Approved by is a person, picked from the company's users.
   if (isPersonField(field.key)) {
@@ -1073,6 +1087,58 @@ function CargoRow({
   );
 }
 
+// Credit Check is set by hand (Green / Yellow / Red). Beside it, the customer's credit warning (Council Outlay 10,
+// D21): over the credit limit or overdue invoices. Setting Green while there is one shows the warning in that edit,
+// with "Set Green anyway" - a warning, never a stop.
+function CreditCheckRow({ label, shipment, onCommit, styleFor }: { label: string; shipment: ShipmentItem; onCommit: CommitFn; styleFor?: StyleFor }) {
+  const value = getFieldValue(shipment, "creditCheck");
+  const credit = useCreditWarningView(shipment.customerId);
+  const [green, setGreen] = useState<string | null>(null);
+  const commit: CommitFn = (fieldKey, next, links) => {
+    if (warnsOnGreen(next, credit.lines)) setGreen(next);
+    else onCommit(fieldKey, next, links);
+  };
+  return (
+    <>
+      <div className={ROW}>
+        <span className={LABEL}>{label}</span>
+        <div className="flex-1 min-w-0">
+          <EditableCell
+            className="w-full"
+            fieldKey="creditCheck"
+            value={value}
+            onCommit={commit}
+            placeholder="—"
+            displayClassName="text-slate-900"
+            emptyClassName={EMPTY}
+            displayStyle={styleFor?.("creditCheck", value)}
+          />
+          <CreditWarningLines lines={credit.lines} variant="inline" className="mt-0.5" />
+          {credit.isError && <div className={HINT}>Credit could not be checked.</div>}
+          {/* Information only (step 7): never part of "over the limit". */}
+          {credit.unbilled && <div className={HINT}>{credit.unbilled}</div>}
+        </div>
+      </div>
+      <WarningConfirm
+        open={green !== null}
+        width={480}
+        title="Set Credit Check to Green?"
+        description="The customer has a credit warning."
+        confirmLabel="Set Green"
+        warnedLabel="Set Green anyway"
+        warned
+        onConfirm={() => {
+          if (green !== null) onCommit("creditCheck", green);
+          setGreen(null);
+        }}
+        onClose={() => setGreen(null)}
+      >
+        <CreditWarningLines lines={credit.lines} />
+      </WarningConfirm>
+    </>
+  );
+}
+
 interface CargoCommercialCardProps {
   shipment: ShipmentItem;
   onCommit: CommitFn;
@@ -1101,6 +1167,8 @@ function CargoCommercialCard({
         shipment={shipment}
         onCommit={onCommit}
         styleFor={styleFor}
+        // "Show all" shows Credit Check with its credit warning too.
+        renderField={{ creditCheck: <CreditCheckRow label="Credit check" shipment={shipment} onCommit={onCommit} styleFor={styleFor} /> }}
       />
       <PairedColumns left={rows(CARGO_COMMERCIAL_L)} right={rows(CARGO_COMMERCIAL_R)} />
     </div>
@@ -1124,6 +1192,12 @@ export function ShipmentDetailContent() {
   const [deleting, setDeleting] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [releasing, setReleasing] = useState(false);
+  // The prepayment stop (Accounts Receivable step 7): the server's refusal of the release, and a manager's reason.
+  const [releaseStop, setReleaseStop] = useState<ReleaseStop | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+  const canOverrideStop = useCanOverrideReleaseStop();
+  // Warehouse Released set by hand and stopped for prepayment: the stop and the edit to send again with a reason.
+  const [releasedStop, setReleasedStop] = useState<ReleasedStop | null>(null);
   const queryClient = useQueryClient();
   // vyber poli zobrazenych v kartach (tuzka v hlavicce karty)
   const { visibleKeys: visibleCardKeys } = useCardFields();
@@ -1133,6 +1207,14 @@ export function ShipmentDetailContent() {
 
   // Read on its own: the page loads no list (a shipment opened by link need not be one of the newest).
   const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber);
+  // The payment warning at the House BoL release (Council Outlay 10, D20): read when the release dialog opens.
+  const releaseCheck = useReleaseCheckState(shipment?.id, releaseOpen && !shipment?.houseBolRelease);
+  // The check already says the server will stop it (prepayment, not paid): said up front - the server decides.
+  const releaseStopAhead = releaseCheck.state === "warn" && releaseStopLikely(releaseCheck.check);
+  const reasonShown = canOverrideStop && (releaseStop !== null || releaseStopAhead);
+  const reasonOk = overrideReasonOk(overrideReason);
+  const releaseLabel =
+    reasonShown && (reasonOk || releaseStop) ? "Release with a reason" : releaseStop ? "Try again" : releaseCheck.state === "warn" ? "Release anyway" : "Release";
   // Where the page was opened from, by the id in its address: the way back beside Shipments.
   const cameFrom = useShipmentCameFrom(jobNumber);
 
@@ -1269,7 +1351,10 @@ export function ShipmentDetailContent() {
   // The shipment goes along: it need not be among the rows the list hook knows.
   // At user level only the Person in Charge and the Holiday Cover change the details (the server holds to the same).
   const detailsEditable = canChangeShipmentDetails(user, shipment);
-  const handleCommit: CommitFn = (fieldKey, value, links) => updateField(shipment.id, fieldKey, value, shipment, links);
+  // Warehouse Released stopped for prepayment (step 7) opens a dialog: the server's sentence, and for a manager a
+  // reason to send the same edit again with.
+  const handleCommit: CommitFn = (fieldKey, value, links) =>
+    updateField(shipment.id, fieldKey, value, shipment, links, { onReleaseStop: (stop, resend) => setReleasedStop({ stop, resend }) });
 
   // A write of a field of its own (a party, a contact, opening hours): one that is refused is rolled
   // back and says why, instead of the value just snapping back.
@@ -1316,16 +1401,25 @@ export function ShipmentDetailContent() {
   };
 
   // Releasing stamps the acting user server-side, so the browser only triggers
-  // it and refreshes.
+  // it and refreshes. A job on prepayment that is not paid is stopped by the server (step 7): its sentence stays in
+  // the dialog - the release did not happen - and a manager sends it again with a reason.
+  const openRelease = () => {
+    setReleaseStop(null);
+    setOverrideReason("");
+    setReleaseOpen(true);
+  };
   const confirmReleaseHouseBol = async () => {
     setReleasing(true);
     try {
-      await api.shipments.shipmentReleaseHouseBol(shipment.id);
+      const reason = reasonShown && reasonOk ? overrideReason.trim() : "";
+      await api.shipments.shipmentReleaseHouseBol(shipment.id, reason ? { paymentOverrideReason: reason } : {});
       await queryClient.invalidateQueries({ queryKey: ["shipments"] });
-      toast.success("House BoL released");
+      toast.success(reason ? "House BoL released with your reason" : "House BoL released");
       setReleaseOpen(false);
     } catch (e) {
-      toast.error(`Failed to release the House BoL: ${apiErrorMessage(e)}`);
+      const stop = releaseStopOf(e);
+      if (stop) setReleaseStop(stop);
+      else toast.error(`Failed to release the House BoL: ${apiErrorMessage(e)}`);
     } finally {
       setReleasing(false);
     }
@@ -1510,7 +1604,7 @@ export function ShipmentDetailContent() {
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
                     houseBolRelease: (
-                      <HouseBolReleaseRow releasedAt={shipment.houseBolRelease} onRelease={() => setReleaseOpen(true)} />
+                      <HouseBolReleaseRow releasedAt={shipment.houseBolRelease} onRelease={openRelease} />
                     ),
                     masterJob: (
                       <div className={ROW}>
@@ -2031,7 +2125,11 @@ export function ShipmentDetailContent() {
 
       {/* The app's confirmation: the question once, in the title, and what the release does.
           Wide enough for the title on one line with the longest job number (CZPROJECT…). */}
-      <ConfirmModal
+      {/* With the payment warning (D20) when the job's invoice is unpaid and the customer is on prepayment or
+          has overdue invoices: "Release anyway". A check that fails leaves a small note only. A job on prepayment
+          that is not paid is stopped by the server (step 7): said up front when the check knows it, the server's
+          sentence once it refused, and a manager's reason field to release it all the same. */}
+      <WarningConfirm
         open={releaseOpen}
         danger
         width={520}
@@ -2041,11 +2139,32 @@ export function ShipmentDetailContent() {
           </>
         }
         description="Your name and the current date and time are recorded as the release. This cannot be undone."
-        confirmLabel="Release"
+        confirmLabel={releaseLabel}
+        warnedLabel={releaseLabel}
+        warned={releaseCheck.state === "warn"}
+        checking={releaseCheck.state === "checking"}
         loading={releasing}
+        // After the server's stop, a manager's release needs the reason; before it, the server decides.
+        confirmDisabled={canOverrideStop && releaseStop !== null && !reasonOk}
         onConfirm={confirmReleaseHouseBol}
         onClose={() => setReleaseOpen(false)}
-      />
+      >
+        {(releaseStop || reasonShown || releaseCheck.state !== "clear") && (
+          <div className="flex flex-col gap-3">
+            {releaseStop ? (
+              <ReleaseStopAlert message={releaseStop.message} />
+            ) : (
+              <>
+                <ReleaseCheckBody check={releaseCheck.check} state={releaseCheck.state} />
+                {releaseStopAhead && <div className="text-[13px] font-medium text-red-700">{releaseStopNote(canOverrideStop)}</div>}
+              </>
+            )}
+            {reasonShown && <OverrideReasonField value={overrideReason} onChange={setOverrideReason} disabled={releasing} />}
+          </div>
+        )}
+      </WarningConfirm>
+
+      <ReleasedStopDialog value={releasedStop} onClose={() => setReleasedStop(null)} />
 
       <ConfirmModal
         open={deleteOpen}

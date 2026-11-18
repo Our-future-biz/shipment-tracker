@@ -1,6 +1,6 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { auth, quotes, shipments } from "~encore/clients";
+import { auth, invoicing, quotes, shipments } from "~encore/clients";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
@@ -8,6 +8,7 @@ import type {
   CustomerDetail,
   CustomerItem,
   CustomerLabel,
+  CustomerLanguage,
   CustomerOwnerFilter,
   CustomerPipelineItem,
   CustomerRatingFilter,
@@ -21,7 +22,7 @@ import type {
   RiskLevelOverride,
   SearchCustomersResponse,
 } from "../interfaces/interfaces";
-import { isSupplier, SUPPLIER_ROLES } from "../interfaces/interfaces";
+import { isCustomerLanguage, isSupplier, SUPPLIER_ROLES } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
 import { canManageSales, canManageSupplierTerms, canRateSupplier } from "../../../lib/salesPolicy";
@@ -122,6 +123,7 @@ export interface CustomerPatch {
   paymentTerms?: string;
   freightPaymentTerms?: string;
   dutyPaymentTerms?: string;
+  language?: CustomerLanguage;
   companyWebsite?: string;
   nace?: string;
   roles?: CustomerRole[];
@@ -259,6 +261,8 @@ const MANAGER_FIELDS = [
   "paymentTerms",
   "freightPaymentTerms",
   "dutyPaymentTerms",
+  // The language reminders and statements are written in: set with the payment terms.
+  "language",
   "industry",
   "typicalCargo",
   "stability",
@@ -302,14 +306,15 @@ async function assertNotInDatabase(companyId: string, number: string, country: s
  */
 async function usesOf(customer: CustomerRecord): Promise<CustomerUses> {
   try {
-    const [held, open] = await Promise.all([
+    const [held, open, unpaid] = await Promise.all([
       shipments._internalCustomerShipmentCount({ customerId: customer.id }),
       quotes._internalCustomerOpenQuoteCount({ customerId: customer.id }),
+      invoicing._internalCustomerUnpaidCount({ customerId: customer.id }),
     ]);
-    return { shipments: held.count, openQuotes: open.count };
+    return { shipments: held.count, openQuotes: open.count, unpaidInvoices: unpaid.count };
   } catch (err) {
-    log.warn(err, "a customer's shipments and open quotes could not be counted; it is not deleted", { customerId: customer.id });
-    throw APIError.unavailable(`Could not check whether ${customer.companyName} still has shipments or open quotes, so it was not deleted: try again in a moment`);
+    log.warn(err, "a customer's shipments, open quotes and unpaid invoices could not be counted; it is not deleted", { customerId: customer.id });
+    throw APIError.unavailable(`Could not check whether ${customer.companyName} still has shipments, open quotes or unpaid invoices, so it was not deleted: try again in a moment`);
   }
 }
 
@@ -531,6 +536,9 @@ class CustomerService {
       if (!values.companyName) throw APIError.invalidArgument("The company name can't be empty");
     }
     if (values.roles) values.roles = requireRoles(values.roles);
+    if (values.language !== undefined && !isCustomerLanguage(values.language)) {
+      throw APIError.invalidArgument("The language is Czech (cs) or English (en)");
+    }
     // A date column: "" clears it, anything but a date is refused.
     const regDate = dateInput(registrationDate, "registrationDate");
     if (regDate !== undefined) values.registrationDate = regDate;
@@ -606,7 +614,8 @@ class CustomerService {
   }
 
   // Its contacts go with it; the one customer event tells the copies of both. Refused while live
-  // shipments or open quotes name it: they would be left with a deleted company.
+  // shipments or open quotes name it - they would be left with a deleted company - and while it still
+  // owes an invoice (Council Outlay 10 D24).
   async softDelete(id: string, companyId: string): Promise<void> {
     const customer = await this.requireLive(id, companyId);
     const refusal = customerDeleteRefusal(customer.companyName, await usesOf(customer));

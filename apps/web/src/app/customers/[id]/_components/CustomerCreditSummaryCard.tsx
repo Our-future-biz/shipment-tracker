@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Progress } from "antd";
 import { KPI_TONE_CLASS } from "@/components/KpiTile";
 import { SectionCard } from "@/components/SectionCard";
-import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
+import { useCustomerOwed } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useLatestRates } from "@/lib/fx";
 import { summarizeInvoices, unconvertedReason } from "../../_lib/customerInvoices";
@@ -20,15 +20,16 @@ interface CustomerCreditSummaryCardProps {
 // How much of the credit limit is in use, at a glance. Read-only: the limit is edited in the Finance tab.
 export function CustomerCreditSummaryCard({ customerId, onSelectTab }: CustomerCreditSummaryCardProps) {
   const { customer } = useCustomer(customerId);
-  const { invoices, isLoading, isError } = useCustomerInvoices(customerId);
+  const { ledger, today, isLoading, isError } = useCustomerOwed(customerId);
   const { rates, isLoading: ratesLoading, isError: ratesError } = useLatestRates();
 
   if (!customer) return null;
 
   const { creditLimit, currency } = customer;
-  // Derived from the same invoices and today's rates as the Finance tab's figures; an open invoice in a
-  // currency ČNB has no rate for is left out of the outstanding sum here as there (the tab names it).
-  const { outstanding, unconverted } = summarizeInvoices(invoices, { currency, rates });
+  // Derived from the same invoices and today's rates as the Finance tab's figures (one truth with Accounts
+  // Receivable); an invoice owed in a currency ČNB has no rate for is left out of the outstanding sum here as
+  // there (the tab names it).
+  const { outstanding, unconverted } = summarizeInvoices(ledger, { currency, rates }, today);
   const utilization = creditLimit > 0 ? Math.round((outstanding / creditLimit) * 100) : null;
 
   let content: ReactNode;

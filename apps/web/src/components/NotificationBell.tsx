@@ -36,6 +36,9 @@ import { useDocumentChangeAnswers, type DocumentChangeRequestItem } from "@/hook
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 import { fold } from "@/lib/fold";
 import { apInvoiceHref } from "@/lib/accountsPayable";
+import { useReceivableNotices, useReceivableSeen, type ReceivableNotice } from "@/hooks/useReceivables";
+import { arInvoiceHref } from "@/lib/accountsReceivable";
+import { rememberNew } from "@/lib/bellMemory";
 
 // On the company's calendar and clock (Prague), wherever the browser is.
 const formatTime = (iso: string) => businessDateTime(iso);
@@ -148,6 +151,15 @@ const payablesWaitingTitle = (n: number) => `${n} supplier invoice${n === 1 ? ""
 const payableBookedTitle = (b: PayableNotice) => `${b.supplier || "A supplier"} invoice ${b.invoiceNumber || "(no number)"} booked on ${b.jobs.join(", ") || "a job"}`;
 const payableBookedText = (b: PayableNotice) => b.amounts.map((a) => formatAmount(a.amount, a.currency)).join(" + ");
 const payableBookedFlags = (b: PayableNotice) => [b.aboveEstimate && "above estimate", b.jobBilled && "job already invoiced"].filter((f): f is string => !!f);
+// Accounts Receivable (Council Outlay 10, D18): a customer invoice of the user's jobs or customers on its first overdue
+// day, then at 14 and 30 days, and a late one paid - each until it is opened.
+const NO_RECEIVABLE_NOTICES: ReceivableNotice[] = [];
+const receivableTitle = (n: ReceivableNotice) =>
+  n.milestone === "paid"
+    ? `${n.customer || "A customer"} paid invoice ${n.number} (it was overdue)`
+    : `Invoice ${n.number} of ${n.customer || "a customer"} is ${n.daysOverdue} day${n.daysOverdue === 1 ? "" : "s"} overdue`;
+const receivableText = (n: ReceivableNotice) =>
+  [n.jobNumber, n.milestone === "paid" ? "" : `${formatAmount(n.leftToPay, n.currency)} left to pay`].filter(Boolean).join(" · ");
 const changeAnswerDot = (r: InvoiceChangeRequestItem) => (r.status === "approved" ? "bg-emerald-500" : r.status === "rejected" ? "bg-red-500" : "bg-slate-400");
 
 // How long a read notification stays under the bell, in the "Last 7 days" view.
@@ -237,6 +249,11 @@ export function NotificationBell() {
   const { waiting: changeWaiting, answers: changeAnswers, hasLoaded: changeLoaded, seen: changeSeen } = useInvoiceChangeRequestBell();
   // Supplier invoices: how many wait for a manager (0 for anyone else), and the ones booked on this user's jobs (D10).
   const { toApprove: payablesToApprove, booked: payablesBooked, hasLoaded: payablesLoaded, seen: payableSeen } = useSupplierInvoiceNotices();
+  // Customer invoices overdue on the user's jobs or customers, and late ones paid (D18).
+  const { data: receivablesForMe } = useReceivableNotices();
+  const receivableNotices = receivablesForMe?.notices ?? NO_RECEIVABLE_NOTICES;
+  const receivablesLoaded = receivablesForMe !== undefined;
+  const receivableSeen = useReceivableSeen();
   // New suppliers added from quotes: a manager is told what waits, whoever added one the answer.
   const { canManageSales } = useSalesPermissions();
   const { approvals: supplierApprovals, hasLoaded: suppliersLoaded, seen: supplierSeen } = useSupplierApprovals();
@@ -289,6 +306,8 @@ export function NotificationBell() {
   // (the server lists it only until then).
   const payablesWaitingShown = payablesToApprove > 0 && matchesAll(query, payablesWaitingTitle(payablesToApprove), "Accounts Payable") ? 1 : 0;
   const payablesBookedShown = payablesBooked.filter((b) => matchesAll(query, payableBookedTitle(b), payableBookedText(b), ...payableBookedFlags(b)));
+  // Each stays until opened, whatever the view (the server lists it only until then).
+  const receivablesShown = receivableNotices.filter((n) => matchesAll(query, receivableTitle(n), receivableText(n), "Accounts Receivable"));
   const marginAnswersShown = (view === "unread" ? unreadMarginAnswers : marginAnswers).filter((a) => matchesAll(query, marginAnswerTitle(a), marginAnswerText(a), a.decidedByName));
   const unreadSupplierAnswers = supplierAnswers.filter((a) => !a.answerSeen);
   const supplierWaitingShown = supplierWaiting.filter((a) => matchesAll(query, supplierWaitingTitle(a), supplierWaitingText(a)));
@@ -433,21 +452,40 @@ export function NotificationBell() {
     seenChange.current = new Set(keys);
   }, [changeWaiting, changeAnswers, changeLoaded, toast]);
 
-  // The same for supplier invoices: a booked one by its id; the count only when it grows, not on load.
+  // The same for supplier invoices: a booked one by its id; the count only when it grows, not on load. The ids are
+  // kept for as long as the page is open (rememberNew): a list that comes back short once, when the server could not
+  // read a job's facts, does not announce the rest again on the next poll.
   const seenPayables = useRef<{ ids: Set<string>; toApprove: number } | null>(null);
   useEffect(() => {
     if (!payablesLoaded) return;
     const before = seenPayables.current;
+    const { seen, fresh } = rememberNew(before?.ids ?? null, payablesBooked.map((b) => b.invoiceId));
     if (before) {
       if (payablesToApprove > before.toApprove) toast.notify({ title: payablesWaitingTitle(payablesToApprove), description: "Waiting on Accounts Payable", type: "warning" });
+      const news = new Set(fresh);
       for (const b of payablesBooked) {
-        if (before.ids.has(b.invoiceId)) continue;
+        if (!news.delete(b.invoiceId)) continue;
         const flags = payableBookedFlags(b);
         toast.notify({ title: payableBookedTitle(b), description: [payableBookedText(b), ...flags].filter(Boolean).join(" · "), type: flags.length ? "warning" : "info" });
       }
     }
-    seenPayables.current = { ids: new Set(payablesBooked.map((b) => b.invoiceId)), toApprove: payablesToApprove };
+    seenPayables.current = { ids: seen, toApprove: payablesToApprove };
   }, [payablesToApprove, payablesBooked, payablesLoaded, toast]);
+
+  // The same for customer invoices: a notice by its key (the invoice and the milestone), not the ones found on load.
+  // Every key is kept for as long as the page is open (rememberNew): a poll that comes back empty, when the server
+  // could not read the job's or the customer's facts, does not announce every old notice again on the next one.
+  const seenReceivables = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!receivablesLoaded) return;
+    const { seen, fresh } = rememberNew(seenReceivables.current, receivableNotices.map((n) => n.key));
+    const news = new Set(fresh);
+    for (const n of receivableNotices) {
+      if (!news.delete(n.key)) continue;
+      toast.notify({ title: receivableTitle(n), description: receivableText(n), type: n.milestone === "paid" ? "info" : "warning" });
+    }
+    seenReceivables.current = seen;
+  }, [receivableNotices, receivablesLoaded, toast]);
 
   // And new suppliers waiting, and answers to the ones this user added. Every waiting one is remembered,
   // whoever the user is: the sales permissions may arrive after the list, and a manager is then not told
@@ -518,7 +556,7 @@ export function NotificationBell() {
   const total =
     importInstructions.length +
     approvalChats.length +
-    unreadTracking.length + coverNotices.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + (payablesToApprove > 0 ? 1 : 0) + payablesBooked.length + changeWaiting.length + unreadChangeAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadTracking.length + coverNotices.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + (payablesToApprove > 0 ? 1 : 0) + payablesBooked.length + receivableNotices.length + changeWaiting.length + unreadChangeAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.threadId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : a.decision === "approved" && a.customerId ? `/customers/${a.customerId}` : "/customers");
@@ -566,6 +604,10 @@ export function NotificationBell() {
   const openPayableBooked = (b: PayableNotice) => {
     payableSeen.mutate([b.invoiceId]);
     go(apInvoiceHref(b.invoiceId));
+  };
+  const openReceivable = (n: ReceivableNotice) => {
+    receivableSeen.mutate([n.key]);
+    go(arInvoiceHref(n.invoiceId));
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = `px-4 py-2 border-b border-slate-200 bg-slate-50 ${LABEL_TEXT}`;
@@ -731,6 +773,20 @@ export function NotificationBell() {
           <span className="block text-[11px] text-slate-400 mt-0.5">Booked · {formatTime(b.bookedAt)}</span>
         </button>
       ))}
+      {receivablesShown.length > 0 && <div className={headingClass}>Customer invoices</div>}
+      {receivablesShown.map((n) => (
+        <button key={`ar:${n.key}`} type="button" onClick={() => openReceivable(n)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${n.milestone === "paid" ? "bg-emerald-500" : "bg-red-500"}`} />
+            {/* Two lines: the number and the customer's name together are often longer than one. */}
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 line-clamp-2">{receivableTitle(n)}</span>
+          </span>
+          {receivableText(n) && <span className="text-[12px] text-slate-700 tabular-nums">{receivableText(n)}</span>}
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {n.why === "sales_owner" ? "Your customer" : "Your job"} · Accounts Receivable
+          </span>
+        </button>
+      ))}
       {marginAnswersShown.length > 0 && <div className={headingClass}>Discount answers</div>}
       {marginAnswersShown.map((a) => (
         <button key={`a:${a.id}`} type="button" onClick={() => openMarginAnswer(a)} className={rowClass}>
@@ -892,7 +948,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {trackingShown.length + coverShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + payablesWaitingShown + payablesBookedShown.length + changeWaitingShown.length + changeAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {trackingShown.length + coverShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + payablesWaitingShown + payablesBookedShown.length + receivablesShown.length + changeWaitingShown.length + changeAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

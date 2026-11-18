@@ -73,6 +73,7 @@ import { salesSettingsHref } from "../../_lib/tabs";
 import { isRoadQuote, lineTariffTag, roadInputDefaults, roadInputProblems, sideOverridden, type LineTariffTag, type RatePick } from "../../_lib/roadQuote";
 import { formatAmount as formatMoney } from "@/lib/money";
 import { CustomerLink } from "../../_components/CustomerLink";
+import { CreditWarning } from "@/components/finance/CreditWarning";
 import { DeleteQuoteModal } from "../../_components/DeleteQuoteModal";
 import { ExchangeRatesError } from "../../_components/ExchangeRatesError";
 import { ToolbarButton, toolbarButtonClass } from "../../_components/ToolbarButton";
@@ -1215,6 +1216,11 @@ export function QuoteWorkflow() {
                 onClear={() => set(NO_CUSTOMER)}
               />
             </InfoRow>
+            {/* The picked customer's credit warning (Council Outlay 10, D21: over the limit, overdue invoices) and
+                its prepayment terms (D22) - for the salesperson to read, never a stop. */}
+            {draft.customerId && !quoteClosed && !customerDeleted && (
+              <CreditWarning customerId={draft.customerId} showPrepayment variant="inline" className="py-1.5 border-b border-slate-100" />
+            )}
             <InfoRow label="Contact person">
               <QuoteContactField
                 name={draft.customerContact ?? ""}

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   actionsFor,
-  amountsText,
   apRow,
   arrivedOnUnbilledJob,
   claimJobs,
@@ -23,7 +22,6 @@ import {
   reasonOk,
   rowMarks,
   statusChip,
-  sumAmounts,
   supplierOptions,
   tabCount,
   type PayableExpected,
@@ -173,20 +171,6 @@ describe("status and marks", () => {
     const marks = rowMarks(invoice({ daysOverdue: 1, claimed: true, marks: ["not_linked", "vat_unreliable"], aboveEstimate: true, jobBilled: true, selfDecision: true }));
     expect(marks.map((m) => m.label)).toEqual(["1 day overdue", "Claimed", "Not linked", "Unreliable VAT payer", "Above estimate", "Job billed", "Self-approval"]);
     expect(marks.every((m) => m.tip.length > 0)).toBe(true);
-  });
-});
-
-describe("figures", () => {
-  it("writes amounts per currency, never one total", () => {
-    expect(amountsText([{ currency: "EUR", amount: 1200 }, { currency: "USD", amount: 300.5 }])).toBe("1,200 EUR · 300.50 USD");
-    expect(amountsText([])).toBe("—");
-  });
-
-  it("adds amounts up per currency, largest first", () => {
-    expect(sumAmounts([[{ currency: "EUR", amount: 0.1 }], [{ currency: "EUR", amount: 0.2 }, { currency: "USD", amount: 5 }]])).toEqual([
-      { currency: "USD", amount: 5 },
-      { currency: "EUR", amount: 0.3 },
-    ]);
   });
 });
 

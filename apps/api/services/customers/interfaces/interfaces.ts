@@ -27,6 +27,11 @@ export type AddressType = "Registered" | "Billing" | "Paperwork" | "Pickup" | "D
 export const ADDRESS_TYPES: readonly AddressType[] = ["Registered", "Billing", "Paperwork", "Pickup", "Delivery", "Warehouse"];
 /** A risk level set by hand, or "" when it is derived from the registry data. */
 export type RiskLevelOverride = "" | "Low" | "Medium" | "High";
+/** The language a customer is written to in (reminders, statements): Czech or English; German later. */
+export type CustomerLanguage = "cs" | "en";
+/** The languages the database allows (customer_language_check). */
+export const CUSTOMER_LANGUAGES: readonly CustomerLanguage[] = ["cs", "en"];
+export const isCustomerLanguage = (value: unknown): value is CustomerLanguage => CUSTOMER_LANGUAGES.includes(value as CustomerLanguage);
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 /** The last four are a supplier's papers, each with the date it is valid to. */
 export type DocumentType =
@@ -44,6 +49,8 @@ export type DocumentType =
  * manager's approval) and issued again under another number. Like Paid, neither counts as owed.
  */
 export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited" | "Cancelled";
+/** Where an entry of the customer's invoice list came from: typed in here, or posted by Invoicing (an issued invoice or credit note). */
+export type InvoiceSource = "typed" | "invoicing";
 /**
  * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
  * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the
@@ -161,6 +168,8 @@ export interface CustomerItem {
   paymentTerms: string;
   freightPaymentTerms: string;
   dutyPaymentTerms: string;
+  /** The language its reminders and statements are written in; "en" until a manager sets it. */
+  language: CustomerLanguage;
   companyWebsite: string;
   /** Where the browser loads the logo from (an API path with a short-lived token); "" when there is none. */
   logoUrl: string;
@@ -419,6 +428,8 @@ export interface InvoiceItem {
   status: InvoiceStatus;
   /** yyyy-mm-dd, or "" */
   issuedAt: string;
+  /** Posted by Invoicing: changed only by a credit note, its payments noted on Finance → Accounts Receivable. */
+  source: InvoiceSource;
   createdAt: string;
   updatedAt: string;
 }
@@ -534,6 +545,67 @@ export interface CustomerCreditFacts {
   overdueCount: number;
   /** The due day of the oldest overdue invoice; null for none. */
   oldestOverdueDue: string | null;
+}
+
+/** Whom a payment reminder goes to: the customer's contact with the role Accounts payable, else Finance / Accounting, else the main contact. */
+export interface ReminderContact {
+  name: string;
+  email: string;
+  role: string;
+}
+
+/** What Finance → Accounts Receivable (the invoicing service) shows of a customer an invoice is billed to. */
+export interface CustomerReceivableFacts {
+  id: string;
+  companyName: string;
+  /** The Sales Owner's e-mail ("" when none) and user. */
+  salesOwner: string;
+  salesOwnerUserId: string | null;
+  paymentTerms: string;
+  /** 0 = no limit set; in `currency`. */
+  creditLimit: number;
+  currency: string;
+  /** Null when no such contact has an e-mail. */
+  reminderTo: ReminderContact | null;
+  /** The language its reminders and statements are written in. */
+  language: CustomerLanguage;
+  /** Deleted from the Customer Database (an invoice may still name it); its contacts as they were when it was deleted. */
+  deleted: boolean;
+}
+
+/** A customer's list entry of an issued invoice, as Accounts Receivable asks for it. */
+export interface CustomerInvoiceStatusItem {
+  invoiceId: string;
+  /** Null when the customer's list has no live entry of it. */
+  status: InvoiceStatus | null;
+  /** yyyy-mm-dd of its last payment as Accounts Receivable sent it; null when none. */
+  paidOn: string | null;
+}
+
+/** The credit warning on a new quote or shipment (Council Outlay 10 D21): a warning only, never a stop. */
+export interface CustomerCreditWarning {
+  customerId: string;
+  companyName: string;
+  /** 0 = no limit set; in `currency`. */
+  creditLimit: number;
+  currency: string;
+  paymentTerms: string;
+  /** The payment terms ask for payment before the service. */
+  prepayment: boolean;
+  /** Left to pay on unpaid invoices, per currency, never converted. */
+  unpaid: { currency: string; amount: number }[];
+  overdueCount: number;
+  /** The due day of the oldest overdue invoice; null for none. */
+  oldestOverdueDue: string | null;
+  /**
+   * Work not yet invoiced (Finance → Accounts Receivable): the valued selling lines on the customer's open jobs that
+   * are on no issued invoice, per currency, never converted. Shown beside the limit, never added to what is owed.
+   */
+  unbilled: { currency: string; amount: number }[];
+  /** How many open jobs have such lines. */
+  unbilledJobs: number;
+  /** False when Invoicing could not be asked: `unbilled` is then empty and says nothing. */
+  unbilledKnown: boolean;
 }
 
 // ── Main search (the app-wide search in the top bar) ──────────────────────────

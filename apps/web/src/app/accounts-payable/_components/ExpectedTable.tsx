@@ -10,7 +10,7 @@ import { chargeLabel } from "@/lib/chargeCodes";
 import { formatAmount } from "@/lib/money";
 import { EMPTY, LINK, REF } from "@/styles/ui";
 import type { PayableExpected } from "../_lib/payables";
-import { shownColumns } from "../_lib/payableColumns";
+import { shownColumns } from "@/lib/tableModel";
 
 // The Expected tab: estimated costs no invoice has come for yet, one row per cost line (there is no invoice to
 // group them by) - the month-end accrual list. Not a status of an invoice (D3).

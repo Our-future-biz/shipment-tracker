@@ -1,13 +1,12 @@
 import dayjs from "dayjs";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
-import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
 import { getNaceInfo, isNewCompany, parseNaceCodes } from "./companyAnalysis";
 import { daysSince } from "./customerDates";
-import { daysOverdue, summarizeInvoices, unconvertedReason } from "./customerInvoices";
+import { summarizeInvoices, unconvertedReason, type CustomerLedger } from "./customerInvoices";
 import type { Rates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "./customerMoney";
 
@@ -45,7 +44,10 @@ export interface AttentionItem {
 
 export interface AttentionInput {
   customer: CustomerItem;
-  invoices: InvoiceItem[];
+  // What the customer owes: the issued invoices as Accounts Receivable reads them, and the rows typed by hand.
+  ledger: CustomerLedger;
+  // The business day (Prague) a typed row's due day is compared with; today's when not given.
+  today?: string;
   contacts: ContactItem[];
   documents: DocumentItem[];
   notes: NoteItem[];
@@ -53,9 +55,9 @@ export interface AttentionInput {
   rates: Rates;
   // Today's rates could not be loaded, so `rates` knows only CZK.
   ratesUnavailable?: boolean;
-  // The invoices could not be loaded, so `invoices` is empty: nothing overdue is not known then.
+  // The invoices could not be loaded, so `ledger` is empty: nothing overdue is not known then.
   invoicesUnavailable?: boolean;
-  // The viewer's clock in milliseconds; given explicitly in tests.
+  // The viewer's clock in milliseconds, for the contact and company-age rules; given explicitly in tests.
   now?: number;
 }
 
@@ -98,7 +100,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, contacts, documents, notes, rates, ratesUnavailable = false, invoicesUnavailable = false, now = Date.now() } = input;
+  const { customer, ledger, today = businessToday(), contacts, documents, notes, rates, ratesUnavailable = false, invoicesUnavailable = false, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
   // A supplier only is no customer: no owner, credit, customer papers or prepayment advice is asked of it
@@ -106,11 +108,12 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   const isCustomer = customer.roles.includes("customer");
 
   // Critical.
-  // The same summary the Finance tab shows, so the count and the amount match its Overdue tile.
-  const summary = summarizeInvoices(invoices, { currency, rates }, now);
+  // The same summary the Finance tab shows (one truth with Accounts Receivable), so the count and the amount match
+  // its Overdue tile.
+  const summary = summarizeInvoices(ledger, { currency, rates }, today);
   if (summary.overdueCount > 0) {
     // 0 when every overdue invoice was only marked so by hand (no due date, or one not passed yet).
-    const oldestDays = invoices.reduce((max, invoice) => Math.max(max, daysOverdue(invoice, now)), 0);
+    const oldestDays = summary.oldestOverdueDays;
     items.push({
       key: "invoices-overdue",
       severity: "critical",

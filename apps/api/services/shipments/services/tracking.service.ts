@@ -507,6 +507,9 @@ class TrackingService {
   // A date a master job carries is written on the master job, which writes it onto every house:
   // written on one house, its next save would undo it. The person goes with it, so it is refused,
   // naming the houses, unless they may change every one of them.
+  // Never Warehouse Released: gate out is not a fact a person records here (lib/trackingEvents: no group, no field),
+  // so the prepayment stop and its manager's reason stay with the shipment's Warehouse Released field and Stock →
+  // release to truck, where the reason can be given. A strike only clears a date, which the stop never holds up.
   private async applyField(shipment: ShipmentRecord, field: string, day: string | null, actor: TrackingActor): Promise<void> {
     const value = field === "customsStatus" ? CUSTOMS_CLEARED : (day ?? "");
     if (shipment.masterJobId && SYNCED_WITH_MASTER.has(field)) {

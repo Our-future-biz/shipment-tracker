@@ -535,6 +535,57 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     return rows.map((r) => ({ id: r.id, creditLimit: Number(r.creditLimit) || 0, currency: r.currency }));
   }
 
+  /**
+   * The company's customers among `ids`, deleted ones included (an issued invoice may name one), as Finance →
+   * Accounts Receivable shows them.
+   */
+  async receivableFactsOf(companyId: string, ids: string[]): Promise<ReceivableFactsRow[]> {
+    if (!ids.length) return [];
+    const rows = await this.db
+      .select({
+        id: customerTable.id,
+        companyName: customerTable.companyName,
+        salesOwner: customerTable.salesOwner,
+        salesOwnerUserId: customerTable.salesOwnerUserId,
+        paymentTerms: customerTable.paymentTerms,
+        creditLimit: customerTable.creditLimit,
+        currency: customerTable.currency,
+        language: customerTable.language,
+        deletedAt: customerTable.deletedAt,
+      })
+      .from(customerTable)
+      .where(and(eq(customerTable.companyId, companyId), inArray(customerTable.id, ids)));
+    return rows.map((r) => ({ ...r, creditLimit: Number(r.creditLimit) || 0 }));
+  }
+
+  /**
+   * The contacts a payment reminder may go to, of the company's customers among `ids`: those with the role Accounts
+   * payable or Finance / Accounting, and the main contact, each with an e-mail. Of a live customer its live contacts;
+   * of a deleted one those hidden together with it (they come back with it).
+   */
+  async reminderContactsOf(companyId: string, ids: string[]): Promise<ReminderContactRow[]> {
+    if (!ids.length) return [];
+    return this.db
+      .select({
+        customerId: contactTable.customerId,
+        id: contactTable.id,
+        name: contactTable.name,
+        email: contactTable.email,
+        role: contactTable.role,
+        isMain: contactTable.isMain,
+        createdAt: contactTable.createdAt,
+      })
+      .from(contactTable)
+      .innerJoin(customerTable, and(eq(customerTable.id, contactTable.customerId), eq(customerTable.companyId, contactTable.companyId)))
+      .where(and(
+        eq(contactTable.companyId, companyId),
+        inArray(contactTable.customerId, ids),
+        sql`${contactTable.deletedAt} IS NOT DISTINCT FROM ${customerTable.deletedAt}`,
+        or(inArray(contactTable.role, ["Accounts payable", "Finance / Accounting"]), eq(contactTable.isMain, true)),
+        sql`btrim(${contactTable.email}) <> ''`,
+      ));
+  }
+
   /** The supplier terms, checks, approval and rating of the company's live companies among `ids` (Finance → Accounts Payable). */
   async supplierFactsOf(companyId: string, ids: string[]): Promise<SupplierFactsRow[]> {
     if (!ids.length) return [];
@@ -577,6 +628,21 @@ export type SupplierFactsRow = Pick<
   | "approvalStatus"
   | "supplierRating"
 >;
+
+export type ReceivableFactsRow = Pick<
+  CustomerRecord,
+  "id" | "companyName" | "salesOwner" | "salesOwnerUserId" | "paymentTerms" | "creditLimit" | "currency" | "language" | "deletedAt"
+>;
+
+export interface ReminderContactRow {
+  customerId: string;
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isMain: boolean;
+  createdAt: Date;
+}
 
 export type CustomerRefRow = Pick<CustomerRecord, "id" | "companyName" | "label">;
 

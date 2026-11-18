@@ -57,7 +57,7 @@ describe("the menu", () => {
       for (const page of section.children!) expect(page.description).toBeTruthy();
       expect(navLabelOf(`${path}/`, { role: "user" })).toBe(section.label);
     }
-    expect(navSection("/finance")?.children?.map((c) => c.label)).toEqual(["Invoicing", "Accounts Payable", "Exchange"]);
+    expect(navSection("/finance")?.children?.map((c) => c.label)).toEqual(["Invoicing", "Accounts Receivable", "Accounts Payable", "Exchange"]);
     // A leaf is no section.
     expect(navSection("/dashboard")).toBeUndefined();
     // Calendar's own page is Calendar itself; its one page under it keeps its name.
@@ -248,12 +248,13 @@ describe("the menu", () => {
     }
   });
 
-  it("groups Invoicing, Accounts Payable and Exchange under Finance", () => {
+  it("groups Invoicing, Accounts Receivable, Accounts Payable and Exchange under Finance", () => {
     for (const role of ["user", "manager", "admin", "superadmin"]) {
       const finance = visibleNavItems({ role }).find((i) => i.label === "Finance");
-      // Accounts Payable right after Invoicing, for everyone (Council Outlay 9, D4, D5).
-      expect(finance?.children?.map((c) => c.label)).toEqual(["Invoicing", "Accounts Payable", "Exchange"]);
+      // Following the money, for everyone: issue, collect, pay (Council Outlay 10, D4, D5; Council Outlay 9, D4, D5).
+      expect(finance?.children?.map((c) => c.label)).toEqual(["Invoicing", "Accounts Receivable", "Accounts Payable", "Exchange"]);
       expect(labels(role)).not.toContain("Invoicing");
+      expect(labels(role)).not.toContain("Accounts Receivable");
       expect(labels(role)).not.toContain("Accounts Payable");
       expect(labels(role)).not.toContain("Exchange");
     }
@@ -264,10 +265,22 @@ describe("the menu", () => {
     expect(navItemOwns(finance, "/invoicing")).toBe(true);
     expect(navItemOwns(finance, "/exchange/rates")).toBe(true);
     expect(navItemOwns(finance, "/accounts-payable")).toBe(true);
+    expect(navItemOwns(finance, "/accounts-receivable")).toBe(true);
     expect(navItemOwns(finance, "/shipments")).toBe(false);
     expect(navLabelOf("/invoicing/", { role: "user" })).toBe("Invoicing");
     expect(navLabelOf("/exchange/", { role: "user" })).toBe("Exchange");
     expect(navLabelOf("/accounts-payable", { role: "user" })).toBe("Accounts Payable");
+    expect(navLabelOf("/accounts-receivable", { role: "user" })).toBe("Accounts Receivable");
+  });
+
+  it("says what each Finance page is for", () => {
+    const finance = navSection("/finance")!;
+    expect(finance.description).toBe(
+      "Invoicing of the jobs, what customers owe (Accounts Receivable), the invoices from suppliers (Accounts Payable), and the exchange rates the app works with.",
+    );
+    const page = (label: string) => finance.children!.find((c) => c.label === label);
+    expect(page("Invoicing")?.description).toBe("Issuing invoices to customers for the jobs.");
+    expect(page("Accounts Receivable")).toMatchObject({ path: "/accounts-receivable", description: "Invoices to customers: unpaid, overdue, paid and credited." });
   });
 
   it("keeps role rules", () => {

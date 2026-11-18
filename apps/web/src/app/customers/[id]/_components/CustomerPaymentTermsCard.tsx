@@ -6,6 +6,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { LINK_CLASS } from "@/components/linkClass";
 import { useCustomerAddresses } from "@/hooks/useCustomerAddresses";
 import type { CustomerItem } from "@/hooks/useCustomers";
+import type { interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/enums";
 import { PAYMENT_TERMS } from "../../_lib/constants";
 import { CustomerInfoRow } from "./CustomerInfoRow";
@@ -29,6 +30,14 @@ const PAYMENT_TERM_FIELDS = [
 
 type PaymentTermField = (typeof PAYMENT_TERM_FIELDS)[number]["field"];
 
+type CustomerLanguage = interfaces.CustomerLanguage;
+
+// The language the customer's statements and reminders are written in (Accounts Receivable step 7).
+const LANGUAGE_OPTIONS: { value: CustomerLanguage; label: string }[] = [
+  { value: "cs", label: "Czech" },
+  { value: "en", label: "English" },
+];
+
 interface CustomerPaymentTermsCardProps {
   customer: CustomerItem;
 }
@@ -36,7 +45,8 @@ interface CustomerPaymentTermsCardProps {
 // At most this many currencies besides the default (the server holds the same limit).
 const MAX_SECONDARY_CURRENCIES = 2;
 
-// How the customer is billed: its currencies and its payment terms. Every change saves itself.
+// How the customer is billed: its currencies, its payment terms and the language it is written to in (statements and
+// reminders). Every change saves itself.
 export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardProps) {
   const { shown, save } = useCustomerEdits(customer);
   // Where invoices are addressed: the Billing address, else the seat (chosen on the Addresses tab).
@@ -119,6 +129,19 @@ export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardP
           </div>
         </CustomerInfoRow>
       ))}
+      <CustomerInfoRow label="Language for statements and reminders">
+        <div className={`${SELECT_WRAPPER_CLASS} max-w-[240px]`}>
+          <Select
+            {...SELECT_PROPS}
+            aria-label="Language for statements and reminders"
+            disabled={!canManage}
+            title={lockedTitle}
+            value={shown.language || "en"}
+            options={LANGUAGE_OPTIONS}
+            onChange={(value: CustomerLanguage) => save({ language: value })}
+          />
+        </div>
+      </CustomerInfoRow>
     </SectionCard>
   );
 }

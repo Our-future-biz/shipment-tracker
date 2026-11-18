@@ -13,8 +13,10 @@ import { btnDanger, btnDefault, Section } from "./fields";
 import { EXCEPTION_GATE } from "./ExceptionsPanel";
 import { customsDue, movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock";
 import { HINT } from "@/styles/ui";
+import { PaymentNotCheckedNote, ReleasePaymentWarning, useReleaseCheckState } from "@/components/finance/ReleasePaymentWarning";
 
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
+const isCharges = (g: string) => /^charges$/i.test(g);
 
 const GATE_ICON: Record<string, ReactNode> = {
   OK: <CheckCircleFilled className="text-emerald-500" />,
@@ -64,6 +66,9 @@ export function ReleaseGatesPanel({
   // Goods under customs control: days in temporary storage and the 90-day deadline, on the
   // Customs line (display only — the stored gate keeps its own note).
   const customs = movementCustomsClock(m);
+  // The payment warning beside the Charges line (Council Outlay 10, D20): the job's invoice is unpaid and the
+  // customer is on prepayment or has overdue invoices. Display only - the gate keeps its own state, set by the server.
+  const payment = useReleaseCheckState(m.shipmentId, !m.impRelease && m.releaseGates.some((x) => isCharges(x.g)));
   const toggle = (gate: string, ok: boolean) => {
     setBusyGate(gate);
     setReleaseGate(gate, ok).finally(() => setBusyGate(null));
@@ -113,6 +118,8 @@ export function ReleaseGatesPanel({
                   Customs deadline: {customs.note}
                 </div>
               )}
+              {isCharges(x.g) && payment.state === "warn" && payment.check && <ReleasePaymentWarning className="mt-1.5" check={payment.check} />}
+              {isCharges(x.g) && payment.state === "unknown" && <PaymentNotCheckedNote />}
             </div>
           </li>
         ))}

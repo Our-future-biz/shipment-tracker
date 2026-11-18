@@ -21,9 +21,10 @@ interface InvoiceCreateResponse {
   invoice: InvoiceItem;
 }
 
+// An invoice typed into the customer's list: managers only (Council Outlay 10 D9) - invoices are issued in Invoicing.
 export const invoiceCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers/:customerId/invoices" },
   async ({ customerId, ...input }: InvoiceCreateRequest): Promise<InvoiceCreateResponse> => {
-    return { invoice: await invoiceService.create(getAuthData()!.companyID, customerId, input) };
+    return { invoice: await invoiceService.create(getAuthData()!, customerId, input) };
   },
 );

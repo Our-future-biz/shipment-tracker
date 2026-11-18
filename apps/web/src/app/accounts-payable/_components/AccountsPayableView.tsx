@@ -1,22 +1,26 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Input, Select, Tooltip } from "antd";
 import { DownloadOutlined, FileSearchOutlined, SearchOutlined } from "@ant-design/icons";
 import { ColumnFiltersPopover } from "@/components/ColumnFiltersPopover";
 import { ColumnPickerPopover } from "@/components/ColumnPickerPopover";
+import { Amounts } from "@/components/finance/Amounts";
+import { CountedTabs } from "@/components/finance/CountedTabs";
 import { KPI_GRID_CLASS, KpiTile } from "@/components/KpiTile";
 import { SectionBackLink } from "@/components/SectionBackLink";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { formatAmount } from "@/lib/money";
 import { useSupplierInvoices } from "@/hooks/useSupplierInvoices";
+import { useTableControls } from "@/hooks/useTableControls";
+import { matchesTableFilters } from "@/lib/tableModel";
+import { replaceSearchParams } from "@/lib/urlParams";
 import { BTN, BTN_PRIMARY, CARD, CHIP, CHIP_ON, HINT, PAGE_TITLE } from "@/styles/ui";
 import { ExpectedTable } from "./ExpectedTable";
 import { PayableDrawer } from "./PayableDrawer";
 import { PayablesTable } from "./PayablesTable";
-import { useTableControls } from "./useTableControls";
 import {
   expectedCsv,
   expectedMatches,
@@ -31,7 +35,7 @@ import {
   type PayableFilters,
   type PayableTab,
 } from "../_lib/payables";
-import { EXPECTED_TABLE, INVOICE_TABLE, matchesTableFilters } from "../_lib/payableColumns";
+import { EXPECTED_TABLE, INVOICE_TABLE } from "../_lib/payableColumns";
 
 // Finance → Accounts Payable (Council Outlay 9, 17 Nov 2026): every invoice received from suppliers, one row per
 // invoice (D1), with the statuses Booked, Approved, Refused and Paid and the marks beside them (D3). Everyone reads
@@ -39,20 +43,6 @@ import { EXPECTED_TABLE, INVOICE_TABLE, matchesTableFilters } from "../_lib/paya
 // open invoice are kept in the URL (?tab, ?invoice), so Costs Breakdown and the bell can link to an invoice.
 
 type Param = "tab" | "invoice";
-
-function Amounts({ list }: { list: { currency: string; amount: number }[] }) {
-  if (!list.length) return <>0</>;
-  // One figure per currency, never converted nor added into one total.
-  return (
-    <>
-      {list.map((a) => (
-        <div key={a.currency} className="truncate">
-          {formatAmount(a.amount, a.currency)}
-        </div>
-      ))}
-    </>
-  );
-}
 
 export function AccountsPayableView() {
   const router = useRouter();
@@ -64,15 +54,7 @@ export function AccountsPayableView() {
 
   // As on Invoicing: history.replaceState changes the URL at once (Next keeps useSearchParams in step), each
   // write starting from the URL as it is now.
-  const setParams = (patch: Partial<Record<Param, string | null>>) => {
-    const p = new URLSearchParams(window.location.search);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
-  };
+  const setParams = (patch: Partial<Record<Param, string | null>>) => replaceSearchParams(pathname, patch);
   const setTab = (next: PayableTab) => setParams({ tab: next === "all" ? null : next });
 
   const [filters, setFilters] = useState<PayableFilters>({ search: "", onlyMine: false, supplier: "" });
@@ -124,31 +106,12 @@ export function AccountsPayableView() {
         {/* One bar, as Invoicing's: the title, the counted tabs, then the filters and the actions. */}
         <div className={`flex flex-wrap items-center gap-x-6 gap-y-3 ${CARD} px-4 py-3`}>
           <h1 className={PAGE_TITLE}>Accounts Payable</h1>
-          <div role="tablist" aria-label="Accounts Payable" className="flex flex-wrap items-center gap-1 self-stretch">
-            {PAYABLE_TABS.map((t) => {
-              const active = tab === t.key;
-              const n = counts ? tabCount(t.key, counts, hauliers) : undefined;
-              return (
-                <Fragment key={t.key}>
-                  {t.dividerBefore && <span aria-hidden className="w-px h-5 bg-slate-200 mx-2" />}
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setTab(t.key)}
-                    className={`flex items-center gap-2 h-full px-2 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-[13px] whitespace-nowrap transition-colors ${
-                      active ? "border-indigo-600 text-indigo-600 font-semibold" : "border-transparent text-slate-500 font-medium hover:text-slate-900"
-                    }`}
-                  >
-                    {t.label}
-                    {n !== undefined && (
-                      <span className={`rounded-full px-2 text-[11px] font-semibold leading-5 tabular-nums ${active ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>{n}</span>
-                    )}
-                  </button>
-                </Fragment>
-              );
-            })}
-          </div>
+          <CountedTabs
+            ariaLabel="Accounts Payable"
+            tabs={PAYABLE_TABS.map((t) => ({ key: t.key, label: t.label, count: counts ? tabCount(t.key, counts, hauliers) : undefined, dividerBefore: t.dividerBefore }))}
+            active={tab}
+            onChange={setTab}
+          />
           <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
             {/* antd gives the input width: 100% outside Tailwind's layers, hence the important flag */}
             <Input

@@ -19,9 +19,10 @@ interface InvoiceUpdateResponse {
   invoice: InvoiceItem;
 }
 
+// Refused for an invoice Invoicing posted, to everyone; a typed one only by a manager (Council Outlay 10 D9).
 export const invoiceUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/customer-invoices/:id" },
   async ({ id, ...input }: InvoiceUpdateRequest): Promise<InvoiceUpdateResponse> => {
-    return { invoice: await invoiceService.update(id, getAuthData()!.companyID, input) };
+    return { invoice: await invoiceService.update(id, getAuthData()!, input) };
   },
 );

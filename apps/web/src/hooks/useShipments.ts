@@ -7,10 +7,17 @@ import { invalidateQuoteLists } from "./useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { INVOICE_KEYS } from "./useInvoiceQueue";
 import { api } from "@/lib/api";
+import { releasedEditStop, releaseElsewhereText, type ReleaseStop } from "@/lib/paymentWarnings";
 import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS, dateTimeUpdate, joinDateTime } from "@/lib/columnConfig";
 import type { interfaces, controllers } from "@/lib/api/client";
 
 export type ShipmentItem = interfaces.ShipmentItem;
+
+/** What a caller of updateField can do with the server's prepayment stop of Warehouse Released. */
+export interface UpdateFieldOptions {
+  /** The stop and a way to send the same edit again with a manager's reason (its promise is the new answer). */
+  onReleaseStop?: (stop: ReleaseStop, resend: (reason: string) => Promise<void>) => void;
+}
 
 // What is cached under ["shipments"]: pages of the list, and a shipment read on its own (useShipment).
 type CachedShipments = { data?: ShipmentItem[]; shipment?: ShipmentItem };
@@ -297,8 +304,12 @@ export const useShipmentMutations = () => {
   // the caller shows it; without it the shipment is looked up in whatever shipments are cached
   // (the list on screen, a shipment page), so an edit of any shown row knows its old value.
   // `links` go with the value: the id of the record it names (a picked contact's id).
+  // `opts.onReleaseStop`: Warehouse Released set by hand on a job on prepayment that is not paid is stopped by the
+  // server (Accounts Receivable step 7); a caller that can ask a manager for a reason (the shipment's detail) gets
+  // the server's stop and a way to send the same edit again with it. Without one (the grid), the error says where a
+  // manager can give the reason.
   const updateField = useCallback(
-    (shipmentId: string, fieldKey: string, value: string, loaded?: ShipmentItem, links?: controllers.ShipmentUpdateRequest) => {
+    (shipmentId: string, fieldKey: string, value: string, loaded?: ShipmentItem, links?: controllers.ShipmentUpdateRequest, opts?: UpdateFieldOptions) => {
       const col = COLUMN_MAP.get(fieldKey);
       if (!col) return;
 
@@ -308,22 +319,33 @@ export const useShipmentMutations = () => {
 
       if (!col.apiField) return;
 
+      const edit = { ...dateTimeUpdate(col, value), ...links } as controllers.ShipmentUpdateRequest;
+      // The automations of a watched field run on a change that was saved, never on one refused.
+      const saved = () => {
+        if (!AUTOMATION_FIELDS.has(fieldKey) || value === oldValue || !shipment) return;
+        // Actor (triggeredById) is derived server-side from the token.
+        api.automation
+          .automationTrigger({ shipmentId, column: col.title, oldValue, newValue: value, shipmentData: buildRowData(shipment) })
+          .catch(() => { /* fire and forget */ });
+      };
+
       // Each write's own promise: callbacks handed to mutate run for the last write only, so a
       // second edit made before the first was saved would lose the first one's answer.
-      updateMutation
-        .mutateAsync({ id: shipmentId, data: { ...dateTimeUpdate(col, value), ...links } as controllers.ShipmentUpdateRequest })
-        .then(
-          () => {
-            // The automations of a watched field run on a change that was saved, never on one refused.
-            if (!AUTOMATION_FIELDS.has(fieldKey) || value === oldValue || !shipment) return;
-            // Actor (triggeredById) is derived server-side from the token.
-            api.automation
-              .automationTrigger({ shipmentId, column: col.title, oldValue, newValue: value, shipmentData: buildRowData(shipment) })
-              .catch(() => { /* fire and forget */ });
-          },
-          // The edit is rolled back on failure; say why (e.g. a customs status the paperwork does not allow yet).
-          (err) => message.error(err instanceof Error && err.message ? err.message : `Could not save ${col.title}`),
-        );
+      updateMutation.mutateAsync({ id: shipmentId, data: edit }).then(saved, (err) => {
+        // The edit is rolled back on failure; say why (e.g. a customs status the paperwork does not allow yet).
+        const stop = releasedEditStop(fieldKey, err);
+        if (stop && opts?.onReleaseStop) {
+          // The same edit again, with the manager's reason: its own answer goes back to the caller's dialog.
+          const resend = (reason: string) => updateMutation.mutateAsync({ id: shipmentId, data: { ...edit, paymentOverrideReason: reason } }).then(saved);
+          opts.onReleaseStop(stop, resend);
+          return;
+        }
+        if (stop) {
+          message.error(releaseElsewhereText(stop));
+          return;
+        }
+        message.error(err instanceof Error && err.message ? err.message : `Could not save ${col.title}`);
+      });
     },
     [updateMutation, queryClient, message],
   );

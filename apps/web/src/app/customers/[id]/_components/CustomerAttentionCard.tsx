@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { RightOutlined, WarningFilled } from "@ant-design/icons";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
-import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
+import { useCustomerOwed } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useSupplierUsage } from "@/hooks/useSupplierUsage";
@@ -76,7 +76,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const { customer, isLoading: customerLoading, canRateSupplier } = useCustomer(customerId);
   const supplier = !!customer && hasSupplierRole(customer.roles);
   const { usage, isLoading: usageLoading, isError: usageError } = useSupplierUsage(customerId, { enabled: supplier });
-  const { invoices, isLoading: invoicesLoading, isError: invoicesError } = useCustomerInvoices(customerId);
+  const { ledger, today, isLoading: invoicesLoading, isError: invoicesError } = useCustomerOwed(customerId);
   const { rates, isLoading: ratesLoading, isError: ratesError } = useLatestRates();
   const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
@@ -106,7 +106,8 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     if (isLoading || !customer) return [];
     const built = buildCustomerAttention({
       customer,
-      invoices,
+      ledger,
+      today,
       contacts,
       documents,
       notes,
@@ -132,7 +133,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     // Most serious first across both: every critical row, then every warning, each side in its own order.
     const all = [...customerItems, ...supplierItems];
     return [...all.filter((item) => item.severity === "critical"), ...all.filter((item) => item.severity === "warning")];
-  }, [isLoading, customer, invoices, invoicesError, contacts, documents, notes, rates, ratesError, contactsError, documentsError, notesError, haulier, tariffs.isError, tariffs.summaries, canRateSupplier, usage, usageError]);
+  }, [isLoading, customer, ledger, today, invoicesError, contacts, documents, notes, rates, ratesError, contactsError, documentsError, notesError, haulier, tariffs.isError, tariffs.summaries, canRateSupplier, usage, usageError]);
 
   if (items.length === 0) return null;
 

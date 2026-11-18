@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen, Min, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
-import type { CustomerItem, CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
+import type { CustomerItem, CustomerLabel, CustomerLanguage, CustomerRole, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
 
 // The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
 // they are computed from shipments and written only through customerRollupsUpdate.
@@ -23,6 +23,8 @@ interface CustomerUpdateRequest {
   paymentTerms?: string & MaxLen<100>;
   freightPaymentTerms?: string & MaxLen<100>;
   dutyPaymentTerms?: string & MaxLen<100>;
+  /** The language its reminders and statements are written in (a manager's, as the payment terms are). */
+  language?: CustomerLanguage;
   companyWebsite?: string & MaxLen<300>;
   nace?: string & MaxLen<500>;
   /** The whole set, replacing the current one; at least one role. */

@@ -7,8 +7,7 @@ import {
   CreditCardOutlined,
   WalletOutlined,
 } from "@ant-design/icons";
-import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
-import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
+import { useCustomerOwed } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";
@@ -19,7 +18,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { ATTENTION_RULES } from "../../_lib/customerAttention";
 import { daysSince, relativeDayLabel } from "../../_lib/customerDates";
 import { useLatestRates, type Rates } from "@/lib/fx";
-import { summarizeInvoices } from "../../_lib/customerInvoices";
+import { summarizeInvoices, type CustomerLedger } from "../../_lib/customerInvoices";
 import { fmtMoney } from "../../_lib/customerMoney";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 import { KPI_TONE_CLASS } from "@/components/KpiTile";
@@ -100,9 +99,9 @@ const paymentTermsTile = (customer: CustomerItem): TileContent => ({
 
 // The other way round from the shipments tile: green when the customer owes nothing, red while it owes anything.
 // Invoices in a currency without a rate can't be added in; they are shown beside the sum ("+ 1 200,00 USD")
-// and the tile is never green while they are open.
-function outstandingTile(invoices: InvoiceItem[], currency: string, rates: Rates): TileContent {
-  const { outstanding, unconverted } = summarizeInvoices(invoices, { currency, rates });
+// and the tile is never green while they are owed. The same figures as the Finance tab and Accounts Receivable.
+function outstandingTile(ledger: CustomerLedger, today: string, currency: string, rates: Rates): TileContent {
+  const { outstanding, unconverted } = summarizeInvoices(ledger, { currency, rates }, today);
   const rest = unconverted.map((u) => `+ ${fmtMoney(u.amount, u.currency)}`).join(" ");
   const owes = outstanding > 0 || unconverted.length > 0;
   return { value: rest ? `${fmtMoney(outstanding, currency)} ${rest}` : fmtMoney(outstanding, currency), tone: owes ? "red" : "green" };
@@ -141,10 +140,11 @@ export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnaps
     isError: shipmentsError,
   } = useCustomerShipments(customerId);
   const {
-    invoices,
+    ledger,
+    today,
     isLoading: invoicesLoading,
     isError: invoicesError,
-  } = useCustomerInvoices(customerId);
+  } = useCustomerOwed(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
   // The outstanding invoices are summed in the customer's currency at today's rates.
   const { rates, isLoading: ratesLoading } = useLatestRates();
@@ -155,7 +155,7 @@ export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnaps
   // The amounts are in the customer's currency, so this tile needs the customer as well as the invoices.
   const financeTile =
     placeholderTile(customerLoading || invoicesLoading || ratesLoading, invoicesError || !customer) ??
-    outstandingTile(invoices, customer!.currency, rates);
+    outstandingTile(ledger, today, customer!.currency, rates);
   const contactTile = placeholderTile(notesLoading, notesError) ?? lastContactTile(notes);
 
   return (

@@ -1,0 +1,88 @@
+// The prepayment stop (Accounts Receivable step 7, D20's later yes, 18 Nov 2026): a job on prepayment is not
+// released before it is paid. When the job has an invoice with something left to pay and that invoice is on
+// prepayment (Invoicing's _internalReleaseCheck says prepaymentUnpaid), a person's House BoL release and a person's
+// Warehouse Released set from empty are refused for a user; a manager may release it all the same with a reason
+// (at least 3 characters), which is recorded. When Invoicing can't be asked, the release is refused too - and a
+// manager may still release it with a reason, recorded as unchecked. The overdue-debt warning stays a warning
+// only, and the app's own writes (Trucking, the Warehouse Concept gate, Invoicing) are never stopped.
+// Pure: the shipment service asks Invoicing and writes the record.
+
+import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
+
+export type ReleaseKind = "house_bol" | "warehouse_released";
+
+/** An invoice left to pay when a manager released the job: as recorded with the release. */
+export interface OverrideInvoice {
+  number: string;
+  leftToPay: number;
+  currency: string;
+}
+
+/** What Invoicing answers about the job's payment (its _internalReleaseCheck), as far as the stop needs it. */
+export interface PaymentCheck {
+  prepaymentUnpaid: boolean;
+  unpaid: readonly { number: string; leftToPay: number; currency: string }[];
+}
+
+/** A manager's release of an unpaid prepayment job, to be recorded with the release. */
+export interface ReleaseOverride {
+  reason: string;
+  invoices: OverrideInvoice[];
+  /** False when Invoicing could not be asked. */
+  checked: boolean;
+}
+
+/** What the stop decides: refused (with why), or let through - with the override to record when a manager overrode it. */
+export type StopVerdict = { refusal: string } | { override: ReleaseOverride | null };
+
+export const MIN_OVERRIDE_REASON = 3;
+export const PAYMENT_UNCHECKED = "Whether the job is paid could not be checked: try again in a moment";
+/** A write that set Warehouse Released from empty, made on a row that has changed in between: asked again. */
+export const RELEASE_CHANGED_MEANWHILE = "This shipment's Warehouse Released was changed meanwhile: open it again and retry";
+
+const WHAT: Record<ReleaseKind, string> = {
+  house_bol: "The House BoL can't be released",
+  warehouse_released: "Warehouse Released can't be set",
+};
+
+const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const invoiceWords = (invoices: readonly OverrideInvoice[]) =>
+  invoices.map((i) => `${i.number} (${money(i.leftToPay)} ${i.currency} left to pay)`).join(", ");
+
+/** Whether this write sets Warehouse Released from empty: the dates as they are and as the write leaves them. */
+export function setsWarehouseRelease(
+  existing: { warehouseReleasedDate?: string | null },
+  data: { warehouseReleasedDate?: string | null },
+): boolean {
+  if (!("warehouseReleasedDate" in data)) return false;
+  const before = (existing.warehouseReleasedDate ?? "").trim();
+  const after = (data.warehouseReleasedDate ?? "").trim();
+  return !before && !!after;
+}
+
+/**
+ * Whether the release goes through. `check` is Invoicing's answer, null when it could not be asked; `role` the
+ * person's; `reason` what a manager sent (paymentOverrideReason). A job that is not on unpaid prepayment is never
+ * stopped, and a reason sent with it is not recorded.
+ */
+export function prepaymentStop(kind: ReleaseKind, check: PaymentCheck | null, role: string, reason: string | undefined): StopVerdict {
+  if (check && !check.prepaymentUnpaid) return { override: null };
+  const manager = canDecideQuoteInquiry(role);
+  const given = (reason ?? "").trim();
+  const invoices: OverrideInvoice[] = (check?.unpaid ?? []).map((i) => ({ number: i.number, leftToPay: i.leftToPay, currency: i.currency }));
+  const why = check
+    ? `${WHAT[kind]}: the job is on prepayment and not paid - ${invoices.length ? invoiceWords(invoices) : "an invoice is left to pay"}.`
+    : `${PAYMENT_UNCHECKED}.`;
+  if (!manager) return { refusal: `${why} A manager can release it with a reason` };
+  if (given.length < MIN_OVERRIDE_REASON) {
+    return { refusal: `${why} As a manager you can release it all the same: give a reason (at least ${MIN_OVERRIDE_REASON} characters)` };
+  }
+  return { override: { reason: given, invoices, checked: !!check } };
+}
+
+/** The line the release leaves in the shipment's history and on its Tracking tab. */
+export function overrideLine(kind: ReleaseKind, override: ReleaseOverride): string {
+  const what = kind === "house_bol" ? "House BoL released" : "Warehouse Released set";
+  const state = override.checked ? (override.invoices.length ? `unpaid: ${invoiceWords(override.invoices)}` : "unpaid") : "payment not checked";
+  return `${what} on prepayment (${state}) - reason: ${override.reason}`;
+}
