@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Select, Tooltip } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
-import { CARD, CARD_BODY, LABEL, REF_KEYS, REF_VALUE, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
+import { CARD, CARD_BODY, COLS2, LABEL, REF_KEYS, REF_VALUE, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
+import { CardFieldTools, type CardField } from "@/app/shipments/[jobNumber]/_components/CardFieldTools";
+import { useCardFields } from "@/app/shipments/[jobNumber]/useCardFields";
+import { shownColumns } from "@/app/shipments/[jobNumber]/cardFields";
 import { FadeText } from "@/components/FadeText";
 import { CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY } from "@/styles/ui";
 import { INCOTERM_NAMES, incotermLabel } from "@/lib/incoterms";
@@ -48,6 +51,51 @@ export function MasterJobCard({ id, icon, title, actions, className, bodyClassNa
       </div>
       <div className={bodyClassName}>{children}</div>
     </div>
+  );
+}
+
+/** A field of a MasterJobFieldCard: its key and label for the picker, and its row as the card draws it. */
+export type MasterJobCardField = CardField & { row: React.ReactNode };
+
+interface FieldCardProps {
+  /** The card's id in the user's choice of fields; "masterJob." first, so a shipment card of the same name is not touched. */
+  cardId: string;
+  icon: React.ReactNode;
+  title: string;
+  /** The rows, by column: two columns side by side, or one. */
+  columns: MasterJobCardField[][];
+  className?: string;
+}
+
+/**
+ * A card of field rows whose header has the shipment cards' "Show all (N)" and field picker
+ * (CardFieldTools): the user picks which rows the card shows, as on Shipment Details, and the
+ * choice is kept the same way (useCardFields). With nothing chosen every row shows.
+ */
+export function MasterJobFieldCard({ cardId, icon, title, columns, className }: FieldCardProps) {
+  const { visibleKeys } = useCardFields();
+  const fields = columns.flat();
+  const shown = shownColumns(columns, visibleKeys(cardId, fields.map((f) => f.key)));
+  const rows = (col: MasterJobCardField[]) => col.map((f) => <Fragment key={f.key}>{f.row}</Fragment>);
+  return (
+    <MasterJobCard
+      icon={icon}
+      title={title}
+      className={className}
+      actions={<CardFieldTools cardId={cardId} icon={icon} title={title} fields={fields} renderRow={(f) => f.row} />}
+    >
+      {shown.length > 1 ? (
+        <div className={COLS2}>
+          {shown.map((col, i) => (
+            <div key={i} className="min-w-0">
+              {rows(col)}
+            </div>
+          ))}
+        </div>
+      ) : (
+        rows(shown[0] ?? [])
+      )}
+    </MasterJobCard>
   );
 }
 

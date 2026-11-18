@@ -27,11 +27,11 @@ import {
   joinDateTime,
 } from "@/lib/columnConfig";
 import { loadTypeLabel } from "@/lib/enums";
-import { COLS2, LABEL } from "@/app/shipments/[jobNumber]/_components/detailStyles";
+import { LABEL } from "@/app/shipments/[jobNumber]/_components/detailStyles";
 import { EMPTY, LINK, REF } from "@/styles/ui";
 import { useMasterJob, type MasterJobItem, type MasterJobUpdate } from "@/hooks/useMasterJobs";
 import type { interfaces } from "@/lib/api/client";
-import { FieldRow, IncotermRow, Label, MasterJobCard, ROW, ReadOnlyRow, type StyleFor } from "./MasterJobFields";
+import { FieldRow, IncotermRow, Label, MasterJobFieldCard, ROW, ReadOnlyRow, type StyleFor } from "./MasterJobFields";
 import { ProgressStages } from "@/app/shipments/[jobNumber]/_components/ShipmentSummary";
 import { getStageFromFacts } from "@/app/shipments/[jobNumber]/_components/taskDefinitions";
 import { formatDate, formatDateTime } from "@/lib/date";
@@ -171,6 +171,11 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
     "Arrive at Port of Discharge": mj.actualArrival ? `ATA ${formatDate(mj.actualArrival)}` : "",
   };
 
+  // Its people are changed only by them or a manager (anyone while neither is named), as a
+  // shipment's people; the server refuses the same (masterJob.service).
+  const peopleEditable = canChangeShipmentDetails(user, mj);
+  const peopleRow = (row: React.ReactNode) => <ShipmentDetailsEditableContext.Provider value={peopleEditable}>{row}</ShipmentDetailsEditableContext.Provider>;
+
   return (
     // The freight mode reaches every cell, as on a shipment: by air Port of Loading and Port of Discharge also offer
     // airports, by sea Destination ocean terminals, and by air a Full Load reads Single Shipment.
@@ -178,126 +183,165 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
     <div className="@container flex flex-col gap-4 min-w-0">
       {/* The master job's progress, above its cards as on Shipment Details */}
       <ProgressStages activeIndex={stage} factOf={stageFacts} ariaLabel="Master job progress" />
-      <MasterJobCard icon={<ProfileOutlined />} title="Master Job Overview">
-        <div className={COLS2}>
-          <div className="min-w-0">
-            <FieldRow label="Trade Direction" fieldKey="tradeDirection" value={mj.tradeDirection} onCommit={handleCommit} styleFor={styleFor} />
-            <FieldRow label="Freight Mode" fieldKey="freightMode" value={mj.freightMode} onCommit={handleCommit} styleFor={styleFor} />
-            {mj.loadType ? (
-              <LockedLoadType value={loadTypeLabel(mj.loadType, mj.freightMode)} />
-            ) : (
-              <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} styleFor={styleFor} synced />
-            )}
-            <IncotermRow label="Incoterms Origin" fieldKey="incotermOrigin" value={mj.incotermOrigin} onCommit={handleCommit} />
-            <IncotermRow label="Incoterms Destination" fieldKey="incotermDestination" value={mj.incotermDestination} onCommit={handleCommit} />
-            {/* Under the incoterms, so the two columns come out even (7 and 6). */}
-            <ReadOnlyRow label="Shipments Month" value={getComputedValue("shipmentsDate", data)} />
-            <ReadOnlyRow label="Year" value={getComputedValue("shipmentsYear", data)} />
-          </div>
-          <div className="min-w-0">
-            <FieldRow label="Equipment" fieldKey="equipment" value={mj.equipment} onCommit={handleCommit} styleFor={styleFor} />
-            <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={mj.shippingLine} onCommit={handleCommit} styleFor={styleFor} synced />
-            <FieldRow label="Service Name" fieldKey="serviceName" value={mj.serviceName} onCommit={handleCommit} styleFor={styleFor} synced />
-            {/* The parties, here in the overview rather than in a card of their own. */}
-            <CustomerLinkField
-              label="Shipper"
-              name={mj.shipper}
-              customerId={mj.shipperId}
-              onChange={(name, id) => save({ shipper: name, shipperId: id })}
-            />
-            <CustomerLinkField
-              label="Consignee"
-              name={mj.consignee}
-              customerId={mj.consigneeId}
-              onChange={(name, id) => save({ consignee: name, consigneeId: id })}
-            />
-            <FieldRow label="Supplier's Contact" fieldKey="supplierPic" value={mj.supplierPic} onCommit={handleCommit} styleFor={styleFor} synced />
-          </div>
-        </div>
-      </MasterJobCard>
+      <MasterJobFieldCard
+        cardId="masterJob.overview"
+        icon={<ProfileOutlined />}
+        title="Master Job Overview"
+        columns={[
+          [
+            { key: "tradeDirection", label: "Trade Direction", row: <FieldRow label="Trade Direction" fieldKey="tradeDirection" value={mj.tradeDirection} onCommit={handleCommit} styleFor={styleFor} /> },
+            { key: "freightMode", label: "Freight Mode", row: <FieldRow label="Freight Mode" fieldKey="freightMode" value={mj.freightMode} onCommit={handleCommit} styleFor={styleFor} /> },
+            {
+              key: "loadType",
+              label: "Load Type",
+              row: mj.loadType ? (
+                <LockedLoadType value={loadTypeLabel(mj.loadType, mj.freightMode)} />
+              ) : (
+                <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} styleFor={styleFor} synced />
+              ),
+            },
+            { key: "incotermOrigin", label: "Incoterms Origin", row: <IncotermRow label="Incoterms Origin" fieldKey="incotermOrigin" value={mj.incotermOrigin} onCommit={handleCommit} /> },
+            { key: "incotermDestination", label: "Incoterms Destination", row: <IncotermRow label="Incoterms Destination" fieldKey="incotermDestination" value={mj.incotermDestination} onCommit={handleCommit} /> },
+            // Under the incoterms, so the two columns come out even (7 and 6).
+            { key: "shipmentsDate", label: "Shipments Month", row: <ReadOnlyRow label="Shipments Month" value={getComputedValue("shipmentsDate", data)} /> },
+            { key: "shipmentsYear", label: "Year", row: <ReadOnlyRow label="Year" value={getComputedValue("shipmentsYear", data)} /> },
+          ],
+          [
+            { key: "equipment", label: "Equipment", row: <FieldRow label="Equipment" fieldKey="equipment" value={mj.equipment} onCommit={handleCommit} styleFor={styleFor} /> },
+            { key: "shippingLine", label: "Shipping line / Coloader", row: <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={mj.shippingLine} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "serviceName", label: "Service Name", row: <FieldRow label="Service Name" fieldKey="serviceName" value={mj.serviceName} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            // The parties, here in the overview rather than in a card of their own.
+            {
+              key: "shipper",
+              label: "Shipper",
+              row: <CustomerLinkField label="Shipper" name={mj.shipper} customerId={mj.shipperId} onChange={(name, id) => save({ shipper: name, shipperId: id })} />,
+            },
+            {
+              key: "consignee",
+              label: "Consignee",
+              row: <CustomerLinkField label="Consignee" name={mj.consignee} customerId={mj.consigneeId} onChange={(name, id) => save({ consignee: name, consigneeId: id })} />,
+            },
+            { key: "supplierPic", label: "Supplier's Contact", row: <FieldRow label="Supplier's Contact" fieldKey="supplierPic" value={mj.supplierPic} onCommit={handleCommit} styleFor={styleFor} synced /> },
+          ],
+        ]}
+      />
 
-      {/* KEY DATES — as on the shipment: the second card, in two columns */}
-      <MasterJobCard icon={<CalendarOutlined />} title="Key Dates">
-        {/* Evened out, 8 and 7: the voyage on the left, each date with its week under it; the warehouse
-            and the closings on the right. */}
-        <div className={COLS2}>
-          <div className="min-w-0">
-            <FieldRow id={MJ_ANCHORS.etd} label="ETD Estimated" fieldKey="estimatedDeparture" value={mj.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} synced />
-            <ReadOnlyRow label="Est. Departure Week" value={getComputedValue("estimatedDepartureWeek", data)} />
-            <FieldRow label="ATD Actual" fieldKey="actualDeparture" value={mj.actualDeparture} onCommit={handleCommit} styleFor={styleFor} synced />
-            <ReadOnlyRow label="Actual Departure Week" value={getComputedValue("actualDepartureWeek", data)} />
-            <FieldRow id={MJ_ANCHORS.eta} label="ETA Estimated" fieldKey="estimatedArrival" value={mj.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} synced />
-            <ReadOnlyRow label="Est. Arrival Week" value={getComputedValue("estimatedArrivalWeek", data)} />
-            <FieldRow label="ATA Actual" fieldKey="actualArrival" value={mj.actualArrival} onCommit={handleCommit} styleFor={styleFor} synced />
-            <ReadOnlyRow label="Actual Arrival Week" value={getComputedValue("actualArrivalWeek", data)} />
-          </div>
-          <div className="min-w-0">
-            <FieldRow label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={mj.etaWarehouse} onCommit={handleCommit} styleFor={styleFor} synced />
-            {/* The warehouse's actual date right under its estimate. */}
-            <FieldRow label="Warehouse Received" fieldKey="warehouseReceivedDate" value={mj.warehouseReceivedDate} onCommit={handleCommit} styleFor={styleFor} synced />
-            <FieldRow label="Closing Date (Cargo Closing)" fieldKey="closingDate" value={joinDateTime(mj.closingDate, mj.closingTime)} onCommit={handleCommit} styleFor={styleFor} synced />
-            <FieldRow label="VGM Closing" fieldKey="vgmClosing" value={joinDateTime(mj.vgmClosing, mj.vgmClosingTime)} onCommit={handleCommit} styleFor={styleFor} synced />
-            <FieldRow label="SI Closing" fieldKey="siClosing" value={joinDateTime(mj.siClosing, mj.siClosingTime)} onCommit={handleCommit} styleFor={styleFor} synced />
-            <FieldRow label="AMS Deadline" fieldKey="amsDeadline" value={joinDateTime(mj.amsDeadline, mj.amsDeadlineTime)} onCommit={handleCommit} styleFor={styleFor} synced />
-            <FieldRow label="ISF Deadline" fieldKey="isfDeadline" value={joinDateTime(mj.isfDeadline, mj.isfDeadlineTime)} onCommit={handleCommit} styleFor={styleFor} synced />
-          </div>
-        </div>
-      </MasterJobCard>
+      {/* KEY DATES — as on the shipment: the second card, in two columns. Evened out, 8 and 7: the
+          voyage on the left, each date with its week under it; the warehouse and the closings on
+          the right. */}
+      <MasterJobFieldCard
+        cardId="masterJob.dates"
+        icon={<CalendarOutlined />}
+        title="Key Dates"
+        columns={[
+          [
+            { key: "estimatedDeparture", label: "ETD Estimated", row: <FieldRow id={MJ_ANCHORS.etd} label="ETD Estimated" fieldKey="estimatedDeparture" value={mj.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "estimatedDepartureWeek", label: "Est. Departure Week", row: <ReadOnlyRow label="Est. Departure Week" value={getComputedValue("estimatedDepartureWeek", data)} /> },
+            { key: "actualDeparture", label: "ATD Actual", row: <FieldRow label="ATD Actual" fieldKey="actualDeparture" value={mj.actualDeparture} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "actualDepartureWeek", label: "Actual Departure Week", row: <ReadOnlyRow label="Actual Departure Week" value={getComputedValue("actualDepartureWeek", data)} /> },
+            { key: "estimatedArrival", label: "ETA Estimated", row: <FieldRow id={MJ_ANCHORS.eta} label="ETA Estimated" fieldKey="estimatedArrival" value={mj.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "estimatedArrivalWeek", label: "Est. Arrival Week", row: <ReadOnlyRow label="Est. Arrival Week" value={getComputedValue("estimatedArrivalWeek", data)} /> },
+            { key: "actualArrival", label: "ATA Actual", row: <FieldRow label="ATA Actual" fieldKey="actualArrival" value={mj.actualArrival} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "actualArrivalWeek", label: "Actual Arrival Week", row: <ReadOnlyRow label="Actual Arrival Week" value={getComputedValue("actualArrivalWeek", data)} /> },
+          ],
+          [
+            { key: "etaWarehouse", label: "ETA Warehouse/HUB", row: <FieldRow label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={mj.etaWarehouse} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            // The warehouse's actual date right under its estimate.
+            { key: "warehouseReceivedDate", label: "Warehouse Received", row: <FieldRow label="Warehouse Received" fieldKey="warehouseReceivedDate" value={mj.warehouseReceivedDate} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "closingDate", label: "Closing Date (Cargo Closing)", row: <FieldRow label="Closing Date (Cargo Closing)" fieldKey="closingDate" value={joinDateTime(mj.closingDate, mj.closingTime)} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "vgmClosing", label: "VGM Closing", row: <FieldRow label="VGM Closing" fieldKey="vgmClosing" value={joinDateTime(mj.vgmClosing, mj.vgmClosingTime)} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "siClosing", label: "SI Closing", row: <FieldRow label="SI Closing" fieldKey="siClosing" value={joinDateTime(mj.siClosing, mj.siClosingTime)} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "amsDeadline", label: "AMS Deadline", row: <FieldRow label="AMS Deadline" fieldKey="amsDeadline" value={joinDateTime(mj.amsDeadline, mj.amsDeadlineTime)} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            { key: "isfDeadline", label: "ISF Deadline", row: <FieldRow label="ISF Deadline" fieldKey="isfDeadline" value={joinDateTime(mj.isfDeadline, mj.isfDeadlineTime)} onCommit={handleCommit} styleFor={styleFor} synced /> },
+          ],
+        ]}
+      />
 
       {/* CARRIER & BILL OF LADING  |  REFERENCES & ROUTING */}
       <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
-        <MasterJobCard icon={<FileProtectOutlined />} title="Carrier & Bill of Lading" className="h-full">
-          <FieldRow label="Vessel" fieldKey="vessel" value={mj.vessel} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Voyage" fieldKey="voyage" value={mj.voyage} onCommit={handleCommit} styleFor={styleFor} synced />
-          <ContainerNumberLinkRow value={containerNumbers} href={containersHref} />
-          <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={mj.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Master BoL Type" fieldKey="masterBolType" value={mj.masterBolType} onCommit={handleCommit} styleFor={styleFor} synced />
-        </MasterJobCard>
-        <MasterJobCard icon={<NodeIndexOutlined />} title="References & Routing" className="h-full">
-          <FieldRow label="Booking Number" fieldKey="bookingNumber" value={mj.bookingNumber} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Port of Loading" fieldKey="pol" value={mj.pol} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Port of Discharge" fieldKey="pod" value={mj.pod} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="HUB" fieldKey="hub" value={mj.hub} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Destination" fieldKey="destination" value={mj.destination} onCommit={handleCommit} styleFor={styleFor} />
-        </MasterJobCard>
+        <MasterJobFieldCard
+          cardId="masterJob.carrier"
+          icon={<FileProtectOutlined />}
+          title="Carrier & Bill of Lading"
+          className="h-full"
+          columns={[
+            [
+              { key: "vessel", label: "Vessel", row: <FieldRow label="Vessel" fieldKey="vessel" value={mj.vessel} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "voyage", label: "Voyage", row: <FieldRow label="Voyage" fieldKey="voyage" value={mj.voyage} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "containerNumber", label: "Container Number", row: <ContainerNumberLinkRow value={containerNumbers} href={containersHref} /> },
+              { key: "masterBolNumber", label: "Master BoL Number", row: <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={mj.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "masterBolType", label: "Master BoL Type", row: <FieldRow label="Master BoL Type" fieldKey="masterBolType" value={mj.masterBolType} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            ],
+          ]}
+        />
+        <MasterJobFieldCard
+          cardId="masterJob.refsRouting"
+          icon={<NodeIndexOutlined />}
+          title="References & Routing"
+          className="h-full"
+          columns={[
+            [
+              { key: "bookingNumber", label: "Booking Number", row: <FieldRow label="Booking Number" fieldKey="bookingNumber" value={mj.bookingNumber} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "pol", label: "Port of Loading", row: <FieldRow label="Port of Loading" fieldKey="pol" value={mj.pol} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "pod", label: "Port of Discharge", row: <FieldRow label="Port of Discharge" fieldKey="pod" value={mj.pod} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "hub", label: "HUB", row: <FieldRow label="HUB" fieldKey="hub" value={mj.hub} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "destination", label: "Destination", row: <FieldRow label="Destination" fieldKey="destination" value={mj.destination} onCommit={handleCommit} styleFor={styleFor} /> },
+            ],
+          ]}
+        />
       </div>
 
       {/* EQUIPMENT & DEPOT  |  MBL CARGO */}
       <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
-        <MasterJobCard icon={<ContainerOutlined />} title="Equipment & Depot" className="h-full">
-          <FieldRow label="Release Reference" fieldKey="releaseReference" value={mj.releaseReference} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Release Depot" fieldKey="releaseDepot" value={mj.releaseDepot} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Redelivery Reference" fieldKey="redeliveryReference" value={mj.redeliveryReference} onCommit={handleCommit} styleFor={styleFor} synced />
-          <FieldRow label="Redelivery Depot" fieldKey="redeliveryDepot" value={mj.redeliveryDepot} onCommit={handleCommit} styleFor={styleFor} synced />
-        </MasterJobCard>
+        <MasterJobFieldCard
+          cardId="masterJob.equip"
+          icon={<ContainerOutlined />}
+          title="Equipment & Depot"
+          className="h-full"
+          columns={[
+            [
+              { key: "releaseReference", label: "Release Reference", row: <FieldRow label="Release Reference" fieldKey="releaseReference" value={mj.releaseReference} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "releaseDepot", label: "Release Depot", row: <FieldRow label="Release Depot" fieldKey="releaseDepot" value={mj.releaseDepot} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "redeliveryReference", label: "Redelivery Reference", row: <FieldRow label="Redelivery Reference" fieldKey="redeliveryReference" value={mj.redeliveryReference} onCommit={handleCommit} styleFor={styleFor} synced /> },
+              { key: "redeliveryDepot", label: "Redelivery Depot", row: <FieldRow label="Redelivery Depot" fieldKey="redeliveryDepot" value={mj.redeliveryDepot} onCommit={handleCommit} styleFor={styleFor} synced /> },
+            ],
+          ]}
+        />
         {/* Totals of the whole MBL; each house keeps its own cargo, so these are not copied. */}
-        <MasterJobCard icon={<InboxOutlined />} title="MBL Cargo" className="h-full">
-          <FieldRow label="COLLI" fieldKey="pcs" value={mj.pcs} onCommit={handleCommit} styleFor={styleFor} />
-          <FieldRow label="Type Of Packages" fieldKey="typeOfPackages" value={mj.typeOfPackages} onCommit={handleCommit} styleFor={styleFor} />
-          {/* In kg, as the shipments show their weights; the master job keeps it in tons. */}
-          <FieldRow label="Total Weight In KG" fieldKey="totalWeightKg" value={kgFromTons(mj.totalWeightTons)} onCommit={commitWeightKg} styleFor={styleFor} />
-          <FieldRow label="Total Volume In CBM" fieldKey="totalVolumeCbm" value={mj.totalVolumeCbm} onCommit={handleCommit} styleFor={styleFor} />
-        </MasterJobCard>
+        <MasterJobFieldCard
+          cardId="masterJob.cargo"
+          icon={<InboxOutlined />}
+          title="MBL Cargo"
+          className="h-full"
+          columns={[
+            [
+              { key: "pcs", label: "COLLI", row: <FieldRow label="COLLI" fieldKey="pcs" value={mj.pcs} onCommit={handleCommit} styleFor={styleFor} /> },
+              { key: "typeOfPackages", label: "Type Of Packages", row: <FieldRow label="Type Of Packages" fieldKey="typeOfPackages" value={mj.typeOfPackages} onCommit={handleCommit} styleFor={styleFor} /> },
+              // In kg, as the shipments show their weights; the master job keeps it in tons.
+              { key: "totalWeightKg", label: "Total Weight In KG", row: <FieldRow label="Total Weight In KG" fieldKey="totalWeightKg" value={kgFromTons(mj.totalWeightTons)} onCommit={commitWeightKg} styleFor={styleFor} /> },
+              { key: "totalVolumeCbm", label: "Total Volume In CBM", row: <FieldRow label="Total Volume In CBM" fieldKey="totalVolumeCbm" value={mj.totalVolumeCbm} onCommit={handleCommit} styleFor={styleFor} /> },
+            ],
+          ]}
+        />
       </div>
 
-      {/* BASIC INFORMATION — the master job's own record, at the bottom as on a shipment */}
-      <MasterJobCard icon={<InfoCircleOutlined />} title="Basic Information">
-        {/* Its people (a user picked by e-mail) on the left, who created it and when on the right. */}
-        <div className={COLS2}>
-          {/* Changed only by them or a manager (anyone while neither is named), as a shipment's
-              people; the server refuses the same (masterJob.service). */}
-          <ShipmentDetailsEditableContext.Provider value={canChangeShipmentDetails(user, mj)}>
-            <div className="min-w-0">
-              <FieldRow label="Handled By" fieldKey="personInCharge" value={mj.personInCharge} onCommit={handleCommit} />
-              <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={mj.holidayCover} onCommit={handleCommit} />
-            </div>
-          </ShipmentDetailsEditableContext.Provider>
-          <div className="min-w-0">
-            <ReadOnlyRow label="Created By" value={mj.createdBy} />
-            <ReadOnlyRow label="Created On" value={formatDateTime(mj.createdAt)} />
-          </div>
-        </div>
-      </MasterJobCard>
+      {/* BASIC INFORMATION — the master job's own record, at the bottom as on a shipment. Its
+          people (a user picked by e-mail) on the left, who created it and when on the right. */}
+      <MasterJobFieldCard
+        cardId="masterJob.basic"
+        icon={<InfoCircleOutlined />}
+        title="Basic Information"
+        columns={[
+          [
+            { key: "personInCharge", label: "Handled By", row: peopleRow(<FieldRow label="Handled By" fieldKey="personInCharge" value={mj.personInCharge} onCommit={handleCommit} />) },
+            { key: "holidayCover", label: "Holiday Cover", row: peopleRow(<FieldRow label="Holiday Cover" fieldKey="holidayCover" value={mj.holidayCover} onCommit={handleCommit} />) },
+          ],
+          [
+            { key: "createdBy", label: "Created By", row: <ReadOnlyRow label="Created By" value={mj.createdBy} /> },
+            { key: "createdAt", label: "Created On", row: <ReadOnlyRow label="Created On" value={formatDateTime(mj.createdAt)} /> },
+          ],
+        ]}
+      />
     </div>
     </FreightModeContext.Provider>
   );

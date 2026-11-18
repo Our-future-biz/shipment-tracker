@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardWithFieldToggled, cardWithoutChoice, parseCardFields, visibleCardKeys } from "./cardFields";
+import { cardWithFieldToggled, cardWithoutChoice, parseCardFields, shownColumns, visibleCardKeys } from "./cardFields";
 
 const ALL = ["pol", "pod", "eta", "vessel"];
 
@@ -23,5 +23,19 @@ describe("the fields a shipment card shows", () => {
     expect(parseCardFields('{"route":["pol"]}')).toEqual({ route: ["pol"] });
     expect(parseCardFields("not json")).toEqual({});
     expect(parseCardFields(null)).toEqual({});
+  });
+
+  it("keep each column of a two-column card in its order, a hidden field leaving only its own column", () => {
+    const columns = [[{ key: "pol" }, { key: "pod" }], [{ key: "eta" }, { key: "vessel" }]];
+    const stored = cardWithFieldToggled({}, "masterJob.dates", "pod", ["pol", "pod", "eta", "vessel"]);
+    const shown = visibleCardKeys(stored, "masterJob.dates", ["pol", "pod", "eta", "vessel"]);
+    expect(shownColumns(columns, shown)).toEqual([[{ key: "pol" }], [{ key: "eta" }, { key: "vessel" }]]);
+    expect(shownColumns(columns, ["pol", "pod", "eta", "vessel"])).toEqual(columns);
+  });
+
+  it("of a master job are its own: hiding one there leaves the shipment card of the same name alone", () => {
+    const stored = cardWithFieldToggled({}, "masterJob.overview", "pol", ALL);
+    expect(visibleCardKeys(stored, "overview", ALL)).toEqual(ALL);
+    expect(visibleCardKeys(stored, "masterJob.overview", ALL)).toEqual(["pod", "eta", "vessel"]);
   });
 });

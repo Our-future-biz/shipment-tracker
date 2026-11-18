@@ -41,3 +41,9 @@ export function cardWithoutChoice(map: CardFieldMap, cardId: string): CardFieldM
   delete next[knownKey(cardId)];
   return next;
 }
+
+/** A card's columns with only the fields it shows (`shownKeys`, from visibleCardKeys), each column's order kept. */
+export function shownColumns<F extends { key: string }>(columns: F[][], shownKeys: string[]): F[][] {
+  const shown = new Set(shownKeys);
+  return columns.map((col) => col.filter((f) => shown.has(f.key)));
+}

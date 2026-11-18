@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Alert, Badge, ConfigProvider, Spin, Dropdown, Modal, Tooltip, Select, TimePicker, Button } from "antd";
+import { Alert, Badge, ConfigProvider, Spin, Dropdown, Select, TimePicker, Button } from "antd";
 import { useToast } from "@/lib/toast";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -16,7 +16,6 @@ import {
   CalendarOutlined,
   ContainerOutlined,
   SplitCellsOutlined,
-  ControlOutlined,
   WarningOutlined,
   ProfileOutlined,
   ShopOutlined,
@@ -39,6 +38,7 @@ import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } 
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
 import { useCardFields } from "./useCardFields";
+import { CardFieldTools } from "./_components/CardFieldTools";
 import { UserPicker } from "@/components/UserPicker";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
 import { isPersonField, personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
@@ -80,8 +80,6 @@ import { TasksPanel } from "./_components/TasksPanel";
 import { ShipmentFacts, ShipmentProgress } from "./_components/ShipmentSummary";
 import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, LABEL, LABEL_TOP, LABEL_W, REF_KEYS, REF_VALUE, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
 import {
-  BTN,
-  BTN_GHOST,
   BTN_PRIMARY,
   BTN_SM,
   CARD as APP_CARD,
@@ -89,10 +87,8 @@ import {
   CARD_ICON,
   CARD_TITLE,
   HINT,
-  ICON_BTN_GHOST,
   LABEL_TEXT,
   LINK,
-  MODAL_TITLE,
   REF,
 } from "@/styles/ui";
 import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
@@ -149,14 +145,7 @@ interface SectionHeaderProps {
 function SectionHeader({
   icon, title, cardId, allFields, shipment, onCommit, styleFor, renderField,
 }: SectionHeaderProps) {
-  const [showAll, setShowAll] = useState(false);
-  const [picking, setPicking] = useState(false);
-  const { visibleKeys, toggleField, resetCard, isCustomised } = useCardFields();
-
   const hasTools = !!(cardId && allFields?.length && shipment);
-  const allKeys = allFields?.map((f) => f.key) ?? [];
-  const shownKeys = hasTools ? visibleKeys(cardId!, allKeys) : [];
-  const shownCount = shownKeys.length;
 
   /**
    * One field row, used by both "Show all" and the field picker so the two
@@ -183,116 +172,16 @@ function SectionHeader({
     );
 
   return (
-    <>
-      {/* The app's card header (Master Jobs, Warehouse, Claims): a light indigo bar with the
-          icon, the title in caps and the card's tools. */}
-      <div className={CARD_BAR}>
-        <span className={`${CARD_ICON} shrink-0`}>{icon}</span>
-        <h3 className={`${CARD_TITLE} min-w-0`}>
-          {title}
-        </h3>
+    // The app's card header (Master Jobs, Warehouse, Claims): a light indigo bar with the
+    // icon, the title in caps and the card's tools.
+    <div className={CARD_BAR}>
+      <span className={`${CARD_ICON} shrink-0`}>{icon}</span>
+      <h3 className={`${CARD_TITLE} min-w-0`}>
+        {title}
+      </h3>
 
-        {hasTools && (
-          <span className="ml-auto flex items-center gap-0.5 shrink-0">
-            <button onClick={() => setShowAll(true)} className={`${BTN_GHOST} ${BTN_SM} tabular-nums`}>
-              Show all ({allKeys.length})
-            </button>
-            <Tooltip title="Choose which fields appear in this card">
-              <button
-                onClick={() => setPicking(true)}
-                className={`${ICON_BTN_GHOST} ${
-                  isCustomised(cardId!) ? "!bg-white !text-indigo-600 ring-1 ring-inset ring-indigo-200" : ""
-                }`}
-              >
-                <ControlOutlined className="text-[13px]" />
-              </button>
-            </Tooltip>
-          </span>
-        )}
-      </div>
-
-      {/* Okno "Show all" - vsechna pole karty, stale editovatelna */}
-      {hasTools && (
-        <Modal
-          open={showAll}
-          onCancel={() => setShowAll(false)}
-          footer={null}
-          width={860}
-          title={
-            <span className="flex items-center gap-2">
-              <span className="text-slate-400">{icon}</span>
-              <span className={MODAL_TITLE}>{title}</span>
-              <span className={`ml-2 ${HINT} font-normal`}>
-                {allKeys.length} fields
-              </span>
-            </span>
-          }
-        >
-          <FieldColumns fields={allFields!} renderRow={fieldRow} />
-        </Modal>
-      )}
-
-      {/* Okno vyberu poli - stejny seznam, jen se zaskrtavatky */}
-      {hasTools && (
-        <Modal
-          open={picking}
-          onCancel={() => setPicking(false)}
-          width={860}
-          title={
-            <span className="flex items-center gap-2">
-              <span className="text-slate-400">{icon}</span>
-              <span className={MODAL_TITLE}>
-                {title} — choose fields
-              </span>
-              <span className={`ml-2 ${HINT} font-normal`}>
-                {shownCount} of {allKeys.length} in card
-              </span>
-            </span>
-          }
-          footer={
-            <div className="flex items-center gap-3">
-              <span className={`${HINT} mr-auto text-left`}>
-                Unchecked fields stay available under “Show all”.
-              </span>
-              <button onClick={() => resetCard(cardId!)} className={BTN}>
-                Show all fields
-              </button>
-              <button onClick={() => setPicking(false)} className={BTN_PRIMARY}>
-                Done
-              </button>
-            </div>
-          }
-        >
-          {/* Exactly the rows "Show all" renders — same component, same values,
-              same custom fields — with only a checkbox added in front. */}
-          <FieldColumns
-            fields={allFields!}
-            renderRow={(f) => {
-              const on = shownKeys.includes(f.key);
-              // The separator belongs to the wrapper, not the row, so the rule
-              // runs the full width under the checkbox too — otherwise the
-              // indented lines break the table look "Show all" has.
-              return (
-                <div
-                  className={`flex items-center gap-2.5 border-b border-slate-100 last:border-b-0 ${
-                    on ? "" : "opacity-45"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => toggleField(cardId!, f.key, allKeys)}
-                    aria-label={`Show ${f.label} in this card`}
-                    className="shrink-0 cursor-pointer"
-                  />
-                  <div className="flex-1 min-w-0 [&>div]:border-b-0 [&>div]:mx-0">{fieldRow(f)}</div>
-                </div>
-              );
-            }}
-          />
-        </Modal>
-      )}
-    </>
+      {hasTools && <CardFieldTools cardId={cardId!} icon={icon} title={title} fields={allFields!} renderRow={fieldRow} />}
+    </div>
   );
 }
 
@@ -648,33 +537,6 @@ function ContainerNumberLinkRow({ value, onOpen }: { value: string; onOpen: () =
       ) : (
         <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>
       )}
-    </div>
-  );
-}
-
-interface FieldColumnsProps {
-  fields: FieldDef[];
-  renderRow: (field: FieldDef) => React.ReactNode;
-}
-
-/**
- * The two-column field grid shared by "Show all" and the field picker, so the
- * two modals lay out identically and only differ in how a row is rendered.
- */
-function FieldColumns({
-  fields,
-  renderRow,
-}: FieldColumnsProps) {
-  const half = Math.ceil(fields.length / 2);
-  return (
-    <div className={`${COLS2} max-h-[65vh] overflow-y-auto px-2`}>
-      {[fields.slice(0, half), fields.slice(half)].map((col, i) => (
-        <div key={i}>
-          {col.map((f) => (
-            <React.Fragment key={f.key}>{renderRow(f)}</React.Fragment>
-          ))}
-        </div>
-      ))}
     </div>
   );
 }
