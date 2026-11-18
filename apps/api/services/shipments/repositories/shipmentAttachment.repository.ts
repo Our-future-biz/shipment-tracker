@@ -253,6 +253,28 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
         isNull(shipmentAttachmentTable.deletedAt),
       ));
   }
+
+  /**
+   * The company's live documents approved for customs since `since` by the very user who uploaded
+   * them, the newest first, each with its job's number: for the audit line of Shipments → Managers.
+   *
+   * Read by the index on (company_id, customs_reviewed_at) of the approved documents (migration
+   * 0087): the few approved since then, not the company's whole pile. "approved" is written into
+   * the statement, not handed over as a value, so the index - which holds approved documents
+   * only - is seen to fit however the statement is planned.
+   */
+  async ownApprovalsSince(companyId: string, since: Date, limit: number) {
+    const a = shipmentAttachmentTable;
+    const rows = await this.db
+      .select({ shipmentId: a.shipmentId, jobNumber: shipmentTable.jobNumber, fileName: a.fileName, documentType: a.documentType, reviewedById: a.customsReviewedById, reviewedAt: a.customsReviewedAt })
+      .from(a)
+      .innerJoin(shipmentTable, and(eq(shipmentTable.id, a.shipmentId), eq(shipmentTable.companyId, a.companyId)))
+      .where(and(eq(a.companyId, companyId), sql`${a.customsStatus} = 'approved'`, gte(a.customsReviewedAt, since), eq(a.customsReviewedById, a.uploadedById), isNull(a.deletedAt)))
+      .orderBy(desc(a.customsReviewedAt))
+      .limit(limit);
+    // Both are set on every row the comparison keeps: one with no reviewer or no review time is not among them.
+    return rows.flatMap((r) => (r.reviewedById && r.reviewedAt ? [{ ...r, reviewedById: r.reviewedById, reviewedAt: r.reviewedAt }] : []));
+  }
 }
 
 export const shipmentAttachmentRepository = new ShipmentAttachmentRepository();

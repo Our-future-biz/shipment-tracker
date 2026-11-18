@@ -5,6 +5,8 @@
 // (at least 3 characters), which is recorded. When Invoicing can't be asked, the release is refused too - and a
 // manager may still release it with a reason, recorded as unchecked. The overdue-debt warning stays a warning
 // only, and the app's own writes (Trucking, the Warehouse Concept gate, Invoicing) are never stopped.
+// A release a manager approved on request (lib/releaseRequest: a pass, used once) goes through for whoever makes
+// it, as the override it is: the same record, with who asked and who approved as its reason.
 // Pure: the shipment service asks Invoicing and writes the record.
 
 import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
@@ -30,6 +32,12 @@ export interface ReleaseOverride {
   invoices: OverrideInvoice[];
   /** False when Invoicing could not be asked. */
   checked: boolean;
+  /**
+   * Set when it is not a manager's own reason that lets the release through but a request a manager approved
+   * (lib/releaseRequest): that request is marked used in the release's write turn - and when it can't be (used
+   * or gone meanwhile), the stop refuses after all, with `refusal`.
+   */
+  pass?: { requestId: string; refusal: string };
 }
 
 /** What the stop decides: refused (with why), or let through - with the override to record when a manager overrode it. */
@@ -78,6 +86,15 @@ export function prepaymentStop(kind: ReleaseKind, check: PaymentCheck | null, ro
     return { refusal: `${why} As a manager you can release it all the same: give a reason (at least ${MIN_OVERRIDE_REASON} characters)` };
   }
   return { override: { reason: given, invoices, checked: !!check } };
+}
+
+/**
+ * The override an approved request stands for, when the stop would refuse (`refusal`): recorded as a manager's
+ * own is, with the invoices left to pay as they are now and `reason` naming who asked and who approved.
+ */
+export function passOverride(check: PaymentCheck | null, pass: { requestId: string; reason: string }, refusal: string): ReleaseOverride {
+  const invoices: OverrideInvoice[] = (check?.unpaid ?? []).map((i) => ({ number: i.number, leftToPay: i.leftToPay, currency: i.currency }));
+  return { reason: pass.reason, invoices, checked: !!check, pass: { requestId: pass.requestId, refusal } };
 }
 
 /** The line the release leaves in the shipment's history and on its Tracking tab. */

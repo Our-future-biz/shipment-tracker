@@ -3,9 +3,11 @@ import { cockpitCard, rankRow, type CockpitSignal, type RankedRow } from "../../
 import { ROAD_DEPARTMENT } from "../../../lib/deliveryDated";
 import { addWorkingDays, nextWorkingDay, weekday } from "../../../lib/workingDays";
 import type {
+  OpsCockpitAudit,
   OpsCockpitDirection,
   OpsCockpitMode,
   OpsCockpitPerson,
+  OpsCockpitReports,
   OpsCockpitRow,
   OpsCockpitTiles,
   ShipmentsManagersCockpit,
@@ -34,6 +36,7 @@ import {
 } from "./cockpitThresholds";
 import { clockApplies } from "./detentionClock";
 import { isCreditApproved } from "./fieldDefaults";
+import { highLoadAbove, type TeamFacts } from "./managersCockpitTeam";
 import { personEmail } from "./shipmentEditRule";
 import { attentionFlags, workingDaysSince, type AttentionFacts, type AttentionRules, type AttentionShipment } from "./trackingAttention";
 import { freightKindOf, isTruckingJob, type FreightKind } from "./trackingEvents";
@@ -46,7 +49,8 @@ import { freightKindOf, isTruckingJob, type FreightKind } from "./trackingEvents
 //   cards    a job appears once: in URGENT when any of its signals is urgent, else in ATTENTION,
 //            with all its signals as tags; the most pressing first
 //   people   who is named in Handled By on the jobs of the chosen mode and direction - not
-//            narrowed by the Handled By filter, which is picked from it
+//            narrowed by the Handled By filter, which is picked from it - and who only covers
+//   audit    the company's last week of what a manager wants to know of, handed through as read
 //
 // Step 2 (D6-D8): the two windows are working days - URGENT is today and the next working day,
 // ATTENTION the two working days after; a cut-off with a time (the Closing, a filing) is missed
@@ -54,6 +58,12 @@ import { freightKindOf, isTruckingJob, type FreightKind } from "./trackingEvents
 // "late" means depends on how the job travels (lib/cockpitThresholds). Everything is judged on one
 // `now` and its Prague business day - never the database's. A fact that could not be read gives
 // no signal (D29).
+//
+// Step 3: the signals of the people around a job (lib/managersCockpitTeam: a late to-do, an
+// @mention not read, a release request waiting, a job nobody touched), the Team facts on the
+// people line, "My reports" (D3: only the jobs handled by the users who report to the caller)
+// and a missed cut-off a manager dismissed, which gives no tag while its date stands
+// (lib/cutoffDismissals).
 
 /** An active job (not invoiced, not cancelled) as the cockpit reads it. */
 export interface OpsCockpitJob extends AttentionShipment {
@@ -168,6 +178,16 @@ export interface OpsCockpitInput {
   extraByJob: ReadonlyMap<string, readonly OpsSignal[]>;
   /** The Master Jobs that are a row of their own. */
   masterJobRows: readonly OpsMasterJobRow[];
+  /** What the people around the jobs left: late to-dos, unread @mentions, release requests waiting, silence, and since when a cover stands (lib/managersCockpitTeam). */
+  team: TeamFacts;
+  /**
+   * A job's cut-offs without those a manager dismissed (lib/cutoffDismissals withoutDismissed, with
+   * the job's dismissals): handed in by the service, because that file reads this one's cutoffsOf.
+   * When the dismissals could not be read it keeps them all: nothing is treated as dismissed.
+   */
+  cutoffsKept: (jobId: string, cutoffs: CutoffDue[]) => CutoffDue[];
+  /** The audit line, as read; null when none of it could be. Not narrowed by any filter: it is the company's. */
+  audit: OpsCockpitAudit | null;
   /** What could not be read, in the words the page shows; the cockpit adds nothing to it. */
   notKnown: readonly string[];
   /** The company has more active jobs than `jobs` holds. */
@@ -176,6 +196,10 @@ export interface OpsCockpitInput {
   direction: OpsCockpitDirection;
   /** An e-mail, "nobody", or null for everyone. */
   handledBy: string | null;
+  /** "mine": only the jobs handled by one of `reportEmails` - and those handled by somebody who is no user (isReportOrNoUser). */
+  reports: OpsCockpitReports;
+  /** The e-mails (trimmed, lower case) of the users who report to the caller; read only for "mine". Null - not known - keeps no job: the service refuses to answer instead. */
+  reportEmails: ReadonlySet<string> | null;
   now: Date;
 }
 
@@ -259,6 +283,23 @@ export function isHandledBy(job: Pick<OpsCockpitJob, "personInCharge">, handledB
   return handledBy === NOBODY ? email === "" : email === handledBy;
 }
 
+/**
+ * Whether somebody is among the people "My reports" keeps: a user who reports to the caller - or
+ * somebody who is no user of the company at all. A report who was deactivated no longer reports
+ * to anybody, and their jobs would drop out of every manager's "My reports" on the day they need
+ * a manager most: so a job whose Handled By is not a user is every manager's ("Handled By is not
+ * a user" stands on it already). Nobody ("") is nobody's report. With "all", everyone.
+ */
+export function isReportOrNoUser(email: string, reports: OpsCockpitReports, reportEmails: ReadonlySet<string> | null, userEmails: ReadonlySet<string> | null): boolean {
+  if (reports === "all") return true;
+  if (!email) return false;
+  return !!reportEmails?.has(email) || (!!userEmails && !userEmails.has(email));
+}
+
+/** Whether a job is among those "My reports" keeps: by its Handled By (isReportOrNoUser). With "all", every job. */
+export const isOfReports = (job: Pick<OpsCockpitJob, "personInCharge">, reports: OpsCockpitReports, reportEmails: ReadonlySet<string> | null, userEmails: ReadonlySet<string> | null): boolean =>
+  reports === "all" || isReportOrNoUser(personEmail(job.personInCharge), reports, reportEmails, userEmails);
+
 /** How the job travels, as its row shows it: "" when it has no Freight Mode and is no Trucking job. */
 const modeOf = (job: OpsCockpitJob): string => (job.freightMode.trim() || isTruckingJob(job) ? freightKindOf(job) : "");
 
@@ -294,6 +335,10 @@ export const SIGNAL_KINDS = [
   "tracking",
   "billing",
   "customer_told",
+  // The people around the job (lib/managersCockpitTeam).
+  "todo",
+  "mention",
+  "not_touched",
 ] as const;
 export type SignalKind = (typeof SIGNAL_KINDS)[number];
 
@@ -316,7 +361,10 @@ const attention = (rank: number, kind: SignalKind, area: Area, text: string): Op
 // The numbers are step 1's times ten (customs 3 → 30, filings 4 → 40, Closing 5 → 50, Needs
 // Attention's flags 6-9 → 55-90, nobody 10 → 100; ATTENTION 20-27 → 200-270), with the step 2
 // signals in between. The signals of the other tables are ranked on step 1's scale
-// (lib/managersCockpitExtra EXTRA_RANK): times EXTRA_RANK_SCALE they fall in place here.
+// (lib/managersCockpitExtra EXTRA_RANK): times EXTRA_RANK_SCALE they fall in place here. The
+// signals of the people around a job are ranked on this scale itself (lib/managersCockpitTeam
+// TEAM_RANK): a release request with the other requests (60); URGENT 96-97, before "nobody";
+// ATTENTION 410-430, after everything else.
 export const OPS_RANK = {
   customsUrgent: 30,
   customsHold: 32,
@@ -892,7 +940,11 @@ interface Judged {
 }
 
 /** Every signal of one job: its own columns, the timeline, Needs Attention's flags and what the other tables say. */
-export function jobSignals(job: OpsCockpitJob, input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "now">, day: OpsDay): { signals: OpsSignal[]; flags: TrackingAttentionFlag[] } {
+export function jobSignals(
+  job: OpsCockpitJob,
+  input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "team" | "cutoffsKept" | "now">,
+  day: OpsDay,
+): { signals: OpsSignal[]; flags: TrackingAttentionFlag[] } {
   // A job with no event of these kinds has no entry: its timeline is known, and empty.
   const timeline = input.timeline ? (input.timeline.get(job.id) ?? NO_TIMELINE) : null;
   const cargoIsIn = cargoIn(job, timeline);
@@ -900,7 +952,7 @@ export function jobSignals(job: OpsCockpitJob, input: Pick<OpsCockpitInput, "fac
   const signals: OpsSignal[] = [
     ...handledBySignals(job, input.userEmails),
     ...customsSignals(job, timeline, input.now, day.today),
-    ...cutoffSignals(cutoffsOf(job, day, cargoIsIn), day.today),
+    ...cutoffSignals(input.cutoffsKept(job.id, cutoffsOf(job, day, cargoIsIn)), day.today),
     ...bookingSignals(job, day.today),
     ...cargoReadySignals(job, cargoIsIn, day.today),
     ...mawbSignals(job, day.today),
@@ -915,6 +967,12 @@ export function jobSignals(job: OpsCockpitJob, input: Pick<OpsCockpitInput, "fac
     ...flagSignals(flags),
     ...(input.extraByJob.get(job.id) ?? []).map(onScale),
   ];
+  const team = input.team.byJob.get(job.id);
+  if (team) {
+    signals.push(...team.signals);
+    // Kept for the quiet jobs: one with something URGENT on it is being looked at for a reason.
+    if (team.notTouched && !signals.some((s) => s.urgent)) signals.push(team.notTouched);
+  }
   return { signals, flags };
 }
 
@@ -958,31 +1016,79 @@ function masterJobRow(m: OpsMasterJobRow): RankedRow<OpsCockpitRow> | null {
   return rankRow<OpsCockpitRow>(row, signals);
 }
 
-/** Who is named in Handled By on these jobs, the most active first; nobody after anyone as active. */
-function peopleOf(judged: readonly Judged[], userEmails: ReadonlySet<string> | null): OpsCockpitPerson[] {
-  const covers = new Map<string, number>();
-  for (const j of judged) {
+const MODES_COUNTED = { sea: 0, air: 0, rail: 0, road: 0 } as const;
+const least = (days: readonly string[]): string | null => days.reduce<string | null>((first, day) => (first === null || day < first ? day : first), null);
+
+/**
+ * The people line. `team`: the jobs the line is about - of the chosen mode and direction, and with
+ * "My reports" only those the caller's reports handle; whoever is named in Handled By on one has
+ * an entry, the most active first, nobody after anyone as active. `pool`: every job of the mode
+ * and direction, whoever handles it - what a person COVERS is counted there, for a cover's load is
+ * theirs whoever's job it is. Somebody who only covers has an entry too, with no active job
+ * (`listed` says who may: with "My reports", the caller's reports and whoever is no user).
+ *
+ * A figure whose part was not read is null, never 0 (D29).
+ */
+function peopleOf(team: readonly Judged[], pool: readonly Judged[], input: Pick<OpsCockpitInput, "userEmails" | "team">, listed: (email: string) => boolean): OpsCockpitPerson[] {
+  const { known, byJob } = input.team;
+  const users = input.userEmails;
+  // What a person covers, and what waits for them unread - as Handled By or as cover - over the pool.
+  const covers = new Map<string, { jobs: number; since: string[] }>();
+  const unread = new Map<string, number>();
+  for (const j of pool) {
+    const facts = byJob.get(j.job.id);
+    for (const [email, waiting] of facts?.mentionsUnread ?? []) unread.set(email, (unread.get(email) ?? 0) + waiting);
     const cover = personEmail(j.job.holidayCover);
-    if (cover) covers.set(cover, (covers.get(cover) ?? 0) + 1);
+    if (!cover) continue;
+    const mine = covers.get(cover) ?? { jobs: 0, since: [] };
+    mine.jobs += 1;
+    if (facts?.coverSince) mine.since.push(facts.coverSince);
+    covers.set(cover, mine);
   }
+  const entry = (email: string): OpsCockpitPerson => ({
+    handledBy: email,
+    isUser: users ? users.has(email) : null,
+    active: 0,
+    urgent: 0,
+    attention: 0,
+    covers: covers.get(email)?.jobs ?? 0,
+    byMode: { ...MODES_COUNTED },
+    todosLate: known.todos ? 0 : null,
+    mentionsUnread: known.mentions ? (unread.get(email) ?? 0) : null,
+    notTouched: known.touched ? 0 : null,
+    // The oldest of their covers; a cover whose day is not known leaves the others' to say it.
+    coversSince: known.coverSince ? least(covers.get(email)?.since ?? []) : null,
+    highLoad: false,
+  });
   const people = new Map<string, OpsCockpitPerson>();
-  for (const j of judged) {
-    const person = people.get(j.email) ?? { handledBy: j.email, isUser: userEmails ? userEmails.has(j.email) : null, active: 0, urgent: 0, attention: 0, covers: covers.get(j.email) ?? 0 };
+  for (const j of team) {
+    const person = people.get(j.email) ?? entry(j.email);
     person.active += 1;
+    person.byMode[freightKindOf(j.job)] += 1;
     if (j.ranked?.urgent) person.urgent += 1;
     else if (j.ranked) person.attention += 1;
+    if (person.todosLate !== null) person.todosLate += byJob.get(j.job.id)?.todosLate ?? 0;
+    if (person.notTouched !== null && j.ranked?.row.tags.some((t) => t.kind === "not_touched")) person.notTouched += 1;
     people.set(j.email, person);
   }
+  for (const email of covers.keys()) if (!people.has(email) && listed(email)) people.set(email, entry(email));
+  // A load that stands out among the people with jobs of their own - never "nobody", who is no person.
+  const above = highLoadAbove([...people.values()].filter((p) => p.handledBy !== "").map((p) => p.active));
+  for (const person of people.values()) person.highLoad = above !== null && person.handledBy !== "" && person.active > above;
   return [...people.values()].sort((a, b) => b.active - a.active || Number(a.handledBy === "") - Number(b.handledBy === "") || a.handledBy.localeCompare(b.handledBy));
 }
 
 export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpit {
-  const { now, mode, direction } = input;
+  const { now, mode, direction, reports } = input;
   const day = opsDay(now, input.holidays);
   const handledBy = handledByFilter(input.handledBy);
+  const ofReports = (job: Pick<OpsCockpitJob, "personInCharge">) => isOfReports(job, reports, input.reportEmails, input.userEmails);
 
   // The people line is counted before the Handled By filter: it is what the filter is picked from.
-  const scoped = input.jobs.filter((job) => inMode(job, mode) && inDirection(job, direction)).map((job) => judge(job, input, day));
+  // "My reports" narrows it too - and everything after it - to the jobs the caller's reports
+  // handle, with those of anybody who is no user (isReportOrNoUser).
+  const pool = input.jobs.filter((job) => inMode(job, mode) && inDirection(job, direction)).map((job) => judge(job, input, day));
+  const scoped = pool.filter((j) => ofReports(j.job));
   const shown = scoped.filter((j) => isHandledBy(j.job, handledBy));
   const flagged = (...kinds: TrackingAttentionFlag["kind"][]) => shown.filter((j) => j.flags.some((f) => kinds.includes(f.kind))).length;
 
@@ -991,7 +1097,7 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
   const masterJobs = input.masterJobRows
     .filter((m) => {
       const asJob = masterJobAsJob(m);
-      return inMode(asJob, mode) && inDirection(asJob, direction) && isHandledBy(asJob, handledBy);
+      return inMode(asJob, mode) && inDirection(asJob, direction) && ofReports(asJob) && isHandledBy(asJob, handledBy);
     })
     .flatMap((m) => masterJobRow(m) ?? []);
   const rows = [...shown.flatMap((j) => (j.ranked ? [j.ranked] : [])), ...masterJobs];
@@ -1024,10 +1130,12 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
     mode,
     direction,
     handledBy,
+    reports,
     tiles,
     urgent: cockpitCard(rows.filter((r) => r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
     attention: cockpitCard(rows.filter((r) => !r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
-    people: peopleOf(scoped, users),
+    people: peopleOf(scoped, pool, input, (email) => isReportOrNoUser(email, reports, input.reportEmails, input.userEmails)),
+    audit: input.audit,
     capped: input.capped,
     holidaysKnown: input.holidaysKnown,
     notKnown: [...new Set(input.notKnown)],

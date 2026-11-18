@@ -3,12 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const shipments = vi.hoisted(() => ({ needsAttentionCandidates: vi.fn() }));
 const events = vi.hoisted(() => ({ factsOfKinds: vi.fn() }));
 const holidays = vi.hoisted(() => ({ _internalHolidaysCzNational: vi.fn() }));
+const dismissed = vi.hoisted(() => ({ liveByShipmentIds: vi.fn() }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ holidays }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: events }));
+vi.mock("../../repositories/shipmentCutoffDismissal.repository", () => ({ shipmentCutoffDismissalRepository: dismissed }));
 
 import { CARGO_IN_EVENT_KINDS, NEEDS_ATTENTION_JOB_LIMIT } from "../../lib/needsAttention";
+import { DISMISSALS_NOT_KNOWN } from "../../services/cutoffDismissal.service";
 import { CLOSING_NOT_KNOWN, needsAttentionService } from "../../services/needsAttention.service";
 
 // The reads of the Shipments list's Needs Attention, against stand-ins for the repositories: what
@@ -59,6 +62,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   shipments.needsAttentionCandidates.mockResolvedValue([]);
   events.factsOfKinds.mockResolvedValue([]);
+  dismissed.liveByShipmentIds.mockResolvedValue([]);
   holidays._internalHolidaysCzNational.mockResolvedValue({ dates: [] });
 });
 
@@ -129,6 +133,52 @@ describe("Needs Attention's reads", () => {
       ["id-2", ["vgmClosing"]],
       ["id-3", ["closingDate"]],
     ]);
+  });
+
+  it("reads the dismissals of the jobs with a missed cut-off only, in one query - and none when no cut-off is missed", async () => {
+    shipments.needsAttentionCandidates.mockResolvedValue([row(1, { estimatedDeparture: "2026-11-23" }), row(2, { vgmClosing: "2026-11-23" })]);
+    await needsAttentionService.lists(COMPANY, NOW);
+    expect(dismissed.liveByShipmentIds).not.toHaveBeenCalled();
+
+    shipments.needsAttentionCandidates.mockResolvedValue([row(1, { siClosing: "2026-11-18" }), row(2, { vgmClosing: "2026-11-23" }), row(3, { closingDate: "2026-11-19" })]);
+    await needsAttentionService.lists(COMPANY, NOW);
+    expect(dismissed.liveByShipmentIds).toHaveBeenCalledTimes(1);
+    expect(dismissed.liveByShipmentIds).toHaveBeenCalledWith(["id-1", "id-3"], COMPANY);
+  });
+
+  it("leaves out a missed cut-off a manager dismissed, while it keeps its date: the cards, the tile's ids and so its list agree", async () => {
+    shipments.needsAttentionCandidates.mockResolvedValue([
+      // Dismissed: the job has nothing else, so it is off the card.
+      row(1, { siClosing: "2026-11-18" }),
+      // Dismissed for the 17th, moved to the 18th since: a new cut-off, missed again.
+      row(2, { vgmClosing: "2026-11-18" }),
+      // Its missed Closing is dismissed; its ETD on Monday still puts it on the card.
+      row(3, { closingDate: "2026-11-19", estimatedDeparture: "2026-11-23" }),
+      // Another job's dismissal is not this one's.
+      row(4, { siClosing: "2026-11-18" }),
+    ]);
+    dismissed.liveByShipmentIds.mockResolvedValue([
+      { shipmentId: "id-1", cutoff: "siClosing", cutoffDate: "2026-11-18" },
+      { shipmentId: "id-2", cutoff: "vgmClosing", cutoffDate: "2026-11-17" },
+      { shipmentId: "id-3", cutoff: "closingDate", cutoffDate: "2026-11-19" },
+    ]);
+    const lists = await needsAttentionService.lists(COMPANY, NOW);
+    expect(lists.within24h.map((i) => [i.id, i.deadlines.map((d) => `${d.field}${d.missed ? " missed" : ""}`)])).toEqual([
+      ["id-2", ["vgmClosing missed"]],
+      ["id-4", ["siClosing missed"]],
+      ["id-3", ["estimatedDeparture"]],
+    ]);
+    expect(lists.notKnown).toEqual([]);
+    expect(await needsAttentionService.urgentIds(COMPANY, NOW)).toEqual(["id-2", "id-4", "id-3"]);
+  });
+
+  it("treats nothing as dismissed and names what is not known when the dismissals could not be read", async () => {
+    shipments.needsAttentionCandidates.mockResolvedValue([row(1, { siClosing: "2026-11-18" })]);
+    dismissed.liveByShipmentIds.mockRejectedValue(new Error("the dismissals table is away"));
+    const lists = await needsAttentionService.lists(COMPANY, NOW);
+    expect(lists.notKnown).toEqual([DISMISSALS_NOT_KNOWN]);
+    expect(DISMISSALS_NOT_KNOWN).toBe("dismissed cut-offs");
+    expect(lists.within24h.map((i) => [i.id, i.deadlines.map((d) => `${d.field}${d.missed ? " missed" : ""}`)])).toEqual([["id-1", ["siClosing missed"]]]);
   });
 
   it("fails when the jobs could not be read: an empty list would say nothing is due", async () => {

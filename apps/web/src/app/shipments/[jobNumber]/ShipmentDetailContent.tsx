@@ -98,6 +98,7 @@ import { useShipmentNotes } from "@/hooks/useShipmentNotes";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
 import { ReleasedStopDialog, type ReleasedStop } from "./_components/ReleasedStopDialog";
 import {
+  AskManagerToRelease,
   OverrideReasonField,
   ReleaseCheckBody,
   ReleaseStopAlert,
@@ -106,7 +107,19 @@ import {
   WarningConfirm,
 } from "@/components/finance/ReleasePaymentWarning";
 import { CreditWarningLines, useCreditWarningView } from "@/components/finance/CreditWarning";
-import { overrideReasonOk, releaseStopLikely, releaseStopNote, releaseStopOf, warnsOnGreen, type ReleaseStop } from "@/lib/paymentWarnings";
+import {
+  overrideReasonOk,
+  RELEASE_ON_APPROVAL_LABEL,
+  RELEASE_ON_APPROVAL_NOTE,
+  releasedOnApproval,
+  releaseStopLikely,
+  releaseStopNote,
+  releaseStopOf,
+  WAREHOUSE_RELEASE_HREF,
+  warnsOnGreen,
+  type ReleaseStop,
+} from "@/lib/paymentWarnings";
+import { invalidateReleaseRequests, readReleaseRequests, useReleasePass } from "@/hooks/useReleaseRequests";
 
 /** `links` go with a value that names a record: a picked contact's id. */
 export type CommitFn = (fieldKey: string, value: string, links?: ContactLinks) => void;
@@ -661,13 +674,23 @@ export function makeStyleFor(shipment: ShipmentItem): StyleFor {
 }
 
 interface HouseBolReleaseRowProps {
+  shipmentId: string;
   releasedAt: string;
+  /** Warehouse Released as the job holds it ("" while the cargo is not released from the warehouse). */
+  warehouseReleased: string;
   onRelease: () => void;
 }
 
 // House BoL release: a one-off action rather than an editable field. Until it is
 // released it shows the button; afterwards it shows who released it and when.
-function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) {
+// Under it, where a request to a manager for this release stands (Council Outlay 11, D16): waiting, approved
+// ("release it now", while the approval can be used), rejected with the manager's reason, or - once released on
+// it - on whose approval. The request itself is made in the release dialog, where the prepayment stop refuses
+// the release.
+// The same line for a request to release the cargo from the warehouse, named "Warehouse Released": the job's
+// page shows that field nowhere (it is set from Warehouse → Stock), and this is where an answer under the bell
+// and a row of the Approvals tab lead. While its approval can be used, the way to Stock is beside it.
+function HouseBolReleaseRow({ shipmentId, releasedAt, warehouseReleased, onRelease }: HouseBolReleaseRowProps) {
   return (
     <div className={ROW}>
       <span className={LABEL}>
@@ -683,6 +706,8 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) 
             Release Bill of Lading
           </Button>
         )}
+        <AskManagerToRelease shipmentId={shipmentId} what="house_bol" released={!!releasedAt} className="mt-1" />
+        <AskManagerToRelease shipmentId={shipmentId} what="warehouse" released={!!warehouseReleased} label="Warehouse Released" releaseHref={WAREHOUSE_RELEASE_HREF} className="mt-1" />
       </div>
     </div>
   );
@@ -1071,12 +1096,30 @@ export function ShipmentDetailContent() {
   const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber);
   // The payment warning at the House BoL release (Council Outlay 10, D20): read when the release dialog opens.
   const releaseCheck = useReleaseCheckState(shipment?.id, releaseOpen && !shipment?.houseBolRelease);
-  // The check already says the server will stop it (prepayment, not paid): said up front - the server decides.
-  const releaseStopAhead = releaseCheck.state === "warn" && releaseStopLikely(releaseCheck.check);
+  // A manager approved a request for this release (Council Outlay 11, D16) and the approval can still be used:
+  // the release goes through on it, for whoever makes it - nothing is stopped, and no reason is asked for.
+  // Read when the dialog opens and every 30 seconds while it is open.
+  const { pass: releasePass, read: passRead } = useReleasePass(shipment?.id, "house_bol", releaseOpen && !shipment?.houseBolRelease);
+  // The check says the job is held for prepayment (not paid): the server stops the release - unless an approval stands.
+  const releaseHeld = releaseCheck.state === "warn" && releaseStopLikely(releaseCheck.check);
+  // Whether an approval stands is not read yet (for a short while only): "stopped" and the manager's reason
+  // field wait for it, so neither shows for a moment over an approval. Not read at all, the stop is said as it is.
+  const passChecking = releaseHeld && passRead === "checking";
+  // Said up front - the server decides.
+  const releaseStopAhead = releaseHeld && !releasePass && !passChecking;
+  const releaseOnApproval = releaseHeld && !!releasePass && releaseStop === null;
   const reasonShown = canOverrideStop && (releaseStop !== null || releaseStopAhead);
   const reasonOk = overrideReasonOk(overrideReason);
   const releaseLabel =
-    reasonShown && (reasonOk || releaseStop) ? "Release with a reason" : releaseStop ? "Try again" : releaseCheck.state === "warn" ? "Release anyway" : "Release";
+    reasonShown && (reasonOk || releaseStop)
+      ? "Release with a reason"
+      : releaseStop
+        ? "Try again"
+        : releaseOnApproval
+          ? RELEASE_ON_APPROVAL_LABEL
+          : releaseCheck.state === "warn"
+            ? "Release anyway"
+            : "Release";
   // Where the page was opened from, by the id in its address: the way back beside Shipments.
   const cameFrom = useShipmentCameFrom(jobNumber);
 
@@ -1275,11 +1318,19 @@ export function ShipmentDetailContent() {
     try {
       const reason = reasonShown && reasonOk ? overrideReason.trim() : "";
       await api.shipments.shipmentReleaseHouseBol(shipment.id, reason ? { paymentOverrideReason: reason } : {});
+      // Whether it went through on a manager's approval is the server's to say: the job's request is read again
+      // after the release and the toast worded from it - not from what the dialog had read before.
+      const after = reason ? null : await readReleaseRequests(queryClient, shipment.id);
+      const onApproval = releasedOnApproval(after?.find((r) => r.what === "house_bol"));
+      // The approval is used now: the managers' queue and the asker's answers say so too.
+      invalidateReleaseRequests(queryClient);
       await queryClient.invalidateQueries({ queryKey: ["shipments"] });
-      toast.success(reason ? "House BoL released with your reason" : "House BoL released");
+      toast.success(reason ? "House BoL released with your reason" : onApproval ? "House BoL released on the manager's approval" : "House BoL released");
       setReleaseOpen(false);
     } catch (e) {
       const stop = releaseStopOf(e);
+      // Stopped although an approval seemed to stand (used or run out meanwhile): read again, so it is not promised twice.
+      if (stop) invalidateReleaseRequests(queryClient);
       if (stop) setReleaseStop(stop);
       else toast.error(`Failed to release the House BoL: ${apiErrorMessage(e)}`);
     } finally {
@@ -1466,7 +1517,12 @@ export function ShipmentDetailContent() {
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
                     houseBolRelease: (
-                      <HouseBolReleaseRow releasedAt={shipment.houseBolRelease} onRelease={openRelease} />
+                      <HouseBolReleaseRow
+                        shipmentId={shipment.id}
+                        releasedAt={shipment.houseBolRelease}
+                        warehouseReleased={shipment.warehouseReleasedDate ?? ""}
+                        onRelease={openRelease}
+                      />
                     ),
                     masterJob: (
                       <div className={ROW}>
@@ -1990,7 +2046,9 @@ export function ShipmentDetailContent() {
       {/* With the payment warning (D20) when the job's invoice is unpaid and the customer is on prepayment or
           has overdue invoices: "Release anyway". A check that fails leaves a small note only. A job on prepayment
           that is not paid is stopped by the server (step 7): said up front when the check knows it, the server's
-          sentence once it refused, and a manager's reason field to release it all the same. */}
+          sentence once it refused, and a manager's reason field to release it all the same. A user who is stopped
+          asks a manager from here (Council Outlay 11, D16); where that request stands is shown to both. Once a
+          manager approved it, the dialog says the release goes through on the approval instead of "stopped". */}
       <WarningConfirm
         open={releaseOpen}
         danger
@@ -2004,14 +2062,14 @@ export function ShipmentDetailContent() {
         confirmLabel={releaseLabel}
         warnedLabel={releaseLabel}
         warned={releaseCheck.state === "warn"}
-        checking={releaseCheck.state === "checking"}
+        checking={releaseCheck.state === "checking" || passChecking}
         loading={releasing}
         // After the server's stop, a manager's release needs the reason; before it, the server decides.
         confirmDisabled={canOverrideStop && releaseStop !== null && !reasonOk}
         onConfirm={confirmReleaseHouseBol}
         onClose={() => setReleaseOpen(false)}
       >
-        {(releaseStop || reasonShown || releaseCheck.state !== "clear") && (
+        {(releaseStop || reasonShown || releasePass || releaseCheck.state !== "clear") && (
           <div className="flex flex-col gap-3">
             {releaseStop ? (
               <ReleaseStopAlert message={releaseStop.message} />
@@ -2019,14 +2077,16 @@ export function ShipmentDetailContent() {
               <>
                 <ReleaseCheckBody check={releaseCheck.check} state={releaseCheck.state} />
                 {releaseStopAhead && <div className="text-[13px] font-medium text-red-700">{releaseStopNote(canOverrideStop)}</div>}
+                {releaseOnApproval && <div className="text-[13px] font-medium text-emerald-700">{RELEASE_ON_APPROVAL_NOTE}</div>}
               </>
             )}
             {reasonShown && <OverrideReasonField value={overrideReason} onChange={setOverrideReason} disabled={releasing} />}
+            <AskManagerToRelease shipmentId={shipment.id} what="house_bol" offer={releaseStop !== null || releaseHeld} released={!!shipment.houseBolRelease} />
           </div>
         )}
       </WarningConfirm>
 
-      <ReleasedStopDialog value={releasedStop} onClose={() => setReleasedStop(null)} />
+      <ReleasedStopDialog shipmentId={shipment.id} value={releasedStop} onClose={() => setReleasedStop(null)} />
 
       <ConfirmModal
         open={deleteOpen}

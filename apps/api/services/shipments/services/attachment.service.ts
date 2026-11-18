@@ -4,7 +4,7 @@ import { APIError } from "encore.dev/api";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentAttachmentRecord } from "../schemas/shipmentAttachment.schema";
 import { attachmentBucket } from "../storage/attachmentBucket";
-import { APPROVED_DOCUMENT_REFUSAL, canManageDocuments, documentReviewRefusal } from "../lib/documentRules";
+import { APPROVED_DOCUMENT_REFUSAL, canManageDocuments, documentReviewRefusal, ownUploadApprovalRefusal } from "../lib/documentRules";
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken";
 import { iso, isoOrNull } from "../../../lib/db/serialize";
@@ -157,7 +157,8 @@ class AttachmentService {
 
   /**
    * Customs review. status "" clears the review back to pending; "declined"
-   * keeps the reason so operations can see what to fix.
+   * keeps the reason so operations can see what to fix. A regular user (`role` given) leaves an
+   * approved document as it is, and does not approve a document they uploaded themselves.
    */
   async review(
     shipmentId: string,
@@ -178,6 +179,9 @@ class AttachmentService {
       const refusal = documentReviewRefusal(current.customsStatus, status, role);
       if (refusal) throw APIError.permissionDenied(refusal);
       if (current.customsStatus === "approved") return toItem(current, await userEmails());
+      // Four eyes: a regular user does not approve their own upload (lib/documentRules).
+      const own = ownUploadApprovalRefusal(current, status, userId, role);
+      if (own) throw APIError.permissionDenied(own);
     }
     const clear = status === "";
     const row = await shipmentAttachmentRepository.updateReview(

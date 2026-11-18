@@ -16,31 +16,41 @@ const MAX_IDS = 500;
 
 class RoadJobService {
   /**
-   * Who made the job, as its Created By says: "Trucking · <e-mail>" for the user of the company
-   * Trucking acts for - people are recorded by e-mail. Without such a user (Trucking's service
-   * identity, or the users could not be read) what Trucking sent stays only when it names nobody
-   * ("Trucking", "Trucking · Trucking (system)"); a name it sends is never stored, just "Trucking".
+   * The e-mail of the user of the company Trucking acts for - people are recorded by e-mail. ""
+   * when there is no such user: Trucking's service identity ("Trucking (system)", which the
+   * company's users list leaves out), or the users could not be read.
    */
-  private async createdBy(sent: string, userId?: string): Promise<string> {
-    let email = "";
-    if (userId) {
-      try {
-        email = (await companyUsers()).find((u) => u.id === userId)?.email ?? "";
-      } catch (err) {
-        log.warn(err, "road job creator not looked up");
-      }
+  private async creatorEmail(userId?: string): Promise<string> {
+    if (!userId) return "";
+    try {
+      return (await companyUsers()).find((u) => u.id === userId)?.email ?? "";
+    } catch (err) {
+      log.warn(err, "road job creator not looked up");
+      return "";
     }
+  }
+
+  /**
+   * Who made the job, as its Created By says: "Trucking · <e-mail>" for the user of the company
+   * Trucking acts for (`email`). Without such a user what Trucking sent stays only when it names
+   * nobody ("Trucking", "Trucking · Trucking (system)"); a name it sends is never stored, just "Trucking".
+   */
+  private createdBy(sent: string, email: string): string {
     if (email) return TRUCKING_PREFIX + email;
     return personIn("createdBy", sent) ? "Trucking" : sent;
   }
 
   /**
    * A new Road Freight job (Full Load, or Consolidation for LTL) for a domestic order; the job
-   * number is the next CZ one. `userId`: the user Trucking acts for.
+   * number is the next CZ one. `userId`: the user Trucking acts for - when that is a signed-in user
+   * of the company, the job is theirs from the start: they are its Handled By (Council Outlay 11,
+   * D10), so it is not born as a job nobody handles. One the system made (Trucking's service
+   * identity) names nobody: no person stands behind it.
    */
   async create(companyId: string, input: RoadJobInput, userId?: string): Promise<{ shipmentId: string; jobNumber: string }> {
     if (!isUuid(input.customerId)) throw APIError.invalidArgument("Unknown customer");
-    const createdBy = await this.createdBy(input.createdBy, userId);
+    const creator = await this.creatorEmail(userId);
+    const createdBy = this.createdBy(input.createdBy, creator);
     const { shipment } = await shipmentService.create(companyId, {
       customerId: input.customerId,
       customer: input.customerName,
@@ -68,6 +78,7 @@ class RoadJobService {
       // A quote named here is linked to the job (not marked Won, its costs not copied: Trucking pushes its own).
       salesNumber: input.quoteNumber ?? "",
       createdBy,
+      ...(creator ? { personInCharge: creator } : {}),
     }, undefined, { allowUnfinishedQuote: true });
     return { shipmentId: shipment.id, jobNumber: shipment.jobNumber };
   }

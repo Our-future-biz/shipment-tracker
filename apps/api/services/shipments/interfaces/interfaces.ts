@@ -1326,8 +1326,8 @@ export interface OpsCockpitTiles {
    * Per signal family (the `kind` of a tag: owner, not_user, cutoff, booking, cargo_ready, departure, arrival,
    * free_time, customs, paperwork, dangerous, bl, arrival_notice, delivery, warehouse, road, air,
    * request, import_instructions, remeasurement, status_stuck, credit, master_job, tracking,
-   * billing, customer_told): how many rows carry at least one tag of it, after the filters. Every
-   * family is there, 0 for none.
+   * billing, customer_told, todo, mention, not_touched): how many rows carry at least one tag of
+   * it, after the filters. Every family is there, 0 for none.
    */
   signals: Record<string, number>;
 }
@@ -1345,6 +1345,65 @@ export interface OpsCockpitPerson {
   attention: number;
   /** Active jobs where this person is the Holiday Cover. */
   covers: number;
+  /** Their active jobs by how they travel (lib/trackingEvents freightKindOf): the four add up to `active`. */
+  byMode: { sea: number; air: number; rail: number; road: number };
+  /** Open to-dos past their day on the jobs they handle; null when the to-dos could not be read. */
+  todosLate: number | null;
+  /** @mentions of this person they have not read for 4 office hours or longer, on the jobs they handle or cover; null when not known. */
+  mentionsUnread: number | null;
+  /** Their jobs carrying a "Not touched since …" tag; null when the jobs' last touches could not be read. */
+  notTouched: number | null;
+  /** The oldest day one of their covers was set (YYYY-MM-DD); null when they cover nothing, or when that is not known. */
+  coversSince: string | null;
+  /** More active jobs than 1.5 times the median of the people with at least one - said only among three such people or more, and never of "nobody". */
+  highLoad: boolean;
+}
+
+/**
+ * Whose jobs the cockpit counts: everyone's, or those handled by the users who report to the caller
+ * (Settings → Users, "Reports to") - and, with them, those whose Handled By is no user of the company:
+ * a report who was deactivated reports to nobody any more, and their jobs are every manager's to see.
+ */
+export type OpsCockpitReports = "all" | "mine";
+
+/** One figure of the audit line: how often something a manager wants to know of happened. */
+export interface OpsCockpitAuditItem {
+  /**
+   * prepayment_release | own_credit_check | own_document_approval | deleted | cancelled | tick_taken_back |
+   * ata_atd_changed | warehouse_received_moved | handled_by_changed | requests_decided | handed_over |
+   * cutoff_dismissed | release_requests_decided. The key GET /shipments/managers-audit lists the rows of.
+   */
+  key: string;
+  count: number;
+  /** Only on requests_decided and release_requests_decided, from 10 decided: the share approved, 0-1. Close to 1 is a rubber stamp. */
+  approvalRate?: number;
+}
+
+/** The audit line: the company's last `days` days, whatever mode, direction or person the page is narrowed to. */
+export interface OpsCockpitAudit {
+  days: number;
+  /** Every key whose part could be read, 0 for none; a key that is missing was not read and is named in `notKnown`. */
+  items: OpsCockpitAuditItem[];
+}
+
+/** A row of the audit line's drill-down: one thing that happened on a job. */
+export interface ManagersAuditRow {
+  shipmentId: string;
+  /** The job as it is called now; a deleted job keeps its number here. */
+  jobNumber: string;
+  /** Who did it, by e-mail; "" when the user is no longer known. */
+  who: string;
+  /** ISO time. */
+  at: string;
+  /** What happened, in a line. */
+  what: string;
+}
+
+export interface ManagersAuditList {
+  /** The newest first, at most 200. */
+  rows: ManagersAuditRow[];
+  /** True when there were more than listed. */
+  capped: boolean;
 }
 
 export interface ShipmentsManagersCockpit {
@@ -1356,15 +1415,20 @@ export interface ShipmentsManagersCockpit {
   direction: OpsCockpitDirection;
   /** The Handled By e-mail the tiles and cards are narrowed to, "nobody", or null for everyone. */
   handledBy: string | null;
+  /** "mine": only the jobs handled by the users who report to the caller, and those whose Handled By is not a user - tiles, cards and `people` alike. */
+  reports: OpsCockpitReports;
   tiles: OpsCockpitTiles;
   urgent: OpsCockpitList;
   attention: OpsCockpitList;
   /**
    * Everyone named in Handled By on an active job of the chosen mode and direction (NOT narrowed
    * by handledBy: the page picks a person from it), the most active first; "" (nobody) is among
-   * them when it has jobs.
+   * them when it has jobs. Somebody who only covers jobs is there too, with `active` 0. With
+   * `reports` "mine": only the users who report to the caller, and whoever is not a user.
    */
   people: OpsCockpitPerson[];
+  /** The audit line; null when none of it could be read (then `notKnown` says so). */
+  audit: OpsCockpitAudit | null;
   /** True when the company has more active jobs than were read (COCKPIT_JOB_LIMIT, the newest): the counts cover only those read. */
   capped: boolean;
   /** False when the company's own holidays could not be read: working days then skip only the weekends and the statutory public holidays. */
@@ -1606,3 +1670,90 @@ export interface ReadingMatches {
   shipments: ReadingShipmentMatch[];
   masterJob: { id: string; mczNumber: string } | null;
 }
+
+// ─── Shipments → Managers, step 3: what a manager does (builder M's block; keep additions inside it) ───
+
+/** What a release request asks to be released: the House BoL, or the cargo from the warehouse (Warehouse Released). */
+export type ReleaseRequestWhat = "house_bol" | "warehouse";
+
+/**
+ * A request to release a job the prepayment stop holds, as the screens show it. Approving releases nothing: an
+ * approved request is a pass for that job and that release - the release then goes through for whoever on the
+ * job makes it, once, while the pass is good (`usable`, `validUntil`).
+ */
+export interface ReleaseRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  what: ReleaseRequestWhat;
+  /** Why the one asking wants it released. */
+  reason: string;
+  /** closed: the job was released another way - while the request still waited (nobody answered it), or before its approval was used. */
+  status: "pending" | "approved" | "rejected" | "closed";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  /** "" while pending, and on a request closed while it waited. One closed after it was approved keeps who approved it. */
+  decidedByName: string;
+  /** null while pending, and on a request closed while it waited. One closed after it was approved keeps when. */
+  decidedAt: string | null;
+  /** The manager's reason, required either way: to release all the same (approved), or why not (rejected). Closed: "Released without it". */
+  comment: string;
+  answerSeenAt: string | null;
+  /** When the approval was used for the release; null while it was not. */
+  usedAt: string | null;
+  /** Who released with it (their e-mail); "" while it was not used. */
+  usedByName: string;
+  /** Approved: until when it can be used (7 days from the decision). null otherwise. */
+  validUntil: string | null;
+  /** Approved, not used and not run out: the release goes through now. Worked out when the answer was made. */
+  usable: boolean;
+  /** Closed: when the job was released another way. null otherwise. */
+  closedAt: string | null;
+}
+
+/** A job a hand-over left as it was, and why. */
+export interface HandOverSkipped {
+  shipmentId: string;
+  /** "" when the job was not found. */
+  jobNumber: string;
+  why: string;
+}
+
+/** What a hand-over of many jobs did. */
+export interface HandOverResult {
+  /** Jobs whose Handled By or Holiday Cover changed. */
+  changed: number;
+  skipped: HandOverSkipped[];
+}
+
+/** A missed cut-off a manager dismissed (lib/cutoffDismissals). */
+export interface CutoffDismissalItem {
+  id: string;
+  shipmentId: string;
+  cutoff: "closingDate" | "vgmClosing" | "siClosing" | "amsDeadline" | "isfDeadline";
+  /** The date the cut-off had when it was dismissed (YYYY-MM-DD): it stays dismissed while it keeps this date. */
+  cutoffDate: string;
+  reason: string;
+  dismissedByName: string;
+  dismissedAt: string;
+}
+
+/** What a manager's nudge left on the job. */
+export interface NudgeResult {
+  /** The to-do on the job's Notes To-Do tab. */
+  note: ShipmentNoteItem;
+  /** Who the chat line tagged (their e-mails), so it is under their bell: the job's Handled By and Holiday Cover, as far as they are users. */
+  told: string[];
+}
+
+/** How many active jobs name a person, for the Users page's warning before one is deactivated. */
+export interface HandledByCount {
+  /** Active jobs with this e-mail in Handled By. */
+  handledBy: number;
+  /** Active jobs with this e-mail in Holiday Cover. */
+  covers: number;
+}
+
+// ─── end of builder M's block ───

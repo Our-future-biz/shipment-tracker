@@ -5,7 +5,9 @@ import type { AttachmentCustomsStatus, AttachmentItem } from "../interfaces/inte
 
 /**
  * Customs review of a document; "" puts it back to pending. A declined document carries a
- * reason the operations team sees in the Documents tab.
+ * reason the operations team sees in the Documents tab. A regular user is refused the approval of
+ * a document they uploaded themselves ("You uploaded this document: a colleague or a manager
+ * approves it", lib/documentRules): declining it stays theirs, and a manager may approve their own.
  */
 interface AttachmentReviewRequest {
   shipmentId: string;

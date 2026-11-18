@@ -4,21 +4,29 @@ const shipments = vi.hoisted(() => ({ managersCockpitRows: vi.fn(), dateMovedLat
 const events = vi.hoisted(() => ({ proposedOn: vi.fn(), latestPerShipment: vi.fn(), arrivedAtHub: vi.fn(), ofKinds: vi.fn() }));
 const notices = vi.hoisted(() => ({ latestPerShipment: vi.fn() }));
 const containers = vi.hoisted(() => ({ withFreeTime: vi.fn(), listByShipmentIds: vi.fn() }));
-const users = vi.hoisted(() => ({ userEmails: vi.fn() }));
 const holidays = vi.hoisted(() => ({ _internalHolidaysCzNational: vi.fn() }));
 const extra = vi.hoisted(() => ({ extraSignals: vi.fn() }));
+const team = vi.hoisted(() => ({ cockpitUsers: vi.fn(), teamFacts: vi.fn() }));
+const dismissals = vi.hoisted(() => ({ cutoffDismissalsOf: vi.fn(), DISMISSALS_NOT_KNOWN: "dismissed cut-offs" }));
+const auditLine = vi.hoisted(() => ({ managersAuditLine: vi.fn(), AUDIT_PARTS: { all: "the audit line" } }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
+vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ holidays }));
 // The other tables' reads have their own test (tests/services/managersCockpitExtra.service.test.ts): here only how their answer is wired in.
 vi.mock("../../services/managersCockpitExtra.service", () => extra);
+// The same for step 3's reads - the people around the jobs (tests/services/managersCockpitTeam.service.test.ts),
+// the audit line (tests/services/managersCockpitAudit.service.test.ts) and the dismissed cut-offs (builder M's).
+vi.mock("../../services/managersCockpitTeam.service", () => team);
+vi.mock("../../services/cutoffDismissal.service", () => dismissals);
+vi.mock("../../services/managersCockpitAudit.service", () => auditLine);
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: events }));
 vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: notices }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: containers }));
-vi.mock("../../lib/userEmails", () => users);
 
 import { COCKPIT_JOB_LIMIT } from "../../lib/cockpitThresholds";
-import { NOT_KNOWN, managersCockpitService } from "../../services/managersCockpit.service";
+import { NO_TEAM_FACTS, type TeamFacts } from "../../lib/managersCockpitTeam";
+import { NOT_KNOWN, REPORTS_NOT_KNOWN, managersCockpitService } from "../../services/managersCockpit.service";
 import { trackingAttentionService } from "../../services/trackingAttention.service";
 
 // The reads of Shipments → Managers, against stand-ins for the repositories: how many jobs it
@@ -28,7 +36,32 @@ import { trackingAttentionService } from "../../services/trackingAttention.servi
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 // Wednesday 18 Nov 2026, 00:30 in Prague - still the 17th in UTC.
 const NOW = new Date("2026-11-17T23:30:00Z");
-const EVERYONE = { mode: "all", direction: "all", handledBy: null } as const;
+const MANAGER = "u-manager";
+const EVERYONE = { mode: "all", direction: "all", handledBy: null, reports: "all", userId: MANAGER } as const;
+const USERS = [
+  { id: "u1", email: "jan@firma.cz", reportsToUserId: MANAGER },
+  { id: "u2", email: "eva@firma.cz", reportsToUserId: null },
+  { id: MANAGER, email: "boss@firma.cz", reportsToUserId: null },
+];
+/** Everything read, nothing found: no signal, and every figure of the people line a 0. */
+const QUIET_TEAM: TeamFacts = { byJob: new Map(), known: { todos: true, mentions: true, touched: true, coverSince: true }, notKnown: [] };
+const NO_AUDIT = { audit: { days: 7, items: [] }, notKnown: [] };
+/** A person of the people line with nothing on them but their jobs. */
+const person = (handledBy: string, over = {}) => ({
+  handledBy,
+  isUser: true,
+  active: 1,
+  urgent: 0,
+  attention: 0,
+  covers: 0,
+  byMode: { sea: 1, air: 0, rail: 0, road: 0 },
+  todosLate: 0,
+  mentionsUnread: 0,
+  notTouched: 0,
+  coversSince: null,
+  highLoad: false,
+  ...over,
+});
 
 const row = (n: number, over = {}) => ({
   id: `id-${n}`,
@@ -106,9 +139,12 @@ beforeEach(() => {
   notices.latestPerShipment.mockResolvedValue(new Map());
   containers.withFreeTime.mockResolvedValue([]);
   containers.listByShipmentIds.mockResolvedValue([]);
-  users.userEmails.mockResolvedValue(new Map([["u1", " Jan@Firma.cz "]]));
   holidays._internalHolidaysCzNational.mockResolvedValue({ dates: [] });
   extra.extraSignals.mockResolvedValue(NO_EXTRA);
+  team.cockpitUsers.mockResolvedValue(USERS);
+  team.teamFacts.mockResolvedValue(QUIET_TEAM);
+  dismissals.cutoffDismissalsOf.mockResolvedValue(new Map());
+  auditLine.managersAuditLine.mockResolvedValue(NO_AUDIT);
 });
 
 describe("Shipments → Managers' reads", () => {
@@ -159,7 +195,7 @@ describe("Shipments → Managers' reads", () => {
     expect(dayOff.urgent.rows.map((r) => r.tags.map((t) => t.text))).toEqual([["Closing on Fri 20.11."]]);
     expect(dayOff.holidaysKnown).toBe(true);
     // The same days off reach the other tables' rules.
-    expect(extra.extraSignals.mock.lastCall![1]).toEqual({ companyId: COMPANY, now: NOW, today: "2026-11-18", holidays: ["2026-11-19"] });
+    expect(extra.extraSignals.mock.lastCall![1]).toEqual({ companyId: COMPANY, now: NOW, today: "2026-11-18", holidays: ["2026-11-19"], run: expect.any(Function) });
   });
 
   it("says so when the holidays could not be read, and still answers: weekends and the public holidays only", async () => {
@@ -283,27 +319,188 @@ describe("Shipments → Managers' reads", () => {
 
   it("hands the filters on", async () => {
     shipments.managersCockpitRows.mockResolvedValue([row(1), row(2, { freightMode: "Air Freight", personInCharge: "" })]);
-    const c = await managersCockpitService.cockpit(COMPANY, { mode: "air", direction: "import", handledBy: "nobody" }, NOW);
-    expect(c).toMatchObject({ mode: "air", direction: "import", handledBy: "nobody", tiles: { active: 1, noHandledBy: 1 } });
+    const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, mode: "air", direction: "import", handledBy: "nobody" }, NOW);
+    expect(c).toMatchObject({ mode: "air", direction: "import", handledBy: "nobody", reports: "all", tiles: { active: 1, noHandledBy: 1 } });
   });
 
-  it("knows the users by e-mail, trimmed and in any case", async () => {
+  it("knows the users by e-mail: who is none of them is said, on the tile and on the people line", async () => {
     shipments.managersCockpitRows.mockResolvedValue([row(1), row(2, { personInCharge: "left@firma.cz" })]);
     const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
     expect(c.tiles.handledByNotUser).toBe(1);
-    expect(c.people).toEqual([
-      { handledBy: "jan@firma.cz", isUser: true, active: 1, urgent: 0, attention: 0, covers: 0 },
-      { handledBy: "left@firma.cz", isUser: false, active: 1, urgent: 1, attention: 0, covers: 0 },
-    ]);
+    expect(c.people).toEqual([person("jan@firma.cz"), person("left@firma.cz", { isUser: false, urgent: 1 })]);
   });
 
-  it("says not known when the users could not be read - an empty answer is not \"nobody is a user\"", async () => {
-    users.userEmails.mockResolvedValue(new Map());
+  it("says not known when the users could not be read - never \"nobody is a user\" - and tells the other reads so", async () => {
+    team.cockpitUsers.mockResolvedValue(null);
     shipments.managersCockpitRows.mockResolvedValue([row(1), row(2, { personInCharge: "left@firma.cz" })]);
     const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
     expect(c.tiles.handledByNotUser).toBeNull();
     expect(c.people.map((p) => p.isUser)).toEqual([null, null]);
     expect(c.urgent.total).toBe(0);
+    // Whom a chat line tagged and who did what on the audit line hang on the users too.
+    expect(team.teamFacts.mock.lastCall![1].users).toBeNull();
+    expect(auditLine.managersAuditLine).toHaveBeenLastCalledWith(COMPANY, NOW, null, expect.any(Function));
+  });
+
+  describe("the people around the jobs (step 3)", () => {
+    const signal = (over = {}) => ({ rank: 410, urgent: false, kind: "todo", area: "details", text: 'To-do 2 days late: "Call the carrier"', ...over });
+    const NOT_TOUCHED = { rank: 430, urgent: false, kind: "not_touched", area: "details", text: "Not touched since 10.11." };
+    const facts = (over = {}) => ({ signals: [], notTouched: null, todosLate: 0, mentionsUnread: new Map(), coverSince: null, ...over });
+
+    it("is asked about the jobs kept, on the one `now`, with the company's days off and its users - and its signals and figures land on the rows and the people line", async () => {
+      shipments.managersCockpitRows.mockResolvedValue([row(1), row(2, { closingDate: "2026-11-19" }), row(3, { personInCharge: "eva@firma.cz", holidayCover: "jan@firma.cz" })]);
+      holidays._internalHolidaysCzNational.mockResolvedValue({ dates: ["2026-11-23"] });
+      team.teamFacts.mockResolvedValue({
+        ...QUIET_TEAM,
+        byJob: new Map([
+          ["id-1", facts({ signals: [signal()], notTouched: NOT_TOUCHED, todosLate: 2 })],
+          // Something URGENT stands on it already: it is being looked at, and is not called untouched.
+          ["id-2", facts({ notTouched: NOT_TOUCHED })],
+          ["id-3", facts({ signals: [signal({ rank: 96, urgent: true, kind: "mention", text: "@mention unread since 16.11. 09:12 (jan@firma.cz)" })], mentionsUnread: new Map([["jan@firma.cz", 3]]), coverSince: "2026-11-02" })],
+        ]),
+      });
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(team.teamFacts.mock.lastCall![0].map((j: { id: string }) => j.id)).toEqual(["id-1", "id-2", "id-3"]);
+      expect(team.teamFacts.mock.lastCall![1]).toEqual({ companyId: COMPANY, now: NOW, today: "2026-11-18", holidays: ["2026-11-23"], users: USERS, run: expect.any(Function) });
+      expect(c.urgent.rows.map((r) => [r.jobNumber, r.tags.map((t) => t.text)])).toEqual([
+        ["CZFCL00000002", ["Closing tomorrow"]],
+        ["CZFCL00000003", ["@mention unread since 16.11. 09:12 (jan@firma.cz)"]],
+      ]);
+      expect(c.attention.rows.map((r) => [r.jobNumber, r.tags.map((t) => t.text)])).toEqual([["CZFCL00000001", ['To-do 2 days late: "Call the carrier"', "Not touched since 10.11."]]]);
+      expect(c.tiles.signals).toMatchObject({ todo: 1, mention: 1, not_touched: 1 });
+      expect(c.people).toEqual([
+        person("jan@firma.cz", { active: 2, urgent: 1, attention: 1, covers: 1, byMode: { sea: 2, air: 0, rail: 0, road: 0 }, todosLate: 2, mentionsUnread: 3, notTouched: 1, coversSince: "2026-11-02" }),
+        person("eva@firma.cz", { urgent: 1 }),
+      ]);
+      expect(c.notKnown).toEqual([]);
+    });
+
+    it("passes on what it could not read: no signal of that part, its figures null - not 0 - and its name", async () => {
+      shipments.managersCockpitRows.mockResolvedValue([row(1)]);
+      team.teamFacts.mockResolvedValue({ byJob: new Map(), known: { todos: true, mentions: false, touched: false, coverSince: true }, notKnown: ["@mentions not read", "jobs nobody touched"] });
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(c.people).toEqual([person("jan@firma.cz", { mentionsUnread: null, notTouched: null })]);
+      expect(c.notKnown).toEqual(["@mentions not read", "jobs nobody touched"]);
+    });
+
+    it("answers without it when its read fails altogether: none of its figures, and it says which", async () => {
+      shipments.managersCockpitRows.mockResolvedValue([row(1, { closingDate: "2026-11-19" })]);
+      team.teamFacts.mockRejectedValue(new Error("boom"));
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(c.urgent.rows.map((r) => r.tags.map((t) => t.text))).toEqual([["Closing tomorrow"]]);
+      expect(c.people).toEqual([person("jan@firma.cz", { urgent: 1, todosLate: null, mentionsUnread: null, notTouched: null })]);
+      // Named once, as a whole - not part by part.
+      expect(c.notKnown).toEqual([NOT_KNOWN.team]);
+      expect(NO_TEAM_FACTS.known).toEqual({ todos: false, mentions: false, touched: false, coverSince: false });
+    });
+  });
+
+  describe("a missed cut-off a manager dismissed (step 3)", () => {
+    const jobs = () => [
+      row(1, { closingDate: "2026-11-17", vgmClosing: "2026-11-16", vgm: "Pending (Red)", estimatedDeparture: "2026-11-20" }),
+      row(2, { siClosing: "2026-11-19", estimatedDeparture: "2026-11-25" }),
+      row(3, { vgmClosing: "2026-11-16", vgm: "Pending (Red)", estimatedDeparture: "2026-11-20" }),
+    ];
+
+    it("asks only about the jobs with a missed cut-off, and gives no tag for the one dismissed while its date stands", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      dismissals.cutoffDismissalsOf.mockResolvedValue(
+        new Map([
+          // The Closing of the 17th is dismissed; the VGM's dismissal is of another date - the cut-off was moved since.
+          ["id-1", [{ cutoff: "closingDate", date: "2026-11-17" }, { cutoff: "vgmClosing", date: "2026-11-13" }]],
+        ]),
+      );
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(dismissals.cutoffDismissalsOf).toHaveBeenCalledTimes(1);
+      expect(dismissals.cutoffDismissalsOf).toHaveBeenCalledWith(COMPANY, ["id-1", "id-3"]);
+      expect(c.urgent.rows.map((r) => [r.jobNumber, r.tags.map((t) => t.text)])).toEqual([
+        ["CZFCL00000001", ["VGM overdue 2 days"]],
+        ["CZFCL00000003", ["VGM overdue 2 days"]],
+        ["CZFCL00000002", ["SI closing tomorrow"]],
+      ]);
+      expect(c.tiles.cutoffsDue).toBe(3);
+      expect(c.notKnown).toEqual([]);
+    });
+
+    it("treats nothing as dismissed when the dismissals could not be read, and says so", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      dismissals.cutoffDismissalsOf.mockRejectedValue(new Error("the dismissals could not be read"));
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(c.urgent.rows.find((r) => r.jobNumber === "CZFCL00000001")!.tags.map((t) => t.text)).toEqual(["Closing missed · 17.11.", "VGM overdue 2 days"]);
+      expect(c.notKnown).toEqual(["dismissed cut-offs"]);
+    });
+  });
+
+  describe("the audit line (step 3)", () => {
+    it("is the company's, read on the one `now` with the users, and handed through as it is - with what it could not read", async () => {
+      shipments.managersCockpitRows.mockResolvedValue([row(1)]);
+      const audit = { days: 7, items: [{ key: "deleted", count: 2 }, { key: "requests_decided", count: 12, approvalRate: 1 }] };
+      auditLine.managersAuditLine.mockResolvedValue({ audit, notKnown: ["audit: documents approved by their uploader"] });
+      const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, mode: "air", handledBy: "eva@firma.cz" }, NOW);
+      expect(auditLine.managersAuditLine).toHaveBeenCalledWith(COMPANY, NOW, new Map([["u1", "jan@firma.cz"], ["u2", "eva@firma.cz"], [MANAGER, "boss@firma.cz"]]), expect.any(Function));
+      expect(c.audit).toEqual(audit);
+      expect(c.notKnown).toEqual(["audit: documents approved by their uploader"]);
+    });
+
+    it("is null - and named - when it could not be read at all; the rest still answers", async () => {
+      shipments.managersCockpitRows.mockResolvedValue([row(1, { closingDate: "2026-11-19" })]);
+      auditLine.managersAuditLine.mockRejectedValue(new Error("boom"));
+      const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(c.audit).toBeNull();
+      expect(c.notKnown).toEqual(["the audit line"]);
+      expect(c.urgent.total).toBe(1);
+    });
+  });
+
+  it("hands the one limiter of the answer to every reader that sends statements of its own (the whole call is tests/services/managersCockpitReads.test.ts)", async () => {
+    shipments.managersCockpitRows.mockResolvedValue([row(1)]);
+    await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    const run = team.teamFacts.mock.lastCall![1].run;
+    expect(extra.extraSignals.mock.lastCall![1].run).toBe(run);
+    expect(auditLine.managersAuditLine.mock.lastCall![3]).toBe(run);
+    // A limiter of this answer only: the next answer has its own.
+    await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(team.teamFacts.mock.lastCall![1].run).not.toBe(run);
+  });
+
+  describe("\"My reports\" (step 3, D3)", () => {
+    const jobs = () => [row(1), row(2, { personInCharge: "eva@firma.cz" }), row(3, { personInCharge: "" }), row(4, { personInCharge: "JAN@firma.cz", closingDate: "2026-11-19" })];
+
+    it("keeps only the jobs handled by the users who report to the caller - tiles, cards and the people line", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, reports: "mine" }, NOW);
+      expect(c.reports).toBe("mine");
+      expect(c.tiles).toMatchObject({ active: 2, noHandledBy: 0 });
+      expect(c.urgent.rows.map((r) => r.jobNumber)).toEqual(["CZFCL00000004"]);
+      expect(c.people.map((p) => [p.handledBy, p.active])).toEqual([["jan@firma.cz", 2]]);
+      // Everybody's is everybody's.
+      const all = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(all).toMatchObject({ reports: "all", tiles: { active: 4, noHandledBy: 1 } });
+    });
+
+    it("keeps the jobs of somebody who is no user - a report who was deactivated - for every manager, whoever reports to them", async () => {
+      shipments.managersCockpitRows.mockResolvedValue([...jobs(), row(5, { personInCharge: "left@firma.cz" })]);
+      for (const userId of [MANAGER, "u2"]) {
+        const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, reports: "mine", userId }, NOW);
+        expect(c.urgent.rows.filter((r) => r.handledBy === "left@firma.cz").map((r) => r.tags.map((t) => t.text))).toEqual([["Handled By is not a user: left@firma.cz"]]);
+        expect(c.people.map((p) => p.handledBy)).toContain("left@firma.cz");
+      }
+      expect((await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, reports: "mine", userId: "u2" }, NOW)).tiles).toMatchObject({ active: 1, handledByNotUser: 1 });
+    });
+
+    it("is empty for somebody nobody reports to: that is known, and is nothing", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, reports: "mine", userId: "u2" }, NOW);
+      expect(c).toMatchObject({ reports: "mine", tiles: { active: 0 }, people: [] });
+    });
+
+    it("is refused when the users could not be read: who reports to whom is not known, and an empty page would say \"nothing\"", async () => {
+      shipments.managersCockpitRows.mockResolvedValue(jobs());
+      team.cockpitUsers.mockResolvedValue(null);
+      await expect(managersCockpitService.cockpit(COMPANY, { ...EVERYONE, reports: "mine" }, NOW)).rejects.toThrow(REPORTS_NOT_KNOWN);
+      // Everybody's jobs need no users to be listed.
+      expect((await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW)).tiles.active).toBe(4);
+    });
   });
 
   it("fails rather than count 0 when a read of the jobs or their facts fails", async () => {

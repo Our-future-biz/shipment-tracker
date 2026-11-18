@@ -84,3 +84,36 @@ describe("customs' review of an approved document", () => {
     expect(repo.updateReview).toHaveBeenCalledWith(DOC, SHIPMENT, "c1", expect.objectContaining({ customsStatus: "" }), { unlessApproved: false });
   });
 });
+
+describe("approving a document one uploaded oneself (four eyes, D19)", () => {
+  const mine = () => row({ customsStatus: "", uploadedById: "u" });
+
+  it("is refused to a regular user, and nothing is written", async () => {
+    repo.getForShipment.mockResolvedValue(mine());
+    await expect(attachmentService.review(SHIPMENT, DOC, "c1", "approved", "", "u", "user")).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "You uploaded this document: a colleague or a manager approves it",
+    });
+    expect(repo.updateReview).not.toHaveBeenCalled();
+  });
+
+  it("leaves declining it, and putting it back to pending, to them", async () => {
+    repo.getForShipment.mockResolvedValue(mine());
+    await expect(attachmentService.review(SHIPMENT, DOC, "c1", "declined", "Wrong file", "u", "user")).resolves.toMatchObject({ customsStatus: "declined" });
+    repo.getForShipment.mockResolvedValue(row({ customsStatus: "declined", uploadedById: "u" }));
+    await expect(attachmentService.review(SHIPMENT, DOC, "c1", "", "", "u", "user")).resolves.toMatchObject({ customsStatus: "" });
+  });
+
+  it("is a colleague's to do, and a manager's even on their own upload", async () => {
+    repo.getForShipment.mockResolvedValue(mine());
+    await expect(attachmentService.review(SHIPMENT, DOC, "c1", "approved", "", "colleague", "user")).resolves.toMatchObject({ customsStatus: "approved" });
+    await expect(attachmentService.review(SHIPMENT, DOC, "c1", "approved", "", "u", "manager")).resolves.toMatchObject({ customsStatus: "approved" });
+  });
+
+  it("does not hold the app's own review to it (no role), nor a document with no uploader on record", async () => {
+    repo.getForShipment.mockResolvedValue(mine());
+    await expect(attachmentService.review(SHIPMENT, DOC, "c1", "approved", "", "u")).resolves.toMatchObject({ customsStatus: "approved" });
+    repo.getForShipment.mockResolvedValue(row({ customsStatus: "", uploadedById: null }));
+    await expect(attachmentService.review(SHIPMENT, DOC, "c1", "approved", "", "u", "user")).resolves.toMatchObject({ customsStatus: "approved" });
+  });
+});

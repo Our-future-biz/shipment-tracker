@@ -26,6 +26,7 @@ import {
   type RemeasureFact,
   type RequestFact,
 } from "../lib/managersCockpitExtra";
+import { unlimited, type Limit } from "../lib/readLimiter";
 import { REMEASURE_ACCEPTED, REMEASURE_COSTS_CHECKED, readFigures } from "../lib/remeasureAccept";
 import { REMEASURE_INFORMED, remeasureVerdict } from "../lib/remeasureNotice";
 import { customsOfficeRequestRepository } from "../repositories/customsOfficeRequest.repository";
@@ -65,6 +66,8 @@ export interface ExtraContext {
   today: string;
   /** The company's non-working days beyond the statutory ones (lib/workingDays' extraHolidays). */
   holidays: readonly string[];
+  /** The limiter of the answer these reads are part of (lib/readLimiter): each statement goes through it. Left out, they all run at once. */
+  run?: Limit;
 }
 
 /** The read of one part: null when it failed, which the caller names in `notKnown`. */
@@ -89,7 +92,7 @@ function byShipment<R extends { shipmentId: string }>(rows: readonly R[]): Map<s
 }
 
 export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext): Promise<ExtraSignals> {
-  const { companyId, now, today, holidays } = ctx;
+  const { companyId, now, today, holidays, run = unlimited } = ctx;
   const ids = jobs.map((j) => j.id);
   const masterJobIds = [...new Set(jobs.flatMap((j) => (j.masterJobId ? [j.masterJobId] : [])))];
 
@@ -103,21 +106,21 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
   ];
 
   const [documents, requests, forms, history, masters] = await Promise.all([
-    part(EXTRA_PARTS.documents, () => shipmentAttachmentRepository.reviewFactsByShipmentIds(ids, companyId)),
+    part(EXTRA_PARTS.documents, () => run(() => shipmentAttachmentRepository.reviewFactsByShipmentIds(ids, companyId))),
     part(EXTRA_PARTS.requests, async (): Promise<(RequestFact & { shipmentId: string })[]> => {
       const [document, office] = await Promise.all([
-        documentChangeRequestRepository.waitingByShipmentIds(ids, companyId),
-        customsOfficeRequestRepository.waitingByShipmentIds(ids, companyId),
+        run(() => documentChangeRequestRepository.waitingByShipmentIds(ids, companyId)),
+        run(() => customsOfficeRequestRepository.waitingByShipmentIds(ids, companyId)),
       ]);
       return [...document.map((r) => ({ ...r, kind: "document" as const })), ...office.map((r) => ({ ...r, kind: "customs_office" as const }))];
     }),
-    part(EXTRA_PARTS.importInstructions, () => shipmentImportInstructionRepository.liveByShipmentIds(ids, companyId)),
-    part(`${EXTRA_PARTS.remeasurements}, ${EXTRA_PARTS.statusAges}`, () => shipmentAuditRepository.latestByShipmentIds(companyId, historyAsks)),
+    part(EXTRA_PARTS.importInstructions, () => run(() => shipmentImportInstructionRepository.liveByShipmentIds(ids, companyId))),
+    part(`${EXTRA_PARTS.remeasurements}, ${EXTRA_PARTS.statusAges}`, () => run(() => shipmentAuditRepository.latestByShipmentIds(companyId, historyAsks))),
     part(EXTRA_PARTS.masterJobs, async () => {
-      const rows = await masterJobRepository.cockpitFacts(companyId, masterJobIds, today, addDays(today, MASTER_JOB_NO_HOUSE_DAYS));
+      const rows = await run(() => masterJobRepository.cockpitFacts(companyId, masterJobIds, today, addDays(today, MASTER_JOB_NO_HOUSE_DAYS)));
       // Only a master job that is no house's of the jobs read can be without a shipment: those are counted.
       const loose = rows.filter((m) => !masterJobIds.includes(m.id)).map((m) => m.id);
-      return { rows, houses: await masterJobRepository.shipmentCounts(loose, companyId) };
+      return { rows, houses: await run(() => masterJobRepository.shipmentCounts(loose, companyId)) };
     }),
   ]);
 

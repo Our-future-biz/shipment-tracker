@@ -18,8 +18,25 @@ import {
   releaseReason,
   unpaidInvoiceDetail,
   warnsOnGreen,
+  askedBefore,
+  canAskForRelease,
+  isOwnReleaseRequest,
+  isReleaseAnswer,
+  passRereadAt,
+  releaseAnsweredNote,
+  releaseAnswersMark,
+  releaseAnswerText,
+  releaseAnswerTitle,
+  releasedOnApproval,
+  releasePassRead,
+  releasePassUsable,
+  releaseRequestHref,
+  releaseRequestState,
+  shortDate,
+  shortDateTime,
   type CreditFacts,
   type ReleaseCheckFacts,
+  type ReleaseRequestFacts,
 } from "./paymentWarnings";
 
 const check = (over: Partial<ReleaseCheckFacts> = {}): ReleaseCheckFacts => ({
@@ -246,6 +263,200 @@ describe("Warehouse Released set by hand (step 7): the same stop on the field's 
     const text = releaseElsewhereText({ kind: "unpaid", message: unpaid });
     expect(text.startsWith(unpaid)).toBe(true);
     expect(text.endsWith(RELEASE_ELSEWHERE)).toBe(true);
-    expect(RELEASE_ELSEWHERE).toBe("Release it from Stock → release to truck or the shipment's detail, where a manager can give a reason.");
+    expect(RELEASE_ELSEWHERE).toBe("Release it from Stock → release to truck or the shipment's detail: there a manager gives a reason, and anyone else asks a manager to release it.");
+  });
+});
+
+describe("Ask a manager to release (Council Outlay 11, D16): the request's state on the job", () => {
+  const request = (over: Partial<ReleaseRequestFacts> = {}): ReleaseRequestFacts => ({
+    what: "house_bol",
+    status: "pending",
+    requestedById: "u1",
+    requestedByName: "Jan Novák",
+    // 14:02 in Prague (winter time).
+    requestedAt: "2026-11-18T13:02:00.000Z",
+    decidedByName: "",
+    decidedAt: null,
+    comment: "",
+    usedAt: null,
+    usedByName: "",
+    validUntil: null,
+    usable: false,
+    ...over,
+  });
+  const decided = { decidedByName: "Eva Malá", decidedAt: "2026-11-18T14:10:00.000Z" };
+  // Approved 18.11. 15:10, good for 7 days: until 25.11. 15:10.
+  const pass = { status: "approved" as const, ...decided, comment: "agreed with the owner", validUntil: "2026-11-25T14:10:00.000Z", usable: true };
+  const used = { ...pass, usable: false, usedAt: "2026-11-19T08:30:00.000Z", usedByName: "jan@firma.cz" };
+  const ranOut = { ...pass, usable: false };
+  const rejected = { status: "rejected" as const, ...decided, comment: "not before the payment" };
+  const closed = { status: "closed" as const, comment: "Released without it" };
+  const until = Date.parse(pass.validUntil);
+
+  it("writes a moment on the company's clock without the year", () => {
+    expect(shortDateTime("2026-11-18T13:02:00.000Z")).toBe("18.11. 14:02");
+    expect(shortDateTime(null)).toBe("");
+    expect(shortDate("2026-11-25T14:10:00.000Z")).toBe("25.11.");
+    // Just before midnight in UTC is the next day in Prague.
+    expect(shortDate("2026-11-25T23:30:00.000Z")).toBe("26.11.");
+    expect(shortDate(null)).toBe("");
+  });
+
+  it("takes the server's word on whether an approval can be used - never this browser's clock", () => {
+    expect(releasePassUsable(request(pass))).toBe(true);
+    expect(releasePassUsable(request(used))).toBe(false);
+    expect(releasePassUsable(request(ranOut))).toBe(false);
+    expect(releasePassUsable(request())).toBe(false);
+    expect(releasePassUsable(request(rejected))).toBe(false);
+    expect(releasePassUsable(request({ ...closed, usable: true }))).toBe(false);
+    expect(releasePassUsable(null)).toBe(false);
+  });
+
+  it("reads the job's requests again a minute after an approval's time is over here - once", () => {
+    const readBefore = Date.parse("2026-11-20T10:00:00.000Z");
+    expect(passRereadAt([request(pass)], readBefore)).toBe(until + 60_000);
+    // Read within the minute after: still to be asked once the minute is over.
+    expect(passRereadAt([request(pass)], until + 30_000)).toBe(until + 60_000);
+    // Read after it and the server still says usable: its clock decides, it is not asked again.
+    expect(passRereadAt([request(pass)], until + 60_001)).toBeNull();
+    // Nothing to wait for: no approval that can be used, or none with an end.
+    expect(passRereadAt([request(), request(used), request(ranOut), request(rejected)], readBefore)).toBeNull();
+    expect(passRereadAt([request({ ...pass, validUntil: null })], readBefore)).toBeNull();
+    expect(passRereadAt([], readBefore)).toBeNull();
+    // Two approvals (the House BoL's and the warehouse's): the one that ends first.
+    expect(passRereadAt([request(pass), request({ ...pass, what: "warehouse", validUntil: "2026-11-23T09:00:00.000Z" })], readBefore)).toBe(
+      Date.parse("2026-11-23T09:00:00.000Z") + 60_000,
+    );
+  });
+
+  it("holds what it says of an approval until the requests were read since the dialog opened", () => {
+    const q = { asked: true, since: 1000, hasData: false, dataUpdatedAt: 0, isError: false, errorUpdatedAt: 0, timedOut: false };
+    expect(releasePassRead(q)).toBe("checking");
+    // An answer kept from before the dialog opened says nothing about now.
+    expect(releasePassRead({ ...q, hasData: true, dataUpdatedAt: 900 })).toBe("checking");
+    expect(releasePassRead({ ...q, hasData: true, dataUpdatedAt: 1200 })).toBe("read");
+    // The render in which the dialog opens has no "since" yet.
+    expect(releasePassRead({ ...q, since: null, hasData: true, dataUpdatedAt: 1200 })).toBe("checking");
+    // Failed, or slow: said so, the release is not held up for it.
+    expect(releasePassRead({ ...q, isError: true, errorUpdatedAt: 1300 })).toBe("failed");
+    expect(releasePassRead({ ...q, isError: true, errorUpdatedAt: 800 })).toBe("checking");
+    expect(releasePassRead({ ...q, timedOut: true })).toBe("failed");
+    // A poll that fails after a good read keeps that read.
+    expect(releasePassRead({ ...q, hasData: true, dataUpdatedAt: 1200, isError: true, errorUpdatedAt: 1500 })).toBe("read");
+    // Nothing is being released: nothing to wait for.
+    expect(releasePassRead({ ...q, asked: false })).toBe("read");
+  });
+
+  it("says a waiting request waits for a manager - and who asked, to anyone else", () => {
+    expect(releaseRequestState(request(), { viewerId: "u1" })).toEqual({ tone: "amber", text: "Asked 18.11. 14:02 — waiting for a manager" });
+    expect(releaseRequestState(request(), { viewerId: "u2" })?.text).toBe("Asked by Jan Novák 18.11. 14:02 — waiting for a manager");
+    expect(releaseRequestState(request({ requestedByName: " " }))?.text).toBe("Asked 18.11. 14:02 — waiting for a manager");
+  });
+
+  it("tells whoever releases to release now while the approval can be used, until which day and time", () => {
+    expect(releaseRequestState(request(pass))).toEqual({
+      tone: "green",
+      text: "Approved by Eva Malá 18.11. 15:10: agreed with the owner — release it now (valid until 25.11. 15:10)",
+    });
+    expect(releaseRequestState(request({ ...pass, comment: "", validUntil: null }))?.text).toBe("Approved by Eva Malá 18.11. 15:10 — release it now");
+  });
+
+  it("says who released on whose approval - only while the job is released", () => {
+    expect(releaseRequestState(request(used), { released: true })).toEqual({ tone: "green", text: "Released on Eva Malá's approval, by jan@firma.cz 19.11. 09:30" });
+    expect(releaseRequestState(request({ ...used, decidedByName: "", usedByName: "" }), { released: true })?.text).toBe("Released on a manager's approval 19.11. 09:30");
+    // The release was undone (Warehouse Released cleared): the spent approval says nothing, and can be asked for anew.
+    expect(releaseRequestState(request(used))).toBeNull();
+    expect(releaseRequestState(request(used), { released: false })).toBeNull();
+    expect(canAskForRelease(request(used))).toBe(true);
+  });
+
+  it("says an approval nobody used ran out", () => {
+    expect(releaseRequestState(request(ranOut))).toEqual({ tone: "slate", text: "The approval of 18.11. ran out unused" });
+  });
+
+  it("says who rejected it, with their words", () => {
+    expect(releaseRequestState(request(rejected))).toEqual({ tone: "red", text: "Rejected by Eva Malá 18.11. 15:10: not before the payment" });
+    expect(releaseRequestState(request({ status: "rejected", decidedByName: "", decidedAt: null, comment: "no" }))?.text).toBe("Rejected by a manager: no");
+  });
+
+  it("says nothing without a request, of a closed one, and of a released job anything but the approval it was released on", () => {
+    expect(releaseRequestState(null)).toBeNull();
+    expect(releaseRequestState(request(closed))).toBeNull();
+    expect(releaseRequestState(request({ ...closed, ...decided }), { released: true })).toBeNull();
+    expect(releaseRequestState(request(), { released: true })).toBeNull();
+    expect(releaseRequestState(request(rejected), { released: true })).toBeNull();
+    expect(releaseRequestState(request(pass), { released: true })).toBeNull();
+    expect(releaseRequestState(request(ranOut), { released: true })).toBeNull();
+  });
+
+  it("lets a release be asked for unless a request waits or an approval can still be used", () => {
+    expect(canAskForRelease(null)).toBe(true);
+    expect(canAskForRelease(request(rejected))).toBe(true);
+    expect(canAskForRelease(request(closed))).toBe(true);
+    expect(canAskForRelease(request(ranOut))).toBe(true);
+    expect(canAskForRelease(request())).toBe(false);
+    expect(canAskForRelease(request(pass))).toBe(false);
+  });
+
+  it("knows a request that was answered and did not lead to the release: the button then says \"again\"", () => {
+    expect(askedBefore(request(rejected))).toBe(true);
+    expect(askedBefore(request(ranOut))).toBe(true);
+    expect(askedBefore(request(used))).toBe(false);
+    expect(askedBefore(request(closed))).toBe(false);
+    expect(askedBefore(null)).toBe(false);
+  });
+
+  it("knows a release that went through on an approval, from the request read after it", () => {
+    expect(releasedOnApproval(request(used))).toBe(true);
+    expect(releasedOnApproval(request(pass))).toBe(false);
+    expect(releasedOnApproval(request(closed))).toBe(false);
+    expect(releasedOnApproval(null)).toBe(false);
+  });
+
+  it("words the answer under the bell: a usable approval says to release now, the others are plain", () => {
+    const a = (over: Partial<ReleaseRequestFacts>) => ({ ...request(over), jobNumber: "CZ00000053" });
+    expect(releaseAnswerTitle(a(pass))).toBe("Release approved · CZ00000053 — release it now (valid until 25.11. 15:10)");
+    expect(releaseAnswerText(a(pass))).toBe("House BoL release — agreed with the owner");
+    expect(releaseAnswerTitle(a(used))).toBe("Release approved · CZ00000053");
+    expect(releaseAnswerText(a(used))).toBe("House BoL release — released 19.11. 09:30 by jan@firma.cz");
+    expect(releaseAnswerTitle(a(ranOut))).toBe("Release approved · CZ00000053");
+    expect(releaseAnswerText(a(ranOut))).toBe("House BoL release — ran out unused");
+    expect(releaseAnswerTitle({ ...a(rejected), jobNumber: "" })).toBe("Release rejected · a job");
+    expect(releaseAnswerText(a({ ...rejected, what: "warehouse" }))).toBe("Warehouse Released — not before the payment");
+    expect(releaseAnswerText(a({ ...rejected, what: "warehouse", comment: "" }))).toBe("Warehouse Released");
+  });
+
+  it("lists only a manager's answers under the bell", () => {
+    expect(isReleaseAnswer({ status: "approved" })).toBe(true);
+    expect(isReleaseAnswer({ status: "rejected" })).toBe(true);
+    expect(isReleaseAnswer({ status: "closed" })).toBe(false);
+    expect(isReleaseAnswer({ status: "pending" })).toBe(false);
+  });
+
+  it("marks the answers so that a new answer or a used approval is told from the same list read again", () => {
+    const a = { id: "r1", ...request(pass) };
+    expect(releaseAnswersMark([a])).toBe(releaseAnswersMark([{ ...a }]));
+    expect(releaseAnswersMark([a])).not.toBe(releaseAnswersMark([{ id: "r1", ...request(used) }]));
+    expect(releaseAnswersMark([a])).not.toBe(releaseAnswersMark([a, { id: "r2", ...request(rejected) }]));
+    expect(releaseAnswersMark([])).toBe("");
+  });
+
+  it("says in the Answered list what became of an approval, and that the app closed a request", () => {
+    expect(releaseAnsweredNote(request(used))).toBe("used 19.11. 09:30 by jan@firma.cz");
+    expect(releaseAnsweredNote(request(pass))).toBe("not used yet, valid until 25.11. 15:10");
+    expect(releaseAnsweredNote(request(ranOut))).toBe("ran out unused");
+    expect(releaseAnsweredNote(request(closed))).toBe("Closed: released without it");
+    expect(releaseAnsweredNote(request(rejected))).toBeNull();
+  });
+
+  it("knows a manager's own request: another manager decides it", () => {
+    expect(isOwnReleaseRequest(request(), "u1")).toBe(true);
+    expect(isOwnReleaseRequest(request(), "u2")).toBe(false);
+    expect(isOwnReleaseRequest(request(), null)).toBe(false);
+  });
+
+  it("leads to the job's Details, where both releases' requests are shown - not to its Warehouse tab", () => {
+    expect(releaseRequestHref({ shipmentId: "s1" })).toBe("/shipments/s1");
+    expect(releaseRequestHref({ shipmentId: "s1", what: "warehouse" } as { shipmentId: string })).toBe("/shipments/s1");
   });
 });

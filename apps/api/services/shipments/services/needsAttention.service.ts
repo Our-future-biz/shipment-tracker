@@ -1,11 +1,13 @@
 import log from "encore.dev/log";
 import { businessDay } from "../../../lib/businessDate";
 import type { ShipmentsNeedingAttention } from "../interfaces/interfaces";
+import { jobsWithMissedCutoff, type CutoffDismissed } from "../lib/cutoffDismissals";
 import { opsDay, timelineFactsOf, type TimelineEvent, type TimelineFacts } from "../lib/managersCockpit";
 import { CARGO_IN_EVENT_KINDS, NEEDS_ATTENTION_JOB_LIMIT, candidateRange, closingToCheck, needsAttentionOf, urgentIds, type DueJob } from "../lib/needsAttention";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { companyHolidays } from "./companyHolidays";
+import { DISMISSALS_NOT_KNOWN, cutoffDismissalsOf } from "./cutoffDismissal.service";
 
 /** What the page shows after "Not known right now:" when the jobs' tracking events could not be read. */
 export const CLOSING_NOT_KNOWN = "tracking events (whether the cargo made its Closing)";
@@ -34,9 +36,12 @@ async function timelineOf(ids: readonly string[], companyId: string): Promise<Ma
 //
 // One computation: the holidays (one call to the holidays service), the jobs (one narrow query),
 // and one narrow query of three kinds of tracking events for the few jobs with an open Closing -
-// none when there is no such job. The holidays and the events may fail on their own, and the
-// answer says so: working days then skip weekends and the statutory holidays only; a Closing
-// still ahead is listed by its date and "Closing missed" is not said.
+// none when there is no such job - and one of the dismissals of the few jobs with a missed cut-off
+// (lib/cutoffDismissals: a missed cut-off a manager dismissed is left out, as on Shipments →
+// Managers), none when no job has one. The holidays, the events and the dismissals may fail on
+// their own, and the answer says so: working days then skip weekends and the statutory holidays
+// only; a Closing still ahead is listed by its date and "Closing missed" is not said; nothing is
+// treated as dismissed.
 //
 // Callers of one company that arrive while its computation is pending share it - a page load asks
 // for the cards and for the tile's count at once, and gets one. Nothing is kept once it is
@@ -71,13 +76,24 @@ class NeedsAttentionService {
     // One more than judged, so "capped" means some were left out.
     const rows = await shipmentRepository.needsAttentionCandidates(companyId, candidateRange(day), NEEDS_ATTENTION_JOB_LIMIT + 1);
     const jobs: DueJob[] = rows.slice(0, NEEDS_ATTENTION_JOB_LIMIT);
-    const timeline = await this.timeline(closingToCheck(jobs, day), companyId);
+    const [timeline, dismissals] = await Promise.all([this.timeline(closingToCheck(jobs, day), companyId), this.dismissals(jobsWithMissedCutoff(jobs, day), companyId)]);
     return {
-      ...needsAttentionOf(jobs, timeline, day),
+      ...needsAttentionOf(jobs, timeline, day, dismissals ?? undefined),
       capped: rows.length > NEEDS_ATTENTION_JOB_LIMIT,
       holidaysKnown: uploaded !== null,
-      notKnown: timeline ? [] : [CLOSING_NOT_KNOWN],
+      notKnown: [...(timeline ? [] : [CLOSING_NOT_KNOWN]), ...(dismissals ? [] : [DISMISSALS_NOT_KNOWN])],
     };
+  }
+
+  /** The dismissed cut-offs of the jobs with a missed one; null when they could not be read (D29: it is named, and nothing is treated as dismissed). */
+  private async dismissals(ids: readonly string[], companyId: string): Promise<Map<string, CutoffDismissed[]> | null> {
+    if (ids.length === 0) return new Map();
+    try {
+      return await cutoffDismissalsOf(companyId, ids);
+    } catch (err) {
+      log.warn(err, "Needs Attention could not read the dismissed cut-offs: none is treated as dismissed");
+      return null;
+    }
   }
 
   /** Whether the cargo is in, for the jobs whose Closing hangs on it; null when the events could not be read (D29: it is named). */

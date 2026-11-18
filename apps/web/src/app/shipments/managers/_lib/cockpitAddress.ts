@@ -1,9 +1,9 @@
-import type { OpsCockpitDirection, OpsCockpitFilter, OpsCockpitMode, OpsCockpitRow, OpsCockpitTiles } from "@/hooks/useShipmentsManagersCockpit";
+import type { OpsCockpitDirection, OpsCockpitFilter, OpsCockpitMode, OpsCockpitReports, OpsCockpitRow, OpsCockpitTiles } from "@/hooks/useShipmentsManagersCockpit";
 
-// Shipments → Managers keeps what it shows in its address - the tab (?tab=approvals), the mode
-// (?mode=), the Trade Direction (?direction=), the Handled By person (?handledBy=) and the signal
-// its cards are narrowed to (?signal=, read by _lib/cockpitSignals) - so it survives a reload and
-// can be linked to. This file reads that address, writes it, and builds the addresses the page
+// Shipments → Managers keeps what it shows in its address - the tab (?tab=team, ?tab=approvals),
+// the mode (?mode=), the Trade Direction (?direction=), the Handled By person (?handledBy=), "My
+// reports" (?reports=mine) and the signal its cards are narrowed to (?signal=, read by
+// _lib/cockpitSignals) - so it survives a reload and can be linked to. This file reads that address, writes it, and builds the addresses the page
 // leads to: the Shipments list behind a list tile, the shipment or the Master Job behind a row.
 
 const SHIPMENTS_MANAGERS_PATH = "/shipments/managers";
@@ -30,7 +30,7 @@ export const OPS_DIRECTIONS: { value: OpsCockpitDirection; label: string }[] = [
 /** A row's mode in words; "" for a job with no Freight Mode (it gets no chip). */
 export const modeLabel = (mode: string): string => OPS_MODES.find((m) => m.key !== "all" && m.key === mode)?.label ?? "";
 
-export type ShipmentsManagersTab = "cockpit" | "approvals";
+export type ShipmentsManagersTab = "cockpit" | "team" | "approvals";
 
 /** The Handled By filter's value for the jobs nobody handles, in the address and in the request. */
 export const NOBODY = "nobody";
@@ -39,7 +39,7 @@ export const NOBODY = "nobody";
 export const EVERYONE = "everyone";
 
 /** The tab an address names, or the cockpit. */
-export const tabOf = (value: string | null): ShipmentsManagersTab => (value === "approvals" ? "approvals" : "cockpit");
+export const tabOf = (value: string | null): ShipmentsManagersTab => (value === "approvals" || value === "team" ? value : "cockpit");
 
 /** The mode an address names, or All. */
 export const modeOf = (value: string | null): OpsCockpitMode => OPS_MODES.find((m) => m.key === value)?.key ?? "all";
@@ -56,12 +56,16 @@ export function handledByOf(value: string | null): string | null {
   return named && named !== EVERYONE ? named : null;
 }
 
+/** Whose jobs an address asks for: "mine" for the signed-in manager's reports - and the jobs of people who are no longer users - (?reports=mine), everyone's for anything else. */
+export const reportsOf = (value: string | null): OpsCockpitReports => ((value ?? "").trim().toLowerCase() === "mine" ? "mine" : "all");
+
 /** The page's address, leaving out what is the default. `signal` is a signal family's key (_lib/cockpitSignals), null for none. */
 export function shipmentsManagersHref({
   tab = "cockpit",
   mode = "all",
   direction = "all",
   handledBy = null,
+  reports = "all",
   signal = null,
 }: { tab?: ShipmentsManagersTab; signal?: string | null } & Partial<OpsCockpitFilter> = {}): string {
   const params = new URLSearchParams();
@@ -69,6 +73,7 @@ export function shipmentsManagersHref({
   if (mode !== "all") params.set("mode", mode);
   if (direction !== "all") params.set("direction", direction);
   if (handledBy) params.set("handledBy", handledBy);
+  if (reports === "mine") params.set("reports", "mine");
   if (signal) params.set("signal", signal);
   const qs = params.toString();
   return qs ? `${SHIPMENTS_MANAGERS_PATH}?${qs}` : SHIPMENTS_MANAGERS_PATH;
@@ -122,11 +127,23 @@ const TILE_FILTERS: Record<OpsListTileKey, Record<string, string>> = {
 const DIRECTION_COLUMN_FILTER = "f.tradeDirection";
 
 /**
+ * What the "My reports" switch says on hover. Jobs whose Handled By is no longer a user are
+ * counted in as well: a report who was deactivated must not take their jobs out of sight.
+ */
+export const MY_REPORTS_HINT = "Jobs handled by the people who report to you, and jobs whose Handled By is no longer a user";
+
+/** What a list tile says on hover while "My reports" is on and it leads nowhere (tileHref). */
+export const NO_LIST_FOR_MY_REPORTS = "The Shipments list cannot be narrowed to My reports: switch My reports off to open the list.";
+
+/**
  * The Shipments list behind a list tile, narrowed to the page's mode, Trade Direction and Handled
  * By person as the tile is; undefined where the list would not be what the tile counted. The
  * signal the cards are narrowed to does not go along: the list tiles do not change with it.
+ * With "My reports" on there is no link: the list has no filter for whom somebody reports to, so
+ * it would list everyone's jobs under a figure that counted only the reports'.
  */
 export function tileHref(key: OpsListTileKey, page: OpsCockpitFilter): string | undefined {
+  if (page.reports === "mine") return undefined;
   const filters = TILE_FILTERS[key];
   const params = new URLSearchParams(filters);
   if (filters.handledBy) {

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   LIST_TILES,
+  MY_REPORTS_HINT,
+  NO_LIST_FOR_MY_REPORTS,
   canOpenShipmentsManagers,
   directionOf,
   handledByOf,
   modeLabel,
   modeOf,
+  reportsOf,
   rowHref,
   shipmentsManagersHref,
   tabOf,
@@ -25,6 +28,8 @@ describe("Shipments → Managers: who opens it", () => {
 describe("Shipments → Managers: its address", () => {
   it("reads the tab, the cockpit for anything it does not know", () => {
     expect(tabOf("approvals")).toBe("approvals");
+    expect(tabOf("team")).toBe("team");
+    expect(tabOf("Team")).toBe("cockpit");
     expect(tabOf("cockpit")).toBe("cockpit");
     expect(tabOf("inquiries")).toBe("cockpit");
     expect(tabOf(null)).toBe("cockpit");
@@ -76,6 +81,32 @@ describe("Shipments → Managers: its address", () => {
     expect(shipmentsManagersHref({ tab: "approvals", signal: "customs" })).toBe("/shipments/managers?tab=approvals&signal=customs");
   });
 
+  it("reads My reports, everyone's jobs for anything else", () => {
+    expect(reportsOf("mine")).toBe("mine");
+    expect(reportsOf(" Mine ")).toBe("mine");
+    expect(reportsOf("all")).toBe("all");
+    expect(reportsOf("yours")).toBe("all");
+    expect(reportsOf("")).toBe("all");
+    expect(reportsOf(null)).toBe("all");
+  });
+
+  it("writes the Team tab and My reports, and nothing for everyone's jobs", () => {
+    expect(shipmentsManagersHref({ tab: "team" })).toBe("/shipments/managers?tab=team");
+    expect(shipmentsManagersHref({ reports: "mine" })).toBe("/shipments/managers?reports=mine");
+    expect(shipmentsManagersHref({ reports: "all" })).toBe("/shipments/managers");
+    expect(shipmentsManagersHref({ tab: "team", mode: "air", direction: "export", reports: "mine" })).toBe("/shipments/managers?tab=team&mode=air&direction=export&reports=mine");
+    // After the person, before the signal: every link the page builds carries it.
+    expect(shipmentsManagersHref({ mode: "sea", handledBy: "jana@cto.cz", reports: "mine", signal: "todo" })).toBe("/shipments/managers?mode=sea&handledBy=jana%40cto.cz&reports=mine&signal=todo");
+    expect(shipmentsManagersHref({ tab: "approvals", reports: "mine" })).toBe("/shipments/managers?tab=approvals&reports=mine");
+  });
+
+  it("reads back the My reports it writes", () => {
+    const href = shipmentsManagersHref({ tab: "team", reports: "mine" });
+    const params = new URLSearchParams(href.split("?")[1]);
+    expect(reportsOf(params.get("reports"))).toBe("mine");
+    expect(tabOf(params.get("tab"))).toBe("team");
+  });
+
   it("writes an e-mail so that it reads back the same", () => {
     const href = shipmentsManagersHref({ handledBy: "jana+ops@cto.cz" });
     expect(handledByOf(new URLSearchParams(href.split("?")[1]).get("handledBy"))).toBe("jana+ops@cto.cz");
@@ -90,7 +121,7 @@ describe("Shipments → Managers: its address", () => {
 });
 
 const query = (href: string | undefined) => Object.fromEntries(new URLSearchParams(href!.split("?")[1]));
-const everyone = { mode: "all", direction: "all", handledBy: null } as const;
+const everyone = { mode: "all", direction: "all", handledBy: null, reports: "all" } as const;
 
 describe("Shipments → Managers: where a list tile leads", () => {
   it("lists the five tiles the Shipments list can show, in the order they are drawn", () => {
@@ -131,7 +162,7 @@ describe("Shipments → Managers: where a list tile leads", () => {
   it("carries the page's Trade Direction as the list's column filter, in the value the column stores", () => {
     expect(tileHref("etdEtaMoved", { ...everyone, direction: "import" })).toBe("/shipments?tile=etamoved&f.tradeDirection=Import");
     expect(query(tileHref("active", { ...everyone, direction: "export" }))).toEqual({ tile: "active", "f.tradeDirection": "Export" });
-    expect(query(tileHref("openClaims", { mode: "road", direction: "domestic", handledBy: "jana@cto.cz" }))).toEqual({
+    expect(query(tileHref("openClaims", { mode: "road", direction: "domestic", handledBy: "jana@cto.cz", reports: "all" }))).toEqual({
       tile: "claims",
       mode: "road",
       handledBy: "jana@cto.cz",
@@ -143,14 +174,34 @@ describe("Shipments → Managers: where a list tile leads", () => {
 
   it("opens the jobs nobody handles from Nobody in Handled By, for everyone and on a page narrowed to nobody", () => {
     expect(query(tileHref("noHandledBy", { ...everyone, mode: "rail" }))).toEqual({ tile: "active", handledBy: "nobody", mode: "rail" });
-    expect(query(tileHref("noHandledBy", { mode: "all", direction: "import", handledBy: "nobody" }))).toEqual({ tile: "active", handledBy: "nobody", "f.tradeDirection": "Import" });
+    expect(query(tileHref("noHandledBy", { mode: "all", direction: "import", handledBy: "nobody", reports: "all" }))).toEqual({ tile: "active", handledBy: "nobody", "f.tradeDirection": "Import" });
   });
 
   it("gives Nobody in Handled By no link on a page narrowed to a person: it counts none of their jobs", () => {
     expect(tileHref("noHandledBy", { ...everyone, handledBy: "jana@cto.cz" })).toBeUndefined();
-    expect(tileHref("noHandledBy", { mode: "rail", direction: "export", handledBy: "jana@cto.cz" })).toBeUndefined();
+    expect(tileHref("noHandledBy", { mode: "rail", direction: "export", handledBy: "jana@cto.cz", reports: "all" })).toBeUndefined();
     // The other tiles of that page keep theirs.
     expect(tileHref("active", { ...everyone, handledBy: "jana@cto.cz" })).toBe("/shipments?tile=active&handledBy=jana%40cto.cz");
+  });
+});
+
+describe("Shipments → Managers: the list tiles with My reports on", () => {
+  it("gives no tile a link: the Shipments list has no filter for whom somebody reports to", () => {
+    for (const { key } of LIST_TILES) {
+      expect(tileHref(key, { ...everyone, reports: "mine" }), key).toBeUndefined();
+      expect(tileHref(key, { mode: "sea", direction: "import", handledBy: "jana@cto.cz", reports: "mine" }), key).toBeUndefined();
+    }
+    // The same page with everyone's jobs has them.
+    expect(tileHref("active", { ...everyone, reports: "all" })).toBe("/shipments?tile=active");
+  });
+
+  it("says on the switch that My reports also holds the jobs of people who are no longer users", () => {
+    expect(MY_REPORTS_HINT).toBe("Jobs handled by the people who report to you, and jobs whose Handled By is no longer a user");
+  });
+
+  it("says why, and how to get the list", () => {
+    expect(NO_LIST_FOR_MY_REPORTS).toContain("My reports");
+    expect(NO_LIST_FOR_MY_REPORTS).toContain("switch My reports off");
   });
 });
 

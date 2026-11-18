@@ -18,6 +18,8 @@ export const shipmentAuditTable = pgTable(
     tenantIndex("shipment_audit", table),
     index("shipment_audit_shipment_id_idx").on(table.shipmentId),
     index("shipment_audit_changed_at_idx").on(table.changedAt),
+    // "What changed in the company since a day": Shipments → Managers' audit line and its "not touched", polled by the page.
+    index("shipment_audit_company_changed_at_idx").on(table.companyId, table.changedAt),
   ],
 );
 

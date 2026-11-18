@@ -30,6 +30,8 @@ import {
   mawbSignals,
   opsDay,
   roadSignals,
+  isOfReports,
+  isReportOrNoUser,
   rolledSignals,
   timelineFactsOf,
   warehouseSignals,
@@ -40,6 +42,7 @@ import {
   type TimelineEvent,
   type TimelineFacts,
 } from "../lib/managersCockpit";
+import type { TeamFacts, TeamJobFacts } from "../lib/managersCockpitTeam";
 import { attentionFlags, type AttentionFacts } from "../lib/trackingAttention";
 import { freightKindOf } from "../lib/trackingEvents";
 
@@ -117,6 +120,13 @@ const job = (over: Partial<OpsCockpitJob> = {}): OpsCockpitJob => {
   };
 };
 const USERS = new Set(["jan@firma.cz", "eva@firma.cz"]);
+/** The people around the jobs, read and silent: no signal of theirs, and every figure of the people line a 0. Their rules are tests/managersCockpitTeam.test.ts. */
+const QUIET_TEAM: TeamFacts = { byJob: new Map(), known: { todos: true, mentions: true, touched: true, coverSince: true }, notKnown: [] };
+const teamOf = (byJob: Record<string, Partial<TeamJobFacts>>, known: Partial<TeamFacts["known"]> = {}): TeamFacts => ({
+  byJob: new Map(Object.entries(byJob).map(([id, facts]) => [id, { signals: [], notTouched: null, todosLate: 0, mentionsUnread: new Map(), coverSince: null, ...facts }])),
+  known: { ...QUIET_TEAM.known, ...known },
+  notKnown: [],
+});
 const cockpit = (jobs: OpsCockpitJob[], over: Partial<OpsCockpitInput> = {}) =>
   buildOpsCockpit({
     jobs,
@@ -129,14 +139,38 @@ const cockpit = (jobs: OpsCockpitJob[], over: Partial<OpsCockpitInput> = {}) =>
     holidaysKnown: true,
     extraByJob: new Map(),
     masterJobRows: [],
+    team: QUIET_TEAM,
+    // No manager dismissed anything.
+    cutoffsKept: (_jobId, cutoffs) => cutoffs,
+    audit: null,
     notKnown: [],
     capped: false,
     mode: "all",
     direction: "all",
     handledBy: null,
+    reports: "all",
+    reportEmails: null,
     now: NOW,
     ...over,
   });
+const AIR = { sea: 0, air: 1, rail: 0, road: 0 };
+/** A person of the people line with nothing on them but their jobs, all by sea. */
+const person = (handledBy: string, counts: { isUser?: boolean | null; active?: number; urgent?: number; attention?: number; covers?: number } = {}, over: Partial<ReturnType<typeof cockpit>["people"][number]> = {}) => ({
+  handledBy,
+  isUser: true,
+  active: 1,
+  urgent: 0,
+  attention: 0,
+  covers: 0,
+  byMode: { sea: counts.active ?? 1, air: 0, rail: 0, road: 0 },
+  todosLate: 0,
+  mentionsUnread: 0,
+  notTouched: 0,
+  coversSince: null,
+  highLoad: false,
+  ...counts,
+  ...over,
+});
 const timeline = (over: Partial<TimelineFacts> = {}): TimelineFacts => ({ pickedUp: false, loaded: false, gateIn: false, haulierConfirmed: false, podReceived: false, rolledOn: null, holdSince: null, ...over });
 /** The job's cut-offs on a day, the cargo known not to be in. */
 const due = (over: Partial<OpsCockpitJob>, day = WED, cargoIsIn: boolean | null = false) => cutoffsOf(job(over), day, cargoIsIn).map((c) => `${c.key} ${c.days} ${c.state}`);
@@ -1261,8 +1295,35 @@ describe("the ranks", () => {
     ];
     expect(all.map((s) => s.kind)).toEqual(["owner", "not_user", "customs", "customs", "cutoff", "booking", "cargo_ready", "air", "departure", "delivery", "warehouse", "road", "bl", "arrival_notice", "free_time", "credit"]);
     expect(all.every((s) => (SIGNAL_KINDS as readonly string[]).includes(s.kind))).toBe(true);
-    expect(new Set(SIGNAL_KINDS).size).toBe(26);
+    // Step 3 added the three families of the people around a job (lib/managersCockpitTeam).
+    expect(new Set(SIGNAL_KINDS).size).toBe(29);
     expect(SIGNAL_KINDS).toContain("not_user");
+    expect(SIGNAL_KINDS).toEqual(expect.arrayContaining(["todo", "mention", "not_touched"]));
+  });
+});
+
+describe("\"My reports\"", () => {
+  const users = new Set(["jan@firma.cz", "eva@firma.cz", "boss@firma.cz"]);
+  const mine = new Set(["jan@firma.cz"]);
+
+  it("keeps a job handled by one of the caller's reports, by e-mail, whatever the case or the name after it - and with \"all\" every job", () => {
+    expect(isOfReports({ personInCharge: " JAN@firma.cz — Jan Novák" }, "mine", mine, users)).toBe(true);
+    expect(isOfReports({ personInCharge: "eva@firma.cz" }, "mine", mine, users)).toBe(false);
+    // Nobody's job is nobody's report - not even when the set would hold "".
+    expect(isOfReports({ personInCharge: "" }, "mine", new Set([""]), users)).toBe(false);
+    for (const who of ["jan@firma.cz", "eva@firma.cz", "left@firma.cz", ""]) expect(isOfReports({ personInCharge: who }, "all", null, null)).toBe(true);
+  });
+
+  it("keeps the job of somebody who is no user of the company too: a report who was deactivated reports to nobody, and the job is every manager's to see", () => {
+    expect(isOfReports({ personInCharge: "left@firma.cz" }, "mine", mine, users)).toBe(true);
+    expect(isOfReports({ personInCharge: "Left@firma.cz — Somebody Gone" }, "mine", new Set(), users)).toBe(true);
+    expect(isReportOrNoUser("left@firma.cz", "mine", mine, users)).toBe(true);
+    // A user who reports to somebody else is nobody's stray.
+    expect(isReportOrNoUser("eva@firma.cz", "mine", mine, users)).toBe(false);
+    expect(isReportOrNoUser("", "mine", mine, users)).toBe(false);
+    // Without the users nobody can be said to be none of them (the service refuses "mine" then).
+    expect(isOfReports({ personInCharge: "left@firma.cz" }, "mine", mine, null)).toBe(false);
+    expect(isOfReports({ personInCharge: "jan@firma.cz" }, "mine", null, null)).toBe(false);
   });
 });
 
@@ -1277,10 +1338,12 @@ describe("the cockpit", () => {
       mode: "all",
       direction: "all",
       handledBy: null,
+      reports: "all",
       tiles: { active: 0, cutoffsDue: 0, noHandledBy: 0, handledByNotUser: 0, bookingPending: 0, etdEtaMoved: 0, freeTime: 0, customsUrgent: 0, notReleased: 0, openClaims: 0, signals: NO_SIGNALS },
       urgent: { total: 0, rows: [] },
       attention: { total: 0, rows: [] },
       people: [],
+      audit: null,
       capped: false,
       holidaysKnown: true,
       notKnown: [],
@@ -1602,7 +1665,7 @@ describe("the cockpit", () => {
       ]);
       expect(c.attention.rows).toEqual([expect.objectContaining({ id: quiet.id, kind: "job", area: "details", tags: [{ text: "Status unchanged since 10.11.", urgent: false, kind: "status_stuck" }] })]);
       expect(c.tiles.signals).toMatchObject({ paperwork: 1, cutoff: 1, status_stuck: 1 });
-      expect(c.people).toEqual([{ handledBy: "jan@firma.cz", isUser: true, active: 2, urgent: 1, attention: 1, covers: 0 }]);
+      expect(c.people).toEqual([person("jan@firma.cz", { active: 2, urgent: 1, attention: 1 })]);
     });
 
     it("are ranked on step 1's scale and fall in place: paperwork with customs, a request after the deliveries, before a job lacking only an owner", () => {
@@ -1669,7 +1732,7 @@ describe("the cockpit", () => {
     it("is counted by its signal family, but is no active job and nobody's on the people line", () => {
       const c = cockpit([job()], { masterJobRows: [master()] });
       expect(c.tiles).toMatchObject({ active: 1, noHandledBy: 0, signals: { master_job: 1 } });
-      expect(c.people).toEqual([{ handledBy: "jan@firma.cz", isUser: true, active: 1, urgent: 0, attention: 0, covers: 0 }]);
+      expect(c.people).toEqual([person("jan@firma.cz")]);
       // With no Handled By of its own it is still not counted among the jobs nobody handles.
       expect(cockpit([], { masterJobRows: [master({ handledBy: "" })] }).tiles).toMatchObject({ active: 0, noHandledBy: 0 });
     });
@@ -1846,10 +1909,11 @@ describe("the cockpit", () => {
 
     it("are everyone named in Handled By, by e-mail, the most active first - nobody among them, after anyone as active", () => {
       expect(cockpit(jobs()).people).toEqual([
-        { handledBy: "jan@firma.cz", isUser: true, active: 3, urgent: 1, attention: 1, covers: 1 },
-        { handledBy: "", isUser: false, active: 2, urgent: 2, attention: 0, covers: 0 },
-        { handledBy: "eva@firma.cz", isUser: true, active: 1, urgent: 0, attention: 0, covers: 3 },
-        { handledBy: "left@firma.cz", isUser: false, active: 1, urgent: 1, attention: 0, covers: 0 },
+        // Three jobs among people with one each: a load that stands out.
+        person("jan@firma.cz", { active: 3, urgent: 1, attention: 1, covers: 1 }, { highLoad: true }),
+        person("", { isUser: false, active: 2, urgent: 2 }),
+        person("eva@firma.cz", { covers: 3 }, { byMode: AIR }),
+        person("left@firma.cz", { isUser: false, urgent: 1 }),
       ]);
     });
 
@@ -1857,15 +1921,15 @@ describe("the cockpit", () => {
       const legacy = [job({ personInCharge: "Nobody" }), job({ personInCharge: "" })];
       const c = cockpit(legacy, { handledBy: "nobody" });
       expect(c.people).toEqual([
-        { handledBy: "nobody", isUser: false, active: 1, urgent: 1, attention: 0, covers: 0 },
-        { handledBy: "", isUser: false, active: 1, urgent: 1, attention: 0, covers: 0 },
+        person("nobody", { isUser: false, urgent: 1 }),
+        person("", { isUser: false, urgent: 1 }),
       ]);
       expect(c.tiles).toMatchObject({ active: 1, noHandledBy: 1 });
       expect(c.urgent.rows.map((r) => r.handledBy)).toEqual([""]);
     });
 
     it("leave nobody out when every job has somebody", () => {
-      expect(cockpit([job()]).people).toEqual([{ handledBy: "jan@firma.cz", isUser: true, active: 1, urgent: 0, attention: 0, covers: 0 }]);
+      expect(cockpit([job()]).people).toEqual([person("jan@firma.cz")]);
     });
 
     it("are not narrowed by the Handled By filter - it is picked from them - while the tiles and cards are", () => {
@@ -1877,10 +1941,10 @@ describe("the cockpit", () => {
       expect(cockpit(jobs(), { handledBy: "nobody" }).people).toEqual(all.people);
     });
 
-    it("obey the mode and the direction, their covers too", () => {
-      expect(cockpit(jobs(), { mode: "air" }).people).toEqual([{ handledBy: "eva@firma.cz", isUser: true, active: 1, urgent: 0, attention: 0, covers: 0 }]);
-      expect(cockpit(jobs(), { direction: "export" }).people).toEqual([{ handledBy: "left@firma.cz", isUser: false, active: 1, urgent: 1, attention: 0, covers: 0 }]);
-      expect(cockpit(jobs(), { mode: "sea", direction: "import" }).people.map((p) => `${p.handledBy} ${p.active} covers ${p.covers}`)).toEqual(["jan@firma.cz 3 covers 0", " 2 covers 0"]);
+    it("obey the mode and the direction, their covers too - and somebody who only covers there is listed, with no job of their own", () => {
+      expect(cockpit(jobs(), { mode: "air" }).people).toEqual([person("eva@firma.cz", {}, { byMode: AIR }), person("jan@firma.cz", { active: 0, covers: 1 })]);
+      expect(cockpit(jobs(), { direction: "export" }).people).toEqual([person("left@firma.cz", { isUser: false, urgent: 1 })]);
+      expect(cockpit(jobs(), { mode: "sea", direction: "import" }).people.map((p) => `${p.handledBy} ${p.active} covers ${p.covers}`)).toEqual(["jan@firma.cz 3 covers 0", " 2 covers 0", "eva@firma.cz 0 covers 3"]);
     });
   });
 
@@ -1906,5 +1970,279 @@ describe("the cockpit", () => {
   it("says when the company has more active jobs than were read", () => {
     expect(cockpit([job()], { capped: true }).capped).toBe(true);
     expect(cockpit([job()]).capped).toBe(false);
+  });
+
+  // ─── Step 3 ─────────────────────────────────────────────────────
+
+  describe("the people around a job (lib/managersCockpitTeam's facts)", () => {
+    const TODO: OpsSignal = { rank: 410, urgent: false, kind: "todo", area: "details", text: 'To-do 2 days late: "Call the carrier"' };
+    const TODO_URGENT: OpsSignal = { ...TODO, rank: 97, urgent: true, text: 'To-do 6 days late: "Call the carrier"' };
+    const MENTION: OpsSignal = { rank: 420, urgent: false, kind: "mention", area: "details", text: "@mention unread since 17.11. 09:12 (jan@firma.cz)" };
+    const MENTION_URGENT: OpsSignal = { ...MENTION, rank: 96, urgent: true };
+    const NOT_TOUCHED: OpsSignal = { rank: 430, urgent: false, kind: "not_touched", area: "details", text: "Not touched since 10.11." };
+
+    it("puts a late to-do and an unread @mention on the job's row, after every ATTENTION signal of the job itself and of the other tables", () => {
+      const j = job({ closingDate: "2026-11-20" });
+      const c = cockpit([j], {
+        team: teamOf({ [j.id]: { signals: [MENTION, TODO] } }),
+        extraByJob: new Map([[j.id, [{ rank: 40, urgent: false, kind: "status_stuck", area: "details", text: "Status unchanged 4 working days" }]]]),
+      });
+      expect(c.attention.rows[0]!.tags).toEqual([
+        { text: "Closing on Fri 20.11.", urgent: false, kind: "cutoff" },
+        { text: "Status unchanged 4 working days", urgent: false, kind: "status_stuck" },
+        { text: TODO.text, urgent: false, kind: "todo" },
+        { text: MENTION.text, urgent: false, kind: "mention" },
+      ]);
+      expect(c.tiles.signals).toMatchObject({ todo: 1, mention: 1, not_touched: 0 });
+    });
+
+    it("ranks their URGENT ones after every clock and state of the job, and before a job that only lacks somebody to handle it", () => {
+      const flagged = job({ estimatedArrival: "2026-11-10" }); // ETA passed, no ATA
+      const waiting = job();
+      const late = job();
+      const orphan = job({ personInCharge: "" });
+      const c = cockpit([orphan, late, waiting, flagged], { team: teamOf({ [waiting.id]: { signals: [MENTION_URGENT] }, [late.id]: { signals: [TODO_URGENT] } }) });
+      expect(c.urgent.rows.map((r) => r.id)).toEqual([flagged.id, waiting.id, late.id, orphan.id]);
+    });
+
+    it("says \"Not touched\" only of a job with nothing URGENT on it - it is kept for the quiet ones", () => {
+      const quiet = job();
+      const watched = job({ closingDate: "2026-11-20" }); // an ATTENTION tag: still quiet enough
+      const pressed = job({ closingDate: "2026-11-18" }); // URGENT: being looked at for a reason
+      const orphan = job({ personInCharge: "" });
+      const mentioned = job();
+      const c = cockpit([quiet, watched, pressed, orphan, mentioned], {
+        team: teamOf({
+          [quiet.id]: { notTouched: NOT_TOUCHED },
+          [watched.id]: { notTouched: NOT_TOUCHED },
+          [pressed.id]: { notTouched: NOT_TOUCHED },
+          [orphan.id]: { notTouched: NOT_TOUCHED },
+          // Its own URGENT signal withholds it too.
+          [mentioned.id]: { signals: [MENTION_URGENT], notTouched: NOT_TOUCHED },
+        }),
+      });
+      const tagsOf = (id: string) => [...c.urgent.rows, ...c.attention.rows].find((r) => r.id === id)!.tags.map((t) => t.text);
+      expect(tagsOf(quiet.id)).toEqual(["Not touched since 10.11."]);
+      expect(tagsOf(watched.id)).toEqual(["Closing on Fri 20.11.", "Not touched since 10.11."]);
+      expect(tagsOf(pressed.id)).toEqual(["Closing today"]);
+      expect(tagsOf(orphan.id)).toEqual(["Nobody in Handled By"]);
+      expect(tagsOf(mentioned.id)).toEqual([MENTION.text]);
+      expect(c.tiles.signals.not_touched).toBe(2);
+      // On its own it opens the job where it is worked on.
+      expect(c.attention.rows.find((r) => r.id === quiet.id)!.area).toBe("details");
+    });
+  });
+
+  describe("a missed cut-off a manager dismissed", () => {
+    it("gives no tag for what the service's rule drops, and leaves the job's other signals alone", () => {
+      const j = job({ closingDate: "2026-11-16", vgmClosing: "2026-11-16", cargoReadinessDate: "2026-11-17", estimatedDeparture: "2026-11-20" });
+      const all = cockpit([j]);
+      expect(tagsIn(all)).toEqual(["Closing missed · 16.11.", "VGM overdue 2 days", "Cargo ready 17.11., after Closing 16.11."]);
+      const seen: [string, string[]][] = [];
+      const c = cockpit([j], {
+        cutoffsKept: (jobId, cutoffs) => {
+          seen.push([jobId, cutoffs.map((cut) => `${cut.key} ${cut.date} ${cut.state}`)]);
+          return cutoffs.filter((cut) => cut.key !== "closingDate");
+        },
+      });
+      // It is handed the job's cut-offs as the shared rule reads them, once.
+      expect(seen).toEqual([[j.id, ["vgmClosing 2026-11-16 missed", "closingDate 2026-11-16 missed"]]]);
+      expect(tagsIn(c)).toEqual(["VGM overdue 2 days", "Cargo ready 17.11., after Closing 16.11."]);
+      expect(c.tiles).toMatchObject({ cutoffsDue: 1, signals: { cutoff: 1 } });
+    });
+
+    it("drops the job from the cards when the dismissed cut-off was all that asked for a look", () => {
+      const j = job({ vgmClosing: "2026-11-16", estimatedDeparture: "2026-11-20" });
+      const c = cockpit([j], { cutoffsKept: () => [] });
+      expect(c.urgent.total + c.attention.total).toBe(0);
+      expect(c.tiles).toMatchObject({ active: 1, cutoffsDue: 0 });
+    });
+  });
+
+  describe("the Team facts on the people line", () => {
+    it("counts a person's jobs by how they travel", () => {
+      const c = cockpit([job(), job({ freightMode: "Air Freight" }), job({ freightMode: "Rail Freight" }), job({ freightMode: "Road Freight" }), job({ tradeDirection: "Domestic", freightMode: "" }), job({ freightMode: "" })]);
+      expect(c.people).toEqual([person("jan@firma.cz", { active: 6 }, { byMode: { sea: 2, air: 1, rail: 1, road: 2 } })]);
+    });
+
+    it("adds up the late to-dos of the jobs a person handles, and the jobs of theirs called untouched", () => {
+      const a = job();
+      const b = job();
+      const pressed = job({ closingDate: "2026-11-18" });
+      const evas = job({ personInCharge: "eva@firma.cz" });
+      const quiet: OpsSignal = { rank: 430, urgent: false, kind: "not_touched", area: "details", text: "Not touched since 10.11." };
+      const c = cockpit([a, b, pressed, evas], {
+        team: teamOf({ [a.id]: { todosLate: 2, notTouched: quiet }, [b.id]: { todosLate: 1, notTouched: quiet }, [pressed.id]: { notTouched: quiet }, [evas.id]: { todosLate: 4 } }),
+      });
+      // The untouched jobs are those that carry the tag: the one with a Closing today does not.
+      expect(c.people.map((p) => [p.handledBy, p.todosLate, p.notTouched])).toEqual([
+        ["jan@firma.cz", 3, 2],
+        ["eva@firma.cz", 4, 0],
+      ]);
+    });
+
+    it("counts a person's unread @mentions where they are the Handled By and where they cover", () => {
+      const own = job();
+      const covered = job({ personInCharge: "eva@firma.cz", holidayCover: "jan@firma.cz" });
+      const c = cockpit([own, covered], {
+        team: teamOf({ [own.id]: { mentionsUnread: new Map([["jan@firma.cz", 2]]) }, [covered.id]: { mentionsUnread: new Map([["jan@firma.cz", 1], ["eva@firma.cz", 4]]) } }),
+      });
+      expect(c.people.map((p) => [p.handledBy, p.mentionsUnread])).toEqual([
+        ["eva@firma.cz", 4],
+        ["jan@firma.cz", 3],
+      ]);
+    });
+
+    it("says since when a person covers: the oldest day one of their covers was set", () => {
+      const a = job({ holidayCover: "eva@firma.cz" });
+      const b = job({ holidayCover: "eva@firma.cz" });
+      const noDay = job({ holidayCover: "eva@firma.cz" });
+      const c = cockpit([a, b, noDay], { team: teamOf({ [a.id]: { coverSince: "2026-11-09" }, [b.id]: { coverSince: "2026-10-30" } }) });
+      expect(c.people.map((p) => [p.handledBy, p.covers, p.coversSince])).toEqual([
+        ["jan@firma.cz", 0, null],
+        ["eva@firma.cz", 3, "2026-10-30"],
+      ]);
+    });
+
+    it("lists somebody who only covers, with no job of their own - and nobody twice", () => {
+      const c = cockpit([job({ holidayCover: "Eva@firma.cz " }), job({ holidayCover: "gone@firma.cz" }), job({ personInCharge: "eva@firma.cz" })]);
+      expect(c.people).toEqual([
+        person("jan@firma.cz", { active: 2 }),
+        person("eva@firma.cz", { covers: 1 }),
+        person("gone@firma.cz", { isUser: false, active: 0, covers: 1 }),
+      ]);
+    });
+
+    it("gives null - never 0 - for a figure whose part could not be read", () => {
+      const j = job({ holidayCover: "eva@firma.cz" });
+      const c = cockpit([j], { team: teamOf({ [j.id]: { todosLate: 1 } }, { todos: false, mentions: false, touched: false, coverSince: false }) });
+      expect(c.people.map((p) => [p.handledBy, p.todosLate, p.mentionsUnread, p.notTouched, p.coversSince])).toEqual([
+        ["jan@firma.cz", null, null, null, null],
+        ["eva@firma.cz", null, null, null, null],
+      ]);
+      // What is known without them stays known.
+      expect(c.people.map((p) => [p.active, p.covers, p.byMode.sea])).toEqual([
+        [1, 0, 1],
+        [0, 1, 0],
+      ]);
+    });
+
+    describe("a high load", () => {
+      const jobsOf = (loads: Record<string, number>) => Object.entries(loads).flatMap(([who, n]) => Array.from({ length: n }, () => job({ personInCharge: who })));
+      const high = (loads: Record<string, number>) => cockpit(jobsOf(loads)).people.filter((p) => p.highLoad).map((p) => p.handledBy);
+
+      it("is more active jobs than 1.5 times the median of the people with jobs", () => {
+        // Median 4: more than 6 stands out, 6 itself does not.
+        expect(high({ "a@firma.cz": 2, "b@firma.cz": 4, "c@firma.cz": 6 })).toEqual([]);
+        expect(high({ "a@firma.cz": 2, "b@firma.cz": 4, "c@firma.cz": 7 })).toEqual(["c@firma.cz"]);
+        // An even number of people: the median lies between the two in the middle (3 and 5: 4).
+        expect(high({ "a@firma.cz": 1, "b@firma.cz": 3, "c@firma.cz": 5, "d@firma.cz": 7 })).toEqual(["d@firma.cz"]);
+      });
+
+      it("is said only among three people or more: of two, one is always above the other", () => {
+        expect(high({ "a@firma.cz": 1, "b@firma.cz": 9 })).toEqual([]);
+        expect(high({ "a@firma.cz": 1, "b@firma.cz": 1, "c@firma.cz": 9 })).toEqual(["c@firma.cz"]);
+      });
+
+      it("is never said of \"nobody\", who is no person - nor do the jobs with nobody count among the people", () => {
+        expect(high({ "": 9, "a@firma.cz": 1, "b@firma.cz": 1 })).toEqual([]);
+        expect(high({ "": 9, "a@firma.cz": 1, "b@firma.cz": 1, "c@firma.cz": 1 })).toEqual([]);
+        expect(high({ "": 1, "a@firma.cz": 1, "b@firma.cz": 1, "c@firma.cz": 2 })).toEqual(["c@firma.cz"]);
+      });
+
+      it("does not count somebody who only covers among the people with jobs", () => {
+        const c = cockpit([...jobsOf({ "a@firma.cz": 2, "b@firma.cz": 9 }), job({ personInCharge: "a@firma.cz", holidayCover: "c@firma.cz" })]);
+        expect(c.people.map((p) => [p.handledBy, p.active, p.highLoad])).toEqual([
+          ["b@firma.cz", 9, false],
+          ["a@firma.cz", 3, false],
+          ["c@firma.cz", 0, false],
+        ]);
+      });
+    });
+  });
+
+  describe("\"My reports\" (D3)", () => {
+    const MINE = new Set(["jan@firma.cz", "petr@firma.cz"]);
+    // Petr reports to the caller as well; the cockpit's helper knows Jan and Eva only.
+    const KNOWN = new Set([...USERS, "petr@firma.cz"]);
+    const jobs = () => [
+      job({ personInCharge: "jan@firma.cz", closingDate: "2026-11-18" }), // a report's, urgent
+      job({ personInCharge: "JAN@firma.cz — Jan Novák", holidayCover: "eva@firma.cz" }), // a report's, quiet
+      job({ personInCharge: "eva@firma.cz", holidayCover: "petr@firma.cz", closingDate: "2026-11-18" }), // not a report's; covered by one
+      job({ personInCharge: "eva@firma.cz", holidayCover: "jan@firma.cz" }),
+      job({ personInCharge: "", closingDate: "2026-11-18" }), // nobody's: nobody's report
+    ];
+    const mine = (over: Partial<OpsCockpitInput> = {}) => cockpit(jobs(), { reports: "mine", reportEmails: MINE, userEmails: KNOWN, ...over });
+
+    it("says which was asked for", () => {
+      expect(cockpit(jobs()).reports).toBe("all");
+      expect(mine().reports).toBe("mine");
+    });
+
+    it("keeps only the jobs handled by somebody who reports to the caller: tiles and cards", () => {
+      const c = mine();
+      expect(c.tiles).toMatchObject({ active: 2, noHandledBy: 0, cutoffsDue: 1 });
+      expect(c.urgent.rows.map((r) => r.handledBy)).toEqual(["jan@firma.cz"]);
+      expect(cockpit(jobs()).tiles).toMatchObject({ active: 5, noHandledBy: 1, cutoffsDue: 3 });
+    });
+
+    it("narrows the people line to the caller's reports - their covers counted wherever they cover, a report who only covers listed too", () => {
+      expect(mine().people).toEqual([
+        person("jan@firma.cz", { active: 2, urgent: 1, covers: 1 }),
+        // Handles nothing here, covers one of Eva's jobs: still the caller's to look after.
+        person("petr@firma.cz", { active: 0, covers: 1 }),
+      ]);
+      // Eva covers a report's job, but does not report to the caller.
+      expect(mine().people.map((p) => p.handledBy)).not.toContain("eva@firma.cz");
+    });
+
+    it("works with the Handled By filter, which is picked from the narrowed people", () => {
+      expect(mine({ handledBy: "jan@firma.cz" }).tiles.active).toBe(2);
+      expect(mine({ handledBy: "eva@firma.cz" }).tiles.active).toBe(0);
+      expect(mine({ handledBy: "nobody" }).tiles.active).toBe(0);
+      expect(mine({ handledBy: "eva@firma.cz" }).people).toEqual(mine().people);
+    });
+
+    it("keeps a Master Job with no house only when its own Handled By reports to the caller", () => {
+      const master = (handledBy: string): OpsCockpitInput["masterJobRows"][number] => ({
+        id: `mj-${handledBy}`,
+        number: `MCZ-${handledBy}`,
+        customer: "Gamma GmbH",
+        signals: [{ rank: 36, urgent: false, kind: "master_job", area: "details", text: "No shipment linked · ETD in 6 days" }],
+        freightMode: "Sea Freight",
+        tradeDirection: "Export",
+        handledBy,
+        holidayCover: "",
+      });
+      const c = cockpit([], { masterJobRows: [master("petr@firma.cz"), master("eva@firma.cz"), master(""), master("left@firma.cz")], reports: "mine", reportEmails: MINE, userEmails: KNOWN });
+      // Petr's - and the one of somebody who is no user: every manager's.
+      expect(c.attention.rows.map((r) => r.handledBy)).toEqual(["left@firma.cz", "petr@firma.cz"]);
+    });
+
+    it("keeps the jobs of somebody who is no user of the company - a report who was deactivated - on every manager's \"My reports\"", () => {
+      const all = [...jobs(), job({ personInCharge: "left@firma.cz" }), job({ personInCharge: "eva@firma.cz", holidayCover: "gone@firma.cz" })];
+      for (const reportEmails of [MINE, new Set<string>()]) {
+        const c = cockpit(all, { reports: "mine", reportEmails, userEmails: KNOWN });
+        expect(c.urgent.rows.filter((r) => r.handledBy === "left@firma.cz").map((r) => r.tags.map((t) => t.text))).toEqual([["Handled By is not a user: left@firma.cz"]]);
+        expect(c.tiles.handledByNotUser).toBe(1);
+        // On the people line too - with whoever is no user and only covers.
+        expect(c.people.filter((p) => !p.isUser)).toEqual([person("left@firma.cz", { isUser: false, urgent: 1 }), person("gone@firma.cz", { isUser: false, active: 0, covers: 1 })]);
+      }
+      // Whoever nobody reports to sees these, and nothing else.
+      expect(cockpit(all, { reports: "mine", reportEmails: new Set(), userEmails: KNOWN }).tiles.active).toBe(1);
+    });
+
+    it("keeps nothing when nobody reports to the caller - and nothing when that is not known, which the service refuses before", () => {
+      expect(mine({ reportEmails: new Set() })).toMatchObject({ tiles: { active: 0 }, people: [], urgent: { total: 0 }, attention: { total: 0 } });
+      expect(mine({ reportEmails: null, userEmails: null })).toMatchObject({ tiles: { active: 0 }, people: [] });
+    });
+  });
+
+  describe("the audit line", () => {
+    it("is handed through as it was read, whatever the page is narrowed to; null when it could not be read", () => {
+      const audit = { days: 7, items: [{ key: "deleted", count: 2 }, { key: "requests_decided", count: 12, approvalRate: 0.5 }] };
+      expect(cockpit([job()], { audit, mode: "air", handledBy: "eva@firma.cz", reports: "mine", reportEmails: new Set() }).audit).toEqual(audit);
+      expect(cockpit([job()]).audit).toBeNull();
+    });
   });
 });

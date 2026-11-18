@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Dropdown, Input } from "antd";
 import { BellOutlined, SearchOutlined } from "@ant-design/icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
@@ -39,6 +39,10 @@ import { apInvoiceHref } from "@/lib/accountsPayable";
 import { useReceivableNotices, useReceivableSeen, type ReceivableNotice } from "@/hooks/useReceivables";
 import { arInvoiceHref } from "@/lib/accountsReceivable";
 import { rememberNew } from "@/lib/bellMemory";
+import { invalidateJobReleaseRequests, useReleaseRequestAnswers, type ReleaseRequestItem } from "@/hooks/useReleaseRequests";
+import { useOperationsApprovalsWaiting } from "@/hooks/useOperationsApprovalsWaiting";
+import { isReleaseAnswer, releaseAnswersMark, releaseAnswerText, releaseAnswerTitle, releaseRequestHref } from "@/lib/paymentWarnings";
+import { OPERATIONS_APPROVALS_HREF, operationsApprovalsLine } from "@/lib/operationsApprovals";
 
 // On the company's calendar and clock (Prague), wherever the browser is.
 const formatTime = (iso: string) => businessDateTime(iso);
@@ -79,6 +83,10 @@ const documentAnswerText = (a: DocumentChangeRequestItem) => `${a.newFileName}${
 // A manager's answer to a request to change a Customs Office, as the bell says it.
 const officeAnswerTitle = (a: CustomsOfficeRequestItem) => `Customs Office ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
 const officeAnswerText = (a: CustomsOfficeRequestItem) => `${a.toOffice}${a.comment ? ` — ${a.comment}` : ""}`;
+
+// Who answers the operations approvals of Shipments → Managers (the server's roles for its Approvals tab).
+const OPERATIONS_MANAGER_ROLES: readonly string[] = ["superadmin", "admin", "manager"];
+const OPERATIONS_APPROVALS_TEXT = "Documents, Customs Offices and releases · answer them on Shipments → Managers";
 
 // A warehouse answer as the bell says it.
 const answerTitle = (a: WarehouseInquiryItem) => `Warehouse ${a.inquiry.status === "approved" ? "approved" : "rejected"} ${a.quoteNumber}`;
@@ -229,6 +237,23 @@ export function NotificationBell() {
   const { answers: officeAnswers, hasLoaded: officeAnswersLoaded, seen: officeAnswerSeen } = useCustomsOfficeAnswers();
   // A manager answered this user's request to replace an approved document.
   const { answers: documentAnswers, hasLoaded: documentAnswersLoaded, seen: documentAnswerSeen } = useDocumentChangeAnswers();
+  // A manager answered this user's request to release a job held for payment (Council Outlay 11, D16): approved,
+  // the user releases it themselves while the approval can be used, and the bell says so. A request the app
+  // closed because the job was released another way is no answer, and is never listed.
+  const { answers: releaseAnswersRead, hasLoaded: releaseAnswersLoaded, seen: releaseAnswerSeen } = useReleaseRequestAnswers();
+  const releaseAnswers = useMemo(() => releaseAnswersRead.filter(isReleaseAnswer), [releaseAnswersRead]);
+  // A page that is open shows where its job's request stands (the House BoL Release row, a release dialog): when
+  // an answer arrives here, or an approval is used, that page reads its job's request again - not only on reload.
+  const queryClient = useQueryClient();
+  const releaseAnswersChanged = releaseAnswersMark(releaseAnswers);
+  useEffect(() => {
+    if (releaseAnswersLoaded) invalidateJobReleaseRequests(queryClient);
+  }, [releaseAnswersChanged, releaseAnswersLoaded, queryClient]);
+  // For managers: what waits on Shipments → Managers → Approvals, as one line (0 queues for anyone else).
+  const isOperationsManager = !!user && OPERATIONS_MANAGER_ROLES.includes(user.role);
+  const { queues: approvalQueues, allRead: approvalsAllRead } = useOperationsApprovalsWaiting(isOperationsManager);
+  const approvalsLine = operationsApprovalsLine(approvalQueues);
+  const approvalsWaiting = approvalsLine?.count ?? 0;
   // Customs approved or declined a document of a shipment this user is the Person in Charge or Holiday Cover of.
   const { verdicts, hasLoaded: verdictsLoaded, seen: verdictSeen } = useCustomsVerdictNotices();
   // A date of a shipment this user is on moved, waits to be confirmed, or no longer holds what the customer was told.
@@ -282,6 +307,10 @@ export function NotificationBell() {
   const coverShown = coverNotices.filter((n) => matchesAll(query, coverTitle(n), coverText(n), n.by));
   const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
   const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
+  const unreadReleaseAnswers = releaseAnswers.filter((a) => !a.answerSeenAt);
+  const releaseAnswersShown = (view === "unread" ? unreadReleaseAnswers : releaseAnswers).filter((a) => matchesAll(query, releaseAnswerTitle(a), releaseAnswerText(a), a.decidedByName));
+  // Stays until the queues are answered, whatever the view - as the supplier invoices' line does.
+  const approvalsLineShown = approvalsLine && matchesAll(query, approvalsLine.title, OPERATIONS_APPROVALS_TEXT) ? 1 : 0;
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
   const unreadSellingAnswers = sellingAnswers.filter((a) => !a.answerSeenAt);
   const unreadCreditAnswers = creditAnswers.filter((a) => !a.answerSeenAt);
@@ -399,6 +428,29 @@ export function NotificationBell() {
     seenOfficeAnswers.current = new Set(officeAnswers.map((a) => a.id));
     for (const a of fresh) toast.notify({ title: officeAnswerTitle(a), description: officeAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
   }, [officeAnswers, officeAnswersLoaded, toast]);
+
+  // The same for answers about a release.
+  const seenReleaseAnswers = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!releaseAnswersLoaded) return;
+    const before = seenReleaseAnswers.current;
+    const fresh = before ? releaseAnswers.filter((a) => !a.answerSeenAt && !before.has(a.id)) : [];
+    seenReleaseAnswers.current = new Set(releaseAnswers.map((a) => a.id));
+    for (const a of fresh) toast.notify({ title: releaseAnswerTitle(a), description: releaseAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+  }, [releaseAnswers, releaseAnswersLoaded, toast]);
+
+  // The same for the operations approvals: only when more wait than a moment ago, never the backlog found on
+  // load. The counts are compared only once all three queues have been read at least once: a queue that failed
+  // at first and loads later adds what it always held, which is not news.
+  const seenApprovalsWaiting = useRef<number | null>(null);
+  useEffect(() => {
+    if (!approvalsAllRead) return;
+    const before = seenApprovalsWaiting.current;
+    if (before !== null && approvalsWaiting > before && approvalsLine) toast.notify({ title: approvalsLine.title, description: "Waiting on Shipments → Managers", type: "warning" });
+    seenApprovalsWaiting.current = approvalsWaiting;
+    // The line is rebuilt every render; it changes only with the count.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approvalsWaiting, approvalsAllRead, toast]);
 
   // The same for margin questions arriving and answers coming back.
   const seenMargin = useRef<Set<string> | null>(null);
@@ -556,7 +608,7 @@ export function NotificationBell() {
   const total =
     importInstructions.length +
     approvalChats.length +
-    unreadTracking.length + coverNotices.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + (payablesToApprove > 0 ? 1 : 0) + payablesBooked.length + receivableNotices.length + changeWaiting.length + unreadChangeAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadTracking.length + coverNotices.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadReleaseAnswers.length + (approvalsLine ? 1 : 0) + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + creditWaiting.length + unreadCreditAnswers.length + (payablesToApprove > 0 ? 1 : 0) + payablesBooked.length + receivableNotices.length + changeWaiting.length + unreadChangeAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.threadId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : a.decision === "approved" && a.customerId ? `/customers/${a.customerId}` : "/customers");
@@ -579,6 +631,12 @@ export function NotificationBell() {
   const openOfficeAnswer = (a: CustomsOfficeRequestItem) => {
     if (!a.answerSeenAt) officeAnswerSeen.mutate(a.id);
     go(`/shipments/${a.shipmentId}?tab=customs`);
+  };
+  const openReleaseAnswer = (a: ReleaseRequestItem) => {
+    if (!a.answerSeenAt) releaseAnswerSeen.mutate(a.id);
+    // The job's page shows where the request stands: read for the answer just opened, not from an older read.
+    invalidateJobReleaseRequests(queryClient);
+    go(releaseRequestHref(a));
   };
   const openMarginAnswer = (a: MarginInquiryItem) => {
     if (!a.answerSeenAt) marginSeen.mutate([a.id]);
@@ -743,6 +801,18 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
+      {approvalsLineShown > 0 && approvalsLine && (
+        <>
+          <div className={headingClass}>Operations approvals, waiting</div>
+          <button type="button" onClick={() => go(OPERATIONS_APPROVALS_HREF)} className={rowClass}>
+            <span className="flex items-center gap-2">
+              <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
+              <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{approvalsLine.title}</span>
+            </span>
+            <span className="text-[12px] text-slate-700">{OPERATIONS_APPROVALS_TEXT}</span>
+          </button>
+        </>
+      )}
       {payablesWaitingShown > 0 && (
         <>
           <div className={headingClass}>Supplier invoices, waiting</div>
@@ -948,7 +1018,23 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {trackingShown.length + coverShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + payablesWaitingShown + payablesBookedShown.length + receivablesShown.length + changeWaitingShown.length + changeAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {releaseAnswersShown.length > 0 && <div className={headingClass}>Release answers</div>}
+      {releaseAnswersShown.map((a) => (
+        <button key={`rr:${a.id}`} type="button" onClick={() => openReleaseAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            {/* Two lines: an approval that can be used says what to do next ("release it now (valid until …)"). */}
+            <span className={`min-w-0 flex-1 text-[13px] line-clamp-2 ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{releaseAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{releaseAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "Manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
+      {trackingShown.length + coverShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + releaseAnswersShown.length + approvalsLineShown + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + creditWaitingShown.length + creditAnswersShown.length + payablesWaitingShown + payablesBookedShown.length + receivablesShown.length + changeWaitingShown.length + changeAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

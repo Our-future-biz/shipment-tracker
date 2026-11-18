@@ -17,6 +17,15 @@ export async function companyUsersWithRoles(): Promise<(CompanyUser & { role: st
   return users.map((u) => ({ id: u.id, email: storedEmail(u.email), displayName: u.displayName, role: u.role }));
 }
 
+/**
+ * The same users with who each reports to (Settings → Users, "Reports to": a manager's or an admin's
+ * id, null for nobody), for "My reports" on Shipments → Managers. Throws when they can't be loaded.
+ */
+export async function companyUsersWithReportsTo(): Promise<(CompanyUser & { reportsToUserId: string | null })[]> {
+  const { users } = await auth.usersList();
+  return users.map((u) => ({ id: u.id, email: storedEmail(u.email), displayName: u.displayName, reportsToUserId: u.reportsToUserId }));
+}
+
 export const USER_LOOKUP_UNAVAILABLE = "Who you are could not be read just now — try again in a moment";
 
 /**

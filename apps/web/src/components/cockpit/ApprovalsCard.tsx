@@ -13,6 +13,10 @@ import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, EMPTY_STATE, 
 // One kind of request waiting for a manager's approval (a change of Customs Office, of an approved
 // document): what is asked for is the caller's, the rest is the same - approve, or reject with a
 // reason, the same two buttons and reason box as Quote inquiries. The answer goes to whoever asked.
+// A kind whose approval needs a reason too (a release before payment) asks for one with its own question
+// (`approveNeedsReason`), and may say under an answer what became of it (`answeredNote`); a request the app
+// closed itself ("closed") is listed among the answered ones, marked so. A request the signed-in manager may not
+// answer (`cannotDecide`: their own, where four eyes are asked for) shows why in place of the two buttons.
 
 // The app's text box, as wide as the row and drawn taller by hand.
 const ANSWER_BOX = `${TEXTAREA} w-full resize-y`;
@@ -25,7 +29,8 @@ interface ApprovalRequest {
   jobNumber: string;
   customer: string;
   reason: string;
-  status: "pending" | "approved" | "rejected";
+  /** closed: the app closed it - what it asked for was done another way. Only kinds that have it send it. */
+  status: "pending" | "approved" | "rejected" | "closed";
   requestedByName: string;
   requestedAt: string;
   decidedByName: string;
@@ -42,6 +47,16 @@ interface ApprovalsCardProps<T extends ApprovalRequest> {
   what: (request: T) => React.ReactNode;
   /** Where the shipment's name leads. */
   shipmentHref: (request: T) => string;
+  /** An approval needs a reason as a rejection does (at least 3 characters). Without it the comment is optional. */
+  approveNeedsReason?: boolean;
+  /** What the reason box asks when approving, with `approveNeedsReason`. */
+  approveReasonLabel?: string;
+  /** Under an answer: what became of it (an approval used or run out, a request closed). Nothing when left out or null. */
+  answeredNote?: (request: T) => React.ReactNode;
+  /** Why the signed-in manager is not offered an answer to this waiting request, or null when they are. Left out: always offered. */
+  cannotDecide?: (request: T) => string | null;
+  /** The longest reason the box takes (the server's limit for this kind). Left out: 1000. */
+  maxLength?: number;
   approvals: {
     requests: T[];
     waiting: number;
@@ -54,7 +69,25 @@ interface ApprovalsCardProps<T extends ApprovalRequest> {
   };
 }
 
-export function ApprovalsCard<T extends ApprovalRequest>({ title, hint, whatHeader, what, shipmentHref, approvals }: ApprovalsCardProps<T>) {
+const STATUS_PILL = {
+  approved: { tone: "green", label: "Approved" },
+  rejected: { tone: "red", label: "Rejected" },
+  closed: { tone: "slate", label: "Closed" },
+} as const;
+
+export function ApprovalsCard<T extends ApprovalRequest>({
+  title,
+  hint,
+  whatHeader,
+  what,
+  shipmentHref,
+  approveNeedsReason = false,
+  approveReasonLabel = "Reason for approval",
+  answeredNote,
+  cannotDecide,
+  maxLength = 1000,
+  approvals,
+}: ApprovalsCardProps<T>) {
   const toast = useToast();
   const { requests, waiting, isLoading, isError, decide } = approvals;
   const [view, setView] = useState<"waiting" | "answered">("waiting");
@@ -115,6 +148,11 @@ export function ApprovalsCard<T extends ApprovalRequest>({ title, hint, whatHead
             )}
             {listed.map((r) => {
               const open = answering?.id === r.id ? answering : null;
+              // A rejection always says why; an approval only where the kind asks for it.
+              const needsReason = !!open && (!open.approve || approveNeedsReason);
+              const pill = r.status === "pending" ? null : STATUS_PILL[r.status];
+              const note = r.status !== "pending" && answeredNote ? answeredNote(r) : null;
+              const refused = r.status === "pending" && cannotDecide ? cannotDecide(r) : null;
               return (
                 <Fragment key={r.id}>
                   <tr>
@@ -131,7 +169,9 @@ export function ApprovalsCard<T extends ApprovalRequest>({ title, hint, whatHead
                       <div className={`${HINT} tabular-nums`}>{formatDateTime(r.requestedAt)}</div>
                     </td>
                     <td className={CELL}>
-                      {r.status === "pending" ? (
+                      {refused ? (
+                        <div className={`${HINT} max-w-[280px]`}>{refused}</div>
+                      ) : r.status === "pending" ? (
                         <div className="flex gap-2">
                           <button type="button" onClick={() => start(r, true)} className={BTN}>
                             <CheckOutlined className="text-[14px]" />
@@ -144,12 +184,16 @@ export function ApprovalsCard<T extends ApprovalRequest>({ title, hint, whatHead
                         </div>
                       ) : (
                         <div>
-                          <Pill tone={r.status === "approved" ? "green" : "red"}>{r.status === "approved" ? "Approved" : "Rejected"}</Pill>
-                          <div className={`${HINT} mt-1 tabular-nums`}>
-                            {r.decidedByName || "—"} · {formatDateTime(r.decidedAt)}
-                            {r.answerSeenAt ? " · seen" : ""}
-                          </div>
-                          {r.comment && <div className="text-[12px] text-slate-700 mt-1 max-w-[280px] whitespace-pre-wrap">{r.comment}</div>}
+                          {pill && <Pill tone={pill.tone}>{pill.label}</Pill>}
+                          {/* A request the app closed while it waited was answered by nobody: no name, no time. */}
+                          {(r.decidedByName || r.decidedAt) && (
+                            <div className={`${HINT} mt-1 tabular-nums`}>
+                              {r.decidedByName || "—"} · {formatDateTime(r.decidedAt)}
+                              {r.answerSeenAt ? " · seen" : ""}
+                            </div>
+                          )}
+                          {r.comment && r.status !== "closed" && <div className="text-[12px] text-slate-700 mt-1 max-w-[280px] whitespace-pre-wrap">{r.comment}</div>}
+                          {note && <div className={`${HINT} mt-1 max-w-[280px] tabular-nums`}>{note}</div>}
                         </div>
                       )}
                     </td>
@@ -158,22 +202,22 @@ export function ApprovalsCard<T extends ApprovalRequest>({ title, hint, whatHead
                     <tr className="border-b border-slate-200 bg-slate-50">
                       <td colSpan={5} className="px-4 pb-4 pt-2">
                         <label className={`block ${LABEL_TEXT} mb-1`}>
-                          {open.approve ? "Comment (optional)" : "Reason for rejection"}
+                          {!open.approve ? "Reason for rejection" : approveNeedsReason ? approveReasonLabel : "Comment (optional)"}
                           <span className={`block ${HINT} font-normal tracking-normal normal-case mt-0.5`}>Sent to {r.requestedByName || "whoever asked"}</span>
                         </label>
                         <textarea
                           autoFocus
                           rows={2}
                           value={comment}
-                          maxLength={1000}
+                          maxLength={maxLength}
                           onChange={(e) => setComment(e.target.value)}
-                          placeholder={open.approve ? "Anything they should know…" : "Why it stays as it is…"}
+                          placeholder={!open.approve ? "Why it stays as it is…" : approveNeedsReason ? "Why it is approved…" : "Anything they should know…"}
                           className={`${ANSWER_BOX} max-w-[620px]`}
                         />
                         <div className="flex gap-2 mt-2">
                           <button
                             type="button"
-                            disabled={decide.isPending || (!open.approve && comment.trim().length < 3)}
+                            disabled={decide.isPending || (needsReason && comment.trim().length < 3)}
                             onClick={() => save(r, open.approve)}
                             className={open.approve ? BTN_PRIMARY : BTN_DANGER}
                           >

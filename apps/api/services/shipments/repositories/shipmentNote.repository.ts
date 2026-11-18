@@ -1,4 +1,4 @@
-import { eq, and, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, lt, desc, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentNoteTable, type NewShipmentNoteRecord, type ShipmentNoteRecord } from "../schemas/shipmentNote.schema";
@@ -47,6 +47,26 @@ class ShipmentNoteRepository extends TenantRepository<typeof shipmentNoteTable> 
       .where(noteOf(id, shipmentId, companyId))
       .returning();
     return row ?? null;
+  }
+
+  /**
+   * The open to-dos of these shipments whose day has passed (due before `today`, not ticked off,
+   * not deleted): one query, for Shipments → Managers' "To-do late" (lib/managersCockpitTeam).
+   */
+  async lateByShipmentIds(shipmentIds: readonly string[], companyId: string, today: string): Promise<{ shipmentId: string; text: string; dueDate: string }[]> {
+    if (shipmentIds.length === 0) return [];
+    const rows = await this.db
+      .select({ shipmentId: shipmentNoteTable.shipmentId, text: shipmentNoteTable.text, dueDate: shipmentNoteTable.dueDate })
+      .from(shipmentNoteTable)
+      .where(and(
+        eq(shipmentNoteTable.companyId, companyId),
+        inArray(shipmentNoteTable.shipmentId, [...shipmentIds]),
+        lt(shipmentNoteTable.dueDate, today),
+        isNull(shipmentNoteTable.doneAt),
+        isNull(shipmentNoteTable.deletedAt),
+      ));
+    // A day that is before today is a day: the comparison leaves out the to-dos with none.
+    return rows.flatMap((r) => (r.dueDate ? [{ shipmentId: r.shipmentId, text: r.text, dueDate: r.dueDate }] : []));
   }
 
   /** Whether a note was deleted. */

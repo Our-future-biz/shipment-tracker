@@ -70,6 +70,8 @@ vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipment
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 vi.mock("../../services/shipmentEvents.service", () => ({ deliverShipmentEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
 vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipmentReleaseOverrideRepository: { create: vi.fn() } }));
+vi.mock("../../repositories/shipmentCutoffDismissal.repository", () => ({ shipmentCutoffDismissalRepository: { liveByShipmentIds: vi.fn(async () => []) } }));
+vi.mock("../../repositories/shipmentReleaseRequest.repository", () => ({ shipmentReleaseRequestRepository: { usablePass: vi.fn(), use: vi.fn(), closeUnused: vi.fn(async () => ({ waiting: 0, approved: 0 })) } }));
 vi.mock("../../repositories/shipmentPushOutbox.repository", () => ({ shipmentPushOutboxRepository: { enqueue: vi.fn(), claimDue: vi.fn(), markSent: vi.fn(), markRetry: vi.fn(), markFailed: vi.fn() } }));
 
 import log from "encore.dev/log";
@@ -96,6 +98,8 @@ import { addDays, businessDay } from "../../../../lib/businessDate";
 import { opsDay } from "../../lib/managersCockpit";
 import { shipmentPushOutboxRepository } from "../../repositories/shipmentPushOutbox.repository";
 import { shipmentReleaseOverrideRepository } from "../../repositories/shipmentReleaseOverride.repository";
+import { shipmentCutoffDismissalRepository } from "../../repositories/shipmentCutoffDismissal.repository";
+import { shipmentReleaseRequestRepository } from "../../repositories/shipmentReleaseRequest.repository";
 import { PAYMENT_UNCHECKED, RELEASE_CHANGED_MEANWHILE } from "../../lib/prepaymentStop";
 
 const repository = vi.mocked(shipmentRepository);
@@ -2390,6 +2394,7 @@ describe("Needs Attention: the two cards, the Overview tile and the list it open
     expect(day).toMatchObject({ today: "2026-11-18", urgentUntil: "2026-11-19", attentionUntil: "2026-11-23" });
     vi.mocked(holidays._internalHolidaysCzNational).mockResolvedValue({ dates: [] });
     vi.mocked(shipmentTrackingEventRepository.factsOfKinds).mockResolvedValue([{ shipmentId: "s-made", kind: "gate_in", occurredOn: "2026-11-15", effect: "", resolvedAt: null, createdAt: new Date("2026-11-15T08:00:00Z") }]);
+    vi.mocked(shipmentCutoffDismissalRepository.liveByShipmentIds).mockResolvedValue([]);
     repository.needsAttentionCandidates.mockResolvedValue([
       due("s-today", "CZFCL00000401", { estimatedDeparture: "2026-11-18" }),
       due("s-next", "CZFCL00000402", { pickupDate: "2026-11-19", tradeDirection: "Domestic" }),
@@ -2425,6 +2430,21 @@ describe("Needs Attention: the two cards, the Overview tile and the list it open
     await shipmentService.list(COMPANY, { tile: "attention", ...LIST }, NOW);
     expect(repository.listFiltered).toHaveBeenCalledTimes(1);
     expect(repository.listFiltered.mock.lastCall![1]).toMatchObject({ tile: "attention", attentionIds: urgent });
+  });
+
+  it("agree on a dismissed cut-off too: off the card, out of the tile's count and out of the list tile=attention asks for", async () => {
+    vi.mocked(shipmentCutoffDismissalRepository.liveByShipmentIds).mockResolvedValue([
+      { shipmentId: "s-missed", cutoff: "closingDate", cutoffDate: "2026-11-16" },
+      { shipmentId: "s-timed", cutoff: "siClosing", cutoffDate: "2026-11-18" },
+    ]);
+    const left = URGENT.filter((id) => id !== "s-missed" && id !== "s-timed");
+    const cards = await shipmentService.needsAttention(COMPANY, NOW);
+    expect(cards.within24h.map((i) => i.id)).toEqual(left);
+    // Only the jobs with a missed cut-off are asked about - the made Closing too, as the read does not wait for the timeline.
+    expect(vi.mocked(shipmentCutoffDismissalRepository.liveByShipmentIds).mock.lastCall).toEqual([["s-missed", "s-made", "s-overdue", "s-timed"], COMPANY]);
+    expect((await shipmentService.tileCounts(COMPANY, NOW)).attention).toBe(left.length);
+    await shipmentService.list(COMPANY, { tile: "attention", ...LIST }, NOW);
+    expect(repository.listFiltered.mock.lastCall![1]).toMatchObject({ tile: "attention", attentionIds: left });
   });
 
   it("shows a missed Closing as missed and a filing past its time today as overdue, each with its time - and no Closing the cargo made", async () => {
@@ -2647,6 +2667,205 @@ describe("the prepayment stop", () => {
     expect(overrides).not.toHaveBeenCalled();
   });
 
+  it("says why the stop refuses a user's release right now - what a request to a manager is asked against - and null for a job it does not hold", async () => {
+    await expect(shipmentService.prepaymentRefusal(SHIPMENT, "house_bol")).resolves.toBeNull();
+    check.mockResolvedValue(UNPAID);
+    await expect(shipmentService.prepaymentRefusal(SHIPMENT, "house_bol")).resolves.toBe(
+      "The House BoL can't be released: the job is on prepayment and not paid - FV2026-0012 (1,200.00 EUR left to pay). A manager can release it with a reason",
+    );
+    await expect(shipmentService.prepaymentRefusal(SHIPMENT, "warehouse_released")).resolves.toContain("Warehouse Released can't be set");
+    // Invoicing can't be asked: a user is refused then too, so a manager may be asked.
+    check.mockRejectedValue(new Error("timeout"));
+    await expect(shipmentService.prepaymentRefusal(SHIPMENT, "house_bol")).resolves.toBe(`${PAYMENT_UNCHECKED}. A manager can release it with a reason`);
+    // It only asks: nothing is written.
+    nothingWritten();
+  });
+
+  describe("a release a manager approved on request (lib/releaseRequest: a pass, used once)", () => {
+    const passes = vi.mocked(shipmentReleaseRequestRepository);
+    const PASS = "9c1e2d3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f";
+    const approved = (over: Record<string, unknown> = {}) =>
+      ({ id: PASS, what: "warehouse", status: "approved", reason: "customer pays on Friday", requestedByName: "Martin Koubek", decidedByName: "Jana Nováková", comment: "agreed with the owner", decidedAt: new Date(), usedAt: null, ...over }) as never;
+    const REASON = "Asked by Martin Koubek: customer pays on Friday — approved by Jana Nováková: agreed with the owner";
+    const WAREHOUSE_REFUSAL = "Warehouse Released can't be set: the job is on prepayment and not paid - FV2026-0012 (1,200.00 EUR left to pay). A manager can release it with a reason";
+
+    beforeEach(() => {
+      check.mockResolvedValue(UNPAID);
+      passes.usablePass.mockResolvedValue(approved());
+      passes.use.mockResolvedValue(true);
+    });
+
+    it("lets a user's Warehouse Released through as an override: the row, the history line and the Tracking note as a manager's own, the pass marked used in the same turn", async () => {
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(passes.usablePass).toHaveBeenCalledTimes(1);
+      expect(passes.usablePass).toHaveBeenCalledWith(COMPANY, SHIPMENT, "warehouse", expect.any(Date));
+      // Good for 7 days from the manager's decision.
+      const since = passes.usablePass.mock.lastCall![3];
+      expect(Math.round((Date.now() - since.getTime()) / 86_400_000)).toBe(7);
+      expect(repository.updateForCompany).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.objectContaining({ warehouseReleasedDate: today }), TX);
+      expect(passes.use).toHaveBeenCalledTimes(1);
+      expect(passes.use).toHaveBeenCalledWith(TX, PASS, COMPANY, { usedAt: expect.any(Date), usedById: USER, usedByName: JAN.email }, expect.any(Date));
+      // The one releasing is who did it; the manager who allowed it is named in the reason.
+      expect(overrides).toHaveBeenCalledTimes(1);
+      expect(overrides).toHaveBeenCalledWith(TX, {
+        companyId: COMPANY,
+        shipmentId: SHIPMENT,
+        kind: "warehouse_released",
+        reason: REASON,
+        invoices: [{ number: "FV2026-0012", leftToPay: 1200, currency: "EUR" }],
+        checked: true,
+        byUserId: USER,
+        by: JAN.email,
+      });
+      expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "paymentOverride", newValue: expect.stringContaining(`reason: ${REASON}`) }), TX);
+      expect(shipmentTrackingEventRepository.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "note", note: expect.stringContaining(REASON) }), TX);
+      // Used before the override is recorded: a pass that is gone stops the turn first.
+      expect(passes.use.mock.invocationCallOrder[0]!).toBeLessThan(overrides.mock.invocationCallOrder[0]!);
+    });
+
+    it("lets the House BoL through the same way, for whoever on the job releases it", async () => {
+      passes.usablePass.mockResolvedValue(approved({ what: "house_bol" }));
+      await expect(releaseBol("user")).resolves.toBeTruthy();
+      expect(passes.usablePass).toHaveBeenCalledWith(COMPANY, SHIPMENT, "house_bol", expect.any(Date));
+      expect(passes.use).toHaveBeenCalledWith(TX, PASS, COMPANY, { usedAt: expect.any(Date), usedById: USER, usedByName: JAN.email }, expect.any(Date));
+      expect(overrides).toHaveBeenCalledWith(TX, expect.objectContaining({ kind: "house_bol", reason: REASON, checked: true, byUserId: USER }));
+      expect(repository.updateForCompany).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.objectContaining({ houseBolRelease: expect.stringMatching(/^jan@firma\.cz — /) }), TX);
+    });
+
+    it("refuses as before when there is none - never approved, used already, or run out (the read is bound to the last 7 days and to unused ones)", async () => {
+      passes.usablePass.mockResolvedValue(null);
+      await expect(release("user")).rejects.toMatchObject({ code: "failed_precondition", message: WAREHOUSE_REFUSAL });
+      await expect(releaseBol("user")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("The House BoL can't be released") });
+      expect(passes.use).not.toHaveBeenCalled();
+      nothingWritten();
+    });
+
+    it("is used once: when it is gone by the time of the write - used by a release at the same moment, or just run out - the stop refuses after all and no override is recorded", async () => {
+      passes.use.mockResolvedValue(false);
+      await expect(release("user")).rejects.toMatchObject({ code: "failed_precondition", message: WAREHOUSE_REFUSAL });
+      expect(passes.use).toHaveBeenCalledTimes(1);
+      expect(overrides).not.toHaveBeenCalled();
+      expect(shipmentAuditRepository.create).not.toHaveBeenCalledWith(expect.objectContaining({ field: "paymentOverride" }), TX);
+    });
+
+    it("refuses as before when the approved requests can't be read", async () => {
+      passes.usablePass.mockRejectedValue(new Error("the requests table is away"));
+      await expect(release("user")).rejects.toMatchObject({ code: "failed_precondition", message: WAREHOUSE_REFUSAL });
+      nothingWritten();
+    });
+
+    it("is not looked for, and not used, by a manager's own override with a reason, nor on a job the stop does not hold", async () => {
+      await expect(release("manager", "Customer sent the payment proof")).resolves.toBeTruthy();
+      expect(overrides).toHaveBeenCalledWith(TX, expect.objectContaining({ reason: "Customer sent the payment proof", byUserId: USER }));
+      inStock();
+      check.mockResolvedValue(PAID);
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(passes.usablePass).not.toHaveBeenCalled();
+      expect(passes.use).not.toHaveBeenCalled();
+    });
+
+    it("lets through a manager who gives no reason of their own, too: the approval is the reason", async () => {
+      await expect(release("manager")).resolves.toBeTruthy();
+      expect(passes.use).toHaveBeenCalledTimes(1);
+      expect(overrides).toHaveBeenCalledWith(TX, expect.objectContaining({ reason: REASON }));
+    });
+
+    it("is recorded as unchecked when Invoicing can't be asked, as a manager's own override is", async () => {
+      check.mockRejectedValue(new Error("timeout"));
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(overrides).toHaveBeenCalledWith(TX, expect.objectContaining({ reason: REASON, invoices: [], checked: false }));
+    });
+
+    it("is not used when another release got there first: this write sets no release from empty", async () => {
+      repository.getInTurn.mockResolvedValueOnce(row({ warehouseReceivedDate: earlier, warehouseReleasedDate: earlier }));
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(passes.use).not.toHaveBeenCalled();
+      expect(overrides).not.toHaveBeenCalled();
+    });
+
+    it("is never touched by the app's own writes", async () => {
+      await expect(release(undefined)).resolves.toBeTruthy();
+      await expect(shipmentService.releaseHouseBol(SHIPMENT, COMPANY, USER)).resolves.toBeTruthy();
+      expect(passes.usablePass).not.toHaveBeenCalled();
+      expect(passes.use).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("what a release made another way leaves with nothing to do: a request still waiting, an approval nobody used", () => {
+    const requests = vi.mocked(shipmentReleaseRequestRepository);
+    const closedLines = () => vi.mocked(shipmentAuditRepository.create).mock.calls.filter(([entry]) => entry.field === "releaseRequest").map(([entry]) => entry.newValue);
+    const closes = (waiting: number, approved: number) => requests.closeUnused.mockResolvedValue({ waiting, approved });
+
+    it("closes the waiting request in the release's own turn, with a line in the job's history - Warehouse Released set from empty", async () => {
+      closes(1, 0);
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(requests.closeUnused).toHaveBeenCalledTimes(1);
+      expect(requests.closeUnused).toHaveBeenCalledWith(TX, COMPANY, SHIPMENT, "warehouse", expect.any(Date));
+      expect(closedLines()).toEqual(["Warehouse Released request closed: released without it"]);
+    });
+
+    it("closes an approval nobody used, with its own line: an old approval lets no later release through", async () => {
+      closes(0, 1);
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(closedLines()).toEqual(["Warehouse Released approval closed unused: released without it"]);
+      vi.mocked(shipmentAuditRepository.create).mockClear();
+      inStock();
+      closes(1, 1);
+      await expect(releaseBol("user")).resolves.toBeTruthy();
+      expect(closedLines()).toEqual(["House BoL release request closed: released without it", "House BoL release approval closed unused: released without it"]);
+    });
+
+    it("leaves the approval this very release used as used: it is marked before anything unused is closed", async () => {
+      check.mockResolvedValue(UNPAID);
+      requests.usablePass.mockResolvedValue({ id: "pass-1", what: "warehouse", status: "approved", reason: "pays on Friday", requestedByName: "Martin Koubek", decidedByName: "Jana Nováková", comment: "agreed", decidedAt: new Date(), usedAt: null } as never);
+      requests.use.mockResolvedValue(true);
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(requests.use).toHaveBeenCalledTimes(1);
+      expect(requests.closeUnused).toHaveBeenCalledTimes(1);
+      // Used first: what is closed afterwards is only what is still unused.
+      expect(requests.use.mock.invocationCallOrder[0]!).toBeLessThan(requests.closeUnused.mock.invocationCallOrder[0]!);
+      expect(closedLines()).toEqual([]);
+    });
+
+    it("does so for a manager's direct override and for the app's own release as well: whoever releases, nothing is left to ask or to use", async () => {
+      check.mockResolvedValue(UNPAID);
+      await expect(release("manager", "Customer sent the payment proof")).resolves.toBeTruthy();
+      expect(requests.closeUnused).toHaveBeenLastCalledWith(TX, COMPANY, SHIPMENT, "warehouse", expect.any(Date));
+      inStock();
+      await expect(release(undefined)).resolves.toBeTruthy();
+      expect(requests.closeUnused).toHaveBeenCalledTimes(2);
+    });
+
+    it("does so when the House BoL is released", async () => {
+      closes(1, 0);
+      await expect(releaseBol("user")).resolves.toBeTruthy();
+      expect(requests.closeUnused).toHaveBeenCalledExactlyOnceWith(TX, COMPANY, SHIPMENT, "house_bol", expect.any(Date));
+      expect(closedLines()).toEqual(["House BoL release request closed: released without it"]);
+    });
+
+    it("writes no line when there was nothing to close, and is not asked about by a write that releases nothing", async () => {
+      await expect(release("user")).resolves.toBeTruthy();
+      expect(closedLines()).toEqual([]);
+      requests.closeUnused.mockClear();
+      inStock({ warehouseReleasedDate: earlier });
+      await expect(release("user", undefined, { vessel: "SEASPAN" })).resolves.toBeTruthy();
+      // Moved to another day once released, or cleared: no release from empty.
+      await expect(release("user", undefined, { warehouseReleasedDate: today })).resolves.toBeTruthy();
+      inStock({ warehouseReleasedDate: earlier });
+      await expect(release("manager", undefined, { warehouseReleasedDate: "" })).resolves.toBeTruthy();
+      expect(requests.closeUnused).not.toHaveBeenCalled();
+    });
+
+    it("and once it is cleared, setting Warehouse Released again is a release from empty again: asked of the stop, with whatever is unused closed - an old approval is closed by then", async () => {
+      check.mockResolvedValue(UNPAID);
+      // The first release (a manager's own) closed the unused approval: the read finds none.
+      requests.usablePass.mockResolvedValue(null);
+      inStock({ warehouseReleasedDate: null });
+      await expect(release("user")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("A manager can release it with a reason") });
+      expect(requests.use).not.toHaveBeenCalled();
+    });
+  });
+
   describe("the House BoL release", () => {
     it("refuses a user on an unpaid prepayment job, naming the invoice", async () => {
       check.mockResolvedValue(UNPAID);
@@ -2694,5 +2913,29 @@ describe("the customer's open jobs (Accounts Receivable's work not yet invoiced)
   it("answers nothing for what is not a customer id, without asking the database", async () => {
     await expect(shipmentService.openJobIdsOfCustomer(COMPANY, "not-an-id")).resolves.toEqual({ shipmentIds: [], capped: false });
     expect(repository.openJobIdsOfCustomer).not.toHaveBeenCalled();
+  });
+});
+
+describe("a hand-over (services/handOver.service) is the single edit's own write, with one more history line", () => {
+  const handOver = { history: [{ field: "handOver", oldValue: null, newValue: "jan@firma.cz → martin@firma.cz: Jan is ill" }] };
+
+  it("writes Handled By, its history line and the hand-over's line in one write turn, as the manager", async () => {
+    stored.set(SHIPMENT, row({ personInCharge: "jan@firma.cz", holidayCover: "" }));
+    await shipmentService.update(SHIPMENT, COMPANY, { personInCharge: "Martin@Firma.cz" }, JANA.id, "manager", undefined, undefined, handOver);
+    expect(repository.updateForCompany).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.objectContaining({ personInCharge: "martin@firma.cz" }), TX);
+    // The line the cover bell reads (lib/coverBell: field personInCharge, written by somebody else) …
+    expect(shipmentAuditRepository.create).toHaveBeenCalledWith({ companyId: COMPANY, shipmentId: SHIPMENT, userId: JANA.id, field: "personInCharge", oldValue: "jan@firma.cz", newValue: "martin@firma.cz" }, TX);
+    // … and the hand-over's own, beside it.
+    expect(shipmentAuditRepository.create).toHaveBeenCalledWith({ companyId: COMPANY, shipmentId: SHIPMENT, userId: JANA.id, field: "handOver", oldValue: null, newValue: "jan@firma.cz → martin@firma.cz: Jan is ill" }, TX);
+  });
+
+  it("is held to the single edit's rules: a person who is no user of the company is refused, and nothing is written", async () => {
+    stored.set(SHIPMENT, row({ personInCharge: "jan@firma.cz", holidayCover: "" }));
+    await expect(shipmentService.update(SHIPMENT, COMPANY, { personInCharge: "nobody@else.cz" }, JANA.id, "manager", undefined, undefined, handOver)).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Handled By: pick a user of the company (by e-mail)",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
   });
 });

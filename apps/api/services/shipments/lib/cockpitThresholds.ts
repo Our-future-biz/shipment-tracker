@@ -123,3 +123,38 @@ export const REMEASURE_COSTS_WORKING_DAYS = 1;
 export const MASTER_JOB_CLOSING_DAYS = 5;
 /** A25: a Master Job this many days from its ETD with no shipment linked. */
 export const MASTER_JOB_NO_HOUSE_DAYS = 10;
+
+// ─── The team's signals, the Team facts and the audit line (lib/managersCockpitTeam, lib/managersCockpitAudit) ───
+// Step 3 (D3, D23): what a job is told by its to-dos, its chat and its silence, how the people
+// line reads a person's load, and how far back the audit line looks.
+
+/** A15: working days with no change, chat line, to-do, task tick or tracking event - on a job older than that. A flight moves faster than a vessel. */
+export const NOT_TOUCHED_WORKING_DAYS: PerMode<number> = { sea: 5, rail: 5, road: 5, air: 3 };
+/** A16: a to-do past its day is ATTENTION from the first day; from this many working days late it is URGENT. */
+export const TODO_LATE_URGENT_WORKING_DAYS = 3;
+/** A16: how much of a to-do's title its tag quotes. */
+export const TODO_TAG_CHARS = 40;
+/** A17: an @mention its Handled By or Holiday Cover has not read for this many office hours (lib/officeHours)… */
+export const MENTION_UNREAD_OFFICE_HOURS = 4;
+/** …and from this many it is URGENT: a whole office day went by. */
+export const MENTION_UNREAD_URGENT_OFFICE_HOURS = 9;
+/** Team: a person is marked "high load" with more active jobs than this many times the median… */
+export const HIGH_LOAD_FACTOR = 1.5;
+/** …of the people with at least one active job - and only when there are at least this many of them: a median of two says nothing. */
+export const HIGH_LOAD_MIN_PEOPLE = 3;
+/** The audit line: how many days back it counts. */
+export const AUDIT_DAYS = 7;
+/** The audit line's drill-down: the newest rows it lists at most. */
+export const AUDIT_LIST_LIMIT = 200;
+/** The audit line: rows one of its reads takes at most; the answer says when there were more. */
+export const AUDIT_READ_LIMIT = 5000;
+/** The audit line: from this many decided requests their approval rate is given - of a handful it says nothing. */
+export const APPROVAL_RATE_MIN_DECIDED = 10;
+/**
+ * The audit line: minutes a company's line is kept in memory before it is read again. It is the
+ * same for every manager and every filter and counts a week: read on each of the page's polls it
+ * was six statements a minute per open page for figures that move a few times a day.
+ */
+export const AUDIT_LINE_KEPT_MINUTES = 5;
+/** Connections of the pool (ten, lib/db/pool) one cockpit answer holds at once: half, so a page that polls never takes them all. */
+export const COCKPIT_READS_AT_ONCE = 5;

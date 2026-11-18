@@ -1,5 +1,5 @@
 import { convert, type Rates } from "@/lib/fx";
-import { formatDate } from "@/lib/date";
+import { businessDateTime, formatDate } from "@/lib/date";
 import { fmtMoney, roundCents } from "@/lib/money";
 
 // Finance → Accounts Receivable in operations (Council Outlay 10, D20–D22): the payment and credit warnings at a
@@ -229,8 +229,237 @@ export const RELEASED_FIELD = "warehouseReleasedDate";
 /** The prepayment stop of an edit of Warehouse Released; null for any other field or any other refusal. */
 export const releasedEditStop = (fieldKey: string, err: unknown): ReleaseStop | null => (fieldKey === RELEASED_FIELD ? releaseStopOf(err) : null);
 
-/** Where a stopped release goes when the edit cannot ask for a reason (the grid's inline cell). */
-export const RELEASE_ELSEWHERE = "Release it from Stock → release to truck or the shipment's detail, where a manager can give a reason.";
+/** Where a stopped release goes when the edit cannot ask for a reason (the grid's inline cell): a user asks a manager there (D16). */
+export const RELEASE_ELSEWHERE = "Release it from Stock → release to truck or the shipment's detail: there a manager gives a reason, and anyone else asks a manager to release it.";
 
 /** The grid's error for a stopped Warehouse Released: the server's sentence, then where to release it. */
 export const releaseElsewhereText = (stop: ReleaseStop): string => `${stop.message.trim()} ${RELEASE_ELSEWHERE}`;
+
+// ── "Ask a manager to release" (Council Outlay 11, D16): a user the stop refused asks, a manager decides ──
+//
+// Approving releases nothing: the approved request is a pass for that job and that release, good for 7 days and
+// for one release. Whoever makes the release then makes it the usual way, and it goes through on the approval.
+// The server works out whether a pass can still be used (`usable`); the screens only word what it says.
+
+/** What a release request asks to be released. */
+export type ReleaseWhat = "house_bol" | "warehouse";
+
+/** What is asked for, in the app's words (the server's own, api shipments/lib/releaseRequest.ts). */
+export const RELEASE_WHAT_LABEL: Record<ReleaseWhat, string> = { house_bol: "House BoL release", warehouse: "Warehouse Released" };
+
+/** A release request as the screens read it (the server's ReleaseRequestItem). */
+export interface ReleaseRequestFacts {
+  what: ReleaseWhat;
+  /** closed: the job was released another way before the request was answered, or before its approval was used. */
+  status: "pending" | "approved" | "rejected" | "closed";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  /** When the approval was used for the release; null while it was not. */
+  usedAt: string | null;
+  usedByName: string;
+  /** Approved: until when it can be used. */
+  validUntil: string | null;
+  /** Approved, not used and not run out, as the server saw it when it answered. */
+  usable: boolean;
+}
+
+/** "18.11. 14:02" - a moment on the company's calendar and clock, the year left out; "" for none. */
+export function shortDateTime(at: string | null | undefined): string {
+  return businessDateTime(at).replace(/^(\d{2}\.\d{2}\.)\d{4} /, "$1 ");
+}
+
+/** "18.11." - the day of a moment on the company's calendar, the year left out; "" for none. */
+export function shortDate(at: string | null | undefined): string {
+  return businessDateTime(at).slice(0, 6);
+}
+
+type PassFacts = Pick<ReleaseRequestFacts, "status" | "usable" | "usedAt" | "validUntil">;
+
+/**
+ * Whether the request lets its release through: approved, not used, and not run out - by the server's word
+ * (`usable`), never by this browser's clock, which may be minutes off the server's. When the clock here says its
+ * time is over, the request is read again (passRereadAt) and what the server then says is shown.
+ */
+export function releasePassUsable(request: PassFacts | null | undefined): boolean {
+  return !!request && request.status === "approved" && request.usable && !request.usedAt;
+}
+
+/** How long past an approval's last moment, on this clock, before the server is asked again. */
+export const PASS_REREAD_GRACE_MS = 60_000;
+
+/**
+ * When (ms) to read a job's requests again because an approval the server called usable is over on this clock by
+ * more than a minute; null when there is nothing to wait for. `readAt` is when the answer in hand was read: one
+ * read after that moment is the server's word on it - still usable there, it is not asked a second time.
+ */
+export function passRereadAt(requests: readonly PassFacts[], readAt: number): number | null {
+  let at: number | null = null;
+  for (const r of requests) {
+    if (!releasePassUsable(r) || !r.validUntil) continue;
+    const due = Date.parse(r.validUntil) + PASS_REREAD_GRACE_MS;
+    if (Number.isNaN(due) || readAt > due) continue;
+    at = at === null ? due : Math.min(at, due);
+  }
+  return at;
+}
+
+/**
+ * Where the read of a job's requests stands while a release is being made: "checking" until an answer read since
+ * the dialog opened (`since`) is in - an answer kept from earlier says nothing about now, a manager may have
+ * approved meanwhile - "failed" when that read failed or took too long, else "read". Not asked at all: "read".
+ */
+export type ReleasePassRead = "checking" | "read" | "failed";
+
+export function releasePassRead(q: {
+  asked: boolean;
+  since: number | null;
+  hasData: boolean;
+  dataUpdatedAt: number;
+  isError: boolean;
+  errorUpdatedAt: number;
+  timedOut: boolean;
+}): ReleasePassRead {
+  if (!q.asked) return "read";
+  if (q.hasData && answeredSince(q.dataUpdatedAt, q.since)) return "read";
+  if ((q.isError && answeredSince(q.errorUpdatedAt, q.since)) || q.timedOut) return "failed";
+  return "checking";
+}
+
+/** Said while the job's requests are read, where "stopped" would otherwise be said too early. */
+export const PASS_CHECKING = "Checking for an approval…";
+/** Said when they could not be read: the stop is then shown as it is, and a manager keeps their own reason. */
+export const PASS_NOT_READ = "Whether a manager approved this release could not be read";
+
+const approver = (r: Pick<ReleaseRequestFacts, "decidedByName">) => r.decidedByName.trim() || "a manager";
+// Day and time: an approval ends at its decision's time of day, seven days on.
+const validUntilText = (r: Pick<ReleaseRequestFacts, "validUntil">) => (r.validUntil ? ` (valid until ${shortDateTime(r.validUntil)})` : "");
+
+/** Where a job's release request stands, in one line and its colour. */
+export interface ReleaseRequestState {
+  tone: "amber" | "green" | "red" | "slate";
+  text: string;
+}
+
+/**
+ * The state of the job's newest request for a release, or null when there is nothing to say:
+ *   waiting        "Asked 18.11. 14:02 — waiting for a manager" (somebody else's: "Asked by Jan Novák 18.11. 14:02 — …")
+ *   approved       "Approved by Eva Malá 18.11. 15:10: agreed with the owner — release it now (valid until 25.11. 15:10)"
+ *   used           "Released on Eva Malá's approval, by jan@firma.cz 19.11. 09:30" - only while the job IS released
+ *   ran out        "The approval of 18.11. ran out unused" (it can be asked for again)
+ *   rejected       "Rejected by Eva Malá 18.11. 15:10: not before the payment"
+ *   closed         nothing: the job was released another way, and the request says nothing about that release
+ * A released job says only on whose approval it was released; a job whose release was undone says nothing of the
+ * approval that release used - it is spent, and the next release is asked for anew.
+ */
+export function releaseRequestState(
+  request: ReleaseRequestFacts | null | undefined,
+  opts: { released?: boolean; viewerId?: string | null } = {},
+): ReleaseRequestState | null {
+  if (!request || request.status === "closed") return null;
+  if (request.status === "approved" && request.usedAt) {
+    if (!opts.released) return null;
+    const by = request.usedByName.trim() ? `, by ${request.usedByName.trim()}` : "";
+    return { tone: "green", text: `Released on ${approver(request)}'s approval${by} ${shortDateTime(request.usedAt)}` };
+  }
+  if (opts.released) return null;
+  if (request.status === "pending") {
+    const mine = !!opts.viewerId && request.requestedById === opts.viewerId;
+    const by = mine || !request.requestedByName.trim() ? "" : ` by ${request.requestedByName.trim()}`;
+    return { tone: "amber", text: `Asked${by} ${shortDateTime(request.requestedAt)} — waiting for a manager` };
+  }
+  if (request.status === "approved" && !releasePassUsable(request)) {
+    return { tone: "slate", text: `The approval of ${shortDate(request.decidedAt) || "a manager"} ran out unused` };
+  }
+  const approved = request.status === "approved";
+  const head = [`${approved ? "Approved" : "Rejected"} by ${approver(request)}`, shortDateTime(request.decidedAt)].filter(Boolean).join(" ");
+  const said = request.comment.trim() ? `${head}: ${request.comment.trim()}` : head;
+  return approved ? { tone: "green", text: `${said} — release it now${validUntilText(request)}` } : { tone: "red", text: said };
+}
+
+/**
+ * Whether a release may be asked for (again): not while a request for it waits for a manager, and not while an
+ * approval can still be used - the server refuses both ("A release was already approved for this job: release it now").
+ */
+export const canAskForRelease = (latest: PassFacts | null | undefined): boolean => latest?.status !== "pending" && !releasePassUsable(latest);
+
+/** The button once a request was answered and did not lead to the release: rejected, or approved and run out. */
+export const askedBefore = (latest: PassFacts | null | undefined): boolean =>
+  latest?.status === "rejected" || (latest?.status === "approved" && !latest.usedAt);
+
+/** Whether the job's newest request for a release was used for it: the release went through on a manager's approval. */
+export const releasedOnApproval = (latest: Pick<ReleaseRequestFacts, "status" | "usedAt"> | null | undefined): boolean =>
+  latest?.status === "approved" && !!latest.usedAt;
+
+/** What a release dialog says in place of the stop when a manager's approval stands: the release is not stopped. */
+export const RELEASE_ON_APPROVAL_NOTE = "A manager approved this release: it goes through on that approval, recorded with the manager's name.";
+
+/** The release button when the release goes through on a manager's approval. */
+export const RELEASE_ON_APPROVAL_LABEL = "Release on the approval";
+
+type AnswerFacts = Pick<ReleaseRequestFacts, "what" | "status" | "comment" | "usable" | "usedAt" | "usedByName" | "validUntil">;
+
+/**
+ * The bell, for whoever asked: "Release approved · CZ00000053 — release it now (valid until 25.11. 15:10)" while
+ * the approval can be used; a used or run-out approval and a rejection are plain answers.
+ */
+export function releaseAnswerTitle(a: AnswerFacts & { jobNumber: string }): string {
+  const head = `Release ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber || "a job"}`;
+  return releasePassUsable(a) ? `${head} — release it now${validUntilText(a)}` : head;
+}
+
+/**
+ * The bell's second line: what was asked for and the manager's words - "House BoL release — agreed with the owner";
+ * of an approval that was used "… — released 19.11. 09:30 by jan@firma.cz", of one that ran out "… — ran out unused".
+ */
+export function releaseAnswerText(a: AnswerFacts): string {
+  const what = RELEASE_WHAT_LABEL[a.what] ?? a.what;
+  if (a.status === "approved" && a.usedAt) return `${what} — released ${shortDateTime(a.usedAt)}${a.usedByName.trim() ? ` by ${a.usedByName.trim()}` : ""}`;
+  if (a.status === "approved" && !releasePassUsable(a)) return `${what} — ran out unused`;
+  return `${what}${a.comment.trim() ? ` — ${a.comment.trim()}` : ""}`;
+}
+
+/** What the bell lists: a manager's answers. A request still waiting or closed by the app is no answer. */
+export const isReleaseAnswer = (a: Pick<ReleaseRequestFacts, "status">): boolean => a.status === "approved" || a.status === "rejected";
+
+/**
+ * What of the askers' answers the job's own request line is worded from: when it changes, a manager has answered
+ * or an approval was used, and an open page reads its job's request again.
+ */
+export const releaseAnswersMark = (answers: readonly (Pick<ReleaseRequestFacts, "status" | "usable" | "usedAt"> & { id: string })[]): string =>
+  answers.map((a) => `${a.id}:${a.status}:${a.usable ? 1 : 0}:${a.usedAt ?? ""}`).join("|");
+
+/**
+ * The Approvals tab's Answered list, under the answer: what became of an approval - "used 19.11. 09:30 by
+ * jan@firma.cz", "not used yet, valid until 25.11. 15:10", "ran out unused" - and of a request the app closed
+ * ("Closed: released without it"). Null for a rejection: its reason says it all.
+ */
+export function releaseAnsweredNote(r: AnswerFacts): string | null {
+  if (r.status === "closed") return "Closed: released without it";
+  if (r.status !== "approved") return null;
+  if (r.usedAt) return `used ${shortDateTime(r.usedAt)}${r.usedByName.trim() ? ` by ${r.usedByName.trim()}` : ""}`;
+  return releasePassUsable(r) ? `not used yet${r.validUntil ? `, valid until ${shortDateTime(r.validUntil)}` : ""}` : "ran out unused";
+}
+
+/** What approving does, said where a manager approves. */
+export const RELEASE_APPROVAL_HINT = "Approving lets the job be released once within 7 days; the release itself is made by the user";
+
+/** Why a manager is not offered an answer to a request of their own (the server's words). */
+export const OWN_RELEASE_REQUEST = "You asked for this release yourself: another manager decides it";
+
+/** Whether the signed-in user asked for this release themself: four eyes, another manager decides it. */
+export const isOwnReleaseRequest = (r: Pick<ReleaseRequestFacts, "requestedById">, viewerId: string | null | undefined): boolean =>
+  !!viewerId && r.requestedById === viewerId;
+
+/**
+ * Where a request leads - an answer under the bell, a row of the Approvals tab: the job. Its Details show where
+ * both releases stand (the House BoL Release row, with Warehouse Released's request under it); the shipment's
+ * Warehouse tab shows neither. Warehouse Released itself is set from Warehouse → Stock (WAREHOUSE_RELEASE_HREF).
+ */
+export const releaseRequestHref = (r: { shipmentId: string }): string => `/shipments/${r.shipmentId}`;
+
+/** Where the cargo is released from the warehouse: Stock → release to a truck. */
+export const WAREHOUSE_RELEASE_HREF = "/warehouse/stock";

@@ -83,6 +83,30 @@ describe("Created By of a road job", () => {
   });
 });
 
+describe("Handled By of a road job (D10)", () => {
+  const JANA = "00000000-0000-0000-0000-0000000000a1";
+  const SYSTEM = "00000000-0000-0000-0000-0000000000a2";
+
+  beforeEach(() => {
+    vi.mocked(auth.usersList).mockResolvedValue({ users: [{ id: JANA, email: "Jana@Firma.cz", displayName: "Jana Nováková" }] } as never);
+  });
+
+  it("is the signed-in user Trucking acts for, by e-mail: the job is theirs from the start", async () => {
+    await roadJobService.create("company", input(), JANA);
+    expect(created()).toMatchObject({ personInCharge: "jana@firma.cz", createdBy: "Trucking · jana@firma.cz" });
+  });
+
+  it("is nobody for Trucking's service identity, for no user at all, and when the users can't be read", async () => {
+    await roadJobService.create("company", input({ createdBy: "Trucking · Trucking (system)" }), SYSTEM);
+    expect(created()).not.toHaveProperty("personInCharge");
+    await roadJobService.create("company", input());
+    expect(created()).not.toHaveProperty("personInCharge");
+    vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
+    await roadJobService.create("company", input(), JANA);
+    expect(created()).not.toHaveProperty("personInCharge");
+  });
+});
+
 describe("taking back a job Trucking made for a consignment it could not save", () => {
   const JOB = "00000000-0000-0000-0000-0000000000a1";
   const COMPANY = "00000000-0000-0000-0000-000000000001";

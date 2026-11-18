@@ -3254,6 +3254,9 @@ export namespace shipments {
             this.customsOfficeRequestList = this.customsOfficeRequestList.bind(this)
             this.customsOfficeRequestSeen = this.customsOfficeRequestSeen.bind(this)
             this.customsVerdictNotices = this.customsVerdictNotices.bind(this)
+            this.cutoffDismiss = this.cutoffDismiss.bind(this)
+            this.cutoffDismissalList = this.cutoffDismissalList.bind(this)
+            this.cutoffDismissalTakeBack = this.cutoffDismissalTakeBack.bind(this)
             this.documentChangeRequestAnswers = this.documentChangeRequestAnswers.bind(this)
             this.documentChangeRequestAsk = this.documentChangeRequestAsk.bind(this)
             this.documentChangeRequestContent = this.documentChangeRequestContent.bind(this)
@@ -3288,6 +3291,12 @@ export namespace shipments {
             this.publicImportInstructionsForm = this.publicImportInstructionsForm.bind(this)
             this.publicImportInstructionsSubmit = this.publicImportInstructionsSubmit.bind(this)
             this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
+            this.releaseRequestAnswers = this.releaseRequestAnswers.bind(this)
+            this.releaseRequestAsk = this.releaseRequestAsk.bind(this)
+            this.releaseRequestDecide = this.releaseRequestDecide.bind(this)
+            this.releaseRequestLatest = this.releaseRequestLatest.bind(this)
+            this.releaseRequestList = this.releaseRequestList.bind(this)
+            this.releaseRequestSeen = this.releaseRequestSeen.bind(this)
             this.searchContainers = this.searchContainers.bind(this)
             this.searchMasterJobs = this.searchMasterJobs.bind(this)
             this.searchShipments = this.searchShipments.bind(this)
@@ -3295,12 +3304,16 @@ export namespace shipments {
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
             this.shipmentGet = this.shipmentGet.bind(this)
+            this.shipmentHandOver = this.shipmentHandOver.bind(this)
+            this.shipmentHandledByCount = this.shipmentHandledByCount.bind(this)
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
             this.shipmentLinksNormalize = this.shipmentLinksNormalize.bind(this)
             this.shipmentList = this.shipmentList.bind(this)
+            this.shipmentManagersAudit = this.shipmentManagersAudit.bind(this)
             this.shipmentManagersCockpit = this.shipmentManagersCockpit.bind(this)
             this.shipmentNeedsAttention = this.shipmentNeedsAttention.bind(this)
             this.shipmentNextJobNumber = this.shipmentNextJobNumber.bind(this)
+            this.shipmentNudge = this.shipmentNudge.bind(this)
             this.shipmentPeopleNormalize = this.shipmentPeopleNormalize.bind(this)
             this.shipmentQuoteLink = this.shipmentQuoteLink.bind(this)
             this.shipmentQuoteLinksSync = this.shipmentQuoteLinksSync.bind(this)
@@ -3661,6 +3674,45 @@ export namespace shipments {
         }
 
         /**
+         * Only a cut-off that is missed or overdue right now. A second click answers the dismissal that stands.
+         */
+        public async cutoffDismiss(shipmentId: string, params: controllers.CutoffDismissRequest): Promise<{
+    dismissal: interfaces.CutoffDismissalItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/cutoff-dismissals`, JSON.stringify(params))
+            return await resp.json() as {
+    dismissal: interfaces.CutoffDismissalItem
+}
+        }
+
+        /**
+         * The job's live dismissals, for taking one back.
+         */
+        public async cutoffDismissalList(shipmentId: string): Promise<{
+    dismissals: interfaces.CutoffDismissalItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/cutoff-dismissals`)
+            return await resp.json() as {
+    dismissals: interfaces.CutoffDismissalItem[]
+}
+        }
+
+        /**
+         * Takes a dismissal back: the cut-off counts again.
+         */
+        public async cutoffDismissalTakeBack(shipmentId: string, id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/cutoff-dismissals/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
          * The bell: the answers to the signed-in user's own requests.
          */
         public async documentChangeRequestAnswers(): Promise<{
@@ -3975,6 +4027,81 @@ export namespace shipments {
         }
 
         /**
+         * The bell: the managers' answers to the signed-in user's own requests - approved (with `usable`) and rejected.
+         */
+        public async releaseRequestAnswers(): Promise<{
+    answers: interfaces.ReleaseRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/release-request-answers`)
+            return await resp.json() as {
+    answers: interfaces.ReleaseRequestItem[]
+}
+        }
+
+        /**
+         * The House BoL: the job's Handled By or Holiday Cover (anyone while nobody is named), or a manager.
+         * Warehouse Released: anyone of the company. Only while the prepayment stop holds the job, and
+         * not while a request waits or an approved one can still be used.
+         */
+        public async releaseRequestAsk(shipmentId: string, params: controllers.ReleaseAskRequest): Promise<{
+    request: interfaces.ReleaseRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/release-request`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.ReleaseRequestItem
+}
+        }
+
+        /**
+         * Managers only, and never the one who asked (four eyes).
+         */
+        public async releaseRequestDecide(id: string, params: controllers.ReleaseDecideRequest): Promise<{
+    request: interfaces.ReleaseRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/release-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.ReleaseRequestItem
+}
+        }
+
+        /**
+         * The shipment's newest request of each thing asked (at most two), for where the release is made from.
+         */
+        public async releaseRequestLatest(shipmentId: string): Promise<{
+    requests: interfaces.ReleaseRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/release-request`)
+            return await resp.json() as {
+    requests: interfaces.ReleaseRequestItem[]
+}
+        }
+
+        /**
+         * A manager: everything waiting, and what was answered - or closed by a release made another way -
+         * in the last 30 days (the Approvals tab). Anyone else: their own requests, the same way.
+         */
+        public async releaseRequestList(): Promise<{
+    requests: interfaces.ReleaseRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/release-requests`)
+            return await resp.json() as {
+    requests: interfaces.ReleaseRequestItem[]
+}
+        }
+
+        /**
+         * The one who asked opened the answer.
+         */
+        public async releaseRequestSeen(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/release-requests/${encodeURIComponent(id)}/seen`)
+        }
+
+        /**
          * The main search (the top bar) in containers: the containers of the company's live shipments
          * whose number holds what was typed - spaces left out, in any case, from 4 characters - each with
          * its job and master job, the newest jobs first, and how many match in all.
@@ -4057,6 +4184,31 @@ export namespace shipments {
         }
 
         /**
+         * D11. Each job is changed as an edit of the two fields on the job itself changes it; a job that
+         * can't be changed is answered in `skipped` with the reason, and the others go on.
+         */
+        public async shipmentHandOver(params: controllers.ShipmentHandOverRequest): Promise<interfaces.HandOverResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/hand-over`, JSON.stringify(params))
+            return await resp.json() as interfaces.HandOverResult
+        }
+
+        /**
+         * D13. How many ACTIVE jobs name this person - the Users page's warning before a user is
+         * deactivated. The e-mail is matched as the Shipments list's Handled By filter matches it.
+         */
+        public async shipmentHandledByCount(params: controllers.HandledByCountRequest): Promise<interfaces.HandledByCount> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                email: params.email,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/handled-by-count`, undefined, {query})
+            return await resp.json() as interfaces.HandledByCount
+        }
+
+        /**
          * A shipment joining a master job takes over its MBL details.
          */
         public async shipmentLinkMasterJob(shipmentId: string, params: controllers.LinkMasterJobRequest): Promise<controllers.LinkMasterJobResponse> {
@@ -4103,11 +4255,29 @@ export namespace shipments {
         }
 
         /**
+         * Shipments → Managers, the audit line's drill-down (Council Outlay 11, D23): the rows one of its
+         * counts stands for - which job, who, when and what - over the same seven days, the newest first,
+         * at most 200 (`capped` says when there were more). Read-only, the company's own rows; for
+         * superadmins, admins and managers, as the page itself.
+         */
+        public async shipmentManagersAudit(params: controllers.ShipmentManagersAuditRequest): Promise<interfaces.ManagersAuditList> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                key: params.key,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/managers-audit`, undefined, {query})
+            return await resp.json() as interfaces.ManagersAuditList
+        }
+
+        /**
          * Shipments → Managers (Council Outlay 11): what operations need from a manager today, counted
          * over the company's active jobs - and its Master Jobs with no shipment linked - by the rules of
          * lib/managersCockpit and lib/managersCockpitExtra, in working days of Prague time. Read-only: a
          * part that could not be read is named in the answer (`notKnown`, `holidaysKnown`) instead of
          * counting as none. For superadmins, admins and managers; the page polls it every minute.
+         * "My reports" (D3) is counted from the signed-in user, never from the request.
          */
         public async shipmentManagersCockpit(params: controllers.ShipmentManagersCockpitRequest): Promise<{
     cockpit: interfaces.ShipmentsManagersCockpit
@@ -4117,6 +4287,7 @@ export namespace shipments {
                 direction: params.direction,
                 handledBy: params.handledBy,
                 mode:      params.mode,
+                reports:   params.reports,
             })
 
             // Now make the actual call to the API
@@ -4145,6 +4316,16 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/next-job-number`)
             return await resp.json() as controllers.NextJobNumberResponse
+        }
+
+        /**
+         * D17. A to-do on the job and a chat line tagging its Handled By and Holiday Cover. No e-mail.
+         * Refused when nobody on the job can be told ("Nobody on this job can be told: hand it over first").
+         */
+        public async shipmentNudge(shipmentId: string, params: controllers.ShipmentNudgeRequest): Promise<interfaces.NudgeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/nudge`, JSON.stringify(params))
+            return await resp.json() as interfaces.NudgeResult
         }
 
         /**
@@ -7664,7 +7845,9 @@ export namespace controllers {
 
     /**
      * Customs review of a document; "" puts it back to pending. A declined document carries a
-     * reason the operations team sees in the Documents tab.
+     * reason the operations team sees in the Documents tab. A regular user is refused the approval of
+     * a document they uploaded themselves ("You uploaded this document: a colleague or a manager
+     * approves it", lib/documentRules): declining it stays theirs, and a manager may approve their own.
      */
     export interface AttachmentReviewRequest {
         status: interfaces.AttachmentCustomsStatus
@@ -8739,6 +8922,18 @@ export namespace controllers {
         comment?: string
     }
 
+    export interface CutoffDismissRequest {
+        /**
+         * closingDate | vgmClosing | siClosing | amsDeadline | isfDeadline
+         */
+        cutoff: string
+
+        /**
+         * Why it is settled (at least 3 characters).
+         */
+        reason: string
+    }
+
     export interface DailyRequest {
         month: string
         all?: boolean
@@ -9505,6 +9700,13 @@ export namespace controllers {
             percent: number
             minAmountCzk: number
         }[]
+    }
+
+    export interface HandledByCountRequest {
+        /**
+         * The person's e-mail, as Handled By stores it (any case).
+         */
+        email: string
     }
 
     export interface HaulierInvoiceBody {
@@ -10736,6 +10938,26 @@ export namespace controllers {
         termsUrl: string
     }
 
+    export interface ReleaseAskRequest {
+        /**
+         * What to release: "house_bol" (the House BoL) or "warehouse" (Warehouse Released).
+         */
+        what: string
+
+        /**
+         * Why it should be released before it is paid (at least 3 characters).
+         */
+        reason: string
+    }
+
+    export interface ReleaseDecideRequest {
+        approve: boolean
+        /**
+         * The manager's reason, required either way (at least 3 characters): why not, or why all the same - recorded with the release.
+         */
+        comment?: string
+    }
+
     export interface ReleaseHouseBolRequest {
         /**
          * A manager's reason (at least 3 characters) to release a job on prepayment that is not paid - or whose payment
@@ -11540,6 +11762,28 @@ export namespace controllers {
         shipment: interfaces.ShipmentItem
     }
 
+    export interface ShipmentHandOverRequest {
+        /**
+         * The jobs to hand over: 1 to 200 shipment ids (a list of more than 1,000 entries is refused unread).
+         */
+        shipmentIds: string[]
+
+        /**
+         * The new Handled By: the e-mail of a user of the company. Left out (or ""), Handled By stays as it is.
+         */
+        handledBy?: string
+
+        /**
+         * The new Holiday Cover: the e-mail of a user of the company, or "" to clear it. Left out, it stays as it is.
+         */
+        holidayCover?: string
+
+        /**
+         * Why (at least 3 characters): kept in each job's history.
+         */
+        reason: string
+    }
+
     export interface ShipmentListRequest {
         limit?: number
         offset?: number
@@ -11606,6 +11850,13 @@ export namespace controllers {
         data: interfaces.ShipmentItem[]
     }
 
+    export interface ShipmentManagersAuditRequest {
+        /**
+         * Which figure of the audit line: one of its keys (prepayment_release, own_credit_check, deleted…).
+         */
+        key: string
+    }
+
     export interface ShipmentManagersCockpitRequest {
         /**
          * How the jobs travel: sea, air, rail or road; all of them when left out.
@@ -11621,6 +11872,11 @@ export namespace controllers {
          * One person's jobs, by the e-mail in Handled By, or "nobody" for the jobs nobody handles; everyone's when left out.
          */
         handledBy?: string
+
+        /**
+         * "mine": only the jobs handled by the users who report to the caller (Settings → Users, "Reports to") and those whose Handled By is not a user; all when left out.
+         */
+        reports?: string
     }
 
     export interface ShipmentNoteCreateRequest {
@@ -11650,6 +11906,18 @@ export namespace controllers {
 
         done?: boolean
         pinned?: boolean
+    }
+
+    export interface ShipmentNudgeRequest {
+        /**
+         * The to-do's title.
+         */
+        text: string
+
+        /**
+         * By when: YYYY-MM-DD, today or later.
+         */
+        dueDate: string
     }
 
     export interface ShipmentQuoteLinkRequest {
@@ -16145,6 +16413,23 @@ export namespace interfaces {
         unread: boolean
     }
 
+    /**
+     * A missed cut-off a manager dismissed (lib/cutoffDismissals).
+     */
+    export interface CutoffDismissalItem {
+        id: string
+        shipmentId: string
+        cutoff: "closingDate" | "vgmClosing" | "siClosing" | "amsDeadline" | "isfDeadline"
+        /**
+         * The date the cut-off had when it was dismissed (YYYY-MM-DD): it stays dismissed while it keeps this date.
+         */
+        cutoffDate: string
+
+        reason: string
+        dismissedByName: string
+        dismissedAt: string
+    }
+
     export interface DailyRow {
         date: string
         kind: DayKind
@@ -17389,6 +17674,46 @@ export namespace interfaces {
         billingCurrency: string
         totalAmount: string
         createdAt: string
+    }
+
+    /**
+     * What a hand-over of many jobs did.
+     */
+    export interface HandOverResult {
+        /**
+         * Jobs whose Handled By or Holiday Cover changed.
+         */
+        changed: number
+
+        skipped: HandOverSkipped[]
+    }
+
+    /**
+     * A job a hand-over left as it was, and why.
+     */
+    export interface HandOverSkipped {
+        shipmentId: string
+        /**
+         * "" when the job was not found.
+         */
+        jobNumber: string
+
+        why: string
+    }
+
+    /**
+     * How many active jobs name a person, for the Users page's warning before one is deactivated.
+     */
+    export interface HandledByCount {
+        /**
+         * Active jobs with this e-mail in Handled By.
+         */
+        handledBy: number
+
+        /**
+         * Active jobs with this e-mail in Holiday Cover.
+         */
+        covers: number
     }
 
     /**
@@ -18792,6 +19117,44 @@ export namespace interfaces {
 
     export type LtlTripKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN"
 
+    export interface ManagersAuditList {
+        /**
+         * The newest first, at most 200.
+         */
+        rows: ManagersAuditRow[]
+
+        /**
+         * True when there were more than listed.
+         */
+        capped: boolean
+    }
+
+    /**
+     * A row of the audit line's drill-down: one thing that happened on a job.
+     */
+    export interface ManagersAuditRow {
+        shipmentId: string
+        /**
+         * The job as it is called now; a deleted job keeps its number here.
+         */
+        jobNumber: string
+
+        /**
+         * Who did it, by e-mail; "" when the user is no longer known.
+         */
+        who: string
+
+        /**
+         * ISO time.
+         */
+        at: string
+
+        /**
+         * What happened, in a line.
+         */
+        what: string
+    }
+
     export interface MarginFloor {
         /**
          * 0..100, default 8
@@ -19266,6 +19629,21 @@ export namespace interfaces {
     export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit"
 
     /**
+     * What a manager's nudge left on the job.
+     */
+    export interface NudgeResult {
+        /**
+         * The to-do on the job's Notes To-Do tab.
+         */
+        note: ShipmentNoteItem
+
+        /**
+         * Who the chat line tagged (their e-mails), so it is under their bell: the job's Handled By and Holiday Cover, as far as they are users.
+         */
+        told: string[]
+    }
+
+    /**
      * The containers an ocean tariff prices: dry 20', 40' and 40' high cube; reefer 20' and 40' high cube.
      */
     export type OceanEquipment = "20DC" | "40DC" | "40HC" | "20RF" | "40RF"
@@ -19551,6 +19929,35 @@ export namespace interfaces {
     }
 
     /**
+     * The audit line: the company's last `days` days, whatever mode, direction or person the page is narrowed to.
+     */
+    export interface OpsCockpitAudit {
+        days: number
+        /**
+         * Every key whose part could be read, 0 for none; a key that is missing was not read and is named in `notKnown`.
+         */
+        items: OpsCockpitAuditItem[]
+    }
+
+    /**
+     * One figure of the audit line: how often something a manager wants to know of happened.
+     */
+    export interface OpsCockpitAuditItem {
+        /**
+         * prepayment_release | own_credit_check | own_document_approval | deleted | cancelled | tick_taken_back |
+         * ata_atd_changed | warehouse_received_moved | handled_by_changed | requests_decided | handed_over |
+         * cutoff_dismissed | release_requests_decided. The key GET /shipments/managers-audit lists the rows of.
+         */
+        key: string
+
+        count: number
+        /**
+         * Only on requests_decided and release_requests_decided, from 10 decided: the share approved, 0-1. Close to 1 is a rubber stamp.
+         */
+        approvalRate?: number
+    }
+
+    /**
      * Which jobs the cockpit counts by their Trade Direction.
      */
     export type OpsCockpitDirection = "all" | "import" | "export" | "domestic"
@@ -19598,7 +20005,49 @@ export namespace interfaces {
          * Active jobs where this person is the Holiday Cover.
          */
         covers: number
+
+        /**
+         * Their active jobs by how they travel (lib/trackingEvents freightKindOf): the four add up to `active`.
+         */
+        byMode: {
+            sea: number
+            air: number
+            rail: number
+            road: number
+        }
+
+        /**
+         * Open to-dos past their day on the jobs they handle; null when the to-dos could not be read.
+         */
+        todosLate: number | null
+
+        /**
+         * @mentions of this person they have not read for 4 office hours or longer, on the jobs they handle or cover; null when not known.
+         */
+        mentionsUnread: number | null
+
+        /**
+         * Their jobs carrying a "Not touched since …" tag; null when the jobs' last touches could not be read.
+         */
+        notTouched: number | null
+
+        /**
+         * The oldest day one of their covers was set (YYYY-MM-DD); null when they cover nothing, or when that is not known.
+         */
+        coversSince: string | null
+
+        /**
+         * More active jobs than 1.5 times the median of the people with at least one - said only among three such people or more, and never of "nobody".
+         */
+        highLoad: boolean
     }
+
+    /**
+     * Whose jobs the cockpit counts: everyone's, or those handled by the users who report to the caller
+     * (Settings → Users, "Reports to") - and, with them, those whose Handled By is no user of the company:
+     * a report who was deactivated reports to nobody any more, and their jobs are every manager's to see.
+     */
+    export type OpsCockpitReports = "all" | "mine"
 
     /**
      * A row of a cockpit card: one active job - or a Master Job with no house yet - with everything that asks for a manager's look.
@@ -19686,8 +20135,8 @@ export namespace interfaces {
          * Per signal family (the `kind` of a tag: owner, not_user, cutoff, booking, cargo_ready, departure, arrival,
          * free_time, customs, paperwork, dangerous, bl, arrival_notice, delivery, warehouse, road, air,
          * request, import_instructions, remeasurement, status_stuck, credit, master_job, tracking,
-         * billing, customer_told): how many rows carry at least one tag of it, after the filters. Every
-         * family is there, 0 for none.
+         * billing, customer_told, todo, mention, not_touched): how many rows carry at least one tag of
+         * it, after the filters. Every family is there, 0 for none.
          */
         signals: { [key: string]: number }
     }
@@ -22448,6 +22897,77 @@ export namespace interfaces {
     }
 
     /**
+     * A request to release a job the prepayment stop holds, as the screens show it. Approving releases nothing: an
+     * approved request is a pass for that job and that release - the release then goes through for whoever on the
+     * job makes it, once, while the pass is good (`usable`, `validUntil`).
+     */
+    export interface ReleaseRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        what: ReleaseRequestWhat
+        /**
+         * Why the one asking wants it released.
+         */
+        reason: string
+
+        /**
+         * closed: the job was released another way - while the request still waited (nobody answered it), or before its approval was used.
+         */
+        status: "pending" | "approved" | "rejected" | "closed"
+
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        /**
+         * "" while pending, and on a request closed while it waited. One closed after it was approved keeps who approved it.
+         */
+        decidedByName: string
+
+        /**
+         * null while pending, and on a request closed while it waited. One closed after it was approved keeps when.
+         */
+        decidedAt: string | null
+
+        /**
+         * The manager's reason, required either way: to release all the same (approved), or why not (rejected). Closed: "Released without it".
+         */
+        comment: string
+
+        answerSeenAt: string | null
+        /**
+         * When the approval was used for the release; null while it was not.
+         */
+        usedAt: string | null
+
+        /**
+         * Who released with it (their e-mail); "" while it was not used.
+         */
+        usedByName: string
+
+        /**
+         * Approved: until when it can be used (7 days from the decision). null otherwise.
+         */
+        validUntil: string | null
+
+        /**
+         * Approved, not used and not run out: the release goes through now. Worked out when the answer was made.
+         */
+        usable: boolean
+
+        /**
+         * Closed: when the job was released another way. null otherwise.
+         */
+        closedAt: string | null
+    }
+
+    /**
+     * What a release request asks to be released: the House BoL, or the cargo from the warehouse (Warehouse Released).
+     */
+    export type ReleaseRequestWhat = "house_bol" | "warehouse"
+
+    /**
      * A shipment's last accepted remeasurement (Cargo Details → Accept remeasurement): the figures the
      * shipment held before and took over, when and by whom, and Costs Breakdown's check after it.
      */
@@ -24136,15 +24656,26 @@ export namespace interfaces {
          */
         handledBy: string | null
 
+        /**
+         * "mine": only the jobs handled by the users who report to the caller, and those whose Handled By is not a user - tiles, cards and `people` alike.
+         */
+        reports: OpsCockpitReports
+
         tiles: OpsCockpitTiles
         urgent: OpsCockpitList
         attention: OpsCockpitList
         /**
          * Everyone named in Handled By on an active job of the chosen mode and direction (NOT narrowed
          * by handledBy: the page picks a person from it), the most active first; "" (nobody) is among
-         * them when it has jobs.
+         * them when it has jobs. Somebody who only covers jobs is there too, with `active` 0. With
+         * `reports` "mine": only the users who report to the caller, and whoever is not a user.
          */
         people: OpsCockpitPerson[]
+
+        /**
+         * The audit line; null when none of it could be read (then `notKnown` says so).
+         */
+        audit: OpsCockpitAudit | null
 
         /**
          * True when the company has more active jobs than were read (COCKPIT_JOB_LIMIT, the newest): the counts cover only those read.

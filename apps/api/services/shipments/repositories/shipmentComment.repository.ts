@@ -1,4 +1,4 @@
-import { eq, and, isNull, asc, desc, sql } from "drizzle-orm";
+import { eq, and, gt, inArray, isNull, ne, or, asc, desc, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentCommentTable, type ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
@@ -102,6 +102,35 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
       )
       .orderBy(desc(shipmentCommentTable.createdAt))
       .limit(100);
+  }
+
+  /**
+   * The chat lines of these shipments that tag one of `userIds` who has not opened that chat since
+   * (no read mark, or an older one - as unreadMentions counts for the bell): one row per line and
+   * tagged user. For Shipments → Managers' "@mention unread" (lib/managersCockpitTeam), which asks
+   * about the jobs' Handled By and Holiday Cover only - `userIds` are theirs. A line that tags its
+   * own writer (a notice the app posts in the name of who caused it) is left out: nobody is waited
+   * for to read what they did themselves. So is a line its writer crossed out: it asks nothing any more.
+   *
+   * The lines are found by the shipments (shipment_id) and kept only when they tag somebody; each
+   * tag is then looked up in the read marks by its unique (user_id, shipment_id).
+   */
+  async unreadMentionsByShipmentIds(shipmentIds: readonly string[], companyId: string, userIds: readonly string[]): Promise<{ shipmentId: string; userId: string; createdAt: Date }[]> {
+    if (shipmentIds.length === 0 || userIds.length === 0) return [];
+    const c = shipmentCommentTable;
+    const r = shipmentCommentReadTable;
+    // One row per tag of a line: the tagged user beside the line. Named apart from the read mark's
+    // user_id: the column is written without its table, and two of one name would be one too many.
+    const tagged = this.db
+      .select({ shipmentId: c.shipmentId, createdAt: c.createdAt, authorId: c.authorId, userId: sql<string>`unnest(${c.mentionedUserIds})`.as("tagged_user_id") })
+      .from(c)
+      .where(and(eq(c.companyId, companyId), inArray(c.shipmentId, [...shipmentIds]), isNull(c.deletedAt), isNull(c.struckAt), sql`cardinality(${c.mentionedUserIds}) > 0`))
+      .as("tagged");
+    return this.db
+      .select({ shipmentId: tagged.shipmentId, userId: tagged.userId, createdAt: tagged.createdAt })
+      .from(tagged)
+      .leftJoin(r, and(eq(r.companyId, companyId), eq(r.shipmentId, tagged.shipmentId), eq(r.userId, tagged.userId)))
+      .where(and(inArray(tagged.userId, [...userIds]), ne(tagged.authorId, tagged.userId), or(isNull(r.readAt), gt(tagged.createdAt, r.readAt))));
   }
 
   // When a colleague (anyone but the given user) last opened this shipment's chat.

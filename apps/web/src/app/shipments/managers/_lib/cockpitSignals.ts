@@ -70,7 +70,7 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     key: "request",
     kinds: ["request"],
     label: "Waiting for approval",
-    hint: "A change of Customs Office or of an approved document waiting for approval for more than a working day, or at all on a Customs urgent job",
+    hint: "A change of Customs Office or of an approved document waiting for approval for more than a working day (or at all on a Customs urgent job), or a request to release a job before payment waiting for more than a working day",
     note: "They are answered on the Approvals tab.",
   },
   // Its own kind: "Nobody in Handled By" is `owner`, and has the list tile that opens those jobs.
@@ -80,6 +80,19 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     label: "Handled By is not a user",
     hint: "Handled By names somebody who is not an active user of the company",
     figure: "handledByNotUser",
+  },
+  // Step 3: what people left undone. Two kinds on one tile - a row with both is counted once.
+  {
+    key: "todo",
+    kinds: ["todo", "mention"],
+    label: "To-dos and @mentions",
+    hint: "A to-do past its day, or an @mention the job's Handled By or Holiday Cover has not read for 4 office hours or longer",
+  },
+  {
+    key: "not_touched",
+    kinds: ["not_touched"],
+    label: "Not touched",
+    hint: "No change, chat line, to-do, task tick or tracking event for 5 working days (air: 3), on a job with nothing urgent",
   },
 ];
 
@@ -172,6 +185,21 @@ export const CARD_TAG_LIMIT = 4;
 export function tagsShown<T extends Pick<Tag, "kind">>(tags: readonly T[], family: SignalFamily | null, limit = Infinity): { shown: T[]; more: T[] } {
   const ordered = family ? [...tags.filter(isOf(family)), ...tags.filter((t) => !isOf(family)(t))] : [...tags];
   return { shown: ordered.slice(0, limit), more: ordered.slice(limit) };
+}
+
+/** What the cards and the Team table say when the answer could not be loaded. */
+export const LOAD_FAILED = "Could not load Operations.";
+
+/**
+ * Why the load failed, in words for the page. The server's own words when it says it cannot
+ * answer just now (code "unavailable": with "My reports" on and the users unreadable it says who
+ * reports to whom could not be read - an empty page would read as "nobody has anything");
+ * anything else - no connection, a fault - is the page's plain line.
+ */
+export function loadFailedText(error: unknown): string {
+  if (typeof error !== "object" || error === null) return LOAD_FAILED;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  return code === "unavailable" && typeof message === "string" && message.trim() ? message.trim() : LOAD_FAILED;
 }
 
 /**

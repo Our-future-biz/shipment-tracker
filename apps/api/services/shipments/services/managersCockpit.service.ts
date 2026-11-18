@@ -1,11 +1,14 @@
+import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { businessDay } from "../../../lib/businessDate";
-import type { OpsCockpitDirection, OpsCockpitMode, ShipmentsManagersCockpit } from "../interfaces/interfaces";
-import { COCKPIT_JOB_LIMIT } from "../lib/cockpitThresholds";
+import type { OpsCockpitDirection, OpsCockpitMode, OpsCockpitReports, ShipmentsManagersCockpit } from "../interfaces/interfaces";
+import { COCKPIT_JOB_LIMIT, COCKPIT_READS_AT_ONCE } from "../lib/cockpitThresholds";
+import { jobsWithMissedCutoff, withoutDismissed } from "../lib/cutoffDismissals";
 import {
   COCKPIT_EVENT_KINDS,
   boxesWanted,
   buildOpsCockpit,
+  opsDay,
   timelineFactsOf,
   type CockpitBox,
   type OpsCockpitJob,
@@ -14,13 +17,17 @@ import {
   type TimelineEvent,
   type TimelineFacts,
 } from "../lib/managersCockpit";
+import { NO_TEAM_FACTS } from "../lib/managersCockpitTeam";
+import { readLimiter } from "../lib/readLimiter";
 import { CLOCK_EVENT_KINDS } from "../lib/detentionClock";
-import { userEmails } from "../lib/userEmails";
 import { containerRepository } from "../repositories/container.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { companyHolidays } from "./companyHolidays";
+import { DISMISSALS_NOT_KNOWN, cutoffDismissalsOf } from "./cutoffDismissal.service";
+import { AUDIT_PARTS, managersAuditLine } from "./managersCockpitAudit.service";
 import { extraSignals } from "./managersCockpitExtra.service";
+import { cockpitUsers, teamFacts } from "./managersCockpitTeam.service";
 import { attentionFactsOf } from "./trackingAttention.service";
 
 export interface OpsCockpitFilters {
@@ -28,7 +35,14 @@ export interface OpsCockpitFilters {
   direction: OpsCockpitDirection;
   /** An e-mail, "nobody", or null for everyone. */
   handledBy: string | null;
+  /** "mine": only the jobs handled by the users who report to `userId`. */
+  reports: OpsCockpitReports;
+  /** Who asks: "My reports" is counted from them. */
+  userId: string;
 }
+
+/** Why "My reports" is not answered when the users could not be read: who reports to whom is theirs to say, and an empty page would read as "nobody has anything". */
+export const REPORTS_NOT_KNOWN = "Who reports to you could not be read just now: try again in a moment";
 
 /** What the page shows after "Not known right now:" for a part of this file's own that could not be read. */
 export const NOT_KNOWN = {
@@ -36,6 +50,8 @@ export const NOT_KNOWN = {
   boxes: "containers without free time",
   // Everything services/managersCockpitExtra.service reads, when it fails as a whole.
   extra: "documents, customs, requests, Import Instructions, remeasurements and Master Jobs",
+  // Everything services/managersCockpitTeam.service reads, when it fails as a whole (each of its parts is named by itself otherwise).
+  team: "to-dos, @mentions, release requests, jobs nobody touched and Holiday Covers",
 } as const;
 
 /** The jobs' tracking events both the boxes' free time clocks and the timeline rules go by: one read for the two. */
@@ -79,30 +95,55 @@ async function boxesOf(jobs: readonly OpsCockpitJob[], companyId: string, today:
 // by the pure rules of lib/managersCockpit on one `now`. It only reads. The jobs and Needs
 // Attention's facts are the answer itself: it fails without them. Every part added in step 2 may
 // fail on its own - it then gives no signal and the answer names it (`notKnown`, `holidaysKnown`).
+//
+// Step 3 adds, beside them and each failing on its own in the same way: what the people around
+// the jobs left (services/managersCockpitTeam.service, at most five statements), the missed
+// cut-offs a manager dismissed (services/cutoffDismissal.service, one statement, and none when no
+// job has a missed cut-off), and the audit line (services/managersCockpitAudit.service: six
+// statements when it is read, none while a line read within the last minutes is kept). The
+// users are read once and with whom each reports to - "My reports" is the one thing here that
+// cannot be answered without them, and is refused then.
+//
+// The page asks every minute and the pool has ten connections (lib/db/pool), so every statement
+// of one answer - this file's own and those of the readers it calls, which are handed the limiter -
+// goes through one limiter (lib/readLimiter): COCKPIT_READS_AT_ONCE at a time, not all thirty.
 class ManagersCockpitService {
   async cockpit(companyId: string, filters: OpsCockpitFilters, now = new Date()): Promise<ShipmentsManagersCockpit> {
     const today = businessDay(now);
     const [rows, users, uploaded] = await Promise.all([
       // One more than counted, so "capped" means some were left out.
       shipmentRepository.managersCockpitRows(companyId, COCKPIT_JOB_LIMIT + 1),
-      userEmails(),
+      cockpitUsers(),
       companyHolidays(companyId, today),
     ]);
+    if (filters.reports === "mine" && !users) throw APIError.unavailable(REPORTS_NOT_KNOWN);
     const jobs: OpsCockpitJob[] = rows.slice(0, COCKPIT_JOB_LIMIT);
     const ids = jobs.map((j) => j.id);
     const extraHolidays = uploaded ?? [];
+    const emailOf = users && new Map(users.map((u) => [u.id, u.email]));
+    // Every statement from here on goes through the one limiter, in the order it is asked for.
+    const run = readLimiter(COCKPIT_READS_AT_ONCE);
     // The events are read once, for the timeline rules and for Needs Attention's free time clocks.
     // The timeline may fail on its own; the clocks are part of the answer itself: when the one read
     // failed they are asked for again, by themselves, and the answer fails only if that fails too.
-    const events = part(NOT_KNOWN.timeline, () => shipmentTrackingEventRepository.ofKinds(ids, companyId, EVENT_KINDS));
-    const clockEvents = events.then((rows) => (rows ? rows.filter(isOfKinds(CLOCK_EVENT_KINDS)) : shipmentTrackingEventRepository.ofKinds(ids, companyId, CLOCK_EVENT_KINDS)));
-    const [facts, moved, timeline, boxes, extra] = await Promise.all([
-      attentionFactsOf(jobs, companyId, today, clockEvents),
-      shipmentRepository.dateMovedLately(companyId, ids),
+    const events = part(NOT_KNOWN.timeline, () => run(() => shipmentTrackingEventRepository.ofKinds(ids, companyId, EVENT_KINDS)));
+    const clockEvents = events.then((rows) => (rows ? rows.filter(isOfKinds(CLOCK_EVENT_KINDS)) : run(() => shipmentTrackingEventRepository.ofKinds(ids, companyId, CLOCK_EVENT_KINDS))));
+    const [facts, moved, timeline, boxes, extra, team, dismissed, audit] = await Promise.all([
+      attentionFactsOf(jobs, companyId, today, clockEvents, run),
+      run(() => shipmentRepository.dateMovedLately(companyId, ids)),
       events.then((rows) => rows && timelineOf(rows)),
-      part(NOT_KNOWN.boxes, () => boxesOf(jobs, companyId, today)),
+      part(NOT_KNOWN.boxes, () => run(() => boxesOf(jobs, companyId, today))),
       // It answers for its own parts; this catches what it could not: then none of it is known.
-      part(NOT_KNOWN.extra, () => extraSignals(jobs, { companyId, now, today, holidays: extraHolidays })),
+      part(NOT_KNOWN.extra, () => extraSignals(jobs, { companyId, now, today, holidays: extraHolidays, run })),
+      // The same: each of its parts fails by itself, this catches the rest.
+      part(NOT_KNOWN.team, () => teamFacts(jobs, { companyId, now, today, holidays: extraHolidays, users, run })),
+      // Only a missed cut-off can have been dismissed: the jobs with one are asked about, and with none nothing is read.
+      part(DISMISSALS_NOT_KNOWN, () => run(() => cutoffDismissalsOf(companyId, jobsWithMissedCutoff(jobs, opsDay(now, extraHolidays))))),
+      // The company's, whatever the page is narrowed to. It names what it could not read itself.
+      managersAuditLine(companyId, now, emailOf, run).catch((err) => {
+        log.warn(err, "a part of Shipments → Managers could not be read", { part: AUDIT_PARTS.all });
+        return { audit: null, notKnown: [AUDIT_PARTS.all] };
+      }),
     ]);
     const extraByJob: ReadonlyMap<string, readonly OpsSignal[]> = extra?.byJob ?? new Map();
     const masterJobRows: readonly OpsMasterJobRow[] = extra?.masterJobRows ?? [];
@@ -112,16 +153,31 @@ class ManagersCockpitService {
       timeline,
       boxes,
       movedIds: new Set(moved),
-      // userEmails gives an empty map when the users could not be read, and a company always has
-      // the user asking: empty is "not known", never "nobody is a user".
-      userEmails: users.size > 0 ? new Set([...users.values()].map((email) => email.trim().toLowerCase())) : null,
+      userEmails: users && new Set(users.map((u) => u.email)),
       holidays: extraHolidays,
       holidaysKnown: uploaded !== null,
       extraByJob,
       masterJobRows,
-      notKnown: [...(timeline ? [] : [NOT_KNOWN.timeline]), ...(boxes ? [] : [NOT_KNOWN.boxes]), ...(extra ? extra.notKnown : [NOT_KNOWN.extra])],
+      team: team ?? NO_TEAM_FACTS,
+      // A dismissed cut-off gives no tag while its date stands (lib/cutoffDismissals). When the
+      // dismissals could not be read nothing is treated as dismissed: a tag too many, never one too few.
+      cutoffsKept: (jobId, cutoffs) => withoutDismissed(cutoffs, dismissed?.get(jobId)),
+      audit: audit.audit,
+      notKnown: [
+        ...(timeline ? [] : [NOT_KNOWN.timeline]),
+        ...(boxes ? [] : [NOT_KNOWN.boxes]),
+        ...(extra ? extra.notKnown : [NOT_KNOWN.extra]),
+        ...(team ? team.notKnown : [NOT_KNOWN.team]),
+        ...(dismissed ? [] : [DISMISSALS_NOT_KNOWN]),
+        ...audit.notKnown,
+      ],
       capped: rows.length > COCKPIT_JOB_LIMIT,
-      ...filters,
+      mode: filters.mode,
+      direction: filters.direction,
+      handledBy: filters.handledBy,
+      reports: filters.reports,
+      // Whoever names the caller in "Reports to". Read only for "mine", which is refused above without the users.
+      reportEmails: users && new Set(users.filter((u) => u.reportsToUserId === filters.userId).map((u) => u.email)),
       now,
     });
   }

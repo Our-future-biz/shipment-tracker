@@ -1,0 +1,117 @@
+import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import { companyUsers, requireUserEmail, type CompanyUser } from "../../../lib/companyUsers";
+import type { Actor } from "../../../lib/rbac";
+import { isUuid } from "../../../lib/uuid";
+import type { HandOverResult, HandOverSkipped } from "../interfaces/interfaces";
+import {
+  ALREADY_SO,
+  HAND_OVER_FIELD,
+  HAND_OVER_MAX_IDS_SENT,
+  HAND_OVER_MAX_JOBS,
+  JOB_NOT_FOUND,
+  MAX_HAND_OVER_REASON,
+  MIN_HAND_OVER_REASON,
+  handOverChange,
+  handOverLine,
+  type HandOverTarget,
+} from "../lib/handOver";
+import { PERSON_FIELDS } from "../lib/people";
+import { shipmentRepository } from "../repositories/shipment.repository";
+import { shipmentService } from "./shipment.service";
+
+/** What a hand-over asks for, as the request sends it. */
+export interface HandOverInput {
+  shipmentIds: string[];
+  /** The new Handled By (a user's e-mail); left out or "" leaves Handled By as it is - a hand-over never leaves a job with nobody. */
+  handledBy?: string;
+  /** The new Holiday Cover (a user's e-mail), or "" to clear it; left out leaves it as it is. */
+  holidayCover?: string;
+  reason: string;
+}
+
+// Jobs changed side by side: each is its own write turn on its own row, so they do not wait for
+// one another - and 200 one after another would keep the manager waiting.
+const AT_ONCE = 5;
+
+// Handing many jobs over (lib/handOver). Managers only: the endpoint checks the role (requireRole)
+// and hands the manager over as `actor`.
+class HandOverService {
+  /**
+   * Changes Handled By and / or Holiday Cover on each job through the shipment service's update, as
+   * the manager - the very write an edit of the two fields on the job makes, so its checks, its
+   * history lines and the bell of whoever now covers the job are the same - with one more history
+   * line, in the same write turn, saying it was a hand-over and why. A job that can't be changed is
+   * left as it is and named with the reason; the others go on.
+   */
+  async handOver(actor: Actor, input: HandOverInput): Promise<HandOverResult> {
+    const reason = (input.reason ?? "").trim();
+    const sent = Array.isArray(input.shipmentIds) ? input.shipmentIds : [];
+    const tooMany = `At most ${HAND_OVER_MAX_JOBS} jobs can be handed over at once`;
+    // Bounded as sent, before anything is done with the list: a job named over and over is not a way past the cap.
+    if (sent.length > HAND_OVER_MAX_IDS_SENT) throw APIError.invalidArgument(tooMany);
+    const ids = [...new Set(sent)];
+    if (ids.length === 0) throw APIError.invalidArgument("Choose at least one job to hand over");
+    if (ids.length > HAND_OVER_MAX_JOBS) throw APIError.invalidArgument(tooMany);
+    if (reason.length < MIN_HAND_OVER_REASON) throw APIError.invalidArgument("Say why the jobs are handed over");
+    if (reason.length > MAX_HAND_OVER_REASON) throw APIError.invalidArgument(`The reason is too long (at most ${MAX_HAND_OVER_REASON} characters)`);
+    const givesHandledBy = !!(input.handledBy ?? "").trim();
+    const givesCover = input.holidayCover !== undefined;
+    if (!givesHandledBy && !givesCover) throw APIError.invalidArgument("Choose a new Handled By, a Holiday Cover, or both");
+
+    // The people are checked once, by the rule the single edit uses: a name that is no user of the
+    // company refuses the whole hand-over, rather than every job one by one.
+    const users = await this.users();
+    const target: HandOverTarget = {
+      handledBy: givesHandledBy ? requireUserEmail(input.handledBy, PERSON_FIELDS.personInCharge, users) : null,
+      holidayCover: givesCover ? requireUserEmail(input.holidayCover, PERSON_FIELDS.holidayCover, users) : null,
+    };
+
+    const skipped: HandOverSkipped[] = [];
+    let changed = 0;
+    const queue = [...ids];
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        const outcome = await this.one(actor, id, target, reason);
+        if (outcome === null) changed++;
+        else skipped.push({ shipmentId: id, ...outcome });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(AT_ONCE, ids.length) }, worker));
+    // In the order they were asked for, whichever finished first.
+    skipped.sort((a, b) => ids.indexOf(a.shipmentId) - ids.indexOf(b.shipmentId));
+    return { changed, skipped };
+  }
+
+  // One job: null when it was changed, else why it was left as it is. Never throws.
+  private async one(actor: Actor, id: string, target: HandOverTarget, reason: string): Promise<{ jobNumber: string; why: string } | null> {
+    let jobNumber = "";
+    try {
+      const job = isUuid(id) ? await shipmentRepository.getByIdForCompany(id, actor.companyID) : null;
+      if (!job) return { jobNumber, why: JOB_NOT_FOUND };
+      jobNumber = job.jobNumber ?? "";
+      const change = handOverChange(job, target);
+      if (!change) return { jobNumber, why: ALREADY_SO };
+      await shipmentService.update(id, actor.companyID, change, actor.userID, actor.role, undefined, undefined, {
+        history: [{ field: HAND_OVER_FIELD, oldValue: null, newValue: handOverLine(job, change, reason) }],
+      });
+      return null;
+    } catch (err) {
+      // A refusal of the edit itself is the reason as the job's own page would give it.
+      if (err instanceof APIError) return { jobNumber, why: err.message };
+      log.error(err, "hand-over: a job could not be changed", { shipmentId: id });
+      return { jobNumber, why: "Could not be changed just now: try this job again" };
+    }
+  }
+
+  private async users(): Promise<CompanyUser[]> {
+    try {
+      return await companyUsers();
+    } catch (err) {
+      log.warn(err, "hand-over: the company's users could not be read");
+      throw APIError.unavailable("The company's users could not be read just now - try again in a moment");
+    }
+  }
+}
+
+export const handOverService = new HandOverService();

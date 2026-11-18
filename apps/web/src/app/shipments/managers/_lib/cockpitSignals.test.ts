@@ -4,9 +4,11 @@ import { shipmentsManagersHref } from "./cockpitAddress";
 import {
   CARD_TAG_LIMIT,
   SIGNAL_FAMILIES,
+  LOAD_FAILED,
   figureText,
   hasSignal,
   listWithSignal,
+  loadFailedText,
   notKnownText,
   signalFigure,
   signalOf,
@@ -43,6 +45,9 @@ const SERVER_KINDS = [
   "tracking",
   "billing",
   "customer_told",
+  "todo",
+  "mention",
+  "not_touched",
 ];
 
 const family = (key: string): SignalFamily => {
@@ -83,7 +88,7 @@ const tiles = (signals: Record<string, number>, over: Partial<OpsCockpitTiles> =
 });
 
 describe("Shipments → Managers: the signal tiles", () => {
-  it("draws nine, in the order agreed", () => {
+  it("draws eleven, in the order agreed: step 3's two come last", () => {
     expect(SIGNAL_FAMILIES.map((f) => f.label)).toEqual([
       "Cut-offs due or missed",
       "Booking at risk",
@@ -94,7 +99,25 @@ describe("Shipments → Managers: the signal tiles", () => {
       "Departure and arrival late",
       "Waiting for approval",
       "Handled By is not a user",
+      "To-dos and @mentions",
+      "Not touched",
     ]);
+  });
+
+  it("puts late to-dos and unread @mentions on one tile, and the jobs nobody touched on their own", () => {
+    expect(family("todo").kinds).toEqual(["todo", "mention"]);
+    expect(family("not_touched").kinds).toEqual(["not_touched"]);
+    // Counted over the cards' rows and by the server's own count: neither has a figure of a narrower rule.
+    expect(family("todo").figure).toBeUndefined();
+    expect(family("not_touched").figure).toBeUndefined();
+  });
+
+  it("says Waiting for approval counts a request to release before payment too - and not what approving one does", () => {
+    const request = family("request");
+    expect(request.hint).toContain("a request to release a job before payment");
+    expect(request.note).toBe("They are answered on the Approvals tab.");
+    // Approving gives the job a pass; the release is made afterwards. Nothing here says otherwise.
+    for (const text of [request.hint, request.note ?? ""]) expect(text).not.toMatch(/approving|releases the job/i);
   });
 
   it("holds only kinds the server gives, each in one family, under a key that is one of its kinds", () => {
@@ -154,6 +177,12 @@ describe("Shipments → Managers: the signal in the address", () => {
     expect(signalOf("road")?.key).toBe("delivery");
     expect(signalOf("warehouse")?.key).toBe("delivery");
     expect(signalOf("arrival")?.key).toBe("departure");
+  });
+
+  it("reads an @mention as To-dos and @mentions, and Not touched by its own key", () => {
+    expect(signalOf("todo")?.key).toBe("todo");
+    expect(signalOf("mention")?.key).toBe("todo");
+    expect(signalOf("not_touched")?.key).toBe("not_touched");
   });
 
   it("is no filter for a kind that has no tile", () => {
@@ -268,6 +297,23 @@ describe("Shipments → Managers: a signal tile's figure", () => {
     expect(signalFigure(family("departure"), cockpit)).toEqual({ count: 20, atLeast: false });
   });
 
+  it("counts a job with a late to-do and an unread @mention once on To-dos and @mentions", () => {
+    const urgent = whole([row("todo", "mention"), row("mention")]);
+    const attention = whole([row("todo"), row("not_touched"), row("cutoff")]);
+    // Per kind the server says todo 2, mention 2: four tags' worth on three rows.
+    const cockpit = { tiles: tiles({ todo: 2, mention: 2, not_touched: 1 }), urgent, attention };
+    expect(signalFigure(family("todo"), cockpit)).toEqual({ count: 3, atLeast: false });
+    expect(signalFigure(family("not_touched"), cockpit)).toEqual({ count: 1, atLeast: false });
+    expect(listWithSignal(attention, family("todo")).rows).toHaveLength(1);
+    expect(listWithSignal(attention, family("not_touched")).rows).toHaveLength(1);
+  });
+
+  it("reads step 3's kinds as none in an answer from before step 3", () => {
+    const cockpit = { tiles: tiles({ cutoff: 2 }), urgent: empty, attention: empty };
+    expect(signalFigure(family("todo"), cockpit)).toEqual({ count: 0, atLeast: false });
+    expect(signalFigure(family("not_touched"), cockpit)).toEqual({ count: 0, atLeast: false });
+  });
+
   it("reads a kind the answer does not hold as none", () => {
     expect(signalFigure(family("request"), { tiles: tiles({}), urgent: empty, attention: empty })).toEqual({ count: 0, atLeast: false });
   });
@@ -326,6 +372,28 @@ describe("Shipments → Managers: the tags a row shows", () => {
   it("keeps a family's own tags in the server's order", () => {
     const mixed = [tag("customs"), tag("road", true, "first"), tag("billing"), tag("delivery", false, "second")];
     expect(tagsShown(mixed, family("delivery")).shown.map((t) => t.text)).toEqual(["first", "second", "customs", "billing"]);
+  });
+});
+
+describe("Shipments → Managers: a load that failed", () => {
+  it("says the server's own words when it cannot answer just now: My reports with the users unreadable", () => {
+    const said = "Who reports to you could not be read just now: try again in a moment";
+    expect(loadFailedText({ code: "unavailable", message: said })).toBe(said);
+    // As the client throws it: an Error with a code.
+    expect(loadFailedText(Object.assign(new Error(said), { code: "unavailable", status: 503 }))).toBe(said);
+  });
+
+  it("says its plain line for anything else - a fault's own words are not for the page", () => {
+    expect(loadFailedText({ code: "internal", message: "an internal error occurred" })).toBe(LOAD_FAILED);
+    expect(loadFailedText({ code: "unknown", message: "request failed: status 502" })).toBe(LOAD_FAILED);
+    expect(loadFailedText({ code: "permission_denied", message: "Managers only" })).toBe(LOAD_FAILED);
+    expect(loadFailedText(new TypeError("Failed to fetch"))).toBe(LOAD_FAILED);
+    expect(loadFailedText({ code: "unavailable", message: "  " })).toBe(LOAD_FAILED);
+    expect(loadFailedText({ code: "unavailable" })).toBe(LOAD_FAILED);
+    expect(loadFailedText(null)).toBe(LOAD_FAILED);
+    expect(loadFailedText(undefined)).toBe(LOAD_FAILED);
+    expect(loadFailedText("unavailable")).toBe(LOAD_FAILED);
+    expect(LOAD_FAILED).toBe("Could not load Operations.");
   });
 });
 

@@ -1,10 +1,11 @@
 import { APIError, api, type Query } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
-import type { OpsCockpitDirection, OpsCockpitMode, ShipmentsManagersCockpit } from "../interfaces/interfaces";
+import type { OpsCockpitDirection, OpsCockpitMode, OpsCockpitReports, ShipmentsManagersCockpit } from "../interfaces/interfaces";
 import { managersCockpitService } from "../services/managersCockpit.service";
 
 const MODES: readonly OpsCockpitMode[] = ["all", "sea", "air", "rail", "road"];
 const DIRECTIONS: readonly OpsCockpitDirection[] = ["all", "import", "export", "domestic"];
+const REPORTS: readonly OpsCockpitReports[] = ["all", "mine"];
 
 interface ShipmentManagersCockpitRequest {
   /** How the jobs travel: sea, air, rail or road; all of them when left out. */
@@ -13,6 +14,8 @@ interface ShipmentManagersCockpitRequest {
   direction?: Query<string>;
   /** One person's jobs, by the e-mail in Handled By, or "nobody" for the jobs nobody handles; everyone's when left out. */
   handledBy?: Query<string>;
+  /** "mine": only the jobs handled by the users who report to the caller (Settings → Users, "Reports to") and those whose Handled By is not a user; all when left out. */
+  reports?: Query<string>;
 }
 
 // Shipments → Managers (Council Outlay 11): what operations need from a manager today, counted
@@ -20,14 +23,19 @@ interface ShipmentManagersCockpitRequest {
 // lib/managersCockpit and lib/managersCockpitExtra, in working days of Prague time. Read-only: a
 // part that could not be read is named in the answer (`notKnown`, `holidaysKnown`) instead of
 // counting as none. For superadmins, admins and managers; the page polls it every minute.
+// "My reports" (D3) is counted from the signed-in user, never from the request.
 export const shipmentManagersCockpit = api(
   { expose: true, auth: true, method: "GET", path: "/shipments/managers-cockpit" },
-  async ({ mode, direction, handledBy }: ShipmentManagersCockpitRequest): Promise<{ cockpit: ShipmentsManagersCockpit }> => {
-    const { companyID } = requireRole("superadmin", "admin", "manager");
+  async ({ mode, direction, handledBy, reports }: ShipmentManagersCockpitRequest): Promise<{ cockpit: ShipmentsManagersCockpit }> => {
+    const { companyID, userID } = requireRole("superadmin", "admin", "manager");
     const chosenMode = MODES.find((m) => m === (mode ?? "all"));
     if (!chosenMode) throw APIError.invalidArgument(`mode must be one of ${MODES.join(", ")}`);
     const chosenDirection = DIRECTIONS.find((d) => d === (direction ?? "all"));
     if (!chosenDirection) throw APIError.invalidArgument(`direction must be one of ${DIRECTIONS.join(", ")}`);
-    return { cockpit: await managersCockpitService.cockpit(companyID, { mode: chosenMode, direction: chosenDirection, handledBy: handledBy?.trim() || null }) };
+    const chosenReports = REPORTS.find((r) => r === (reports ?? "all"));
+    if (!chosenReports) throw APIError.invalidArgument(`reports must be one of ${REPORTS.join(", ")}`);
+    return {
+      cockpit: await managersCockpitService.cockpit(companyID, { mode: chosenMode, direction: chosenDirection, handledBy: handledBy?.trim() || null, reports: chosenReports, userId: userID }),
+    };
   },
 );

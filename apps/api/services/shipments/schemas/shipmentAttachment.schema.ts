@@ -35,6 +35,8 @@ export const shipmentAttachmentTable = pgTable(
     tenantIndex("shipment_attachment", table),
     index("shipment_attachment_shipment_id_idx").on(table.shipmentId),
     index("shipment_attachment_comment_id_idx").on(table.commentId),
+    // "Documents approved for customs since a day" (Shipments → Managers' audit line: approved by their uploader): only the approved ones.
+    index("shipment_attachment_approved_reviewed_idx").on(table.companyId, table.customsReviewedAt).where(sql`customs_status = 'approved'`),
     uniqueIndex("shipment_attachment_source_ref_uq").on(table.companyId, table.shipmentId, table.sourceRef).where(sql`source_ref <> '' AND deleted_at IS NULL`),
     check("shipment_attachment_customs_status_check", sql`${table.customsStatus} IN ('', 'approved', 'declined')`),
   ],

@@ -745,6 +745,19 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, ids), isNull(shipmentTable.deletedAt)));
   }
 
+  /**
+   * The job numbers of the company's shipments among `ids`, deleted ones too: the audit line of
+   * Shipments → Managers lists what happened on a job that is gone by now as well.
+   */
+  async jobNumbersByIds(companyId: string, ids: readonly string[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map();
+    const rows = await this.db
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, [...ids])));
+    return new Map(rows.map((r) => [r.id, r.jobNumber]));
+  }
+
   async findByJobNumber(jobNumber: string, companyId: string) {
     return this.getByColumnForCompany(shipmentTable.jobNumber, jobNumber, companyId);
   }
@@ -1162,6 +1175,22 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), ACTIVE))
       .orderBy(desc(shipmentTable.createdAt), desc(shipmentTable.id))
       .limit(limit);
+  }
+
+  /**
+   * How many ACTIVE jobs name this e-mail in Handled By, and how many in Holiday Cover - the Users
+   * page's warning before a user is deactivated (D13). Handled By is matched by the list's own
+   * filter (handledByMatch), Holiday Cover the same way; `email` is a person's, lower-cased.
+   */
+  async handledByCounts(companyId: string, email: string): Promise<{ handledBy: number; covers: number }> {
+    const [row] = await this.db
+      .select({
+        handledBy: sql<number>`(count(*) FILTER (WHERE ${handledByMatch(email)!}))::int`,
+        covers: sql<number>`(count(*) FILTER (WHERE ${personEmailOf(shipmentTable.holidayCover)} = ${email}))::int`,
+      })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), ACTIVE));
+    return { handledBy: row?.handledBy ?? 0, covers: row?.covers ?? 0 };
   }
 
   /** Those of these shipments whose ETD or ETA moved lately (the list's "ETD / ETA moved" tile), by id. */

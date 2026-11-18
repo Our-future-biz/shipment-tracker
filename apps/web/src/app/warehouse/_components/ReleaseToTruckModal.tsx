@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Radio, Select } from "antd";
+import { useQueryClient } from "@tanstack/react-query";
 import { useShipments } from "@/hooks/useShipments";
+import { invalidateReleaseRequests, useReleasePasses } from "@/hooks/useReleaseRequests";
 import { HINT } from "@/styles/ui";
 import {
+  AskManagerToRelease,
   OverrideReasonField,
   PaymentNotCheckedNote,
   ReleasePaymentWarning,
@@ -12,8 +15,9 @@ import {
   useCanOverrideReleaseStop,
   useReleaseChecksState,
 } from "@/components/finance/ReleasePaymentWarning";
-import { overrideReasonOk, releaseStopLikely, releaseStopNote } from "@/lib/paymentWarnings";
+import { overrideReasonOk, PASS_CHECKING, RELEASE_ON_APPROVAL_LABEL, RELEASE_ON_APPROVAL_NOTE, releaseStopLikely, releaseStopNote } from "@/lib/paymentWarnings";
 import type { MoveOutcome } from "../_lib/moveOutcome";
+import { everyHeldOnApproval, mayBeStopped, overrideReasons, releaseStanding, type ReleaseJob } from "../_lib/releaseReasons";
 
 // Asked when shipments are released from Stock (Vyskladnit): do they leave on a new truck
 // or on one that is already being loaded? A new truck gets the next TCZ reference when the
@@ -26,6 +30,12 @@ import type { MoveOutcome } from "../_lib/moveOutcome";
 // payment could not be checked) is refused. The dialog then stays open with just the shipments not moved, names each
 // stopped job with the server's sentence, and a manager may send them again - on the same truck - with a reason.
 // When the check already says a job will be stopped, the dialog says so first, and a manager sees the reason at once.
+// A user asks a manager to release each stopped job from here (Council Outlay 11, D16). An approval releases
+// nothing: for 7 days it lets the job be released once, from this very dialog, on the truck picked here. A job
+// with such an approval is therefore not said to be stopped: it goes through on the approval - and a manager's
+// typed reason is never sent with it (_lib/releaseReasons: the reason goes only with the jobs the stop holds and
+// no approval lets through). Whether an approval stands is read when the dialog opens and every 30 seconds while
+// it is open; until it is read, "stopped", the ask button and the reason field wait.
 
 /** What a release from the dialog came to: the truck it went on (null when none could be given) and per shipment. */
 export interface TruckRelease {
@@ -41,8 +51,8 @@ export function ReleaseToTruckModal({
   /** The ticked shipments; null keeps the dialog closed. */
   shipmentIds: string[] | null;
   onClose: () => void;
-  /** Releases the shipments on the truck (null: a new one), with a manager's reason when given. */
-  onRelease: (shipmentIds: string[], truck: string | null, paymentOverrideReason?: string) => Promise<TruckRelease>;
+  /** Releases the shipments on the truck (null: a new one); a manager's reason goes with the shipments it is given for (id → reason). */
+  onRelease: (shipmentIds: string[], truck: string | null, paymentOverrideReasons?: ReadonlyMap<string, string>) => Promise<TruckRelease>;
 }) {
   const { shipments } = useShipments({ warehouse: "out" });
   const open = shipmentIds !== null;
@@ -58,8 +68,33 @@ export function ReleaseToTruckModal({
   const { shipments: inStock } = useShipments({ warehouse: "stock", enabled: open });
   const payment = useReleaseChecksState(pending, open && pending.length > 0);
   const warned = payment.items.filter((x) => x.state === "warn" && x.check);
-  // The check already says the server will stop these (prepayment, not paid): said up front, never stopped here.
-  const likelyStopped = warned.filter((x) => releaseStopLikely(x.check));
+  // What the dialog knows of each job: held for prepayment by the check (not paid), not checked, stopped by the
+  // server on the last try. The server stops these - unless a manager approved a request for the job's release
+  // and the approval can still be used: those go through on it.
+  const facts = pending.map((shipmentId) => {
+    const item = payment.items.find((x) => x.shipmentId === shipmentId);
+    return {
+      shipmentId,
+      held: item?.state === "warn" && releaseStopLikely(item.check),
+      unchecked: item?.state === "unknown",
+      stopped: stopped.some((s) => s.shipmentId === shipmentId),
+    };
+  });
+  // An approval is looked for only where something may stop the job.
+  const approvals = useReleasePasses(facts.filter(mayBeStopped).map((j) => j.shipmentId), "warehouse", open);
+  const jobs: ReleaseJob[] = facts.map((j) => ({ ...j, pass: approvals.passes.has(j.shipmentId) }));
+  const standingOf = (id: string) => {
+    const found = jobs.find((j) => j.shipmentId === id);
+    return found ? releaseStanding(found) : "free";
+  };
+  // Not read yet (for a short while only): nothing is said of "stopped" before it is.
+  const passChecking = approvals.checking;
+  // The server's stops that still stand: one whose job got its approval meanwhile goes through on it.
+  const stoppedShown = stopped.filter((x) => standingOf(x.shipmentId) === "stopped");
+  // Said up front, never stopped here.
+  const likelyStopped = passChecking ? [] : warned.filter((x) => standingOf(x.shipmentId) === "likely_stopped");
+  const onApproval = jobs.filter((j) => releaseStanding(j) === "on_approval");
+  const queryClient = useQueryClient();
   const notChecked = payment.items.filter((x) => x.state === "unknown").length;
   const jobOf = (id: string) => inStock.find((s) => s.id === id)?.jobNumber ?? "";
   const [mode, setMode] = useState<"new" | "existing">("new");
@@ -95,18 +130,24 @@ export function ReleaseToTruckModal({
   // Only while the first answers are on their way, and for a short while: never longer.
   const checking = payment.state === "checking";
   // After a stop a manager sends the stopped ones again with a reason; before it, the reason is up to them.
-  const reasonShown = manager && (stopped.length > 0 || likelyStopped.length > 0);
+  // Neither is asked for while it is not known whether an approval stands; not read at all, a job counts as not
+  // approved and the manager's own reason is the way that is left.
+  const reasonShown = manager && !passChecking && (stoppedShown.length > 0 || likelyStopped.length > 0);
   const reasonOk = overrideReasonOk(reason);
-  const needsReason = manager && stopped.length > 0 && !reasonOk;
+  const needsReason = manager && !passChecking && stoppedShown.length > 0 && !reasonOk;
 
   const release = async () => {
-    if (!open || pending.length === 0 || !ready || checking || needsReason || busy.current) return;
+    if (!open || pending.length === 0 || !ready || checking || passChecking || needsReason || busy.current) return;
     busy.current = true;
     setReleasing(true);
     const truck = truckUsed ?? (mode === "new" ? null : existing!);
-    const { truck: used, outcome } = await onRelease(pending, truck, reasonShown && reasonOk ? reason.trim() : undefined);
+    // The typed reason, per job: only with the jobs the stop holds (or may hold) and no approval lets through.
+    const reasons = reasonShown && reasonOk ? overrideReasons(jobs, reason) : undefined;
+    const { truck: used, outcome } = await onRelease(pending, truck, reasons);
     busy.current = false;
     setReleasing(false);
+    // An approval a release went through on is used now, and one that was refused after all is no longer promised.
+    invalidateReleaseRequests(queryClient);
     if (outcome.done) {
       onClose();
       return;
@@ -117,9 +158,13 @@ export function ReleaseToTruckModal({
     setStopped(outcome.stopped);
   };
 
+  // A warning that is gone past, on a job nothing else lets through: an unpaid invoice of a customer with overdue ones.
+  const warnedOnly = warned.filter((x) => standingOf(x.shipmentId) === "free");
   const okText = (() => {
     if (reasonShown && reasonOk) return "Release with a reason";
-    if (stopped.length > 0) return manager ? "Release with a reason" : "Try again";
+    if (stoppedShown.length > 0) return manager ? "Release with a reason" : "Try again";
+    // Every job the stop holds has a manager's approval: said on the button, unless another job's warning is gone past.
+    if (everyHeldOnApproval(jobs) && warnedOnly.length === 0) return RELEASE_ON_APPROVAL_LABEL;
     return warned.length > 0 ? "Release anyway" : "Release";
   })();
 
@@ -128,11 +173,11 @@ export function ReleaseToTruckModal({
       open={open}
       title="Release from warehouse"
       okText={okText}
-      cancelText={stopped.length > 0 ? "Close" : "Cancel"}
+      cancelText={stoppedShown.length > 0 ? "Close" : "Cancel"}
       width={480}
       centered
       destroyOnHidden
-      confirmLoading={releasing || checking}
+      confirmLoading={releasing || checking || passChecking}
       okButtonProps={{ disabled: !ready || count === 0 || needsReason }}
       onOk={release}
       onCancel={onClose}
@@ -175,23 +220,48 @@ export function ReleaseToTruckModal({
           </Radio.Group>
         </>
       )}
-      {(stopped.length > 0 || checking || warned.length > 0 || notChecked > 0) && (
+      {(stoppedShown.length > 0 || checking || passChecking || warned.length > 0 || notChecked > 0 || onApproval.length > 0) && (
         <div className="mt-4 flex flex-col gap-2">
           {/* What the server said of each stopped job: these were not released. */}
-          {stopped.map((x) => (
-            <ReleaseStopAlert key={x.shipmentId} message={x.stop.message} label={jobOf(x.shipmentId) || undefined} />
+          {stoppedShown.map((x) => (
+            <div key={x.shipmentId} className="flex flex-col gap-1.5">
+              <ReleaseStopAlert message={x.stop.message} label={jobOf(x.shipmentId) || undefined} />
+              <AskManagerToRelease shipmentId={x.shipmentId} what="warehouse" offer label={count > 1 ? jobOf(x.shipmentId) || undefined : undefined} />
+            </div>
           ))}
           {checking && <div className={HINT}>Checking payment…</div>}
-          {stopped.length === 0 &&
+          {stoppedShown.length === 0 &&
             warned.map((x) => <ReleasePaymentWarning key={x.shipmentId} check={x.check!} label={jobOf(x.shipmentId) || undefined} />)}
-          {stopped.length === 0 && likelyStopped.length > 0 && (
+          {/* Whether a manager approved a held job is being read: "stopped" is not said before it is known. */}
+          {!checking && passChecking && stoppedShown.length === 0 && (
+            <div className={HINT} aria-live="polite">
+              {PASS_CHECKING}
+            </div>
+          )}
+          {stoppedShown.length === 0 && likelyStopped.length > 0 && (
             <div className="text-[13px] font-medium text-red-700">
               {releaseStopNote(manager)}
               {count > 1 && ` (${likelyStopped.map((x) => jobOf(x.shipmentId) || "a shipment").join(", ")})`}
             </div>
           )}
+          {/* Approved by a manager on request: not stopped. Each job's line names who approved and until when. */}
+          {onApproval.length > 0 && (
+            <div className="text-[13px] font-medium text-emerald-700">
+              {RELEASE_ON_APPROVAL_NOTE}
+              {count > 1 && ` (${onApproval.map((x) => jobOf(x.shipmentId) || "a shipment").join(", ")})`}
+            </div>
+          )}
+          {onApproval.map((x) => (
+            <AskManagerToRelease key={x.shipmentId} shipmentId={x.shipmentId} what="warehouse" label={count > 1 ? jobOf(x.shipmentId) || undefined : undefined} />
+          ))}
+          {/* Known before the first try: asked for from here, without being refused first. One whose requests
+              could not be read says so, and is asked for all the same. */}
+          {stoppedShown.length === 0 &&
+            likelyStopped.map((x) => (
+              <AskManagerToRelease key={x.shipmentId} shipmentId={x.shipmentId} what="warehouse" offer label={count > 1 ? jobOf(x.shipmentId) || undefined : undefined} />
+            ))}
           {!checking &&
-            stopped.length === 0 &&
+            stoppedShown.length === 0 &&
             notChecked > 0 &&
             (count > 1 ? (
               <div className={HINT}>

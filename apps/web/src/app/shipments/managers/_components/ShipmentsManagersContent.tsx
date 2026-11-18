@@ -3,14 +3,14 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Alert, Select, Spin, Tabs, Tooltip } from "antd";
+import { Alert, Select, Spin, Switch, Tabs, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { XIcon } from "@phosphor-icons/react";
 import { Pill } from "@/components/Pill";
 import { PillTabs } from "@/components/SectionCard";
 import { SectionBackLink } from "@/components/SectionBackLink";
 import { StatusBadge } from "@/components/StatusBadge";
-import { CockpitCard, CockpitDialog, cockpitCards, type CockpitCardDef, type CockpitCardKey } from "@/components/cockpit/CockpitCard";
+import { CockpitCard, cockpitCards, type CockpitCardDef, type CockpitCardKey } from "@/components/cockpit/CockpitCard";
 import { CockpitLine, CockpitNote, NOTE_TONES } from "@/components/cockpit/CockpitLine";
 import { CockpitTiles, tileValue } from "@/components/cockpit/CockpitTiles";
 import { useCustomsOfficeApprovals } from "@/hooks/useCustomsOfficeRequests";
@@ -25,11 +25,16 @@ import {
   type ShipmentsManagersCockpit as Cockpit,
 } from "@/hooks/useShipmentsManagersCockpit";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { BTN, EMPTY, HINT, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
+import { HAND_OVER_MAX_JOBS, type CutoffKey } from "@/lib/managerActions";
+import { useToast } from "@/lib/toast";
+import { BTN, BTN_PRIMARY, BTN_SM, EMPTY, HINT, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { approvalsBadge } from "../_lib/approvalsBadge";
+import { cutoffsToast, handOverJob, handOverToast, hasActions, nudgeToast, type ActionToast, type CutoffsChange } from "../_lib/cockpitActions";
 import {
   EVERYONE,
   LIST_TILES,
+  MY_REPORTS_HINT,
+  NO_LIST_FOR_MY_REPORTS,
   OPS_DIRECTIONS,
   OPS_MODES,
   canOpenShipmentsManagers,
@@ -37,6 +42,7 @@ import {
   handledByOf,
   modeLabel,
   modeOf,
+  reportsOf,
   rowHref,
   shipmentsManagersHref,
   tabOf,
@@ -49,6 +55,7 @@ import {
   SIGNAL_FAMILIES,
   figureText,
   listWithSignal,
+  loadFailedText,
   notKnownText,
   signalFigure,
   signalOf,
@@ -57,15 +64,26 @@ import {
   type ShownList,
   type SignalFamily,
 } from "../_lib/cockpitSignals";
+import { AuditLine } from "./AuditLine";
 import { CustomsOfficeApprovals } from "./CustomsOfficeApprovals";
+import { DismissCutoffDialog } from "./DismissCutoffDialog";
+import { HandOverDialog } from "./HandOverDialog";
+import { JobsDialog } from "./JobsDialog";
+import { NudgeDialog } from "./NudgeDialog";
+import { ReleaseRequestApprovals, useReleaseRequestApprovals } from "./ReleaseRequestApprovals";
+import { RowMenu } from "./RowMenu";
+import { TeamTable } from "./TeamTable";
 
-// Shipments → Managers (Council Outlay 11, steps 1 and 2): what operations need from a manager
-// today. Tiles over the company's active jobs, then what to act on today or the next working day
-// (URGENT) and in the two working days after (ATTENTION), the same anatomy as the Sales and
-// Warehouse cockpits, and who handles how much.
-// Everything comes from one server answer, worked out in Prague time by the rules the app already
-// has, so the counts never disagree with each other. The page only reads - except Approvals, where
-// a manager answers the requests to change a Customs Office or an approved document.
+// Shipments → Managers (Council Outlay 11, steps 1 to 3): what operations need from a manager
+// today. Cockpit: tiles over the company's active jobs, then what to act on today or the next
+// working day (URGENT) and in the two working days after (ATTENTION), the same anatomy as the
+// Sales and Warehouse cockpits, who handles how much, and the audit line. Team: the same people as
+// a table - who carries what. Approvals: the requests a manager answers (to release a job before
+// payment, to change a Customs Office or an approved document).
+// The Cockpit and the Team tab come from one server answer, worked out in Prague time by the rules
+// the app already has, so the counts never disagree with each other. From a row a manager hands the
+// job over, nudges whoever handles it, or dismisses a missed cut-off (the dialogs are their own
+// components; the server checks each again).
 // For superadmins, admins and managers; anybody else is told it is not theirs.
 
 // The cards, the tiles and the lines are the cockpits' shared parts (components/cockpit), in their
@@ -142,9 +160,16 @@ const tagList = (r: OpsCockpitRow, signal: SignalFamily | null, limit?: number) 
   );
 };
 
+/** A row's "⋯" menu, or nothing for a row that has none. */
+type RowMenuOf = (row: OpsCockpitRow) => ReactNode;
+
+// The "⋯" column's header: nothing to see - the column is as wide as its button - and "Actions"
+// for a screen reader, which reads a column by its header.
+const MENU_TITLE = <span className="sr-only">Actions</span>;
+
 // In a card the mode and the status sit under the job number, the customer and Handled By under
-// the signals; the dialog gives them columns.
-const cardColumns = (signal: SignalFamily | null): ColumnsType<OpsCockpitRow> => [
+// the signals; the dialog gives them columns. The row's actions come last in both.
+const cardColumns = (signal: SignalFamily | null, menu: RowMenuOf): ColumnsType<OpsCockpitRow> => [
   {
     title: "Internal Reference",
     key: "ref",
@@ -173,9 +198,10 @@ const cardColumns = (signal: SignalFamily | null): ColumnsType<OpsCockpitRow> =>
       </div>
     ),
   },
+  { title: MENU_TITLE, key: "menu", width: 44, align: "right", render: (_: unknown, r) => menu(r) },
 ];
 
-const dialogColumns = (signal: SignalFamily | null): ColumnsType<OpsCockpitRow> => [
+const dialogColumns = (signal: SignalFamily | null, menu: RowMenuOf): ColumnsType<OpsCockpitRow> => [
   { title: "Internal Reference", key: "ref", width: 170, render: (_: unknown, r) => jobLink(r) },
   // The reasons come right after the reference, so they are on screen without scrolling sideways.
   // The dialog's table is as wide as its content: without a width of their own, a job's six or
@@ -196,6 +222,8 @@ const dialogColumns = (signal: SignalFamily | null): ColumnsType<OpsCockpitRow> 
     ),
   },
   { title: "Status", key: "status", width: 190, render: (_: unknown, r) => (isMasterJob(r) ? masterJobChip : r.status ? <StatusBadge status={r.status} /> : dash) },
+  // Kept in sight while the table is scrolled sideways.
+  { title: MENU_TITLE, key: "menu", width: 48, align: "right", fixed: "right", render: (_: unknown, r) => menu(r) },
 ];
 
 // The tiles' box is the app's button, as CockpitTiles draws its own; a signal tile that is on
@@ -220,16 +248,25 @@ function Tiles({ cockpit, isLoading, isError, filter, signal, onSignal }: TilesP
   const state = { isLoading, isError };
   return (
     <div className="flex flex-col gap-2">
-      <TileGroup label="Lists" title="Each opens the Shipments list of the jobs it counts">
+      <TileGroup label="Lists" title={filter.reports === "mine" ? "Each counts jobs the Shipments list can show; with My reports on they do not open it" : "Each opens the Shipments list of the jobs it counts"}>
         <CockpitTiles
           tiles={LIST_TILES.map((t) => ({
             key: t.key,
             label: t.label,
             value: tileValue(cockpit, state, ({ tiles }) => String(tiles[t.key])),
             hot: t.danger && !!cockpit?.tiles[t.key],
-            // Narrowed as the page is: mode, Trade Direction, Handled By.
+            // Narrowed as the page is: mode, Trade Direction, Handled By. With "My reports" on the
+            // list cannot follow, and the tile says why it leads nowhere.
             href: tileHref(t.key, filter),
-            hint: t.hint,
+            hint:
+              filter.reports === "mine" ? (
+                <>
+                  {t.hint}
+                  <div>{NO_LIST_FOR_MY_REPORTS}</div>
+                </>
+              ) : (
+                t.hint
+              ),
           }))}
         />
       </TileGroup>
@@ -304,15 +341,22 @@ function SignalChip({ signal, onClear }: { signal: SignalFamily; onClear: () => 
   );
 }
 
+/** What the people's figures are counted over, in words: "all modes", "Sea · Import · my reports". */
+const scopeOf = (filter: OpsCockpitFilter): string[] =>
+  [
+    filter.mode === "all" ? "all modes" : modeLabel(filter.mode),
+    filter.direction === "all" ? "" : (OPS_DIRECTIONS.find((d) => d.value === filter.direction)?.label ?? ""),
+    filter.reports === "mine" ? "my reports" : "",
+  ].filter(Boolean);
+
 // Who handles how much: the people named in Handled By on the active jobs of the mode and
 // direction on screen (not narrowed by the Handled By filter - a name here sets it). The jobs
-// nobody handles come last, in red.
+// nobody handles come last, in red. Who only stands in as a Holiday Cover is on the Team tab.
 function TeamLine({ people, filter, onPick }: { people: OpsCockpitPerson[]; filter: OpsCockpitFilter; onPick: (handledBy: string) => void }) {
   const team = teamOf(people);
   if (team.length === 0) return null;
-  const scope = [filter.mode === "all" ? "all modes" : modeLabel(filter.mode), filter.direction === "all" ? "" : OPS_DIRECTIONS.find((d) => d.value === filter.direction)?.label].filter(Boolean);
   return (
-    <CockpitLine label={["Team", "active jobs", ...scope].join(" · ")}>
+    <CockpitLine label={["Team", "active jobs", ...scopeOf(filter)].join(" · ")}>
       {team.map((p) => {
         const nobody = p.handledBy === "";
         return (
@@ -404,36 +448,55 @@ export function ShipmentsManagersContent() {
   return <ShipmentsManagersCockpit />;
 }
 
+/** What a manager is doing about a row, or about the rows ticked in the dialog: one dialog at a time. */
+type RowAction =
+  | { kind: "handOver"; rows: OpsCockpitRow[]; ticked: boolean }
+  | { kind: "nudge"; row: OpsCockpitRow }
+  // `cutoffs` empty: the dialog lists the dismissals that stand, each to be taken back.
+  | { kind: "dismiss"; row: OpsCockpitRow; cutoffs: { key: CutoffKey; label: string }[] };
+
+// Where a click on a row does not open the job: a link (it leads there itself), a button, the tick
+// column of the dialog.
+const NOT_THE_ROW = "a, button, input, label, .ant-table-selection-column";
+
 function ShipmentsManagersCockpit() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // The tab (?tab=approvals), the three filters (?mode=, ?direction=, ?handledBy=) and the signal
-  // the cards are narrowed to (?signal=) live in the address, so they survive a reload, a link can
-  // name them, and the way back from a job returns to the cards as they were left. They stay when
-  // the tab or another of them changes.
+  const toast = useToast();
+  // The tab (?tab=team, ?tab=approvals), the filters (?mode=, ?direction=, ?handledBy=,
+  // ?reports=mine) and the signal the cards are narrowed to (?signal=) live in the address, so they
+  // survive a reload, a link can name them, and the way back from a job returns to the cards as
+  // they were left. They stay when the tab or another of them changes.
   const tab = tabOf(searchParams.get("tab"));
   const filter: OpsCockpitFilter = {
     mode: modeOf(searchParams.get("mode")),
     direction: directionOf(searchParams.get("direction")),
     handledBy: handledByOf(searchParams.get("handledBy")),
+    reports: reportsOf(searchParams.get("reports")),
   };
   const signal = signalOf(searchParams.get("signal"));
   const go = (next: Partial<OpsCockpitFilter> & { tab?: ShipmentsManagersTab; signal?: string | null }) =>
     router.replace(shipmentsManagersHref({ tab, ...filter, signal: signal?.key ?? null, ...next }), { scroll: false });
   const setSignal = (family: SignalFamily | null) => go({ signal: family?.key ?? null });
-  const { cockpit, people, isLoading, isError } = useShipmentsManagersCockpit(filter, tab === "cockpit");
-  // Both queues are counted on their tab, whichever tab is open; one that could not be read is
-  // not counted as empty.
+  // The Cockpit and the Team tab read the same answer: changing between them asks nothing new.
+  const { cockpit, people, isLoading, isError, error, refetch } = useShipmentsManagersCockpit(filter, tab !== "approvals");
+  const loadFailed = loadFailedText(error);
+  // The three queues are counted on their tab, whichever tab is open; one that could not be read
+  // is not counted as empty.
+  const releases = useReleaseRequestApprovals();
   const offices = useCustomsOfficeApprovals();
   const documents = useDocumentChangeApprovals();
-  const approvalsWaiting = approvalsBadge([offices, documents]);
+  const approvalsWaiting = approvalsBadge([releases, offices, documents]);
   const [openCard, setOpenCard] = useState<CockpitCardKey | null>(null);
+  const [action, setAction] = useState<RowAction | null>(null);
+  // The rows ticked in the open dialog, by their keys.
+  const [ticked, setTicked] = useState<string[]>([]);
 
   // A row opens its shipment (a Master Job's row its Master Job); its number is a link, so the
-  // keyboard reaches it too.
+  // keyboard reaches it too. The "⋯" menu keeps its own clicks to itself (RowMenu).
   const rowProps = (r: OpsCockpitRow) => ({
     onClick: (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("a")) return;
+      if ((e.target as HTMLElement).closest(NOT_THE_ROW)) return;
       router.push(rowHref(r));
     },
   });
@@ -444,7 +507,16 @@ function ShipmentsManagersCockpit() {
   // The cards as shown: whole, or narrowed to the signal over the rows the server sent. The tiles
   // and the Team line are not narrowed: they say what there is to pick from.
   const shown = (key: CockpitCardKey): ShownList | undefined => (cockpit ? listWithSignal(cockpit[key], signal) : undefined);
-  const columns = cardColumns(signal);
+
+  const menu = (r: OpsCockpitRow) => (
+    <RowMenu
+      row={r}
+      onHandOver={(row) => setAction({ kind: "handOver", rows: [row], ticked: false })}
+      onNudge={(row) => setAction({ kind: "nudge", row })}
+      onDismissCutoff={(row, cutoffs) => setAction({ kind: "dismiss", row, cutoffs })}
+    />
+  );
+  const columns = cardColumns(signal, menu);
 
   const renderCard = (key: CockpitCardKey) => (
     <CockpitCard<OpsCockpitRow>
@@ -452,7 +524,7 @@ function ShipmentsManagersCockpit() {
       list={shown(key)}
       isLoading={isLoading}
       isError={isError}
-      loadFailed="Could not load Operations."
+      loadFailed={loadFailed}
       onShowAll={() => setOpenCard(key)}
       columns={columns}
       rowKey={rowKey}
@@ -462,15 +534,34 @@ function ShipmentsManagersCockpit() {
   );
 
   const openList = openCard ? shown(openCard) : undefined;
+  // Ticked and still listed: a job that left the card after the answer was read again is no longer handed over.
+  const tickedRows = (openList?.rows ?? []).filter((r) => hasActions(r) && ticked.includes(rowKey(r)));
+  const closeDialog = () => {
+    setOpenCard(null);
+    setTicked([]);
+  };
+
+  // After an action: say what happened and read the answer again at once - the action's own hook
+  // invalidates it too, this does not wait for that.
+  const done = (said: ActionToast, wasTicked = false) => {
+    if (said.tone === "success") toast.success(said.text);
+    else toast.info(said.text);
+    if (wasTicked) setTicked([]);
+    setAction(null);
+    void refetch();
+  };
+
+  const scope = scopeOf(filter).join(" · ");
 
   return (
-    <Page extra={tab === "cockpit" && cockpit && <span className="text-xs text-slate-500">Updated {PRAGUE_TIME.format(new Date(cockpit.asOf))} · Prague time</span>}>
+    <Page extra={tab !== "approvals" && cockpit && <span className="text-xs text-slate-500">Updated {PRAGUE_TIME.format(new Date(cockpit.asOf))} · Prague time</span>}>
       <Tabs
         activeKey={tab}
         onChange={(k) => go({ tab: k as ShipmentsManagersTab })}
         className="[&>.ant-tabs-nav]:!mb-0"
         items={[
           { key: "cockpit", label: "Cockpit" },
+          { key: "team", label: "Team" },
           {
             key: "approvals",
             label: (
@@ -488,8 +579,12 @@ function ShipmentsManagersCockpit() {
       />
 
       {tab === "approvals" ? (
-        // A request has no filter of its own: every one waiting is listed.
-        <CustomsOfficeApprovals />
+        // A request has no filter of its own: every one waiting is listed. The requests to
+        // release before payment first: a job stands still until its request is answered.
+        <div className="flex flex-col gap-4">
+          <ReleaseRequestApprovals />
+          <CustomsOfficeApprovals />
+        </div>
       ) : (
         <>
           <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
@@ -500,47 +595,116 @@ function ShipmentsManagersCockpit() {
               <span className={HINT}>Trade Direction</span>
               <Select<OpsCockpitDirection> aria-label="Trade Direction" className="w-32" value={filter.direction} onChange={(direction) => go({ direction })} options={OPS_DIRECTIONS} />
             </span>
-            <span className="flex items-center gap-2 w-full sm:w-auto min-w-0">
-              <span className={`${HINT} shrink-0`}>Handled By</span>
-              <Select<string>
-                aria-label="Handled By"
-                className="flex-1 min-w-0 sm:flex-none sm:w-80"
-                showSearch
-                optionFilterProp="label"
-                value={filter.handledBy ?? EVERYONE}
-                onChange={(value) => go({ handledBy: value === EVERYONE ? null : value })}
-                options={handledByOptions(people, filter.handledBy)}
-              />
-            </span>
+            {/* The Team tab lists everybody: a person is picked there by a click on their row. */}
+            {tab === "cockpit" && (
+              <span className="flex items-center gap-2 w-full sm:w-auto min-w-0">
+                <span className={`${HINT} shrink-0`}>Handled By</span>
+                <Select<string>
+                  aria-label="Handled By"
+                  className="flex-1 min-w-0 sm:flex-none sm:w-80"
+                  showSearch
+                  optionFilterProp="label"
+                  value={filter.handledBy ?? EVERYONE}
+                  onChange={(value) => go({ handledBy: value === EVERYONE ? null : value })}
+                  options={handledByOptions(people, filter.handledBy)}
+                />
+              </span>
+            )}
+            <Tooltip mouseEnterDelay={0.4} title={MY_REPORTS_HINT}>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Switch size="small" aria-label="My reports" checked={filter.reports === "mine"} onChange={(on) => go({ reports: on ? "mine" : "all" })} />
+                <span className={HINT}>My reports</span>
+              </label>
+            </Tooltip>
           </div>
 
-          <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} filter={filter} signal={signal} onSignal={setSignal} />
+          {tab === "team" ? (
+            <TeamTable people={cockpit?.people} filter={filter} scope={scope} isLoading={isLoading} isError={isError} loadFailed={loadFailed} />
+          ) : (
+            <>
+              <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} filter={filter} signal={signal} onSignal={setSignal} />
 
-          {signal && <SignalChip signal={signal} onClear={() => setSignal(null)} />}
+              {signal && <SignalChip signal={signal} onClear={() => setSignal(null)} />}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {renderCard("urgent")}
-            {renderCard("attention")}
-          </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {renderCard("urgent")}
+                {renderCard("attention")}
+              </div>
+            </>
+          )}
 
           {cockpit && (
             <div className="flex flex-col gap-2">
-              <TeamLine people={cockpit.people} filter={filter} onPick={(handledBy) => go({ handledBy })} />
+              {/* Zeros everywhere would read as "my team has nothing": with nobody to count, say that instead. */}
+              {filter.reports === "mine" && cockpit.people.length === 0 && (
+                <CockpitNote>
+                  <span>My reports: nobody who reports to you (Settings → Users, Reports to) handles or covers an active job here, and no job here names somebody who is no longer a user</span>
+                </CockpitNote>
+              )}
+              {tab === "cockpit" && <TeamLine people={cockpit.people} filter={filter} onPick={(handledBy) => go({ handledBy })} />}
+              {/* An answer with no audit line - none of it could be read - has none drawn: the line below says what is not known. */}
+              {tab === "cockpit" && cockpit.audit && <AuditLine audit={cockpit.audit} />}
               <HealthLine cockpit={cockpit} />
             </div>
           )}
         </>
       )}
 
-      <CockpitDialog<OpsCockpitRow>
+      <JobsDialog<OpsCockpitRow>
         card={openCard ? cardShown(openCard, signal, openList) : null}
         list={openList}
-        onClose={() => setOpenCard(null)}
-        columns={dialogColumns(signal)}
+        onClose={closeDialog}
+        columns={dialogColumns(signal, menu)}
         rowKey={rowKey}
         rowClassName="cursor-pointer"
         onRow={rowProps}
+        selected={ticked}
+        onSelect={setTicked}
+        notSelectable={(r) => (hasActions(r) ? null : "A Master Job is not handed over from here")}
+        toolbar={
+          <>
+            <button
+              type="button"
+              disabled={tickedRows.length === 0 || tickedRows.length > HAND_OVER_MAX_JOBS}
+              onClick={() => setAction({ kind: "handOver", rows: tickedRows, ticked: true })}
+              className={`${BTN_PRIMARY} ${BTN_SM}`}
+            >
+              Hand over selected ({tickedRows.length})…
+            </button>
+            <span className={HINT}>
+              {tickedRows.length > HAND_OVER_MAX_JOBS ? `At most ${HAND_OVER_MAX_JOBS} jobs are handed over at once.` : "Tick the jobs to give to somebody else, or to set or clear their Holiday Cover."}
+            </span>
+          </>
+        }
       />
+
+      {/* The actions' dialogs, one at a time; over the list of all rows when it is open. */}
+      {action?.kind === "handOver" && (
+        <HandOverDialog
+          open
+          jobs={action.rows.map(handOverJob)}
+          people={cockpit?.people ?? people}
+          onClose={() => setAction(null)}
+          onDone={(result) => done(handOverToast(result), action.ticked)}
+        />
+      )}
+      {action?.kind === "nudge" && (
+        <NudgeDialog
+          open
+          job={{ id: action.row.id, jobNumber: action.row.jobNumber, handledBy: action.row.handledBy }}
+          onClose={() => setAction(null)}
+          onDone={(result) => done(nudgeToast(action.row.jobNumber, result))}
+        />
+      )}
+      {action?.kind === "dismiss" && (
+        <DismissCutoffDialog
+          open
+          job={{ id: action.row.id, jobNumber: action.row.jobNumber }}
+          cutoffs={action.cutoffs}
+          onClose={() => setAction(null)}
+          onDone={(what?: CutoffsChange) => done(cutoffsToast(action.row.jobNumber, what))}
+        />
+      )}
     </Page>
   );
 }

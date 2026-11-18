@@ -1,6 +1,7 @@
 import { addDays } from "../../../lib/businessDate";
 import type { ShipmentDeadline, ShipmentDueItem } from "../interfaces/interfaces";
 import { PASSED_DATE_KEPT_DAYS } from "./cockpitThresholds";
+import { withoutDismissed, type CutoffDismissed } from "./cutoffDismissals";
 import { cargoIn, cutoffsOf, timelineFactsOf, type CutoffJob, type OpsDay, type TimelineFacts } from "./managersCockpit";
 
 // The Shipments list's Needs Attention - the two cards above the grid, the Overview tile
@@ -13,7 +14,8 @@ import { cargoIn, cutoffsOf, timelineFactsOf, type CutoffJob, type OpsDay, type 
 //   cut-offs  Closing, VGM, SI, AMS, ISF, each with its time: the cockpit's cutoffsOf itself, not
 //             a copy. A job that has left (ATD, ATA or actual delivery) has none. A missed one
 //             stays URGENT (D7) while the ETD is today or later - with no ETD, for 7 days after
-//             its own date - and a Closing only until the cargo is in
+//             its own date - and a Closing only until the cargo is in. A missed one a manager
+//             dismissed is left out while it keeps its date (lib/cutoffDismissals), as on the cockpit
 //   dates     what this list has always shown as coming up - cargo ready, pick-up, ETD, ETA, ETA
 //             warehouse, planned delivery. They count while still ahead: the day after, they are gone
 //
@@ -61,11 +63,12 @@ const soonest = (a: ShipmentDeadline, b: ShipmentDeadline) => a.daysLeft - b.day
  *   (lib/managersCockpit cargoIn) - true drops it; null, when nobody can tell, leaves a Closing
  *   still ahead (its date alone says that) and withholds only "Closing missed".
  *   A plain date counts from today to the end of the ATTENTION window; one that passed is not kept.
+ *   `dismissed`: the job's missed cut-offs a manager dismissed (lib/cutoffDismissals) - left out.
  */
-export function dueOf(job: DueJob, day: OpsDay, cargoIsIn: boolean | null): JobDue {
+export function dueOf(job: DueJob, day: OpsDay, cargoIsIn: boolean | null, dismissed: readonly CutoffDismissed[] = []): JobDue {
   const urgent: ShipmentDeadline[] = [];
   const attention: ShipmentDeadline[] = [];
-  for (const cutoff of cutoffsOf(job, day, cargoIsIn)) {
+  for (const cutoff of withoutDismissed(cutoffsOf(job, day, cargoIsIn), dismissed)) {
     (cutoff.state === "attention" ? attention : urgent).push({ field: cutoff.key, date: cutoff.date, daysLeft: cutoff.days, missed: cutoff.state === "missed", time: cutoff.time });
   }
   for (const field of PLAIN_DATE_FIELDS) {
@@ -112,13 +115,19 @@ const mostPressing = (a: ShipmentDueItem, b: ShipmentDueItem) => {
  * The two lists, from the jobs read and what their timelines say (lib/managersCockpit
  * timelineFactsOf, by shipment id; null when the events could not be read - then, as on the
  * cockpit, a Closing still ahead is listed by its date and no "Closing missed" is said on a job
- * that was not received at our warehouse).
+ * that was not received at our warehouse). `dismissals`: the jobs' dismissed cut-offs by shipment
+ * id (services/cutoffDismissal.service cutoffDismissalsOf); left out, nothing is dismissed.
  */
-export function needsAttentionOf(jobs: readonly DueJob[], timeline: ReadonlyMap<string, TimelineFacts> | null, day: OpsDay): NeedsAttentionLists {
+export function needsAttentionOf(
+  jobs: readonly DueJob[],
+  timeline: ReadonlyMap<string, TimelineFacts> | null,
+  day: OpsDay,
+  dismissals?: ReadonlyMap<string, readonly CutoffDismissed[]>,
+): NeedsAttentionLists {
   const within24h: ShipmentDueItem[] = [];
   const within48h: ShipmentDueItem[] = [];
   for (const job of jobs) {
-    const due = dueOf(job, day, cargoIsIn(job, timeline));
+    const due = dueOf(job, day, cargoIsIn(job, timeline), dismissals?.get(job.id));
     const item = (deadlines: ShipmentDeadline[]): ShipmentDueItem => ({ id: job.id, jobNumber: job.jobNumber, customerId: job.customerId, customer: job.customer, tradeDirection: job.tradeDirection, status: job.status, deadlines });
     if (due.urgent.length) within24h.push(item(due.urgent));
     if (due.attention.length) within48h.push(item(due.attention));

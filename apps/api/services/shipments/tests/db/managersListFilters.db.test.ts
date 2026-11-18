@@ -38,7 +38,7 @@ const listed = async (companyId: string, filters: { tile?: string; handledBy?: s
   return data.map((s) => s.id).sort();
 };
 const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
-const cockpit = (companyId: string) => managersCockpitService.cockpit(companyId, { mode: "all", direction: "all", handledBy: null });
+const cockpit = (companyId: string) => managersCockpitService.cockpit(companyId, { mode: "all", direction: "all", handledBy: null, reports: "all", userId: randomUUID() });
 
 describe("the list's mode filter", () => {
   it("finds the jobs freightKindOf reads as that mode, each job in exactly one", async () => {

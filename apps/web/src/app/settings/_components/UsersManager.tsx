@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Table, Button, Modal, Form, Input, Select } from "antd";
 import { PlusOutlined, EditOutlined, StopOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
-import { ConfirmModal } from "@/components/ConfirmModal";
+import { WarningConfirm } from "@/components/finance/ReleasePaymentWarning";
+import { useHandledByCount } from "@/hooks/useShipmentManagerActions";
+import { handledByJobsHref, handledByWarning, HANDLED_BY_COUNT_NOT_READ, HANDLES_NO_JOB } from "@/lib/managerActions";
 import { Badge, type Tone } from "@/components/Badge";
 import { SectionCard } from "@/components/SectionCard";
-import { EMPTY } from "@/styles/ui";
+import { EMPTY, HINT, LINK } from "@/styles/ui";
 import type { ManagedUser, NewUserInput, UpdateUserInput } from "@/hooks/useUserAdmin";
 import type { Department, Branch } from "@/hooks/useOrgUnits";
 import { userActionRefusals } from "../_lib/userRules";
@@ -29,6 +32,7 @@ export function UsersManager({
   currentUserId,
   currentUserRole,
   orgUnits,
+  handledByWarning: warnOfJobs = false,
   createUser,
   updateUser,
   deleteUser,
@@ -43,6 +47,10 @@ export function UsersManager({
   // the manager they report to (a manager or admin of the company), who gets the user's discount
   // inquiries in Sales.
   orgUnits?: { departments: Department[]; branches: Branch[] };
+  // Before a user is deactivated, say how many active jobs still name them in Handled By and Holiday Cover
+  // (Council Outlay 11, D13). Only where the users are the signed-in user's own company's: the count is read
+  // in that company, so the platform's list of another company's users must not ask for it.
+  handledByWarning?: boolean;
   createUser: (input: NewUserInput) => Promise<unknown>;
   updateUser: (args: { id: string; input: UpdateUserInput }) => Promise<unknown>;
   deleteUser: (id: string) => Promise<unknown>;
@@ -53,6 +61,9 @@ export function UsersManager({
   const [deactivateTarget, setDeactivateTarget] = useState<ManagedUser | null>(null);
   const [saving, setSaving] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  // Read when the dialog opens. It never holds the deactivation up: the jobs stay with the person until handed over.
+  const handles = useHandledByCount(deactivateTarget?.email, warnOfJobs && !!deactivateTarget);
+  const handlesWarning = handles.count ? handledByWarning(handles.count) : null;
   const refusalsFor = (target: ManagedUser) => userActionRefusals({ id: currentUserId, role: currentUserRole }, target);
   const roleRefusal = editTarget ? refusalsFor(editTarget).editRole : null;
   const [addForm] = Form.useForm();
@@ -265,7 +276,8 @@ export function UsersManager({
         </Form>
       </Modal>
 
-      <ConfirmModal
+      {/* The app's confirmation, with room for the jobs the person still handles (D13): a warning, never a stop. */}
+      <WarningConfirm
         open={!!deactivateTarget}
         onClose={() => !deactivating && setDeactivateTarget(null)}
         onConfirm={confirmDeactivate}
@@ -273,8 +285,30 @@ export function UsersManager({
         title="Deactivate user"
         description={`Deactivate ${deactivateTarget?.email}? They will no longer be able to log in.`}
         confirmLabel="Deactivate"
+        warnedLabel="Deactivate"
+        warned={!!handlesWarning}
         danger
-      />
+        width={warnOfJobs ? 460 : 380}
+      >
+        {warnOfJobs && deactivateTarget && (
+          <div aria-live="polite">
+            {handles.isLoading ? (
+              <div className={HINT}>Checking the jobs this person handles…</div>
+            ) : handles.isError || !handles.count ? (
+              <div className="text-[13px] font-medium text-amber-700">{HANDLED_BY_COUNT_NOT_READ}.</div>
+            ) : handlesWarning ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+                {handlesWarning}.{" "}
+                <Link href={handledByJobsHref(deactivateTarget.email)} className={LINK} target="_blank">
+                  Open them on Shipments → Managers
+                </Link>
+              </div>
+            ) : (
+              <div className={HINT}>{HANDLES_NO_JOB}</div>
+            )}
+          </div>
+        )}
+      </WarningConfirm>
     </>
   );
 }

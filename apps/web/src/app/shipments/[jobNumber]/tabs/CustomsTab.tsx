@@ -17,7 +17,8 @@ import {
   CloseOutlined,
   DownloadOutlined,
 } from "@ant-design/icons";
-import { api, apiFileUrl } from "@/lib/api";
+import { api, apiErrorMessage, apiFileUrl } from "@/lib/api";
+import { ownUploadApprovalRefusal } from "@/lib/documentRules";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { PreviewButton } from "@/components/PreviewButton";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
@@ -347,7 +348,8 @@ export function CustomsTab({
       setDeclining(null);
       setNote("");
     },
-    onError: () => toast.error("Could not save the review"),
+    // The server's own words: a regular user's approval of their own upload is refused with the reason (D19).
+    onError: (err) => toast.error(`Could not save the review: ${apiErrorMessage(err)}`),
   });
 
   // Memoised so the `?? []` fallback does not hand the memo below a new array
@@ -595,13 +597,21 @@ export function CustomsTab({
                             ) : (
                               /* jeste neposouzeno: Approve / Decline */
                               <>
-                                <button
-                                  onClick={() => review.mutate({ id: d.id, status: "approved" })}
-                                  className={`${BTN} w-full`}
-                                >
-                                  <CheckOutlined className="text-[14px] text-emerald-600" />
-                                  Approve
-                                </button>
+                                {ownUploadApprovalRefusal(d, user) ? (
+                                  // A regular user does not approve their own upload (Council Outlay 11, D19): the
+                                  // pill stands where Approve would be, the reason under it. Declining stays theirs.
+                                  <span className="flex h-8 items-center">
+                                    <CustomsPill status="" />
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => review.mutate({ id: d.id, status: "approved" })}
+                                    className={`${BTN} w-full`}
+                                  >
+                                    <CheckOutlined className="text-[14px] text-emerald-600" />
+                                    Approve
+                                  </button>
+                                )}
                                 <button
                                   onClick={(e) => {
                                     // Decline takes the place of Change once the review is reset, so the
@@ -615,6 +625,9 @@ export function CustomsTab({
                                   <CloseOutlined className="text-[14px] text-red-600" />
                                   Decline
                                 </button>
+                                {ownUploadApprovalRefusal(d, user) && (
+                                  <small className="col-span-2 mt-1 text-[11px] leading-4 text-slate-500">{ownUploadApprovalRefusal(d, user)}</small>
+                                )}
                               </>
                             )}
                           </div>

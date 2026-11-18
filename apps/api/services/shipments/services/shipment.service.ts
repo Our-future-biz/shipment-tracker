@@ -88,8 +88,10 @@ import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/pe
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
 import { dropSharesOfLeftShipments } from "../lib/masterJobCosts";
 import { startShipmentBilling } from "../lib/shipmentBilling";
-import { overrideLine, prepaymentStop, RELEASE_CHANGED_MEANWHILE, setsWarehouseRelease, type PaymentCheck, type ReleaseKind, type ReleaseOverride } from "../lib/prepaymentStop";
+import { overrideLine, passOverride, prepaymentStop, RELEASE_CHANGED_MEANWHILE, setsWarehouseRelease, type PaymentCheck, type ReleaseKind, type ReleaseOverride } from "../lib/prepaymentStop";
+import { RELEASE_REQUEST_FIELD, WHAT_OF_KIND, approvedReason, closedLine, passDecidedSince, unusedLine } from "../lib/releaseRequest";
 import { shipmentReleaseOverrideRepository } from "../repositories/shipmentReleaseOverride.repository";
+import { shipmentReleaseRequestRepository } from "../repositories/shipmentReleaseRequest.repository";
 import {
   REMEASURE_ACCEPTED,
   REMEASURE_COSTS_CHECKED,
@@ -1430,10 +1432,11 @@ class ShipmentService {
 
     // The prepayment stop (lib/prepaymentStop): a person's write that sets Warehouse Released from empty asks
     // Invoicing whether the job is paid - only that write, so no other edit waits for it. A user is refused for a
-    // job on prepayment not paid; a manager's reason lets it through, recorded in the write's turn. The app's own
-    // writes (no role: Trucking, the gate, Invoicing) are never stopped.
+    // job on prepayment not paid; a manager's reason lets it through, recorded in the write's turn - and so does a
+    // release a manager approved on request (lib/releaseRequest), for whoever makes it. The app's own writes (no
+    // role: Trucking, the gate, Invoicing) are never stopped.
     const releaseChecked = role !== undefined && setsWarehouseRelease(existing, shipmentData);
-    const releaseOverride = role !== undefined && releaseChecked ? await this.releaseGate(id, "warehouse_released", role, extras.paymentOverrideReason) : null;
+    const releaseOverride = role !== undefined && releaseChecked ? await this.releaseGate(id, companyId, "warehouse_released", role, extras.paymentOverrideReason) : null;
     // Whether the turn looks at Warehouse Released again: a person's write of a date into it.
     const watchesRelease = role !== undefined && !!(shipmentData.warehouseReleasedDate ?? "").trim();
     const overrideBy = releaseOverride || extras.houseBolOverride ? await this.actorOf(userId) : "";
@@ -1468,6 +1471,20 @@ class ShipmentService {
       // A manager's release of an unpaid prepayment job is recorded with the release, or not at all.
       if (saved && setsRelease && releaseOverride) await this.recordOverride(tx, saved, "warehouse_released", releaseOverride, userId, overrideBy);
       if (saved && extras.houseBolOverride) await this.recordOverride(tx, saved, "house_bol", extras.houseBolOverride, userId, overrideBy);
+      // A request to a manager still waiting for a release this write makes - by whoever, the app too - has
+      // nothing left to ask, and an approval of it nobody used must not let a later release through (a Warehouse
+      // Released cleared and set again): both closed in the same turn (lib/releaseRequest), with a line saying
+      // so. The approval this very release used was marked used above, and stays that.
+      if (saved) {
+        const released: ReleaseKind[] = [];
+        if ((shipmentData.houseBolRelease ?? "").trim() && !(existing.houseBolRelease ?? "").trim()) released.push("house_bol");
+        if (role !== undefined ? setsRelease : setsWarehouseRelease(existing, shipmentData)) released.push("warehouse_released");
+        for (const kind of released) {
+          const closed = await shipmentReleaseRequestRepository.closeUnused(tx, companyId, id, WHAT_OF_KIND[kind], new Date());
+          if (closed.waiting) await audit(RELEASE_REQUEST_FIELD, null, closedLine(WHAT_OF_KIND[kind]));
+          if (closed.approved) await audit(RELEASE_REQUEST_FIELD, null, unusedLine(WHAT_OF_KIND[kind]));
+        }
+      }
       for (const h of extras.history ?? []) await audit(h.field, h.oldValue, h.newValue);
       if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
@@ -1725,7 +1742,7 @@ class ShipmentService {
       if (houseBolRelease.trim()) throw APIError.failedPrecondition(`The House BoL was already released (${houseBolRelease.trim()})`);
     };
     notReleasedYet(existing);
-    const houseBolOverride = person ? await this.releaseGate(id, "house_bol", person.role, person.paymentOverrideReason) : null;
+    const houseBolOverride = person ? await this.releaseGate(id, companyId, "house_bol", person.role, person.paymentOverrideReason) : null;
 
     const stamp = actionStamp(await this.actorOf(userId), new Date());
     return this.update(id, companyId, { houseBolRelease: stamp }, userId, undefined, undefined, notReleasedYet, houseBolOverride ? { houseBolOverride } : {});
@@ -1827,18 +1844,52 @@ class ShipmentService {
     }
   }
 
-  // The prepayment stop of a person's release (lib/prepaymentStop): throws its refusal, else gives the manager's
-  // override to record with the release (null when there is none to record).
-  private async releaseGate(shipmentId: string, kind: ReleaseKind, role: string, reason: string | undefined): Promise<ReleaseOverride | null> {
-    const verdict = prepaymentStop(kind, await this.paymentCheck(shipmentId), role, reason);
-    if ("refusal" in verdict) throw APIError.failedPrecondition(verdict.refusal);
-    return verdict.override;
+  /**
+   * Why the prepayment stop refuses a user's release of this kind right now, or null when it does not: what a
+   * request to a manager is asked against (releaseRequest.service) - a job the stop does not hold needs none.
+   */
+  async prepaymentRefusal(shipmentId: string, kind: ReleaseKind): Promise<string | null> {
+    const verdict = prepaymentStop(kind, await this.paymentCheck(shipmentId), "user", undefined);
+    return "refusal" in verdict ? verdict.refusal : null;
   }
 
-  // The record of a manager's release of an unpaid prepayment job, in the release's own turn: the override row, a
-  // line in the shipment's history and a note on its Tracking tab.
+  // The prepayment stop of a person's release (lib/prepaymentStop): throws its refusal, else gives the override
+  // to record with the release (null when there is none to record) - a manager's own, by their reason, or the
+  // one a request a manager approved stands for (lib/releaseRequest): a pass, looked for only when the stop
+  // would refuse, so a manager's direct override and a job that is paid never touch it.
+  private async releaseGate(shipmentId: string, companyId: string, kind: ReleaseKind, role: string, reason: string | undefined): Promise<ReleaseOverride | null> {
+    const check = await this.paymentCheck(shipmentId);
+    const verdict = prepaymentStop(kind, check, role, reason);
+    if (!("refusal" in verdict)) return verdict.override;
+    const pass = await this.releasePass(shipmentId, companyId, kind);
+    if (!pass) throw APIError.failedPrecondition(verdict.refusal);
+    return passOverride(check, pass, verdict.refusal);
+  }
+
+  // The approved request that lets this release through now, with the reason it is recorded with; null when
+  // there is none - or it could not be read: the stop then refuses as it would without one.
+  private async releasePass(shipmentId: string, companyId: string, kind: ReleaseKind): Promise<{ requestId: string; reason: string } | null> {
+    try {
+      const pass = await shipmentReleaseRequestRepository.usablePass(companyId, shipmentId, WHAT_OF_KIND[kind], passDecidedSince(new Date()));
+      return pass ? { requestId: pass.id, reason: approvedReason(pass, pass.decidedByName, pass.comment) } : null;
+    } catch (err) {
+      log.warn(err, "the approved release requests of the job could not be read", { shipmentId });
+      return null;
+    }
+  }
+
+  // The record of a release of an unpaid prepayment job that was let through, in the release's own turn: the
+  // override row, a line in the shipment's history and a note on its Tracking tab. Let through by an approved
+  // request, that request is marked used here first - once: used or gone meanwhile (two releases at one moment,
+  // the pass run out), the stop refuses after all and the turn writes nothing. The row names the one releasing
+  // as who did it (`by`); the manager who allowed it is named in the reason.
   private async recordOverride(tx: Tx, shipment: ShipmentRecord, kind: ReleaseKind, override: ReleaseOverride, userId: string, by: string): Promise<void> {
     const { companyId, id: shipmentId } = shipment;
+    if (override.pass) {
+      const now = new Date();
+      const used = await shipmentReleaseRequestRepository.use(tx, override.pass.requestId, companyId, { usedAt: now, usedById: userId, usedByName: by }, passDecidedSince(now));
+      if (!used) throw APIError.failedPrecondition(override.pass.refusal);
+    }
     await shipmentReleaseOverrideRepository.create(tx, {
       companyId,
       shipmentId,

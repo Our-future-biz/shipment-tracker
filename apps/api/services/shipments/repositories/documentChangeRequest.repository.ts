@@ -151,6 +151,19 @@ class DocumentChangeRequestRepository {
       .where(and(eq(requests.id, id), eq(requests.companyId, companyId), eq(requests.requestedById, userId), ne(requests.status, "pending"), isNull(requests.answerSeenAt)));
   }
 
+  /**
+   * The company's document-change requests a manager answered since `since`, the newest answer first, each
+   * with its job's number: for the audit line of Shipments → Managers. A deleted job's are among
+   * them - what was decided was decided.
+   */
+  async decidedSince(companyId: string, since: Date, limit: number) {
+    const rows = await withShipment()
+      .where(and(eq(requests.companyId, companyId), isNull(requests.deletedAt), ne(requests.status, "pending"), gte(requests.decidedAt, since)))
+      .orderBy(desc(requests.decidedAt))
+      .limit(limit);
+    return rows.map(flat);
+  }
+
   /** The requests still waiting on these shipments and since when: one query for Shipments → Managers' cards. */
   async waitingByShipmentIds(shipmentIds: readonly string[], companyId: string): Promise<{ shipmentId: string; requestedAt: Date }[]> {
     if (shipmentIds.length === 0) return [];

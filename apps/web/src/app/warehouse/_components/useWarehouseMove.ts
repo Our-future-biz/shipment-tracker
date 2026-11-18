@@ -5,6 +5,7 @@ import { api, apiErrorMessage } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import { useShipmentMutations } from "@/hooks/useShipments";
 import { moveOutcome, noneMoved, notMovedText, type MoveOutcome } from "../_lib/moveOutcome";
+import { withOverrideReason } from "../_lib/releaseReasons";
 import { useToast } from "@/lib/toast";
 import { todayIso } from "@/lib/date";
 
@@ -26,9 +27,14 @@ export const NOTHING_TICKED = "Tick the shipments in the table first";
 
 type WarehouseDate = "warehouseReceivedDate" | "warehouseReleasedDate";
 
-/** What a move may bring along: a manager's reason to release a job stopped for prepayment (Accounts Receivable step 7). */
+/**
+ * What a move may bring along: a manager's reason to release a job stopped for prepayment (Accounts Receivable
+ * step 7) - per shipment, never one for all: a reason is that job's override, and a job released on a manager's
+ * approval of a request, or one the stop does not hold, must not be sent one (_lib/releaseReasons).
+ */
 export interface MoveOptions {
-  paymentOverrideReason?: string;
+  /** Shipment id → the reason sent with that shipment's write. A shipment not in it is sent none. */
+  paymentOverrideReasons?: ReadonlyMap<string, string>;
   /** The dialog shows the stopped shipments itself: no toast for them. */
   stopsShown?: boolean;
 }
@@ -74,9 +80,6 @@ export function useWarehouseMove(
     );
     if (clearTruck) data.warehouseTruck = "";
     if (truck) data.warehouseTruck = truck;
-    // Sent only with a release a manager gives a reason for; the server records it only when the job was stopped.
-    const reason = (options.paymentOverrideReason ?? "").trim();
-    if (reason) data.paymentOverrideReason = reason;
     let refs: { shipmentId: string; reference: string }[] = [];
     try {
       refs = assignReference ? (await api.warehouse.warehouseEnsureRefs({ shipmentIds: ids })).refs : [];
@@ -88,7 +91,9 @@ export function useWarehouseMove(
     const results = await Promise.allSettled(
       ids.map((id) => {
         const warehouseReference = referenceOf.get(id);
-        return updateShipment({ id, data: warehouseReference ? { ...data, warehouseReference } : data });
+        // A manager's reason goes only with the shipments it was given for; the server records it only when the job was stopped.
+        const own = withOverrideReason(data, id, options.paymentOverrideReasons);
+        return updateShipment({ id, data: warehouseReference ? { ...own, warehouseReference } : own });
       }),
     );
     const outcome = moveOutcome(ids, results, apiErrorMessage);
