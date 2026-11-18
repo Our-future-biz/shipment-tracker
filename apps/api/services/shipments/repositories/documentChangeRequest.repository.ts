@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import {
   documentChangeRequestTable as requests,
@@ -149,6 +149,15 @@ class DocumentChangeRequestRepository {
       .update(requests)
       .set({ answerSeenAt: at, updatedAt: at })
       .where(and(eq(requests.id, id), eq(requests.companyId, companyId), eq(requests.requestedById, userId), ne(requests.status, "pending"), isNull(requests.answerSeenAt)));
+  }
+
+  /** The requests still waiting on these shipments and since when: one query for Shipments → Managers' cards. */
+  async waitingByShipmentIds(shipmentIds: readonly string[], companyId: string): Promise<{ shipmentId: string; requestedAt: Date }[]> {
+    if (shipmentIds.length === 0) return [];
+    return db
+      .select({ shipmentId: requests.shipmentId, requestedAt: requests.requestedAt })
+      .from(requests)
+      .where(and(eq(requests.companyId, companyId), inArray(requests.shipmentId, [...shipmentIds]), eq(requests.status, "pending"), isNull(requests.deletedAt)));
   }
 }
 

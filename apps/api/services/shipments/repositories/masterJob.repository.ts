@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, between, count, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { masterJobTable, type MasterJobRecord } from "../schemas/masterJob.schema";
@@ -150,6 +150,36 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
       ))
       .groupBy(shipmentTable.masterJobId);
     return new Map(rows.map((r) => [r.masterJobId as string, Number(r.n)]));
+  }
+
+  /**
+   * What Shipments → Managers reads of the company's live master jobs: those among `ids` (the
+   * ones its jobs are houses of), and those that have not departed with an ETD from `etdFrom` to
+   * `etdTo` - a master job nobody linked a shipment to is found by its date alone. One query.
+   */
+  async cockpitFacts(companyId: string, ids: readonly string[], etdFrom: string, etdTo: string) {
+    const departingSoon = and(isNull(masterJobTable.actualDeparture), between(masterJobTable.estimatedDeparture, etdFrom, etdTo));
+    return this.db
+      .select({
+        id: masterJobTable.id,
+        mczNumber: masterJobTable.mczNumber,
+        freightMode: masterJobTable.freightMode,
+        tradeDirection: masterJobTable.tradeDirection,
+        shipper: masterJobTable.shipper,
+        consignee: masterJobTable.consignee,
+        personInCharge: masterJobTable.personInCharge,
+        holidayCover: masterJobTable.holidayCover,
+        closingDate: masterJobTable.closingDate,
+        estimatedDeparture: masterJobTable.estimatedDeparture,
+        actualDeparture: masterJobTable.actualDeparture,
+        actualArrival: masterJobTable.actualArrival,
+      })
+      .from(masterJobTable)
+      .where(and(
+        eq(masterJobTable.companyId, companyId),
+        isNull(masterJobTable.deletedAt),
+        ids.length ? or(inArray(masterJobTable.id, [...ids]), departingSoon) : departingSoon,
+      ));
   }
 }
 

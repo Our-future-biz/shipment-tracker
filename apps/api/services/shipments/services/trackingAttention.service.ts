@@ -1,6 +1,6 @@
 import { businessDay } from "../../../lib/businessDate";
 import type { TrackingAttentionItem } from "../interfaces/interfaces";
-import { CLOCK_EVENT_KINDS, clockApplies, clockOf } from "../lib/detentionClock";
+import { CLOCK_EVENT_KINDS, clockApplies, clockOf, type ClockEvent } from "../lib/detentionClock";
 import { attentionFlags, type AttentionFacts, type AttentionShipment } from "../lib/trackingAttention";
 import { containerRepository } from "../repositories/container.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
@@ -15,8 +15,17 @@ export const TRACKING_ATTENTION_LIMIT = 1000;
  * shipment id: the dates waiting to be confirmed, the last event, the hub arrival, what the
  * customer was last told and the boxes' free time clocks on `today`. Six reads for all of them
  * together, whoever asks (Needs Attention, Shipments → Managers), so both judge by the same facts.
+ *
+ * `clockEventsRead` is the sixth read - the shipments' events of CLOCK_EVENT_KINDS - for a caller
+ * that reads the events anyway and hands those over instead of having them read twice (Shipments →
+ * Managers, with its timeline kinds). Left out, they are read here, as always.
  */
-export async function attentionFactsOf(shipments: readonly (AttentionShipment & { id: string })[], companyId: string, today: string): Promise<Map<string, AttentionFacts>> {
+export async function attentionFactsOf(
+  shipments: readonly (AttentionShipment & { id: string })[],
+  companyId: string,
+  today: string,
+  clockEventsRead?: Promise<readonly (ClockEvent & { shipmentId: string })[]>,
+): Promise<Map<string, AttentionFacts>> {
   const ids = shipments.map((s) => s.id);
   const [proposed, latest, hub, notices, boxes, clockEvents] = await Promise.all([
     shipmentTrackingEventRepository.proposedOn(ids, companyId),
@@ -24,7 +33,7 @@ export async function attentionFactsOf(shipments: readonly (AttentionShipment & 
     shipmentTrackingEventRepository.arrivedAtHub(ids, companyId),
     shipmentCustomerNoticeRepository.latestPerShipment(ids, companyId),
     containerRepository.withFreeTime(ids, companyId),
-    shipmentTrackingEventRepository.ofKinds(ids, companyId, CLOCK_EVENT_KINDS),
+    clockEventsRead ?? shipmentTrackingEventRepository.ofKinds(ids, companyId, CLOCK_EVENT_KINDS),
   ]);
   // Each shipment's rows, in the order they were read.
   const byShipment = <R extends { shipmentId: string }>(rows: readonly R[]) => {

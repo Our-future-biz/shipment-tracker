@@ -4,7 +4,6 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { CUTOFF_URGENT_DAYS } from "../lib/cockpitThresholds";
 import { DATE_MOVED_WINDOW_DAYS } from "../lib/trackingThresholds";
 import { ROAD_DEPARTMENT } from "../../../lib/deliveryDated";
 import { shipmentAuditTable } from "../schemas/shipmentAudit.schema";
@@ -146,69 +145,14 @@ const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'exp
        THEN ${shipmentTable.estimatedDeparture}
        ELSE ${shipmentTable.estimatedArrival} END`;
 
-/**
- * What a shipment has to be ready for — the dates behind "Needs Attention".
- *
- * Plain dates count while they are still ahead. The four compliance items carry a
- * status, so they count only while that status says the work is open, and they stay
- * on the list after their date has passed (`keepsOverdue`) until someone confirms them
- * or the shipment departs:
- *   VGM / SI   — by their closing date, unless Confirmed (VGM also: Not Applicable);
- *   AMS / ISF  — when Pending, by their deadline; without one, 4 days before departure.
- *
- * Statuses are free text with decoration ("Confirmed (Green)"), hence the LIKE matches.
- */
-const statusHas = (column: PgColumn, fragment: string) => sql`lower(${column}) LIKE ${`%${fragment}%`}`;
+// What is due on a shipment - the dates behind "Needs Attention" - is judged in TypeScript, on one
+// rule set with Shipments → Managers (lib/needsAttention, lib/managersCockpit cutoffsOf): the two
+// cards, the Overview tile's count and the list the tile opens all come from it. No statement
+// here says what is due; needsAttentionCandidates only bounds what those rules read.
+
+// AMS and ISF with no deadline typed are due 4 days before the ETD (lib/managersCockpit
+// filedBeforeDeparture): that day is a cut-off date of the job, for the read's bounds.
 const FILED_BEFORE_DEPARTURE = sql`${shipmentTable.estimatedDeparture} - 4`;
-
-const DEADLINE_DEFS = {
-  cargoReadinessDate: { date: sql`${shipmentTable.cargoReadinessDate}`, keepsOverdue: false },
-  closingDate: { date: sql`${shipmentTable.closingDate}`, keepsOverdue: false },
-  estimatedDeparture: { date: sql`${shipmentTable.estimatedDeparture}`, keepsOverdue: false },
-  estimatedArrival: { date: sql`${shipmentTable.estimatedArrival}`, keepsOverdue: false },
-  etaWarehouse: { date: sql`${shipmentTable.etaWarehouse}`, keepsOverdue: false },
-  plannedDeliveryDate: { date: sql`${shipmentTable.plannedDeliveryDate}`, keepsOverdue: false },
-  vgmClosing: {
-    date: sql`CASE WHEN NOT (${statusHas(shipmentTable.vgm, "confirmed")} OR ${statusHas(shipmentTable.vgm, "not applicable")})
-      THEN ${shipmentTable.vgmClosing} END`,
-    keepsOverdue: true,
-  },
-  siClosing: {
-    date: sql`CASE WHEN NOT ${statusHas(shipmentTable.shippingInstructions, "confirmed")} THEN ${shipmentTable.siClosing} END`,
-    keepsOverdue: true,
-  },
-  amsDeadline: {
-    date: sql`CASE WHEN ${statusHas(shipmentTable.ams, "pending")} THEN COALESCE(${shipmentTable.amsDeadline}, ${FILED_BEFORE_DEPARTURE}) END`,
-    keepsOverdue: true,
-  },
-  isfDeadline: {
-    date: sql`CASE WHEN ${statusHas(shipmentTable.isf, "pending")} THEN COALESCE(${shipmentTable.isfDeadline}, ${FILED_BEFORE_DEPARTURE}) END`,
-    keepsOverdue: true,
-  },
-};
-type DeadlineDef = (typeof DEADLINE_DEFS)[keyof typeof DEADLINE_DEFS];
-const DEADLINES = Object.values(DEADLINE_DEFS);
-// The cut-offs among them: what the carrier closes or an authority wants filed before the vessel
-// sails. Shipments → Managers counts these five alone (lib/managersCockpit cutoffsOf is their copy
-// in TypeScript: change a rule here and there together).
-const CUTOFF_DEADLINES = [DEADLINE_DEFS.closingDate, DEADLINE_DEFS.vgmClosing, DEADLINE_DEFS.siClosing, DEADLINE_DEFS.amsDeadline, DEADLINE_DEFS.isfDeadline];
-
-/** Deadline fields that stay due after their date has passed, until their status is confirmed. */
-export const OVERDUE_DEADLINE_FIELDS: ReadonlySet<string> = new Set(
-  Object.entries(DEADLINE_DEFS).filter(([, d]) => d.keepsOverdue).map(([field]) => field),
-);
-
-// An overdue compliance item stays due only until the vessel sails; after that it can no
-// longer be acted on, and without this bound every old unconfirmed shipment would sit
-// on the list forever.
-const NOT_DEPARTED = sql`(${shipmentTable.estimatedDeparture} IS NULL OR ${shipmentTable.estimatedDeparture} >= ${TODAY})`;
-
-// Due within `days` days from today, today included (1 = today or tomorrow).
-const isDueWithin = ({ date, keepsOverdue }: DeadlineDef, days: number) =>
-  keepsOverdue
-    ? sql`((${date}) >= ${TODAY} OR ${NOT_DEPARTED}) AND (${date}) <= ${TODAY} + ${days}::int`
-    : sql`(${date}) BETWEEN ${TODAY} AND ${TODAY} + ${days}::int`;
-const anyDueWithin = (days: number) => sql`(${sql.join(DEADLINES.map((d) => isDueWithin(d, days)), sql` OR `)})`;
 
 // A cancelled shipment drops out of every count, deadline and warning.
 const NOT_CANCELLED = sql`${shipmentTable.status} IS DISTINCT FROM ${CANCELLED_STATUS}`;
@@ -226,14 +170,14 @@ const DATE_MOVED_LATELY = sql`EXISTS (
     AND moved.old_value <> moved.new_value
 )`;
 
+// The Overview tile "Needs Attention" is not among these: what is due is judged in TypeScript
+// (lib/needsAttention), and its list is asked for by ids (attentionMatch).
 const TILE_PREDICATES = {
   active: ACTIVE,
-  attention: sql`${ACTIVE} AND ${anyDueWithin(1)}`,
   etamoved: sql`${ACTIVE} AND ${DATE_MOVED_LATELY}`,
-  // The three below are opened from Shipments → Managers; its tiles count the same in TypeScript
-  // (lib/managersCockpit), on the rows of managersCockpitRows.
-  cutoffs: sql`${ACTIVE} AND (${sql.join(CUTOFF_DEADLINES.map((d) => isDueWithin(d, CUTOFF_URGENT_DAYS)), sql` OR `)})`,
-  "booking-pending": sql`${ACTIVE} AND ${statusHas(shipmentTable.bookingConfirmation, "pending")}`,
+  // Opened from Shipments → Managers, whose tile counts the same in TypeScript (lib/managersCockpit),
+  // on the rows of managersCockpitRows. Its cut-off and booking tiles have no list filter: they
+  // are judged by rules no statement here repeats, and narrow the cockpit's own cards instead.
   claims: sql`${ACTIVE} AND ${shipmentTable.claim} = 'Yes'`,
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import' AND ${NOT_CANCELLED}`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export' AND ${NOT_CANCELLED}`,
@@ -247,9 +191,21 @@ const TILE_PREDICATES = {
 
 export type TileId = keyof typeof TILE_PREDICATES;
 
-/** The rows a tile of this id opens; undefined for "all" and for an id that is no tile. */
+/** The rows a tile of this id opens; undefined for "all", for "attention" (see attentionMatch) and for an id that is no tile. */
 export function tilePredicate(tile: string | undefined): SQL | undefined {
   return tile && Object.hasOwn(TILE_PREDICATES, tile) ? TILE_PREDICATES[tile as TileId] : undefined;
+}
+
+/** The list's tile filter that is answered by ids instead of a predicate. */
+export const ATTENTION_TILE = "attention";
+
+/**
+ * The rows the Overview tile "Needs Attention" opens: the jobs the rule named (lib/needsAttention
+ * urgentIds, worked out by the service for this request). With none it finds nothing - never
+ * everything, which a missing filter would.
+ */
+export function attentionMatch(ids: readonly string[] | undefined): SQL {
+  return ids?.length ? inArray(shipmentTable.id, [...ids]) : sql`false`;
 }
 
 // Who a person field names: the e-mail, before the name an old value may carry after it
@@ -331,8 +287,10 @@ const CUSTOMS_PREDICATES = {
 export type CustomsFilterId = keyof typeof CUSTOMS_PREDICATES;
 
 export interface ShipmentListFilters {
-  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek, and Shipments → Managers' cutoffs | booking-pending | claims */
+  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek, and Shipments → Managers' claims */
   tile?: string;
+  /** With tile "attention": the jobs Needs Attention's URGENT list names, worked out by the service (lib/needsAttention). */
+  attentionIds?: readonly string[];
   /** Handled By: an e-mail (in any case), or "nobody" for the jobs with nobody in it. */
   handledBy?: string;
   /** How the job travels: sea | air | rail | road (lib/trackingEvents freightKindOf). */
@@ -901,7 +859,9 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         if (bucketMatch) clauses.push(bucketMatch);
       }
     }
-    if (f.tile && f.tile !== "all") {
+    if (f.tile === ATTENTION_TILE) {
+      clauses.push(attentionMatch(f.attentionIds));
+    } else if (f.tile && f.tile !== "all") {
       const predicate = tilePredicate(f.tile);
       if (predicate) clauses.push(predicate);
     }
@@ -974,9 +934,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    * Counts for the Shipments overview tiles, computed in SQL over the whole
    * company dataset (not just the current page).
    *
-   * "attention" is an active shipment with any deadline today or tomorrow, or an
-   * overdue compliance item — the same
-   * rows the 24-hour Needs Attention table lists.
+   * "Needs Attention" is not counted here: the service counts the jobs the deadline rules name
+   * (lib/needsAttention) - the same rows the URGENT card lists and the tile opens.
    */
   async tileCounts(companyId: string) {
     const base = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
@@ -984,7 +943,6 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     const [row] = await this.db
       .select({
         active: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.active})`,
-        attention: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.attention})`,
         etaMoved: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.etamoved})`,
         importCount: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.import})`,
         exportCount: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.export})`,
@@ -996,7 +954,6 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
 
     return {
       active: Number(row?.active ?? 0),
-      attention: Number(row?.attention ?? 0),
       etaMoved: Number(row?.etaMoved ?? 0),
       import: Number(row?.importCount ?? 0),
       export: Number(row?.exportCount ?? 0),
@@ -1006,23 +963,39 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   }
 
   /**
-   * Active shipments with a deadline within `days` days from today (or an overdue
-   * compliance item), soonest deadline first, over the whole company dataset. `today` is the database's date, so the caller
-   * can tell how far off each returned date is.
+   * The company's active jobs Needs Attention may list, the newest first, as lib/needsAttention
+   * reads them. The rules are there; this only keeps them from reading every job, and must find
+   * every job they could name (`range` is lib/needsAttention candidateRange):
+   *
+   *   a plain date (cargo ready, pick-up, ETD, ETA, ETA warehouse, planned delivery) from today
+   *   to the end of the ATTENTION window; or, on a job that has not left (no ATD, ATA or actual
+   *   delivery), a cut-off date in that span, or one that passed - while the ETD is today or
+   *   later, or, with no ETD, while the cut-off's own date is not before `passedSince`.
+   *
+   * A cut-off's status is not asked: whether its work is done is the rule's to say. AMS and ISF
+   * with no deadline typed are due 4 days before the ETD, so that day counts as a cut-off date.
    */
-  async dueWithinDays(companyId: string, days: number) {
-    // LEAST ignores NULLs; a date outside the window is nulled so it cannot win the ordering.
-    const soonest = sql`LEAST(${sql.join(DEADLINES.map((d) => sql`CASE WHEN ${isDueWithin(d, days)} THEN (${d.date}) END`), sql`, `)})`;
-    // Each deadline's date, or NULL when it does not apply (no date, its work is confirmed,
-    // or it is overdue on a shipment that has already departed).
-    const dates = Object.fromEntries(
-      Object.entries(DEADLINE_DEFS).map(([field, d]) => [
-        field,
-        d.keepsOverdue
-          ? sql<string | null>`(CASE WHEN (${d.date}) >= ${TODAY} OR ${NOT_DEPARTED} THEN (${d.date}) END)::text`
-          : sql<string | null>`(${d.date})::text`,
-      ]),
-    ) as Record<keyof typeof DEADLINE_DEFS, ReturnType<typeof sql<string | null>>>;
+  async needsAttentionCandidates(companyId: string, range: { from: string; until: string; passedSince: string }, limit: number) {
+    const from = sql`${range.from}::date`;
+    const until = sql`${range.until}::date`;
+    const anyOf = (conditions: SQL[]) => sql`(${sql.join(conditions, sql` OR `)})`;
+    const plainDates = [
+      shipmentTable.cargoReadinessDate,
+      shipmentTable.pickupDate,
+      shipmentTable.estimatedDeparture,
+      shipmentTable.estimatedArrival,
+      shipmentTable.etaWarehouse,
+      shipmentTable.plannedDeliveryDate,
+    ];
+    const typedCutoffs = [shipmentTable.closingDate, shipmentTable.vgmClosing, shipmentTable.siClosing, shipmentTable.amsDeadline, shipmentTable.isfDeadline];
+    const cutoffDates = [...typedCutoffs, sql`(${FILED_BEFORE_DEPARTURE})`];
+    const notLeft = sql`${shipmentTable.actualDeparture} IS NULL AND ${shipmentTable.actualArrival} IS NULL AND ${shipmentTable.actualDeliveryDate} IS NULL`;
+    const dateAhead = anyOf(plainDates.map((date) => sql`${date} BETWEEN ${from} AND ${until}`));
+    const cutoffAhead = anyOf(cutoffDates.map((date) => sql`${date} BETWEEN ${from} AND ${until}`));
+    // Passed, with the ETD still to come: any of them, the day 4 days before the ETD too.
+    const passedBeforeEtd = sql`(${shipmentTable.estimatedDeparture} >= ${from} AND ${anyOf(cutoffDates.map((date) => sql`${date} < ${from}`))})`;
+    // Passed, with no ETD: only lately (and there is no day 4 days before an ETD).
+    const passedLately = sql`(${shipmentTable.estimatedDeparture} IS NULL AND ${anyOf(typedCutoffs.map((date) => sql`(${date} >= ${range.passedSince}::date AND ${date} < ${from})`))})`;
 
     return this.db
       .select({
@@ -1032,18 +1005,41 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         customer: shipmentTable.customer,
         tradeDirection: shipmentTable.tradeDirection,
         status: shipmentTable.status,
-        ...dates,
-        today: sql<string>`(${TODAY})::text`,
+        cargoReadinessDate: shipmentTable.cargoReadinessDate,
+        pickupDate: shipmentTable.pickupDate,
+        estimatedDeparture: shipmentTable.estimatedDeparture,
+        actualDeparture: shipmentTable.actualDeparture,
+        estimatedArrival: shipmentTable.estimatedArrival,
+        // With the ATD, what the shared cut-off rule reads "the job has left" from (lib/managersCockpit cutoffsOf).
+        actualArrival: shipmentTable.actualArrival,
+        actualDeliveryDate: shipmentTable.actualDeliveryDate,
+        etaWarehouse: shipmentTable.etaWarehouse,
+        warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+        plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+        closingDate: shipmentTable.closingDate,
+        closingTime: shipmentTable.closingTime,
+        vgmClosing: shipmentTable.vgmClosing,
+        vgmClosingTime: shipmentTable.vgmClosingTime,
+        vgm: shipmentTable.vgm,
+        siClosing: shipmentTable.siClosing,
+        siClosingTime: shipmentTable.siClosingTime,
+        shippingInstructions: shipmentTable.shippingInstructions,
+        ams: shipmentTable.ams,
+        amsDeadline: shipmentTable.amsDeadline,
+        amsDeadlineTime: shipmentTable.amsDeadlineTime,
+        isf: shipmentTable.isf,
+        isfDeadline: shipmentTable.isfDeadline,
+        isfDeadlineTime: shipmentTable.isfDeadlineTime,
       })
       .from(shipmentTable)
       .where(and(
         eq(shipmentTable.companyId, companyId),
         isNull(shipmentTable.deletedAt),
         ACTIVE,
-        anyDueWithin(days),
+        sql`(${dateAhead} OR (${notLeft} AND (${cutoffAhead} OR ${passedBeforeEtd} OR ${passedLately})))`,
       ))
-      .orderBy(soonest, shipmentTable.jobNumber)
-      .limit(200);
+      .orderBy(desc(shipmentTable.createdAt), desc(shipmentTable.id))
+      .limit(limit);
   }
 
   /**
@@ -1096,7 +1092,9 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   /**
    * Every active job of the company as Shipments → Managers reads it, the newest first: what
    * lib/trackingAttention needs, who handles it, its cut-offs with their statuses, customs, the
-   * booking confirmation and the claim flag. The rules are lib/managersCockpit; this judges nothing.
+   * booking confirmation, the claim flag, and the columns the step 2 rules go by (lib/managersCockpit
+   * and lib/managersCockpitExtra) - with whether the customer was sent an arrival notice, so that
+   * needs no read of its own. The rules are there; this judges nothing.
    */
   async managersCockpitRows(companyId: string, limit: number) {
     return this.db
@@ -1120,18 +1118,45 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         holidayCover: shipmentTable.holidayCover,
         closingDate: shipmentTable.closingDate,
         vgmClosing: shipmentTable.vgmClosing,
+        vgmClosingTime: shipmentTable.vgmClosingTime,
         vgm: shipmentTable.vgm,
         siClosing: shipmentTable.siClosing,
+        siClosingTime: shipmentTable.siClosingTime,
         shippingInstructions: shipmentTable.shippingInstructions,
         ams: shipmentTable.ams,
         amsDeadline: shipmentTable.amsDeadline,
+        amsDeadlineTime: shipmentTable.amsDeadlineTime,
         isf: shipmentTable.isf,
         isfDeadline: shipmentTable.isfDeadline,
+        isfDeadlineTime: shipmentTable.isfDeadlineTime,
         customsPriority: shipmentTable.customsPriority,
         customsStatus: shipmentTable.customsStatus,
         customsDeadline: shipmentTable.customsDeadline,
         bookingConfirmation: shipmentTable.bookingConfirmation,
         claim: shipmentTable.claim,
+        cargoReadinessDate: shipmentTable.cargoReadinessDate,
+        pickupDate: shipmentTable.pickupDate,
+        closingTime: shipmentTable.closingTime,
+        masterBolNumber: shipmentTable.masterBolNumber,
+        masterBolType: shipmentTable.masterBolType,
+        houseBolType: shipmentTable.houseBolType,
+        houseBolRelease: shipmentTable.houseBolRelease,
+        bolDraft: shipmentTable.bolDraft,
+        plateNumber: shipmentTable.plateNumber,
+        creditCheck: shipmentTable.creditCheck,
+        dangerous: shipmentTable.dangerous,
+        loadType: shipmentTable.loadType,
+        masterJobId: shipmentTable.masterJobId,
+        customsProcedure: shipmentTable.customsProcedure,
+        customsOffice: shipmentTable.customsOffice,
+        mrn: shipmentTable.mrn,
+        warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
+        createdAt: shipmentTable.createdAt,
+        updatedAt: shipmentTable.updatedAt,
+        arrivalNoticeSent: sql<boolean>`EXISTS (
+          SELECT 1 FROM ${shipmentCustomerNoticeTable} told
+          WHERE told.shipment_id = ${shipmentTable.id} AND told.kind = 'arrival_notice' AND told.deleted_at IS NULL
+        )`,
       })
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), ACTIVE))

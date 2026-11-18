@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  LIST_TILES,
   canOpenShipmentsManagers,
   directionOf,
   handledByOf,
@@ -9,7 +10,7 @@ import {
   shipmentsManagersHref,
   tabOf,
   tileHref,
-  type OpsTileKey,
+  type OpsListTileKey,
 } from "./cockpitAddress";
 
 describe("Shipments → Managers: who opens it", () => {
@@ -65,6 +66,16 @@ describe("Shipments → Managers: its address", () => {
     expect(shipmentsManagersHref({ tab: "approvals", mode: "sea", handledBy: "nobody" })).toBe("/shipments/managers?tab=approvals&mode=sea&handledBy=nobody");
   });
 
+  it("writes the signal the cards are narrowed to after the filters, and nothing for none", () => {
+    expect(shipmentsManagersHref({ signal: "cutoff" })).toBe("/shipments/managers?signal=cutoff");
+    expect(shipmentsManagersHref({ mode: "sea", direction: "export", handledBy: "jana@cto.cz", signal: "free_time" })).toBe(
+      "/shipments/managers?mode=sea&direction=export&handledBy=jana%40cto.cz&signal=free_time",
+    );
+    expect(shipmentsManagersHref({ mode: "air", signal: null })).toBe("/shipments/managers?mode=air");
+    // It stays while Approvals is open, as the filters do: back on the cockpit the cards are as they were left.
+    expect(shipmentsManagersHref({ tab: "approvals", signal: "customs" })).toBe("/shipments/managers?tab=approvals&signal=customs");
+  });
+
   it("writes an e-mail so that it reads back the same", () => {
     const href = shipmentsManagersHref({ handledBy: "jana+ops@cto.cz" });
     expect(handledByOf(new URLSearchParams(href.split("?")[1]).get("handledBy"))).toBe("jana+ops@cto.cz");
@@ -81,40 +92,44 @@ describe("Shipments → Managers: its address", () => {
 const query = (href: string | undefined) => Object.fromEntries(new URLSearchParams(href!.split("?")[1]));
 const everyone = { mode: "all", direction: "all", handledBy: null } as const;
 
-describe("Shipments → Managers: where a tile leads", () => {
+describe("Shipments → Managers: where a list tile leads", () => {
+  it("lists the five tiles the Shipments list can show, in the order they are drawn", () => {
+    expect(LIST_TILES.map((t) => t.key)).toEqual(["active", "noHandledBy", "etdEtaMoved", "notReleased", "openClaims"]);
+    expect(LIST_TILES.map((t) => t.label)).toEqual(["Active jobs", "Nobody in Handled By", "ETA Moved", "Arrived, not released for billing", "Open claims"]);
+    for (const t of LIST_TILES) expect(t.hint, t.key).not.toBe("");
+  });
+
   it("opens the Shipments list with the filter that lists what the tile counted", () => {
-    const expected: Record<OpsTileKey, Record<string, string> | undefined> = {
+    const expected: Record<OpsListTileKey, Record<string, string>> = {
       active: { tile: "active" },
-      cutoffsDue: { tile: "cutoffs" },
       noHandledBy: { tile: "active", handledBy: "nobody" },
-      handledByNotUser: undefined,
-      bookingPending: { tile: "booking-pending" },
       etdEtaMoved: { tile: "etamoved" },
-      freeTime: undefined,
-      // On their own these two also list jobs that are no longer active.
-      customsUrgent: { tile: "active", customs: "urgent" },
+      // On its own this one also lists jobs that are no longer active.
       notReleased: { tile: "active", invoicing: "unbilled-arrivals" },
       openClaims: { tile: "claims" },
     };
-    for (const [key, filters] of Object.entries(expected) as [OpsTileKey, Record<string, string> | undefined][]) {
+    for (const { key } of LIST_TILES) {
       const href = tileHref(key, everyone);
-      if (!filters) {
-        expect(href, key).toBeUndefined();
-        continue;
-      }
       expect(href!.startsWith("/shipments?"), key).toBe(true);
-      expect(query(href), key).toEqual(filters);
+      expect(query(href), key).toEqual(expected[key]);
     }
   });
 
+  it("has no link to the list for what the cockpit counts by its own rules", () => {
+    // Cut-offs and bookings are counted in working days, with the missed ones kept: the list's
+    // tile=cutoffs and tile=booking-pending would show other jobs. They narrow the cards instead.
+    const keys: string[] = LIST_TILES.map((t) => t.key);
+    for (const key of ["cutoffsDue", "bookingPending", "customsUrgent", "freeTime", "handledByNotUser", "signals"]) expect(keys, key).not.toContain(key);
+  });
+
   it("carries the page's mode and Handled By person", () => {
-    expect(tileHref("cutoffsDue", { ...everyone, mode: "air" })).toBe("/shipments?tile=cutoffs&mode=air");
-    expect(query(tileHref("customsUrgent", { ...everyone, mode: "sea", handledBy: "jana@cto.cz" }))).toEqual({ tile: "active", customs: "urgent", mode: "sea", handledBy: "jana@cto.cz" });
+    expect(tileHref("etdEtaMoved", { ...everyone, mode: "air" })).toBe("/shipments?tile=etamoved&mode=air");
+    expect(query(tileHref("notReleased", { ...everyone, mode: "sea", handledBy: "jana@cto.cz" }))).toEqual({ tile: "active", invoicing: "unbilled-arrivals", mode: "sea", handledBy: "jana@cto.cz" });
     expect(query(tileHref("openClaims", { ...everyone, handledBy: "nobody" }))).toEqual({ tile: "claims", handledBy: "nobody" });
   });
 
   it("carries the page's Trade Direction as the list's column filter, in the value the column stores", () => {
-    expect(tileHref("cutoffsDue", { ...everyone, direction: "import" })).toBe("/shipments?tile=cutoffs&f.tradeDirection=Import");
+    expect(tileHref("etdEtaMoved", { ...everyone, direction: "import" })).toBe("/shipments?tile=etamoved&f.tradeDirection=Import");
     expect(query(tileHref("active", { ...everyone, direction: "export" }))).toEqual({ tile: "active", "f.tradeDirection": "Export" });
     expect(query(tileHref("openClaims", { mode: "road", direction: "domestic", handledBy: "jana@cto.cz" }))).toEqual({
       tile: "claims",
@@ -123,7 +138,7 @@ describe("Shipments → Managers: where a tile leads", () => {
       "f.tradeDirection": "Domestic",
     });
     // Every direction: no column filter, so the list restores nothing it was not asked for.
-    for (const key of ["active", "cutoffsDue", "customsUrgent", "notReleased"] as const) expect(tileHref(key, everyone)).not.toContain("f.");
+    for (const { key } of LIST_TILES) expect(tileHref(key, everyone)).not.toContain("f.");
   });
 
   it("opens the jobs nobody handles from Nobody in Handled By, for everyone and on a page narrowed to nobody", () => {
@@ -136,11 +151,6 @@ describe("Shipments → Managers: where a tile leads", () => {
     expect(tileHref("noHandledBy", { mode: "rail", direction: "export", handledBy: "jana@cto.cz" })).toBeUndefined();
     // The other tiles of that page keep theirs.
     expect(tileHref("active", { ...everyone, handledBy: "jana@cto.cz" })).toBe("/shipments?tile=active&handledBy=jana%40cto.cz");
-  });
-
-  it("leads nowhere for what the list cannot filter by, whatever the page is narrowed to", () => {
-    expect(tileHref("freeTime", { mode: "air", direction: "import", handledBy: "jana@cto.cz" })).toBeUndefined();
-    expect(tileHref("handledByNotUser", { ...everyone, mode: "air" })).toBeUndefined();
   });
 });
 
@@ -156,5 +166,16 @@ describe("Shipments → Managers: where a row leads", () => {
 
   it("opens the shipment where it always opens for an area it does not know", () => {
     expect(rowHref({ id: "abc", area: "warehouse" as never })).toBe("/shipments/abc");
+  });
+
+  it("opens a job's shipment whether the row says it is a job or says nothing", () => {
+    expect(rowHref({ kind: "job", id: "abc", area: "customs" })).toBe("/shipments/abc?tab=customs");
+    expect(rowHref({ id: "abc", area: "customs" })).toBe("/shipments/abc?tab=customs");
+  });
+
+  it("opens a Master Job inside Master Jobs by its id, on Linked Shipments, whatever its area", () => {
+    const id = "5d0c2a1e-7b1f-4c7e-8a55-0e9c1b2d3f40";
+    expect(rowHref({ kind: "masterJob", id, area: "details" })).toBe(`/master-jobs?open=${id}&tab=shipments`);
+    expect(rowHref({ kind: "masterJob", id, area: "tracking" })).toBe(`/master-jobs?open=${id}&tab=shipments`);
   });
 });

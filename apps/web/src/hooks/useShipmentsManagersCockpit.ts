@@ -6,6 +6,7 @@ import type { interfaces } from "@/lib/api";
 
 export type ShipmentsManagersCockpit = interfaces.ShipmentsManagersCockpit;
 export type OpsCockpitRow = interfaces.OpsCockpitRow;
+export type OpsCockpitList = interfaces.OpsCockpitList;
 export type OpsCockpitMode = interfaces.OpsCockpitMode;
 export type OpsCockpitDirection = interfaces.OpsCockpitDirection;
 export type OpsCockpitPerson = interfaces.OpsCockpitPerson;
@@ -25,6 +26,8 @@ const cockpitKey = ({ mode, direction, handledBy }: OpsCockpitFilter) => ["shipm
  * Shipments → Managers: tiles, the URGENT and ATTENTION cards and the people named in Handled By,
  * over the company's active jobs of one mode, direction and person, or all of them. Worked out on
  * the server (Prague day) and refreshed every minute, as the Sales and Warehouse cockpits are.
+ * The signal the cards are narrowed to (?signal=) is not part of the question: the page narrows
+ * the rows it already has, so a tile click asks the server nothing.
  */
 export const useShipmentsManagersCockpit = (filter: OpsCockpitFilter, enabled: boolean) => {
   const query = useQuery({

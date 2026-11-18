@@ -2,8 +2,10 @@
 // margin below the floor; the manager approves it, approves it down to a counter margin, or
 // rejects it. Pure, so every rule is covered by a test.
 
-import { businessDay, businessMinutes, addDays } from "../../../lib/businessDate";
-import { isWorkingDay } from "../../../lib/workingDays";
+import { officeMinutesBetween } from "../../../lib/officeHours";
+
+// The office hours a waiting inquiry is aged in live in lib/officeHours, for every service to share.
+export { officeMinutesBetween };
 
 /** Why a rep asks; "Other" needs their own words. */
 export const INQUIRY_REASONS = ["Competitor price", "Tender or volume", "New or strategic customer", "Retention", "Market drop", "Other"] as const;
@@ -14,28 +16,10 @@ export const MAX_INQUIRY_FIELD = 200;
 /** A reason the manager gives with a counter margin or a rejection: at least this long. */
 export const MIN_DECISION_COMMENT = 3;
 
-/** Office hours a waiting inquiry is aged in (Prague): 08:00-17:00 on Czech working days. */
-const OFFICE_START = 8 * 60;
-const OFFICE_END = 17 * 60;
 /** After this many office minutes the owner's manager has not answered, the admins are told too (D14). */
 export const ESCALATE_AFTER_OFFICE_MINUTES = 4 * 60;
 /** …and as soon as the customer's "needs it by" is this close. */
 export const ESCALATE_BEFORE_NEEDS_BY_MS = 2 * 3_600_000;
-
-/** Office minutes (08:00-17:00 Prague, working days) between two moments; 0 when `to` is not later. */
-export function officeMinutesBetween(from: Date, to: Date): number {
-  if (to.getTime() <= from.getTime()) return 0;
-  const first = businessDay(from);
-  const last = businessDay(to);
-  let total = 0;
-  for (let day = first; day <= last; day = addDays(day, 1)) {
-    if (!isWorkingDay(day)) continue;
-    const start = Math.max(OFFICE_START, day === first ? businessMinutes(from) : 0);
-    const end = Math.min(OFFICE_END, day === last ? businessMinutes(to) : 24 * 60);
-    if (end > start) total += end - start;
-  }
-  return total;
-}
 
 /** What decides who is told about a waiting inquiry. */
 export interface InquiryWaiting {

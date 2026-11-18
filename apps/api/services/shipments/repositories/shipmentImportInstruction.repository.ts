@@ -109,6 +109,18 @@ class ShipmentImportInstructionRepository {
       .orderBy(desc(t.submittedAt))
       .limit(100);
   }
+
+  /**
+   * The live form of each of these shipments - a link not filled in yet, or the customer's answers
+   * waiting - with its times: one query for Shipments → Managers' cards. A shipment has at most one.
+   */
+  async liveByShipmentIds(shipmentIds: readonly string[], companyId: string) {
+    if (shipmentIds.length === 0) return [];
+    return db
+      .select({ shipmentId: t.shipmentId, status: t.status, submittedAt: t.submittedAt, expiresAt: t.expiresAt })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), inArray(t.status, ["open", "submitted"])));
+  }
 }
 
 export const shipmentImportInstructionRepository = new ShipmentImportInstructionRepository();

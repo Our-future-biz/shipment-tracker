@@ -6,8 +6,7 @@ import { Modal, Table, Tag } from "antd";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { StatusBadge } from "@/components/StatusBadge";
-import { formatDate } from "@/lib/date";
-import { deadlineDayColor, deadlineDayLabel, deadlineLabel } from "@/lib/shipmentDeadlines";
+import { deadlineColor, deadlineText } from "@/lib/shipmentDeadlines";
 import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import type { ShipmentDueItem } from "@/hooks/useShipmentsNeedingAttention";
 import { CARD_TITLE, EMPTY, HINT, MODAL_TITLE, REF } from "@/styles/ui";
@@ -19,19 +18,24 @@ const VISIBLE_ROWS = 3;
 type CardKey = "within24h" | "within48h";
 
 interface CardDef {
+  /** When it is due, said after the count: the windows are working days, as on Shipments → Managers. */
   window: string;
+  /** The same inside a sentence: "Nothing due …", "3 to finish …". */
+  due: string;
   linkLabel: string;
   tone: { border: string; header: string; icon: string; link: string };
 }
 
 const CARDS: Record<CardKey, CardDef> = {
   within24h: {
-    window: "24 hours",
+    window: "today or the next working day",
+    due: "today or the next working day",
     linkLabel: "Click here to show URGENT shipment",
     tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" },
   },
   within48h: {
-    window: "48 hours",
+    window: "the two working days after",
+    due: "in the two working days after",
     linkLabel: "Click here to show Needs Attention shipment",
     tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" },
   },
@@ -46,33 +50,38 @@ const referenceColumn = {
   render: (v: string) => <span className={`${REF} font-semibold text-indigo-600`}>{v}</span>,
 };
 
-const deadlinesColumn = {
+// A date is as urgent as its card: everything on the URGENT one is red - a missed Closing
+// ("Closing missed · 17.11. 14:00") and an overdue filing among it.
+const deadlinesColumn = (card: CardKey) => ({
   title: "Due",
   dataIndex: "deadlines",
   render: (_: unknown, r: ShipmentDueItem) => (
     <div className="flex flex-wrap gap-1.5">
       {r.deadlines.map((d) => (
-        <Tag key={d.field} color={deadlineDayColor(d.daysLeft)} className="m-0">
-          {deadlineLabel(d.field)}: {deadlineDayLabel(d.daysLeft)} ({formatDate(d.date)})
+        <Tag key={d.field} color={deadlineColor(card)} className="m-0">
+          {deadlineText(d)}
         </Tag>
       ))}
     </div>
   ),
-};
+});
 
-const CARD_COLUMNS: ColumnsType<ShipmentDueItem> = [referenceColumn, deadlinesColumn];
+const cardColumns = (card: CardKey): ColumnsType<ShipmentDueItem> => [referenceColumn, deadlinesColumn(card)];
+const CARD_COLUMNS: Record<CardKey, ColumnsType<ShipmentDueItem>> = { within24h: cardColumns("within24h"), within48h: cardColumns("within48h") };
 
-const DIALOG_COLUMNS: ColumnsType<ShipmentDueItem> = [
+const dialogColumns = (card: CardKey): ColumnsType<ShipmentDueItem> => [
   referenceColumn,
   { title: "Customer", dataIndex: "customer", render: (v: string) => v || dash },
   { title: "Direction", dataIndex: "tradeDirection", width: 100, render: (v: string) => v || dash },
   { title: "Status", dataIndex: "status", render: (v: string) => (v ? <StatusBadge status={v} /> : dash) },
-  deadlinesColumn,
+  deadlinesColumn(card),
 ];
+const DIALOG_COLUMNS: Record<CardKey, ColumnsType<ShipmentDueItem>> = { within24h: dialogColumns("within24h"), within48h: dialogColumns("within48h") };
 
-// Shipments with a deadline coming up, shown above the grid so they cannot be missed:
-// one card for what is due within 24 hours, one for within 48 hours. Each card previews
-// its soonest shipments; its link opens the full list in a dialog.
+// Shipments with a deadline coming up, shown above the grid so they cannot be missed: one card
+// for what is due today or the next working day (and every cut-off missed or overdue), one for
+// the two working days after - the windows and the rules of Shipments → Managers. Each card
+// previews its soonest shipments; its link opens the full list in a dialog.
 export function NeedsAttentionTable() {
   const router = useRouter();
   const lists = useShipmentsNeedingAttention();
@@ -81,7 +90,7 @@ export function NeedsAttentionTable() {
   const rowProps = (r: ShipmentDueItem) => ({ onClick: () => router.push(`/shipments/${r.id}`) });
 
   const renderCard = (key: CardKey) => {
-    const { window, linkLabel, tone } = CARDS[key];
+    const { window, due, linkLabel, tone } = CARDS[key];
     const shipments = lists[key];
     const urgent = shipments.length > 0;
     const showAllLink = (
@@ -108,7 +117,7 @@ export function NeedsAttentionTable() {
           >
             {lists.isError ? "–" : shipments.length}
           </span>
-          <span className="text-[13px] text-slate-500">within {window}</span>
+          <span className="text-[13px] text-slate-500">{window}</span>
         </div>
         {/* No header row: the card's own header already says what the list is. */}
         <Table<ShipmentDueItem>
@@ -120,12 +129,12 @@ export function NeedsAttentionTable() {
             emptyText: lists.isError ? (
               <span className="text-[13px] text-red-600">Could not load the deadlines.</span>
             ) : (
-              <span className="text-[13px] text-slate-500">Nothing due within {window}.</span>
+              <span className="text-[13px] text-slate-500">Nothing due {due}.</span>
             ),
           }}
           footer={urgent ? () => showAllLink : undefined}
           dataSource={shipments.slice(0, VISIBLE_ROWS)}
-          columns={CARD_COLUMNS}
+          columns={CARD_COLUMNS[key]}
           pagination={false}
           rowClassName="cursor-pointer"
           onRow={rowProps}
@@ -136,11 +145,19 @@ export function NeedsAttentionTable() {
 
   const openList = openCard ? lists[openCard] : [];
 
+  // Said only when it is so: what the lists could not take into account.
+  const notes = [
+    lists.capped ? "More jobs have dates around today than could be read: the lists may miss some." : "",
+    lists.holidaysKnown ? "" : "The company's holidays could not be read: working days skip weekends and public holidays only.",
+    lists.notKnown.length ? `Not known right now: ${lists.notKnown.join(", ")}.` : "",
+  ].filter(Boolean);
+
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {renderCard("within24h")}
         {renderCard("within48h")}
+        {notes.length > 0 && <p className={`${HINT} lg:col-span-2 m-0`}>{notes.join(" ")}</p>}
         <div className="lg:col-span-2 min-w-0">
           <TrackingAttentionCard />
         </div>
@@ -155,7 +172,7 @@ export function NeedsAttentionTable() {
             <div className={MODAL_TITLE}>{openCard === "within24h" ? "URGENT shipments" : "Needs Attention shipments"}</div>
             {openCard && (
               <div className={`${HINT} font-normal mt-0.5`}>
-                {openList.length} to finish within {CARDS[openCard].window}
+                {openList.length} to finish {CARDS[openCard].due}
               </div>
             )}
           </div>
@@ -168,9 +185,9 @@ export function NeedsAttentionTable() {
           size="small"
           rowKey="id"
           scroll={{ x: "max-content" }}
-          locale={{ emptyText: openCard ? `Nothing due within ${CARDS[openCard].window}.` : "" }}
+          locale={{ emptyText: openCard ? `Nothing due ${CARDS[openCard].due}.` : "" }}
           dataSource={openList}
-          columns={DIALOG_COLUMNS}
+          columns={openCard ? DIALOG_COLUMNS[openCard] : []}
           pagination={{ pageSize: 15, hideOnSinglePage: true, size: "small" }}
           rowClassName="cursor-pointer"
           onRow={rowProps}

@@ -16,7 +16,7 @@ interface TileDef {
 // Mirrors DASH_TILES from the approved mockup.
 const TILES: TileDef[] = [
   { id: "active", label: "Active Shipments", hint: "Everything except invoiced shipments" },
-  { id: "attention", label: "Needs Attention", hint: "A deadline today or tomorrow, or an overdue VGM / SI / AMS / ISF — to finish within 24 hours", danger: true },
+  { id: "attention", label: "Needs Attention", hint: "A deadline today or the next working day, a missed Closing, or an overdue VGM / SI / AMS / ISF — the URGENT shipments", danger: true },
   { id: "etamoved", label: "ETA Moved", hint: "An ETD or ETA moved in the last 7 days", danger: true },
   { id: "import", label: "Imports", hint: "Import shipments" },
   { id: "export", label: "Exports", hint: "Export shipments" },

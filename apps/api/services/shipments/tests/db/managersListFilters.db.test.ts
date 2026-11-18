@@ -96,65 +96,31 @@ describe("the list's Handled By filter", () => {
 });
 
 describe("the tiles the cockpit opens the list with", () => {
-  it("cutoffs: the jobs the cockpit counts as a cut-off due, and no other", async () => {
+  it("claims: the active jobs the cockpit counts as an open claim, and no other", async () => {
     const companyId = randomUUID();
-    const dueJobs = await Promise.all(
-      [
-        { closingDate: day(0) },
-        { closingDate: day(1) },
-        { vgmClosing: day(1), vgm: "Pending (Red)" },
-        { vgmClosing: day(-3), vgm: "" },
-        { vgmClosing: day(-3), vgm: "Pending (Red)", estimatedDeparture: day(0) },
-        { siClosing: day(0), shippingInstructions: "Not Applicable" },
-        { ams: "Pending (Red)", amsDeadline: day(-1) },
-        { ams: "Pending", estimatedDeparture: day(5) },
-        { isf: "pending", estimatedDeparture: day(2) },
-        // Due by its filing, though its ETD (a deadline of the list's, not a cut-off) is far.
-        { isf: "Pending", isfDeadline: day(1), estimatedDeparture: day(30) },
-      ].map((over) => newJob(companyId, over)),
-    );
-    const quiet = await Promise.all(
-      [
-        {},
-        { closingDate: day(-1) },
-        { closingDate: day(2) },
-        { vgmClosing: day(0), vgm: "Confirmed (Green)" },
-        { vgmClosing: day(0), vgm: "Not Applicable" },
-        { vgmClosing: day(-3), vgm: "Pending (Red)", estimatedDeparture: day(-1) },
-        { vgmClosing: day(2) },
-        { siClosing: day(0), shippingInstructions: "Confirmed" },
-        { ams: "Filed", amsDeadline: day(0) },
-        { ams: "Pending" },
-        { ams: "Pending", estimatedDeparture: day(6) },
-        { isf: "Pending", estimatedDeparture: day(-1) },
-        // The list's other deadlines are no cut-off.
-        { estimatedDeparture: day(1), estimatedArrival: day(0), cargoReadinessDate: day(0), etaWarehouse: day(1), plannedDeliveryDate: day(0) },
-        // Not active.
-        { closingDate: day(0), invoicingStatus: "Invoiced" },
-        { closingDate: day(0), status: CANCELLED_STATUS },
-        { closingDate: day(0), deletedAt: new Date() },
-      ].map((over) => newJob(companyId, over)),
-    );
-    expect(await listed(companyId, { tile: "cutoffs" })).toEqual(ids(dueJobs));
+    const claim = await newJob(companyId, { claim: "Yes" });
+    const claimToo = await newJob(companyId, { claim: "Yes", bookingConfirmation: "Pending", closingDate: day(0) });
+    await newJob(companyId, { claim: "No" });
+    await newJob(companyId, {});
+    // Not active: an open claim on an invoiced, a cancelled or a deleted job is counted nowhere.
+    await newJob(companyId, { claim: "Yes", invoicingStatus: "Invoiced" });
+    await newJob(companyId, { claim: "Yes", status: CANCELLED_STATUS });
+    await newJob(companyId, { claim: "Yes", deletedAt: new Date() });
+    expect(await listed(companyId, { tile: "claims" })).toEqual(ids([claim, claimToo]));
     const c = await cockpit(companyId);
-    expect(c.tiles.cutoffsDue).toBe(dueJobs.length);
-    expect(c.tiles.active).toBe(dueJobs.length + quiet.length - 3);
-    // The Needs Attention tile is wider: it takes the other deadlines too.
-    expect((await listed(companyId, { tile: "attention" })).length).toBe(dueJobs.length + 1);
+    expect(c.tiles).toMatchObject({ active: 4, openClaims: 2 });
+    // With the mode and the person beside it, as the tile's link sends them.
+    expect(await listed(companyId, { tile: "claims", mode: "sea", handledBy: "jan@firma.cz" })).toEqual(ids([claim, claimToo]));
+    expect(await listed(companyId, { tile: "claims", mode: "air" })).toEqual([]);
   });
 
-  it("booking-pending and claims: the active jobs the cockpit counts", async () => {
+  it("has no list filter for cut-offs or a pending booking: the cockpit judges those by its own rules and narrows its cards", async () => {
+    // The cut-off tile counts working days, missed Closings and the filings' times; the booking
+    // tile only a booking at risk (cargo ready or the ETD close). No statement repeats either,
+    // so the old tile=cutoffs and tile=booking-pending are no filter - like any word that is no tile.
     const companyId = randomUUID();
-    const pending = await newJob(companyId, { bookingConfirmation: "Pending" });
-    const pendingOdd = await newJob(companyId, { bookingConfirmation: "PENDING (carrier)" });
-    const claim = await newJob(companyId, { claim: "Yes" });
-    await newJob(companyId, { bookingConfirmation: "Received", claim: "No" });
-    await newJob(companyId, { bookingConfirmation: "Pending", claim: "Yes", invoicingStatus: "Invoiced" });
-    await newJob(companyId, { bookingConfirmation: "Pending", claim: "Yes", status: CANCELLED_STATUS });
-    expect(await listed(companyId, { tile: "booking-pending" })).toEqual(ids([pending, pendingOdd]));
-    expect(await listed(companyId, { tile: "claims" })).toEqual(ids([claim]));
-    const c = await cockpit(companyId);
-    expect(c.tiles).toMatchObject({ active: 4, bookingPending: 2, openClaims: 1 });
+    const rows = await Promise.all([{ closingDate: day(0) }, { bookingConfirmation: "Pending" }, {}].map((over) => newJob(companyId, over)));
+    for (const tile of ["cutoffs", "booking-pending", "no-such-tile"]) expect(await listed(companyId, { tile })).toEqual(ids(rows));
   });
 
   it("customs urgent: with the active tile, the jobs the cockpit counts", async () => {

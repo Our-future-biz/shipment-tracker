@@ -11,11 +11,12 @@ vi.mock("~encore/clients", () => ({
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn(), _internalReleaseCheck: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
   warehouse: { _internalPickupPlates: vi.fn() },
+  holidays: { _internalHolidaysCzNational: vi.fn() },
 }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
 const TX = vi.hoisted(() => ({ fake: "tx" }));
 vi.mock("../../repositories/shipment.repository", () => ({
-  OVERDUE_DEADLINE_FIELDS: new Set<string>(),
+  ATTENTION_TILE: "attention",
   shipmentRepository: {
     createWithJobNumber: vi.fn(),
     createFromQuote: vi.fn(),
@@ -36,6 +37,8 @@ vi.mock("../../repositories/shipment.repository", () => ({
     referenceInTurn: vi.fn(),
     getInTurn: vi.fn(),
     listFiltered: vi.fn(),
+    tileCounts: vi.fn(),
+    needsAttentionCandidates: vi.fn(),
     renameJobNumber: vi.fn(),
     markJobNumberFinal: vi.fn(),
     openJobIdsOfCustomer: vi.fn(),
@@ -47,7 +50,7 @@ vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAtt
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
 vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: { upsert: vi.fn() } }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({
-  shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), supersede: vi.fn(), settle: vi.fn(), latestPerShipment: vi.fn(async () => new Map()) },
+  shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), supersede: vi.fn(), settle: vi.fn(), latestPerShipment: vi.fn(async () => new Map()), factsOfKinds: vi.fn() },
 }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: { mczNumbersByIds: vi.fn(), getByIdForCompany: vi.fn() } }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
@@ -70,7 +73,7 @@ vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipme
 vi.mock("../../repositories/shipmentPushOutbox.repository", () => ({ shipmentPushOutboxRepository: { enqueue: vi.fn(), claimDue: vi.fn(), markSent: vi.fn(), markRetry: vi.fn(), markFailed: vi.fn() } }));
 
 import log from "encore.dev/log";
-import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
+import { auth, customers, holidays, invoicing, quotes, warehouse } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import type { QuoteSyncResult } from "../../interfaces/interfaces";
 import { cargoDimensionRepository } from "../../repositories/cargoDimension.repository";
@@ -90,6 +93,7 @@ import { shipmentService } from "../../services/shipment.service";
 import { shipmentPartiesChanged } from "../../topics";
 import { RELEASED_BEFORE_RECEIVED } from "../../lib/shipmentEditRule";
 import { addDays, businessDay } from "../../../../lib/businessDate";
+import { opsDay } from "../../lib/managersCockpit";
 import { shipmentPushOutboxRepository } from "../../repositories/shipmentPushOutbox.repository";
 import { shipmentReleaseOverrideRepository } from "../../repositories/shipmentReleaseOverride.repository";
 import { PAYMENT_UNCHECKED, RELEASE_CHANGED_MEANWHILE } from "../../lib/prepaymentStop";
@@ -2339,6 +2343,142 @@ describe("list", () => {
     expect(masterJobRepository.getByIdForCompany).not.toHaveBeenCalled();
     // A master job the query doesn't find (deleted meanwhile, another company's) names none.
     expect(data.map((s) => s.masterJobMczNumber)).toEqual(["MCZ00000007", "MCZ00000007", null, null]);
+  });
+});
+
+describe("Needs Attention: the two cards, the Overview tile and the list it opens", () => {
+  // One instant for the three places: Wednesday 18 Nov 2026, 11:00 in Prague. Each is handed it, so
+  // no test here stands on the clock - URGENT is up to Thu 19, ATTENTION Fri 20 and Mon 23.
+  const NOW = new Date("2026-11-18T10:00:00Z");
+  const day = opsDay(NOW);
+  const LIST = { limit: 50, offset: 0, sortDirection: "desc" as const };
+  const due = (id: string, jobNumber: string, over: Record<string, unknown> = {}) => ({
+    id,
+    jobNumber,
+    customerId: null,
+    customer: "ACME s.r.o.",
+    tradeDirection: "Export",
+    status: "Booked [EXP]",
+    cargoReadinessDate: null,
+    pickupDate: null,
+    estimatedDeparture: null,
+    actualDeparture: null,
+    estimatedArrival: null,
+    actualArrival: null,
+    actualDeliveryDate: null,
+    etaWarehouse: null,
+    warehouseReceivedDate: null,
+    plannedDeliveryDate: null,
+    closingDate: null,
+    closingTime: "",
+    vgmClosing: null,
+    vgmClosingTime: "",
+    vgm: "",
+    siClosing: null,
+    siClosingTime: "",
+    shippingInstructions: "",
+    ams: "",
+    amsDeadline: null,
+    amsDeadlineTime: "",
+    isf: "",
+    isfDeadline: null,
+    isfDeadlineTime: "",
+    ...over,
+  });
+
+  beforeEach(() => {
+    expect(day).toMatchObject({ today: "2026-11-18", urgentUntil: "2026-11-19", attentionUntil: "2026-11-23" });
+    vi.mocked(holidays._internalHolidaysCzNational).mockResolvedValue({ dates: [] });
+    vi.mocked(shipmentTrackingEventRepository.factsOfKinds).mockResolvedValue([{ shipmentId: "s-made", kind: "gate_in", occurredOn: "2026-11-15", effect: "", resolvedAt: null, createdAt: new Date("2026-11-15T08:00:00Z") }]);
+    repository.needsAttentionCandidates.mockResolvedValue([
+      due("s-today", "CZFCL00000401", { estimatedDeparture: "2026-11-18" }),
+      due("s-next", "CZFCL00000402", { pickupDate: "2026-11-19", tradeDirection: "Domestic" }),
+      due("s-missed", "CZFCL00000403", { closingDate: "2026-11-16", closingTime: "14:00" }),
+      due("s-made", "CZFCL00000404", { closingDate: "2026-11-16" }),
+      due("s-overdue", "CZFCL00000405", { vgmClosing: "2026-11-17", vgm: "Pending" }),
+      // Due at 10:00 today: overdue for an hour.
+      due("s-timed", "CZFCL00000409", { siClosing: "2026-11-18", siClosingTime: "10:00" }),
+      due("s-after", "CZFCL00000406", { plannedDeliveryDate: "2026-11-23" }),
+      due("s-both", "CZFCL00000407", { estimatedArrival: "2026-11-18", etaWarehouse: "2026-11-23" }),
+      due("s-passed", "CZFCL00000408", { estimatedArrival: "2026-11-17" }),
+    ] as never);
+    repository.tileCounts.mockResolvedValue({ active: 40, etaMoved: 2, import: 10, export: 30, week: 5, nextWeek: 6 } as never);
+    repository.listFiltered.mockResolvedValue({ data: [], total: 0 } as never);
+    for (const lines of [containerRepository, cargoItemRepository, cargoDimensionRepository, commercialInvoiceRepository]) vi.mocked(lines.listByShipmentIds).mockResolvedValue([]);
+    vi.mocked(masterJobRepository.mczNumbersByIds).mockResolvedValue(new Map());
+    vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds).mockResolvedValue([]);
+    vi.mocked(warehouse._internalPickupPlates).mockResolvedValue({ plates: [] } as never);
+  });
+
+  // The most pressing first: the earliest date, then the reference.
+  const URGENT = ["s-missed", "s-overdue", "s-today", "s-both", "s-timed", "s-next"];
+
+  it("agree: the URGENT card's jobs are the jobs the tile counts and the jobs tile=attention asks the list for", async () => {
+    const cards = await shipmentService.needsAttention(COMPANY, NOW);
+    const urgent = cards.within24h.map((i) => i.id);
+    expect(urgent).toEqual(URGENT);
+    expect(cards.within48h.map((i) => i.id)).toEqual(["s-after", "s-both"]);
+
+    const counts = await shipmentService.tileCounts(COMPANY, NOW);
+    expect(counts).toEqual({ active: 40, attention: urgent.length, etaMoved: 2, import: 10, export: 30, week: 5, nextWeek: 6 });
+
+    await shipmentService.list(COMPANY, { tile: "attention", ...LIST }, NOW);
+    expect(repository.listFiltered).toHaveBeenCalledTimes(1);
+    expect(repository.listFiltered.mock.lastCall![1]).toMatchObject({ tile: "attention", attentionIds: urgent });
+  });
+
+  it("shows a missed Closing as missed and a filing past its time today as overdue, each with its time - and no Closing the cargo made", async () => {
+    const cards = await shipmentService.needsAttention(COMPANY, NOW);
+    const of = (id: string) => cards.within24h.find((i) => i.id === id)?.deadlines;
+    expect(of("s-missed")).toEqual([{ field: "closingDate", date: "2026-11-16", daysLeft: -2, missed: true, time: "14:00" }]);
+    expect(of("s-timed")).toEqual([{ field: "siClosing", date: "2026-11-18", daysLeft: 0, missed: true, time: "10:00" }]);
+    expect(of("s-made")).toBeUndefined();
+    expect(cards).toMatchObject({ capped: false, holidaysKnown: true, notKnown: [] });
+  });
+
+  it("works the rule out once for a page of the list, and not at all for another tile or none", async () => {
+    await shipmentService.list(COMPANY, { tile: "attention", ...LIST }, NOW);
+    expect(repository.needsAttentionCandidates).toHaveBeenCalledTimes(1);
+    expect(holidays._internalHolidaysCzNational).toHaveBeenCalledTimes(1);
+    expect(shipmentTrackingEventRepository.factsOfKinds).toHaveBeenCalledTimes(1);
+    repository.needsAttentionCandidates.mockClear();
+    for (const tile of ["active", "claims", "all", undefined]) {
+      await shipmentService.list(COMPANY, { tile, ...LIST }, NOW);
+      expect(repository.listFiltered.mock.lastCall![1].attentionIds).toBeUndefined();
+    }
+    expect(repository.needsAttentionCandidates).not.toHaveBeenCalled();
+  });
+
+  it("counts the tile with one read of the rule beside the counting query", async () => {
+    await shipmentService.tileCounts(COMPANY, NOW);
+    expect(repository.tileCounts).toHaveBeenCalledTimes(1);
+    expect(repository.needsAttentionCandidates).toHaveBeenCalledTimes(1);
+    expect(holidays._internalHolidaysCzNational).toHaveBeenCalledTimes(1);
+  });
+
+  it("one page load - the cards, the tile's count and the tile's list asked at once - works the rule out once, and the three agree", async () => {
+    // As the controllers ask: no instant of their own, so the clock is held for this test.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    try {
+      const [cards, counts] = await Promise.all([shipmentService.needsAttention(COMPANY), shipmentService.tileCounts(COMPANY), shipmentService.list(COMPANY, { tile: "attention", ...LIST })]);
+      expect(repository.needsAttentionCandidates).toHaveBeenCalledTimes(1);
+      expect(holidays._internalHolidaysCzNational).toHaveBeenCalledTimes(1);
+      expect(shipmentTrackingEventRepository.factsOfKinds).toHaveBeenCalledTimes(1);
+      expect(cards.within24h.map((i) => i.id)).toEqual(URGENT);
+      expect(counts.attention).toBe(URGENT.length);
+      expect(repository.listFiltered.mock.lastCall![1].attentionIds).toEqual(URGENT);
+      // Nothing is kept: the next page load reads again.
+      await shipmentService.tileCounts(COMPANY);
+      expect(repository.needsAttentionCandidates).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails the tile counts when the rule could not be read: a 0 would say nothing is due", async () => {
+    repository.needsAttentionCandidates.mockRejectedValue(new Error("the database is away"));
+    await expect(shipmentService.tileCounts(COMPANY, NOW)).rejects.toThrow("the database is away");
   });
 });
 

@@ -49,28 +49,50 @@ const COCKPIT_TONES: Record<CockpitCardKey, CockpitTone> = {
   attention: { border: "!border-amber-200", header: "bg-amber-50", icon: "text-amber-500", text: "text-amber-600" },
 };
 
+/** How soon each card is, for a page whose windows are not the twins' "act today" and "within 48 hours". */
+export interface CockpitWindows {
+  /** The URGENT card's window: "today or the next working day". */
+  urgent: string;
+  /** The ATTENTION card's window: "the two working days after". */
+  attention: string;
+  /** What the ATTENTION card says when it is empty. */
+  nothingToWatch: string;
+}
+
+const COCKPIT_WINDOWS: CockpitWindows = { urgent: "act today", attention: "within 48 hours", nothingToWatch: "Nothing to watch within 48 hours." };
+
 /**
  * The two cards in a page's own words: `things` is what the rows are ("quotes", "positions"),
- * `nothingUrgent` what the URGENT card says when it is empty.
+ * `nothingUrgent` what the URGENT card says when it is empty. `windows` only for a page that
+ * counts its windows another way (Shipments → Managers: working days); whatever it leaves out
+ * reads as on the other pages.
  */
-export const cockpitCards = (things: string, nothingUrgent: string, tones: Record<CockpitCardKey, CockpitTone> = COCKPIT_TONES): Record<CockpitCardKey, CockpitCardDef> => ({
-  urgent: {
-    title: "Urgent",
-    window: "act today",
-    linkLabel: `Click here to show URGENT ${things}`,
-    empty: nothingUrgent,
-    dialog: `URGENT ${things}`,
-    tone: tones.urgent,
-  },
-  attention: {
-    title: "Attention",
-    window: "within 48 hours",
-    linkLabel: `Click here to show ATTENTION ${things}`,
-    empty: "Nothing to watch within 48 hours.",
-    dialog: `ATTENTION ${things}`,
-    tone: tones.attention,
-  },
-});
+export const cockpitCards = (
+  things: string,
+  nothingUrgent: string,
+  tones: Record<CockpitCardKey, CockpitTone> = COCKPIT_TONES,
+  windows: Partial<CockpitWindows> = {},
+): Record<CockpitCardKey, CockpitCardDef> => {
+  const { urgent, attention, nothingToWatch } = { ...COCKPIT_WINDOWS, ...windows };
+  return {
+    urgent: {
+      title: "Urgent",
+      window: urgent,
+      linkLabel: `Click here to show URGENT ${things}`,
+      empty: nothingUrgent,
+      dialog: `URGENT ${things}`,
+      tone: tones.urgent,
+    },
+    attention: {
+      title: "Attention",
+      window: attention,
+      linkLabel: `Click here to show ATTENTION ${things}`,
+      empty: nothingToWatch,
+      dialog: `ATTENTION ${things}`,
+      tone: tones.attention,
+    },
+  };
+};
 
 /** The classes the pages draw differently. `tone` is the card's colour while it holds something, null while it is empty. */
 export interface CockpitCardLook {

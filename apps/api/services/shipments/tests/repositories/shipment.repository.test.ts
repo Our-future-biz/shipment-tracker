@@ -12,6 +12,8 @@ const fake = vi.hoisted(() => {
     steps: [] as string[],
     locks: [] as unknown[],
     reads: [] as { fields: Record<string, unknown>; where: unknown; orderBy: unknown[] }[],
+    /** How many rows each read that is cut asks for at most. */
+    limits: [] as number[],
     inserted: [] as Record<string, unknown>[],
     /** What a read of one row per customer returns, and every such read. */
     perCustomer: [] as Record<string, unknown>[],
@@ -34,10 +36,16 @@ const fake = vi.hoisted(() => {
     select: (fields: Record<string, unknown>) => ({
       from: () => ({
         where: (where: unknown) => ({
-          orderBy: async (...orderBy: unknown[]) => {
+          orderBy: (...orderBy: unknown[]) => {
             state.steps.push(`${name} read`);
             state.reads.push({ fields, where, orderBy });
-            return state.found;
+            // A read is awaited as it is, or cut first.
+            return Object.assign(Promise.resolve(state.found), {
+              limit: async (limit: number) => {
+                state.limits.push(limit);
+                return state.found;
+              },
+            });
           },
           // A count is awaited as it is.
           then: (resolve: (rows: unknown[]) => unknown, reject: (reason: unknown) => unknown) => {
@@ -106,7 +114,7 @@ vi.mock("../../db/db", () => ({ db: fake.db }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
 import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
-import { handledByMatch, modeMatch, searchMatch, searchedColumns, shipmentRepository, tilePredicate } from "../../repositories/shipment.repository";
+import { attentionMatch, handledByMatch, modeMatch, searchMatch, searchedColumns, shipmentRepository, tilePredicate } from "../../repositories/shipment.repository";
 import { shipmentTable } from "../../schemas/shipment.schema";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -130,6 +138,7 @@ beforeEach(() => {
   fake.state.steps = [];
   fake.state.locks = [];
   fake.state.reads = [];
+  fake.state.limits = [];
   fake.state.inserted = [];
   fake.state.perCustomer = [];
   fake.state.perCustomerReads = [];
@@ -476,38 +485,8 @@ describe("the list's mode filter", () => {
   });
 });
 
-describe("the tiles Shipments → Managers opens the list with", () => {
+describe("the list's tile filters", () => {
   const ACTIVE = `"shipment"."invoicing_status" IS DISTINCT FROM 'Invoiced' AND "shipment"."status" IS DISTINCT FROM $1`;
-  const TODAY = "(now() AT TIME ZONE 'Europe/Prague')::date";
-
-  it("cutoffs: an active job with one of the five cut-offs due today or tomorrow, or a filing overdue on a job that has not sailed", () => {
-    const { sql, params } = sent(tilePredicate("cutoffs"));
-    const NOT_DEPARTED = `("shipment"."estimated_departure" IS NULL OR "shipment"."estimated_departure" >= ${TODAY})`;
-    // A filing counts while its date is ahead and, once it has passed, until the ETD has too.
-    const filing = (date: string) => `((${date}) >= ${TODAY} OR ${NOT_DEPARTED}) AND (${date}) <= ${TODAY} + ?::int`;
-    const fourDaysBeforeEtd = `"shipment"."estimated_departure" - 4`;
-    // The numbers of the parameters aside, the statement in full: the closing date only while it is
-    // ahead, then VGM, SI, AMS and ISF - and none of the list's other deadlines (ETD, ETA, cargo
-    // readiness, warehouse, delivery).
-    expect(sql.replace(/\$\d+/g, "?")).toBe(
-      `${ACTIVE.replace("$1", "?")} AND (` +
-        [
-          `("shipment"."closing_date") BETWEEN ${TODAY} AND ${TODAY} + ?::int`,
-          filing(`CASE WHEN NOT (lower("shipment"."vgm") LIKE ? OR lower("shipment"."vgm") LIKE ?)\n      THEN "shipment"."vgm_closing" END`),
-          filing(`CASE WHEN NOT lower("shipment"."shipping_instructions") LIKE ? THEN "shipment"."si_closing" END`),
-          filing(`CASE WHEN lower("shipment"."ams") LIKE ? THEN COALESCE("shipment"."ams_deadline", ${fourDaysBeforeEtd}) END`),
-          filing(`CASE WHEN lower("shipment"."isf") LIKE ? THEN COALESCE("shipment"."isf_deadline", ${fourDaysBeforeEtd}) END`),
-        ].join(" OR ") +
-        ")",
-    );
-    // Every window is the cockpit's CUTOFF_URGENT_DAYS: today or tomorrow.
-    expect(params.filter((p) => typeof p === "number")).toEqual([1, 1, 1, 1, 1]);
-    expect(params.filter((p) => typeof p === "string")).toEqual(["Cancelled Shipment", "%confirmed%", "%not applicable%", "%confirmed%", "%not applicable%", "%confirmed%", "%confirmed%", "%pending%", "%pending%", "%pending%", "%pending%"]);
-  });
-
-  it("booking-pending: an active job whose Booking Confirmation says pending, in any case", () => {
-    expect(sent(tilePredicate("booking-pending"))).toEqual({ sql: `${ACTIVE} AND lower("shipment"."booking_confirmation") LIKE $2`, params: ["Cancelled Shipment", "%pending%"] });
-  });
 
   it("claims: an active job with an open claim", () => {
     expect(sent(tilePredicate("claims"))).toEqual({ sql: `${ACTIVE} AND "shipment"."claim" = 'Yes'`, params: ["Cancelled Shipment"] });
@@ -515,8 +494,111 @@ describe("the tiles Shipments → Managers opens the list with", () => {
 
   it("keeps the tiles the list had, and asks nothing for all or a word that is no tile", () => {
     expect(sent(tilePredicate("active"))).toEqual({ sql: ACTIVE, params: ["Cancelled Shipment"] });
-    for (const tile of ["attention", "etamoved", "import", "export", "week", "nextweek"]) expect(tilePredicate(tile)).toBeDefined();
+    for (const tile of ["etamoved", "import", "export", "week", "nextweek"]) expect(tilePredicate(tile)).toBeDefined();
     for (const tile of [undefined, "", "all", "free-time", "constructor"]) expect(tilePredicate(tile)).toBeUndefined();
+  });
+
+  it("has none for cut-offs or a pending booking: Shipments → Managers judges those by rules no statement repeats, and narrows its own cards", () => {
+    for (const tile of ["cutoffs", "booking-pending"]) expect(tilePredicate(tile)).toBeUndefined();
+  });
+
+  it("has no statement for Needs Attention: what is due is judged in TypeScript, and its list is asked for by ids", () => {
+    expect(tilePredicate("attention")).toBeUndefined();
+    const [A, B] = ["7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01", "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c02"];
+    expect(sent(attentionMatch([A, B]))).toEqual({ sql: '"shipment"."id" in ($1, $2)', params: [A, B] });
+    // No job named - or no ids handed over at all - finds nothing, never everything.
+    expect(sent(attentionMatch([]))).toEqual({ sql: "false", params: [] });
+    expect(sent(attentionMatch(undefined))).toEqual({ sql: "false", params: [] });
+  });
+});
+
+describe("what Needs Attention reads", () => {
+  const RANGE = { from: "2026-11-18", until: "2026-11-23", passedSince: "2026-11-11" };
+  const col = (name: string) => `"shipment"."${name}"`;
+  const fourDaysBeforeEtd = `(${col("estimated_departure")} - 4)`;
+
+  it("reads the company's active jobs with a plain date ahead in the two windows, or - on a job that has not left - a cut-off date in them, or one that passed while the ETD is today or later, or lately with no ETD", async () => {
+    await shipmentRepository.needsAttentionCandidates(COMPANY, RANGE, 2001);
+    const [read] = fake.state.reads;
+    const { sql, params } = sent(read!.where);
+    const ahead = (date: string) => `${date} BETWEEN ?::date AND ?::date`;
+    const passed = (date: string) => `${date} < ?::date`;
+    const plain = ["cargo_readiness_date", "pickup_date", "estimated_departure", "estimated_arrival", "eta_warehouse", "planned_delivery_date"].map(col);
+    // No status is asked: whether a cut-off's work is done is the rule's to say.
+    const typed = ["closing_date", "vgm_closing", "si_closing", "ams_deadline", "isf_deadline"].map(col);
+    const cutoffs = [...typed, fourDaysBeforeEtd];
+    // Left is an ATD, an ATA or an actual delivery: such a job has no cut-off.
+    const notLeft = `${col("actual_departure")} IS NULL AND ${col("actual_arrival")} IS NULL AND ${col("actual_delivery_date")} IS NULL`;
+    // A passed cut-off counts while the ETD is today or later ...
+    const passedBeforeEtd = `(${col("estimated_departure")} >= ?::date AND (${cutoffs.map(passed).join(" OR ")}))`;
+    // ... and with no ETD only for the days the rule keeps it: the typed dates, each within them.
+    const passedLately = `(${col("estimated_departure")} IS NULL AND (${typed.map((date) => `(${date} >= ?::date AND ${date} < ?::date)`).join(" OR ")}))`;
+    expect(sql.replace(/\$\d+/g, "?")).toBe(
+      `(${LIVE.replace("$1", "?")} and "shipment"."invoicing_status" IS DISTINCT FROM 'Invoiced' AND "shipment"."status" IS DISTINCT FROM ? and ` +
+        `((${plain.map(ahead).join(" OR ")}) OR (${notLeft} AND ((${cutoffs.map(ahead).join(" OR ")}) OR ${passedBeforeEtd} OR ${passedLately}))))`,
+    );
+    // Every day is a parameter of the rule's (lib/needsAttention candidateRange) - never the database's today.
+    expect(sql).not.toContain("now()");
+    const pairs = Array.from({ length: 6 }, () => [RANGE.from, RANGE.until]).flat();
+    expect(params).toEqual([
+      COMPANY,
+      "Cancelled Shipment",
+      ...pairs,
+      ...pairs,
+      ...Array.from({ length: 7 }, () => RANGE.from),
+      ...Array.from({ length: 5 }, () => [RANGE.passedSince, RANGE.from]).flat(),
+    ]);
+  });
+
+  it("reads the newest first, cut at the limit it is handed, with the columns the rules go by", async () => {
+    await shipmentRepository.needsAttentionCandidates(COMPANY, RANGE, 2001);
+    const [read] = fake.state.reads;
+    expect(read!.orderBy.map((order) => sent(order).sql)).toEqual(['"shipment"."created_at" desc', '"shipment"."id" desc']);
+    expect(fake.state.limits).toEqual([2001]);
+    expect(read!.fields).toEqual({
+      id: shipmentTable.id,
+      jobNumber: shipmentTable.jobNumber,
+      customerId: shipmentTable.customerId,
+      customer: shipmentTable.customer,
+      tradeDirection: shipmentTable.tradeDirection,
+      status: shipmentTable.status,
+      cargoReadinessDate: shipmentTable.cargoReadinessDate,
+      pickupDate: shipmentTable.pickupDate,
+      estimatedDeparture: shipmentTable.estimatedDeparture,
+      actualDeparture: shipmentTable.actualDeparture,
+      estimatedArrival: shipmentTable.estimatedArrival,
+      // With the ATD, what tells the shared cut-off rule that the job has left.
+      actualArrival: shipmentTable.actualArrival,
+      actualDeliveryDate: shipmentTable.actualDeliveryDate,
+      etaWarehouse: shipmentTable.etaWarehouse,
+      warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+      plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+      closingDate: shipmentTable.closingDate,
+      closingTime: shipmentTable.closingTime,
+      // Each filing with its own time of day, as the Closing has.
+      vgmClosing: shipmentTable.vgmClosing,
+      vgmClosingTime: shipmentTable.vgmClosingTime,
+      vgm: shipmentTable.vgm,
+      siClosing: shipmentTable.siClosing,
+      siClosingTime: shipmentTable.siClosingTime,
+      shippingInstructions: shipmentTable.shippingInstructions,
+      ams: shipmentTable.ams,
+      amsDeadline: shipmentTable.amsDeadline,
+      amsDeadlineTime: shipmentTable.amsDeadlineTime,
+      isf: shipmentTable.isf,
+      isfDeadline: shipmentTable.isfDeadline,
+      isfDeadlineTime: shipmentTable.isfDeadlineTime,
+    });
+  });
+});
+
+describe("the Overview tiles' counts", () => {
+  it("counts in one statement over the company's live shipments - and not Needs Attention, which the service counts by the rule", async () => {
+    const counts = await shipmentRepository.tileCounts(COMPANY);
+    const [read] = fake.state.plainReads;
+    expect(Object.keys(read!.fields)).toEqual(["active", "etaMoved", "importCount", "exportCount", "week", "nextWeek"]);
+    expect(sent(read!.where)).toEqual({ sql: `(${LIVE})`, params: [COMPANY] });
+    expect(Object.keys(counts)).toEqual(["active", "etaMoved", "import", "export", "week", "nextWeek"]);
   });
 });
 

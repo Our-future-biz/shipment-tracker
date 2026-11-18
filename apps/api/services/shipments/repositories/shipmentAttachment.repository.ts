@@ -229,6 +229,30 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
       .orderBy(desc(a.customsReviewedAt))
       .limit(limit);
   }
+
+  /**
+   * The classified files of these shipments with customs' review of each and when it was uploaded:
+   * what Shipments → Managers judges the paperwork by (lib/managersCockpitExtra). One query for
+   * all of them; a file with no document type stands for nothing and is left out.
+   */
+  async reviewFactsByShipmentIds(shipmentIds: readonly string[], companyId: string) {
+    if (shipmentIds.length === 0) return [];
+    return this.db
+      .select({
+        shipmentId: shipmentAttachmentTable.shipmentId,
+        documentType: shipmentAttachmentTable.documentType,
+        customsStatus: shipmentAttachmentTable.customsStatus,
+        customsReviewedAt: shipmentAttachmentTable.customsReviewedAt,
+        createdAt: shipmentAttachmentTable.createdAt,
+      })
+      .from(shipmentAttachmentTable)
+      .where(and(
+        eq(shipmentAttachmentTable.companyId, companyId),
+        inArray(shipmentAttachmentTable.shipmentId, [...shipmentIds]),
+        ne(shipmentAttachmentTable.documentType, ""),
+        isNull(shipmentAttachmentTable.deletedAt),
+      ));
+  }
 }
 
 export const shipmentAttachmentRepository = new ShipmentAttachmentRepository();

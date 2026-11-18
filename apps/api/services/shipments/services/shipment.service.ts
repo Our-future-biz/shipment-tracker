@@ -7,7 +7,7 @@ import log from "encore.dev/log";
 import { customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { Tx } from "../db/db";
-import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
+import { shipmentRepository, ATTENTION_TILE, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRefCounterRepository } from "../repositories/shipmentRefCounter.repository";
@@ -22,6 +22,7 @@ import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackin
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
 import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
+import { needsAttentionService } from "./needsAttention.service";
 import type { NamingShipment, ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
@@ -40,7 +41,7 @@ import type {
   QuoteLinkOutcome,
   QuoteShipments,
   QuoteSyncResult,
-  ShipmentDueItem,
+  ShipmentsNeedingAttention,
   ShipmentItem,
   ShipmentTileCounts,
   RemeasureAcceptance,
@@ -529,11 +530,6 @@ function customsStatusFor(stored: string, documents: ShipmentDocument[]): string
   return paperwork === PAPERWORK_VERIFIED && AFTER_VERIFIED.includes(stored) ? stored : paperwork;
 }
 
-// Whole days from one ISO date ("YYYY-MM-DD") to another.
-function daysBetween(from: string, to: string): number {
-  return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
-}
-
 // Refuses a quote no shipment may be linked to yet: one that is not Won. Named by the status it
 // is shown with, so an expired quote is refused as Expired, not as the Quoted it is stored as.
 function assertLinkable(quote: { quoteNumber: string; effectiveStatus: string }): void {
@@ -723,8 +719,13 @@ class ShipmentService {
   async list(
     companyId: string,
     filters: ShipmentListFilters,
+    /** The instant tile=attention is judged on, for a caller that names it (tests); now, without it. */
+    now?: Date,
   ): Promise<{ pagination: { total: number; offset: number; limit: number }; data: ShipmentItem[] }> {
-    const result = await shipmentRepository.listFiltered(companyId, filters);
+    // The Overview tile "Needs Attention" opens the jobs of the URGENT card: the rule names them
+    // once for this page of the list (lib/needsAttention), and the query filters by their ids.
+    const attentionIds = filters.tile === ATTENTION_TILE ? await needsAttentionService.urgentIds(companyId, now) : undefined;
+    const result = await shipmentRepository.listFiltered(companyId, { ...filters, attentionIds });
 
     // The MCZ numbers of the page's master jobs, read in one query.
     const masterJobIds = [...new Set(result.data.flatMap((s) => (s.masterJobId ? [s.masterJobId] : [])))];
@@ -825,27 +826,22 @@ class ShipmentService {
     };
   }
 
-  async tileCounts(companyId: string): Promise<ShipmentTileCounts> {
-    return shipmentRepository.tileCounts(companyId);
+  // The Overview tiles' counts. "Needs Attention" is the number of jobs on the URGENT card, from
+  // the same rule as the card and as the list the tile opens (lib/needsAttention): one more read
+  // of that rule beside the counting query, both at once.
+  // `now` is for a caller that names its instant (tests); without it the rule's answer is shared
+  // with whoever asked for the company's cards a moment ago (needsAttention.service).
+  async tileCounts(companyId: string, now?: Date): Promise<ShipmentTileCounts> {
+    const [counts, attention] = await Promise.all([shipmentRepository.tileCounts(companyId), needsAttentionService.urgentIds(companyId, now)]);
+    return { ...counts, attention: attention.length };
   }
 
-  // Active shipments with a deadline coming up, split by how soon: within 24 hours
-  // (today or tomorrow, plus unconfirmed compliance items already overdue) and within
-  // 48 hours (the day after). A shipment with dates in both windows is listed in both,
-  // each time with just that window's dates.
-  async needsAttention(companyId: string): Promise<{ within24h: ShipmentDueItem[]; within48h: ShipmentDueItem[] }> {
-    const rows = await shipmentRepository.dueWithinDays(companyId, 2);
-    const window = (minDays: number, maxDays: number) =>
-      rows.flatMap(({ id, jobNumber, customerId, customer, tradeDirection, status, today, ...dates }) => {
-        const deadlines = Object.entries(dates)
-          .flatMap(([field, date]) => (date ? [{ field, date, daysLeft: daysBetween(today, date) }] : []))
-          // A row also carries its other dates, earlier and later; keep this window's.
-          // Overdue items belong to the most urgent window.
-          .filter((d) => d.daysLeft <= maxDays && (d.daysLeft >= minDays || (minDays === 0 && OVERDUE_DEADLINE_FIELDS.has(d.field))))
-          .sort((a, b) => a.daysLeft - b.daysLeft);
-        return deadlines.length ? [{ id, jobNumber, customerId, customer, tradeDirection, status, deadlines }] : [];
-      });
-    return { within24h: window(0, 1), within48h: window(2, 2) };
+  // Active shipments with something due, split by how soon, in working days as on Shipments →
+  // Managers: URGENT (`within24h`) is today or the next working day, plus every cut-off missed or
+  // overdue; ATTENTION (`within48h`) the two working days after. A shipment with dates in both
+  // windows is listed in both, each time with just that window's dates.
+  async needsAttention(companyId: string, now?: Date): Promise<ShipmentsNeedingAttention> {
+    return needsAttentionService.lists(companyId, now);
   }
 
   /** Whether this is a live shipment of the company. What is not an id is none, and is kept from SQL. */

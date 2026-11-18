@@ -126,6 +126,11 @@ export namespace lib {
     export interface CockpitTag {
         text: string
         urgent: boolean
+        /**
+         * What kind of signal it is, for a cockpit whose tiles filter its cards by it (Shipments →
+         * Managers). A cockpit that sets none has none in its answer: the Sales and Warehouse twins.
+         */
+        kind?: string
     }
 }
 
@@ -4099,8 +4104,10 @@ export namespace shipments {
 
         /**
          * Shipments → Managers (Council Outlay 11): what operations need from a manager today, counted
-         * over the company's active jobs by the rules the app already has. Read-only. For superadmins,
-         * admins and managers; the page polls it every minute.
+         * over the company's active jobs - and its Master Jobs with no shipment linked - by the rules of
+         * lib/managersCockpit and lib/managersCockpitExtra, in working days of Prague time. Read-only: a
+         * part that could not be read is named in the answer (`notKnown`, `holidaysKnown`) instead of
+         * counting as none. For superadmins, admins and managers; the page polls it every minute.
          */
         public async shipmentManagersCockpit(params: controllers.ShipmentManagersCockpitRequest): Promise<{
     cockpit: interfaces.ShipmentsManagersCockpit
@@ -4120,12 +4127,14 @@ export namespace shipments {
         }
 
         /**
-         * Active shipments with a deadline in the next 24 / 48 hours, over the whole company dataset.
+         * Active shipments with something due - URGENT (`within24h`): today or the next working day, or a
+         * cut-off missed; ATTENTION (`within48h`): the two working days after - over the whole company
+         * dataset, on the deadline rules of Shipments → Managers.
          */
-        public async shipmentNeedsAttention(): Promise<controllers.ShipmentNeedsAttentionResponse> {
+        public async shipmentNeedsAttention(): Promise<interfaces.ShipmentsNeedingAttention> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/needs-attention`)
-            return await resp.json() as controllers.ShipmentNeedsAttentionResponse
+            return await resp.json() as interfaces.ShipmentsNeedingAttention
         }
 
         /**
@@ -11552,7 +11561,7 @@ export namespace controllers {
         statusBucket?: string
 
         /**
-         * Overview tile filter: active | attention | etamoved | import | export | week | nextweek | cutoffs | booking-pending | claims
+         * Overview tile filter: active | attention | etamoved | import | export | week | nextweek | claims
          */
         tile?: string
 
@@ -11612,11 +11621,6 @@ export namespace controllers {
          * One person's jobs, by the e-mail in Handled By, or "nobody" for the jobs nobody handles; everyone's when left out.
          */
         handledBy?: string
-    }
-
-    export interface ShipmentNeedsAttentionResponse {
-        within24h: interfaces.ShipmentDueItem[]
-        within48h: interfaces.ShipmentDueItem[]
     }
 
     export interface ShipmentNoteCreateRequest {
@@ -19597,11 +19601,16 @@ export namespace interfaces {
     }
 
     /**
-     * A row of a cockpit card: one active job, with everything that asks for a manager's look.
+     * A row of a cockpit card: one active job - or a Master Job with no house yet - with everything that asks for a manager's look.
      */
     export interface OpsCockpitRow {
         /**
-         * The shipment's id.
+         * "job": a shipment. "masterJob": a Master Job with no shipment linked; then `id` is the Master Job's id, `jobNumber` its MCZ number, `status` is "", and the mode, direction and Handled By - which the filters go by - are the Master Job's own.
+         */
+        kind: "job" | "masterJob"
+
+        /**
+         * The shipment's id (the Master Job's for a row of that kind).
          */
         id: string
 
@@ -19626,7 +19635,7 @@ export namespace interfaces {
         area: "tracking" | "customs" | "finance" | "details"
 
         /**
-         * Every signal of the job, the urgent ones first.
+         * Every signal of the job, the urgent ones first; each with its `kind`, the family the tiles filter the cards by.
          */
         tags: lib.CockpitTag[]
     }
@@ -19637,7 +19646,7 @@ export namespace interfaces {
     export interface OpsCockpitTiles {
         active: number
         /**
-         * Jobs with a cut-off (Closing, VGM, SI, AMS, ISF) today or tomorrow, or an overdue filing.
+         * Rows with an urgent cut-off tag: a Closing, VGM, SI, AMS or ISF due today or by the next working day, or missed before the job departed.
          */
         cutoffsDue: number
 
@@ -19648,7 +19657,7 @@ export namespace interfaces {
         handledByNotUser: number | null
 
         /**
-         * Booking Confirmation still Pending.
+         * Rows with a booking tag: Booking Confirmation still Pending with the cargo ready or the ETD close.
          */
         bookingPending: number
 
@@ -19673,6 +19682,14 @@ export namespace interfaces {
         notReleased: number
 
         openClaims: number
+        /**
+         * Per signal family (the `kind` of a tag: owner, not_user, cutoff, booking, cargo_ready, departure, arrival,
+         * free_time, customs, paperwork, dangerous, bl, arrival_notice, delivery, warehouse, road, air,
+         * request, import_instructions, remeasurement, status_stuck, credit, master_job, tracking,
+         * billing, customer_told): how many rows carry at least one tag of it, after the filters. Every
+         * family is there, 0 for none.
+         */
+        signals: { [key: string]: number }
     }
 
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
@@ -23567,11 +23584,11 @@ export namespace interfaces {
     }
 
     /**
-     * One date a shipment has to be ready for, falling within the next two days.
+     * One date a shipment has to be ready for, in one of the two Needs Attention windows - or a cut-off that was missed.
      */
     export interface ShipmentDeadline {
         /**
-         * What is due: a shipment date field ("closingDate", "vgmClosing") or "amsDeadline" / "isfDeadline".
+         * What is due: a shipment date field ("closingDate", "pickupDate", "vgmClosing") or "amsDeadline" / "isfDeadline".
          */
         field: string
 
@@ -23581,9 +23598,22 @@ export namespace interfaces {
         date: string
 
         /**
-         * Whole days from today: 0 today, 1 tomorrow, 2 the day after; negative when overdue.
+         * Whole calendar days from today: 0 today, 1 tomorrow; negative when overdue. The windows are
+         * working days, so a date on the URGENT list may be 3 or more days off (Monday, seen on Friday).
          */
         daysLeft: number
+
+        /**
+         * A cut-off (Closing, VGM, SI, AMS, ISF) whose day has passed, or whose time today has. It
+         * stays URGENT while the job has not left and its ETD is today or later (with no ETD: for 7
+         * days) - a Closing only until the cargo is in. False for a date that is still ahead.
+         */
+        missed: boolean
+
+        /**
+         * A cut-off's time of day, "HH:mm" on Prague's clock; "" for a date with no time, and for the plain dates.
+         */
+        time: string
     }
 
     /**
@@ -24017,7 +24047,11 @@ export namespace interfaces {
      */
     export interface ShipmentTileCounts {
         active: number
+        /**
+         * The jobs on Needs Attention's URGENT list: due today or the next working day, or a cut-off missed or overdue.
+         */
         attention: number
+
         /**
          * Active shipments whose ETD or ETA moved lately.
          */
@@ -24116,6 +24150,47 @@ export namespace interfaces {
          * True when the company has more active jobs than were read (COCKPIT_JOB_LIMIT, the newest): the counts cover only those read.
          */
         capped: boolean
+
+        /**
+         * False when the company's own holidays could not be read: working days then skip only the weekends and the statutory public holidays.
+         */
+        holidaysKnown: boolean
+
+        /**
+         * What could not be read right now, in words for the page ("tracking events", "containers"…): it gave no signal, which is not the same as none (D29). Empty when everything was read.
+         */
+        notKnown: string[]
+    }
+
+    /**
+     * The Shipments page's two Needs Attention lists, on the deadline rules of Shipments → Managers
+     * (lib/needsAttention): the windows are working days of Prague time.
+     */
+    export interface ShipmentsNeedingAttention {
+        /**
+         * URGENT: due today or by the next working day, or a cut-off missed or overdue. (The key is older than the working-day windows.)
+         */
+        within24h: ShipmentDueItem[]
+
+        /**
+         * ATTENTION: due in the two working days after.
+         */
+        within48h: ShipmentDueItem[]
+
+        /**
+         * The company has more jobs with dates around today than were read: the lists and the tile's count may miss some.
+         */
+        capped: boolean
+
+        /**
+         * False when the company's own holidays could not be read: working days then skip only weekends and the statutory holidays.
+         */
+        holidaysKnown: boolean
+
+        /**
+         * What could not be read, in the words the page shows; such a part gives no deadline.
+         */
+        notKnown: string[]
     }
 
     /**

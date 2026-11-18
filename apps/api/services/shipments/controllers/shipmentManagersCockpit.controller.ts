@@ -16,8 +16,10 @@ interface ShipmentManagersCockpitRequest {
 }
 
 // Shipments → Managers (Council Outlay 11): what operations need from a manager today, counted
-// over the company's active jobs by the rules the app already has. Read-only. For superadmins,
-// admins and managers; the page polls it every minute.
+// over the company's active jobs - and its Master Jobs with no shipment linked - by the rules of
+// lib/managersCockpit and lib/managersCockpitExtra, in working days of Prague time. Read-only: a
+// part that could not be read is named in the answer (`notKnown`, `holidaysKnown`) instead of
+// counting as none. For superadmins, admins and managers; the page polls it every minute.
 export const shipmentManagersCockpit = api(
   { expose: true, auth: true, method: "GET", path: "/shipments/managers-cockpit" },
   async ({ mode, direction, handledBy }: ShipmentManagersCockpitRequest): Promise<{ cockpit: ShipmentsManagersCockpit }> => {

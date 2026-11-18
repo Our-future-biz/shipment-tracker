@@ -169,6 +169,19 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
       .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), inArray(t.kind, [...kinds]), isNull(t.deletedAt)));
   }
 
+  /**
+   * The same events as far as a timeline's facts are read from them (lib/managersCockpit
+   * timelineFactsOf): which kind, on which day, and whether it stands - no place, vessel, note or
+   * payload. For a read that is polled (the Shipments list's Needs Attention).
+   */
+  async factsOfKinds(shipmentIds: readonly string[], companyId: string, kinds: readonly string[]) {
+    if (shipmentIds.length === 0) return [];
+    return this.db
+      .select({ shipmentId: t.shipmentId, kind: t.kind, occurredOn: t.occurredOn, effect: t.effect, resolvedAt: t.resolvedAt, createdAt: t.createdAt })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), inArray(t.kind, [...kinds]), isNull(t.deletedAt)));
+  }
+
   async softDeleteByExternalId(shipmentId: string, companyId: string, source: string, externalId: string): Promise<void> {
     await this.db
       .update(t)

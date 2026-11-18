@@ -14,6 +14,9 @@ export const useShipmentTileCounts = () => {
     queryFn: () => api.shipments.shipmentTileCounts(),
     placeholderData: (prev) => prev,
     staleTime: 60_000,
+    // "Needs Attention" moves with the clock as the cards do (useShipmentsNeedingAttention):
+    // refetched on the same minute, so the tile and its card do not drift on an open page.
+    refetchInterval: 60_000,
   });
 
   return { counts: query.data, isLoading: query.isLoading, isError: query.isError };

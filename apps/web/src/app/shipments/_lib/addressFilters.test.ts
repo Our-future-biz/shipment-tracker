@@ -42,11 +42,13 @@ describe("the filters the Shipments list takes from its address", () => {
     });
   });
 
-  it("names the managers' tiles the Overview does not have, and leaves the Overview's own to light themselves", () => {
-    expect(of("tile=cutoffs")).toEqual({ request: {}, chips: [{ param: "tile", label: "Cut-offs due" }] });
-    expect(labels("tile=booking-pending")).toEqual(["Booking not confirmed"]);
-    expect(labels("tile=claims")).toEqual(["Open claims"]);
+  it("names the managers' tile the Overview does not have, and leaves the Overview's own to light themselves", () => {
+    expect(of("tile=claims")).toEqual({ request: {}, chips: [{ param: "tile", label: "Open claims" }] });
     for (const tile of ["active", "attention", "etamoved", "import", "export", "week", "nextweek", "all"]) expect(labels(`tile=${tile}`), tile).toEqual([]);
+  });
+
+  it("names no cut-off or booking tile: the list has no such filter, the cockpit narrows its own cards", () => {
+    for (const tile of ["cutoffs", "booking-pending"]) expect(of(`tile=${tile}`), tile).toEqual({ request: {}, chips: [] });
   });
 
   it("ignores a value the list does not know: no chip, nothing sent", () => {
@@ -73,9 +75,8 @@ describe("an address that is a link's", () => {
     for (const query of [
       "tile=active",
       "tile=etamoved",
-      "tile=cutoffs&mode=air",
-      "tile=booking-pending",
       "tile=claims",
+      "tile=claims&mode=air",
       "handledBy=nobody",
       "handledBy=jan%40firma.cz",
       "mode=road",
@@ -125,7 +126,7 @@ describe("clearing a chip", () => {
     expect(withoutAddressFilter(address, "mode").toString()).toBe("tile=active&customs=urgent&handledBy=jan%40firma.cz&q=CZ&status=active&f.customer=Alza");
     expect(withoutAddressFilter(address, "handledBy").toString()).toBe("tile=active&customs=urgent&mode=air&q=CZ&status=active&f.customer=Alza");
     expect(withoutAddressFilter(address, "customs").get("customs")).toBeNull();
-    expect(withoutAddressFilter(new URLSearchParams("tile=cutoffs&mode=sea"), "tile").toString()).toBe("mode=sea");
+    expect(withoutAddressFilter(new URLSearchParams("tile=claims&mode=sea"), "tile").toString()).toBe("mode=sea");
     expect(withoutAddressFilter(new URLSearchParams("invoicing=unbilled-arrivals"), "invoicing").toString()).toBe("");
   });
 

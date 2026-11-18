@@ -11,11 +11,10 @@ export type ListMode = keyof typeof MODE_LABELS;
 /** The address value of Handled By that asks for the jobs nobody handles. */
 export const HANDLED_BY_NOBODY = "nobody";
 
-// The tiles of Shipments → Managers that the list's Overview does not have: nothing on the page
-// lights for them, so each gets a chip. (The Overview's own tiles light themselves.)
+// The tile of Shipments → Managers that the list's Overview does not have: nothing on the page
+// lights for it, so it gets a chip. (The Overview's own tiles light themselves. The cockpit's
+// cut-off and booking tiles open no list: they narrow its own cards.)
 const COCKPIT_TILE_LABELS = {
-  cutoffs: "Cut-offs due",
-  "booking-pending": "Booking not confirmed",
   claims: "Open claims",
 } as const;
 

@@ -14,7 +14,7 @@ interface ShipmentListRequest {
   status?: string;
   /** Coarse UI status bucket: active | in-transit | customs | delivered */
   statusBucket?: string;
-  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek | cutoffs | booking-pending | claims */
+  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek | claims */
   tile?: string;
   /** Handled By: a user's e-mail (in any case), or "nobody" for the jobs nobody handles */
   handledBy?: string;

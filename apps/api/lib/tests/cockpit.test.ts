@@ -13,6 +13,13 @@ describe("a signal", () => {
     expect(urgentSignal(3, "Refused")).toEqual({ rank: 3, text: "Refused", urgent: true });
     expect(attentionSignal(20, "MRN missing")).toEqual({ rank: 20, text: "MRN missing", urgent: false });
   });
+
+  it("names its kind only when it was given one: without, it has no such key at all", () => {
+    expect(urgentSignal(3, "Refused", "customs")).toEqual({ rank: 3, text: "Refused", urgent: true, kind: "customs" });
+    expect(attentionSignal(20, "MRN missing", "customs")).toEqual({ rank: 20, text: "MRN missing", urgent: false, kind: "customs" });
+    expect(Object.keys(urgentSignal(3, "Refused"))).toEqual(["rank", "text", "urgent"]);
+    expect(Object.keys(attentionSignal(20, "MRN missing"))).toEqual(["rank", "text", "urgent"]);
+  });
 });
 
 describe("a ranked row", () => {
@@ -31,6 +38,13 @@ describe("a ranked row", () => {
         { text: "watch", urgent: false },
       ],
     });
+  });
+
+  it("carries a signal's kind into its tag - and gives a tag without one no such key, so a cockpit that names no kinds answers as it always did", () => {
+    const r = ranked("A", { ...attentionSignal(1, "watch"), kind: "cutoff" }, urgentSignal(2, "now"), urgentSignal(9, "late", "customs"))!;
+    expect(r.row.tags).toEqual([{ text: "now", urgent: true }, { text: "late", urgent: true, kind: "customs" }, { text: "watch", urgent: false, kind: "cutoff" }]);
+    expect(r.row.tags.map((t) => Object.keys(t))).toEqual([["text", "urgent"], ["text", "urgent", "kind"], ["text", "urgent", "kind"]]);
+    expect(JSON.stringify(ranked("A", urgentSignal(2, "now"))!.row)).toBe('{"ref":"A","tags":[{"text":"now","urgent":true}]}');
   });
 
   it("is urgent when any signal is, and ranks by its best urgent signal: an attention one never lifts it", () => {
