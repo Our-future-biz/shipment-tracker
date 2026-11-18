@@ -3,7 +3,7 @@ import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { masterJobDocumentService } from "../services/masterJobDocument.service";
 import { writeFileResponse, writeNotFound } from "../../../lib/fileContent";
-import type { MasterJobDocumentItem } from "../interfaces/interfaces";
+import type { MasterJobDocumentItem, MasterJobHouseBols } from "../interfaces/interfaces";
 
 // A master job's Documents tab: its own files, apart from the shipments' documents.
 
@@ -67,6 +67,19 @@ export const masterJobDocumentDelete = api(
     const { companyID, role } = getAuthData()!;
     await masterJobDocumentService.delete(req.masterJobId, req.documentId, companyID, role);
     return { ok: true };
+  },
+);
+
+interface MasterJobHouseBolsRequest {
+  masterJobId: string;
+}
+
+// The linked shipments' Bills of Lading in one ZIP, for the Documents tab's "Download House BLs".
+// Anyone who sees the master job may: each shipment's documents are open to the whole company.
+export const masterJobHouseBols = api(
+  { expose: true, auth: true, method: "GET", path: "/master-jobs/:masterJobId/house-bols" },
+  async (req: MasterJobHouseBolsRequest): Promise<MasterJobHouseBols> => {
+    return masterJobDocumentService.houseBols(req.masterJobId, getAuthData()!.companyID);
   },
 );
 

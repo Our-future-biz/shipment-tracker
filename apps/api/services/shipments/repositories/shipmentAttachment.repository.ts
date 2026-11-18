@@ -35,6 +35,21 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
       .orderBy(asc(shipmentAttachmentTable.createdAt));
   }
 
+  /** The shipments' files of one document type, oldest first (a master job's house Bills of Lading). */
+  async listByShipmentIdsOfType(shipmentIds: string[], companyId: string, documentType: string): Promise<ShipmentAttachmentRecord[]> {
+    if (shipmentIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(shipmentAttachmentTable)
+      .where(and(
+        eq(shipmentAttachmentTable.companyId, companyId),
+        inArray(shipmentAttachmentTable.shipmentId, shipmentIds),
+        eq(shipmentAttachmentTable.documentType, documentType),
+        isNull(shipmentAttachmentTable.deletedAt),
+      ))
+      .orderBy(asc(shipmentAttachmentTable.createdAt));
+  }
+
   /**
    * Document types present on each shipment, with their customs review — powers the Customs
    * "received" ticks and the customs status that follows the paperwork.

@@ -749,6 +749,18 @@ export interface AttachmentItem {
   customsReviewedByName: string;
 }
 
+/** A master job's house Bills of Lading in one ZIP ("Download House BLs" on its Documents tab). */
+export interface MasterJobHouseBols {
+  /** The ZIP; null when none of the linked shipments has a Bill of Lading. */
+  file: { fileName: string; contentType: string; fileBase64: string } | null;
+  /** How many files are in it. */
+  fileCount: number;
+  /** The linked shipments without a Bill of Lading, by job number. */
+  withoutBol: string[];
+  /** Files listed but no longer in storage, left out ("<job number> - <file name>"). */
+  unreadable: string[];
+}
+
 /** A file on a master job's Documents tab (a store of its own, apart from the shipments' documents). */
 export interface MasterJobDocumentItem {
   id: string;

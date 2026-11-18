@@ -3,15 +3,16 @@
 import { useMemo, useRef, useState } from "react";
 import { Select, Tooltip } from "antd";
 import { useMutation } from "@tanstack/react-query";
-import { FileTextOutlined, InboxOutlined, SearchOutlined } from "@ant-design/icons";
+import { DownloadOutlined, FileTextOutlined, InboxOutlined, LoadingOutlined, SearchOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
 import { useCanManageDocuments } from "@/lib/auth/AuthContext";
-import { api, apiFileUrl } from "@/lib/api";
+import { api, apiErrorMessage, apiFileUrl } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { PreviewButton } from "@/components/PreviewButton";
 import { useMasterJobDocuments, type MasterJobDocumentItem } from "@/hooks/useMasterJobDocuments";
-import { fileToBase64 } from "@/lib/files";
+import { downloadDataUrl, fileDataUrl, fileToBase64 } from "@/lib/files";
+import { houseBolsNotice } from "../_lib/houseBols";
 import { formatDate } from "@/lib/date";
 import { DOCUMENT_GROUPS, DOCUMENT_TYPES, documentGroupOf, documentTypeLabel, guessDocumentType } from "@/lib/documentTypes";
 import { ExtBadge, docPlural, formatFileSize } from "@/app/shipments/[jobNumber]/tabs/docsShared";
@@ -20,7 +21,7 @@ import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
 import { CountChip } from "@/components/SectionCard";
-import { BTN, BTN_PRIMARY, CARD_BAR, CARD_ICON, CARD_TITLE, INPUT, LINK, TD, TH } from "@/styles/ui";
+import { BTN, BTN_BAR, BTN_PRIMARY, CARD_BAR, CARD_ICON, CARD_TITLE, INPUT, LINK, TD, TH } from "@/styles/ui";
 
 // A master job's Documents tab, in the shape of a shipment's (DocumentsTab): adding files, each with
 // its type chosen before it goes up, and one table of the files in the shipment's groups. The files
@@ -73,6 +74,18 @@ export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.Mas
     });
     setPending((p) => [...p, ...next]);
   };
+
+  // Every linked shipment's Bill of Lading in one ZIP; what came down, and which houses have none, is said after.
+  const houseBols = useMutation({
+    mutationFn: () => api.shipments.masterJobHouseBols(masterJob.id),
+    onSuccess: (res) => {
+      if (res.file) downloadDataUrl(fileDataUrl(res.file, "application/zip"), res.file.fileName);
+      const notice = houseBolsNotice(res);
+      if (notice.kind === "success") toast.success(notice.text);
+      else toast.warning(notice.text);
+    },
+    onError: (e) => toast.error(`Could not download the House BLs: ${apiErrorMessage(e)}`),
+  });
 
   // The file is removed from storage too, so Delete asks first.
   const [confirmDelete, setConfirmDelete] = useState<MasterJobDocumentItem | null>(null);
@@ -319,6 +332,12 @@ export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.Mas
             Documents
           </h3>
           <div className="ml-auto flex items-center gap-3">
+            <Tooltip title="The Bills of Lading of every linked shipment, in one ZIP">
+              <button type="button" onClick={() => houseBols.mutate()} disabled={houseBols.isPending} className={`${BTN_BAR} gap-1.5`}>
+                {houseBols.isPending ? <LoadingOutlined aria-hidden /> : <DownloadOutlined aria-hidden />}
+                Download House BLs
+              </button>
+            </Tooltip>
             <CountChip count={docPlural(documents.length)} />
             <label className={`${INPUT} flex items-center gap-2 w-[200px] sm:w-[240px] focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100`}>
               <SearchOutlined aria-hidden className="text-slate-400" />

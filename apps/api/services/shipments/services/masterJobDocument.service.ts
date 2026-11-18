@@ -3,6 +3,10 @@ import log from "encore.dev/log";
 import { APIError } from "encore.dev/api";
 import { masterJobDocumentRepository } from "../repositories/masterJobDocument.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
+import { shipmentRepository } from "../repositories/shipment.repository";
+import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
+import { attachmentBucket } from "../storage/attachmentBucket";
+import { HOUSE_BOL_TYPE, houseBolZip, houseBolZipName, type HouseBolFile } from "../lib/houseBolZip";
 import type { MasterJobDocumentRecord } from "../schemas/masterJobDocument.schema";
 import { masterJobDocumentBucket } from "../storage/masterJobDocumentBucket";
 import { canManageDocuments } from "../lib/documentRules";
@@ -11,7 +15,7 @@ import { companyOfMasterJobDocumentToken, masterJobDocumentContentUrl } from "..
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import type { FileContent } from "../../../lib/fileContent";
-import type { MasterJobDocumentItem } from "../interfaces/interfaces";
+import type { MasterJobDocumentItem, MasterJobHouseBols } from "../interfaces/interfaces";
 
 // A master job's Documents tab: its own files, kept apart from the shipments' documents (their own
 // table and bucket), so linking or unlinking a house never moves one. The rules are the shipments'
@@ -118,6 +122,45 @@ class MasterJobDocumentService {
   }
 
   // The master job, in the caller's company. An id that is not one is not found either (it never reaches SQL).
+  /**
+   * The Bills of Lading of the master job's linked shipments (the files typed "Bill of Lading" on
+   * each shipment's Documents tab) in one ZIP, with the shipments that have none. A deleted shipment
+   * is no longer linked, so its files are not in it.
+   */
+  async houseBols(masterJobId: string, companyId: string): Promise<MasterJobHouseBols> {
+    const masterJob = isUuid(masterJobId) ? await masterJobRepository.getByIdForCompany(masterJobId, companyId) : null;
+    if (!masterJob) throw APIError.notFound("Master job not found");
+    const shipments = (await shipmentRepository.findByMasterJobId(masterJobId, companyId)).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+    const jobNumberOf = new Map(shipments.map((s) => [s.id, s.jobNumber]));
+    const rows = await shipmentAttachmentRepository.listByShipmentIdsOfType(shipments.map((s) => s.id), companyId, HOUSE_BOL_TYPE);
+    // In the order of the shipments, each one's files oldest first.
+    const order = new Map(shipments.map((s, i) => [s.id, i]));
+    rows.sort((a, b) => (order.get(a.shipmentId) ?? 0) - (order.get(b.shipmentId) ?? 0));
+
+    const files: HouseBolFile[] = [];
+    const unreadable: string[] = [];
+    for (const row of rows) {
+      const jobNumber = jobNumberOf.get(row.shipmentId) ?? "";
+      try {
+        if (!row.storageKey) throw new Error("no storage key");
+        files.push({ jobNumber, fileName: row.fileName, bytes: await attachmentBucket.download(row.storageKey) });
+      } catch (err) {
+        log.warn(err, "house BL missing from storage", { attachmentId: row.id });
+        unreadable.push(`${jobNumber} - ${row.fileName}`);
+      }
+    }
+
+    const withBol = new Set(rows.map((r) => r.shipmentId));
+    return {
+      file: files.length
+        ? { fileName: houseBolZipName(masterJob.mczNumber), contentType: "application/zip", fileBase64: houseBolZip(files).toString("base64") }
+        : null,
+      fileCount: files.length,
+      withoutBol: shipments.filter((s) => !withBol.has(s.id)).map((s) => s.jobNumber),
+      unreadable,
+    };
+  }
+
   private async requireMasterJob(masterJobId: string, companyId: string): Promise<void> {
     if (!isUuid(masterJobId) || !(await masterJobRepository.getByIdForCompany(masterJobId, companyId))) {
       throw APIError.notFound("Master job not found");

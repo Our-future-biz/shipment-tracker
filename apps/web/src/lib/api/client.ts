@@ -3261,6 +3261,7 @@ export namespace shipments {
             this.masterJobDocumentDelete = this.masterJobDocumentDelete.bind(this)
             this.masterJobDocumentList = this.masterJobDocumentList.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
+            this.masterJobHouseBols = this.masterJobHouseBols.bind(this)
             this.masterJobList = this.masterJobList.bind(this)
             this.masterJobShipmentUnlink = this.masterJobShipmentUnlink.bind(this)
             this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
@@ -3819,6 +3820,16 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}`)
             return await resp.json() as interfaces.MasterJobDetail
+        }
+
+        /**
+         * The linked shipments' Bills of Lading in one ZIP, for the Documents tab's "Download House BLs".
+         * Anyone who sees the master job may: each shipment's documents are open to the whole company.
+         */
+        public async masterJobHouseBols(masterJobId: string): Promise<interfaces.MasterJobHouseBols> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}/house-bols`)
+            return await resp.json() as interfaces.MasterJobHouseBols
         }
 
         /**
@@ -18862,6 +18873,35 @@ export namespace interfaces {
          * The uploader's e-mail; "Unknown" when it cannot be resolved.
          */
         uploadedByName: string
+    }
+
+    /**
+     * A master job's house Bills of Lading in one ZIP ("Download House BLs" on its Documents tab).
+     */
+    export interface MasterJobHouseBols {
+        /**
+         * The ZIP; null when none of the linked shipments has a Bill of Lading.
+         */
+        file: {
+            fileName: string
+            contentType: string
+            fileBase64: string
+        } | null
+
+        /**
+         * How many files are in it.
+         */
+        fileCount: number
+
+        /**
+         * The linked shipments without a Bill of Lading, by job number.
+         */
+        withoutBol: string[]
+
+        /**
+         * Files listed but no longer in storage, left out ("<job number> - <file name>").
+         */
+        unreadable: string[]
     }
 
     /**

@@ -12,11 +12,17 @@ const repo = vi.hoisted(() => ({
 const masterJobs = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const tokens = vi.hoisted(() => ({ companyOfMasterJobDocumentToken: vi.fn() }));
+const shipments = vi.hoisted(() => ({ findByMasterJobId: vi.fn() }));
+const attachments = vi.hoisted(() => ({ listByShipmentIdsOfType: vi.fn() }));
+const attachmentBucket = vi.hoisted(() => ({ download: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../../repositories/masterJobDocument.repository", () => ({ masterJobDocumentRepository: repo }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: masterJobs }));
 vi.mock("../../storage/masterJobDocumentBucket", () => ({ masterJobDocumentBucket: bucket }));
+vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
+vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: attachments }));
+vi.mock("../../storage/attachmentBucket", () => ({ attachmentBucket }));
 vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["u1", "marek@ourfuture.biz"]]) }));
 vi.mock("../../lib/contentToken", () => ({
   masterJobDocumentContentUrl: (mj: string, id: string, company: string) => `/master-jobs/${mj}/documents/${id}/content?t=${company}`,
@@ -175,5 +181,50 @@ describe("deleting a document", () => {
     await expect(masterJobDocumentService.delete(MJ, DOC, "c2", "manager")).rejects.toMatchObject({ code: "not_found" });
     await expect(masterJobDocumentService.delete(MJ, "nope", "c1", "manager")).rejects.toMatchObject({ code: "not_found" });
     expect(repo.softDeleteForCompany).not.toHaveBeenCalled();
+  });
+});
+
+describe("downloading the house BLs", () => {
+  const S1 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c11";
+  const S2 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c12";
+  const S3 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c13";
+  const bl = (id: string, shipmentId: string, fileName: string, storageKey: string | null = `${shipmentId}/${id}`) => ({ id, shipmentId, fileName, storageKey });
+
+  beforeEach(() => {
+    masterJobs.getByIdForCompany.mockResolvedValue({ id: MJ, mczNumber: "MCZFULL00000006" });
+    // Out of job-number order, as the database may give them.
+    shipments.findByMasterJobId.mockResolvedValue([
+      { id: S2, jobNumber: "CZFCL00000061" },
+      { id: S1, jobNumber: "CZFCL00000060" },
+      { id: S3, jobNumber: "CZFCL00000062" },
+    ]);
+    attachments.listByShipmentIdsOfType.mockResolvedValue([bl("a2", S2, "HBL.pdf"), bl("a1", S1, "HBL.pdf")]);
+    attachmentBucket.download.mockImplementation(async (key: string) => Buffer.from(`%PDF ${key}`));
+  });
+
+  it("puts every linked shipment's Bill of Lading in one ZIP, by job number, and names the shipments without one", async () => {
+    const res = await masterJobDocumentService.houseBols(MJ, "c1");
+    expect(shipments.findByMasterJobId).toHaveBeenCalledWith(MJ, "c1");
+    expect(attachments.listByShipmentIdsOfType).toHaveBeenCalledWith([S1, S2, S3], "c1", "Bill of Lading");
+    expect(res).toMatchObject({ fileCount: 2, withoutBol: ["CZFCL00000062"], unreadable: [] });
+    expect(res.file).toMatchObject({ fileName: "MCZFULL00000006 House BLs.zip", contentType: "application/zip" });
+    const { unzipSync } = await import("fflate");
+    const files = unzipSync(new Uint8Array(Buffer.from(res.file!.fileBase64, "base64")));
+    expect(Object.keys(files)).toEqual(["CZFCL00000060 - HBL.pdf", "CZFCL00000061 - HBL.pdf"]);
+    expect(Buffer.from(files["CZFCL00000060 - HBL.pdf"]!).toString()).toBe(`%PDF ${S1}/a1`);
+  });
+
+  it("leaves out a file gone from storage and says which, and gives no ZIP when nothing is left", async () => {
+    attachments.listByShipmentIdsOfType.mockResolvedValue([bl("a1", S1, "HBL.pdf"), bl("a2", S2, "old.pdf", null)]);
+    attachmentBucket.download.mockRejectedValueOnce(new Error("missing"));
+    const res = await masterJobDocumentService.houseBols(MJ, "c1");
+    expect(res).toEqual({ file: null, fileCount: 0, withoutBol: ["CZFCL00000062"], unreadable: ["CZFCL00000060 - HBL.pdf", "CZFCL00000061 - old.pdf"] });
+  });
+
+  it("is refused for a master job of another company, and for an id that is none", async () => {
+    masterJobs.getByIdForCompany.mockResolvedValueOnce(null);
+    await expect(masterJobDocumentService.houseBols(MJ, "c2")).rejects.toMatchObject({ code: "not_found" });
+    await expect(masterJobDocumentService.houseBols("MCZ00000045", "c1")).rejects.toMatchObject({ code: "not_found" });
+    expect(shipments.findByMasterJobId).not.toHaveBeenCalled();
   });
 });
