@@ -10,6 +10,7 @@ import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
+import { RemeasuredCard } from "./RemeasuredCard";
 import { ADD_BTN, CARD, EMPTY, EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useOpenRows } from "@/hooks/useOpenRows";
@@ -832,6 +833,9 @@ export function CargoDetailsTab({
           </div>
         </div>
       </SectionCard>
+
+      {/* The warehouse's remeasurement against the lines above, and accepting it. */}
+      <RemeasuredCard shipment={shipment} readOnly={readOnly} />
 
       <SectionCard title="Description">
         <div className="relative">

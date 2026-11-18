@@ -3289,6 +3289,9 @@ export namespace shipments {
             this.shipmentQuoteLinksSync = this.shipmentQuoteLinksSync.bind(this)
             this.shipmentReferencesNormalize = this.shipmentReferencesNormalize.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
+            this.shipmentRemeasureAccept = this.shipmentRemeasureAccept.bind(this)
+            this.shipmentRemeasureAcceptance = this.shipmentRemeasureAcceptance.bind(this)
+            this.shipmentRemeasureCostsChecked = this.shipmentRemeasureCostsChecked.bind(this)
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentTracking = this.shipmentTracking.bind(this)
             this.shipmentTrackingAttention = this.shipmentTrackingAttention.bind(this)
@@ -4122,6 +4125,35 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/house-bol-release`, JSON.stringify(params))
             return await resp.json() as controllers.ReleaseHouseBolResponse
+        }
+
+        /**
+         * Cargo Details → Accept remeasurement (owner decision, 18 Nov 2026): the warehouse's remeasured
+         * lines replace the cargo dimension lines, and Pcs, Total Weight and Total Volume take their totals.
+         * Only for who may change the shipment's details (Handled By, Holiday Cover, a manager).
+         */
+        public async shipmentRemeasureAccept(shipmentId: string, params: controllers.AcceptRemeasurementRequest): Promise<controllers.AcceptRemeasurementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/remeasurement/accept`, JSON.stringify(params))
+            return await resp.json() as controllers.AcceptRemeasurementResponse
+        }
+
+        /**
+         * The shipment's last accepted remeasurement, for Cargo Details and Costs Breakdown; null when none.
+         */
+        public async shipmentRemeasureAcceptance(shipmentId: string): Promise<controllers.RemeasureAcceptanceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/remeasurement/acceptance`)
+            return await resp.json() as controllers.RemeasureAcceptanceResponse
+        }
+
+        /**
+         * Costs Breakdown: its quantities were checked after the last accepted remeasurement (the warning is then put away).
+         */
+        public async shipmentRemeasureCostsChecked(shipmentId: string): Promise<controllers.RemeasureAcceptanceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/remeasurement/costs-checked`)
+            return await resp.json() as controllers.RemeasureAcceptanceResponse
         }
 
         public async shipmentTileCounts(): Promise<interfaces.ShipmentTileCounts> {
@@ -7215,6 +7247,18 @@ export namespace warehouseConcept {
 }
 
 export namespace controllers {
+    export interface AcceptRemeasurementRequest {
+        /**
+         * The warehouse's remeasured lines as the page shows them (their saved text): changed meanwhile, nothing is accepted.
+         */
+        expected: string
+    }
+
+    export interface AcceptRemeasurementResponse {
+        shipment: interfaces.ShipmentItem
+        acceptance: interfaces.RemeasureAcceptance | null
+    }
+
     export interface AddBuyingRequest {
         /**
          * the charge code (apps/api/lib/chargeCodes.ts); a label is stored as its code
@@ -10623,6 +10667,10 @@ export namespace controllers {
 
     export interface ReleaseHouseBolResponse {
         shipment: interfaces.ShipmentItem
+    }
+
+    export interface RemeasureAcceptanceResponse {
+        acceptance: interfaces.RemeasureAcceptance | null
     }
 
     export interface ResolvePlacesRequest {
@@ -19719,15 +19767,6 @@ export namespace interfaces {
     }
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -19745,6 +19784,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -22123,6 +22171,46 @@ export namespace interfaces {
             currency: string
             daysOverdue: number
         }[]
+    }
+
+    /**
+     * A shipment's last accepted remeasurement (Cargo Details → Accept remeasurement): the figures the
+     * shipment held before and took over, when and by whom, and Costs Breakdown's check after it.
+     */
+    export interface RemeasureAcceptance {
+        acceptedAt: string
+        /**
+         * The name of the user who accepted, "" when not known.
+         */
+        acceptedBy: string
+
+        before: RemeasureFigures
+        after: RemeasureFigures
+        /**
+         * The shipment's Freight Mode now: air jobs are charged by chargeable weight, the others by W/M.
+         */
+        freightMode: string
+
+        /**
+         * The job has an issued invoice not credited: a change of charges needs another invoice or a credit note.
+         */
+        invoiced: boolean
+
+        /**
+         * When Costs Breakdown's quantities were marked checked after this acceptance; null when not yet.
+         */
+        costsCheckedAt: string | null
+
+        costsCheckedBy: string | null
+    }
+
+    /**
+     * Pieces, gross kg and CBM, as the warehouse's remeasurement notice states them.
+     */
+    export interface RemeasureFigures {
+        colli: number
+        weightKg: number
+        volumeCbm: number
     }
 
     export interface ResolvedRate {

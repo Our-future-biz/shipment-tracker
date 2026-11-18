@@ -22,6 +22,7 @@ import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
+import { RemeasureCompare, figuresCompared, figuresDiffer } from "./warehouse/RemeasureCompare";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -382,8 +383,8 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     return { colli: t.pcs, weightKg: t.kg, volumeCbm: t.m3 };
   }, [shipment.cargoDimensions]);
 
-  const differs = (a: number, b: number) => a > 0 && b > 0 && Math.abs(a - b) > 0.001;
-  const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
+  const remeasured = { colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm };
+  const hasMismatch = figuresDiffer(shipmentDims, remeasured);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
   // Inform Operations: one request records when and posts "Cargo has been remeasured by the
@@ -410,27 +411,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     }
   };
 
-  const fmtKg = (v: number) => (v > 0 ? v.toFixed(1) : "—");
-  const fmtCbm = (v: number) => (v > 0 ? v.toFixed(3) : "—");
-  const fmtPcs = (v: number) => (v > 0 ? String(v) : "—");
-  // the remeasured figure less the shipment's, where both are known
-  const diff = (a: number, b: number, digits: number) => {
-    if (!(a > 0 && b > 0)) return "—";
-    // the same (within the rounding the figures are compared with): no difference
-    if (Math.abs(a - b) <= 0.001) return "0";
-    const d = a - b;
-    const abs = Math.abs(d);
-    // a gap too small for the column's decimals still shows (up to 4 decimals), never as "0.0"
-    const shown = Number(abs.toFixed(digits)) > 0 ? abs.toFixed(digits) : String(Number(abs.toFixed(Math.max(digits, 4))));
-    return `${d > 0 ? "+" : "−"}${shown}`;
-  };
-  const COMPARE = [
-    { key: "colli", label: "Colli", ship: shipmentDims.colli, re: totalColli, fmt: fmtPcs, digits: 0 },
-    { key: "weight", label: "Weight (kg)", ship: shipmentDims.weightKg, re: totalWeightKg, fmt: fmtKg, digits: 1 },
-    { key: "volume", label: "Volume (CBM)", ship: shipmentDims.volumeCbm, re: totalVolumeCbm, fmt: fmtCbm, digits: 3 },
-  ];
-  // At least one figure known on both sides: only then can they be said to match.
-  const compared = COMPARE.some((c) => c.ship > 0 && c.re > 0);
+  const compared = figuresCompared(shipmentDims, remeasured);
 
   return (
     <Card
@@ -561,7 +542,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           </tbody>
           <tfoot>
             <tr>
-              <td className={`${TOTAL_CELL} text-center`}>{fmtPcs(totalColli)}</td>
+              <td className={`${TOTAL_CELL} text-center`}>{totalColli > 0 ? String(totalColli) : "—"}</td>
               {/* the totals under their columns; the comparison below names them */}
               <td className={TOTAL_CELL} colSpan={3} />
               <td className={`${TOTAL_CELL} text-center`}>{totalWeightKg > 0 ? `${totalWeightKg.toFixed(1)} kg` : "—"}</td>
@@ -573,44 +554,8 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
       </div>
 
       {/* Shipment against remeasured, figure by figure (each centred under its title); a figure that differs is marked */}
-      <div className="mt-5 rounded-xl border border-slate-200 overflow-hidden">
-        <table className="w-full border-collapse table-fixed text-[13px]">
-          <thead>
-            <tr className="bg-slate-50">
-              <th className={`${TH_CELL} pt-2 text-left w-[34%]`}>Compared</th>
-              {COMPARE.map((c) => (
-                <th key={c.key} className={`${TH_CELL} pt-2 text-center`}>{c.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { key: "ship", label: "Shipment values", pick: (c: (typeof COMPARE)[number]) => c.fmt(c.ship) },
-              { key: "re", label: "Remeasured values", pick: (c: (typeof COMPARE)[number]) => c.fmt(c.re) },
-              { key: "diff", label: "Difference", pick: (c: (typeof COMPARE)[number]) => diff(c.re, c.ship, c.digits) },
-            ].map((r, i) => (
-              <tr key={r.key} className={rowLine(i, 3)}>
-                <td className={`${TD_CELL} ${r.key === "diff" ? "text-slate-500" : "text-slate-700"}`}>{r.label}</td>
-                {COMPARE.map((c) => (
-                  <td key={c.key} className={`${TD_CELL} text-center tabular-nums`}>
-                    {/* Only the difference is coloured: green when the figures match, red when they don't. */}
-                    <span
-                      className={`font-semibold ${
-                        r.key !== "diff" || !(c.ship > 0 && c.re > 0)
-                          ? "text-slate-900"
-                          : differs(c.ship, c.re)
-                            ? "text-red-600"
-                            : "text-emerald-600"
-                      }`}
-                    >
-                      {r.pick(c)}
-                    </span>
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="mt-5">
+        <RemeasureCompare ship={shipmentDims} re={remeasured} freightMode={shipment.freightMode} />
       </div>
 
       {hasData && hasMismatch && (

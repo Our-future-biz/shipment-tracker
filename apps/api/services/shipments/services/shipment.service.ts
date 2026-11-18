@@ -43,6 +43,7 @@ import type {
   ShipmentDueItem,
   ShipmentItem,
   ShipmentTileCounts,
+  RemeasureAcceptance,
   CustomsPriority,
   PalletType,
   AdrPackingGroup,
@@ -88,6 +89,17 @@ import { dropSharesOfLeftShipments } from "../lib/masterJobCosts";
 import { startShipmentBilling } from "../lib/shipmentBilling";
 import { overrideLine, prepaymentStop, RELEASE_CHANGED_MEANWHILE, setsWarehouseRelease, type PaymentCheck, type ReleaseKind, type ReleaseOverride } from "../lib/prepaymentStop";
 import { shipmentReleaseOverrideRepository } from "../repositories/shipmentReleaseOverride.repository";
+import {
+  REMEASURE_ACCEPTED,
+  REMEASURE_COSTS_CHECKED,
+  acceptedDimensionLines,
+  acceptedTotals,
+  figuresOf,
+  parseRemeasuredLines,
+  readFigures,
+  type RemeasuredLine,
+} from "../lib/remeasureAccept";
+import { declaredFigures } from "../lib/remeasureNotice";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
@@ -184,6 +196,8 @@ export interface ReleaseExtras {
   paymentOverrideReason?: string;
   /** The House BoL release's override, decided before the write (releaseHouseBol): recorded in its write turn. */
   houseBolOverride?: ReleaseOverride;
+  /** Lines of the shipment's history the write adds in its own turn (an accepted remeasurement). */
+  history?: { field: string; oldValue: string | null; newValue: string | null }[];
 }
 
 // The most open jobs of a customer one answer lists (Accounts Receivable's work not yet invoiced).
@@ -1458,6 +1472,7 @@ class ShipmentService {
       // A manager's release of an unpaid prepayment job is recorded with the release, or not at all.
       if (saved && setsRelease && releaseOverride) await this.recordOverride(tx, saved, "warehouse_released", releaseOverride, userId, overrideBy);
       if (saved && extras.houseBolOverride) await this.recordOverride(tx, saved, "house_bol", extras.houseBolOverride, userId, overrideBy);
+      for (const h of extras.history ?? []) await audit(h.field, h.oldValue, h.newValue);
       if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
     });
@@ -1718,6 +1733,92 @@ class ShipmentService {
 
     const stamp = actionStamp(await this.actorOf(userId), new Date());
     return this.update(id, companyId, { houseBolRelease: stamp }, userId, undefined, undefined, notReleasedYet, houseBolOverride ? { houseBolOverride } : {});
+  }
+
+  /**
+   * Accepts the warehouse's remeasurement (lib/remeasureAccept): its saved lines replace the cargo
+   * dimension lines and Pcs, Total Weight and Total Volume take their totals, in one write with a
+   * line in the history holding the figures before and after. `expected`: the remeasured lines as
+   * the page showed them - lines the warehouse changed meanwhile are not accepted unseen.
+   */
+  async acceptRemeasurement(id: string, actor: { companyID: string; userID: string; role: string }, expected: string): Promise<ShipmentItem> {
+    if (!isUuid(id)) throw APIError.notFound("Shipment not found");
+    const existing = await shipmentRepository.getByIdForCompany(id, actor.companyID);
+    if (!existing) throw APIError.notFound("Shipment not found");
+    await this.assertMayChangeDetails(existing, actor.userID, actor.role);
+    const { section } = await warehouse.warehouseSectionGet({ shipmentId: id, section: "job" });
+    const data = section?.data && typeof section.data === "object" && !Array.isArray(section.data) ? (section.data as Record<string, unknown>) : {};
+    const saved = typeof data.remeasure_rows === "string" ? data.remeasure_rows : "";
+    if (saved !== expected) {
+      throw APIError.aborted("The warehouse changed the remeasured lines meanwhile — they are shown again; check them and accept again");
+    }
+    let remeasured: RemeasuredLine[];
+    try {
+      remeasured = parseRemeasuredLines(saved);
+    } catch (e) {
+      throw APIError.failedPrecondition(e instanceof Error ? e.message : "The remeasured lines cannot be read");
+    }
+    const shipment = await this.getById(id, actor.companyID);
+    if (!shipment) throw APIError.notFound("Shipment not found");
+    const current = shipment.cargoDimensions ?? [];
+    // What the shipment held: its cargo lines' totals, a figure they lack from its typed totals.
+    const lines = figuresOf(current);
+    const declared = declaredFigures({ pcs: existing.pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm });
+    const before = {
+      colli: lines.colli || declared.colli,
+      weightKg: lines.weightKg || declared.weightKg,
+      volumeCbm: lines.volumeCbm || declared.volumeCbm,
+    };
+    const after = figuresOf(remeasured);
+    return this.update(
+      id,
+      actor.companyID,
+      { cargoDimensions: acceptedDimensionLines(remeasured, current), ...acceptedTotals(after) },
+      actor.userID,
+      actor.role,
+      undefined,
+      undefined,
+      { history: [{ field: REMEASURE_ACCEPTED, oldValue: JSON.stringify(before), newValue: JSON.stringify({ ...after, lines: saved }) }] },
+    );
+  }
+
+  /**
+   * The shipment's last accepted remeasurement: when, by whom, the figures before and after, whether
+   * the job has an open invoice, and when Costs Breakdown's quantities were last marked checked
+   * after it. Null when none was accepted.
+   */
+  async remeasureAcceptance(id: string, companyId: string): Promise<RemeasureAcceptance | null> {
+    if (!isUuid(id)) throw APIError.notFound("Shipment not found");
+    const existing = await shipmentRepository.getByIdForCompany(id, companyId);
+    if (!existing) throw APIError.notFound("Shipment not found");
+    const [accepted] = await shipmentAuditRepository.listByShipmentId(id, companyId, [REMEASURE_ACCEPTED], 1);
+    if (!accepted) return null;
+    const [checked] = await shipmentAuditRepository.listByShipmentId(id, companyId, [REMEASURE_COSTS_CHECKED], 1);
+    const users = await companyUsers().catch(() => [] as CompanyUser[]);
+    const nameOf = (userId: string) => {
+      const u = users.find((x) => x.id === userId);
+      return u ? u.displayName || u.email : "";
+    };
+    const costsChecked = checked && checked.changedAt >= accepted.changedAt ? checked : null;
+    return {
+      acceptedAt: iso(accepted.changedAt)!,
+      acceptedBy: nameOf(accepted.userId),
+      before: readFigures(accepted.oldValue),
+      after: readFigures(accepted.newValue),
+      freightMode: existing.freightMode,
+      invoiced: await this.isInvoiced(id),
+      costsCheckedAt: costsChecked ? iso(costsChecked.changedAt)! : null,
+      costsCheckedBy: costsChecked ? nameOf(costsChecked.userId) : null,
+    };
+  }
+
+  /** Costs Breakdown: the quantities were checked after the last accepted remeasurement. */
+  async markRemeasureCostsChecked(id: string, actor: { companyID: string; userID: string; role: string }): Promise<RemeasureAcceptance | null> {
+    await this.requireDetailsEditor(id, actor);
+    const [accepted] = await shipmentAuditRepository.listByShipmentId(id, actor.companyID, [REMEASURE_ACCEPTED], 1);
+    if (!accepted) throw APIError.failedPrecondition("No remeasurement was accepted on this shipment");
+    await shipmentAuditRepository.create({ companyId: actor.companyID, shipmentId: id, userId: actor.userID, field: REMEASURE_COSTS_CHECKED, oldValue: null, newValue: iso(accepted.changedAt) });
+    return this.remeasureAcceptance(id, actor.companyID);
   }
 
   // Invoicing's word on whether the job is paid, for the prepayment stop; null when it can't be asked.

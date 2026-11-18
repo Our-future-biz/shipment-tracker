@@ -675,6 +675,25 @@ export interface RemeasureFigures {
   volumeCbm: number;
 }
 
+/**
+ * A shipment's last accepted remeasurement (Cargo Details → Accept remeasurement): the figures the
+ * shipment held before and took over, when and by whom, and Costs Breakdown's check after it.
+ */
+export interface RemeasureAcceptance {
+  acceptedAt: string;
+  /** The name of the user who accepted, "" when not known. */
+  acceptedBy: string;
+  before: RemeasureFigures;
+  after: RemeasureFigures;
+  /** The shipment's Freight Mode now: air jobs are charged by chargeable weight, the others by W/M. */
+  freightMode: string;
+  /** The job has an issued invoice not credited: a change of charges needs another invoice or a credit note. */
+  invoiced: boolean;
+  /** When Costs Breakdown's quantities were marked checked after this acceptance; null when not yet. */
+  costsCheckedAt: string | null;
+  costsCheckedBy: string | null;
+}
+
 /** The warehouse's "Cargo has been remeasured" notice, as posted to a shipment's chat. */
 export interface RemeasureNoticeResult {
   commentId: string;

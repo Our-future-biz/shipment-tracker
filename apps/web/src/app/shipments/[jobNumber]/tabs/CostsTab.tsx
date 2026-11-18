@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Alert, App, Input, Select, Checkbox, Tooltip, Modal, Popover } from "antd";
+import { RemeasureCostsNotice } from "./RemeasureCostsNotice";
 import { useMessages } from "@/lib/toast";
 import { CloseOutlined, DeleteOutlined, FileDoneOutlined, PlusOutlined, RollbackOutlined, SendOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -681,6 +682,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   return (
     <div>
+      {/* An accepted remeasurement changed the cargo: its quantities to check. */}
+      <RemeasureCostsNotice shipmentId={shipment.id} />
       {billed && (
         <Alert
           className="mb-4"
