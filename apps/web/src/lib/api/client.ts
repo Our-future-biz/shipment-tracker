@@ -3210,6 +3210,7 @@ export namespace shipments {
             this.baseClient = baseClient
             this.alertMarkRead = this.alertMarkRead.bind(this)
             this.alertReadGet = this.alertReadGet.bind(this)
+            this.alertRemeasureInformed = this.alertRemeasureInformed.bind(this)
             this.attachmentClassify = this.attachmentClassify.bind(this)
             this.attachmentContent = this.attachmentContent.bind(this)
             this.attachmentCreate = this.attachmentCreate.bind(this)
@@ -3335,6 +3336,20 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/alerts/read`)
             return await resp.json() as controllers.AlertReadResponse
+        }
+
+        /**
+         * Every time the warehouse informed Operations of a remeasurement: the Alerts tab lists those whose
+         * figures differ from the shipment's (a match is only its chat message, in Notifications).
+         */
+        public async alertRemeasureInformed(shipmentId: string): Promise<{
+    informed: interfaces.RemeasureInformedItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/alerts/remeasurements`)
+            return await resp.json() as {
+    informed: interfaces.RemeasureInformedItem[]
+}
         }
 
         public async attachmentClassify(shipmentId: string, attachmentId: string, params: controllers.AttachmentClassifyRequest): Promise<controllers.AttachmentClassifyResponse> {
@@ -22211,6 +22226,33 @@ export namespace interfaces {
         colli: number
         weightKg: number
         volumeCbm: number
+    }
+
+    /**
+     * One Inform Operations on a shipment (the warehouse's remeasurement told to its chat): the
+     * shipment's figures it was compared with, the remeasured ones and how they stand. One that differs
+     * is an Alert on the shipment's Alerts tab; one that matches is only its chat message (Notifications).
+     */
+    export interface RemeasureInformedItem {
+        id: string
+        informedAt: string
+        /**
+         * The name of the user who clicked Inform Operations, "" when not known.
+         */
+        informedBy: string
+
+        shipment: RemeasureFigures
+        remeasured: RemeasureFigures
+        /**
+         * "dimensions": the shipment's cargo dimension lines (Shipments → Warehouse); "declared": its Pcs, weight and volume (Warehouse Concept).
+         */
+        comparedWith: string
+
+        verdict: "differs" | "matches" | "unknown"
+        /**
+         * "weight +200.0 kg · volume +5.332 CBM"; "" when nothing differs.
+         */
+        difference: string
     }
 
     export interface ResolvedRate {

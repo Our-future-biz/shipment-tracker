@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 // is. The service is run for real against a stand-in repository.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
-vi.mock("../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { unreadMentions: vi.fn(), createForCompany: vi.fn() } }));
+vi.mock("../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { unreadMentions: vi.fn(), createForCompany: vi.fn(), createWithHistory: vi.fn() } }));
 vi.mock("../repositories/shipmentAttachment.repository", () => ({
   shipmentAttachmentRepository: { linkToComment: vi.fn(), listChatFilesByShipmentId: vi.fn(async () => []) },
 }));
@@ -89,34 +89,46 @@ describe("the warehouse's remeasurement notice", () => {
     }) as never;
 
   it("tags the shipment's Person in Charge and Holiday Cover as stored - the one clicking too - and says whom", async () => {
-    repo.createForCompany.mockImplementation(async (companyId, c) => ({ id: "n1", companyId, createdAt: new Date(), ...c }) as never);
+    repo.createWithHistory.mockImplementation(async (companyId, c) => ({ id: "n1", companyId, createdAt: new Date(), ...c }) as never);
     shipments.get.mockResolvedValue(shipment({ personInCharge: "me@firma.cz", holidayCover: "EVA@firma.cz" }));
     const res = await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "dimensions", note: "" });
     expect(shipments.get).toHaveBeenCalledWith("s1", "c1");
     expect(res).toEqual({ commentId: "n1", tagged: ["me@firma.cz", "eva@firma.cz"] });
-    expect(repo.createForCompany).toHaveBeenCalledWith("c1", {
-      shipmentId: "s1",
-      authorId: "u-me",
-      message: [
-        "Cargo has been remeasured by the warehouse.",
-        "Shipment values: 20 colli · 3,000.0 kg · 10.000 CBM",
-        "Remeasured values: 11 colli · 2,750.0 kg · 31.680 CBM",
-        "@me@firma.cz @Eva",
-      ].join("\n"),
-      mentionedUserIds: ["u-me", "u-eva"],
+    expect(repo.createWithHistory).toHaveBeenCalledWith(
+      "c1",
+      {
+        shipmentId: "s1",
+        authorId: "u-me",
+        message: [
+          "Cargo has been remeasured by the warehouse.",
+          "Shipment values: 20 colli · 3,000.0 kg · 10.000 CBM",
+          "Remeasured values: 11 colli · 2,750.0 kg · 31.680 CBM",
+          "Difference: colli −9 · weight −250.0 kg · volume +21.680 CBM",
+          "@me@firma.cz @Eva",
+        ].join("\n"),
+        mentionedUserIds: ["u-me", "u-eva"],
+      },
+      expect.any(Function),
+    );
+    // Its record, for the Alerts tab: the figures compared, the remeasured ones, and the message it goes with.
+    const history = repo.createWithHistory.mock.calls.at(-1)![2];
+    expect(history("n1")).toEqual({
+      field: "remeasureInformed",
+      oldValue: JSON.stringify({ colli: 20, weightKg: 3000, volumeCbm: 10 }),
+      newValue: JSON.stringify({ colli: 11, weightKg: 2750, volumeCbm: 31.68, comparedWith: "dimensions", commentId: "n1" }),
     });
   });
 
   it("posts it tagging nobody when nobody is set, and answers so", async () => {
-    repo.createForCompany.mockImplementation(async (companyId, c) => ({ id: "n2", companyId, createdAt: new Date(), ...c }) as never);
+    repo.createWithHistory.mockImplementation(async (companyId, c) => ({ id: "n2", companyId, createdAt: new Date(), ...c }) as never);
     shipments.get.mockResolvedValue(shipment({ personInCharge: "", holidayCover: "someone@else.com" }));
     const res = await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "declared", note: "two crates crushed" });
     expect(res.tagged).toEqual([]);
-    expect(repo.createForCompany).toHaveBeenCalledWith("c1", expect.objectContaining({ mentionedUserIds: [], message: expect.stringContaining("Note: two crates crushed") }));
+    expect(repo.createWithHistory).toHaveBeenCalledWith("c1", expect.objectContaining({ mentionedUserIds: [], message: expect.stringContaining("Note: two crates crushed") }), expect.any(Function));
   });
 
   it("posts nothing when the users can't be read, or the figures are not figures", async () => {
-    repo.createForCompany.mockClear();
+    repo.createWithHistory.mockClear();
     shipments.get.mockResolvedValue(shipment({ personInCharge: "me@firma.cz", holidayCover: "" }));
     vi.mocked(companyUsers).mockRejectedValueOnce(new Error("auth down"));
     await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "dimensions", note: "" })).rejects.toThrow("auth down");
@@ -124,6 +136,6 @@ describe("the warehouse's remeasurement notice", () => {
       expect.objectContaining({ code: "invalid_argument" }),
     );
     await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "gate", note: "" })).rejects.toThrow(/comparedWith/);
-    expect(repo.createForCompany).not.toHaveBeenCalled();
+    expect(repo.createWithHistory).not.toHaveBeenCalled();
   });
 });

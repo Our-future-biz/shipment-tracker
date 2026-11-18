@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { declaredFigures, dimensionFigures, remeasureNotice } from "../lib/remeasureNotice";
+import { declaredFigures, differenceText, dimensionFigures, remeasureNotice, remeasureVerdict } from "../lib/remeasureNotice";
 
 const users = [
   { id: "u1", email: "lukas@ourfuture.biz", displayName: "Lukáš" },
@@ -20,6 +20,7 @@ describe("remeasureNotice", () => {
         "Cargo has been remeasured by the warehouse.",
         "Shipment values: 20 colli · 3,000.0 kg · 10.000 CBM",
         "Remeasured values: 11 colli · 2,750.0 kg · 31.680 CBM",
+        "Difference: colli −9 · weight −250.0 kg · volume +21.680 CBM",
         "@Lukáš @marek@ourfuture.biz",
       ].join("\n"),
     );
@@ -62,5 +63,44 @@ describe("the shipment's figures", () => {
   it("takes what the shipment declares, the lines filling in a missing figure", () => {
     expect(declaredFigures({ pcs: "1,250", totalWeightTons: "4.2", totalVolumeCbm: "12", cargoDimensions: dims })).toEqual({ colli: 1250, weightKg: 4200, volumeCbm: 12 });
     expect(declaredFigures({ pcs: "", totalWeightTons: "", totalVolumeCbm: null, cargoDimensions: dims })).toEqual({ colli: 22, weightKg: 3500, volumeCbm: 11.92 });
+  });
+});
+
+describe("how the remeasured figures stand to the shipment's", () => {
+  // CZLCL00000052: 1 piece, 300 kg, 0.960 CBM declared; the warehouse found 500 kg, 6.292 CBM.
+  const declared = { colli: 1, weightKg: 300, volumeCbm: 0.96 };
+  const found = { colli: 1, weightKg: 500, volumeCbm: 6.292 };
+
+  it("differs when a figure known on both sides is more or less, and says by how much", () => {
+    expect(remeasureVerdict(declared, found)).toBe("differs");
+    expect(differenceText(declared, found)).toBe("weight +200.0 kg · volume +5.332 CBM");
+    expect(differenceText(found, declared)).toBe("weight −200.0 kg · volume −5.332 CBM");
+    expect(remeasureVerdict(declared, { ...declared, colli: 2 })).toBe("differs");
+  });
+
+  it("matches when every figure known on both sides is the same, to 0.001", () => {
+    expect(remeasureVerdict(declared, { ...declared })).toBe("matches");
+    expect(remeasureVerdict(declared, { ...declared, volumeCbm: 0.9605 })).toBe("matches");
+    expect(remeasureVerdict(declared, { colli: 1, weightKg: 0, volumeCbm: 0 })).toBe("matches");
+    expect(differenceText(declared, { ...declared })).toBe("");
+  });
+
+  it("is unknown when no figure is known on both sides", () => {
+    expect(remeasureVerdict({ colli: 0, weightKg: 0, volumeCbm: 0 }, found)).toBe("unknown");
+    expect(remeasureVerdict(declared, { colli: 0, weightKg: 0, volumeCbm: 0 })).toBe("unknown");
+  });
+
+  it("is said in the chat message", () => {
+    const users = [{ id: "u1", email: "lukas@ourfuture.biz", displayName: "Lukáš" }];
+    expect(remeasureNotice({ personInCharge: "lukas@ourfuture.biz" }, users, declared, { ...declared }).message).toBe(
+      [
+        "Cargo has been remeasured by the warehouse.",
+        "Shipment values: 1 colli · 300.0 kg · 0.960 CBM",
+        "Remeasured values: 1 colli · 300.0 kg · 0.960 CBM",
+        "The remeasured values match the shipment values.",
+        "@Lukáš",
+      ].join("\n"),
+    );
+    expect(remeasureNotice({}, users, declared, found).message).toContain("Difference: weight +200.0 kg · volume +5.332 CBM");
   });
 });

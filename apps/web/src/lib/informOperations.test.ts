@@ -18,7 +18,7 @@ describe("informedText", () => {
 
 describe("chatQueryKeys", () => {
   it("refreshes the shipment's chat when there is one, and always the bell and the unread marks", () => {
-    expect(chatQueryKeys("s1")).toEqual([["comments", "s1"], ["shipment-comments"]]);
+    expect(chatQueryKeys("s1")).toEqual([["comments", "s1"], ["shipment-remeasure-informed", "s1"], ["shipment-comments"]]);
     expect(chatQueryKeys(null)).toEqual([["shipment-comments"]]);
   });
 });

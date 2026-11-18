@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
+import { remeasureInformedKey } from "@/lib/informOperations";
 
 /** A shipment's alert: a document customs declined, as its latest verdict. */
 export type ShipmentAlert = AttachmentItem & { customsReviewedAt: string };
@@ -14,6 +15,17 @@ export const shipmentAlerts = (attachments: readonly AttachmentItem[]): Shipment
   attachments
     .filter((a): a is ShipmentAlert => a.customsStatus === "declined" && !!a.customsReviewedAt)
     .sort((a, b) => b.customsReviewedAt.localeCompare(a.customsReviewedAt));
+
+/** One Inform Operations of the warehouse (its remeasurement told to the shipment's chat). */
+export type RemeasureInformed = interfaces.RemeasureInformedItem;
+
+/**
+ * The Inform Operations that are an alert (owner decision, 18 Nov 2026): those whose remeasured
+ * figures are more or less than the shipment's - newest first. One that matches is only its chat
+ * message, under Notifications.
+ */
+export const remeasureAlerts = (informed: readonly RemeasureInformed[]): RemeasureInformed[] =>
+  informed.filter((i) => i.verdict === "differs").sort((a, b) => b.informedAt.localeCompare(a.informedAt));
 
 export const alertReadKey = (shipmentId: string) => ["shipment-alerts-read", shipmentId] as const;
 
@@ -73,15 +85,32 @@ export const useShipmentAlerts = (shipmentId: string) => {
     enabled: !!shipmentId,
   });
 
+  const informed = useQuery({
+    queryKey: remeasureInformedKey(shipmentId),
+    queryFn: async () => (await api.shipments.alertRemeasureInformed(shipmentId)).informed,
+    enabled: !!shipmentId,
+  });
+
   const alerts = useMemo(() => shipmentAlerts(attachments), [attachments]);
+  const remeasured = useMemo(() => remeasureAlerts(informed.data ?? []), [informed.data]);
 
   // Nothing is counted as new before it is known when the user last looked.
   const readAt = read.data?.readAt ?? null;
-  const newCount = read.isSuccess ? alerts.filter((a) => !readAt || a.customsReviewedAt > readAt).length : 0;
+  const newCount = read.isSuccess
+    ? alerts.filter((a) => !readAt || a.customsReviewedAt > readAt).length + remeasured.filter((r) => !readAt || r.informedAt > readAt).length
+    : 0;
 
   const mark = useMutation(markReadOptions(queryClient, shipmentId));
   const { mutate } = mark;
   const markRead = useCallback(() => mutate(), [mutate]);
 
-  return { alerts, newCount, isLoading, isError, markRead };
+  return {
+    alerts,
+    /** The warehouse's remeasurements that differ from the shipment's figures, newest first. */
+    remeasured,
+    newCount,
+    isLoading: isLoading || informed.isLoading,
+    isError: isError || informed.isError,
+    markRead,
+  };
 };

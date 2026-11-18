@@ -1,6 +1,10 @@
 import { iso } from "../../../lib/db/serialize";
 import { userEmailOf } from "../../../lib/companyUsers";
-import type { CustomsVerdictNotice } from "../interfaces/interfaces";
+import type { CustomsVerdictNotice, RemeasureInformedItem } from "../interfaces/interfaces";
+import { companyUsers } from "../../../lib/companyUsers";
+import { REMEASURE_INFORMED, differenceText, remeasureVerdict } from "../lib/remeasureNotice";
+import { readFigures } from "../lib/remeasureAccept";
+import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { userEmails } from "../lib/userEmails";
 import { shipmentAlertReadRepository } from "../repositories/shipmentAlertRead.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -11,6 +15,8 @@ const VERDICT_KEEP_DAYS = 30;
 const READ_VERDICT_KEEP_DAYS = 7;
 const VERDICTS_LIMIT = 100;
 const DAY_MS = 86_400_000;
+/** The most Inform Operations of one shipment the Alerts tab lists. */
+const REMEASURE_INFORMED_LIMIT = 50;
 
 // A shipment's Alerts are worked out from what they are about (customs' verdict on a document);
 // only when each user last opened them is kept here, so the tab can count what is new to them.
@@ -24,6 +30,36 @@ class AlertService {
   async markRead(shipmentId: string, companyId: string, userId: string): Promise<void> {
     await shipmentService.requireLive(shipmentId, companyId);
     await shipmentAlertReadRepository.markRead(companyId, userId, shipmentId);
+  }
+
+  /** Every Inform Operations of the shipment, newest first, with how its figures stand. */
+  async remeasureInformed(shipmentId: string, companyId: string): Promise<RemeasureInformedItem[]> {
+    await shipmentService.requireLive(shipmentId, companyId);
+    const rows = await shipmentAuditRepository.listByShipmentId(shipmentId, companyId, [REMEASURE_INFORMED], REMEASURE_INFORMED_LIMIT);
+    if (rows.length === 0) return [];
+    const users = await companyUsers().catch(() => []);
+    return rows.map((r) => {
+      const shipment = readFigures(r.oldValue);
+      const remeasured = readFigures(r.newValue);
+      let comparedWith = "";
+      try {
+        const v = (JSON.parse(r.newValue ?? "") as { comparedWith?: unknown }).comparedWith;
+        comparedWith = typeof v === "string" ? v : "";
+      } catch {
+        comparedWith = "";
+      }
+      const by = users.find((u) => u.id === r.userId);
+      return {
+        id: r.id,
+        informedAt: iso(r.changedAt)!,
+        informedBy: by ? by.displayName || by.email : "",
+        shipment,
+        remeasured,
+        comparedWith,
+        verdict: remeasureVerdict(shipment, remeasured),
+        difference: differenceText(shipment, remeasured),
+      };
+    });
   }
 
   /**

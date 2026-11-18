@@ -287,7 +287,7 @@ export function ReadmeTab() {
 
       <Part title="Remeasurement / Release and pick-up">
         <p>
-          This tab shows the warehouse part of one imported shipment: its details, notes, the remeasured dimensions (with Inform Operations when they differ) and the
+          This tab shows the warehouse part of one imported shipment: its details, notes, the remeasured dimensions (with Inform Operations: a difference goes to the shipment&apos;s Alerts, a match to its Notifications) and the
           push to suppliers. Open it from the {TERMS.jobNo} in Positions or from Shipment Details in the job. Shipments shows the same part read-only, with a link back
           here.
         </p>

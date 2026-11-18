@@ -694,6 +694,25 @@ export interface RemeasureAcceptance {
   costsCheckedBy: string | null;
 }
 
+/**
+ * One Inform Operations on a shipment (the warehouse's remeasurement told to its chat): the
+ * shipment's figures it was compared with, the remeasured ones and how they stand. One that differs
+ * is an Alert on the shipment's Alerts tab; one that matches is only its chat message (Notifications).
+ */
+export interface RemeasureInformedItem {
+  id: string;
+  informedAt: string;
+  /** The name of the user who clicked Inform Operations, "" when not known. */
+  informedBy: string;
+  shipment: RemeasureFigures;
+  remeasured: RemeasureFigures;
+  /** "dimensions": the shipment's cargo dimension lines (Shipments → Warehouse); "declared": its Pcs, weight and volume (Warehouse Concept). */
+  comparedWith: string;
+  verdict: "differs" | "matches" | "unknown";
+  /** "weight +200.0 kg · volume +5.332 CBM"; "" when nothing differs. */
+  difference: string;
+}
+
 /** The warehouse's "Cargo has been remeasured" notice, as posted to a shipment's chat. */
 export interface RemeasureNoticeResult {
   commentId: string;

@@ -6,7 +6,7 @@ import { MessageOutlined, PaperClipOutlined, RightOutlined } from "@ant-design/i
 import { apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
+import { useShipmentAlerts, type RemeasureInformed } from "@/hooks/useShipmentAlerts";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { formatDateTime } from "@/lib/date";
 import { BTN_GHOST, BTN_SM, HINT } from "@/styles/ui";
@@ -19,12 +19,19 @@ interface NotificationsTabProps {
   onOpen: (tab: string) => void;
 }
 
-// The shipment's Alerts: what needs the operations team's attention - for now a document customs
-// declined (an approved one needs nothing, and is no alert). Only the fact is told, newest first:
-// a click leads to the Documents tab, where the whole of it (the reason for the decline, ...) is.
+// The shipment's Alerts: what needs the operations team's attention - a document customs declined
+// (an approved one needs nothing, and is no alert), and the warehouse's Inform Operations whose
+// remeasured figures are more or less than the shipment's (one that matches is only its chat
+// message, under Notifications). Only the fact is told, newest first: a click leads to the tab
+// where the whole of it is - Documents, or Cargo Details with the remeasurement to accept.
 // Beside them, Notifications: the shipment's chat messages.
 export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
-  const { alerts: reviewed, isLoading, isError } = useShipmentAlerts(shipment.id);
+  const { alerts: reviewed, remeasured, isLoading, isError } = useShipmentAlerts(shipment.id);
+  // Both kinds in one list, newest first.
+  const items = [
+    ...reviewed.map((doc) => ({ kind: "customs" as const, at: doc.customsReviewedAt, doc })),
+    ...remeasured.map((r) => ({ kind: "remeasured" as const, at: r.informedAt, r })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
 
   let empty = "No alerts yet";
   if (isLoading) empty = "Loading alerts…";
@@ -33,38 +40,78 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
   return (
     // Alerts and Notifications side by side (one under the other on a narrow screen).
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-      <SectionCard title="Alerts" bodyClassName="p-2" extra={reviewed.length > 0 && <CountChip count={reviewed.length} />}>
-        {reviewed.length === 0 ? (
+      <SectionCard title="Alerts" bodyClassName="p-2" extra={items.length > 0 && <CountChip count={items.length} />}>
+        {items.length === 0 ? (
           <p className={`text-center ${HINT} py-8`}>{empty}</p>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {reviewed.map((doc) => (
-              <li key={doc.id}>
-                <button
-                  type="button"
-                  onClick={() => onOpen("documents")}
-                  className="w-full flex items-center gap-4 px-3 py-3 text-left rounded-md hover:bg-slate-50 border-0 bg-transparent cursor-pointer"
-                >
-                  <CustomsPill status={doc.customsStatus} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px] text-slate-900">
-                      Customs {doc.customsStatus} <span className="font-semibold">{doc.fileName}</span>
+            {items.map((item) =>
+              item.kind === "remeasured" ? (
+                <li key={`r-${item.r.id}`}>
+                  <RemeasuredAlert informed={item.r} onOpen={() => onOpen("cargo")} />
+                </li>
+              ) : (
+                <li key={item.doc.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpen("documents")}
+                    className="w-full flex items-center gap-4 px-3 py-3 text-left rounded-md hover:bg-slate-50 border-0 bg-transparent cursor-pointer"
+                  >
+                    <CustomsPill status={item.doc.customsStatus} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] text-slate-900">
+                        Customs {item.doc.customsStatus} <span className="font-semibold">{item.doc.fileName}</span>
+                      </span>
+                      <span className={`block truncate ${HINT}`}>
+                        {[item.doc.documentType, item.doc.customsReviewedByName, formatDateTime(item.doc.customsReviewedAt)].filter(Boolean).join(" · ")}
+                      </span>
                     </span>
-                    <span className={`block truncate ${HINT}`}>
-                      {[doc.documentType, doc.customsReviewedByName, formatDateTime(doc.customsReviewedAt)].filter(Boolean).join(" · ")}
+                    <span className="shrink-0 flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600">
+                      Open in Documents <RightOutlined className="text-[10px]" />
                     </span>
-                  </span>
-                  <span className="shrink-0 flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600">
-                    Open in Documents <RightOutlined className="text-[10px]" />
-                  </span>
-                </button>
-              </li>
-            ))}
+                  </button>
+                </li>
+              ),
+            )}
           </ul>
         )}
       </SectionCard>
       <CommunicationCard shipment={shipment} />
     </div>
+  );
+}
+
+const figures = (f: RemeasureInformed["shipment"]) =>
+  [
+    `${f.colli > 0 ? f.colli : "—"} colli`,
+    `${f.weightKg > 0 ? f.weightKg.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "—"} kg`,
+    `${f.volumeCbm > 0 ? f.volumeCbm.toFixed(3) : "—"} CBM`,
+  ].join(" · ");
+
+// One Inform Operations whose remeasured figures differ: by how much, from what to what, who told
+// and when. A click opens Cargo Details, where the remeasurement can be accepted.
+function RemeasuredAlert({ informed, onOpen }: { informed: RemeasureInformed; onOpen: () => void }) {
+  const against = informed.comparedWith === "declared" ? "declared" : "Cargo Details";
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full flex items-center gap-4 px-3 py-3 text-left rounded-md hover:bg-slate-50 border-0 bg-transparent cursor-pointer"
+    >
+      <span className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset bg-red-50 text-red-700 ring-red-200">Remeasured</span>
+      <span className="min-w-0 flex-1">
+        {/* Wrapped, not cut: the difference is the alert. */}
+        <span className="block text-[14px] text-slate-900">
+          Warehouse measured <span className="font-semibold">{informed.difference}</span>
+        </span>
+        <span className={`block ${HINT}`} title={`${against}: ${figures(informed.shipment)} → remeasured: ${figures(informed.remeasured)}`}>
+          {[`${against} ${figures(informed.shipment)} → ${figures(informed.remeasured)}`, informed.informedBy, formatDateTime(informed.informedAt)].filter(Boolean).join(" · ")}
+        </span>
+      </span>
+      <span className="shrink-0 flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600">
+        Open in Cargo Details <RightOutlined className="text-[10px]" />
+      </span>
+    </button>
   );
 }
 

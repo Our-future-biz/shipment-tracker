@@ -68,6 +68,41 @@ const figures = (f: CargoFigures) =>
     `${f.volumeCbm > 0 ? f.volumeCbm.toFixed(3) : "—"} CBM`,
   ].join(" · ");
 
+/** The history entry of each Inform Operations: old value = the shipment's figures, new = the remeasured ones. */
+export const REMEASURE_INFORMED = "remeasureInformed";
+
+/**
+ * How the remeasured figures stand to the shipment's (owner decision, 18 Nov 2026): "differs" when
+ * the pieces, weight or volume is more or less (both known, apart by more than 0.001) - an Alert on
+ * the shipment's Alerts tab; "matches" when every figure known on both sides is the same - only the
+ * chat message, in Notifications; "unknown" when no figure is known on both sides.
+ */
+export type RemeasureVerdict = "differs" | "matches" | "unknown";
+
+const both = (a: number, b: number) => a > 0 && b > 0;
+const KEYS = ["colli", "weightKg", "volumeCbm"] as const;
+
+export function remeasureVerdict(shipment: CargoFigures, remeasured: CargoFigures): RemeasureVerdict {
+  if (KEYS.some((k) => both(shipment[k], remeasured[k]) && Math.abs(shipment[k] - remeasured[k]) > 0.001)) return "differs";
+  return KEYS.some((k) => both(shipment[k], remeasured[k])) ? "matches" : "unknown";
+}
+
+const signed = (d: number, digits: number) =>
+  `${d > 0 ? "+" : "−"}${Math.abs(d).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+
+/** "weight +200.0 kg · volume +5.332 CBM": the figures that differ, the remeasured less the shipment's. */
+export function differenceText(shipment: CargoFigures, remeasured: CargoFigures): string {
+  const parts: string[] = [];
+  const add = (k: (typeof KEYS)[number], label: string, digits: number, unit: string) => {
+    const d = remeasured[k] - shipment[k];
+    if (both(shipment[k], remeasured[k]) && Math.abs(d) > 0.001) parts.push(`${label} ${signed(d, digits)}${unit}`);
+  };
+  add("colli", "colli", 0, "");
+  add("weightKg", "weight", 1, " kg");
+  add("volumeCbm", "volume", 3, " CBM");
+  return parts.join(" · ");
+}
+
 // A person field holds a user's e-mail; a stamp keeps the time after " — ".
 const personOf = (value: string | null | undefined) => (value ?? "").split(" — ")[0]!.trim();
 
@@ -89,6 +124,9 @@ export function remeasureNotice(
     if (user && !tagged.includes(user)) tagged.push(user);
   }
   const lines = ["Cargo has been remeasured by the warehouse.", `Shipment values: ${figures(shipment)}`, `Remeasured values: ${figures(remeasured)}`];
+  const verdict = remeasureVerdict(shipment, remeasured);
+  if (verdict === "differs") lines.push(`Difference: ${differenceText(shipment, remeasured)}`);
+  if (verdict === "matches") lines.push("The remeasured values match the shipment values.");
   if (note.trim()) lines.push(`Note: ${note.trim()}`);
   // Written as the chat writes a tag: "@" and the name the @ list shows.
   if (tagged.length) lines.push(tagged.map((u) => `@${u.displayName || u.email}`).join(" "));

@@ -14,10 +14,14 @@ export function informedText(tagged: readonly string[] | null): InformedText {
   return { level: "success", text: `Operations informed in the shipment's chat — tagged ${tagged.join(", ")}` };
 }
 
+/** The shipment's Inform Operations as its Alerts tab lists them (useShipmentAlerts). */
+export const remeasureInformedKey = (shipmentId: string) => ["shipment-remeasure-informed", shipmentId] as const;
+
 /**
- * The queries that show the notice once posted: the shipment's chat, and the bell's mentions with
- * the grid's unread marks (every "shipment-comments" query).
+ * The queries that show the notice once posted: the shipment's chat, its Alerts tab's list of
+ * Inform Operations, and the bell's mentions with the grid's unread marks (every
+ * "shipment-comments" query).
  */
 export function chatQueryKeys(shipmentId: string | null | undefined): (readonly string[])[] {
-  return [...(shipmentId ? [["comments", shipmentId] as const] : []), ["shipment-comments"] as const];
+  return [...(shipmentId ? [["comments", shipmentId] as const, remeasureInformedKey(shipmentId)] : []), ["shipment-comments"] as const];
 }

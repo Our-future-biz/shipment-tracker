@@ -9,7 +9,7 @@ import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl } from "../lib/contentToken";
 import { customsOfficeRequestNotice, documentChangeNotice } from "../lib/customsOfficeNotice";
 import { canManageDocuments } from "../lib/documentRules";
-import { COMPARED_WITH, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
+import { COMPARED_WITH, REMEASURE_INFORMED, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
 import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
 import { iso } from "../../../lib/db/serialize";
 import { companyUsers, companyUsersWithRoles } from "../../../lib/companyUsers";
@@ -160,12 +160,16 @@ class CommentService {
     const users = await companyUsers();
     const ours = comparedWith === "declared" ? declaredFigures(shipment) : dimensionFigures(shipment.cargoDimensions ?? []);
     const notice = remeasureNotice(shipment, users, ours, remeasured, note);
-    const comment = await shipmentCommentRepository.createForCompany(companyId, {
-      shipmentId,
-      authorId,
-      message: notice.message,
-      mentionedUserIds: notice.tagged.map((u) => u.id),
-    });
+    // The message and its record (the Alerts tab lists those whose figures differ), together.
+    const comment = await shipmentCommentRepository.createWithHistory(
+      companyId,
+      { shipmentId, authorId, message: notice.message, mentionedUserIds: notice.tagged.map((u) => u.id) },
+      (commentId) => ({
+        field: REMEASURE_INFORMED,
+        oldValue: JSON.stringify(ours),
+        newValue: JSON.stringify({ colli: remeasured.colli, weightKg: remeasured.weightKg, volumeCbm: remeasured.volumeCbm, comparedWith, commentId }),
+      }),
+    );
     return { commentId: comment.id, tagged: notice.tagged.map((u) => u.email) };
   }
 

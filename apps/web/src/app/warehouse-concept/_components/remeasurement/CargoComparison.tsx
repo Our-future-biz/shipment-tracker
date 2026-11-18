@@ -198,7 +198,25 @@ export function CargoComparison({
             }
           />
         ) : hasAny(remeasured) || (declared && hasAny(gate)) || (reweighed && reweighVar.pct != null) ? (
-          <Alert type="success" showIcon message={<span className="text-xs">Within tolerance</span>} />
+          <Alert
+            type="success"
+            showIcon
+            message={<span className="text-xs">Within tolerance</span>}
+            description={informed ? <span className="text-xs">Operations informed {formatDateTime(informed.at)}{informed.by ? ` by ${informed.by}` : ""}.</span> : undefined}
+            action={
+              // A remeasurement within tolerance is told too (owner decision, 18 Nov 2026): the
+              // shipment's chat (its Notifications) - or its Alerts as well, if a figure is not the same.
+              savedRemeasured && (
+                <Tooltip title={linesUnsaved ? "Save the lines first — Operations are told the saved figures" : undefined}>
+                  <span className="inline-flex">
+                    <Button size="small" onClick={onInform} loading={informing} disabled={linesUnsaved}>
+                      {informed ? "Inform again" : "Inform Operations"}
+                    </Button>
+                  </span>
+                </Tooltip>
+              )
+            }
+          />
         ) : null}
 
         {wmChanged && !sentSinceSave && (

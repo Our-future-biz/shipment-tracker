@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const attachments = vi.hoisted(() => ({ customsVerdictsFor: vi.fn() }));
-const lookup = vi.hoisted(() => ({ userEmailOf: vi.fn() }));
+const lookup = vi.hoisted(() => ({ userEmailOf: vi.fn(), companyUsers: vi.fn() }));
+const audit = vi.hoisted(() => ({ listByShipmentId: vi.fn() }));
+const shipments = vi.hoisted(() => ({ requireLive: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../../../lib/companyUsers", () => lookup);
 vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["r1", "customs@firma.cz"]]) }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: attachments }));
 vi.mock("../../repositories/shipmentAlertRead.repository", () => ({ shipmentAlertReadRepository: {} }));
-vi.mock("../../services/shipment.service", () => ({ shipmentService: {} }));
+vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: audit }));
+vi.mock("../../services/shipment.service", () => ({ shipmentService: shipments }));
 
 import { alertService } from "../../services/alert.service";
 
@@ -71,5 +74,46 @@ describe("customs' verdicts under the bell", () => {
     lookup.userEmailOf.mockResolvedValue("");
     expect(await alertService.customsVerdicts("c1", "u1", NOW)).toEqual([]);
     expect(attachments.customsVerdictsFor).not.toHaveBeenCalled();
+  });
+});
+
+describe("the warehouse's Inform Operations on the Alerts tab", () => {
+  const at = new Date("2026-11-18T09:05:00Z");
+  const informed = (id: string, ours: object, found: object, comparedWith = "dimensions") => ({
+    id,
+    userId: "u1",
+    changedAt: at,
+    oldValue: JSON.stringify(ours),
+    newValue: JSON.stringify({ ...found, comparedWith, commentId: "m1" }),
+  });
+
+  it("lists each with how its figures stand, by whom, the newest first as stored", async () => {
+    lookup.companyUsers.mockResolvedValue([{ id: "u1", email: "petr@firma.cz", displayName: "Petr" }]);
+    audit.listByShipmentId.mockResolvedValue([
+      informed("a2", { colli: 1, weightKg: 300, volumeCbm: 0.96 }, { colli: 1, weightKg: 500, volumeCbm: 6.292 }),
+      informed("a1", { colli: 1, weightKg: 300, volumeCbm: 0.96 }, { colli: 1, weightKg: 300, volumeCbm: 0.96 }, "declared"),
+    ]);
+    const list = await alertService.remeasureInformed("s1", "c1");
+    expect(shipments.requireLive).toHaveBeenCalledWith("s1", "c1");
+    expect(audit.listByShipmentId).toHaveBeenCalledWith("s1", "c1", ["remeasureInformed"], 50);
+    expect(list).toEqual([
+      {
+        id: "a2",
+        informedAt: at.toISOString(),
+        informedBy: "Petr",
+        shipment: { colli: 1, weightKg: 300, volumeCbm: 0.96 },
+        remeasured: { colli: 1, weightKg: 500, volumeCbm: 6.292 },
+        comparedWith: "dimensions",
+        verdict: "differs",
+        difference: "weight +200.0 kg · volume +5.332 CBM",
+      },
+      expect.objectContaining({ id: "a1", comparedWith: "declared", verdict: "matches", difference: "" }),
+    ]);
+  });
+
+  it("still lists them when the users can't be read, without a name", async () => {
+    lookup.companyUsers.mockRejectedValue(new Error("auth down"));
+    audit.listByShipmentId.mockResolvedValue([informed("a1", { colli: 1, weightKg: 0, volumeCbm: 0 }, { colli: 2, weightKg: 0, volumeCbm: 0 })]);
+    expect(await alertService.remeasureInformed("s1", "c1")).toMatchObject([{ informedBy: "", verdict: "differs", difference: "colli +1" }]);
   });
 });

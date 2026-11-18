@@ -4,10 +4,28 @@ import { db } from "../db/db";
 import { shipmentCommentTable, type ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
 import { shipmentCommentReadTable } from "../schemas/shipmentCommentRead.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
+import { shipmentAuditRepository } from "./shipmentAudit.repository";
 
 class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentTable> {
   constructor() {
     super(db, shipmentCommentTable, "shipment_comment");
+  }
+
+  /**
+   * A message with a line in the shipment's history, written together or not at all (the
+   * warehouse's Inform Operations: its chat message and the record the Alerts tab reads). The
+   * history line is made from the new message's id.
+   */
+  async createWithHistory(
+    companyId: string,
+    comment: { shipmentId: string; authorId: string; message: string; mentionedUserIds: string[] },
+    history: (commentId: string) => { field: string; oldValue: string | null; newValue: string | null },
+  ): Promise<ShipmentCommentRecord> {
+    return db.transaction(async (tx) => {
+      const [row] = await tx.insert(shipmentCommentTable).values({ ...comment, companyId }).returning();
+      await shipmentAuditRepository.create({ companyId, shipmentId: comment.shipmentId, userId: comment.authorId, ...history(row!.id) }, tx);
+      return row!;
+    });
   }
 
   async listByShipmentId(shipmentId: string, companyId: string): Promise<ShipmentCommentRecord[]> {

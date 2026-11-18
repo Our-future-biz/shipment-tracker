@@ -1,6 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
-import type { CustomsVerdictNotice } from "../interfaces/interfaces";
+import type { CustomsVerdictNotice, RemeasureInformedItem } from "../interfaces/interfaces";
 import { alertService } from "../services/alert.service";
 
 interface AlertReadResponse {
@@ -33,5 +33,14 @@ export const customsVerdictNotices = api(
   async (): Promise<{ verdicts: CustomsVerdictNotice[] }> => {
     const { companyID, userID } = getAuthData()!;
     return { verdicts: await alertService.customsVerdicts(companyID, userID) };
+  },
+);
+
+// Every time the warehouse informed Operations of a remeasurement: the Alerts tab lists those whose
+// figures differ from the shipment's (a match is only its chat message, in Notifications).
+export const alertRemeasureInformed = api(
+  { expose: true, auth: true, method: "GET", path: "/shipments/:shipmentId/alerts/remeasurements" },
+  async ({ shipmentId }: { shipmentId: string }): Promise<{ informed: RemeasureInformedItem[] }> => {
+    return { informed: await alertService.remeasureInformed(shipmentId, getAuthData()!.companyID) };
   },
 );

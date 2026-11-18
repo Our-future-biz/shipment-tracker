@@ -451,8 +451,26 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
           }
         />
       )}
+      {/* A match is told too (owner decision, 18 Nov 2026): it goes to the shipment's chat - its
+          Notifications - while a difference is also an Alert on the shipment. */}
       {hasData && !hasMismatch && (
-        <Alert className="!mt-4" type="success" showIcon message={<span className="text-xs">All values match</span>} />
+        <Alert
+          className="!mt-4"
+          type="success"
+          showIcon
+          message={<span className="text-xs">All values match</span>}
+          action={
+            !readOnly && (
+              <Tooltip title={informBlocked ?? undefined}>
+                <span className="inline-flex">
+                  <Button size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
+                    {informedAt ? "Inform Again" : "Inform Operations"}
+                  </Button>
+                </span>
+              </Tooltip>
+            )
+          }
+        />
       )}
       {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
       {informedAt && <div className="mt-2 text-[11px] text-slate-500">Operations informed on {formatDateTime(informedAt)}</div>}

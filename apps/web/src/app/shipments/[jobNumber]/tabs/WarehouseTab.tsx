@@ -572,9 +572,20 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           </Tooltip>
         </div>
       )}
+      {/* A match is told too (owner decision, 18 Nov 2026): it goes to the shipment's chat - its
+          Notifications - while a difference is also an Alert. */}
       {hasData && compared && !hasMismatch && (
-        <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-700">
-          <CheckCircleFilled /> All values match
+        <div className="mt-3 flex items-center justify-between gap-3 flex-wrap rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5">
+          <span className="flex items-center gap-2 text-[13px] text-emerald-700">
+            <CheckCircleFilled /> All values match
+          </span>
+          <Tooltip title={informBlocked ?? undefined}>
+            <span className="inline-flex">
+              <Button size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
+                {informedAt ? "Inform Again" : "Inform Operations"}
+              </Button>
+            </span>
+          </Tooltip>
         </div>
       )}
       {/* nothing to hold the remeasured figures against: not "match", which would say they were checked */}
