@@ -98,7 +98,8 @@ function ownerPermission(
  * by e-mail; `margins` is what a road margin is judged with - left out when the rule applies to
  * none of the quotes read; `states` where the companies the quotes are linked to stand (LinkedStates);
  * `replaces` the live Replaced quote this one is the revision of, when that was looked up (a
- * Draft's, for the delete - quoteDeletePermission).
+ * Draft's, for the delete - quoteDeletePermission); `followedBy` the first live quote that follows
+ * on from this one (a variant or a revision), when that was looked up - for the delete too.
  */
 export function toItem(
   row: SalesQuoteRecord,
@@ -108,13 +109,14 @@ export function toItem(
   margins?: MarginContext,
   states?: LinkedStates,
   replaces?: string | null,
+  followedBy?: string | null,
 ): SalesQuoteItem {
   const state = stateOf(row);
   const today = businessDay(now);
   const margin = margins ? roadMargin(row.data, margins) : null;
   const everSent = wasEverSent(state, isPlainObject(row.data) ? row.data.timeline : undefined);
   const shown = effectiveStatus(state.status, state.validUntil, today);
-  const deletion = quoteDeletePermission(actor, { ...state, status: shown, everSent, replaces });
+  const deletion = quoteDeletePermission(actor, { ...state, status: shown, everSent, replaces, followedBy });
   return {
     id: row.id,
     quoteNumber: row.quoteNumber,

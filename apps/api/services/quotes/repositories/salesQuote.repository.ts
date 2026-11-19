@@ -414,6 +414,33 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
+   * The live quotes that follow on from these: a variant (-2, -3), a revision (-R1) or a revision of
+   * a variant, numbered from one of them. By each of `quoteNumbers` that has one, the number of its
+   * first follow-up. Compared without the letters of a Freight Mode, as references are.
+   */
+  async liveFollowUps(companyId: string, quoteNumbers: string[], reader: QuoteTransaction | typeof db = db): Promise<Map<string, string>> {
+    const originals = [...new Set(quoteNumbers.map((n) => plainSalesReference(n)))];
+    const found = new Map<string, string>();
+    if (!originals.length) return found;
+    const rows = await reader
+      .select({ quoteNumber: quoteTable.quoteNumber, plain: PLAIN_NUMBER })
+      .from(quoteTable)
+      .where(and(
+        eq(quoteTable.companyId, companyId),
+        isNull(quoteTable.deletedAt),
+        isSalesQuote,
+        or(...originals.map((plain) => startsWithSql(PLAIN_NUMBER, `${plain}-`))),
+      ))
+      .orderBy(asc(PLAIN_NUMBER));
+    for (const quoteNumber of quoteNumbers) {
+      const prefix = `${plainSalesReference(quoteNumber)}-`;
+      const first = rows.find((r) => r.plain.startsWith(prefix));
+      if (first) found.set(quoteNumber, first.quoteNumber);
+    }
+    return found;
+  }
+
+  /**
    * Runs `change` on a live sales quote while nobody else can write its lifecycle: in one
    * transaction, after locking the row. `change` gets the quote as stored at that moment and
    * the transaction to write it with (writeLifecycle); what it returns is returned, and an error

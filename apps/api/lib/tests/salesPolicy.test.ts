@@ -233,6 +233,24 @@ describe("quoteDeletePermission", () => {
     }
   });
 
+  it("refuses everybody the original offer a variant or revision follows on from, even a Draft that never went out, naming the follow-up", () => {
+    // QCZFCL20261105003 was copied as -2: the first offer stays as the record of what was offered.
+    for (const role of ROLES) {
+      for (const ownerUserId of OWNERS) {
+        expect(quoteDeletePermission(actor(role), quote({ ownerUserId, followedBy: "QCZFCL20261105003-2" })), `${role} / ${ownerUserId}`).toEqual({
+          allowed: false,
+          reason: "it is the original offer of QCZFCL20261105003-2 and stays as the record of what was offered; mark it Lost instead",
+          blockedBy: "status",
+        });
+      }
+    }
+  });
+
+  it("still lets the follow-up itself be deleted while it is a Draft that never went out, and the original once nothing follows on from it", () => {
+    expect(quoteDeletePermission(actor("manager"), quote({ followedBy: null }))).toEqual(allowed);
+    expect(quoteDeletePermission(actor("user"), quote())).toEqual(allowed);
+  });
+
   it("refuses everybody a Draft that went to the customer before (Lost -> Draft), whether or not a sent date says so", () => {
     for (const role of ROLES) expect(quoteDeletePermission(actor(role), quote({ everSent: true })), role).toEqual(sentBefore);
   });

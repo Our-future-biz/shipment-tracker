@@ -160,12 +160,23 @@ const KEPT_AS: Readonly<Record<string, string>> = {
  * - Nor the revision a Replaced quote handed its offer on to (`replaces`, that quote's number;
  *   left out where it was not looked up): deleted, it would leave that quote Replaced for good -
  *   Replaced has no way out.
+ * - Nor the original offer of a quote that follows on from it (`followedBy`, the first live one: a
+ *   variant -2, a revision -R1; left out where it was not looked up): it is the record of what was
+ *   offered first (the owner's rule of 19 Nov 2026), whatever became of it.
  * - Any other Draft a manager deletes, a plain user only their own: "own" is not given away
  *   either, as a plain user cannot make a colleague's quote their own (canSetOwner).
  */
 export function quoteDeletePermission(
   actor: { userID: string; role: string },
-  quote: { status: string; ownerUserId: string | null; everSent: boolean; shipmentId: string | null; shipmentJobNumber: string | null; replaces?: string | null },
+  quote: {
+    status: string;
+    ownerUserId: string | null;
+    everSent: boolean;
+    shipmentId: string | null;
+    shipmentJobNumber: string | null;
+    replaces?: string | null;
+    followedBy?: string | null;
+  },
 ): QuoteDeletePermission {
   if (quote.shipmentId !== null) {
     const shipment = quote.shipmentJobNumber ? `shipment ${quote.shipmentJobNumber}` : "a shipment";
@@ -186,6 +197,13 @@ export function quoteDeletePermission(
     return {
       allowed: false,
       reason: `it is the revision that replaced ${quote.replaces} - deleted, it would leave ${quote.replaces} Replaced for good; mark it Lost instead, or keep working on it`,
+      blockedBy: "status",
+    };
+  }
+  if (quote.followedBy) {
+    return {
+      allowed: false,
+      reason: `it is the original offer of ${quote.followedBy} and stays as the record of what was offered; mark it Lost instead`,
       blockedBy: "status",
     };
   }

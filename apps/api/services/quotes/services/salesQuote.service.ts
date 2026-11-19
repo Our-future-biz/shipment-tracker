@@ -516,13 +516,14 @@ async function lettersCaughtUp(companyId: string): Promise<void> {
 
 // Throws when the policy says the quote may not be deleted, as it is shown at `at` (salesPolicy
 // quoteDeletePermission). `replaces`: the Replaced quote it is the revision of, null when that was
-// not looked up. A shipment linked or what the quote is stops everybody, so it is the request
+// not looked up; `followedBy`: the first live quote that follows on from it (a variant or a
+// revision), null when there is none or that was not looked up. A shipment linked or what the quote is stops everybody, so it is the request
 // that cannot be met as things stand; otherwise it is this user who may not.
-function refuseDelete(actor: Actor, quote: SalesQuoteRecord, at: Date, replaces: string | null): void {
+function refuseDelete(actor: Actor, quote: SalesQuoteRecord, at: Date, replaces: string | null, followedBy: string | null): void {
   const state = stateOf(quote);
   const everSent = wasEverSent(state, isPlainObject(quote.data) ? quote.data.timeline : undefined);
   const shown = effectiveStatus(state.status, state.validUntil, businessDay(at));
-  const permission = quoteDeletePermission(actor, { ...state, status: shown, everSent, replaces });
+  const permission = quoteDeletePermission(actor, { ...state, status: shown, everSent, replaces, followedBy });
   if (permission.allowed) return;
   throw permission.blockedBy === "role" ? APIError.permissionDenied(permission.reason) : APIError.failedPrecondition(permission.reason);
 }
@@ -547,14 +548,17 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    // Whether a Draft is the revision a Replaced quote handed its offer on to: the page then does
-    // not offer the delete the server refuses. Asked of a Draft only - nothing else is deleted.
-    const [margins, states, replaces] = await Promise.all([
+    // Whether a Draft is the revision a Replaced quote handed its offer on to, or the original offer
+    // of a variant or revision: the page then does not offer the delete the server refuses. Asked
+    // of a Draft only - nothing else is deleted.
+    const draft = stored.status === "draft";
+    const [margins, states, replaces, followUps] = await Promise.all([
       marginsFor(actor.companyID, [stored], at),
       linkedStatesOf([stored], at),
-      stored.status === "draft" ? salesQuoteRepository.liveReplacedBy(actor.companyID, stored.quoteNumber) : null,
+      draft ? salesQuoteRepository.liveReplacedBy(actor.companyID, stored.quoteNumber) : null,
+      draft ? salesQuoteRepository.liveFollowUps(actor.companyID, [stored.quoteNumber]) : null,
     ]);
-    return toItem(stored, people.emails, actor, at, margins, states, replaces);
+    return toItem(stored, people.emails, actor, at, margins, states, replaces, followUps?.get(stored.quoteNumber) ?? null);
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -576,10 +580,16 @@ class SalesQuoteService {
       { today: businessDay(at), dueBefore: followUpDueBefore(at) },
       people.users,
     );
-    const [margins, states] = await Promise.all([marginsFor(actor.companyID, rows, at), linkedStatesOf(rows, at)]);
+    // The Drafts that are the original offer of a variant or revision: the list does not offer their delete.
+    const drafts = rows.filter((row) => row.status === "draft").map((row) => row.quoteNumber);
+    const [margins, states, followUps] = await Promise.all([
+      marginsFor(actor.companyID, rows, at),
+      linkedStatesOf(rows, at),
+      salesQuoteRepository.liveFollowUps(actor.companyID, drafts),
+    ]);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
-      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, states)),
+      data: rows.map((row) => toItem(row, people.emails, actor, at, margins, states, undefined, followUps.get(row.quoteNumber) ?? null)),
     };
   }
 
@@ -1273,7 +1283,8 @@ class SalesQuoteService {
   // Deletes a quote: it is gone from Sales for everybody, while its row and history stay - who
   // deleted it and when is the last line - and its reference is never given out again. Who may
   // is the policy's call, made on the quote as locked: only a Draft that never went out, that no
-  // shipment or trucking job names and that is not the revision of a Replaced quote. Its
+  // shipment or trucking job names, that is not the revision of a Replaced quote and that no
+  // variant or revision follows on from (the original offer stays as its record). Its
   // attachments go in the same transaction.
   async delete(actor: Actor, quoteNumber: string): Promise<void> {
     const at = new Date();
@@ -1281,7 +1292,7 @@ class SalesQuoteService {
     // the user may not: told first, in those words, without asking other services.
     const before = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
     if (!before) throw notFound();
-    refuseDelete(actor, before, at, null);
+    refuseDelete(actor, before, at, null, null);
     // A shipment that names the quote in its Sales Number blocks the delete even when the quote's
     // own link is empty (a call that should have set it failed), and so does a trucking job that
     // names it. Asked before the lock: other services are not called while the row is held.
@@ -1301,8 +1312,11 @@ class SalesQuoteService {
     const deleted = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       // Judged again on the quote as locked: it may have changed since it was read above. Only a
       // Draft can be the revision that matters here: anything else is refused by its status.
-      const replaces = stateOf(quote).status === "draft" ? await salesQuoteRepository.liveReplacedBy(quote.companyId, quote.quoteNumber, tx) : null;
-      refuseDelete(actor, quote, at, replaces);
+      // The original offer of a variant or revision stays as the record of what was offered.
+      const draft = stateOf(quote).status === "draft";
+      const replaces = draft ? await salesQuoteRepository.liveReplacedBy(quote.companyId, quote.quoteNumber, tx) : null;
+      const followedBy = draft ? ((await salesQuoteRepository.liveFollowUps(quote.companyId, [quote.quoteNumber], tx)).get(quote.quoteNumber) ?? null) : null;
+      refuseDelete(actor, quote, at, replaces, followedBy);
       const state = stateOf(quote);
       await salesQuoteRepository.writeLifecycle(tx, quote, { state, entries: [deletionEntry(ctx)], deleted: { by: actor.userID, at } });
       await quoteAttachmentRepository.deleteForQuote(tx, quote.quoteNumber, quote.companyId, at);

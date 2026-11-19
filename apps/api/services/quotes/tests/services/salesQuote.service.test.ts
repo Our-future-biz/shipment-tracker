@@ -42,6 +42,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     openCustomerQuotes: vi.fn(),
     openQuotes: vi.fn(async () => []),
     liveReplacedBy: vi.fn(async (): Promise<string | null> => null),
+    liveFollowUps: vi.fn(async (): Promise<Map<string, string>> => new Map()),
   },
 }));
 
@@ -223,6 +224,17 @@ describe("get", () => {
     stored = quote({ status: "revised" });
     expect((await salesQuoteService.get(manager, REF)).permissions).toMatchObject({ canDelete: false, deleteBlockedBy: "status" });
     expect(repository.liveReplacedBy).not.toHaveBeenCalled();
+  });
+
+  it("tells the page that the original offer of a variant or revision cannot be deleted, naming the follow-up", async () => {
+    vi.mocked(repository.liveFollowUps).mockResolvedValue(new Map([[REF, `${REF}-2`]]));
+    expect((await salesQuoteService.get(manager, REF)).permissions).toMatchObject({
+      canDelete: false,
+      deleteBlockedReason: `it is the original offer of ${REF}-2 and stays as the record of what was offered; mark it Lost instead`,
+      deleteBlockedBy: "status",
+    });
+    expect(repository.liveFollowUps).toHaveBeenCalledWith(manager.companyID, [REF]);
+    vi.mocked(repository.liveFollowUps).mockResolvedValue(new Map());
   });
 
   it("matches a quote that only this request adopted - its owner still a text nobody compared - before it answers", async () => {
@@ -1436,6 +1448,16 @@ describe("delete", () => {
       message: "it is the revision that replaced QCZ20261010001 - deleted, it would leave QCZ20261010001 Replaced for good; mark it Lost instead, or keep working on it",
     });
     expect(repository.liveReplacedBy).toHaveBeenCalledWith(stored!.companyId, stored!.quoteNumber, TX);
+    nothingDeleted();
+  });
+
+  it("refuses to delete the original offer a variant or revision follows on from, judged under the lock", async () => {
+    vi.mocked(repository.liveFollowUps).mockResolvedValueOnce(new Map([[REF, `${REF}-R1`]]));
+    await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: `it is the original offer of ${REF}-R1 and stays as the record of what was offered; mark it Lost instead`,
+    });
+    expect(repository.liveFollowUps).toHaveBeenCalledWith(stored!.companyId, [stored!.quoteNumber], TX);
     nothingDeleted();
   });
 
