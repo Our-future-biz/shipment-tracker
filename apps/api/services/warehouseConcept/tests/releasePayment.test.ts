@@ -27,6 +27,7 @@ import {
   releasedInShipments,
   releasedInShipmentsEvent,
   releasedPayloadToSend,
+  uncheckedCauseOfPayload,
   uncheckedOutboxPayload,
   type GateReleaseOverride,
 } from "../services/releasePayment";
@@ -187,6 +188,9 @@ describe("what the gate's outbox sends Shipments of a release on prepayment (n27
     expect(passBackPayload({ reason: "x", invoices: [], checked: true })).toBeNull();
     // Matched in Shipments by the moment alone: "Send again" may send it as the service identity.
     expect(passBackOfPayload(passBackPayload(override)!)).toEqual({ requestId: "req-1", usedAt: "2026-11-19T10:00:00.000Z", byMomentOnly: true });
+    // Somebody else's WH release of the record was first: Shipments closes the approval instead of giving it back.
+    expect(passBackPayload(override, true)).toEqual({ requestId: "req-1", usedAt: "2026-11-19T10:00:00.000Z", releasedMeanwhile: "true" });
+    expect(passBackOfPayload(passBackPayload(override, true)!)).toEqual({ requestId: "req-1", usedAt: "2026-11-19T10:00:00.000Z", byMomentOnly: true, releasedMeanwhile: true });
   });
 
   it("marks the \"Prepayment not checked\" line apart from an override (P17)", () => {
@@ -322,7 +326,7 @@ describe("the stop when Invoicing can't be asked (P17)", () => {
       await expect(customerOnPrepayment("job-unknown")).resolves.toBeNull();
 
       // Let through, but said to be unchecked (the record and the shipment say so).
-      await expect(gateReleaseVerdict("job-a", "user", undefined)).resolves.toEqual({ check: null, verdict: { override: null }, unchecked: true });
+      await expect(gateReleaseVerdict("job-a", "user", undefined)).resolves.toEqual({ check: null, verdict: { override: null }, unchecked: "invoicing" });
       await expect(gateReleaseVerdict("job-b", "user", undefined)).resolves.toMatchObject({ verdict: { refusal: expect.stringMatching(/^Whether the job is paid could not be checked/) } });
       await expect(gateReleaseVerdict("job-c", "user", undefined)).resolves.toMatchObject({ verdict: { refusal: expect.stringMatching(/could not be checked/) } });
       // Invoicing answering: its word goes, the terms are not read.
@@ -364,5 +368,41 @@ describe("the stop when Invoicing can't be asked (P17)", () => {
       by: "Jana",
       detail: "Invoicing could not be asked - let through as the customer is not on prepayment in the Customer Database",
     });
+    expect(paymentUncheckedEvent(at, "Jana", "customerDatabase")).toMatchObject({
+      label: "WH release: payment not checked",
+      detail: "the Customer Database could not be read - the work not invoiced yet was not checked against the customer's payment terms",
+    });
+  });
+});
+
+describe("the work not invoiced yet that Invoicing could not check (P10)", () => {
+  it("lets a release through as unchecked, as Shipments' own release says it: the Customer Database could not be read", async () => {
+    releaseChecks.set("job-p10", { prepaymentUnpaid: false, unpaid: [], prepaymentUninvoicedUnchecked: true });
+    try {
+      await expect(gateReleaseVerdict("job-p10", "user", undefined)).resolves.toMatchObject({ verdict: { override: null }, unchecked: "customerDatabase" });
+    } finally {
+      releaseChecks.delete("job-p10");
+    }
+  });
+
+  it("is said with a manager's override of an invoice left to pay too, and never of a job Invoicing checked whole", async () => {
+    releaseChecks.set("job-p10-unpaid", { ...unpaid, prepaymentUninvoicedUnchecked: true });
+    try {
+      await expect(gateReleaseVerdict("job-p10-unpaid", "manager", "Paid in cash")).resolves.toMatchObject({
+        verdict: { override: { reason: "Paid in cash", checked: true } },
+        unchecked: "customerDatabase",
+      });
+      await expect(gateReleaseVerdict("job-p10-paid", "user", undefined)).resolves.not.toHaveProperty("unchecked");
+    } finally {
+      releaseChecks.delete("job-p10-unpaid");
+    }
+  });
+
+  it("goes to the shipment with why, so its line names the Customer Database; a row without why is Invoicing's (P17)", () => {
+    expect(uncheckedOutboxPayload("customerDatabase")).toEqual({ note: "prepaymentUnchecked", why: "customerDatabase" });
+    expect(isUncheckedPayload(uncheckedOutboxPayload("customerDatabase"))).toBe(true);
+    expect(uncheckedCauseOfPayload(uncheckedOutboxPayload("customerDatabase"))).toBe("customerDatabase");
+    expect(uncheckedCauseOfPayload(uncheckedOutboxPayload())).toBe("invoicing");
+    expect(uncheckedCauseOfPayload({ note: "prepaymentUnchecked" })).toBe("invoicing");
   });
 });

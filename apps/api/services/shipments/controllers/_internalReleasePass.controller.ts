@@ -77,6 +77,11 @@ interface ReleasePassGiveBackRequest {
    * service identity once the user who stamped has left, so the person can't be matched.
    */
   byMomentOnly?: boolean;
+  /**
+   * The release was not made because somebody else's WH release of the same gate record was first: the job is
+   * released, so the approval is closed as a release made another way closes one nobody used - not given back.
+   */
+  releasedMeanwhile?: boolean;
 }
 
 interface ReleasePassGiveBackResponse {
@@ -86,16 +91,18 @@ interface ReleasePassGiveBackResponse {
    * gone already (given back by an earlier delivery of the same row) - nothing is left to do.
    */
   stillUsed: boolean;
+  /** The approval was closed instead of given back (releasedMeanwhile). */
+  closed?: boolean;
 }
 
-/** Gives back a pass the gate used when its release was not made after all. */
+/** Gives back a pass the gate used when its release was not made after all - or closes it, the job released meanwhile. */
 export const _internalReleasePassGiveBack = api(
   { expose: false, auth: true, method: "POST", path: "/internal/shipments/release-pass/:requestId/give-back" },
-  async ({ requestId, usedAt, byMomentOnly }: ReleasePassGiveBackRequest): Promise<ReleasePassGiveBackResponse> => {
+  async ({ requestId, usedAt, byMomentOnly, releasedMeanwhile }: ReleasePassGiveBackRequest): Promise<ReleasePassGiveBackResponse> => {
     const auth = getAuthData()!;
     const at = new Date(usedAt);
     if (Number.isNaN(at.getTime())) return { givenBack: false, stillUsed: false };
-    return gateReleaseService.giveBack(auth.companyID, auth.userID, requestId, at, byMomentOnly === true);
+    return gateReleaseService.giveBack(auth.companyID, auth.userID, requestId, at, byMomentOnly === true, releasedMeanwhile === true);
   },
 );
 
@@ -124,17 +131,22 @@ interface ReleaseUncheckedRecordRequest {
   shipmentId: string;
   /** The gate's outbox row that sends it: the same row delivered again records nothing more. */
   idempotencyKey: string & MinLen<1> & MaxLen<100>;
+  /**
+   * Why it was not checked: Invoicing could not be asked ("invoicing", the default), or Invoicing could not hold the
+   * work not yet invoiced against the customer's terms, the Customer Database not answering ("customerDatabase").
+   */
+  why?: "invoicing" | "customerDatabase";
 }
 
 /**
  * Records on the shipment a WH release the gate let through while whether the job is paid could not be checked
- * (Invoicing not asked; the customer not on prepayment by the Customer Database): "Prepayment not checked" in its
- * history and on its Tracking tab.
+ * (Invoicing not asked and the customer not on prepayment by the Customer Database; or the Customer Database not
+ * read for the work not invoiced yet): "Prepayment not checked" in its history and on its Tracking tab.
  */
 export const _internalReleaseUncheckedRecord = api(
   { expose: false, auth: true, method: "POST", path: "/internal/shipments/:shipmentId/release-unchecked" },
-  async ({ shipmentId, idempotencyKey }: ReleaseUncheckedRecordRequest): Promise<void> => {
+  async ({ shipmentId, idempotencyKey, why }: ReleaseUncheckedRecordRequest): Promise<void> => {
     const auth = getAuthData()!;
-    await gateReleaseService.recordUnchecked(auth.companyID, auth.userID, shipmentId, idempotencyKey);
+    await gateReleaseService.recordUnchecked(auth.companyID, auth.userID, shipmentId, idempotencyKey, why);
   },
 );

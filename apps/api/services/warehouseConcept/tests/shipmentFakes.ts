@@ -41,6 +41,7 @@ export const releaseChecks = new Map<
       prepaymentUnpaid: boolean;
       unpaid: { number: string; leftToPay: number; currency: string }[];
       prepaymentUninvoiced?: { currency: string; amount: number }[];
+      prepaymentUninvoicedUnchecked?: boolean;
     }
   | Error
 >();
@@ -60,6 +61,8 @@ export const invoicingFake = {
  */
 export const releasePasses = new Map<string, { requestId: string; reason: string } | Error>();
 export const passesGivenBack: { requestId: string; usedAt: string }[] = [];
+/** Approvals closed instead of given back: the record was released meanwhile by somebody else's WH release. */
+export const passesClosed: { requestId: string; usedAt: string }[] = [];
 export const shipmentOverrides: { shipmentId: string; kind: string; reason: string; invoices: unknown[]; checked: boolean }[] = [];
 /** A job's Warehouse Released set in Shipments already (Y6) - or an Error: Shipments can't be asked. None: empty. */
 export const releasedInShipmentsOf = new Map<string, { date: string; by: string } | Error>();
@@ -74,7 +77,7 @@ export const gateDaysAsked = new Map<string, string[]>();
 export const passesNotGivenBack = new Set<string>();
 /** The idempotency keys the overrides came with, and the "Prepayment not checked" lines recorded (P17), by key. */
 export const overrideKeys: string[] = [];
-export const uncheckedRecorded: { shipmentId: string; idempotencyKey: string }[] = [];
+export const uncheckedRecorded: { shipmentId: string; idempotencyKey: string; why?: string }[] = [];
 
 // As Shipments answers it: a day the gate's own release wrote is not Shipments'.
 const releasedOf = (shipmentId: string, gateDays: string[] = []) => {
@@ -95,8 +98,12 @@ export const releasePassFakes = {
     return { pass: { ...pass, usedAt: new Date().toISOString() }, warehouseReleased: null };
   },
   _internalWarehouseReleasedOf: async ({ shipmentId, gateDays }: { shipmentId: string; gateDays?: string[] }) => ({ warehouseReleased: releasedOf(shipmentId, gateDays) }),
-  _internalReleasePassGiveBack: async ({ requestId, usedAt }: { requestId: string; usedAt: string; byMomentOnly?: boolean }) => {
+  _internalReleasePassGiveBack: async ({ requestId, usedAt, releasedMeanwhile }: { requestId: string; usedAt: string; byMomentOnly?: boolean; releasedMeanwhile?: boolean }) => {
     if (passesNotGivenBack.has(requestId)) return { givenBack: false, stillUsed: true };
+    if (releasedMeanwhile) {
+      passesClosed.push({ requestId, usedAt });
+      return { givenBack: false, stillUsed: false, closed: true };
+    }
     passesGivenBack.push({ requestId, usedAt });
     return { givenBack: true, stillUsed: false };
   },
@@ -106,7 +113,7 @@ export const releasePassFakes = {
     if (idempotencyKey) overrideKeys.push(idempotencyKey);
     shipmentOverrides.push(record);
   },
-  _internalReleaseUncheckedRecord: async (record: { shipmentId: string; idempotencyKey: string }) => {
+  _internalReleaseUncheckedRecord: async (record: { shipmentId: string; idempotencyKey: string; why?: string }) => {
     if (!uncheckedRecorded.some((r) => r.idempotencyKey === record.idempotencyKey)) uncheckedRecorded.push(record);
   },
 };

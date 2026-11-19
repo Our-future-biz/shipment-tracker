@@ -23,6 +23,8 @@ import { isManager } from "./users";
 // When Invoicing can't be asked, the customer's payment terms in the Customer Database decide: only a prepayment
 // customer's job is stopped then (P17, customerOnPrepayment) - and one let through says on the gate record and on
 // the shipment that its payment was not checked. A job with no customer is stopped then, as nothing tells its terms.
+// So does a release Invoicing answered for but could not check the work not yet invoiced of, the Customer Database
+// not answering (P10): as Shipments' own release says it.
 // A day on the shipment the gate's own release wrote (its outbox) is never taken for a release in Shipments: a
 // voided gate release leaves its day there, and the next release of the job runs the stop again.
 //
@@ -41,7 +43,21 @@ export interface GatePaymentCheck {
    * per currency. The stop holds the release before any invoice too (prepaymentUnpaid is then true).
    */
   prepaymentUninvoiced?: readonly { currency: string; amount: number }[];
+  /**
+   * The job has selling not yet invoiced, but its customer's terms could not be read (the Customer Database did not
+   * answer - mock test council P10): the stop before any invoice (L3) was left out of the answer, and
+   * prepaymentUnpaid is as the invoices say. A release let through then says that its payment was not checked, as
+   * Shipments' own release does (shipments lib/releaseUnchecked).
+   */
+  prepaymentUninvoicedUnchecked?: boolean;
 }
+
+/**
+ * Why a WH release let through says that its payment was not checked: Invoicing could not be asked, and the
+ * customer is not on prepayment by the Customer Database (P17) - or Invoicing answered, but could not hold the work
+ * not yet invoiced against the customer's terms, the Customer Database not answering (P10).
+ */
+export type UncheckedCause = "invoicing" | "customerDatabase";
 
 export interface GateOverrideInvoice {
   number: string;
@@ -162,43 +178,51 @@ export async function customerOnPrepayment(shipmentId: string): Promise<boolean 
  * The prepayment stop of the gate's WH release as a whole: Invoicing's check, and when Invoicing can't be asked
  * the customer's terms (P17) - a customer not on prepayment is never stopped then, but the release is `unchecked`:
  * the gate record and the shipment say that its payment was not checked. A job with no customer is stopped as
- * unchecked. `check` is Invoicing's answer (null when not had), for the override's record.
+ * unchecked. `check` is Invoicing's answer (null when not had), for the override's record. Invoicing answering that
+ * the work not yet invoiced could not be checked (P10, prepaymentUninvoicedUnchecked) makes a release let through
+ * `unchecked` too - by a manager's reason or an approval as well - as Shipments' own release records it (review).
  */
 export async function gateReleaseVerdict(
   shipmentId: string,
   role: string,
   reason: string | undefined,
-): Promise<{ check: GatePaymentCheck | null; verdict: GateStopVerdict; unchecked?: true }> {
+): Promise<{ check: GatePaymentCheck | null; verdict: GateStopVerdict; unchecked?: UncheckedCause }> {
   const check = await gatePaymentCheck(shipmentId);
-  if (check) return { check, verdict: gateReleaseStop(check, role, reason) };
+  if (check) return { check, verdict: gateReleaseStop(check, role, reason), ...(check.prepaymentUninvoicedUnchecked ? { unchecked: "customerDatabase" as const } : {}) };
   const terms = await customerOnPrepayment(shipmentId);
-  if (terms === false) return { check, verdict: { override: null }, unchecked: true };
+  if (terms === false) return { check, verdict: { override: null }, unchecked: "invoicing" };
   return { check, verdict: gateReleaseStop(check, role, reason, terms === "noCustomer" ? "noCustomer" : "notAsked") };
 }
 
 /** The event kind of a WH release let through while its payment could not be checked, in the gate record's history. */
 export const PAYMENT_UNCHECKED_EVENT = "paymentNotChecked";
 
-/** The gate record's line of such a release (P17): said with the release, as Shipments says it of its own. */
-export function paymentUncheckedEvent(at: string, by: string): GateEvent {
-  return {
-    kind: PAYMENT_UNCHECKED_EVENT,
-    label: "WH release: payment not checked",
-    at,
-    by,
-    detail: "Invoicing could not be asked - let through as the customer is not on prepayment in the Customer Database",
-  };
+const UNCHECKED_DETAIL: Record<UncheckedCause, string> = {
+  invoicing: "Invoicing could not be asked - let through as the customer is not on prepayment in the Customer Database",
+  customerDatabase: "the Customer Database could not be read - the work not invoiced yet was not checked against the customer's payment terms",
+};
+
+/** The gate record's line of such a release (P17, P10): said with the release, as Shipments says it of its own. */
+export function paymentUncheckedEvent(at: string, by: string, cause: UncheckedCause = "invoicing"): GateEvent {
+  return { kind: PAYMENT_UNCHECKED_EVENT, label: "WH release: payment not checked", at, by, detail: UNCHECKED_DETAIL[cause] };
 }
 
 // The "Prepayment not checked" line goes to the shipment as an "override" row of the outbox (its kinds are fixed
 // by the table's check): marked by its payload, and sent to Shipments' own call for it (shipmentOutbox sendRow).
+// Why it was not checked goes with it when it is the Customer Database (P10); a row without it is Invoicing (P17).
 const UNCHECKED_NOTE = "prepaymentUnchecked";
 
 /** The outbox payload of the "Prepayment not checked" line to record on the shipment. */
-export const uncheckedOutboxPayload = (): Record<string, string> => ({ note: UNCHECKED_NOTE });
+export const uncheckedOutboxPayload = (cause: UncheckedCause = "invoicing"): Record<string, string> => ({
+  note: UNCHECKED_NOTE,
+  ...(cause === "customerDatabase" ? { why: cause } : {}),
+});
 
 /** Whether an "override" row of the outbox is the "Prepayment not checked" line rather than an override. */
 export const isUncheckedPayload = (payload: Record<string, string>): boolean => payload.note === UNCHECKED_NOTE;
+
+/** Why the "Prepayment not checked" line of an outbox payload was not checked. */
+export const uncheckedCauseOfPayload = (payload: Record<string, string>): UncheckedCause => (payload.why === "customerDatabase" ? "customerDatabase" : "invoicing");
 
 /** The shipment's Warehouse Released, set already in Shipments (Y6): the day (YYYY-MM-DD) and who set it ("" when not known). */
 export interface ReleasedInShipments {
@@ -281,11 +305,16 @@ export async function gateReleasePass(shipmentId: string, check: GatePaymentChec
 /**
  * The release a pass was used for was not made (the stamp lost a race, or its write failed): the pass is given back
  * at once. What the outbox can't take this way (services/gateMovement passBackOwed) is the fallback that calls here.
+ * `releasedMeanwhile`: somebody else's WH release of the record was first - Shipments closes the approval instead.
  */
-export async function giveBackPass(override: GateReleaseOverride | null): Promise<void> {
+export async function giveBackPass(override: GateReleaseOverride | null, releasedMeanwhile = false): Promise<void> {
   if (!override?.pass) return;
   try {
-    const answer = await shipments._internalReleasePassGiveBack({ requestId: override.pass.requestId, usedAt: override.pass.usedAt });
+    const answer = await shipments._internalReleasePassGiveBack({
+      requestId: override.pass.requestId,
+      usedAt: override.pass.usedAt,
+      ...(releasedMeanwhile ? { releasedMeanwhile: true } : {}),
+    });
     // Not given back, and the approval still carries this use: it stays used, to be put right by hand.
     if (!answer.givenBack && answer.stillUsed !== false) {
       log.error("warehouse: an approved release request used for a WH release that was not made stays used", { requestId: override.pass.requestId });
@@ -322,16 +351,26 @@ export function overrideOfPayload(payload: Record<string, string>): { reason: st
   return { reason: payload.reason ?? "", invoices, checked: payload.checked === "true" };
 }
 
-/** The outbox payload of an approval to give back, null when the release used none. */
-export const passBackPayload = (override: GateReleaseOverride | null): Record<string, string> | null =>
-  override?.pass ? { requestId: override.pass.requestId, usedAt: override.pass.usedAt } : null;
+/**
+ * The outbox payload of an approval to give back, null when the release used none. `releasedMeanwhile`: somebody
+ * else's WH release of the record was first - the job is released, so Shipments closes the approval as a release
+ * made another way closes one nobody used, rather than give it back to let a later release through (review).
+ */
+export const passBackPayload = (override: GateReleaseOverride | null, releasedMeanwhile = false): Record<string, string> | null =>
+  override?.pass ? { requestId: override.pass.requestId, usedAt: override.pass.usedAt, ...(releasedMeanwhile ? { releasedMeanwhile: "true" } : {}) } : null;
+
+/** Whether a "passBack" row of the outbox closes its approval (the record was released meanwhile) rather than give it back. */
+export const isReleasedMeanwhilePayload = (payload: Record<string, string>): boolean => payload.releasedMeanwhile === "true";
 
 /**
  * The approval to give back, from its outbox payload - matched in Shipments by the moment of its use alone: the
  * outbox may send as the company's service identity once the user who stamped has left ("Send again").
  */
-export const passBackOfPayload = (payload: Record<string, string>): { requestId: string; usedAt: string; byMomentOnly: true } => ({
+export const passBackOfPayload = (
+  payload: Record<string, string>,
+): { requestId: string; usedAt: string; byMomentOnly: true; releasedMeanwhile?: true } => ({
   requestId: payload.requestId ?? "",
   usedAt: payload.usedAt ?? "",
   byMomentOnly: true,
+  ...(isReleasedMeanwhilePayload(payload) ? { releasedMeanwhile: true as const } : {}),
 });

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { shipmentOutboxTable, type NewShipmentOutboxRecord, type ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import type { Tx } from "./warehouseSection.repository";
@@ -97,12 +97,17 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
   }
 
   /**
-   * The Warehouse Released days the gate's own WH releases wrote to this shipment: its "released" rows sent, of any
-   * gate record of the shipment (a voided release, a record before this one, one with no task or an earlier task -
-   * round-4 review). A row whose day was not written (a day set in Shipments kept, markDayKept) wrote nothing and
-   * is not one. Such a day on the shipment is the gate's, not a release made in Shipments (shipments
-   * gateRelease.service warehouseReleasedOf). Read by the shipment index (migration 0027). `movementId` is kept
-   * for the callers; the shipment decides.
+   * The Warehouse Released days the gate's own WH releases wrote to this shipment: its "released" rows that may have
+   * written their day, of any gate record of the shipment (a voided release, a record before this one, one with no
+   * task or an earlier task - round-4 review). Sent ones, and every one a delivery was tried for (attempts, counted
+   * when a row is claimed): Shipments may have written the day while its answer was lost (deadline exceeded, a
+   * crash before the row was marked sent), and the row then waits for its next try, failed for good, or was
+   * cancelled by a void meanwhile - its day on the shipment is the gate's all the same, and the row being delivered
+   * counts itself (review: else its own retry took its own day for one set in Shipments). A row whose day was not
+   * written (a day set in Shipments kept, markDayKept) wrote nothing and is not one; neither is one never tried.
+   * Such a day on the shipment is the gate's, not a release made in Shipments (shipments gateRelease.service
+   * warehouseReleasedOf). Read by the shipment index (migration 0027). `movementId` is kept for the callers; the
+   * shipment decides.
    */
   async sentReleasedDays(companyId: string, _movementId: string, shipmentId: string): Promise<string[]> {
     const day = sql<string>`${o.payload}->>'warehouseReleasedDate'`;
@@ -114,7 +119,7 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
           eq(o.companyId, companyId),
           eq(o.shipmentId, shipmentId),
           eq(o.kind, "released"),
-          eq(o.status, "sent"),
+          or(eq(o.status, "sent"), gt(o.attempts, 0)),
           isNull(o.deletedAt),
           sql`${day} IS NOT NULL`,
           sql`${o.payload}->>'dayKept' IS NULL`,

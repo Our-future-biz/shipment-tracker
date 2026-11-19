@@ -193,14 +193,22 @@ class GateAdminService {
       // The override of a release on prepayment (or its "Prepayment not checked" line) is told apart from the day:
       // it reached the shipment's history and Tracking tab, and a void takes neither back.
       const sentNotes = owed.filter((r) => r.kind === "override" && r.status === "sent");
-      const sent = owed.some((r) => r.kind !== "override" && r.status === "sent");
+      // Its date reached the shipment: a date row sent - not one whose day Shipments kept (a day set there stayed and
+      // only the plate went, shipmentOutbox markDayKept), nor a plate alone. Only then is the day the gate's to name
+      // (review: else the record bids a day set in Shipments be corrected); a plate that went alone is named as such.
+      const sent = owed.some((r) => (r.kind === "received" || r.kind === "released") && r.status === "sent" && r.payload.dayKept !== "true");
       const sending = !sent && owed.some(inFlight);
+      const plateOnly = !sent && !sending && owed.some((r) => r.status === "sent" && (r.kind === "plate" || (r.kind === "released" && !!r.payload.plateNumber)));
       // Stamps from before the outbox wrote to the shipment directly: no row, but it was sent.
       const legacy = noOutboxYet && cleared.some(writesBack);
       if (cancelled.length) {
         events.push({ kind: "shipmentUpdateCancelled", label: "Shipment update cancelled — the stamp was voided", at, by, detail: what });
       }
-      const correcting = mayNeedCorrectingDetail(what, { dateSet: sent || legacy, sending, notes: sentNotes.map((r) => r.payload) });
+      const correcting = mayNeedCorrectingDetail(plateOnly ? "plate number" : what, {
+        dateSet: sent || plateOnly || legacy,
+        sending,
+        notes: sentNotes.map((r) => r.payload),
+      });
       if (correcting) {
         mayNeedCorrecting = true;
         notice = correcting.notice;

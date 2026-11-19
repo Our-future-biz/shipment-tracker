@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const requests = vi.hoisted(() => ({ usablePass: vi.fn(), use: vi.fn(), giveBack: vi.fn(), stillUsedAt: vi.fn() }));
+const requests = vi.hoisted(() => ({ usablePass: vi.fn(), use: vi.fn(), giveBack: vi.fn(), closeUsed: vi.fn(), stillUsedAt: vi.fn() }));
 const shipments = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
 const overrides = vi.hoisted(() => ({ create: vi.fn(), createOnce: vi.fn() }));
-const audit = vi.hoisted(() => ({ create: vi.fn() }));
+const audit = vi.hoisted(() => ({ create: vi.fn(), listByShipmentId: vi.fn(async () => [] as unknown[]) }));
 const tracking = vi.hoisted(() => ({ add: vi.fn() }));
 // The "Prepayment not checked" note is inserted on the transaction itself (its external id tells a repeat):
 // `noteInserted` says whether the insert wrote a row.
@@ -28,7 +28,7 @@ vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipme
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: audit }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: tracking }));
 
-import { GATE_PREPAYMENT_UNCHECKED_LINE, gateReleaseService, gateWrittenDays } from "../../services/gateRelease.service";
+import { GATE_PREPAYMENT_UNCHECKED_LINE, GATE_UNINVOICED_UNCHECKED_LINE, gateReleaseService, gateWrittenDays } from "../../services/gateRelease.service";
 
 // The shipments' side of the Warehouse Concept gate's WH release of a job the prepayment stop holds, against
 // stand-ins for the repositories: an approved request used once (the same conditional use() the shipment
@@ -39,6 +39,7 @@ const COMPANY = "c1";
 const USER = "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c01";
 const SHIPMENT = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
 const REQUEST = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c02";
+const CLERK = "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c02";
 const NOW = new Date("2026-11-19T09:00:00Z");
 const pass = { id: REQUEST, requestedByName: "Jan Novák", reason: "Customer pays on Friday", decidedByName: "Eva Malá", comment: "Agreed with the owner" };
 
@@ -90,6 +91,23 @@ describe("an approved request, used for the gate's WH release", () => {
     // Given back before (a delivery sent twice): nothing of the use is left.
     requests.stillUsedAt.mockResolvedValue(false);
     await expect(gateReleaseService.giveBack(COMPANY, USER, REQUEST, NOW, true)).resolves.toEqual({ givenBack: false, stillUsed: false });
+  });
+
+  it("is closed, not given back, when somebody else's WH release of the record was first: it lets no later release through (review)", async () => {
+    requests.closeUsed.mockResolvedValue(true);
+    await expect(gateReleaseService.giveBack(COMPANY, USER, REQUEST, NOW, true, true)).resolves.toEqual({ givenBack: false, stillUsed: false, closed: true });
+    expect(requests.giveBack).not.toHaveBeenCalled();
+    expect(requests.closeUsed).toHaveBeenCalledWith(REQUEST, COMPANY, { usedAt: NOW }, expect.any(Date), expect.any(Function));
+    // With the line a release made another way leaves of an approval nobody used.
+    const history = requests.closeUsed.mock.calls[0]![4] as (what: string) => unknown;
+    expect(history("warehouse")).toEqual({ userId: USER, field: "releaseRequest", oldValue: null, newValue: "Warehouse Released approval closed unused: released without it" });
+    // Nothing of that use left (closed or given back by an earlier delivery): nothing to do; still carrying it: a failure.
+    requests.closeUsed.mockResolvedValue(false);
+    requests.stillUsedAt.mockResolvedValue(false);
+    await expect(gateReleaseService.giveBack(COMPANY, USER, REQUEST, NOW, true, true)).resolves.toEqual({ givenBack: false, stillUsed: false });
+    requests.stillUsedAt.mockResolvedValue(true);
+    await expect(gateReleaseService.giveBack(COMPANY, USER, REQUEST, NOW, false, true)).resolves.toEqual({ givenBack: false, stillUsed: true });
+    expect(requests.closeUsed).toHaveBeenLastCalledWith(REQUEST, COMPANY, { usedAt: NOW, usedById: USER }, expect.any(Date), expect.any(Function));
   });
 });
 
@@ -155,6 +173,30 @@ describe("the days the gate's own WH releases wrote", () => {
     shipments.getByIdForCompany.mockResolvedValue({ id: SHIPMENT, companyId: COMPANY, warehouseReleasedDate: "2026-11-18" });
     await expect(gateReleaseService.warehouseReleasedOf(COMPANY, SHIPMENT, ["2026-11-18"])).resolves.toBeNull();
   });
+
+  it("nor is a day a user edited in Shipments from one of them: the gate's release edited, not one made in Shipments (review)", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ id: SHIPMENT, companyId: COMPANY, warehouseReleasedDate: "2026-11-20" });
+    // Newest first: the gate wrote 18.11. from empty (its void leaves it), then a user changed it to 20.11.
+    audit.listByShipmentId.mockResolvedValue([
+      { userId: USER, field: "warehouseReleasedDate", oldValue: "2026-11-18", newValue: "2026-11-20" },
+      { userId: CLERK, field: "warehouseReleasedDate", oldValue: null, newValue: "2026-11-18" },
+    ]);
+    await expect(gateReleaseService.warehouseReleasedOf(COMPANY, SHIPMENT, ["2026-11-18"])).resolves.toBeNull();
+    expect(audit.listByShipmentId).toHaveBeenCalledWith(SHIPMENT, COMPANY, ["warehouseReleasedDate"], 50);
+  });
+
+  it("while a day set from empty in Shipments is answered as released there, by whoever set the day now", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ id: SHIPMENT, companyId: COMPANY, warehouseReleasedDate: "2026-11-20" });
+    audit.listByShipmentId.mockResolvedValue([
+      { userId: USER, field: "warehouseReleasedDate", oldValue: null, newValue: "2026-11-20" },
+      { userId: CLERK, field: "warehouseReleasedDate", oldValue: "2026-11-18", newValue: null },
+      { userId: CLERK, field: "warehouseReleasedDate", oldValue: null, newValue: "2026-11-18" },
+    ]);
+    await expect(gateReleaseService.warehouseReleasedOf(COMPANY, SHIPMENT, ["2026-11-18"])).resolves.toEqual({ date: "2026-11-20", by: "jan@firma.cz" });
+    // No history at all (as created or imported): the day, nobody named.
+    audit.listByShipmentId.mockResolvedValue([]);
+    await expect(gateReleaseService.warehouseReleasedOf(COMPANY, SHIPMENT, ["2026-11-18"])).resolves.toEqual({ date: "2026-11-20", by: "" });
+  });
 });
 
 describe("a WH release the gate let through unchecked (P17)", () => {
@@ -171,6 +213,15 @@ describe("a WH release the gate let through unchecked (P17)", () => {
     await gateReleaseService.recordUnchecked(COMPANY, USER, SHIPMENT, "row-9");
     expect(audit.create).toHaveBeenCalledTimes(1);
     expect(overrides.create).not.toHaveBeenCalled();
+  });
+
+  it("names the Customer Database when it was the work not invoiced yet that could not be checked (P10, review)", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ id: SHIPMENT, companyId: COMPANY });
+    noteInserted.rows = [{ id: "n2" }];
+    await gateReleaseService.recordUnchecked(COMPANY, USER, SHIPMENT, "row-10", "customerDatabase");
+    expect(GATE_UNINVOICED_UNCHECKED_LINE).toBe("Prepayment not checked: the Customer Database could not be read at the gate's WH release");
+    expect(noteInserted.values).toHaveBeenCalledWith(expect.objectContaining({ externalId: "prepayment-unchecked:row-10", note: GATE_UNINVOICED_UNCHECKED_LINE }));
+    expect(audit.create).toHaveBeenCalledWith(expect.objectContaining({ field: "prepaymentUnchecked", newValue: GATE_UNINVOICED_UNCHECKED_LINE }), tx);
   });
 
   it("is refused for a shipment that is not the company's", async () => {

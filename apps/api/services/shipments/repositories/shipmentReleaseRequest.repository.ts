@@ -65,6 +65,17 @@ const closedSince = (since: Date) => and(eq(requests.status, "closed"), gte(sql`
 // An approved request that can still be used: not used yet, decided no longer ago than a pass is good for.
 const usable = (decidedSince: Date) => and(eq(requests.status, "approved"), isNull(requests.usedAt), gte(requests.decidedAt, decidedSince), isNull(requests.deletedAt));
 
+// The approval carrying the use made at `usedAt` (by `usedById`, when given): still approved, not deleted.
+const thatUse = (id: string, companyId: string, used: { usedAt: Date; usedById?: string }) =>
+  and(
+    eq(requests.id, id),
+    eq(requests.companyId, companyId),
+    eq(requests.status, "approved"),
+    eq(requests.usedAt, used.usedAt),
+    used.usedById ? eq(requests.usedById, used.usedById) : undefined,
+    isNull(requests.deletedAt),
+  );
+
 type Joined = { request: ShipmentReleaseRequestRecord; jobNumber: string | null; customer: string };
 const flat = (r: Joined): ReleaseRequestRow => ({ ...r.request, jobNumber: r.jobNumber, customer: r.customer });
 
@@ -202,18 +213,35 @@ class ShipmentReleaseRequestRepository {
     const rows = await db
       .update(requests)
       .set({ usedAt: null, usedById: null, usedByName: "", updatedAt: at })
-      .where(
-        and(
-          eq(requests.id, id),
-          eq(requests.companyId, companyId),
-          eq(requests.status, "approved"),
-          eq(requests.usedAt, used.usedAt),
-          used.usedById ? eq(requests.usedById, used.usedById) : undefined,
-          isNull(requests.deletedAt),
-        ),
-      )
+      .where(thatUse(id, companyId, used))
       .returning({ id: requests.id });
     return rows.length > 0;
+  }
+
+  /**
+   * Instead of giveBack, when the release the use was made for was not made because the job was released another
+   * way meanwhile (the Warehouse Concept gate: somebody else's WH release of the same record was first): the use is
+   * taken back and the approval closed, as a release made another way closes one nobody used (closeUnused, which
+   * left it alone while it was in use) - never given back to let a later release through that no manager approved.
+   * Only that very use, as giveBack matches it; with its line in the job's history (`history`, of what was asked) -
+   * together or not at all. Whether it was closed.
+   */
+  async closeUsed(
+    id: string,
+    companyId: string,
+    used: { usedAt: Date; usedById?: string },
+    at: Date,
+    history: (what: ShipmentReleaseRequestWhat) => History,
+  ): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(requests)
+        .set({ status: "closed", closedAt: at, closedWhy: "released", usedAt: null, usedById: null, usedByName: "", updatedAt: at })
+        .where(thatUse(id, companyId, used))
+        .returning({ shipmentId: requests.shipmentId, what: requests.what });
+      if (row) await shipmentAuditRepository.create({ companyId, shipmentId: row.shipmentId, ...history(row.what) }, tx);
+      return !!row;
+    });
   }
 
   /**

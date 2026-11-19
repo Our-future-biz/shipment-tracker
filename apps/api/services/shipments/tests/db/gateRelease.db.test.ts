@@ -61,6 +61,20 @@ describe("the shipment's Warehouse Released as the gate reads it (Y6)", () => {
     await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id, ["2026-11-18"])).resolves.toBeNull();
     await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id, ["2026-11-17", "not a day"])).resolves.toMatchObject({ date: "2026-11-18" });
   });
+
+  it("is not a day edited in Shipments from one the gate wrote: the gate's release edited, not one made there (review)", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    const history = (oldValue: string | null, newValue: string | null, changedAt: Date) => ({ companyId, shipmentId: job.id, userId: USER, field: "warehouseReleasedDate", oldValue, newValue, changedAt });
+    // The gate wrote 18.11. from empty; its release was voided (the day stays), and a user changed it to 20.11.
+    await db.insert(shipmentAuditTable).values([history(null, "2026-11-18", new Date("2026-11-18T08:00:00Z")), history("2026-11-18", "2026-11-20", new Date("2026-11-19T08:00:00Z"))]);
+    await db.update(shipmentTable).set({ warehouseReleasedDate: "2026-11-20" }).where(eq(shipmentTable.id, job.id));
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id, ["2026-11-18"])).resolves.toBeNull();
+    // Cleared and set again from empty - a release the stop held in Shipments: answered.
+    await db.insert(shipmentAuditTable).values([history("2026-11-20", null, new Date("2026-11-19T09:00:00Z")), history(null, "2026-11-21", new Date("2026-11-19T10:00:00Z"))]);
+    await db.update(shipmentTable).set({ warehouseReleasedDate: "2026-11-21" }).where(eq(shipmentTable.id, job.id));
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id, ["2026-11-18"])).resolves.toEqual({ date: "2026-11-21", by: "jan@firma.cz" });
+  });
 });
 
 describe("an approved request used for the gate's WH release", () => {
@@ -135,6 +149,23 @@ describe("an approved request used for the gate's WH release", () => {
     await expect(gateReleaseService.giveBack(companyId, SERVICE, request.id, new Date(used.usedAt.getTime() + 1), true)).resolves.toEqual({ givenBack: false, stillUsed: false });
     await expect(gateReleaseService.giveBack(companyId, SERVICE, request.id, used.usedAt, true)).resolves.toEqual({ givenBack: true, stillUsed: false });
     expect(await rowOf(request.id)).toMatchObject({ status: "approved", usedAt: null, usedById: null });
+  });
+
+  it("is closed, not given back, when somebody else's WH release of the record was first: no longer usable, with its line in the history (review)", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    const request = await ask(companyId, job.id);
+    await approve(request.id, companyId);
+    const used = (await gateReleaseService.usePass(companyId, USER, job.id, "warehouse_released"))!;
+    // The other release is written to the shipment first: it leaves the approval in use as it is.
+    await db.transaction((tx) => requests.closeUnused(tx, companyId, job.id, "warehouse", new Date()));
+    await expect(gateReleaseService.giveBack(companyId, USER, request.id, used.usedAt, true, true)).resolves.toEqual({ givenBack: false, stillUsed: false, closed: true });
+    expect(await rowOf(request.id)).toMatchObject({ status: "closed", closedWhy: "released", usedAt: null, usedById: null });
+    await expect(requests.usablePass(companyId, job.id, "warehouse", passDecidedSince(new Date()))).resolves.toBeNull();
+    const lines = await db.select().from(shipmentAuditTable).where(and(eq(shipmentAuditTable.shipmentId, job.id), eq(shipmentAuditTable.field, "releaseRequest")));
+    expect(lines.map((l) => l.newValue)).toContain("Warehouse Released approval closed unused: released without it");
+    // Delivered again: nothing of that use is left.
+    await expect(gateReleaseService.giveBack(companyId, USER, request.id, used.usedAt, true, true)).resolves.toEqual({ givenBack: false, stillUsed: false });
   });
 
   it("the release it let through closes nothing it used: Warehouse Released set by the app afterwards leaves the used approval as it is", async () => {
