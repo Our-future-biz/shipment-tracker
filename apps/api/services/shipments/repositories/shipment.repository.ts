@@ -1367,13 +1367,14 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         .orderBy(...newestFirst())
         .limit(limit);
     // The invoiced jobs that owe their customer a credit (Invoicing names them, M3), however long ago they were
-    // invoiced: a credit owed leaves a job Invoiced, so past the lookback it would show nowhere. All of them, beside
-    // the lately invoiced ones (whose own limit they do not take).
-    const owedEarlier = creditOwedIds.length ? and(INVOICED, NOT_CANCELLED, inArray(shipmentTable.id, [...creditOwedIds]), sql`NOT ${invoicedLately}`) : null;
+    // invoiced: a credit owed leaves a job Invoiced, so past the lookback it would show nowhere. All of them in a group
+    // of their own, and none in the lately invoiced group: its limit is the other jobs' alone, so a credit owed never
+    // crowds out a job invoiced lately without the read saying it was capped (the caller counts that group's rows).
+    const owedIds = creditOwedIds.length ? inArray(shipmentTable.id, [...creditOwedIds]) : null;
     // The union's own order goes by the columns it hands out; the caller tells the groups apart by Invoicing Status.
     const active = group(ACTIVE, limits.active);
-    const lately = group(invoicedLately, limits.invoiced);
-    return (owedEarlier ? unionAll(active, lately, group(owedEarlier, creditOwedIds.length)) : unionAll(active, lately)).orderBy(...newestFirst());
+    const lately = group(owedIds ? and(invoicedLately, sql`NOT (${owedIds})`)! : invoicedLately, limits.invoiced);
+    return (owedIds ? unionAll(active, lately, group(and(INVOICED, NOT_CANCELLED, owedIds)!, creditOwedIds.length)) : unionAll(active, lately)).orderBy(...newestFirst());
   }
 
   /**

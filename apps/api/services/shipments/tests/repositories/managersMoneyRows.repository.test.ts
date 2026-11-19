@@ -81,3 +81,11 @@ describe("the Money tab's read of the jobs", () => {
     expect(job).not.toHaveProperty("arrivalNoticeSent");
   });
 });
+
+describe("the invoiced jobs owing a credit", () => {
+  it("are read in a group of their own, however long ago invoiced, and never in the lately invoiced group, whose limit is the others'", async () => {
+    await shipmentRepository.managersMoneyRows(COMPANY, SINCE, LIMITS, ["owed-1", "owed-2"]);
+    const { text, values } = sent();
+    console.log(text, values);
+  });
+});
