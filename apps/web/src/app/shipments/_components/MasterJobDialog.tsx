@@ -16,6 +16,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
+import { kindFits, loadTypesOf, masterJobKindOf, shipmentFits } from "@/lib/masterJobKind";
 import { EMPTY_STATE, HINT, LABEL_TEXT, MODAL_TITLE, REF, TD } from "@/styles/ui";
 
 /* The app's table look (Container Details, Linked shipments): column titles over a slate-200 rule
@@ -129,14 +130,36 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
     for (const m of masterJobs) map.set(m.mczNumber, m.shipmentCount);
     return Array.from(map.entries()).sort(([a], [b]) => compareMczNumbers(a, b));
   }, [shipments, masterJobs]);
-  const offeredMCZs = useMemo(() => existingMCZs.filter(([mcz]) => matchesMczSearch(mcz, mczSearch)), [existingMCZs, mczSearch]);
+
+  // A shipment goes only on a master job of its filling (lib/masterJobKind): each master job's is its
+  // Load Type, else - a plain MCZ - that of the shipments on it.
+  const kindByMcz = useMemo(() => {
+    const houses = new Map<string, ShipmentItem[]>();
+    for (const s of shipments) if (s.masterJobMczNumber) houses.set(s.masterJobMczNumber, [...(houses.get(s.masterJobMczNumber) ?? []), s]);
+    const kinds = new Map<string, string | "mixed" | null>();
+    for (const [mcz, on] of houses) kinds.set(mcz, masterJobKindOf(null, on));
+    for (const m of masterJobs) kinds.set(m.mczNumber, masterJobKindOf(m.loadType, houses.get(m.mczNumber) ?? []));
+    return kinds;
+  }, [shipments, masterJobs]);
+  const selectedKind = mode === "existing" && selectedExistingMCZ ? (kindByMcz.get(selectedExistingMCZ) ?? null) : null;
 
   const filteredShipments = useMemo(() => shipmentsOffered(shipments, search, onlyIds), [shipments, search, onlyIds]);
+  // Shipments of another filling than the master job picked are shown, not linked.
+  const misfitIds = useMemo(() => new Set(filteredShipments.filter((s) => !shipmentFits(selectedKind, s)).map((s) => s.id)), [filteredShipments, selectedKind]);
+  const blockedIds = useMemo(() => new Set([...lockedIds, ...misfitIds]), [lockedIds, misfitIds]);
   // What is listed is what goes, when the grid chose them.
-  const chosen = chosenIds(selected, lockedIds, onlyIds ? filteredShipments : undefined);
+  const chosen = chosenIds(selected, blockedIds, onlyIds ? filteredShipments : undefined);
+  const chosenKinds = useMemo(() => loadTypesOf(shipments.filter((s) => chosen.includes(s.id))), [shipments, chosen]);
+  // Shipments of two fillings never go on one master job together.
+  const mixed = chosenKinds.length > 1;
+  // The master jobs to link to: those of the chosen shipments' filling, and those with none yet.
+  const offeredMCZs = useMemo(
+    () => existingMCZs.filter(([mcz]) => matchesMczSearch(mcz, mczSearch) && (mcz === selectedExistingMCZ || kindFits(kindByMcz.get(mcz) ?? null, chosenKinds))),
+    [existingMCZs, mczSearch, selectedExistingMCZ, kindByMcz, chosenKinds],
+  );
 
   const toggleShipment = (id: string) => {
-    if (lockedIds.has(id)) return;
+    if (blockedIds.has(id)) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -148,7 +171,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   const queryClient = useQueryClient();
   const createMasterJob = useCreateMasterJob();
   const handleConfirm = async () => {
-    if (chosen.length === 0 || isLinking) return;
+    if (chosen.length === 0 || isLinking || mixed) return;
     setIsLinking(true);
     try {
       // A new master job is created once, under the number the server hands out (the one shown is
@@ -201,7 +224,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
             <Button onClick={handleClose}>Cancel</Button>
             <Button
               type="primary"
-              disabled={chosen.length === 0 || isLinking || (mode === "existing" && !selectedExistingMCZ)}
+              disabled={chosen.length === 0 || isLinking || mixed || (mode === "existing" && !selectedExistingMCZ)}
               loading={isLinking}
               onClick={handleConfirm}
             >
@@ -253,14 +276,26 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                       }`}
                     >
                       <span className={`${REF} text-[13px] font-semibold text-slate-900`}>{mcz}</span>
-                      <span className={`${HINT} ml-2`}>{linkedCount(count)}</span>
+                      <span className={`${HINT} ml-2`}>
+                        {linkedCount(count)}
+                        {kindByMcz.get(mcz) === "mixed" ? " · mixed Load Types" : kindByMcz.get(mcz) ? ` · ${kindByMcz.get(mcz)}` : ""}
+                      </span>
                     </Radio>
                   );
                 })}
               </Radio.Group>
-              {offeredMCZs.length === 0 && <div className={EMPTY_STATE}>No master job matches the search.</div>}
+              {offeredMCZs.length === 0 && (
+                <div className={EMPTY_STATE}>{chosenKinds.length === 1 ? `No master job for ${chosenKinds[0]} shipments matches.` : "No master job matches the search."}</div>
+              )}
             </div>
+            {chosenKinds.length === 1 && <p className={`m-0 ${HINT}`}>Only master jobs for {chosenKinds[0]} shipments are listed, and those with no Load Type yet.</p>}
           </>
+        )}
+
+        {mixed && (
+          <p role="alert" className="m-0 text-[13px] text-red-600">
+            The ticked shipments are of different Load Types ({chosenKinds.join(", ")}): a master job takes shipments of one Load Type only.
+          </p>
         )}
 
         {/* Search, to pick more: not when the shipments were chosen in the grid. */}
@@ -295,7 +330,13 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
             </thead>
             <tbody className="[&>tr:last-child>td]:border-b-0">
               {filteredShipments.map((s) => {
-                const locked = lockedIds.has(s.id);
+                const misfit = !lockedIds.has(s.id) && misfitIds.has(s.id);
+                const locked = lockedIds.has(s.id) || misfit;
+                const lockReason = !misfit
+                  ? LINK_REFUSED_HINT
+                  : selectedKind === "mixed"
+                    ? `${selectedExistingMCZ} already holds shipments of different Load Types: it takes no more until those that don't belong are taken off`
+                    : `${s.jobNumber} is ${s.loadType}: ${selectedExistingMCZ} takes ${selectedKind} shipments only`;
                 const isChecked = !locked && selected.has(s.id);
                 // The ports by their codes ("CNSGH → DEHAM"), in full on hover.
                 const route = [s.pol, s.pod].filter(Boolean).map((p) => placeCodeOf(p) ?? p).join(" → ");
@@ -307,12 +348,12 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                 const partyTitle = s.customer || (s.shipper ? `Shipper: ${s.shipper}` : s.consignee ? `Consignee: ${s.consignee}` : undefined);
                 // On a locked row the hover gives what a cell cuts short or names in a customer's place, then
                 // why the row is locked, so the reason shows wherever you point.
-                const lockedTitle = (own?: string) => [own, LINK_REFUSED_HINT].filter(Boolean).join("\n");
+                const lockedTitle = (own?: string) => [own, lockReason].filter(Boolean).join("\n");
                 return (
                   <tr
                     key={s.id}
                     onClick={() => toggleShipment(s.id)}
-                    title={locked ? LINK_REFUSED_HINT : undefined}
+                    title={locked ? lockReason : undefined}
                     aria-disabled={locked || undefined}
                     className={`transition-colors ${locked ? "cursor-not-allowed text-slate-400" : isChecked ? "cursor-pointer bg-indigo-50/70" : "cursor-pointer hover:bg-slate-50"}`}
                   >
@@ -329,7 +370,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                           as the box is; the row says why. */}
                       {locked ? (
                         <span className="flex h-4 w-4 items-center justify-center text-[13px] text-slate-400">
-                          <LockOutlined aria-label="Not yours to link" />
+                          <LockOutlined aria-label={misfit ? "Another Load Type" : "Not yours to link"} />
                         </span>
                       ) : (
                         <Checkbox checked={isChecked} onChange={() => toggleShipment(s.id)} aria-label={`Link ${s.jobNumber}`} />

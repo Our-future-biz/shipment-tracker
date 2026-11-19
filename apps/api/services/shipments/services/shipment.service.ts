@@ -61,6 +61,7 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
+import { houseLoadTypeProblem } from "../lib/masterJobKind";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
 import {
   approvedByLockRefusal,
@@ -1390,6 +1391,7 @@ class ShipmentService {
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     assertCancelReason(shipmentData, existing);
     assertBlDates(shipmentData);
+    await this.assertLoadTypeFitsMasterJob(existing, shipmentData);
     if (role !== undefined) assertWarehouseDates(existing, shipmentData, role);
     if (shipmentData.shippingLine !== undefined) shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
     clearStaleTimes(shipmentData, existing);
@@ -2075,6 +2077,21 @@ class ShipmentService {
     }
     for (const salesNumber of quotesToTell) await this.tellQuote(companyId, salesNumber);
     return { checked: rows.length, renamed, keptInvoiced };
+  }
+
+  // A shipment on a master job keeps its filling (lib/masterJobKind): its Load Type is the master
+  // job's, so a CZLCL job on a CZCONSOL master can't become Full Load while it is there. A Load Type
+  // cleared, or one the master job has, goes through - the master job's own save writes its Load Type
+  // onto its houses this way.
+  private async assertLoadTypeFitsMasterJob(existing: ShipmentRecord, shipmentData: Partial<NewShipmentRecord>): Promise<void> {
+    if (!("loadType" in shipmentData) || !existing.masterJobId) return;
+    const next = shipmentData.loadType ?? null;
+    if ((next ?? "").trim().toLowerCase() === (existing.loadType ?? "").trim().toLowerCase()) return;
+    const masterJob = await masterJobRepository.getByIdForCompany(existing.masterJobId, existing.companyId);
+    if (!masterJob) return;
+    const others = (await shipmentRepository.findByMasterJobId(masterJob.id, existing.companyId)).filter((h) => h.id !== existing.id);
+    const problem = houseLoadTypeProblem({ jobNumber: existing.jobNumber, loadType: next }, masterJob, others);
+    if (problem) throw APIError.failedPrecondition(problem);
   }
 
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string, userId?: string): Promise<ShipmentRecord | null> {

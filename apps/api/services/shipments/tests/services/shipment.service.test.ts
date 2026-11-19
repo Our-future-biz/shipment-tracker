@@ -23,6 +23,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
     createForHouseBol: vi.fn(),
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
+    findByMasterJobId: vi.fn(async () => []),
     softDeleteForCompany: vi.fn(),
     softDeleteWithEvent: vi.fn(),
     customerRollups: vi.fn(),
@@ -707,6 +708,21 @@ describe("update", () => {
 
       await update({ freightMode: "Air Freight" });
       expect(renamedTo()).toEqual(["CZFCL00000101", "CZAIR00000101"]);
+    });
+
+    it("keep a shipment on a master job to its filling: no other Load Type while it is there, the master job's one goes through", async () => {
+      const MJ = "5b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c09";
+      vi.mocked(masterJobRepository.getByIdForCompany).mockResolvedValue({ id: MJ, mczNumber: "MCZCONSOL00000003", loadType: "Consolidation" } as never);
+      stored.set(SHIPMENT, row({ jobNumber: "CZLCL00000089", freightMode: "Sea Freight", loadType: "Consolidation", masterJobId: MJ }));
+      await expect(update({ loadType: "Full Load" })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "CZLCL00000089 is on MCZCONSOL00000003, a Consolidation master job, so its Load Type stays Consolidation - take it off the master job first",
+      });
+      expect(repository.updateForCompany).not.toHaveBeenCalled();
+      // Off the master job, it may change.
+      stored.set(SHIPMENT, row({ jobNumber: "CZLCL00000089", freightMode: "Sea Freight", loadType: "Consolidation", masterJobId: null }));
+      await update({ loadType: "Full Load" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ loadType: "Full Load" });
     });
 
     it("are worked out from the row as the write turn finds it: an edit of the other field saved meanwhile counts", async () => {

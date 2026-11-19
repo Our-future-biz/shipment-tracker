@@ -9,6 +9,7 @@ import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
 import { houseCargo, isValidContainerNumber, normalizeContainerNumber } from "../lib/cargoProjection";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
+import { linkKindProblem, loadTypeKindProblem } from "../lib/masterJobKind";
 import { changesTaxDate } from "../lib/taxDate";
 import {
   FULL_LOAD,
@@ -293,6 +294,10 @@ class MasterJobService {
     // anything is written — the save goes through for all of them or for none.
     const synced = syncedShipmentData(existing, clean);
     const houses = Object.keys(synced).length > 0 ? await shipmentRepository.findByMasterJobId(id, companyId) : [];
+    // The Load Type is written onto the houses: one of another filling would be turned into this one
+    // (lib/masterJobKind). Only a first Load Type gets here - it locks once set.
+    const kindProblem = data.loadType ? loadTypeKindProblem(existing.mczNumber, data.loadType, houses) : null;
+    if (kindProblem) throw APIError.failedPrecondition(kindProblem);
     const locked = await this.invoicedTaxDateChanges(houses, synced);
     if (locked.length > 0) {
       throw APIError.failedPrecondition(
@@ -375,6 +380,8 @@ class MasterJobService {
       if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
       shipments.push(shipment);
     }
+    // Only shipments of the master job's filling go on it (lib/masterJobKind) - all checked before any is linked.
+    await this.assertKindFits(row.mczNumber, companyId, shipments);
     // An invoiced shipment can't take the master job's ATA / ATD (its tax date). Every one is checked
     // before any is linked: linked one by one, those before it would stay on the master job, moved off
     // their old one's containers, while the answer says the link was refused.
@@ -406,6 +413,7 @@ class MasterJobService {
   async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string, { dropShares = true } = {}): Promise<void> {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
+    await this.assertKindFits(mczNumber, companyId, [shipment]);
     const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber, userId);
     try {
       await this.syncShipment(shipmentId, companyId, userId);
@@ -420,6 +428,20 @@ class MasterJobService {
     }
     // It carries nothing of a master job it left; the new one's costs reach it when its split is processed.
     if (dropShares && shipment.masterJobId !== linked?.masterJobId) await dropSharesOfLeftShipments([shipment.masterJobId]);
+  }
+
+  /**
+   * Refuses shipments that don't belong on the master job with this MCZ number by their filling
+   * (lib/masterJobKind): a CZFCL job on a CZCONSOL master, or a mix on a plain one. A number no
+   * master job has yet is a new, empty master job: anything fits it.
+   */
+  private async assertKindFits(mczNumber: string, companyId: string, shipments: readonly ShipmentRecord[]): Promise<void> {
+    const masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
+    if (!masterJob) return;
+    const linking = new Set(shipments.map((s) => s.id));
+    const houses = (await shipmentRepository.findByMasterJobId(masterJob.id, companyId)).filter((h) => !linking.has(h.id));
+    const problem = linkKindProblem(masterJob, houses, shipments);
+    if (problem) throw APIError.failedPrecondition(problem);
   }
 
   async unlinkShipment(id: string, companyId: string, shipmentId: string): Promise<MasterJobDetail> {

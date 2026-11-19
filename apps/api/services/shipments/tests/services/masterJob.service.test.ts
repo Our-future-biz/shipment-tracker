@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), inf
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/masterJob.repository", () => ({
-  masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn(), basicsByIds: vi.fn() },
+  masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn(), basicsByIds: vi.fn(), findByMczNumber: vi.fn() },
 }));
 vi.mock("../../repositories/masterJobContainer.repository", () => ({ masterJobContainerRepository: {} }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { findByMasterJobId: vi.fn() } }));
@@ -78,6 +78,47 @@ describe("the reference", () => {
     repository.getByIdForCompany.mockResolvedValue(record({ loadType: "Full Load", mczNumber: "MCZFULL00000001" }) as never);
     await update({ loadType: "Full Load" });
     expect(written()).toMatchObject({ mczNumber: "MCZFULL00000001" });
+  });
+});
+
+describe("only shipments of the master job's filling (Load Type)", () => {
+  const S = "00000000-0000-0000-0000-0000000000s1";
+  const shipments = shipmentRepository as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  const service = shipmentService as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  const consol = record({ mczNumber: "MCZCONSOL00000001", loadType: "Consolidation" });
+
+  it("refuses a CZFCL job on a CZCONSOL master before anything is linked", async () => {
+    repository.findByMczNumber.mockResolvedValue(consol as never);
+    shipments.getByIdForCompany = vi.fn(async () => ({ id: S, jobNumber: "CZFCL00000019", loadType: "Full Load", masterJobId: null }));
+    service.linkMasterJob = vi.fn();
+    await expect(masterJobService.attachShipment(S, COMPANY, "MCZCONSOL00000001", USER)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message:
+        "CZFCL00000019 is Full Load and can't go on MCZCONSOL00000001: MCZCONSOL00000001 is a Consolidation master job - a shipment goes only on a master job of its own Load Type",
+    });
+    expect(service.linkMasterJob).not.toHaveBeenCalled();
+  });
+
+  it("links none of several when one does not fit", async () => {
+    repository.getByIdForCompany.mockResolvedValue(consol as never);
+    repository.findByMczNumber.mockResolvedValue(consol as never);
+    const rows: Record<string, unknown> = {
+      s1: { id: "s1", jobNumber: "CZLCL00000089", loadType: "Consolidation", masterJobId: null },
+      s2: { id: "s2", jobNumber: "CZFCL00000019", loadType: "Full Load", masterJobId: null },
+    };
+    shipments.getByIdForCompany = vi.fn(async (id: string) => rows[id]);
+    service.linkMasterJob = vi.fn();
+    await expect(masterJobService.linkShipments(JOB, COMPANY, ["s1", "s2"], USER)).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(service.linkMasterJob).not.toHaveBeenCalled();
+  });
+
+  it("refuses a first Load Type that a shipment on the master job does not have, before anything is written", async () => {
+    vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([{ id: S, jobNumber: "CZFCL00000019", loadType: "Full Load" }] as never);
+    await expect(update({ loadType: "Consolidation" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "MCZ00000001 can't be Consolidation: CZFCL00000019 (Full Load) on it is not - take it off the master job first",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 });
 

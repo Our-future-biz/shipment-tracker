@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnWidths } from "@/hooks/useColumnWidths";
 import { ResizableTh } from "@/components/ResizableTh";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
+import { loadTypesOf, shipmentFits } from "@/lib/masterJobKind";
 import { LINK_REFUSED_HINT, linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { Badge } from "@/components/Badge";
@@ -311,6 +312,9 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
   const message = useMessages();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  // The Load Type of each ticked shipment, kept through a new search: a master job with no Load Type
+  // yet takes the first ticked one's, so two fillings are never linked together.
+  const [pickedLoadTypes, setPickedLoadTypes] = useState<Record<string, string>>({});
   const [linking, setLinking] = useState(false);
   const search = useDebounced(query, 300);
 
@@ -324,17 +328,23 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
   // The server links all of them or none, and refuses a shipment whose details the user may not
   // change: such a one is shown, not offered.
   const { user } = useAuth();
-  const mayLink = (s: (typeof candidates)[number]) => canChangeShipmentDetails(user, s);
+  // Only shipments of the master job's filling go on it (lib/masterJobKind): its Load Type, else the
+  // one of the shipments ticked. One of another is shown, not offered.
+  const kind = masterJob.loadType?.trim() || loadTypesOf(selected.map((id) => ({ loadType: pickedLoadTypes[id] })))[0] || null;
+  const fits = (s: (typeof candidates)[number]) => selected.includes(s.id) || shipmentFits(kind, s);
+  const mayLink = (s: (typeof candidates)[number]) => canChangeShipmentDetails(user, s) && fits(s);
 
   // A tick stays through a new search, so shipments found by different searches link together.
   const toggle = (s: (typeof candidates)[number]) => {
     if (!mayLink(s)) return;
     setSelected((prev) => (prev.includes(s.id) ? prev.filter((id) => id !== s.id) : [...prev, s.id]));
+    setPickedLoadTypes((prev) => ({ ...prev, [s.id]: s.loadType ?? "" }));
   };
 
   const handleClose = () => {
     setQuery("");
     setSelected([]);
+    setPickedLoadTypes({});
     onClose();
   };
 
@@ -372,7 +382,10 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
       }
     >
       <div className="flex flex-col gap-3 pt-1">
-        <p className={`m-0 ${HINT}`}>Linked shipments take over the master job&apos;s synced MBL details.</p>
+        <p className={`m-0 ${HINT}`}>
+          Linked shipments take over the master job&apos;s synced MBL details.
+          {kind ? ` Only ${kind} shipments can go on it.` : ""}
+        </p>
         <Input
           autoFocus
           allowClear
@@ -401,6 +414,8 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
             <tbody className="[&>tr:last-child>td]:border-b-0">
               {candidates.map((s) => {
                 const locked = !mayLink(s);
+                const misfit = !fits(s);
+                const lockReason = misfit ? `${s.jobNumber} is ${s.loadType}: ${masterJob.mczNumber} takes ${kind} shipments only` : LINK_REFUSED_HINT;
                 const isChecked = !locked && selected.includes(s.id);
                 // The ports by their codes ("CNSGH → DEHAM"), in full on hover.
                 const route = [s.pol, s.pod].filter(Boolean).map((p) => placeCodeOf(p) ?? p).join(" → ");
@@ -410,12 +425,12 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
                 const party = s.customer || s.shipper || s.consignee;
                 const partyTitle = s.customer || (s.shipper ? `Shipper: ${s.shipper}` : s.consignee ? `Consignee: ${s.consignee}` : undefined);
                 // On a locked row the hover ends with why it is locked, wherever you point.
-                const lockedTitle = (own?: string) => [own, LINK_REFUSED_HINT].filter(Boolean).join("\n");
+                const lockedTitle = (own?: string) => [own, lockReason].filter(Boolean).join("\n");
                 return (
                   <tr
                     key={s.id}
                     onClick={() => toggle(s)}
-                    title={locked ? LINK_REFUSED_HINT : undefined}
+                    title={locked ? lockReason : undefined}
                     aria-disabled={locked || undefined}
                     className={`transition-colors ${locked ? "cursor-not-allowed text-slate-400" : isChecked ? "cursor-pointer bg-indigo-50/70" : "cursor-pointer hover:bg-slate-50"}`}
                   >
@@ -429,7 +444,7 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
                     >
                       {locked ? (
                         <span className="flex h-4 w-4 items-center justify-center text-[13px] text-slate-400">
-                          <LockOutlined aria-label="Not yours to link" />
+                          <LockOutlined aria-label={misfit ? "Another Load Type" : "Not yours to link"} />
                         </span>
                       ) : (
                         <Checkbox checked={isChecked} onChange={() => toggle(s)} aria-label={`Link ${s.jobNumber}`} />
