@@ -7,7 +7,7 @@ import { useReceivableBatchPayment } from "@/hooks/useReceivables";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { HINT, LABEL_TEXT, REF, TD, TEXTAREA, TH } from "@/styles/ui";
-import { amountText, batchCheck, batchFailureText, batchIdempotencyKey, batchItems, frozenBatchRows, fullAmountText, type ReceivableRow } from "../_lib/receivables";
+import { amountText, batchCheck, batchFailureText, batchIdempotencyKey, batchItems, frozenBatchRows, fullAmountText, MAX_REASON, type ReceivableRow } from "../_lib/receivables";
 import { FieldProblem } from "./ReceivableActions";
 
 // One bank payment over several invoices (step 7): a manager ticks the invoices in Unpaid or Overdue, then notes the
@@ -114,7 +114,7 @@ export function BatchPaymentDialog({ rows: given, today, onClose, onDone }: {
           <span className={`block ${LABEL_TEXT} mb-1`}>
             Note <span className="font-normal normal-case text-slate-500">(optional)</span>
           </span>
-          <textarea rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Note" className={`${TEXTAREA} w-full resize-y`} />
+          <textarea rows={2} maxLength={MAX_REASON} value={note} onChange={(e) => setNote(e.target.value)} aria-label="Note" className={`${TEXTAREA} w-full resize-y`} />
         </label>
 
         <div className="rounded-lg border border-slate-200 overflow-x-auto max-h-[360px] overflow-y-auto">

@@ -10,6 +10,7 @@ import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials"
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
 import { saveBlob, type PreviewSource } from "./useFilePreview";
 import { creditNoteRequestKeys, creditOptionsKeys } from "./billingApprovalKeys";
+import { receivableKeys } from "./useReceivables";
 
 export type InvoiceDoc = interfaces.InvoiceDocItem;
 export type InvoicePreview = interfaces.InvoicePreviewItem;
@@ -44,7 +45,10 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     // …so the views computed from them (tiles, needs-attention, customer pages) move too
     invalidateShipmentDerivedViews(queryClient);
     invalidateShipmentCustomerViews(queryClient);
-    // the customer's invoice list (aging) got a new row, and its Shipments tab values an invoiced job by its locked rates
+    // Accounts Receivable has a new invoice or credit note: its page, the drawer, the job's invoice panel and the
+    // customer's Finance tab (its tiles, aging and credit summary are read from Accounts Receivable's rows)
+    void queryClient.invalidateQueries({ queryKey: receivableKeys.all });
+    // the customer's invoice list got a new row, and its Shipments tab values an invoiced job by its locked rates
     void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
     void queryClient.invalidateQueries({ queryKey: customerShipmentFinancialsKeys.all });
     // the costs card, and the job's rate lock, which becomes final once invoiced

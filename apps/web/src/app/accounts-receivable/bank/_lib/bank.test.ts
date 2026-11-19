@@ -6,6 +6,7 @@ import {
   entryStatusLabel,
   fileProblem,
   firstEntryTab,
+  freeAmount,
   ignoreProblem,
   inEntryTab,
   isOpenEntry,
@@ -27,7 +28,8 @@ const inv = (over: Partial<InvoiceChoice> = {}): InvoiceChoice => ({
   ...over,
 });
 const row = (over: Partial<AllocationRow> = {}): AllocationRow => ({ ...inv(), amountText: "1000.00", ...over });
-const entry = { amount: 1500, currency: "CZK" };
+const money = (amount: number) => ({ amount, reopened: false, unallocated: 0 });
+const entry = { ...money(1500), currency: "CZK" };
 
 describe("entry words", () => {
   it("says money out and reversals are not customer payments", () => {
@@ -53,9 +55,9 @@ describe("entry words", () => {
 
 describe("prefill and adding invoices", () => {
   it("starts with the best candidate at min(entry, left to pay)", () => {
-    expect(prefillAllocations({ amount: 1500 }, [inv({ leftToPay: 1000 }), inv({ invoiceId: "i2" })])).toEqual([{ ...inv({ leftToPay: 1000 }), amountText: "1000.00" }]);
-    expect(prefillAllocations({ amount: 400.5 }, [inv({ leftToPay: 1000 })])[0]!.amountText).toBe("400.50");
-    expect(prefillAllocations({ amount: 400 }, [])).toEqual([]);
+    expect(prefillAllocations(money(1500), [inv({ leftToPay: 1000 }), inv({ invoiceId: "i2" })])).toEqual([{ ...inv({ leftToPay: 1000 }), amountText: "1000.00" }]);
+    expect(prefillAllocations(money(400.5), [inv({ leftToPay: 1000 })])[0]!.amountText).toBe("400.50");
+    expect(prefillAllocations(money(400), [])).toEqual([]);
   });
   it("gives a second invoice what is left of the entry", () => {
     const rows = addAllocation([row({ amountText: "1000" })], entry, inv({ invoiceId: "i2", number: "B", leftToPay: 800 }));
@@ -98,6 +100,26 @@ describe("checkAllocations", () => {
     expect(checkAllocations(entry, [row({ amountText: "1.234" })]).problem).toBe("The amount on 2026CZ00000028-001 must be a number with at most 2 decimals");
     expect(checkAllocations(entry, [row({ amountText: "0" })]).problem).toBe("Each amount must be above 0");
     expect(checkAllocations(entry, [row({ currency: "EUR", amountText: "10" })]).problem).toBe("2026CZ00000028-001 is in EUR, the payment in CZK");
+  });
+});
+
+describe("a reopened entry", () => {
+  // A 10,000 payment confirmed before, 6,000 of it still on an invoice and 4,000 taken back: only the 4,000 is free.
+  const reopened = { amount: 10000, currency: "CZK", reopened: true, unallocated: 4000 };
+  it("is decided again only for the part still free", () => {
+    expect(freeAmount(reopened)).toBe(4000);
+    expect(freeAmount(entry)).toBe(1500);
+  });
+  it("prefills and adds at most what is free", () => {
+    const rows = prefillAllocations(reopened, [inv({ leftToPay: 9000 })]);
+    expect(rows[0]!.amountText).toBe("4000.00");
+    expect(addAllocation([row({ leftToPay: 9000, amountText: "3000" })], reopened, inv({ invoiceId: "i2", leftToPay: 9000 }))[1]!.amountText).toBe("1000.00");
+  });
+  it("refuses together more than what is free, in the server's words", () => {
+    const c = checkAllocations(reopened, [row({ leftToPay: 9000, amountText: "9000" })]);
+    expect(c.problem).toBe("Together more than the payment (4000.00 CZK)");
+    expect(c.items).toEqual([]);
+    expect(checkAllocations(reopened, [row({ leftToPay: 9000, amountText: "4000" })])).toMatchObject({ problem: "", total: 4000, rest: 0 });
   });
 });
 

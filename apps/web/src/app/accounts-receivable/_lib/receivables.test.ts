@@ -28,7 +28,9 @@ import {
   reminderLevels,
   reminderMail,
   tabCount,
+  tileCheckToggles,
   visibleTabs,
+  type ReceivableCheck,
   type ReceivableCounts,
   type ReceivableCustomer,
   type ReceivableRow,
@@ -215,6 +217,18 @@ describe("the bar's filters", () => {
     expect(passesCheck(row({ marks: ["prepayment"] }), "prepayment", TODAY)).toBe(true);
     expect(passesCheck(row({ marks: ["to_refund"] }), "to_refund", TODAY)).toBe(true);
     expect(passesCheck(row(), "to_refund", TODAY)).toBe(false);
+  });
+
+  it("lets a tile take off another tile's check, so Over 60 days then Due this week lists what Due this week counts", () => {
+    const on = (...checks: ReceivableCheck[]) => (c: ReceivableCheck) => checks.includes(c);
+    // Over 60 days is on from its tile: Due this week takes it off and puts its own on.
+    expect(tileCheckToggles(on("over_60"), "due_week").sort()).toEqual(["due_week", "over_60"]);
+    // Its own check on already: nothing to switch, never taken off by a second click.
+    expect(tileCheckToggles(on("due_week"), "due_week")).toEqual([]);
+    // A tile with no check of its own (To collect, Overdue) takes the tiles' checks off.
+    expect(tileCheckToggles(on("due_week", "over_60"), null).sort()).toEqual(["due_week", "over_60"]);
+    // Checks no tile puts on stay as the user set them.
+    expect(tileCheckToggles(on("prepayment", "to_refund"), "over_60")).toEqual(["over_60"]);
   });
 });
 

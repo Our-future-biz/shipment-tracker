@@ -102,18 +102,33 @@ export function startAmount(entryAmount: number, alreadyAllocated: number, leftT
   return amount > 0 ? (amount / 100).toFixed(2) : "";
 }
 
-/** The form's first row: the best candidate (the server orders them), with min(entry amount, its left to pay). None without one. */
-export function prefillAllocations(entry: { amount: number }, candidates: readonly InvoiceChoice[]): AllocationRow[] {
-  const best = candidates[0];
-  if (!best) return [];
-  return [{ ...best, amountText: startAmount(entry.amount, 0, best.leftToPay) }];
+/** What the form needs to know about the entry's money. */
+export interface EntryMoney {
+  amount: number;
+  /** Confirmed before, and a payment it noted was taken back since: only what is free on it is decided again */
+  reopened: boolean;
+  /** For a reopened entry, the part still free (its amount less its payments not taken back) */
+  unallocated: number;
 }
 
-/** The form with one more invoice (none when it is chosen already), starting with what is left of the entry. */
-export function addAllocation(rows: readonly AllocationRow[], entry: { amount: number }, choice: InvoiceChoice): AllocationRow[] {
+/**
+ * What of the entry can be put on invoices now: all of it, or for a reopened entry only the part still free. The
+ * server checks a confirmation against that part, so the form starts from it and checks against it too.
+ */
+export const freeAmount = (entry: EntryMoney): number => (entry.reopened ? entry.unallocated : entry.amount);
+
+/** The form's first row: the best candidate (the server orders them), with min(what is free on the entry, its left to pay). None without one. */
+export function prefillAllocations(entry: EntryMoney, candidates: readonly InvoiceChoice[]): AllocationRow[] {
+  const best = candidates[0];
+  if (!best) return [];
+  return [{ ...best, amountText: startAmount(freeAmount(entry), 0, best.leftToPay) }];
+}
+
+/** The form with one more invoice (none when it is chosen already), starting with what is left of the entry's free part. */
+export function addAllocation(rows: readonly AllocationRow[], entry: EntryMoney, choice: InvoiceChoice): AllocationRow[] {
   if (rows.some((r) => r.invoiceId === choice.invoiceId)) return [...rows];
   const allocated = rows.reduce((sum, r) => sum + (parseMoney(r.amountText) ?? 0), 0);
-  return [...rows, { ...choice, amountText: startAmount(entry.amount, allocated, choice.leftToPay) }];
+  return [...rows, { ...choice, amountText: startAmount(freeAmount(entry), allocated, choice.leftToPay) }];
 }
 
 /**
@@ -133,7 +148,7 @@ export interface AllocationCheck {
   problem: string;
   /** The amounts together, in the entry's currency */
   total: number;
-  /** What of the entry is put on no invoice (an overpayment, money for something else); below 0 when too much */
+  /** What of the entry's free part is put on no invoice (an overpayment, money for something else); below 0 when too much */
   rest: number;
   /** What confirm sends, when there is no problem */
   items: { invoiceId: string; receivableVersion: number; amount: number }[];
@@ -141,10 +156,11 @@ export interface AllocationCheck {
 
 /**
  * Whether the form can be confirmed: at least one invoice, each once, each amount above 0 with at most 2 decimals, in
- * the entry's currency and at most what is left to pay on it, and together at most the entry. The words are the
- * server's.
+ * the entry's currency and at most what is left to pay on it, and together at most what is free on the entry. The
+ * words are the server's.
  */
-export function checkAllocations(entry: { amount: number; currency: string }, rows: readonly AllocationRow[]): AllocationCheck {
+export function checkAllocations(entry: EntryMoney & { currency: string }, rows: readonly AllocationRow[]): AllocationCheck {
+  const free = freeAmount(entry);
   let totalCents = 0;
   let problem = "";
   const ids = new Set<string>();
@@ -173,9 +189,9 @@ export function checkAllocations(entry: { amount: number; currency: string }, ro
     totalCents += cents(amount);
     items.push({ invoiceId: r.invoiceId, receivableVersion: r.version, amount: round2(amount) });
   }
-  if (totalCents > cents(entry.amount)) fail(`Together more than the payment (${round2(entry.amount).toFixed(2)} ${entry.currency})`);
+  if (totalCents > cents(free)) fail(`Together more than the payment (${round2(free).toFixed(2)} ${entry.currency})`);
   const total = totalCents / 100;
-  const rest = (cents(entry.amount) - totalCents) / 100;
+  const rest = (cents(free) - totalCents) / 100;
   return { problem, total, rest, items: problem ? [] : items };
 }
 

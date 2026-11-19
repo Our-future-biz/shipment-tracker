@@ -6,7 +6,8 @@ import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { businessToday } from "@/lib/date";
 import { handTyped, type CustomerLedger } from "@/app/customers/_lib/customerInvoices";
-import { useCustomerReceivables, type ReceivableItem } from "./useReceivables";
+import { creditWarningKey, useCustomerReceivables, type ReceivableItem } from "./useReceivables";
+import { salesManagersKeys } from "./salesQueryKeys";
 
 export type InvoiceItem = interfaces.InvoiceItem;
 
@@ -28,7 +29,8 @@ export const useCustomerInvoices = (customerId: string) => {
 
   // The Sales cockpit's credit facts and the credit warning read the same list.
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["customers", customerId, "credit-warning"] });
+    void queryClient.invalidateQueries({ queryKey: creditWarningKey(customerId) });
+    void queryClient.invalidateQueries({ queryKey: salesManagersKeys.cockpit });
     return queryClient.invalidateQueries({ queryKey: key });
   };
 

@@ -192,6 +192,18 @@ export const RECEIVABLE_CHECKS: CheckDef<ReceivableCheck>[] = [
 
 export const checkLabel = (key: ReceivableCheck): string => RECEIVABLE_CHECKS.find((c) => c.key === key)!.label;
 
+/** The checks a KPI tile puts on when it opens its tab (Due this week, Over 60 days). */
+export const TILE_CHECKS: readonly ReceivableCheck[] = ["due_week", "over_60"];
+
+/**
+ * The checks to switch when a tile opens its tab, so the table lists what the tile counts: the tile's own check goes
+ * on, and every other tile's check that is on goes off - the checks must all hold, and Over 60 days with Due this week
+ * would list nothing. A check no tile puts on (Prepayment, To refund) stays as the user set it.
+ */
+export function tileCheckToggles(isOn: (check: ReceivableCheck) => boolean, own: ReceivableCheck | null): ReceivableCheck[] {
+  return TILE_CHECKS.filter((c) => (c === own ? !isOn(c) : isOn(c)));
+}
+
 /** Due this week, as the tile counts it: still owed, due from today to 7 days on (Prague's day, the server's `today`). */
 export const isDueThisWeek = (r: Pick<ReceivableRow, "status" | "leftToPay" | "dueDate">, today: string): boolean =>
   isOwed(r) && r.dueDate >= today && r.dueDate <= addDays(today, 7);
@@ -288,6 +300,10 @@ export function paidText(r: Pick<ReceivableRow, "paid" | "lastPaidOn" | "currenc
 
 export const MIN_REASON = 3;
 export const reasonOk = (reason: string) => reason.trim().length >= MIN_REASON;
+/** The longest text the server takes for a chase note: a note, a promise's words, a dispute and its end, a reminder's note. */
+export const MAX_NOTE = 2000;
+/** The longest text the server takes for a payment's note and a write-off's or a take-back's reason. */
+export const MAX_REASON = 1000;
 
 export interface ActionState {
   /** Offered at all */

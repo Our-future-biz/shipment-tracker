@@ -9,6 +9,7 @@ import { FX_KEYS } from "./useFx";
 import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
 import { creditNoteRequestKeys, creditOptionsKeys } from "./billingApprovalKeys";
+import { receivableKeys } from "./useReceivables";
 
 export type CreditNoteRequest = interfaces.CreditNoteRequestItem;
 
@@ -32,6 +33,8 @@ const refreshAfterAnswer = (queryClient: QueryClient, request: CreditNoteRequest
   void queryClient.invalidateQueries({ queryKey: ["shipments"] });
   invalidateShipmentDerivedViews(queryClient);
   invalidateShipmentCustomerViews(queryClient);
+  // The credit note lowers what is owed in Accounts Receivable: its page, the drawer and the customer's Finance tab.
+  void queryClient.invalidateQueries({ queryKey: receivableKeys.all });
   void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
   void queryClient.invalidateQueries({ queryKey: customerShipmentFinancialsKeys.all });
   void queryClient.invalidateQueries({ queryKey: FX_KEYS.jobAll(shipmentId) });

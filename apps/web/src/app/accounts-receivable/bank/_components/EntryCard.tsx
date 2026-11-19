@@ -18,6 +18,7 @@ import {
   checkAllocations,
   entryStatusLabel,
   entryStatusTone,
+  freeAmount,
   ignoreProblem,
   isOpenEntry,
   MIN_REASON,
@@ -180,8 +181,10 @@ function CandidatesTable({ entry, chosen, onAdd }: { entry: BankStatementEntry; 
 function DecideForm({ statementId, entry, owed, owedLoading }: { statementId: string; entry: BankStatementEntry; owed: readonly InvoiceChoice[]; owedLoading: boolean }) {
   const actions = useBankEntryActions();
   const toast = useToast();
-  // The best candidate filled in with min(payment, its left to pay): a proposal the manager confirms or changes, never confirmed by itself.
+  // The best candidate filled in with min(what is free on the payment, its left to pay): a proposal the manager confirms or changes, never confirmed by itself.
   const [rows, setRows] = useState<AllocationRow[]>(() => prefillAllocations(entry, entry.candidates.map(choiceOf)));
+  // A reopened entry is decided again only for the part still free; the rest stays on the invoices it was put on.
+  const free = freeAmount(entry);
   const [aside, setAside] = useState(false);
   const [reason, setReason] = useState("");
 
@@ -294,7 +297,8 @@ function DecideForm({ statementId, entry, owed, owedLoading }: { statementId: st
           </table>
         )}
         <div className="text-[13px] text-slate-700 tabular-nums">
-          Together <strong>{amountText(check.total, entry.currency)}</strong> of the payment&apos;s {amountText(entry.amount, entry.currency)}
+          Together <strong>{amountText(check.total, entry.currency)}</strong> of the payment&apos;s {amountText(free, entry.currency)}
+          {entry.reopened && " still free"}
           {check.rest > 0 && current.length > 0 && <span className="text-amber-700"> · {amountText(check.rest, entry.currency)} on no invoice (an overpayment, or money for something else)</span>}
         </div>
         <FieldProblem id={problemId} tone="error" text={confirmProblem} className="!text-[13px]" />

@@ -9,6 +9,7 @@ import { FX_KEYS } from "./useFx";
 import { customerShipmentFinancialsKeys } from "./useCustomerShipmentFinancials";
 import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
 import { creditNoteRequestKeys, creditOptionsKeys, invoiceChangeRequestKeys } from "./billingApprovalKeys";
+import { receivableKeys } from "./useReceivables";
 
 export type InvoiceChangeRequestItem = interfaces.InvoiceChangeRequestItem;
 
@@ -35,6 +36,8 @@ const refreshAfterAnswer = (queryClient: QueryClient, request: InvoiceChangeRequ
   void queryClient.invalidateQueries({ queryKey: ["shipments"] });
   invalidateShipmentDerivedViews(queryClient);
   invalidateShipmentCustomerViews(queryClient);
+  // The cancelled invoice is no longer owed in Accounts Receivable: its page, the drawer and the customer's Finance tab.
+  void queryClient.invalidateQueries({ queryKey: receivableKeys.all });
   void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
   void queryClient.invalidateQueries({ queryKey: customerShipmentFinancialsKeys.all });
   void queryClient.invalidateQueries({ queryKey: FX_KEYS.jobAll(shipmentId) });

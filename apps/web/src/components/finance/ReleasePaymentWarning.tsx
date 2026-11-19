@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Alert, Button, Input, Modal } from "antd";
 import { useQueries } from "@tanstack/react-query";
@@ -381,19 +381,6 @@ interface WarningConfirmProps {
   children?: ReactNode;
 }
 
-/** Hidden on the screen, read by a screen reader (inline, so the Modal's own header styles cannot undo it). */
-const SCREEN_READER_ONLY: CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clip: "rect(0, 0, 0, 0)",
-  whiteSpace: "nowrap",
-  border: 0,
-};
-
 /** The app's confirmation (as ConfirmModal) with room for a payment or credit warning the person can go past. */
 export function WarningConfirm({
   open,
@@ -414,7 +401,7 @@ export function WarningConfirm({
   return (
     // The dialog is named by its title: the Modal's own title, which it links to the dialog (aria-labelledby), kept
     // for screen readers only, as the title is shown in the body beside the icon.
-    <Modal open={open} onCancel={onClose} footer={null} width={width} closable={false} destroyOnHidden title={title} styles={{ header: SCREEN_READER_ONLY }}>
+    <Modal open={open} onCancel={onClose} footer={null} width={width} closable={false} destroyOnHidden title={title} classNames={{ header: "sr-only" }}>
       <div className="flex items-start gap-3">
         <div className={`w-9 h-9 rounded-full flex items-center justify-center text-base shrink-0 ${danger ? "bg-red-100" : "bg-indigo-100"}`} aria-hidden>
           {danger ? "⚠️" : "ℹ️"}

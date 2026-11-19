@@ -19,6 +19,8 @@ import {
   emailOk,
   fullAmountText,
   lineWord,
+  MAX_NOTE,
+  MAX_REASON,
   MIN_REASON,
   nextReminderLevel,
   onPrepayment,
@@ -126,10 +128,12 @@ function SaveCancel({ saveLabel, disabled, danger, onSave, onCancel }: { saveLab
 }
 
 /** A text the form needs: a note, or a reason of at least MIN_REASON characters. `autoFocus`: the form's first field. */
-function TextField({ label, value, onChange, reason, optional, autoFocus, describedBy }: {
+function TextField({ label, value, onChange, maxLength, reason, optional, autoFocus, describedBy }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  /** The server's limit for this text (MAX_NOTE or MAX_REASON): a longer one would be refused */
+  maxLength: number;
   reason?: boolean;
   optional?: boolean;
   autoFocus?: boolean;
@@ -147,7 +151,7 @@ function TextField({ label, value, onChange, reason, optional, autoFocus, descri
       </span>
       <textarea
         rows={2}
-        maxLength={2000}
+        maxLength={maxLength}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label={label}
@@ -161,10 +165,12 @@ function TextField({ label, value, onChange, reason, optional, autoFocus, descri
   );
 }
 
-export function ReasonForm({ label, explain, saveLabel, danger, saving, onSave, onCancel }: {
+export function ReasonForm({ label, explain, saveLabel, maxLength, danger, saving, onSave, onCancel }: {
   label: string;
   explain: ReactNode;
   saveLabel: string;
+  /** The server's limit for the reason (MAX_NOTE or MAX_REASON) */
+  maxLength: number;
   danger?: boolean;
   saving: boolean;
   onSave: (reason: string) => void;
@@ -174,7 +180,7 @@ export function ReasonForm({ label, explain, saveLabel, danger, saving, onSave, 
   return (
     <FormBox>
       <div className={HINT}>{explain}</div>
-      <TextField label={label} value={reason} onChange={setReason} reason autoFocus />
+      <TextField label={label} value={reason} onChange={setReason} maxLength={maxLength} reason autoFocus />
       <SaveCancel saveLabel={saveLabel} danger={danger} disabled={saving || !reasonOk(reason)} onSave={() => onSave(reason.trim())} onCancel={onCancel} />
     </FormBox>
   );
@@ -243,7 +249,7 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
           <span className="text-[12px] text-slate-500 mt-1">Left to pay {amountText(row.leftToPay, row.currency)}</span>
         </label>
       </div>
-      <TextField label="Note" value={note} onChange={setNote} optional />
+      <TextField label="Note" value={note} onChange={setNote} maxLength={MAX_REASON} optional />
       <FieldProblem id={problemId} text={problem} />
       <SaveCancel
         saveLabel={value !== null && !problem ? `Note ${amountText(round2(value), row.currency)} paid on ${formatDate(paidOn)}` : "Note the payment"}
@@ -314,7 +320,7 @@ function WriteOffForm({ kind, row, waiting, today, saving, onSave, onCancel }: {
           <span className="h-8 inline-flex items-center tabular-nums text-[13px] text-slate-700">{formatDate(today)} (today)</span>
         </div>
       </div>
-      <TextField label={`Why the ${word} closes what is left`} value={reason} onChange={setReason} reason describedBy={reasonProblem ? problemId : undefined} />
+      <TextField label={`Why the ${word} closes what is left`} value={reason} onChange={setReason} maxLength={MAX_REASON} reason describedBy={reasonProblem ? problemId : undefined} />
       <FieldProblem id={problemId} text={shown} />
       <SaveCancel
         saveLabel={value !== null && !problem ? `Write a ${word} of ${amountText(round2(value), row.currency)}` : `Write the ${word}`}
@@ -340,7 +346,7 @@ function PromiseForm({ today, saving, onSave, onCancel }: { today: string; savin
         <span className={`${LABEL_TEXT} mb-1`}>Promised to pay by</span>
         <DatePicker format="D.M.YYYY" value={promisedOn ? dayjs(promisedOn) : null} onChange={(d) => setPromisedOn(d ? d.format("YYYY-MM-DD") : "")} minDate={dayjs(today)} className="w-[160px]" aria-label="Promised to pay by" />
       </label>
-      <TextField label="What was said" value={text} onChange={setText} optional />
+      <TextField label="What was said" value={text} onChange={setText} maxLength={MAX_NOTE} optional />
       <SaveCancel saveLabel={promisedOn && !problem ? `Note the promise to pay by ${formatDate(promisedOn)}` : "Note the promise"} disabled={saving || !!problem} onSave={() => onSave({ promisedOn, text: text.trim() })} onCancel={onCancel} />
     </FormBox>
   );
@@ -350,7 +356,7 @@ function NoteForm({ saving, onSave, onCancel }: { saving: boolean; onSave: (text
   const [text, setText] = useState("");
   return (
     <FormBox>
-      <TextField label="Note" value={text} onChange={setText} autoFocus />
+      <TextField label="Note" value={text} onChange={setText} maxLength={MAX_NOTE} autoFocus />
       <SaveCancel saveLabel="Add the note" disabled={saving || !text.trim()} onSave={() => onSave(text.trim())} onCancel={onCancel} />
     </FormBox>
   );
@@ -428,7 +434,7 @@ function ReminderForm({ row, canAct, reminderTo, saving, onSave, onCancel }: {
         <MailOutlined />
         Open in your mail program
       </a>
-      <TextField label="Note" value={text} onChange={setText} optional />
+      <TextField label="Note" value={text} onChange={setText} maxLength={MAX_NOTE} optional />
       <SaveCancel
         saveLabel={`Record that ${REMINDER_LEVEL_LABEL[level].toLowerCase()} was sent`}
         disabled={saving || !recipientOk || !levels.includes(level)}
@@ -555,6 +561,7 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
           label="What the customer disputes"
           explain="It stays owed and overdue, and no reminder goes out while it is disputed (D16). The amount changes only through a credit note, issued in Invoicing."
           saveLabel={`Mark ${number} disputed`}
+          maxLength={MAX_NOTE}
           saving={saving}
           onSave={(reason) => void run(actions.addNote.mutateAsync({ ...target, note: { kind: "dispute", text: reason } }), `${number} is marked disputed`)}
           onCancel={() => setForm(null)}
@@ -565,6 +572,7 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
           label="How the dispute ended"
           explain="Reminders can be sent again once it is closed."
           saveLabel="Close the dispute"
+          maxLength={MAX_NOTE}
           saving={saving}
           onSave={(reason) => void run(actions.addNote.mutateAsync({ ...target, note: { kind: "dispute_closed", text: reason } }), "Dispute closed")}
           onCancel={() => setForm(null)}
@@ -603,6 +611,7 @@ export function TakeBackPayment({ detail, actions, line, label }: { detail: Rece
           label={`Why the ${word} is taken back`}
           explain={explain}
           saveLabel={`Take back the ${word}`}
+          maxLength={MAX_REASON}
           danger
           saving={actions.pending}
           onSave={(reason) =>

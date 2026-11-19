@@ -48,7 +48,9 @@ import {
   RECEIVABLE_CHECKS,
   receivablesCsv,
   tabCount,
+  tileCheckToggles,
   visibleTabs,
+  type ReceivableCheck,
   type ReceivableFilters,
   type ReceivablePeriod,
   type ReceivableRow,
@@ -136,10 +138,11 @@ export function AccountsReceivableView() {
   };
   const exportCount = byCustomer ? shownCustomers.length : shown.length;
 
-  // A tile that is a filter: it opens its tab, and a check it stands for is put on (never taken off by a second click).
-  const openWithCheck = (next: ReceivableTab, check: (typeof RECEIVABLE_CHECKS)[number]["key"]) => {
+  // A tile that is a filter: it opens its tab, puts on the check it stands for (never taken off by a second click) and
+  // takes off another tile's, so the table lists what the tile counts.
+  const openTile = (next: ReceivableTab, own: ReceivableCheck | null = null) => {
     setTab(next);
-    if (!invoiceControls.hasCheck(checkLabel(check))) invoiceControls.toggleCheck(checkLabel(check));
+    for (const check of tileCheckToggles((c) => invoiceControls.hasCheck(checkLabel(c)), own)) invoiceControls.toggleCheck(checkLabel(check));
   };
 
   const totals = data?.totals;
@@ -262,7 +265,7 @@ export function AccountsReceivableView() {
                 value={!totals ? "—" : a ? formatAmount(a.amount, a.currency) : <Amounts list={[]} />}
                 hint={overdue ? `${formatAmount(overdue.amount, overdue.currency)} overdue` : totals ? "none overdue" : undefined}
                 hintTone={overdue ? "red" : undefined}
-                onClick={() => setTab("unpaid")}
+                onClick={() => openTile("unpaid")}
               />
             );
           })}
@@ -271,20 +274,20 @@ export function AccountsReceivableView() {
             value={counts ? counts.overdue : "—"}
             tone={counts && counts.overdue > 0 ? "red" : undefined}
             hint={counts ? (counts.overdue === 1 ? "invoice" : "invoices") : undefined}
-            onClick={() => setTab("overdue")}
+            onClick={() => openTile("overdue")}
           />
           <KpiTile
             label="Due this week"
             value={data ? data.dueThisWeek : "—"}
             hint={data ? `${data.dueThisWeek === 1 ? "invoice" : "invoices"} · due in the next 7 days` : undefined}
-            onClick={() => openWithCheck("unpaid", "due_week")}
+            onClick={() => openTile("unpaid", "due_week")}
           />
           <KpiTile
             label="Over 60 days"
             value={data ? data.over60 : "—"}
             tone={data && data.over60 > 0 ? "red" : undefined}
             hint={data ? `${data.over60 === 1 ? "invoice" : "invoices"} · more than 60 days overdue` : undefined}
-            onClick={() => openWithCheck("overdue", "over_60")}
+            onClick={() => openTile("overdue", "over_60")}
           />
           <KpiTile label="Customers owing" value={data ? data.customersOwing : "—"} hint="opens By customer" onClick={() => setTab("customers")} />
         </div>
