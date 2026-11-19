@@ -195,6 +195,25 @@ describe("accepting the warehouse's remeasurement", () => {
     expect((await shipmentService.getById(s.id, s.companyId))!.cargoDimensions).toMatchObject([{ lengthCm: "140", packageType: "Crates" }]);
   });
 
+  // Review: a Container Details page opened before the Accept saves a new seal - with the only
+  // container's old Pieces, Gross Weight and Volume.
+  it("refuses a container save from a page that started from the containers before the Accept, and keeps the accepted figures", async () => {
+    const s = await newShipment();
+    const box = { id: randomUUID(), containerNumber: "MSKU1234567", sealNumber: "", type: "40' HC", teu: "", packages: "5", packageType: "Cartons", grossWeight: "170", volume: "7.2" };
+    await shipmentService.update(s.id, s.companyId, { containers: [box] }, USER, "admin");
+    const before = (await shipmentService.getById(s.id, s.companyId))!.containers!;
+    section.data = { remeasure_rows: saved };
+    await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
+    await expect(
+      shipmentService.update(s.id, s.companyId, { containers: [{ ...before[0]!, sealNumber: "SEAL1" }] }, USER, "admin", undefined, undefined, { expectedContainers: before }),
+    ).rejects.toThrow(/Container Details changed meanwhile/);
+    expect((await shipmentService.getById(s.id, s.companyId))!.containers).toMatchObject([{ sealNumber: "", packages: "5", grossWeight: "250", volume: "34.65" }]);
+    // From the containers as they are now, the seal is saved and the accepted figures stay.
+    const now = (await shipmentService.getById(s.id, s.companyId))!.containers!;
+    await shipmentService.update(s.id, s.companyId, { containers: [{ ...now[0]!, sealNumber: "SEAL1" }] }, USER, "admin", undefined, undefined, { expectedContainers: now });
+    expect((await shipmentService.getById(s.id, s.companyId))!.containers).toMatchObject([{ sealNumber: "SEAL1", packages: "5", grossWeight: "250", volume: "34.65" }]);
+  });
+
   it("accepts the same lines again once a save put other lines over them", async () => {
     const s = await newShipment();
     section.data = { remeasure_rows: saved };

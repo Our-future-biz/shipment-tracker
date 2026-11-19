@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sameCargoLines } from "../lib/cargoLinesGuard";
-import type { CargoDimensionLine } from "../interfaces/interfaces";
+import { sameCargoLines, sameContainers } from "../lib/cargoLinesGuard";
+import type { CargoDimensionLine, ContainerLine } from "../interfaces/interfaces";
 
 const line = (over: Partial<CargoDimensionLine> = {}): CargoDimensionLine => ({
   containerId: "c1",
@@ -41,5 +41,37 @@ describe("sameCargoLines", () => {
   it("compares the containers only when there are several: with one every line is its", () => {
     expect(sameCargoLines([line({ containerId: null })], [line({ containerId: "c1" })], 1)).toBe(true);
     expect(sameCargoLines([line({ containerId: "c2" })], [line({ containerId: "c1" })], 2)).toBe(false);
+  });
+});
+
+// Review: a Container Details page opened before an accepted remeasurement saved its old Pieces,
+// Gross Weight and Volume back with a new seal.
+describe("sameContainers", () => {
+  const box = (over: Partial<ContainerLine> = {}): ContainerLine => ({
+    id: "c1",
+    containerNumber: "MSKU1234567",
+    sealNumber: "S1",
+    type: "40' HC",
+    teu: "2",
+    packages: "20",
+    packageType: "Pallet(s)",
+    grossWeight: "300",
+    volume: "36",
+    ...over,
+  });
+
+  it("finds the same containers however their numbers are written, the TEU left to the server", () => {
+    expect(sameContainers([box({ containerNumber: "msku 123456-7", teu: "" })], [box()])).toBe(true);
+    expect(sameContainers([box({ sealNumber: " S1 " })], [box()])).toBe(true);
+    expect(sameContainers([], [])).toBe(true);
+    // The order shown is not what is compared: the page lists a container added elsewhere last.
+    expect(sameContainers([box(), box({ id: "c2" })], [box({ id: "c2" }), box()])).toBe(true);
+  });
+
+  it("finds an accepted remeasurement's figures, a changed seal, a container added or removed", () => {
+    expect(sameContainers([box()], [box({ packages: "18", grossWeight: "250", volume: "34.65" })])).toBe(false);
+    expect(sameContainers([box()], [box({ sealNumber: "S2" })])).toBe(false);
+    expect(sameContainers([box()], [box(), box({ id: "c2" })])).toBe(false);
+    expect(sameContainers([box(), box({ id: "c2" })], [box()])).toBe(false);
   });
 });

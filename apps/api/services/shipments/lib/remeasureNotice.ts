@@ -67,12 +67,21 @@ type ShipmentCargo = { pcs?: string | null; totalWeightTons?: string | null; tot
  * The shipment's figures as Shipments → Warehouse and Cargo Details compare the remeasurement with
  * them: the totals of its cargo dimension lines, a figure the lines lack (no kg per piece typed,
  * the weight only in Total Weight) from its Pcs, Total Weight and Total Volume (council finding
- * N1) - else a figure 0 on one side would be skipped and a heavier remeasurement "match".
+ * N1) - else a figure 0 on one side would be skipped and a heavier remeasurement "match". Lacked
+ * by any line with pieces, not only by all (review: 1 × 600 kg and 1 piece unweighed are not 600 kg
+ * of cargo when Total Weight says 1.2 t), the typed figure is the cargo's while one is typed.
  */
 export function dimensionFiguresFilled(s: ShipmentCargo): CargoFigures {
-  const dims = dimensionFigures(s.cargoDimensions ?? []);
+  const lines = s.cargoDimensions ?? [];
+  const dims = dimensionFigures(lines);
   const typed = declaredFigures({ pcs: s.pcs, totalWeightTons: s.totalWeightTons, totalVolumeCbm: s.totalVolumeCbm });
-  return { colli: dims.colli || typed.colli, weightKg: dims.weightKg || typed.weightKg, volumeCbm: dims.volumeCbm || typed.volumeCbm };
+  const lacks = (perPiece: (l: DimensionLine) => number) => lines.some((l) => cargoNum(l.pieces) > 0 && !(perPiece(l) > 0));
+  const filled = (fromLines: number, fromTyped: number, perPiece: (l: DimensionLine) => number) => (fromTyped > 0 && lacks(perPiece) ? fromTyped : fromLines || fromTyped);
+  return {
+    colli: dims.colli || typed.colli,
+    weightKg: filled(dims.weightKg, typed.weightKg, (l) => cargoNum(l.weightPerPcKg)),
+    volumeCbm: filled(dims.volumeCbm, typed.volumeCbm, dimensionVolumePerPiece),
+  };
 }
 
 /** The shipment's figures a remeasurement is compared with, by what the warehouse's screen compared it with. */

@@ -121,10 +121,11 @@ import {
   type CargoDetailsRead,
   type RemeasuredLine,
 } from "../lib/remeasureAccept";
-import { CARGO_LINES_CHANGED, sameCargoLines } from "../lib/cargoLinesGuard";
+import { CARGO_LINES_CHANGED, CONTAINERS_CHANGED, sameCargoLines, sameContainers } from "../lib/cargoLinesGuard";
 import { keepsReleasedDay } from "../lib/gateReleasedDay";
 import { PREPAYMENT_UNCHECKED_FIELD, PREPAYMENT_UNCHECKED_LINE } from "../lib/releaseUnchecked";
 import { dimensionFiguresFilled } from "../lib/remeasureNotice";
+import { shownCargo } from "../lib/remeasureMatch";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
@@ -247,6 +248,13 @@ export interface ReleaseExtras {
    * would write its old lines back over theirs. Left out, the lines are saved as sent.
    */
   expectedCargoDimensions?: CargoDimensionLine[];
+  /**
+   * The containers the page saving them started from (Container Details): the write's containers are
+   * saved only while the shipment still has these, else it is refused (CONTAINERS_CHANGED) - a page
+   * opened before an accepted remeasurement would write the only container's old Pieces, Gross
+   * Weight and Volume back with its next save. Left out, the containers are saved as sent.
+   */
+  expectedContainers?: ContainerLine[];
 }
 
 // The most open jobs of a customer one answer lists (Accounts Receivable's work not yet invoiced).
@@ -1619,6 +1627,12 @@ class ShipmentService {
         const now = await this.cargoDetailsOf(id, companyId, tx);
         if (!sameCargoLines(extras.expectedCargoDimensions, now.lines, now.containers.length)) throw APIError.aborted(CARGO_LINES_CHANGED);
       }
+      // Container Details' list saved from a page that started from other containers (an accepted
+      // remeasurement's figures, a colleague's seal): refused, not written over them.
+      if (extras.expectedContainers && containers !== undefined) {
+        const now = (await containerRepository.listByShipmentId(id, companyId, tx)).map(toContainerLine);
+        if (!sameContainers(extras.expectedContainers, now)) throw APIError.aborted(CONTAINERS_CHANGED);
+      }
       const audit = (field: string, oldValue: string | null, newValue: string | null) =>
         shipmentAuditRepository.create({ companyId, shipmentId: id, userId, field, oldValue, newValue }, tx);
       for (const [key, newValue] of Object.entries(shipmentData)) {
@@ -1987,8 +2001,12 @@ class ShipmentService {
     const refusal = acceptRefusal(saved, remeasured, await lastAccepted(), read.lines);
     if (refusal) throw APIError.failedPrecondition(refusal);
     const current = [...read.lines];
-    // What the shipment held: its cargo lines' totals, a figure they lack from its typed totals.
-    const before = dimensionFiguresFilled({ pcs: existing.pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm, cargoDimensions: current });
+    // What the shipment held: its cargo lines' totals, a figure they lack from its typed totals - its
+    // Pcs as it showed (a container's first: a job made from a quote stores none), as Inform
+    // Operations and Cargo Details compared it.
+    const items = (await cargoItemRepository.listByShipmentId(id, actor.companyID)).map(toCargoItemLine);
+    const { pcs } = shownCargo(existing, { containers: read.containers, items, dimensions: current });
+    const before = dimensionFiguresFilled({ pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm, cargoDimensions: current });
     const exact = exactFiguresOf(remeasured);
     const after = roundedFigures(exact);
     // The only container declares the cargo's figures too, and the screens read them from it first

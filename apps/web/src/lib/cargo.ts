@@ -222,9 +222,18 @@ export function fmtNum(n: number): string {
     : n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
-// Fixed-decimal variant for the TOTAL comparison rows (weights 2, volumes 3).
+/**
+ * A figure rounded to `decimals` as the server rounds what it stores and compares (remeasureAccept
+ * acceptedTotals, roundedFigures: Math.round of x · 10ⁿ) - not as the browser formats a number, which
+ * rounds its exact binary value: 3 × 1.15 kg (3.4499…) is stored 3.5 kg and 56×125×72.5 cm (0.5075
+ * m³) 0.507 m³, and read the browser's way the pills turned red right after an Accept.
+ */
+export const roundFigure = (n: number, decimals: number): number => Math.round(n * 10 ** decimals) / 10 ** decimals;
+
+// Fixed-decimal variant for the TOTAL comparison rows (weights 2, volumes 3), rounded as the
+// figures are compared (roundFigure).
 export function fmtFixed(n: number, decimals: number): string {
-  return n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return roundFigure(n, decimals).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 // ── Dimension math + the Matched/Mismatch check ──
@@ -333,7 +342,8 @@ export function shipmentWeightKg(s: { cargoDimensions?: CargoDimensionLine[] | n
 
 // Compare a container's declared Pieces/Gross Weight/Volume against the sums of
 // its dimension lines, at the precision the totals are shown in (pcs 0, kg 2, m³ 3
-// decimals), so the colour always agrees with the figures on screen. A metric
+// decimals) and rounded as they are shown and the server stores them (roundFigure), so
+// the colour always agrees with the figures on screen. A metric
 // where both sides are empty doesn't participate (ok stays true).
 export interface FigureCheck {
   sum: number;
@@ -353,7 +363,7 @@ export interface ConsistencyCheck {
 
 export function compareFigure(sum: number, declared: number, decimals: number): FigureCheck {
   const empty = !sum && !declared;
-  return { sum, declared, empty, ok: empty || fmtFixed(sum, decimals) === fmtFixed(declared, decimals), decimals };
+  return { sum, declared, empty, ok: empty || roundFigure(sum, decimals) === roundFigure(declared, decimals), decimals };
 }
 
 /** A container's figures, or a shipment's own as one (shipmentDeclaredFigures), with the decimals its weight is known to. */

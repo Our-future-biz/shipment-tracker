@@ -12556,6 +12556,13 @@ export namespace controllers {
         expectedCargoDimensions?: interfaces.CargoDimensionLine[]
 
         /**
+         * The containers the page started from when it sends containers (Container Details): they are
+         * saved only while the shipment still has these, else the write is refused ("Container Details
+         * changed meanwhile", code aborted) and the page reads them again. Not stored.
+         */
+        expectedContainers?: interfaces.ContainerLine[]
+
+        /**
          * The app's own writes only (the gate's outbox): Warehouse Released is set only while the shipment's day is empty
          * or one of these days, checked in the write turn; otherwise the day is left as it is and the rest is written.
          * Ignored on a person's edit. Not stored.

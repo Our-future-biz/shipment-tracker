@@ -181,6 +181,20 @@ describe("the shipment's figures a remeasurement on Shipments → Warehouse is c
     const ours = dimensionFiguresFilled({ pcs: "", totalWeightTons: "0.45", totalVolumeCbm: null, cargoDimensions: sized });
     expect(remeasureVerdict(ours, { colli: 2, weightKg: 600, volumeCbm: 1.92 })).toBe("differs");
   });
+
+  // Review: one line weighed, one not - their 600 kg is not the cargo's; Total Weight's 1.2 t is.
+  it("are Total Weight and Total Volume when any line with pieces lacks the figure, not the lines' part of it", () => {
+    const partly = [
+      { pieces: "1", lengthCm: "120", widthCm: "80", heightCm: "100", weightPerPcKg: "600", volumePerPcM3: "" },
+      { pieces: "1", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", volumePerPcM3: "" },
+    ];
+    const ours = dimensionFiguresFilled({ pcs: "2", totalWeightTons: "1.2", totalVolumeCbm: "2.5", cargoDimensions: partly });
+    expect(ours).toEqual({ colli: 2, weightKg: 1200, volumeCbm: 2.5 });
+    // The warehouse weighed the 1,200 kg declared: no "+600 kg".
+    expect(remeasureVerdict(ours, { colli: 2, weightKg: 1200, volumeCbm: 2.5 })).toBe("matches");
+    // Nothing typed to fill in with: the lines' part is all there is.
+    expect(dimensionFiguresFilled({ pcs: "", totalWeightTons: null, totalVolumeCbm: null, cargoDimensions: partly })).toEqual({ colli: 2, weightKg: 600, volumeCbm: 0.96 });
+  });
 });
 
 // Council finding L6: Warehouse Concept's tolerance - any piece, more than 5 % on weight, volume or W/M.

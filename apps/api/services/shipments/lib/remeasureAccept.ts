@@ -126,7 +126,12 @@ export const figuresOf = (lines: readonly FigureLine[]): AcceptedFigures => roun
 const carriesAdr = (l: CargoDimensionLine) => !!(l.adrUn?.trim() || l.adrClass?.trim() || l.adrPackingGroup || l.adrLimitedQuantity);
 
 export const ACCEPT_BY_HAND =
-  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each): update Cargo Details by hand";
+  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each, no two lines of other cargo with the same pieces): update Cargo Details by hand";
+
+// What a line hands on to the remeasured line in its place (acceptedDimensionLines): its container,
+// packing and dangerous goods.
+const handedOn = (l: CargoDimensionLine) =>
+  JSON.stringify([l.containerId ?? null, l.packageType ?? "", l.stackable ?? "", l.palletType ?? null, l.adrUn ?? null, l.adrClass ?? null, l.adrPackingGroup ?? null, !!l.adrLimitedQuantity]);
 
 /**
  * Why the remeasured lines can't replace the shipment's, or null when they can (council finding
@@ -135,14 +140,19 @@ export const ACCEPT_BY_HAND =
  * when line n is the same cargo - the same number of lines, and the same pieces on each - else a UN
  * number would vanish or move to other cargo (3 drums UN 1203 and 10 cartons, saved by the
  * warehouse cartons first, would make the cartons "Drums UN 1203"), and lines of several
- * containers would fall into another. Then a person updates Cargo Details. The web holds the same
- * rule (tabs/warehouse/remeasuredLines acceptByHandReason).
+ * containers would fall into another. The pieces tell the lines apart only while no two lines of
+ * other cargo carry the same (review: 1 drum pallet UN 1203 and 1 carton pallet, saved carton pallet
+ * first, made it "Drum pallet, UN 1203"; two containers of 4 pallets each): the warehouse's lines
+ * name no line of the shipment, so which is which is then not known. Lines that hand on the same
+ * may swap. Then a person updates Cargo Details. The web holds the same rule
+ * (tabs/warehouse/remeasuredLines acceptByHandReason).
  */
 export function acceptByHandRefusal(remeasured: readonly { pieces: string }[], current: readonly CargoDimensionLine[]): string | null {
   const containers = new Set(current.map((l) => l.containerId).filter(Boolean));
   if (!current.some(carriesAdr) && containers.size < 2) return null;
   const lineForLine = remeasured.length === current.length && remeasured.every((r, i) => cargoNum(r.pieces) === cargoNum(current[i]!.pieces));
-  return lineForLine ? null : ACCEPT_BY_HAND;
+  const toldApart = current.every((l, i) => current.every((m, j) => j <= i || cargoNum(l.pieces) !== cargoNum(m.pieces) || handedOn(l) === handedOn(m)));
+  return lineForLine && toldApart ? null : ACCEPT_BY_HAND;
 }
 
 /**

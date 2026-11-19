@@ -3275,7 +3275,7 @@ describe("accepting the warehouse's remeasurement", () => {
     vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ pieces: "1", adrUn: "1993", adrClass: "3" })] as never);
     const one = job([full]);
     const byHand =
-      "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each): update Cargo Details by hand";
+      "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each, no two lines of other cargo with the same pieces): update Cargo Details by hand";
     await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, one)).rejects.toMatchObject({ code: "failed_precondition", message: byHand });
     // An FCL job's lines in two containers.
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A), container(B)] as never);
@@ -3318,10 +3318,29 @@ describe("accepting the warehouse's remeasurement", () => {
   it("leaves several containers alone when the lines stay line for line", async () => {
     vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A), container(B)] as never);
-    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ containerId: B })] as never);
-    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, pieces: "4" }, { ...full, pieces: "4" }]));
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ pieces: "3", containerId: B })] as never);
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, pieces: "4" }, { ...full, pieces: "3" }]));
     expect(containerRepository.syncForShipment).not.toHaveBeenCalled();
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ containerId: A }, { containerId: B }]);
+  });
+
+  // Review: (1) 1 drum pallet UN 1203 400 kg 120×80×100, (2) 1 carton pallet 150 kg 120×100×180; the
+  // warehouse saved the carton pallet first. The pieces match line for line, yet say nothing of which is which.
+  it("is refused when lines of other cargo carry the same pieces, so the carton pallet never becomes 'Drum pallet, UN 1203'", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A)] as never);
+    const drums = dimRow({ pieces: "1", packageType: "Drum pallet", adrUn: "1203", adrClass: "3", lengthCm: "120", widthCm: "80", heightCm: "100", weightPerPcKg: "400" });
+    const cartons = dimRow({ pieces: "1", packageType: "Carton pallet", lengthCm: "120", widthCm: "100", heightCm: "180", weightPerPcKg: "150" });
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([drums, cartons] as never);
+    const cartonFirst = job([
+      { pieces: "1", lengthCm: "121", widthCm: "101", heightCm: "182", weightPerPcKg: "155" },
+      { pieces: "1", lengthCm: "120", widthCm: "80", heightCm: "101", weightPerPcKg: "405" },
+    ]);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, cartonFirst)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringContaining("update Cargo Details by hand"),
+    });
+    expect(repository.writeTurn).not.toHaveBeenCalled();
   });
 
   // Cargo Details as an acceptance of `full` leaves them.
@@ -3432,6 +3451,18 @@ describe("accepting the warehouse's remeasurement", () => {
     expect(vi.mocked(containerRepository.syncForShipment).mock.calls[0]![2]).toEqual([expect.objectContaining({ id: A, sealNumber: "", packages: "5" })]);
   });
 
+  // Review: a job made from a quote stores no Pcs; it shows its container's pieces, as Inform
+  // Operations and Cargo Details compare them - the history's "before" says those, not "— colli".
+  it("records the Pcs the job showed before - its container's - when it stores none", async () => {
+    stored.set(SHIPMENT, row({ pcs: "", totalWeightTons: "0.1700", totalVolumeCbm: "7.2000", personInCharge: "", holidayCover: "" }));
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A)] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full]));
+    const entry = vi.mocked(shipmentAuditRepository.create).mock.calls.map(([e]) => e).find((e) => e.field === "remeasurementAccepted");
+    expect(JSON.parse(entry!.oldValue!)).toEqual({ colli: 5, weightKg: 170, volumeCbm: 7.2 });
+  });
+
   it("takes a figure typed with a point at its end or start, stored tidy", async () => {
     vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
     await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, lengthCm: "140.", weightPerPcKg: ".5" }]));
@@ -3485,6 +3516,40 @@ describe("a save of Cargo Details' lines from a page that started from other lin
     vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([line({ pieces: "9" })] as never);
     await save(undefined);
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ pieces: "6" }]);
+  });
+});
+
+// Review: a Container Details page opened before an accepted remeasurement (the only container
+// 20 pcs / 300 kg then, 18 / 250 / 34.65 since) saves a new seal - and with it its old figures.
+describe("a save of Container Details from a page that started from other containers", () => {
+  const C = "0b8e1d2c-0000-4000-8000-00000000000c";
+  const box = (over: Record<string, unknown> = {}) => ({ id: C, containerNumber: "MSKU1234567", sealNumber: "", type: "40' HC", teu: "2", packages: "20", packageType: "Pallet(s)", grossWeight: "300", volume: "36", ...over });
+  const save = (expectedContainers: unknown[] | undefined) =>
+    shipmentService.update(SHIPMENT, COMPANY, { containers: [box({ sealNumber: "SEAL1" })] } as never, USER, "manager", undefined, undefined, { expectedContainers } as never);
+
+  beforeEach(() => {
+    stored.set(SHIPMENT, row({ personInCharge: "", holidayCover: "" }));
+  });
+
+  it("is refused when the containers changed since - an accepted remeasurement - and the old figures are not written back", async () => {
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([box({ packages: "18", grossWeight: "250", volume: "34.65" })] as never);
+    await expect(save([box()])).rejects.toMatchObject({ code: "aborted", message: "Container Details changed meanwhile: they are shown again - make your change again" });
+    expect(containerRepository.syncForShipment).not.toHaveBeenCalled();
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    // Read in the write's turn.
+    expect(containerRepository.listByShipmentId).toHaveBeenCalledWith(SHIPMENT, COMPANY, TX);
+  });
+
+  it("is saved while the shipment holds the containers the page started from, the number written alike or not", async () => {
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([box()] as never);
+    await save([box({ containerNumber: "msku 123456-7", teu: "" })]);
+    expect(vi.mocked(containerRepository.syncForShipment).mock.calls[0]![2]).toMatchObject([{ id: C, sealNumber: "SEAL1", packages: "20" }]);
+  });
+
+  it("is saved as sent when the page names no containers it started from (a document reading)", async () => {
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([box({ packages: "18" })] as never);
+    await save(undefined);
+    expect(vi.mocked(containerRepository.syncForShipment).mock.calls[0]![2]).toMatchObject([{ sealNumber: "SEAL1" }]);
   });
 });
 

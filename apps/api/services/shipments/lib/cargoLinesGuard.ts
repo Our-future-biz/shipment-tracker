@@ -2,10 +2,14 @@
 // opened before another save - an accepted remeasurement, a colleague's edit - would write its old
 // lines back over the new ones with its next line save, unseen. So the page sends along the lines
 // it started from, and the server saves only while the shipment still holds them; else it refuses
-// and the page reads them again. Pure; the shipment service asks it in the write's turn.
+// and the page reads them again. Container Details' saves likewise send the whole list of containers,
+// with their Pieces, Gross Weight and Volume - which an accepted remeasurement also writes - so they
+// are held to the containers the page started from the same way. Pure; the shipment service asks it
+// in the write's turn.
 
 import { cargoNum, hasAllSizes } from "../../../lib/cargoVolume";
-import type { CargoDimensionLine } from "../interfaces/interfaces";
+import { normalizeContainerNumber } from "./cargoProjection";
+import type { CargoDimensionLine, ContainerLine } from "../interfaces/interfaces";
 
 export const CARGO_LINES_CHANGED = "Cargo Details changed meanwhile: they are shown again - make your change again";
 
@@ -44,4 +48,25 @@ export function sameCargoLines(expected: readonly CargoDimensionLine[], stored: 
   if (expected.length !== stored.length) return false;
   const withContainer = containerCount > 1;
   return expected.every((l, i) => JSON.stringify(lineKey(l, withContainer)) === JSON.stringify(lineKey(stored[i]!, withContainer)));
+}
+
+export const CONTAINERS_CHANGED = "Container Details changed meanwhile: they are shown again - make your change again";
+
+// A container as it is compared: its id, its number as the server stores it (no spaces, capitals),
+// its texts trimmed. Not its TEU: the server works it out from the type, whatever a page sends.
+const containerKey = (c: ContainerLine): string =>
+  JSON.stringify([
+    c.id ?? null,
+    normalizeContainerNumber(c.containerNumber),
+    ...[c.sealNumber, c.type, c.packages, c.packageType, c.grossWeight, c.volume].map((v) => (v ?? "").trim()),
+  ]);
+
+/**
+ * Whether the shipment's containers (`stored`, as Container Details shows them) are still the ones
+ * a page started from (`expected`): the same containers with the same number, seal, type and figures.
+ * Not their order: the page lists a container added elsewhere after its own.
+ */
+export function sameContainers(expected: readonly ContainerLine[], stored: readonly ContainerLine[]): boolean {
+  const keys = (list: readonly ContainerLine[]) => list.map(containerKey).sort();
+  return JSON.stringify(keys(expected)) === JSON.stringify(keys(stored));
 }

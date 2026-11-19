@@ -2076,9 +2076,10 @@ export function ShipmentDetailContent() {
           <ContainerDetailsTab
             shipment={shipment}
             readOnly={!detailsEditable}
-            // A refused save is said; the tab then shows the saved list again.
-            onChange={(containers) =>
-              updateShipment({ id: shipment.id, data: { containers } }).catch((err) => {
+            // A refused save is said; the tab then shows the saved list again. Held to the containers
+            // the tab started from, as Cargo Details' line saves are.
+            onChange={(containers, expectedContainers) =>
+              updateShipment({ id: shipment.id, data: { containers, expectedContainers } }).catch((err) => {
                 toast.error(apiErrorMessage(err));
                 throw err;
               })

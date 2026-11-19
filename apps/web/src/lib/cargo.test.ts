@@ -9,6 +9,7 @@ import {
   plainDecimal,
   checkConsistency,
   compareFigure,
+  fmtFixed,
   dimensionLineIsEmpty,
   hasAdr,
   isDangerousShipment,
@@ -156,6 +157,18 @@ describe("shipmentDeclaredFigures", () => {
     // A container's own Gross Weight is still checked to 2 decimals.
     const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "7", packageType: "", grossWeight: "92.8", volume: "0.007" };
     expect(checkConsistency(c, [line]).kg).toMatchObject({ ok: false, decimals: 2 });
+  });
+  // Review: rounded as the server rounds what an acceptance stores (Math.round of x · 10ⁿ), not as the
+  // browser formats - 3 × 1.15 kg is 3.4499… kg, stored 3.5; 56×125×72.5 cm is 0.5075 m³, stored 0.507.
+  it("rounds the lines' totals as the server stored them, so the pills stay green right after an Accept", () => {
+    const parcels = { pieces: "3", lengthCm: "10", widthCm: "10", heightCm: "10", weightPerPcKg: "1.15", packageType: "", stackable: "" };
+    const kg = checkConsistency(shipmentDeclaredFigures({ pcs: "3", totalWeightTons: "0.0035", totalVolumeCbm: "0.003" }), [parcels]).kg;
+    expect(kg).toMatchObject({ ok: true });
+    expect(fmtFixed(kg.sum, kg.decimals)).toBe("3.5");
+    const crate = { pieces: "1", lengthCm: "56", widthCm: "125", heightCm: "72.5", weightPerPcKg: "10", packageType: "", stackable: "" };
+    const m3 = checkConsistency(shipmentDeclaredFigures({ pcs: "1", totalWeightTons: "0.0100", totalVolumeCbm: "0.5070" }), [crate]).m3;
+    expect(m3).toMatchObject({ ok: true });
+    expect(fmtFixed(m3.sum, 3)).toBe("0.507");
   });
 });
 

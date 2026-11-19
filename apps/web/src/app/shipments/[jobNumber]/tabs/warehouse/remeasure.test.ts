@@ -142,6 +142,16 @@ describe("the shipment's figures the remeasurement is held against", () => {
     expect(figuresDiffer(ours, { colli: 2, weightKg: 600, volumeCbm: 2.88 })).toBe(true);
     expect(roundedFigures({ colli: 1, weightKg: 92.75, volumeCbm: 1.23449 })).toEqual({ colli: 1, weightKg: 92.8, volumeCbm: 1.234 });
   });
+
+  // Review: one line weighed, one not - their 600 kg is not the cargo's; Total Weight's 1.2 t is.
+  it("take Total Weight and Total Volume when any line with pieces lacks the figure, as the server does", () => {
+    const partly = [dim({ pieces: "1", weightPerPcKg: "600", heightCm: "100" }), dim({ pieces: "1", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" })];
+    const ours = shipmentCargoFigures({ cargoDimensions: partly, pcs: "2", totalWeightTons: "1.2", totalVolumeCbm: "2.5" });
+    expect(ours).toEqual({ colli: 2, weightKg: 1200, volumeCbm: 2.5 });
+    expect(figuresDiffer(ours, { colli: 2, weightKg: 1200, volumeCbm: 2.5 })).toBe(false);
+    // Nothing typed to fill in with: the lines' part is all there is.
+    expect(shipmentCargoFigures({ cargoDimensions: partly })).toEqual({ colli: 2, weightKg: 600, volumeCbm: 0.96 });
+  });
 });
 
 // Council finding X2: line n keeps the shipment's line n's container, packing and dangerous goods.
@@ -163,6 +173,18 @@ describe("acceptByHandReason", () => {
     expect(acceptByHandReason(pcs(10, 3), [drums, cartons])).toBe(ACCEPT_BY_HAND);
     expect(acceptByHandReason(pcs(3, 10), [drums, cartons])).toBeNull();
     expect(acceptByHandReason(pcs(5, 4), [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandReason(pcs(4, 3), [dim(), dim({ pieces: "3", containerId: "c2" })])).toBeNull();
+  });
+
+  // Review: (1) 1 drum pallet UN 1203, (2) 1 carton pallet; the warehouse saved the carton pallet first.
+  it("refuses lines of other cargo with the same pieces, in either order: the pieces don't say which is which", () => {
+    const drums = dim({ pieces: "1", packageType: "Drum pallet", adrUn: "1203", adrClass: "3", heightCm: "100", weightPerPcKg: "400" });
+    const cartons = dim({ pieces: "1", packageType: "Carton pallet", widthCm: "100", heightCm: "180", weightPerPcKg: "150" });
+    expect(acceptByHandReason(pcs(1, 1), [drums, cartons])).toBe(ACCEPT_BY_HAND);
+    // Two containers of 4 pallets each: which of the warehouse's lines is whose is not known.
+    expect(acceptByHandReason(pcs(4, 4), [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
+    // Lines that take over the same - one container, the same packing and UN number - may swap.
+    expect(acceptByHandReason(pcs(1, 1, 3), [drums, { ...drums, lengthCm: "110" }, { ...cartons, pieces: "3" }])).toBeNull();
   });
 
   it("says per line what it takes over: package type, UN number and container", () => {

@@ -1,4 +1,4 @@
-import { dimensionTotals, hasAdr, num, shipmentDeclaredFigures, type CargoDimensionLine, type CargoItemLine } from "@/lib/cargo";
+import { dimensionTotals, dimensionVolumePerPiece, hasAdr, num, roundFigure, shipmentDeclaredFigures, type CargoDimensionLine, type CargoItemLine } from "@/lib/cargo";
 import type { CargoFigures } from "./RemeasureCompare";
 
 // The warehouse's saved remeasured lines (its job section's remeasure_rows: a JSON list of
@@ -112,7 +112,7 @@ export const lineCbm = (l: RemeasuredLine) => (num(l.pieces) * num(l.lengthCm) *
  * sides alike (the server's roundedFigures), so lines of 7 × 13.25 kg (92.75) and a Total Weight of
  * 92.8 kg are the same weight.
  */
-export const roundedFigures = (f: CargoFigures): CargoFigures => ({ colli: f.colli, weightKg: Math.round(f.weightKg * 10) / 10, volumeCbm: Math.round(f.volumeCbm * 1000) / 1000 });
+export const roundedFigures = (f: CargoFigures): CargoFigures => ({ colli: f.colli, weightKg: roundFigure(f.weightKg, 1), volumeCbm: roundFigure(f.volumeCbm, 3) });
 
 export function remeasuredFigures(lines: RemeasuredLine[]): CargoFigures {
   const colli = lines.reduce((s, l) => s + num(l.pieces), 0);
@@ -125,33 +125,49 @@ export function remeasuredFigures(lines: RemeasuredLine[]): CargoFigures {
  * What the remeasurement is held against, as the server holds it when the warehouse informs
  * (remeasureNotice dimensionFiguresFilled): the totals of the shipment's cargo dimension lines, a
  * figure they lack - no kg per piece typed, the weight only in Total Weight - from its Pcs, Total
- * Weight and Total Volume, rounded as the remeasured figures are.
+ * Weight and Total Volume, rounded as the remeasured figures are. Lacked by any line with pieces,
+ * not only by all, the typed figure is the cargo's while one is typed: 1 × 600 kg and 1 piece
+ * unweighed are not 600 kg of cargo when Total Weight says 1.2 t.
  */
 export function shipmentCargoFigures(s: { cargoDimensions?: CargoDimensionLine[] | null; pcs?: string | null; totalWeightTons?: string | null; totalVolumeCbm?: string | null }): CargoFigures {
-  const t = dimensionTotals(s.cargoDimensions ?? []);
+  const lines = s.cargoDimensions ?? [];
+  const t = dimensionTotals(lines);
   const typed = shipmentDeclaredFigures(s);
-  return roundedFigures({ colli: t.pcs || num(typed.packages), weightKg: t.kg || num(typed.grossWeight), volumeCbm: t.m3 || num(typed.volume) });
+  const lacks = (perPiece: (l: CargoDimensionLine) => number) => lines.some((l) => num(l.pieces) > 0 && !(perPiece(l) > 0));
+  const filled = (fromLines: number, fromTyped: number, perPiece: (l: CargoDimensionLine) => number) => (fromTyped > 0 && lacks(perPiece) ? fromTyped : fromLines || fromTyped);
+  return roundedFigures({
+    colli: t.pcs || num(typed.packages),
+    weightKg: filled(t.kg, num(typed.grossWeight), (l) => num(l.weightPerPcKg)),
+    volumeCbm: filled(t.m3, num(typed.volume), dimensionVolumePerPiece),
+  });
 }
 
 /** The lines the last acceptance took over, again: the server refuses them in these words. */
 export const ALREADY_ACCEPTED = "These remeasured lines were already accepted: the warehouse has saved nothing new since";
 
 export const ACCEPT_BY_HAND =
-  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each): update Cargo Details by hand";
+  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each, no two lines of other cargo with the same pieces): update Cargo Details by hand";
+
+// What a line hands on to the remeasured line in its place: its container, packing and dangerous goods.
+const handedOn = (l: CargoDimensionLine) =>
+  JSON.stringify([l.containerId ?? null, l.packageType ?? "", l.stackable ?? "", l.palletType ?? null, l.adrUn ?? null, l.adrClass ?? null, l.adrPackingGroup ?? null, !!l.adrLimitedQuantity]);
 
 /**
  * Why the remeasured lines can't replace the shipment's, or null: line n keeps its container,
  * packing and dangerous goods from the shipment's line n. With dangerous goods or several
  * containers on the lines that is only right when line n is the same cargo - the same number of
  * lines, the same pieces on each (mock test council Y8: 3 drums UN 1203 and 10 cartons, saved by
- * the warehouse cartons first, would make the cartons "Drums UN 1203"). The server refuses the same
- * (remeasureAccept acceptByHandRefusal).
+ * the warehouse cartons first, would make the cartons "Drums UN 1203") - and the pieces tell the
+ * lines apart: no two lines of other cargo carry the same (review: 1 drum pallet UN 1203 and 1
+ * carton pallet, saved carton pallet first). Lines that hand on the same may swap. The server
+ * refuses the same (remeasureAccept acceptByHandRefusal).
  */
 export function acceptByHandReason(remeasured: readonly { pieces: string }[], current: readonly CargoDimensionLine[]): string | null {
   const containers = new Set(current.map((l) => l.containerId).filter(Boolean));
   if (!current.some(hasAdr) && containers.size < 2) return null;
   const lineForLine = remeasured.length === current.length && remeasured.every((r, i) => num(r.pieces) === num(current[i]!.pieces));
-  return lineForLine ? null : ACCEPT_BY_HAND;
+  const toldApart = current.every((l, i) => current.every((m, j) => j <= i || num(l.pieces) !== num(m.pieces) || handedOn(l) === handedOn(m)));
+  return lineForLine && toldApart ? null : ACCEPT_BY_HAND;
 }
 
 const MEASURED_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;

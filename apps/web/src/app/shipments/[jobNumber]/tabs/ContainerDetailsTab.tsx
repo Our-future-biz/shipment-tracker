@@ -56,6 +56,17 @@ const withFirstRow = (list: ContainerLine[] | null | undefined): ContainerLine[]
 
 type Field = "containerNumber" | "sealNumber" | "type" | "packages" | "packageType" | "grossWeight" | "volume";
 
+/**
+ * The containers the next save is held to (expectedContainers) after a resync: the server's
+ * (`server`) only when the rows are drawn again from them, else what they were (`base`). A save
+ * sends the rows as drawn - a page that kept its rows while an accepted remeasurement wrote the only
+ * container's Pieces, Gross Weight and Volume would write the old ones back with its next seal; held
+ * to the containers it drew, that save is refused instead, and the refusal draws the saved list.
+ */
+export function heldContainers(base: ContainerLine[], server: ContainerLine[], at: { redraw: boolean }): ContainerLine[] {
+  return at.redraw ? server : base;
+}
+
 // Centred columns with room between them, like the cargo tables.
 const COLS = "grid grid-cols-[1.1fr_1.1fr_1fr_0.7fr_1.1fr_1.1fr_1fr_36px] gap-3 items-center";
 
@@ -67,8 +78,11 @@ export function ContainerDetailsTab({
   showContainerId = null,
 }: {
   shipment: ShipmentItem;
-  /** Saves the list; rejects when the server refuses it (the caller says why). */
-  onChange: (containers: ContainerLine[]) => Promise<unknown>;
+  /**
+   * Saves the list, held to the containers the page started from (`expectedContainers`: the server
+   * refuses the save when it has others now); rejects when the server refuses it (the caller says why).
+   */
+  onChange: (containers: ContainerLine[], expectedContainers: ContainerLine[]) => Promise<unknown>;
   onOpenCargo?: (containerId: string) => void;
   /**
    * The user may not change the shipment's details (lib/shipmentEditRule): the containers are shown,
@@ -95,6 +109,9 @@ export function ContainerDetailsTab({
   // The list last sent, so the same list is not sent twice (a blur right after the
   // number was completed, Enter then blur).
   const lastSent = useRef<string | null>(null);
+  // The containers the server has as far as this page knows: what it loaded or last drew again,
+  // else what it last sent. Each save sends them along (heldContainers).
+  const baseContainers = useRef<ContainerLine[]>(shipment.containers ?? []);
   // antd Input and AutoComplete expose different ref classes; all we need from
   // either is focus().
   const inputRefs = useRef(new Map<string, { focus: () => void }>());
@@ -104,6 +121,7 @@ export function ContainerDetailsTab({
   useEffect(() => {
     setRows(withFirstRow(shipment.containers));
     setEditing(new Set());
+    baseContainers.current = shipment.containers ?? [];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipment.id]);
 
@@ -119,8 +137,10 @@ export function ContainerDetailsTab({
   const resync = (force: boolean, refusedIds?: Set<string | undefined>) => {
     const local = rowsRef.current;
     const typing = editingRef.current.size > 0 || local.some((r) => !isValidContainerNumber(r.containerNumber));
-    if (!force && typing) return;
     const saved = shipmentRef.current.containers ?? [];
+    const redraw = force || !typing;
+    baseContainers.current = heldContainers(baseContainers.current, saved, { redraw });
+    if (!redraw) return;
     const savedById = new Map(saved.map((c) => [c.id, c]));
     const same = (a: ContainerLine, b: ContainerLine) =>
       (["containerNumber", "sealNumber", "type", "packages", "packageType", "grossWeight", "volume"] as const).every((k) => a[k] === b[k]);
@@ -165,8 +185,11 @@ export function ContainerDetailsTab({
     const key = JSON.stringify(payload);
     if (key === lastSent.current) return;
     lastSent.current = key;
+    // Saves go out one after another: the next one starts from what this one leaves.
+    const expectedContainers = baseContainers.current;
+    baseContainers.current = payload;
     const refusedIds = new Set(payload.map((r) => r.id));
-    onChange(payload).catch(() => {
+    onChange(payload, expectedContainers).catch(() => {
       // The cache is rolled back by then; show the saved list again, also in an open row.
       setTimeout(() => resync(true, refusedIds), 50);
     });

@@ -158,7 +158,20 @@ describe("acceptByHandRefusal", () => {
   it("refuses another number of lines, or other pieces on a line, on several containers, so no line falls into another", () => {
     expect(acceptByHandRefusal(pcs(4, 4, 1), [general, { ...general, containerId: "c2" }])).toBe(ACCEPT_BY_HAND);
     expect(acceptByHandRefusal(pcs(5, 3), [general, { ...general, containerId: "c2" }])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandRefusal(pcs(4, 4), [general, { ...general, containerId: "c2" }])).toBeNull();
+    expect(acceptByHandRefusal(pcs(4, 3), [general, { ...general, pieces: "3", containerId: "c2" }])).toBeNull();
+  });
+
+  // Review: lines told apart by their pieces only. (1) 1 drum pallet UN 1203, (2) 1 carton pallet;
+  // the warehouse saved the carton pallet first - same number of lines, same pieces on each, and the
+  // carton pallet would have become "Drum pallet, UN 1203".
+  it("refuses lines of other cargo with the same pieces, in either order: the pieces don't say which is which", () => {
+    const drums = { ...general, pieces: "1", packageType: "Drum pallet", adrUn: "1203", adrClass: "3", lengthCm: "120", widthCm: "80", heightCm: "100", weightPerPcKg: "400" };
+    const cartons = { ...general, pieces: "1", packageType: "Carton pallet", lengthCm: "120", widthCm: "100", heightCm: "180", weightPerPcKg: "150" };
+    expect(acceptByHandRefusal(pcs(1, 1), [drums, cartons])).toBe(ACCEPT_BY_HAND);
+    // Two containers of 4 pallets each: which of the warehouse's lines is whose is not known.
+    expect(acceptByHandRefusal(pcs(4, 4), [general, { ...general, containerId: "c2" }])).toBe(ACCEPT_BY_HAND);
+    // Lines that take over the same - one container, the same packing and UN number - may swap.
+    expect(acceptByHandRefusal(pcs(1, 1, 3), [drums, { ...drums, lengthCm: "110" }, { ...cartons, pieces: "3" }])).toBeNull();
   });
 
   it("lets general cargo of one container, or none, take another number of lines and other pieces", () => {
