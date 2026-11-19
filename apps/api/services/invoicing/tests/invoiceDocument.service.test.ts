@@ -892,6 +892,29 @@ describe("partial credit notes", () => {
       await expect(invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver)).rejects.toThrow(/Trucking changed the price/);
       expect(requests.approve).not.toHaveBeenCalled();
     });
+
+    it("refuses when a credit owed came meanwhile: read again under the lock though the first read found none, never a negative row of its own beside it", async () => {
+      trucking.openCreditDiffs.mockImplementationOnce(async () => new Map()).mockImplementationOnce(async () => new Map([["s1", [diff]]]));
+      await expect(invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver)).rejects.toThrow(/Trucking changed the price/);
+      expect(trucking.openCreditDiffs.mock.calls.map((c) => (c as unknown[])[3])).toEqual([["s1"], ["s1"]]);
+      expect(requests.approve).not.toHaveBeenCalled();
+      expect(selling.insertCreditRows).not.toHaveBeenCalled();
+    });
+
+    it("refuses when a credit owed was given meanwhile: the line would settle what is no longer owed", async () => {
+      trucking.openCreditDiffs.mockImplementationOnce(async () => new Map([["s1", [diff]]])).mockImplementationOnce(async () => new Map());
+      await expect(invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver)).rejects.toThrow(/Trucking changed the price/);
+      expect(trucking.settleDiffs).not.toHaveBeenCalled();
+    });
+
+    it("a line below nothing entered by hand is a credit owed like Trucking's: the credit note line settles it, no negative row of its own", async () => {
+      const discount = { id: "h1", ref: null, currency: "EUR", amount: -50, version: 1 };
+      trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [discount]]]));
+      await invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver);
+      const [, , written] = repo.issue.mock.calls[0]!;
+      expect(written).toEqual([expect.objectContaining({ correctsLineId: "l1", unitPrice: "50.00", net: "-50.00", sourceSellingCostId: "h1" })]);
+      expect(selling.insertCreditRows.mock.calls[0]![4]).toEqual([]);
+    });
   });
 
   it("refuses when the invoice no longer has what was asked: the manager rejects it instead", async () => {

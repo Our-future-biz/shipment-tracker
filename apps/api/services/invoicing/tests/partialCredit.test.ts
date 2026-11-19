@@ -7,6 +7,7 @@ import {
   partialCreditTotals,
   planPartialCredit,
   remainingLines,
+  sameCreditsOwed,
   settleTruckingCredit,
   type CreditLineCalc,
   type OpenCreditDiff,
@@ -209,6 +210,37 @@ describe("settleTruckingCredit (a credit Trucking says is owed, Y1 / P1)", () =>
       credit(30, { net: -750.01, fxRate: 25, sourceSellingCostId: "own" }),
     ]);
     expect(out.ownRows).toEqual([out.lines[1]]);
+  });
+
+  it("one line settles the credits owed in turn - its own set's first, then a line below nothing entered by hand - and only what goes beyond them is a credit of its own; the nets add up to the line's", () => {
+    const hand: OpenCreditDiff = { id: "h1", ref: null, currency: "EUR", amount: -20, version: 1 };
+    const both = (rowId: string | null) => (rowId === "s1" ? [owed, hand] : []);
+    const beyond = settleTruckingCredit([credit(80, { net: -2000.01, fxRate: 25 })], both, () => "own");
+    expect(beyond.lines.map((l) => [l.unitPrice, l.net, l.sourceSellingCostId])).toEqual([[50, -1250, "d1"], [20, -500, "h1"], [10, -250.01, "own"]]);
+    expect(beyond.ownRows).toEqual([beyond.lines[2]]);
+    expect(beyond.settled).toEqual([owed, hand]);
+
+    // Exactly what is owed in all: the last part takes what is left of the line's net.
+    const exact = settleTruckingCredit([credit(70, { net: -1750.01, fxRate: 25 })], both, () => "own");
+    expect(exact.lines.map((l) => [l.unitPrice, l.net, l.sourceSellingCostId])).toEqual([[50, -1250, "d1"], [20, -500.01, "h1"]]);
+    expect(exact.ownRows).toEqual([]);
+
+    // Less: the hand line is settled in part - it comes down to what was credited, the rest stays owed.
+    const less = settleTruckingCredit([credit(60)], both, () => "rest1");
+    expect(less.lines.map((l) => [l.unitPrice, l.sourceSellingCostId])).toEqual([[50, "d1"], [10, "h1"]]);
+    expect(less.shrink).toEqual([{ id: "h1", amount: 10 }]);
+    expect(less.rest).toEqual([{ fromId: "h1", amount: 10, id: "rest1" }]);
+  });
+
+  it("whether the credits owed are still what they were read: the same lines, each unchanged, for every credited row", () => {
+    const hand: OpenCreditDiff = { id: "h1", ref: null, currency: "EUR", amount: -20, version: 1 };
+    const read = new Map([["s1", [owed, hand]]]);
+    expect(sameCreditsOwed(read, new Map([["s1", [owed, hand]]]))).toBe(true);
+    expect(sameCreditsOwed(new Map(), new Map([["s1", []]]))).toBe(true);
+    // One came, one went, one changed.
+    expect(sameCreditsOwed(new Map(), read)).toBe(false);
+    expect(sameCreditsOwed(read, new Map([["s1", [owed]]]))).toBe(false);
+    expect(sameCreditsOwed(read, new Map([["s1", [owed, { ...hand, version: 2 }]]]))).toBe(false);
   });
 
   it("a line with no credit owed on its row, or in another currency, puts a negative row of its own on the shipment, as before; one difference line is settled once", () => {

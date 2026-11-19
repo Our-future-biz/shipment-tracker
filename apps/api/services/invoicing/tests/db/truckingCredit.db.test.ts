@@ -4,15 +4,20 @@ import { and, eq, isNull } from "drizzle-orm";
 
 // Mock test council Y1 / P1, Z1, n8, n9 against the invoicing database: what a Trucking push writes
 // after an invoice (one difference line per currency, replacing any not on an invoice yet), which
-// quote road estimates it retires (each side by itself), a consignment priced on an invoiced quote
-// road line, the credits owed a partial credit note settles, a set that comes to nothing after a full
-// credit, and a house's split rows handed to its statuses' hook when it leaves its master job. Each
-// test works in a company and shipment of its own. Runs only under `encore test`
+// quote road estimates it retires (each side by itself; the one a consignment is priced on only with
+// that consignment, its invoice credited), a consignment priced on an invoiced quote road line, the
+// credits owed a partial credit note settles (Trucking's, a discount entered by hand), a set that comes
+// to nothing after a full credit, and a house's split rows handed to its statuses' hook when it leaves
+// its master job. Each test works in a company and shipment of its own. Runs only under `encore test`
 // (INVOICING_DB_TESTS=1 encore test services/invoicing/tests/db).
 
 import { db } from "../../db/db";
 import { truckingLinesRepository } from "../../repositories/truckingLines.repository";
 import { masterJobCostRepository } from "../../repositories/masterJobCost.repository";
+import { invoiceRepository } from "../../repositories/invoice.repository";
+import { sellingCostRepository } from "../../repositories/sellingCost.repository";
+import { countCreditsOwed } from "../../lib/billingQueue";
+import { settleTruckingCredit, type CreditLineCalc } from "../../lib/partialCredit";
 import type { SellingLineWrite } from "../../repositories/sellingCost.repository";
 import { invoiceLineTable, invoiceTable } from "../../schemas/invoice.schema";
 import { invoiceCostTable } from "../../schemas/invoiceCost.schema";
@@ -74,6 +79,50 @@ const liveSelling = async (shipmentId: string) =>
 
 const push = (amount: string) => [{ category: "road_freight", description: "Freight", customer: "Freight", qty: "1.00", amount, currency: "CZK", invoice: true }];
 const job = () => ({ companyId: randomUUID(), shipmentId: randomUUID(), ref: `trucking:consignment:${randomUUID()}` });
+
+/**
+ * A partial credit note of `amount` of the invoice line made from `row`, as issuePartialCredit writes it: the
+ * credits owed it settles read (openCreditDiffs), its lines (settleTruckingCredit), the document, the negative
+ * rows of its own, and what it did to the lines it settles (settleDiffs).
+ */
+const creditNoteOf = async (companyId: string, shipmentId: string, invoiceId: string, row: InvoiceSellingCostRecord, amount: number) => {
+  const [line] = await db.select().from(invoiceLineTable).where(and(eq(invoiceLineTable.invoiceId, invoiceId), eq(invoiceLineTable.sourceSellingCostId, row.id)));
+  const asked: CreditLineCalc = {
+    sourceSellingCostId: row.id, description: row.description, qty: -1, unitPrice: amount, unitCurrency: row.currency, net: -amount, vatCode: "OUT", vatRate: 0, fxRate: 1, correctsLineId: line!.id,
+  };
+  const owed = await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [row.id]);
+  const settled = settleTruckingCredit([asked], (rowId) => (rowId ? (owed.get(rowId) ?? []) : []), randomUUID);
+  const net = settled.lines.reduce((sum, l) => sum + l.net, 0).toFixed(2);
+  const customerId = randomUUID();
+  await db.transaction(async (tx) => {
+    const [note] = await tx
+      .insert(invoiceTable)
+      .values({
+        companyId, shipmentId, kind: "credit_note", status: "issued", number: `CN-${randomUUID()}`, correctsInvoiceId: invoiceId, creditReason: "Agreed discount", customerId,
+        issueDate: "2026-11-12", duzp: "2026-11-01", dueDate: "2026-11-16", currency: "CZK", fxRate: "1.000000",
+        net, vat: "0.00", gross: net, netCzk: net, vatCzk: "0.00", grossCzk: net, vatSummary: [], supplier: {} as never,
+        customer: { customerId, companyName: "Gama Elektro a.s.", address: "", city: "", country: "CZ", ico: "", dic: "", paymentTerms: "14 days" },
+        shipment: { jobNumber: "CZ00000031", jobYear: 2026, tradeDirection: "", shipper: "", consignee: "", bookingNumber: "", containerNumber: "", personalReference: "" },
+        issuedBy: randomUUID(),
+      })
+      .returning();
+    await tx.insert(invoiceLineTable).values(
+      settled.lines.map((l, i) => ({
+        companyId, invoiceId: note!.id, seq: i + 1, description: l.description, qty: "-1.00", unitPrice: l.unitPrice.toFixed(2), unitCurrency: l.unitCurrency,
+        net: l.net.toFixed(2), fxRate: "1", vatCode: "OUT" as const, vatRate: "0.00", sourceSellingCostId: l.sourceSellingCostId, correctsLineId: l.correctsLineId,
+      })),
+    );
+    await sellingCostRepository.insertCreditRows(tx, companyId, shipmentId, note!, settled.ownRows.map((l) => ({ id: l.sourceSellingCostId, sourceRowId: row.id, lineText: l.description, amount: l.unitPrice, currency: l.unitCurrency, vatCode: l.vatCode })));
+    await truckingLinesRepository.settleDiffs(tx, companyId, shipmentId, settled.shrink, settled.rest);
+  });
+  return settled;
+};
+
+/** The credits owed as the Money tab (creditOwedShipmentIds) and the billing queue (countCreditsOwed) count them. */
+const creditsOwed = async (companyId: string, shipmentId: string) => {
+  const [rows, open] = await Promise.all([sellingCostRepository.listLiveByShipments([shipmentId], companyId), invoiceRepository.listOpenInvoicesWithSources([shipmentId], companyId)]);
+  return { jobs: await invoiceRepository.creditOwedShipmentIds(companyId, 10), lines: countCreditsOwed(rows, open).get(shipmentId) ?? 0 };
+};
 
 describe("a Trucking price changed after the invoice (Y1 / P1)", () => {
   it("bills one difference line per currency, replacing any not on an invoice yet: lowered, put back, raised, pushed again", async () => {
@@ -203,6 +252,60 @@ describe("quote road estimates and Trucking's lines", () => {
     expect(markers).toEqual([[marker, "0.00"]]);
   });
 
+  it("the quote line's invoice credited: another consignment's road push leaves the line the first one is priced on, so the leg is billed again; the first one's own push takes it over", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const { selling } = await quoteRows(companyId, shipmentId);
+    const invoice = await invoiceOf(companyId, shipmentId, [selling]);
+    const marker = `${ref}:quote:${selling.id}`;
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("1000.00"));
+    expect(await liveSelling(shipmentId)).toEqual([[marker, "0.00"], [null, "1000.00"]].sort());
+    // Credited in full: the quote line is on no invoice any more - it bills the leg on the next one.
+    await db.update(invoiceTable).set({ status: "credited" }).where(eq(invoiceTable.id, invoice.id));
+    const other = `trucking:consignment:${randomUUID()}`;
+    await truckingLinesRepository.replace(companyId, shipmentId, other, [], push("400.00"));
+    expect(await live(s, selling.id)).toBe(true);
+    expect(await liveSelling(shipmentId)).toEqual([[other, "400.00"], [marker, "0.00"], [null, "1000.00"]].sort());
+    // The first consignment re-priced: its own lines bill the leg now, in place of the quote line - never both.
+    const after = vi.fn(async (_tx: unknown, _writes: SellingLineWrite[]) => undefined);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("1000.00"), "Price change after invoice", after);
+    expect(await live(s, selling.id)).toBe(false);
+    expect(await liveSelling(shipmentId)).toEqual([[other, "400.00"], [ref, "1000.00"]].sort());
+    // The quote line taken away and the consignment's own line come in its place: the job's status follows both.
+    expect(after.mock.calls[0]![1].map((w) => [w.before?.description ?? null, w.now?.amount ?? null])).toEqual([["Delivery", null], [null, "1000.00"]]);
+  });
+
+  it("the quote line's invoice credited, then the consignment priced on it cancelled: the quote line goes with it, so the leg is not billed again", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const { selling, buying } = await quoteRows(companyId, shipmentId);
+    const invoice = await invoiceOf(companyId, shipmentId, [selling]);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("1000.00"));
+    await db.update(invoiceTable).set({ status: "credited" }).where(eq(invoiceTable.id, invoice.id));
+    const after = vi.fn(async (_tx: unknown, _writes: SellingLineWrite[]) => undefined);
+    // Cancelled: the push brings no lines at all - still, the leg the quote line billed is gone with the consignment.
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], [], "Price change after invoice", after);
+    expect(await live(s, selling.id)).toBe(false);
+    expect(await liveSelling(shipmentId)).toEqual([]);
+    // A charge the job no longer has: its status follows. The buying estimate is no business of a selling push.
+    expect(after.mock.calls[0]![1].map((w) => [w.before?.description ?? null, w.before?.amount ?? null, w.now])).toEqual([["Delivery", "1000.00", null]]);
+    expect(await live(invoiceCostTable, buying.id)).toBe(true);
+  });
+
+  it("the quote line's invoice credited, the consignment's difference line still on another invoice, then the consignment cancelled: the quote line goes, and what the difference billed is owed back", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const { selling } = await quoteRows(companyId, shipmentId);
+    const quoteInvoice = await invoiceOf(companyId, shipmentId, [selling]);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("1100.00"));
+    const [diff] = await db.select().from(s).where(and(eq(s.shipmentId, shipmentId), eq(s.sourceTruckingRef, `${ref}:diff:1`)));
+    await invoiceOf(companyId, shipmentId, [diff!]);
+    await db.update(invoiceTable).set({ status: "credited" }).where(eq(invoiceTable.id, quoteInvoice.id));
+    const cancelled = await truckingLinesRepository.replace(companyId, shipmentId, ref, [], []);
+    expect(await live(s, selling.id)).toBe(false);
+    expect(cancelled.differences).toEqual([
+      { sourceRef: `${ref}:diff:1`, currency: "CZK", amount: 100 },
+      { sourceRef: `${ref}:diff:2`, currency: "CZK", amount: -100 },
+    ]);
+  });
+
   it("a re-push of a set left off the invoice keeps the day it first came on the job (m6)", async () => {
     const { companyId, shipmentId, ref } = job();
     await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("1000.00"));
@@ -249,9 +352,63 @@ describe("a credit owed, given on a credit note", () => {
     await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("950.00"));
     const diffs = await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [quote.id]);
     expect(diffs.get(quote.id)).toEqual([expect.objectContaining({ ref: `${ref}:diff:1`, currency: "CZK", amount: -50 })]);
-    // A row of no set (a hand-entered line) has none.
+    // A row of no set (a hand-entered line) gives the job's credit owed all the same: there is no other way to give it.
     const hand = await sellingRow(companyId, shipmentId, { description: "Handling" });
-    expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [hand.id])).size).toBe(0);
+    expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [hand.id])).get(hand.id)).toEqual([
+      expect.objectContaining({ ref: `${ref}:diff:1`, currency: "CZK", amount: -50 }),
+    ]);
+  });
+
+  it("a credited row settles its own set's credit owed first, then the job's others in Costs Breakdown order; a job owed nothing has none", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const other = `trucking:consignment:${randomUUID()}`;
+    const mine = await sellingRow(companyId, shipmentId, { sourceTruckingRef: ref });
+    const theirs = await sellingRow(companyId, shipmentId, { sourceTruckingRef: other, amount: "400.00" });
+    expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [mine.id])).size).toBe(0);
+    await invoiceOf(companyId, shipmentId, [mine, theirs]);
+    expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [mine.id])).size).toBe(0);
+    await truckingLinesRepository.replace(companyId, shipmentId, other, [], push("370.00"));
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("950.00"));
+    const discount = await sellingRow(companyId, shipmentId, { description: "Discount", amount: "-20.00", sortOrder: 1000 });
+    // A line above nothing, and the rows a master job's split keeps, are no credit owed it settles.
+    await sellingRow(companyId, shipmentId, { description: "Handling", amount: "80.00", sortOrder: 1001 });
+    await sellingRow(companyId, shipmentId, { description: "Demurrage share", amount: "-10.00", sourceMasterJobRef: `master:${randomUUID()}:${randomUUID()}`, sortOrder: 1002 });
+    const owed = await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [mine.id, theirs.id]);
+    expect(owed.get(mine.id)!.map((d) => [d.ref, d.amount])).toEqual([[`${ref}:diff:1`, -50], [`${other}:diff:1`, -30], [null, -20]]);
+    expect(owed.get(theirs.id)!.map((d) => [d.ref, d.amount])).toEqual([[`${other}:diff:1`, -30], [`${ref}:diff:1`, -50], [null, -20]]);
+    expect(owed.get(theirs.id)!.at(-1)!.id).toBe(discount.id);
+  });
+
+  it("a discount entered after the invoice is a credit owed like Trucking's: a partial credit note of any line gives it - it never comes off the next invoice as well", async () => {
+    const { companyId, shipmentId } = job();
+    const billed = await sellingRow(companyId, shipmentId, { description: "Ocean freight", category: "ocean_freight" });
+    const invoice = await invoiceOf(companyId, shipmentId, [billed]);
+    const discount = await sellingRow(companyId, shipmentId, { description: "Discount", category: "ocean_freight", amount: "-50.00" });
+    expect(await creditsOwed(companyId, shipmentId)).toEqual({ jobs: [shipmentId], lines: 1 });
+
+    // The manager approves a partial credit note of 50 of the freight line: its line bills the discount, no negative row of its own.
+    const credit = await creditNoteOf(companyId, shipmentId, invoice.id, billed, 50);
+    expect(credit.ownRows).toEqual([]);
+    expect(credit.lines.map((l) => l.sourceSellingCostId)).toEqual([discount.id]);
+    // Nothing below nothing is left on no document: no credit owed, and the next invoice has nothing to take off.
+    expect(await creditsOwed(companyId, shipmentId)).toEqual({ jobs: [], lines: 0 });
+    expect((await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId)).has(discount.id)).toBe(true);
+  });
+
+  it("a discount credited in part comes down to what was credited, and the rest stays owed as a line like it", async () => {
+    const { companyId, shipmentId } = job();
+    const billed = await sellingRow(companyId, shipmentId, { description: "Ocean freight", category: "ocean_freight" });
+    const invoice = await invoiceOf(companyId, shipmentId, [billed]);
+    const discount = await sellingRow(companyId, shipmentId, { description: "Discount", category: "ocean_freight", amount: "-50.00", vatCode: "OUT" });
+    const credit = await creditNoteOf(companyId, shipmentId, invoice.id, billed, 30);
+    expect(credit.lines.map((l) => l.sourceSellingCostId)).toEqual([discount.id]);
+    const live = (await db.select().from(s).where(and(eq(s.shipmentId, shipmentId), isNull(s.deletedAt)))).filter((r) => r.description === "Discount");
+    expect(live.map((r) => [r.id === discount.id, r.amount, r.sourceTruckingRef, r.invoice, r.vatCode]).sort()).toEqual([
+      [false, "-20.00", null, true, "OUT"],
+      [true, "-30.00", null, true, "OUT"],
+    ]);
+    // The rest is still owed - it goes on the next invoice or the next credit note, once.
+    expect(await creditsOwed(companyId, shipmentId)).toEqual({ jobs: [shipmentId], lines: 1 });
   });
 
   it("after a full credit, retires a set that comes to nothing on no invoice (a consignment cancelled after the invoice); keeps one still billed", async () => {

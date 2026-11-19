@@ -48,7 +48,17 @@ import {
   followupsOfPartialCreditNote,
   type FollowupActor,
 } from "./invoiceFollowups.service";
-import { fullCreditLines, fullCreditTotalsAfter, partialCreditTotals, planPartialCredit, remainingLines, settleTruckingCredit, type CreditLineCalc, type RemainingLine } from "../lib/partialCredit";
+import {
+  fullCreditLines,
+  fullCreditTotalsAfter,
+  partialCreditTotals,
+  planPartialCredit,
+  remainingLines,
+  sameCreditsOwed,
+  settleTruckingCredit,
+  type CreditLineCalc,
+  type RemainingLine,
+} from "../lib/partialCredit";
 import { creditNoteRequestRepository } from "../repositories/creditNoteRequest.repository";
 import { invoiceChangeRequestRepository } from "../repositories/invoiceChangeRequest.repository";
 import type { InvoiceChangeRequestRecord } from "../schemas/invoiceChangeRequest.schema";
@@ -280,7 +290,9 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
     problems.push(alreadyInvoiced.size ? "Every ticked selling row is invoiced already" : "Tick at least one selling row for Invoice");
   }
   // What is left is a credit owed (a Trucking price lowered after the invoice, a discount added late):
-  // it is given on a credit note of the invoice, which settles it (Y1 / P1).
+  // it is given on a credit note of the invoice, which settles it (Y1 / P1) - any line below nothing on
+  // no invoice, not only Trucking's (truckingLinesRepository openCreditDiffs), so the line never comes
+  // off the next invoice as well.
   else if (calc.gross <= 0) problems.push(alreadyInvoiced.size ? "The invoice total must be above zero: what is left is a credit - give it on a credit note of the invoice" : "The invoice total must be above zero");
 
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
@@ -801,8 +813,9 @@ class InvoiceDocumentService {
   /**
    * Issues the partial credit note a manager approved (services/creditNoteRequest): the lines asked,
    * checked again against what is left of the invoice now. In the same transaction the request is
-   * marked approved with it, and a negative selling row goes on the shipment for every credited line,
-   * so its revenue and profit drop by what was credited. Once per request (its idempotency key).
+   * marked approved with it, and every credited line either settles a credit the job is owed (a line
+   * below nothing on no invoice) or puts a negative selling row on the shipment, so its revenue and
+   * profit drop by what was credited, once. Once per request (its idempotency key).
    */
   async issuePartialCredit(request: CreditNoteRequestRecord, approver: { userId: string; userEmail: string; comment: string }): Promise<InvoiceDocItem> {
     const companyId = request.companyId;
@@ -816,9 +829,11 @@ class InvoiceDocumentService {
       const { credits, remaining } = await creditState(original, companyId);
       const plan = planPartialCredit(remaining, request.lines.map((l) => ({ lineId: l.lineId, amount: l.amount })));
       if ("problem" in plan) throw APIError.failedPrecondition(`${plan.problem}. The invoice has changed since this was asked: reject the request`);
-      // Each line bills the row it settles: a credit Trucking says is owed on the line's set (its
-      // "Price change after invoice" below nothing), else the negative row it puts on the shipment (Y1 / P1).
-      const diffs = await truckingLinesRepository.openCreditDiffs(db, companyId, original.shipmentId, plan.lines.flatMap((l) => (l.sourceSellingCostId ? [l.sourceSellingCostId] : [])));
+      // Each line bills the row it settles: a credit the job is owed - first one Trucking says is owed on the
+      // line's set (its "Price change after invoice" below nothing), then any other line below nothing on no
+      // invoice - else the negative row it puts on the shipment (Y1 / P1).
+      const creditedRows = plan.lines.flatMap((l) => (l.sourceSellingCostId ? [l.sourceSellingCostId] : []));
+      const diffs = await truckingLinesRepository.openCreditDiffs(db, companyId, original.shipmentId, creditedRows);
       const settled = settleTruckingCredit(plan.lines, (rowId) => (rowId ? (diffs.get(rowId) ?? []) : []), randomUUID);
       const calcLines = settled.lines;
       const ownRowIds = new Set(settled.ownRows.map((l) => l.sourceSellingCostId));
@@ -834,13 +849,12 @@ class InvoiceDocumentService {
             if ((await invoiceRepository.creditNotesOf(original.id, companyId, tx)).length !== credits.length) {
               throw APIError.failedPrecondition(`Invoice ${original.number} was credited a moment ago: open the request again`);
             }
-            // The credits owed it settles, read again under the shipment's lock: a Trucking push meanwhile changed what is owed.
-            if (settled.settled.length) {
-              const now = await truckingLinesRepository.openCreditDiffs(tx, companyId, original.shipmentId, [...diffs.keys()]);
-              const still = new Map([...now.values()].flat().map((d) => [d.id, d.version]));
-              if (settled.settled.some((d) => still.get(d.id) !== d.version)) {
-                throw APIError.failedPrecondition("Trucking changed the price of this job a moment ago: open the request again");
-              }
+            // The credits owed, read again under the shipment's lock - also when the first read found none: a
+            // Trucking push (or a line below nothing entered) meanwhile changed what is owed, or made a credit
+            // owed this note would leave open to come off the next invoice as well.
+            const now = await truckingLinesRepository.openCreditDiffs(tx, companyId, original.shipmentId, creditedRows);
+            if (!sameCreditsOwed(diffs, now)) {
+              throw APIError.failedPrecondition("Trucking changed the price of this job a moment ago, or a line below zero changed: open the request again");
             }
           },
           afterInsert: async (tx, inserted) => {

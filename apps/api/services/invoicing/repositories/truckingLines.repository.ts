@@ -119,13 +119,13 @@ class TruckingLinesRepository {
       // Trucking writes its own road lines of that side, or the cost or the charge is counted twice.
       // Each side by itself (Z1): an internal job's push brings only its buying line, and must not
       // take the customer's road charge away. Only untouched estimates go - nothing with a real cost,
-      // a vendor invoice or on an invoice.
+      // a vendor invoice or on an invoice. A quote line a consignment was priced on, its invoice
+      // credited since, goes with that consignment's next push, whatever it brings (and never with
+      // another one's).
       const roadSelling = isRoad(selling);
       const roadBuying = isRoad(buying);
-      if (roadSelling || roadBuying) {
-        const retired = await this.retireQuoteRoadEstimates(tx, companyId, shipmentId, { selling: roadSelling, buying: roadBuying });
-        writes.push(...retired.map((before) => ({ before, now: null })));
-      }
+      const retired = await this.retireQuoteRoadEstimates(tx, companyId, shipmentId, sourceRef, { selling: roadSelling, buying: roadBuying });
+      writes.push(...retired.map((before) => ({ before, now: null })));
       const of = (table: CostTable) =>
         and(eq(table.companyId, companyId), eq(table.shipmentId, shipmentId), eq(table.sourceTruckingRef, sourceRef), isNull(table.deletedAt));
 
@@ -323,8 +323,20 @@ class TruckingLinesRepository {
   /**
    * Retires the quote's road estimates Trucking's own lines replace, of the sides it writes road lines
    * of (`which`); answers the selling rows it took away. A quote road selling line on an invoice stays.
+   *
+   * A quote road selling line a consignment's marker names (n8, B1) is that consignment's price of the
+   * leg, once its invoice was credited or cancelled too: the set has only its marker, and the line, open
+   * again, is what bills the leg on the next invoice. So another set's push never retires it (the leg
+   * would be billed by nothing), and the push of the set that names it always does, whatever lines it
+   * brings - its own price of the leg now (a cancelled one: none), or the line would bill the leg again.
    */
-  private async retireQuoteRoadEstimates(tx: Tx, companyId: string, shipmentId: string, which: { selling: boolean; buying: boolean }): Promise<InvoiceSellingCostRecord[]> {
+  private async retireQuoteRoadEstimates(
+    tx: Tx,
+    companyId: string,
+    shipmentId: string,
+    sourceRef: string,
+    which: { selling: boolean; buying: boolean },
+  ): Promise<InvoiceSellingCostRecord[]> {
     const now = new Date();
     const c = invoiceCostTable;
     const buying = which.buying
@@ -347,11 +359,18 @@ class TruckingLinesRepository {
           .returning({ id: c.id })
       : [];
     let selling: InvoiceSellingCostRecord[] = [];
-    if (which.selling) {
+    // Only a consignment's set has markers of its own; any road push must know the other sets'.
+    if (which.selling || sourceRef.startsWith("trucking:consignment:")) {
       const s = invoiceSellingCostTable;
-      const candidates = await tx.select({ id: s.id }).from(s).where(quoteRoadSelling(companyId, shipmentId));
+      const markers = await tx
+        .select({ ref: s.sourceTruckingRef })
+        .from(s)
+        .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt), like(s.sourceTruckingRef, "trucking:consignment:%:quote:%")));
+      const ownNamed = new Set(markers.filter((m) => isQuoteAnchor(m.ref, sourceRef)).map((m) => anchoredQuoteRowOf(m.ref)));
+      const otherNamed = new Set(markers.filter((m) => !isQuoteAnchor(m.ref, sourceRef)).map((m) => anchoredQuoteRowOf(m.ref)));
+      const candidates = which.selling || ownNamed.size ? await tx.select({ id: s.id }).from(s).where(quoteRoadSelling(companyId, shipmentId)) : [];
       const invoiced = candidates.length ? await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx) : new Set<string>();
-      const sellingIds = candidates.map((r) => r.id).filter((id) => !invoiced.has(id));
+      const sellingIds = candidates.map((r) => r.id).filter((id) => !invoiced.has(id) && !otherNamed.has(id) && (which.selling || ownNamed.has(id)));
       selling = sellingIds.length ? await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(inArray(s.id, sellingIds)).returning() : [];
     }
     if (buying.length || selling.length) {
@@ -361,17 +380,38 @@ class TruckingLinesRepository {
   }
 
   /**
-   * The Trucking difference lines below nothing on no invoice yet (a credit owed: a price lowered
-   * after the invoice), of the sets the given selling rows belong to - by the row: what a partial
-   * credit note of an invoice line made from that row settles (lib/partialCredit settleTruckingCredit).
-   * The invoiced quote road line a consignment is priced on belongs to that consignment's set (M2):
-   * its line credited in part settles the set's credit owed.
+   * The credits owed a partial credit note of invoice lines made from the given selling rows settles
+   * (lib/partialCredit settleTruckingCredit) - by the row, in the order it settles them: first the
+   * Trucking difference lines below nothing of the set the row belongs to (a price lowered after the
+   * invoice; the invoiced quote road line a consignment is priced on belongs to that consignment's set,
+   * M2), then every other line of the job below nothing on no document billing it - another set's
+   * difference line, a discount entered after the invoice.
+   *
+   * Why every one: each such line is a credit owed (lib/billingQueue countCreditsOwed, invoiceRepository
+   * creditOwedShipmentIds), and issuing refuses an invoice that would only give it back - "give it on a
+   * credit note of the invoice". A credit note that left it open would leave it ticked for the next
+   * invoice, which takes it off again: the customer credited twice. So a credit given while the job is
+   * owed one gives that first (its own set's before any other, as Trucking's price change of the line
+   * credited is the likeliest reason); only what goes beyond it is a credit of its own. Left out: the
+   * rows a master job's split keeps (the split writes them, not a settlement), and a credit note's own
+   * rows (open again only when their invoice was credited in full: billed again with its lines).
    */
   async openCreditDiffs(reader: Reader, companyId: string, shipmentId: string, rowIds: string[]): Promise<Map<string, OpenCreditDiff[]>> {
     const out = new Map<string, OpenCreditDiff[]>();
     const ids = [...new Set(rowIds)];
     if (!ids.length) return out;
     const s = invoiceSellingCostTable;
+    const below = (
+      await reader
+        .select({ id: s.id, ref: s.sourceTruckingRef, qty: s.qty, amount: s.amount, currency: s.currency, updatedAt: s.updatedAt })
+        .from(s)
+        .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt), isNull(s.sourceMasterJobRef), isNull(s.sourceCreditNoteId)))
+        .orderBy(asc(s.sortOrder), asc(s.createdAt))
+    ).filter((r) => valueOf(r) < 0);
+    if (!below.length) return out;
+    const invoiced = await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, reader);
+    const open = below.filter((r) => !invoiced.has(r.id));
+    if (!open.length) return out;
     const sources = await reader
       .select({
         id: s.id,
@@ -391,32 +431,21 @@ class TruckingLinesRepository {
       sources.map((r) => ({ ...r, quoteRoad: r.quoteRoad === true })),
       consignmentRows,
     );
-    const sets = [...new Set(setOf.values())];
-    if (!sets.length) return out;
-    const diffs = await reader
-      .select({ id: s.id, ref: s.sourceTruckingRef, qty: s.qty, amount: s.amount, currency: s.currency, updatedAt: s.updatedAt })
-      .from(s)
-      .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt), or(...sets.map((ref) => like(s.sourceTruckingRef, `${ref}:diff:%`)))))
-      .orderBy(asc(s.sortOrder), asc(s.createdAt));
-    const invoiced = await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, reader);
-    const open = diffs.filter((d) => !invoiced.has(d.id) && valueOf(d) < 0);
-    for (const [rowId, set] of setOf) {
-      const ofSet = open.filter((d) => setRefOf(d.ref) === set);
-      if (ofSet.length) {
-        out.set(
-          rowId,
-          ofSet.map((d) => ({ id: d.id, ref: d.ref!, currency: d.currency, amount: valueOf(d), version: d.updatedAt.getTime() })),
-        );
-      }
+    const owed = (d: (typeof open)[number]): OpenCreditDiff => ({ id: d.id, ref: d.ref, currency: d.currency, amount: valueOf(d), version: d.updatedAt.getTime() });
+    for (const rowId of ids) {
+      const set = setOf.get(rowId);
+      const ofSet = set ? open.filter((d) => isDifferenceOf(d.ref, set)) : [];
+      out.set(rowId, [...ofSet, ...open.filter((d) => !ofSet.includes(d))].map(owed));
     }
     return out;
   }
 
   /**
-   * What a partial credit note did to the Trucking difference lines it settles (lib/partialCredit
+   * What a partial credit note did to the credits owed it settles (lib/partialCredit
    * settleTruckingCredit), in its own transaction: a line settled in part comes down to what was
-   * credited (`shrink`), and what is left of it stays owed as a difference line of its own (`rest`),
-   * so the set still comes to Trucking's price and a re-push bills nothing again. A rest comes with the
+   * credited (`shrink`), and what is left of it stays owed as a line of its own (`rest`) - of a
+   * Trucking set, a difference line of the set, so the set still comes to Trucking's price and a
+   * re-push bills nothing again; of a line kept by hand, a line like it. A rest comes with the
    * id it is written under when a later line of the same credit note settles it (m8): that line bills it.
    */
   async settleDiffs(
@@ -433,9 +462,11 @@ class TruckingLinesRepository {
     }
     for (const { fromId, amount, id } of rest) {
       const [from] = await tx.select().from(s).where(and(eq(s.id, fromId), eq(s.companyId, companyId)));
-      const setRef = setRefOf(from?.sourceTruckingRef);
-      if (!from || !setRef) continue;
-      const everRefs = await tx.select({ ref: s.sourceTruckingRef }).from(s).where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), like(s.sourceTruckingRef, `${setRef}:diff:%`)));
+      if (!from) continue;
+      const setRef = setRefOf(from.sourceTruckingRef);
+      const everRefs = setRef
+        ? await tx.select({ ref: s.sourceTruckingRef }).from(s).where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), like(s.sourceTruckingRef, `${setRef}:diff:%`)))
+        : [];
       const next = await this.nextSort(tx, s, companyId, shipmentId);
       await tx.insert(s).values({
         ...(id ? { id } : {}),
@@ -447,9 +478,9 @@ class TruckingLinesRepository {
         qty: "1.00",
         amount: (-amount).toFixed(2),
         currency: from.currency,
-        invoice: true,
+        invoice: from.invoice,
         vatCode: from.vatCode,
-        sourceTruckingRef: differenceRef(setRef, nextDifferenceNumber(setRef, everRefs.map((r) => r.ref))),
+        sourceTruckingRef: setRef ? differenceRef(setRef, nextDifferenceNumber(setRef, everRefs.map((r) => r.ref))) : null,
         sortOrder: next,
       });
     }

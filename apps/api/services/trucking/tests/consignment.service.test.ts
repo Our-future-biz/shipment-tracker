@@ -776,6 +776,39 @@ describe("a price change after the customer invoice (decision 9, C8)", () => {
     expect(eventsOf("selling_difference_pushed")).toHaveLength(2);
   });
 
+  it("one notice per set and currency: a newer difference line - the price changed again, or what a credit note left owed - replaces the earlier one's, so they never add up to more than is owed", async () => {
+    const { c } = await seed();
+    const ref = `trucking:consignment:${c.id}`;
+    const attention = async () => (await consignmentService.get(user, c.id)).needsAttention.filter((r) => r.startsWith("Price change after invoice"));
+    // 1000 → 950: a credit of 50 owed; an EUR line and another set's line beside it.
+    await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [
+      { sourceRef: `${ref}:diff:1`, currency: "CZK", amount: -50 },
+      { sourceRef: `${ref}:diff:1`, currency: "EUR", amount: 20 },
+      { sourceRef: `trucking:exception:${c.id}:diff:1`, currency: "CZK", amount: 300 },
+    ]);
+    // 950 → 900 before the credit was given: Invoicing answers one line of −100 in place of the −50.
+    expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [
+      { sourceRef: `${ref}:diff:1`, currency: "EUR", amount: 20 },
+      { sourceRef: `${ref}:diff:2`, currency: "CZK", amount: -100 },
+    ])).toBe(1);
+    expect(await attention()).toEqual([
+      "Price change after invoice: +20 EUR added to job CZ00000042 as its own line — invoice it",
+      "Price change after invoice: +300 CZK added to job CZ00000042 as its own line — invoice it",
+      "Price change after invoice: −100 CZK on job CZ00000042 — a credit is owed: give it on a credit note of the invoice",
+    ]);
+    // A credit note gave 60 of it: the line comes down to −60, and the −40 left owed is a line of its own.
+    await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [
+      { sourceRef: `${ref}:diff:3`, currency: "CZK", amount: -40 },
+      { sourceRef: `${ref}:diff:2`, currency: "CZK", amount: -60 },
+    ]);
+    expect((await attention()).filter((r) => r.includes(" CZK on job"))).toEqual([
+      "Price change after invoice: −40 CZK on job CZ00000042 — a credit is owed: give it on a credit note of the invoice",
+    ]);
+    // Every line is recorded once all the same; a replaced notice never comes back.
+    expect(eventsOf("selling_difference_pushed")).toHaveLength(5);
+    expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [{ sourceRef: `${ref}:diff:2`, currency: "CZK", amount: -60 }])).toBe(0);
+  });
+
   it("a cancel after invoicing: the negative difference keeps the cancelled consignment in Needs attention", async () => {
     const { c } = await seed();
     await consignmentService.cancel(manager, c.id, "Customer cancelled");
