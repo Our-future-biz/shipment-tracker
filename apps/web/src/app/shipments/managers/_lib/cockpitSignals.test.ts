@@ -14,6 +14,7 @@ import {
   listWithSignal,
   loadFailedText,
   notKnownText,
+  serverCard,
   showingLabel,
   signalFigure,
   signalOf,
@@ -79,7 +80,8 @@ const row = (...kinds: (string | undefined)[]): OpsCockpitRow => ({
   tags: kinds.map((k) => tag(k)),
 });
 const whole = (rows: OpsCockpitRow[]) => ({ total: rows.length, rows });
-const tiles = (signals: Record<string, number>, over: Partial<OpsCockpitTiles> = {}): OpsCockpitTiles => ({
+/** The tiles of an answer: `families` - the server's count of each signal tile - and the per-kind `signals`. */
+const tiles = (families: Record<string, number>, over: Partial<OpsCockpitTiles> = {}): OpsCockpitTiles => ({
   active: 0,
   cutoffsDue: 0,
   noHandledBy: 0,
@@ -90,7 +92,8 @@ const tiles = (signals: Record<string, number>, over: Partial<OpsCockpitTiles> =
   customsUrgent: 0,
   notReleased: 0,
   openClaims: 0,
-  signals,
+  signals: {},
+  families,
   ...over,
 });
 
@@ -116,7 +119,7 @@ describe("Shipments → Managers: the signal tiles", () => {
   it("puts late to-dos and unread @mentions on one tile, and the jobs nobody touched on their own", () => {
     expect(family("todo").kinds).toEqual(["todo", "mention"]);
     expect(family("not_touched").kinds).toEqual(["not_touched"]);
-    // Counted over the cards' rows and by the server's own count: neither has a figure of a narrower rule.
+    // Each is the server's count of the tile: neither has a figure of a narrower rule.
     expect(family("todo").figure).toBeUndefined();
     expect(family("not_touched").figure).toBeUndefined();
   });
@@ -125,9 +128,8 @@ describe("Shipments → Managers: the signal tiles", () => {
     expect(family("away").kinds).toEqual(["away"]);
     expect(family("claim").kinds).toEqual(["claim"]);
     expect(family("away").figure).toBeUndefined();
-    const empty = whole([]);
-    expect(signalFigure(family("away"), { tiles: tiles({ away: 3, not_user: 1 }), urgent: empty, attention: empty })).toEqual({ count: 3, atLeast: false });
-    expect(signalFigure(family("claim"), { tiles: tiles({ claim: 2 }), urgent: empty, attention: empty })).toEqual({ count: 2, atLeast: false });
+    expect(signalFigure(family("away"), { tiles: tiles({ away: 3, not_user: 1 }) })).toEqual({ count: 3, atLeast: false });
+    expect(signalFigure(family("claim"), { tiles: tiles({ claim: 2 }) })).toEqual({ count: 2, atLeast: false });
     // Where the time limits are switched is said on hover, and that they are off until confirmed.
     expect(family("claim").note).toContain("Settings tab");
     // One tile for all three: Handled By away with no cover, both away, the cover away - under the same address key.
@@ -284,94 +286,81 @@ describe("Shipments → Managers: the cards narrowed to a signal", () => {
 });
 
 describe("Shipments → Managers: a signal tile's figure", () => {
-  const empty = whole([]);
-
-  it("is the server's count of the rows with the family's one kind", () => {
-    const cockpit = { tiles: tiles({ booking: 7, customs: 3, paperwork: 0 }), urgent: empty, attention: empty };
+  it("is the server's count of the tile, over every row of the page", () => {
+    const cockpit = { tiles: tiles({ booking: 7, customs: 3, paperwork: 0 }) };
     expect(signalFigure(family("booking"), cockpit)).toEqual({ count: 7, atLeast: false });
     expect(signalFigure(family("customs"), cockpit)).toEqual({ count: 3, atLeast: false });
     expect(signalFigure(family("paperwork"), cockpit)).toEqual({ count: 0, atLeast: false });
   });
 
   it("is the urgent cut-offs for Cut-offs due or missed, not every row with a cut-off tag", () => {
-    const cockpit = { tiles: tiles({ cutoff: 9 }, { cutoffsDue: 4 }), urgent: empty, attention: empty };
+    const cockpit = { tiles: tiles({ cutoff: 9 }, { cutoffsDue: 4 }) };
     expect(signalFigure(family("cutoff"), cockpit)).toEqual({ count: 4, atLeast: false });
   });
 
   it("is step 1's figure for Handled By is not a user, and not known when the users could not be read", () => {
-    expect(signalFigure(family("not_user"), { tiles: tiles({ owner: 12, not_user: 2 }, { handledByNotUser: 2 }), urgent: empty, attention: empty })).toEqual({ count: 2, atLeast: false });
-    const unknown = signalFigure(family("not_user"), { tiles: tiles({ owner: 12, not_user: 0 }, { handledByNotUser: null }), urgent: empty, attention: empty });
+    expect(signalFigure(family("not_user"), { tiles: tiles({ not_user: 2 }, { handledByNotUser: 2 }) })).toEqual({ count: 2, atLeast: false });
+    const unknown = signalFigure(family("not_user"), { tiles: tiles({ not_user: 0 }, { handledByNotUser: null }) });
     expect(unknown.count).toBeNull();
     expect(figureText(unknown)).toBe("–");
   });
 
-  it("counts a row with two kinds of one family once", () => {
-    const urgent = whole([row("delivery", "road"), row("road"), row("customs")]);
-    const attention = whole([row("warehouse"), row("cutoff")]);
+  it("is the server's count for a tile of several kinds - a row with two of them counted once there - not the sum of its kinds", () => {
     // Per kind the server says delivery 1, road 2, warehouse 1: four tags' worth on three rows.
-    const cockpit = { tiles: tiles({ delivery: 1, road: 2, warehouse: 1 }), urgent, attention };
+    const cockpit = { tiles: tiles({ delivery: 3, todo: 3 }, { signals: { delivery: 1, road: 2, warehouse: 1, todo: 2, mention: 2 } }) };
     expect(signalFigure(family("delivery"), cockpit)).toEqual({ count: 3, atLeast: false });
-  });
-
-  it("says at least when a card is cut and the rest may hold more", () => {
-    const urgent = { total: 260, rows: [row("departure"), row("arrival"), row("departure", "arrival")] };
-    const cockpit = { tiles: tiles({ departure: 20, arrival: 15 }), urgent, attention: empty };
-    // 20 rows have a departure tag, so at least 20; at most 35.
-    const figure = signalFigure(family("departure"), cockpit);
-    expect(figure).toEqual({ count: 20, atLeast: true });
-    expect(figureText(figure)).toBe("20+");
-  });
-
-  it("is exact for a cut card when only one of the kinds counts anything", () => {
-    const urgent = { total: 260, rows: [row("departure")] };
-    const cockpit = { tiles: tiles({ departure: 20, arrival: 0 }), urgent, attention: empty };
-    expect(signalFigure(family("departure"), cockpit)).toEqual({ count: 20, atLeast: false });
-  });
-
-  it("counts a job with a late to-do and an unread @mention once on To-dos and @mentions", () => {
-    const urgent = whole([row("todo", "mention"), row("mention")]);
-    const attention = whole([row("todo"), row("not_touched"), row("cutoff")]);
-    // Per kind the server says todo 2, mention 2: four tags' worth on three rows.
-    const cockpit = { tiles: tiles({ todo: 2, mention: 2, not_touched: 1 }), urgent, attention };
     expect(signalFigure(family("todo"), cockpit)).toEqual({ count: 3, atLeast: false });
+  });
+
+  it("is exact whatever the cards hold: cut at their limit, or narrowed by the server to another tile", () => {
+    // The cards are not read at all: a tile's figure is never "12+", and a click on another tile changes none.
+    const cockpit = { tiles: tiles({ departure: 35, not_touched: 1 }), urgent: { total: 260, rows: [row("cutoff")] }, attention: whole([]) };
+    expect(signalFigure(family("departure"), cockpit)).toEqual({ count: 35, atLeast: false });
+    expect(figureText(signalFigure(family("departure"), cockpit))).toBe("35");
     expect(signalFigure(family("not_touched"), cockpit)).toEqual({ count: 1, atLeast: false });
-    expect(listWithSignal(attention, family("todo")).rows).toHaveLength(1);
-    expect(listWithSignal(attention, family("not_touched")).rows).toHaveLength(1);
   });
 
-  it("reads step 3's kinds as none in an answer from before step 3", () => {
-    const cockpit = { tiles: tiles({ cutoff: 2 }), urgent: empty, attention: empty };
-    expect(signalFigure(family("todo"), cockpit)).toEqual({ count: 0, atLeast: false });
-    expect(signalFigure(family("not_touched"), cockpit)).toEqual({ count: 0, atLeast: false });
+  it("reads a tile the answer does not count as none", () => {
+    expect(signalFigure(family("request"), { tiles: tiles({}) })).toEqual({ count: 0, atLeast: false });
   });
 
-  it("reads a kind the answer does not hold as none", () => {
-    expect(signalFigure(family("request"), { tiles: tiles({}), urgent: empty, attention: empty })).toEqual({ count: 0, atLeast: false });
-  });
-
-  it("does not fall over an answer from before step 2: no signals, tags and rows that name no kind", () => {
+  it("does not fall over an answer from before the server counted the tiles: no families, tags and rows that name no kind", () => {
     // As the old answer comes off the wire: the fields are not there at all.
-    const old = JSON.parse(JSON.stringify({ ...tiles({}, { cutoffsDue: 3, handledByNotUser: 1 }), signals: undefined })) as OpsCockpitTiles;
+    const old = JSON.parse(JSON.stringify({ ...tiles({}, { cutoffsDue: 3, handledByNotUser: 1 }), families: undefined, signals: undefined })) as OpsCockpitTiles;
     const oldRow = JSON.parse(JSON.stringify({ ...row(undefined, undefined), kind: undefined })) as OpsCockpitRow;
-    expect(old).not.toHaveProperty("signals");
+    expect(old).not.toHaveProperty("families");
     expect(oldRow).not.toHaveProperty("kind");
     expect(oldRow.tags[0]).not.toHaveProperty("kind");
-    const urgent = { total: 260, rows: [oldRow] };
-    const cockpit = { tiles: old, urgent, attention: empty };
+    const cockpit = { tiles: old };
     for (const f of SIGNAL_FAMILIES) expect(() => signalFigure(f, cockpit), f.key).not.toThrow();
     // What step 1 counted is still shown; what it did not count reads as none.
     expect(signalFigure(family("cutoff"), cockpit)).toEqual({ count: 3, atLeast: false });
     expect(signalFigure(family("not_user"), cockpit)).toEqual({ count: 1, atLeast: false });
     expect(signalFigure(family("booking"), cockpit)).toEqual({ count: 0, atLeast: false });
     expect(signalFigure(family("delivery"), cockpit)).toEqual({ count: 0, atLeast: false });
-    // The cards narrow to nothing, and a row's tags are drawn as they are.
-    expect(listWithSignal(urgent, family("delivery"))).toMatchObject({ total: 0, rows: [], listed: 1, cut: true });
-    expect(tagsShown(urgent.rows[0]!.tags, family("delivery"), CARD_TAG_LIMIT).shown).toHaveLength(2);
+    // A row's tags are drawn as they are.
+    expect(tagsShown(oldRow.tags, family("delivery"), CARD_TAG_LIMIT).shown).toHaveLength(2);
   });
 
   it("shows the figure as it is, zero included", () => {
     expect(figureText({ count: 0, atLeast: false })).toBe("0");
     expect(figureText({ count: 14, atLeast: false })).toBe("14");
+  });
+});
+
+describe("Shipments → Managers: a card the server narrowed", () => {
+  it("is shown as the server sent it: every row of the signal counted, the first of them listed", () => {
+    // The server narrowed before it cut: 260 rows have the signal, 200 are listed.
+    const rows = Array.from({ length: 200 }, () => row("not_touched"));
+    expect(serverCard({ total: 260, rows })).toEqual({ total: 260, rows, listed: 200, cut: false });
+    expect(serverCard(whole([]))).toEqual({ total: 0, rows: [], listed: 0, cut: false });
+  });
+
+  it("says no \"among the first\": nothing of the signal was left out of the narrowing", () => {
+    const card = { title: "Urgent", window: "act today", empty: "Nothing urgent.", dialog: "URGENT jobs", linkLabel: "Show" };
+    const narrowed = serverCard({ total: 260, rows: Array.from({ length: 200 }, () => row("not_touched")) });
+    expect(windowWithSignal("act today", narrowed)).toBe("act today");
+    expect(cardWithSignal(card, "urgent", family("not_touched"), narrowed)).toEqual({ ...card, empty: EMPTY_WITH_SIGNAL.urgent, dialog: "URGENT jobs · Not touched" });
   });
 });
 

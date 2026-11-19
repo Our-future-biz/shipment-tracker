@@ -26,6 +26,9 @@ const NOW = new Date("2026-11-18T10:00:00Z");
 const job = (over = {}) => ({
   id: SHIPMENT,
   jobNumber: "CZFCL00000001",
+  tradeDirection: "Export",
+  freightMode: "Sea Freight",
+  department: "Operation Department",
   estimatedDeparture: "2026-11-20",
   actualDeparture: null,
   actualArrival: null,

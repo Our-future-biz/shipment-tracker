@@ -8,6 +8,13 @@
 const MODE_LABELS = { sea: "Sea", air: "Air", rail: "Rail", road: "Road" } as const;
 export type ListMode = keyof typeof MODE_LABELS;
 
+/**
+ * Which way a job goes, as the list's `direction` filter names it: Shipments → Managers' Trade
+ * Direction, matched on the server over every job (trimmed, in any case), not among the rows loaded.
+ */
+const DIRECTION_LABELS = { import: "Import", export: "Export", domestic: "Domestic" } as const;
+export type ListDirection = keyof typeof DIRECTION_LABELS;
+
 /** The address value of Handled By that asks for the jobs nobody handles. */
 export const HANDLED_BY_NOBODY = "nobody";
 
@@ -23,7 +30,7 @@ const CUSTOMS_LABELS = { urgent: "Customs: urgent" } as const;
 const INVOICING_LABELS = { "unbilled-arrivals": "Arrived, not released for billing" } as const;
 
 /** The address parameters that show as a chip. */
-export type AddressFilterParam = "handledBy" | "mode" | "customs" | "invoicing" | "tile";
+export type AddressFilterParam = "handledBy" | "mode" | "direction" | "customs" | "invoicing" | "tile";
 
 /** One filter the address holds, as the chip over the table says it. */
 export interface AddressFilterChip {
@@ -34,8 +41,8 @@ export interface AddressFilterChip {
 
 export interface AddressFilters {
   /** What the list request is narrowed by; a value the list does not know is left out. */
-  request: { handledBy?: string; mode?: ListMode; customs?: string; invoicing?: string };
-  /** The chips, in a fixed order: who, how it travels, then what is wrong with it. */
+  request: { handledBy?: string; mode?: ListMode; direction?: ListDirection; customs?: string; invoicing?: string };
+  /** The chips, in a fixed order: who, how and which way it travels, then what is wrong with it. */
   chips: AddressFilterChip[];
 }
 
@@ -43,8 +50,8 @@ const known = <T extends Record<string, string>>(labels: T, value: string): valu
 
 /**
  * The filters the list's address holds. A value the list does not know (`mode=ship`,
- * `customs=later`) is ignored: no chip, and nothing sent for it. Handled By takes any text - a
- * person nobody is, is simply found on no job, and the chip says who was asked for.
+ * `direction=inbound`, `customs=later`) is ignored: no chip, and nothing sent for it. Handled By
+ * takes any text - a person nobody is, is simply found on no job, and the chip says who was asked for.
  */
 export function addressFiltersOf(params: Pick<URLSearchParams, "get">): AddressFilters {
   const request: AddressFilters["request"] = {};
@@ -62,6 +69,12 @@ export function addressFiltersOf(params: Pick<URLSearchParams, "get">): AddressF
   if (known(MODE_LABELS, mode)) {
     request.mode = mode;
     chips.push({ param: "mode", label: `Mode: ${MODE_LABELS[mode]}` });
+  }
+
+  const direction = value("direction").toLowerCase();
+  if (known(DIRECTION_LABELS, direction)) {
+    request.direction = direction;
+    chips.push({ param: "direction", label: `Trade Direction: ${DIRECTION_LABELS[direction]}` });
   }
 
   const customs = value("customs").toLowerCase();
@@ -100,8 +113,8 @@ export function arrivesByLink(params: Pick<URLSearchParams, "get">): boolean {
  * page then). The tile is not in it: the list follows that one by itself.
  */
 export function addressFiltersKey(params: Pick<URLSearchParams, "get">): string {
-  const { handledBy = "", mode = "", customs = "", invoicing = "" } = addressFiltersOf(params).request;
-  return [handledBy, mode, customs, invoicing].join("\n");
+  const { handledBy = "", mode = "", direction = "", customs = "", invoicing = "" } = addressFiltersOf(params).request;
+  return [handledBy, mode, direction, customs, invoicing].join("\n");
 }
 
 /** The list's address with one of its chips cleared: that parameter goes, every other stays. */

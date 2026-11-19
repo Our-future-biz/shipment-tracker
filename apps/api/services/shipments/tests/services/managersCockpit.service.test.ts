@@ -332,7 +332,18 @@ describe("Shipments → Managers' reads", () => {
   it("hands the filters on", async () => {
     shipments.managersCockpitRows.mockResolvedValue([row(1), row(2, { freightMode: "Air Freight", personInCharge: "" })]);
     const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, mode: "air", direction: "import", handledBy: "nobody" }, NOW);
-    expect(c).toMatchObject({ mode: "air", direction: "import", handledBy: "nobody", reports: "all", tiles: { active: 1, noHandledBy: 1 } });
+    expect(c).toMatchObject({ mode: "air", direction: "import", handledBy: "nobody", reports: "all", signal: null, tiles: { active: 1, noHandledBy: 1 } });
+  });
+
+  it("hands the signal tile on: the cards hold only its rows, the tiles count every job", async () => {
+    shipments.managersCockpitRows.mockResolvedValue([row(1, { personInCharge: "" }), row(2, { personInCharge: "left@firma.cz" })]);
+    const whole = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    const narrowed = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, signal: "not_user" }, NOW);
+    expect(narrowed.signal).toBe("not_user");
+    expect(narrowed.urgent.rows.map((r) => r.jobNumber)).toEqual(["CZFCL00000002"]);
+    // The job nobody handles is a row of the whole card only.
+    expect(whole.urgent.rows.map((r) => r.jobNumber)).toEqual(["CZFCL00000001", "CZFCL00000002"]);
+    expect(narrowed.tiles).toEqual(whole.tiles);
   });
 
   it("knows the users by e-mail: who is none of them is said, on the tile and on the people line", async () => {

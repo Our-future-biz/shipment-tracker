@@ -1,10 +1,15 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { COCKPIT_LIST_LIMIT } from "../lib/cockpitThresholds";
+import { addDays } from "../../../lib/businessDate";
+import { COCKPIT_LIST_LIMIT, ETD_PASSED_AFTER_DAYS } from "../lib/cockpitThresholds";
 import { withoutDismissed } from "../lib/cutoffDismissals";
 import {
   COCKPIT_EVENT_KINDS,
   EXTRA_RANK_SCALE,
   OPS_RANK,
+  SIGNAL_FAMILIES,
   SIGNAL_KINDS,
   arrivalNoticeSignals,
   attentionRulesFor,
@@ -31,6 +36,7 @@ import {
   mawbSignals,
   opsDay,
   roadSignals,
+  signalAsked,
   isOfReports,
   isReportOrNoUser,
   rolledSignals,
@@ -185,6 +191,37 @@ const show = (signals: readonly OpsSignal[]) => signals.map((s) => `${s.urgent ?
 const texts = (signals: readonly OpsSignal[]) => signals.map((s) => s.text);
 const tagsOf = (over: Partial<OpsCockpitJob>, day = WED) => cutoffSignals(cutoffsOf(job(over), day, false), day.today).map((s) => `${s.urgent ? "URGENT" : "attention"} ${s.rank} ${s.text}`);
 
+describe("the signal tiles", () => {
+  // apps/web …/managers/_lib/cockpitSignals SIGNAL_FAMILIES: the page draws the tiles and asks for
+  // one by its key, the server narrows the cards by its kinds - the two lists must be the same.
+  const WEB_SIGNALS = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../web/src/app/shipments/managers/_lib/cockpitSignals.ts");
+  const webFamilies = () => {
+    const source = readFileSync(WEB_SIGNALS, "utf8");
+    const start = source.indexOf("export const SIGNAL_FAMILIES");
+    const block = source.slice(start, source.indexOf("\n];", start));
+    expect(start, "SIGNAL_FAMILIES not found in cockpitSignals.ts").toBeGreaterThan(-1);
+    return Object.fromEntries([...block.matchAll(/key: "([^"]+)",[\s\S]*?kinds: \[([^\]]*)\]/g)].map((m) => [m[1], [...m[2]!.matchAll(/"([^"]+)"/g)].map((k) => k[1])]));
+  };
+
+  it("are the web's tiles, each with the same kinds", () => {
+    expect(SIGNAL_FAMILIES).toEqual(webFamilies());
+  });
+
+  it("hold only kinds the server gives a tag, each kind on one tile", () => {
+    const kinds = Object.values(SIGNAL_FAMILIES).flat();
+    for (const kind of kinds) expect(SIGNAL_KINDS, kind).toContain(kind);
+    expect(new Set(kinds).size).toBe(kinds.length);
+  });
+
+  it("read a tile's own key from the request, nothing for none, and refuse anything else in a sentence", () => {
+    expect(signalAsked(undefined)).toEqual({ signal: null });
+    for (const key of Object.keys(SIGNAL_FAMILIES)) expect(signalAsked(key)).toEqual({ signal: key });
+    const problem = { problem: `signal must be one of ${Object.keys(SIGNAL_FAMILIES).join(", ")}` };
+    // A kind that is only part of a tile, a kind with no tile, another spelling, an object's own names, nothing typed.
+    for (const asked of ["road", "owner", "Cutoff", " cutoff", "", "constructor", "toString"]) expect(signalAsked(asked), asked).toEqual(problem);
+  });
+});
+
 describe("the filters", () => {
   it("counts a job by how it travels, as freightKindOf reads it - a job with no Freight Mode is a sea job", () => {
     const jobs = [
@@ -338,20 +375,50 @@ describe("the cut-offs: the two windows, in working days", () => {
   });
 });
 
-// D7: a missed cut-off stays URGENT until the job has left or its ETD has passed - and a Closing
-// until the cargo is in.
+// D7: a missed cut-off stays URGENT until the job has left or "ETD passed, no ATD" takes over from
+// it - and a Closing until the cargo is in.
 describe("the cut-offs: a missed one stays", () => {
   const overdue = { vgmClosing: "2026-11-16", siClosing: "2026-11-17", shippingInstructions: "Pending", ams: "Pending", amsDeadline: "2026-11-15", isf: "Pending", isfDeadline: "2026-11-10" };
   const all = ["vgmClosing -2 missed", "siClosing -1 missed", "amsDeadline -3 missed", "isfDeadline -8 missed"];
 
-  it("a filing stays overdue while the job has not left and its ETD has not passed", () => {
+  it("a filing stays overdue while the job has not left and \"ETD passed, no ATD\" has not taken over", () => {
     expect(due({ ...overdue, estimatedDeparture: "2026-11-25" })).toEqual(all);
     expect(due({ ...overdue, estimatedDeparture: "2026-11-18" })).toEqual(all);
+    // A vessel's ETD of yesterday: "ETD passed" starts tomorrow.
+    expect(due({ ...overdue, estimatedDeparture: "2026-11-17" })).toEqual(all);
   });
 
-  it("the day after the ETD the miss is history: \"ETD passed, no ATD\" speaks instead", () => {
-    expect(due({ ...overdue, estimatedDeparture: "2026-11-17" })).toEqual([]);
+  it("is history once \"ETD passed, no ATD\" speaks: two days after the ETD by sea, rail and road, the day after it by air", () => {
+    expect(due({ ...overdue, estimatedDeparture: "2026-11-16" })).toEqual([]);
     expect(due({ ...overdue, estimatedDeparture: "2026-11-01" })).toEqual([]);
+    for (const freightMode of ["Rail Freight", "Road Freight"]) {
+      expect(due({ ...overdue, freightMode, estimatedDeparture: "2026-11-17" }), freightMode).toEqual(all);
+      expect(due({ ...overdue, freightMode, estimatedDeparture: "2026-11-16" }), freightMode).toEqual([]);
+    }
+    expect(due({ ...overdue, freightMode: "Air Freight", estimatedDeparture: "2026-11-18" })).toEqual(all);
+    expect(due({ ...overdue, freightMode: "Air Freight", estimatedDeparture: "2026-11-17" })).toEqual([]);
+  });
+
+  // The two rules side by side, as the card shows them: from the ETD to the first day of "ETD
+  // passed, no ATD" the job always has an URGENT tag - never both, never neither.
+  it("hands a missed cut-off over to \"ETD passed, no ATD\" with no day in between, whatever the mode", () => {
+    const etd = "2026-11-18";
+    const modes = [["Sea Freight", "sea"], ["Rail Freight", "rail"], ["Road Freight", "road"], ["Air Freight", "air"]] as const;
+    for (const [freightMode, kind] of modes) {
+      const lateFrom = addDays(etd, ETD_PASSED_AFTER_DAYS[kind]);
+      // An export with its VGM two days overdue and its MAWB typed (an air job without one is urgent by itself).
+      const j = job({ tradeDirection: "Export", freightMode, vgmClosing: "2026-11-16", masterBolNumber: "MAWB 1", estimatedDeparture: etd });
+      for (let day = etd; day <= lateFrom; day = addDays(day, 1)) {
+        const urgentKinds = cockpit([j], { now: at(day) }).urgent.rows.flatMap((r) => r.tags.filter((t) => t.urgent).map((t) => t.kind));
+        expect(urgentKinds, `${freightMode} on ${day}`).toEqual([day < lateFrom ? "cutoff" : "departure"]);
+      }
+    }
+    // By sea that is the ETD and the day after with the cut-off, "ETD passed" from the second day.
+    const sea = job({ tradeDirection: "Export", vgmClosing: "2026-11-16", estimatedDeparture: etd });
+    const tagsOn = (day: string) => cockpit([sea], { now: at(day) }).urgent.rows.flatMap((r) => r.tags.map((t) => t.text));
+    expect(tagsOn("2026-11-18")).toEqual(["VGM overdue 2 days"]);
+    expect(tagsOn("2026-11-19")).toEqual(["VGM overdue 3 days"]);
+    expect(tagsOn("2026-11-20")).toEqual(["ETD passed, no ATD · ETD 18.11.2026, 2 days ago"]);
   });
 
   it("a job with no ETD keeps a missed cut-off 7 days after the cut-off's own date, not for ever", () => {
@@ -371,10 +438,11 @@ describe("the cut-offs: a missed one stays", () => {
     expect(due({ ...overdue, estimatedDeparture: "2026-11-25", vgm: "Confirmed (Green)", shippingInstructions: "Confirmed", ams: "Filed", isf: "Filed" })).toEqual([]);
   });
 
-  it("an AMS without a deadline is overdue by the 4 days before its ETD, until that ETD has passed", () => {
+  it("an AMS without a deadline is overdue by the 4 days before its ETD, until \"ETD passed, no ATD\" takes over", () => {
     expect(due({ ams: "Pending", estimatedDeparture: "2026-11-20" })).toEqual(["amsDeadline -2 missed"]);
     expect(due({ ams: "Pending", estimatedDeparture: "2026-11-18" })).toEqual(["amsDeadline -4 missed"]);
-    expect(due({ ams: "Pending", estimatedDeparture: "2026-11-17" })).toEqual([]);
+    expect(due({ ams: "Pending", estimatedDeparture: "2026-11-17" })).toEqual(["amsDeadline -5 missed"]);
+    expect(due({ ams: "Pending", estimatedDeparture: "2026-11-16" })).toEqual([]);
   });
 
   it("a cut-off still ahead counts whatever the ETD says: only having left ends it", () => {
@@ -389,8 +457,10 @@ describe("the cut-offs: a missed one stays", () => {
     expect(due({ closingDate: "2026-11-02", estimatedDeparture: "2026-11-18" })).toEqual(["closingDate -16 missed"]);
   });
 
-  it("a missed Closing goes the day after the ETD, as a filing does - and with no ETD, 7 days after its own date", () => {
-    expect(due({ closingDate: "2026-11-14", estimatedDeparture: "2026-11-17" })).toEqual([]);
+  it("a missed Closing goes when \"ETD passed, no ATD\" takes over, as a filing does - and with no ETD, 7 days after its own date", () => {
+    expect(due({ closingDate: "2026-11-14", estimatedDeparture: "2026-11-17" })).toEqual(["closingDate -4 missed"]);
+    expect(due({ closingDate: "2026-11-14", estimatedDeparture: "2026-11-16" })).toEqual([]);
+    expect(due({ closingDate: "2026-11-14", estimatedDeparture: "2026-11-17", freightMode: "Air Freight" })).toEqual([]);
     expect(due({ closingDate: "2026-11-11" })).toEqual(["closingDate -7 missed"]);
     // A job with no ETD and a Closing 8 days ago: nothing.
     expect(due({ closingDate: "2026-11-10" })).toEqual([]);
@@ -530,8 +600,8 @@ describe("the cut-offs: a filing with its time", () => {
     const overdue = { vgmClosing: TODAY, vgmClosingTime: "09:00" };
     expect(states({ ...overdue, estimatedDeparture: "2026-11-20" }, NOW)).toEqual(["vgmClosing missed 09:00"]);
     expect(states({ ...overdue, actualDeparture: TODAY }, NOW)).toEqual([]);
-    // The ETD has passed: it is history, "ETD passed, no ATD" speaks instead.
-    expect(states({ ...overdue, estimatedDeparture: "2026-11-17" }, NOW)).toEqual([]);
+    // "ETD passed, no ATD" speaks instead: it is history.
+    expect(states({ ...overdue, estimatedDeparture: "2026-11-16" }, NOW)).toEqual([]);
   });
 });
 
@@ -839,10 +909,11 @@ describe("the B/L signals", () => {
       expect(draft({ tradeDirection: " EXPORT " })).toHaveLength(1);
     });
 
-    it("stays after the SI closing while the job has not left and its ETD has not passed", () => {
+    it("stays after the SI closing while the job has not left and \"ETD passed, no ATD\" has not taken over, as a missed cut-off does", () => {
       expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-20" })).toHaveLength(1);
       expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-18" })).toHaveLength(1);
-      expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-17" })).toEqual([]);
+      expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-17" })).toHaveLength(1);
+      expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-16" })).toEqual([]);
       expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-20", actualDeparture: "2026-11-16" })).toEqual([]);
       expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-20", actualArrival: "2026-11-16" })).toEqual([]);
       expect(draft({ siClosing: "2026-11-12", estimatedDeparture: "2026-11-20", actualDeliveryDate: "2026-11-16" })).toEqual([]);
@@ -1345,6 +1416,7 @@ describe("\"My reports\"", () => {
 
 describe("the cockpit", () => {
   const NO_SIGNALS = Object.fromEntries(SIGNAL_KINDS.map((kind) => [kind, 0]));
+  const NO_FAMILIES = Object.fromEntries(Object.keys(SIGNAL_FAMILIES).map((key) => [key, 0]));
   const tagsIn = (c: ReturnType<typeof cockpit>) => [...c.urgent.rows, ...c.attention.rows].flatMap((r) => r.tags.map((t) => t.text));
 
   it("is empty for no jobs, and says when and for which day it was worked out", () => {
@@ -1355,7 +1427,8 @@ describe("the cockpit", () => {
       direction: "all",
       handledBy: null,
       reports: "all",
-      tiles: { active: 0, cutoffsDue: 0, noHandledBy: 0, handledByNotUser: 0, bookingPending: 0, etdEtaMoved: 0, freeTime: 0, customsUrgent: 0, notReleased: 0, openClaims: 0, signals: NO_SIGNALS },
+      signal: null,
+      tiles: { active: 0, cutoffsDue: 0, noHandledBy: 0, handledByNotUser: 0, bookingPending: 0, etdEtaMoved: 0, freeTime: 0, customsUrgent: 0, notReleased: 0, openClaims: 0, signals: NO_SIGNALS, families: NO_FAMILIES },
       urgent: { total: 0, rows: [] },
       attention: { total: 0, rows: [] },
       people: [],
@@ -1482,6 +1555,65 @@ describe("the cockpit", () => {
       job({ jobNumber: "A-customs", customsPriority: "Urgent", customsDeadline: "2026-11-18 08:00" }),
     ];
     expect(cockpit(jobs, { facts }).urgent.rows.map((r) => r.jobNumber)).toEqual(["A-customs", "B-missed", "C-filing", "D-closing", "E-booking", "F-departure", "G-arrival", "H-delivery", "I-free-time", "J-owner"]);
+  });
+
+  // Step 2's signal tiles narrowed the cards in the browser, among the 200 rows each card lists:
+  // a family ranked low (Nobody in Handled By, not a user, to-dos, Not touched) fell off the cut
+  // and its tile opened nothing. The server narrows first, then cuts.
+  describe("narrowed to a signal tile", () => {
+    // More URGENT cut-offs than a card lists, ranked above everything else, and a few jobs whose
+    // only URGENT tag is that Handled By is no user - ranked last.
+    const cutoffs = Array.from({ length: COCKPIT_LIST_LIMIT + 10 }, (_, i) => job({ jobNumber: `CZFCL${String(i).padStart(8, "0")}`, closingDate: "2026-11-18" }));
+    const gone = Array.from({ length: 3 }, (_, i) => job({ jobNumber: `CZFCL9${String(i).padStart(7, "0")}`, personInCharge: `left${i}@firma.cz` }));
+    // One of them has a missed cut-off as well: it is a row of both tiles.
+    const both = job({ jobNumber: "CZFCL99999999", personInCharge: "left@firma.cz", closingDate: "2026-11-18" });
+    const jobs = [...cutoffs, ...gone, both];
+
+    it("lists the rows of a low-ranked tile that the whole card cuts off, with the tile's own total", () => {
+      const whole = cockpit(jobs);
+      expect(whole.urgent.total).toBe(COCKPIT_LIST_LIMIT + 14);
+      expect(whole.urgent.rows.filter((r) => r.tags.some((t) => t.kind === "not_user"))).toEqual([]);
+      const narrowed = cockpit(jobs, { signal: "not_user" });
+      expect(narrowed.signal).toBe("not_user");
+      expect(narrowed.urgent.total).toBe(4);
+      // In the card's own order: the missed cut-off ranks the job that has both first.
+      expect(narrowed.urgent.rows.map((r) => r.jobNumber)).toEqual(["CZFCL99999999", "CZFCL90000000", "CZFCL90000001", "CZFCL90000002"]);
+      expect(narrowed.attention).toEqual({ total: 0, rows: [] });
+    });
+
+    it("cuts a narrowed card at its limit too, counting every row of the tile", () => {
+      const narrowed = cockpit(jobs, { signal: "cutoff" });
+      expect(narrowed.urgent.total).toBe(COCKPIT_LIST_LIMIT + 11);
+      expect(narrowed.urgent.rows).toHaveLength(COCKPIT_LIST_LIMIT);
+      expect(narrowed.urgent.rows.every((r) => r.tags.some((t) => t.kind === "cutoff"))).toBe(true);
+    });
+
+    it("keeps a row by any kind of its tile, urgent or not, on both cards", () => {
+      const road = job({ jobNumber: "R-road", tradeDirection: "Domestic", pickupDate: "2026-11-17" });
+      const delivery = job({ jobNumber: "D-delivery", plannedDeliveryDate: "2026-11-16" });
+      const ahead = job({ jobNumber: "S-ahead", siClosing: "2026-11-20", shippingInstructions: "Pending" });
+      const c = cockpit([road, delivery, ahead, ...gone], { signal: "delivery" });
+      expect([...c.urgent.rows, ...c.attention.rows].map((r) => r.jobNumber).sort()).toEqual(["D-delivery", "R-road"]);
+      const cut = cockpit([road, delivery, ahead, ...gone], { signal: "cutoff" });
+      expect(cut.urgent.rows).toEqual([]);
+      expect(cut.attention.rows.map((r) => r.jobNumber)).toEqual(["S-ahead"]);
+    });
+
+    it("counts the tiles and the people over every job, as without the signal", () => {
+      const whole = cockpit(jobs);
+      const narrowed = cockpit(jobs, { signal: "not_user" });
+      expect(narrowed.tiles).toEqual(whole.tiles);
+      expect(narrowed.people).toEqual(whole.people);
+      expect(narrowed.tiles).toMatchObject({ cutoffsDue: COCKPIT_LIST_LIMIT + 11, handledByNotUser: 4, families: { cutoff: COCKPIT_LIST_LIMIT + 11, not_user: 4 } });
+      expect(cockpit(jobs, { signal: null })).toEqual(whole);
+    });
+
+    it("counts a tile's row once, however many of its kinds the row carries", () => {
+      const both = job({ tradeDirection: "Export", estimatedDeparture: "2026-11-10", estimatedArrival: "2026-11-12" });
+      const c = cockpit([both]);
+      expect(c.tiles.signals).toMatchObject({ departure: 1, arrival: 1 });
+      expect(c.tiles.families).toMatchObject({ departure: 1 });
+    });
   });
 
   it("cuts a card's list at its limit and still counts every row", () => {
@@ -1827,6 +1959,7 @@ describe("the cockpit", () => {
         notReleased: 2,
         openClaims: 1,
         signals: { ...NO_SIGNALS, cutoff: 4, owner: 1, not_user: 1, booking: 2, free_time: 1, customs: 1, billing: 2 },
+        families: { ...NO_FAMILIES, cutoff: 4, not_user: 1, booking: 2, free_time: 1, customs: 1 },
       });
       // A moved date and a claim are counted, not listed: they are no signal.
       expect(c.urgent.total).toBe(9);

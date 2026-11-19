@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentItem } from "../interfaces/interfaces";
@@ -17,9 +18,11 @@ interface ShipmentListRequest {
   /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek | claims */
   tile?: string;
   /** Handled By: a user's e-mail (in any case), or "nobody" for the jobs nobody handles */
-  handledBy?: string;
+  handledBy?: string & MaxLen<320>;
   /** How the job travels: sea | air | rail | road */
-  mode?: string;
+  mode?: string & MaxLen<16>;
+  /** Trade Direction: import | export | domestic, in any case */
+  direction?: string & MaxLen<16>;
   /** Warehouse page filter: in | stock | out */
   warehouse?: string;
   /** Customs page filter: urgent */
@@ -51,6 +54,7 @@ export const shipmentList = api(
       tile: req.tile,
       handledBy: req.handledBy?.trim() || undefined,
       mode: req.mode,
+      direction: req.direction,
       warehouse: req.warehouse,
       customs: req.customs,
       invoicing: req.invoicing,

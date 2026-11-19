@@ -28,6 +28,8 @@ const row = (n: number, over = {}) => ({
   customerId: null,
   customer: "ACME s.r.o.",
   tradeDirection: "Export",
+  freightMode: "Sea Freight",
+  department: "Operation Department",
   status: "Booked [EXP]",
   cargoReadinessDate: null,
   pickupDate: null,
@@ -73,7 +75,7 @@ describe("Needs Attention's reads", () => {
     expect(holidays._internalHolidaysCzNational).toHaveBeenCalledTimes(1);
     expect(holidays._internalHolidaysCzNational).toHaveBeenCalledWith({ from: "2026-10-06", to: "2027-01-04" }, { authData: { userID: "", companyID: COMPANY, role: "user" } });
     expect(shipments.needsAttentionCandidates).toHaveBeenCalledTimes(1);
-    expect(shipments.needsAttentionCandidates).toHaveBeenCalledWith(COMPANY, { from: "2026-11-20", until: "2026-11-25", passedSince: "2026-11-13" }, NEEDS_ATTENTION_JOB_LIMIT + 1);
+    expect(shipments.needsAttentionCandidates).toHaveBeenCalledWith(COMPANY, { from: "2026-11-20", until: "2026-11-25", passedSince: "2026-11-13", etdSince: "2026-11-19" }, NEEDS_ATTENTION_JOB_LIMIT + 1);
     expect(events.factsOfKinds).not.toHaveBeenCalled();
     expect(ids(lists.within24h)).toEqual(["id-1"]);
     expect(ids(lists.within48h)).toEqual(["id-2"]);
@@ -84,7 +86,7 @@ describe("Needs Attention's reads", () => {
     holidays._internalHolidaysCzNational.mockResolvedValue({ dates: ["2026-11-23"] });
     shipments.needsAttentionCandidates.mockResolvedValue([row(1, { estimatedDeparture: "2026-11-24" }), row(2, { estimatedDeparture: "2026-11-26" })]);
     const lists = await needsAttentionService.lists(COMPANY, NOW);
-    expect(shipments.needsAttentionCandidates.mock.lastCall![1]).toEqual({ from: "2026-11-20", until: "2026-11-26", passedSince: "2026-11-13" });
+    expect(shipments.needsAttentionCandidates.mock.lastCall![1]).toEqual({ from: "2026-11-20", until: "2026-11-26", passedSince: "2026-11-13", etdSince: "2026-11-19" });
     expect(ids(lists.within24h)).toEqual(["id-1"]);
     expect(ids(lists.within48h)).toEqual(["id-2"]);
   });
@@ -94,7 +96,7 @@ describe("Needs Attention's reads", () => {
     shipments.needsAttentionCandidates.mockResolvedValue([row(1, { estimatedDeparture: "2026-11-23" })]);
     const lists = await needsAttentionService.lists(COMPANY, NOW);
     expect(lists.holidaysKnown).toBe(false);
-    expect(shipments.needsAttentionCandidates.mock.lastCall![1]).toEqual({ from: "2026-11-20", until: "2026-11-25", passedSince: "2026-11-13" });
+    expect(shipments.needsAttentionCandidates.mock.lastCall![1]).toEqual({ from: "2026-11-20", until: "2026-11-25", passedSince: "2026-11-13", etdSince: "2026-11-19" });
     expect(ids(lists.within24h)).toEqual(["id-1"]);
   });
 

@@ -6,6 +6,7 @@ import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../s
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { DATE_MOVED_WINDOW_DAYS } from "../lib/trackingThresholds";
 import { ROAD_DEPARTMENT } from "../../../lib/deliveryDated";
+import { MANAGERS_DIRECTIONS } from "../lib/managersFilters";
 import { shipmentAuditTable } from "../schemas/shipmentAudit.schema";
 import { shipmentCustomerNoticeTable } from "../schemas/shipmentCustomerNotice.schema";
 import { shipmentTrackingEventTable } from "../schemas/shipmentTrackingEvent.schema";
@@ -259,6 +260,21 @@ export function modeMatch(mode: string | undefined): SQL | undefined {
   return mode && Object.hasOwn(MODE_PREDICATES, mode) ? MODE_PREDICATES[mode as ModeFilterId] : undefined;
 }
 
+/** The Trade Directions the list's direction filter takes: Shipments → Managers' own, but "all". */
+const LIST_DIRECTIONS: readonly string[] = MANAGERS_DIRECTIONS.filter((direction) => direction !== "all");
+
+/**
+ * The list's Trade Direction filter (import | export | domestic, in any case): the jobs whose Trade
+ * Direction is that one, trimmed and in any case - lib/managersCockpit inDirection, in SQL, so a
+ * tile of Shipments → Managers opens the rows it counted. The stored value is trimmed of what
+ * JavaScript's trim() takes off, as Handled By's is. Undefined for anything else, "all" among it.
+ */
+export function directionMatch(direction: string | undefined): SQL | undefined {
+  const asked = (direction ?? "").trim().toLowerCase();
+  if (!LIST_DIRECTIONS.includes(asked)) return undefined;
+  return sql`lower(btrim(${shipmentTable.tradeDirection}, ${TRIMMED_WHITESPACE})) = ${asked}`;
+}
+
 /**
  * The shipments list's warehouse filter, by the two dates a shipment carries (written back
  * by the warehouse Gate Log): in → (received) → stock → (released) → out. "in" holds the
@@ -300,6 +316,8 @@ export interface ShipmentListFilters {
   handledBy?: string;
   /** How the job travels: sea | air | rail | road (lib/trackingEvents freightKindOf). */
   mode?: string;
+  /** Trade Direction: import | export | domestic, in any case (lib/managersCockpit inDirection). */
+  direction?: string;
   customerId?: string;
   /** The houses of the master job with this MCZ number. */
   masterJobMcz?: string;
@@ -887,6 +905,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     if (handledBy) clauses.push(handledBy);
     const mode = modeMatch(f.mode);
     if (mode) clauses.push(mode);
+    const tradeDirection = directionMatch(f.direction);
+    if (tradeDirection) clauses.push(tradeDirection);
     if (f.warehouse) {
       const predicate = WAREHOUSE_PREDICATES[f.warehouse as WarehouseSectionId];
       if (predicate) clauses.push(predicate);
@@ -987,13 +1007,14 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    *
    *   a plain date (cargo ready, pick-up, ETD, ETA, ETA warehouse, planned delivery) from today
    *   to the end of the ATTENTION window; or, on a job that has not left (no ATD, ATA or actual
-   *   delivery), a cut-off date in that span, or one that passed - while the ETD is today or
-   *   later, or, with no ETD, while the cut-off's own date is not before `passedSince`.
+   *   delivery), a cut-off date in that span, or one that passed - while the ETD is not before
+   *   `etdSince`, or, with no ETD, while the cut-off's own date is not before `passedSince`.
    *
-   * A cut-off's status is not asked: whether its work is done is the rule's to say. AMS and ISF
-   * with no deadline typed are due 4 days before the ETD, so that day counts as a cut-off date.
+   * A cut-off's status is not asked: whether its work is done is the rule's to say, and so is how
+   * the job travels (a missed cut-off of an air job goes a day sooner). AMS and ISF with no
+   * deadline typed are due 4 days before the ETD, so that day counts as a cut-off date.
    */
-  async needsAttentionCandidates(companyId: string, range: { from: string; until: string; passedSince: string }, limit: number) {
+  async needsAttentionCandidates(companyId: string, range: { from: string; until: string; passedSince: string; etdSince: string }, limit: number) {
     const from = sql`${range.from}::date`;
     const until = sql`${range.until}::date`;
     const anyOf = (conditions: SQL[]) => sql`(${sql.join(conditions, sql` OR `)})`;
@@ -1010,8 +1031,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     const notLeft = sql`${shipmentTable.actualDeparture} IS NULL AND ${shipmentTable.actualArrival} IS NULL AND ${shipmentTable.actualDeliveryDate} IS NULL`;
     const dateAhead = anyOf(plainDates.map((date) => sql`${date} BETWEEN ${from} AND ${until}`));
     const cutoffAhead = anyOf(cutoffDates.map((date) => sql`${date} BETWEEN ${from} AND ${until}`));
-    // Passed, with the ETD still to come: any of them, the day 4 days before the ETD too.
-    const passedBeforeEtd = sql`(${shipmentTable.estimatedDeparture} >= ${from} AND ${anyOf(cutoffDates.map((date) => sql`${date} < ${from}`))})`;
+    // Passed, on a job whose ETD "ETD passed, no ATD" may not have taken over yet: any of them, the day 4 days before the ETD too.
+    const passedBeforeEtd = sql`(${shipmentTable.estimatedDeparture} >= ${range.etdSince}::date AND ${anyOf(cutoffDates.map((date) => sql`${date} < ${from}`))})`;
     // Passed, with no ETD: only lately (and there is no day 4 days before an ETD).
     const passedLately = sql`(${shipmentTable.estimatedDeparture} IS NULL AND ${anyOf(typedCutoffs.map((date) => sql`(${date} >= ${range.passedSince}::date AND ${date} < ${from})`))})`;
 
@@ -1022,6 +1043,9 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         customerId: shipmentTable.customerId,
         customer: shipmentTable.customer,
         tradeDirection: shipmentTable.tradeDirection,
+        // With the Trade Direction, how the job travels: how long the shared cut-off rule keeps a missed one after the ETD.
+        freightMode: shipmentTable.freightMode,
+        department: shipmentTable.department,
         status: shipmentTable.status,
         cargoReadinessDate: shipmentTable.cargoReadinessDate,
         pickupDate: shipmentTable.pickupDate,

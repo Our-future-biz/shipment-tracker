@@ -24,6 +24,8 @@ const job = (over: Partial<DueJob> = {}): DueJob => ({
   customerId: null,
   customer: "ACME s.r.o.",
   tradeDirection: "Export",
+  freightMode: "Sea Freight",
+  department: "Operation Department",
   status: "Booked [EXP]",
   cargoReadinessDate: null,
   pickupDate: null,

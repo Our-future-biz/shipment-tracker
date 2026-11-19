@@ -48,8 +48,9 @@ import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ShipmentChatDrawer } from "./ChatPanel";
 import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
-import { searchesAllFields, typedSearchParams } from "@/app/shipments/_lib/allFieldsSearch";
-import { addressFiltersKey, arrivesByLink } from "@/app/shipments/_lib/addressFilters";
+import { typedSearchParams } from "@/app/shipments/_lib/allFieldsSearch";
+import { addressFiltersKey } from "@/app/shipments/_lib/addressFilters";
+import { keepsToItsAddress, rememberedAfter, type RememberedFilters } from "@/app/shipments/_lib/rememberedFilters";
 import { CustomerCell } from "./CustomerCell";
 import { CancelReasonDialog } from "./CancelReasonDialog";
 import { asksCancelReason, cancelUpdate } from "./cancelReason";
@@ -321,9 +322,17 @@ export const ShipmentsTable = ({
   // being typed, and leaving the page clears it.
   const detailHref = view?.detailHref ?? "/shipments/:id";
   const storageKey = `${view?.key ?? "shipments"}:list-filters:${user?.id ?? "anon"}`;
-  const persist = (next: { status?: string; filters?: ColFilter[] }) => {
+  // Read once, from the address the page was entered by: "Show all" from the main search, or a
+  // link that names a tile or a filter of its own (a tile of Shipments → Managers), opens exactly
+  // what it names (_lib/rememberedFilters keepsToItsAddress).
+  const [enteredByLink] = useState(() => keepsToItsAddress(searchParams, !!viewKey));
+  const persist = (next: RememberedFilters) => {
+    // Entered by such a link, the filters on screen are the link's: they are not remembered, and
+    // what was remembered before stays for the next plain arrival.
+    const entry = rememberedAfter({ status: statusFilter, filters }, next, enteredByLink);
+    if (!entry) return;
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ status: statusFilter, filters, ...next }));
+      localStorage.setItem(storageKey, JSON.stringify(entry));
     } catch {
       // Storage unavailable (private mode / quota) — filters just won't survive navigation.
     }
@@ -333,14 +342,12 @@ export const ShipmentsTable = ({
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
-    // "Show all" from the main search opens on exactly what it found, as many as it counted.
-    if (searchesAllFields(searchParams)) return;
-    // So does a link that names a tile or a filter of its own (a tile of Shipments → Managers): it
-    // opens the rows it counted, not fewer. Nothing is cleared - what is remembered stays so for the
-    // next plain arrival - and this runs on arrival only, never on a tile clicked on the page. The
-    // views (Warehouse) take no such links.
-    if (!viewKey && arrivesByLink(searchParams)) return;
-    let stored: { status?: string; filters?: ColFilter[] } | null = null;
+    // Entered by a link that keeps to its address, the list opens the rows it counted, not fewer.
+    // Nothing is cleared - what is remembered stays so for the next plain arrival, and nothing done
+    // on this page writes over it (persist) - and this runs on arrival only, never on a tile
+    // clicked on the page.
+    if (enteredByLink) return;
+    let stored: RememberedFilters | null = null;
     try {
       stored = JSON.parse(localStorage.getItem(storageKey) ?? "null");
     } catch {
@@ -368,7 +375,7 @@ export const ShipmentsTable = ({
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     }
     // Runs once (the `restored` guard): restoring is what happens when the page is entered.
-  }, [searchParams, storageKey, router, pathname, viewKey]);
+  }, [searchParams, storageKey, router, pathname, enteredByLink]);
 
   const applyFilters = (next: ColFilter[]) => {
     setFilters(next);
@@ -742,7 +749,8 @@ export const ShipmentsTable = ({
   );
 
   // Reset to the first page whenever the result set or page size changes - also when a filter the
-  // address holds (Handled By, mode, customs, invoicing) is set, changed or cleared by its chip.
+  // address holds (Handled By, mode, Trade Direction, customs, invoicing) is set, changed or
+  // cleared by its chip.
   const linkFilters = addressFiltersKey(searchParams);
   useEffect(() => {
     setCurrentPage(1);

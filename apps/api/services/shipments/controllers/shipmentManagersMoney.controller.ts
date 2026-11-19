@@ -1,4 +1,5 @@
 import { APIError, api, type Query } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { requireRole } from "../../../lib/rbac";
 import type { ShipmentsManagersMoney } from "../interfaces/interfaces";
 import { managersFilters } from "../lib/managersFilters";
@@ -10,7 +11,7 @@ interface ShipmentManagersMoneyRequest {
   /** The jobs' Trade Direction: import, export or domestic; all of them when left out. */
   direction?: Query<string>;
   /** One person's jobs, by the e-mail in Handled By, or "nobody" for the jobs nobody handles; everyone's when left out. */
-  handledBy?: Query<string>;
+  handledBy?: Query<string & MaxLen<320>>;
   /** "mine": only the jobs handled by the users who report to the caller and those whose Handled By is not a user; all when left out. */
   reports?: Query<string>;
 }

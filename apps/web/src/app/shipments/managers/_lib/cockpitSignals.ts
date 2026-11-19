@@ -3,10 +3,12 @@ import type { OpsCockpitRow, ShipmentsManagersCockpit } from "@/hooks/useShipmen
 // The signal tiles of Shipments → Managers. Every tag on a row says what kind of signal it is
 // (`kind`, the server's stable keys: cutoff, booking, customs…). A signal tile counts the rows that
 // carry a tag of its kinds and, clicked, narrows the two cards to them (?signal= in the address).
-// The narrowing is done here, over the rows the server sent: a card the server cut at its limit is
-// narrowed among the rows listed, and the page says so.
-// The Money tab's tiles work the same way over its own rows and families (_lib/cockpitMoney,
-// ?msignal=): what narrows, cuts and orders tags here takes any row that carries tags with a kind.
+// The Cockpit's cards are narrowed by the server (GET /shipments/managers-cockpit ?signal=, its
+// copy of these families is apps/api …/lib/managersCockpit SIGNAL_FAMILIES): before it cuts a card
+// at its limit, so a tile ranked low still opens every row it counts (serverCard).
+// The Money tab's tiles narrow here, over the rows the server sent (_lib/cockpitMoney, ?msignal=):
+// a card the server cut at its limit is narrowed among the rows listed, and the page says so. What
+// narrows, cuts and orders tags here takes any row that carries tags with a kind.
 
 /** What a signal tile stands for: one kind of tag, or a few that are worked on together. */
 export interface SignalFamily {
@@ -152,13 +154,27 @@ export interface ShownList<R = OpsCockpitRow> {
   rows: R[];
   /** How many rows the server listed, before any narrowing: what a narrowed card was looked through. */
   listed: number;
-  /** The server listed only the first of the card's rows. */
+  /**
+   * The server listed only the first of the card's rows, and they are narrowed here: what is found
+   * is found among those (windowWithSignal). A card the server narrowed itself is not (serverCard).
+   */
   cut: boolean;
 }
 
 /**
- * A card narrowed to a family; the card as it is for no family. Narrowed, `total` counts the rows
- * found among those listed - of a cut card the rest is not here to be looked through.
+ * A Cockpit card as the server sent it, narrowed or not: the server narrows to the signal asked for
+ * before it cuts the card at its limit, so `total` is every row of the signal and the rows are the
+ * first of them - nothing was left out of the narrowing, and the window says no "among the first"
+ * (the dialog says itself when only the first rows are listed).
+ */
+export function serverCard<R>(list: { total: number; rows: R[] }): ShownList<R> {
+  return { total: list.total, rows: list.rows, listed: list.rows.length, cut: false };
+}
+
+/**
+ * A card narrowed here to a family (the Money tab's); the card as it is for no family. Narrowed,
+ * `total` counts the rows found among those listed - of a cut card the rest is not here to be
+ * looked through.
  */
 export function listWithSignal<R extends TaggedRow = OpsCockpitRow>(list: { total: number; rows: R[] }, family: SignalFamily | null): ShownList<R> {
   const listed = list.rows.length;
@@ -204,28 +220,20 @@ export interface SignalFigure {
   atLeast: boolean;
 }
 
-type Counted = Pick<ShipmentsManagersCockpit, "tiles" | "urgent" | "attention">;
+type Counted = Pick<ShipmentsManagersCockpit, "tiles">;
 
 /**
- * What a signal tile counts. A family of one kind is the server's count of the rows with that
- * kind. A family of several kinds is counted over the rows of both cards, since a row with two of
- * the kinds is one row and the server's counts are per kind. Should a card be cut, the rows
- * listed and the largest of the kinds' counts are both the least it can be: "12+" unless the
- * kinds' counts leave no room for more.
+ * What a signal tile counts: the server's count of the tile (`tiles.families`) - every row of the
+ * page with a tag of its kinds, a row with two of them once - and never the cards', which may be
+ * cut at their limit or narrowed to another tile. A tile with a figure of a narrower rule (Cut-offs
+ * due, Handled By is not a user) shows that figure.
  */
 export function signalFigure(family: SignalFamily, cockpit: Counted): SignalFigure {
   if (family.figure) return { count: cockpit.tiles[family.figure], atLeast: false };
-  // An answer from before step 2 (the page deployed ahead of the server, or an answer still in the
-  // cache) has no `signals`: its tags name no kind either, so no row would be found - none, not a crash.
-  const signals: Record<string, number> | undefined = cockpit.tiles.signals;
-  const perKind = family.kinds.map((kind) => signals?.[kind] ?? 0);
-  const [only] = perKind;
-  if (perKind.length === 1 && only !== undefined) return { count: only, atLeast: false };
-  const cards = [cockpit.urgent, cockpit.attention];
-  const listed = cards.reduce((sum, card) => sum + card.rows.filter((r) => hasSignal(r, family)).length, 0);
-  if (cards.every((card) => card.total <= card.rows.length)) return { count: listed, atLeast: false };
-  const least = Math.max(listed, ...perKind);
-  return { count: least, atLeast: least < perKind.reduce((sum, n) => sum + n, 0) };
+  // An answer from before the server counted the tiles (one still in the cache, the page deployed
+  // ahead of the server) has no `families`: none, not a crash.
+  const families: Record<string, number> | undefined = cockpit.tiles.families;
+  return { count: families?.[family.key] ?? 0, atLeast: false };
 }
 
 /** The figure as the tile shows it; "–" for one that is not known (not known is not zero). */

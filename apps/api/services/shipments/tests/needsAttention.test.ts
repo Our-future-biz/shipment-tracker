@@ -27,6 +27,8 @@ const job = (over: Partial<DueJob> = {}): DueJob => {
     customerId: null,
     customer: "ACME s.r.o.",
     tradeDirection: "Export",
+    freightMode: "Sea Freight",
+    department: "Operation Department",
     status: "Booked [EXP]",
     cargoReadinessDate: null,
     pickupDate: null,
@@ -157,20 +159,25 @@ describe("the cut-offs, as Shipments → Managers judges them", () => {
     expect(due({ ...missed, actualDeparture: "2026-11-18" })).toEqual(NOTHING);
     expect(due({ ...missed, vgmClosing: "2026-11-19", actualArrival: "2026-11-17" })).toEqual(NOTHING);
     expect(due({ ...missed, vgmClosing: "2026-11-19", actualDeliveryDate: "2026-11-17" })).toEqual(NOTHING);
-    // The day after the ETD the miss is history: "ETD passed, no ATD" speaks instead.
+    // Kept until "ETD passed, no ATD" speaks instead: two days after a vessel's ETD, one after a flight's.
     expect(due({ ...missed, estimatedDeparture: "2026-11-18" }).urgent).toEqual(["closingDate 2026-11-17 missed 14:00", "estimatedDeparture 2026-11-18"]);
-    expect(due({ ...missed, estimatedDeparture: "2026-11-17" })).toEqual(NOTHING);
+    expect(due({ ...missed, estimatedDeparture: "2026-11-17" }).urgent).toEqual(["closingDate 2026-11-17 missed 14:00"]);
+    expect(due({ ...missed, estimatedDeparture: "2026-11-16" })).toEqual(NOTHING);
+    expect(due({ ...missed, estimatedDeparture: "2026-11-17", freightMode: "Air Freight" })).toEqual(NOTHING);
   });
 
-  it("keeps an overdue VGM, SI, AMS and ISF in URGENT until it is confirmed, the job has left or its ETD has passed", () => {
+  it("keeps an overdue VGM, SI, AMS and ISF in URGENT until it is confirmed, the job has left or \"ETD passed, no ATD\" takes over", () => {
     const filings = { vgmClosing: "2026-11-16", vgm: "Pending", siClosing: "2026-11-17", shippingInstructions: "", ams: "Pending", amsDeadline: "2026-11-13", isf: "Pending (Red)", isfDeadline: null, estimatedDeparture: "2026-11-19" };
     expect(due(filings).urgent).toEqual(["amsDeadline 2026-11-13 missed", "isfDeadline 2026-11-15 missed", "vgmClosing 2026-11-16 missed", "siClosing 2026-11-17 missed", "estimatedDeparture 2026-11-19"]);
     expect(due({ ...filings, vgm: "Confirmed (Green)", shippingInstructions: "Confirmed", ams: "Filed", isf: "Not Applicable" }).urgent).toEqual(["estimatedDeparture 2026-11-19"]);
     expect(due({ ...filings, actualDeparture: "2026-11-18" }).urgent).toEqual(["estimatedDeparture 2026-11-19"]);
     expect(due({ ...filings, actualArrival: "2026-11-18" }).urgent).toEqual(["estimatedDeparture 2026-11-19"]);
     expect(due({ ...filings, estimatedDeparture: "2026-11-18" }).urgent).toHaveLength(5);
-    // The ETD was yesterday: all four are history, and "ETD passed, no ATD" speaks instead.
-    expect(due({ ...filings, estimatedDeparture: "2026-11-17" })).toEqual(NOTHING);
+    // A vessel's ETD of yesterday: "ETD passed, no ATD" starts tomorrow, so all four stay today.
+    expect(due({ ...filings, estimatedDeparture: "2026-11-17" }).urgent).toHaveLength(4);
+    // Two days ago they are history, and "ETD passed, no ATD" speaks instead - for a flight already the day after its ETD.
+    expect(due({ ...filings, estimatedDeparture: "2026-11-16" })).toEqual(NOTHING);
+    expect(due({ ...filings, estimatedDeparture: "2026-11-17", freightMode: "Air Freight" })).toEqual(NOTHING);
   });
 
   it("a filing with a time is overdue once that time has passed today, and shows its time - as the Closing does", () => {
@@ -283,16 +290,16 @@ describe("the two lists", () => {
     const received = job({ closingDate: "2026-11-19", warehouseReceivedDate: "2026-11-17" });
     const departed = job({ closingDate: "2026-11-19", actualDeparture: "2026-11-18" });
     const arrived = job({ closingDate: "2026-11-19", actualArrival: "2026-11-18" });
-    const etdPassed = job({ closingDate: "2026-11-16", estimatedDeparture: "2026-11-17" });
+    const etdPassed = job({ closingDate: "2026-11-15", estimatedDeparture: "2026-11-16" });
     const noClosing = job({ vgmClosing: "2026-11-18", estimatedDeparture: "2026-11-19" });
     expect(closingToCheck([missed, missedLongAgo, dueSoon, later, received, departed, arrived, etdPassed, noClosing], WED)).toEqual([missed.id, dueSoon.id]);
   });
 });
 
 describe("the read's bounds", () => {
-  it("spans today to the end of the ATTENTION window, and a week back for a passed cut-off of a job with no ETD", () => {
-    expect(candidateRange(WED)).toEqual({ from: "2026-11-18", until: "2026-11-23", passedSince: "2026-11-11" });
-    expect(candidateRange(FRI)).toEqual({ from: "2026-11-20", until: "2026-11-25", passedSince: "2026-11-13" });
+  it("spans today to the end of the ATTENTION window, a week back for a passed cut-off of a job with no ETD, and back to yesterday's ETD for one with it", () => {
+    expect(candidateRange(WED)).toEqual({ from: "2026-11-18", until: "2026-11-23", passedSince: "2026-11-11", etdSince: "2026-11-17" });
+    expect(candidateRange(FRI)).toEqual({ from: "2026-11-20", until: "2026-11-25", passedSince: "2026-11-13", etdSince: "2026-11-19" });
   });
 
   // repositories/shipment.repository needsAttentionCandidates, restated: the statement itself is
@@ -303,14 +310,15 @@ describe("the read's bounds", () => {
     const typedCutoffs = [j.closingDate, j.vgmClosing, j.siClosing, j.amsDeadline, j.isfDeadline];
     const cutoffDates = [...typedCutoffs, etd && addDays(etd, -4)];
     const notLeft = !j.actualDeparture && !j.actualArrival && !j.actualDeliveryDate;
-    const passedBeforeEtd = !!etd && etd >= r.from && cutoffDates.some((d) => !!d && d < r.from);
+    const passedBeforeEtd = !!etd && etd >= r.etdSince && cutoffDates.some((d) => !!d && d < r.from);
     const passedLately = !etd && typedCutoffs.some((d) => !!d && d >= r.passedSince && d < r.from);
     return PLAIN_DATE_FIELDS.some((f) => within(j[f])) || (notLeft && (cutoffDates.some(within) || passedBeforeEtd || passedLately));
   };
 
   it("finds every job the rules list: whatever the dates, times and statuses, a listed job is one the read's conditions keep", () => {
     const days = [null, "2026-11-02", "2026-11-10", "2026-11-11", "2026-11-12", "2026-11-14", "2026-11-17", "2026-11-18", "2026-11-19", "2026-11-22", "2026-11-23", "2026-11-25", "2026-11-27", "2026-12-20"];
-    const left: Partial<DueJob>[] = [{}, { actualDeparture: "2026-11-17" }, { actualArrival: "2026-11-17" }, { actualDeliveryDate: "2026-11-17" }];
+    // Whether the job has left - and how it travels: a flight's missed cut-off goes a day sooner than a vessel's, and the read must find both.
+    const left: Partial<DueJob>[] = [{}, { freightMode: "Air Freight" }, { actualDeparture: "2026-11-17" }, { actualArrival: "2026-11-17" }, { actualDeliveryDate: "2026-11-17" }];
     let listed = 0;
     // 11:00 and late in the evening: a cut-off with a time today is due at one and overdue at the other.
     for (const day of [WED, FRI, opsDay(at("2026-11-18", "23:30"))]) {
@@ -340,10 +348,11 @@ describe("the read's bounds", () => {
     expect(listed).toBeGreaterThan(1000);
   });
 
-  it("leaves out what the rules can no longer list: an old cut-off with no ETD, one whose ETD has passed, a job that has left", () => {
+  it("leaves out what the rules can no longer list: an old cut-off with no ETD, one \"ETD passed\" took over from, a job that has left", () => {
     const range = candidateRange(WED);
     const overdue = { vgmClosing: "2026-11-16", vgm: "Pending" };
-    // Kept: the ETD is today or later, or there is none and the cut-off passed within the week.
+    // Kept: the ETD is yesterday or later (a vessel's "ETD passed" starts two days after it), or there is none and the cut-off passed within the week.
+    expect(read(job({ ...overdue, estimatedDeparture: "2026-11-17" }), range)).toBe(true);
     expect(read(job({ ...overdue, estimatedDeparture: "2026-11-18" }), range)).toBe(true);
     expect(read(job({ ...overdue, estimatedDeparture: "2026-12-20" }), range)).toBe(true);
     expect(read(job(overdue), range)).toBe(true);
@@ -353,7 +362,7 @@ describe("the read's bounds", () => {
     // Left out.
     expect(read(job({ closingDate: "2026-11-10" }), range)).toBe(false);
     expect(read(job({ vgmClosing: "2026-03-01", vgm: "Pending" }), range)).toBe(false);
-    expect(read(job({ ...overdue, estimatedDeparture: "2026-11-17" }), range)).toBe(false);
+    expect(read(job({ ...overdue, estimatedDeparture: "2026-11-16" }), range)).toBe(false);
     expect(read(job({ ...overdue, estimatedDeparture: "2026-12-20", actualArrival: "2026-11-17" }), range)).toBe(false);
     expect(read(job({ vgmClosing: "2026-11-19", vgm: "Pending", actualDeliveryDate: "2026-11-17" }), range)).toBe(false);
     // A plain date ahead is read whatever else is true of the job.

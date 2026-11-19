@@ -9,6 +9,7 @@ import type {
   OpsCockpitPerson,
   OpsCockpitReports,
   OpsCockpitRow,
+  OpsCockpitSignal,
   OpsCockpitTiles,
   ShipmentsManagersCockpit,
   TrackingAttentionFlag,
@@ -49,15 +50,16 @@ import { freightKindOf, isTruckingJob, type FreightKind } from "./trackingEvents
 //
 //   tiles    counts over the jobs of the chosen mode, direction and Handled By
 //   cards    a job appears once: in URGENT when any of its signals is urgent, else in ATTENTION,
-//            with all its signals as tags; the most pressing first
+//            with all its signals as tags; the most pressing first; only the rows of one signal
+//            tile when the page asks for one (SIGNAL_FAMILIES)
 //   people   who is named in Handled By on the jobs of the chosen mode and direction - not
 //            narrowed by the Handled By filter, which is picked from it - and who only covers
 //   audit    the company's last week of what a manager wants to know of, handed through as read
 //
 // Step 2 (D6-D8): the two windows are working days - URGENT is today and the next working day,
 // ATTENTION the two working days after; a cut-off with a time (the Closing, a filing) is missed
-// once that time has passed; a missed cut-off stays URGENT until the job has left or its ETD has passed; and what
-// "late" means depends on how the job travels (lib/cockpitThresholds). Everything is judged on one
+// once that time has passed; a missed cut-off stays URGENT until the job has left or "ETD passed,
+// no ATD" takes over from it; and what "late" means depends on how the job travels (lib/cockpitThresholds). Everything is judged on one
 // `now` and its Prague business day - never the database's. A fact that could not be read gives
 // no signal (D29).
 //
@@ -233,6 +235,8 @@ export interface OpsCockpitInput {
   reports: OpsCockpitReports;
   /** The e-mails (trimmed, lower case) of the users who report to the caller; read only for "mine". Null - not known - keeps no job: the service refuses to answer instead. */
   reportEmails: ReadonlySet<string> | null;
+  /** The signal tile the two cards are narrowed to (SIGNAL_FAMILIES); left out or null, they are not. Nothing else is narrowed by it. */
+  signal?: OpsCockpitSignal | null;
   now: Date;
 }
 
@@ -377,6 +381,40 @@ export const SIGNAL_KINDS = [
   "claim",
 ] as const;
 export type SignalKind = (typeof SIGNAL_KINDS)[number];
+
+/**
+ * The page's signal tiles (apps/web …/shipments/managers/_lib/cockpitSignals SIGNAL_FAMILIES, held
+ * the same by tests/managersCockpit.test.ts): the kinds of tag each holds - some hold a few that
+ * are worked on together. The cards are narrowed to one on the server, before they are cut at
+ * COCKPIT_LIST_LIMIT, so a family far down the ranking still lists its rows; and each is counted
+ * over every row (tiles.families), whatever the cards are narrowed to. The other kinds have no tile.
+ */
+export const SIGNAL_FAMILIES: Readonly<Record<OpsCockpitSignal, readonly SignalKind[]>> = {
+  cutoff: ["cutoff"],
+  booking: ["booking"],
+  customs: ["customs"],
+  paperwork: ["paperwork"],
+  free_time: ["free_time"],
+  delivery: ["delivery", "road", "warehouse"],
+  departure: ["departure", "arrival"],
+  claim: ["claim"],
+  request: ["request"],
+  not_user: ["not_user"],
+  away: ["away"],
+  todo: ["todo", "mention"],
+  not_touched: ["not_touched"],
+};
+
+/**
+ * The signal tile a request names (?signal=), null when it names none; or the plain sentence
+ * saying it is none of them. Only a tile's own key is one: the controller turns a problem into an
+ * invalid-argument error.
+ */
+export function signalAsked(asked: string | undefined): { signal: OpsCockpitSignal | null } | { problem: string } {
+  if (asked === undefined) return { signal: null };
+  const signal = (Object.keys(SIGNAL_FAMILIES) as OpsCockpitSignal[]).find((key) => key === asked);
+  return signal ? { signal } : { problem: `signal must be one of ${Object.keys(SIGNAL_FAMILIES).join(", ")}` };
+}
 
 type Area = OpsCockpitRow["area"];
 /** A signal, its family and the shipment tab it is best worked on. */
@@ -548,9 +586,12 @@ export function cargoIn(job: Pick<OpsCockpitJob, "warehouseReceivedDate">, timel
 // today, it is missed or overdue once that time has passed. The 4 days before the ETD have none.
 const statusHas = (status: string, fragment: string) => status.toLowerCase().includes(fragment);
 
-/** The columns a job's cut-offs are read from. */
+/** The columns a job's cut-offs are read from; how it travels says how long a missed one stays (stillBeforeDeparture). */
 export type CutoffJob = Pick<
   OpsCockpitJob,
+  | "tradeDirection"
+  | "freightMode"
+  | "department"
   | "closingDate"
   | "closingTime"
   | "vgmClosing"
@@ -617,19 +658,26 @@ export interface CutoffDue {
 const hasLeft = (job: Pick<OpsCockpitJob, "actualDeparture" | "actualArrival" | "actualDeliveryDate">) => !!(job.actualDeparture || job.actualArrival || job.actualDeliveryDate);
 
 /**
- * Whether something due before departure on `date`, which has passed, still counts today: while
- * the job's ETD has not passed. The day after the ETD it is history - "ETD passed, no ATD" speaks
- * instead. A job with no ETD keeps it PASSED_DATE_KEPT_DAYS after `date` itself, not for ever.
- * (That the job has not left is asked apart: hasLeft.)
+ * The first day "ETD passed, no ATD" speaks for a job with this ETD: ETD_PASSED_AFTER_DAYS of
+ * its mode after it, as attentionRulesFor hands that number to lib/trackingAttention.
  */
-const stillBeforeDeparture = (job: Pick<OpsCockpitJob, "estimatedDeparture">, date: string, today: string) =>
-  job.estimatedDeparture ? job.estimatedDeparture >= today : date >= addDays(today, -PASSED_DATE_KEPT_DAYS);
+const etdPassedFrom = (job: Pick<OpsCockpitJob, "tradeDirection" | "freightMode" | "department">, etd: string) => addDays(etd, ETD_PASSED_AFTER_DAYS[freightKindOf(job)]);
+
+/**
+ * Whether something due before departure on `date`, which has passed, still counts today: until
+ * the day "ETD passed, no ATD" speaks instead (etdPassedFrom), so the job is never without an
+ * URGENT tag in between - a sea, rail or road job keeps it on its ETD and the day after, an air
+ * job on its ETD. A job with no ETD keeps it PASSED_DATE_KEPT_DAYS after `date` itself, not for
+ * ever. (That the job has not left is asked apart: hasLeft.)
+ */
+const stillBeforeDeparture = (job: Pick<OpsCockpitJob, "estimatedDeparture" | "tradeDirection" | "freightMode" | "department">, date: string, today: string) =>
+  job.estimatedDeparture ? today < etdPassedFrom(job, job.estimatedDeparture) : date >= addDays(today, -PASSED_DATE_KEPT_DAYS);
 
 /**
  * The job's cut-offs that count on `day`: those in the two windows, and the missed ones.
  *
  *   A job that has left (hasLeft) has none: nothing can be filed or missed any more.
- *   A missed cut-off stays URGENT (D7) while the ETD has not passed; with no ETD, for
+ *   A missed cut-off stays URGENT (D7) until "ETD passed, no ATD" takes over; with no ETD, for
  *   PASSED_DATE_KEPT_DAYS after its own date (stillBeforeDeparture).
  *   Closing counts until the cargo is in (`cargoIsIn`, see cargoIn): true drops it. Null - the
  *   timeline could not be read - leaves a Closing still ahead, which its date alone says, and
@@ -783,7 +831,8 @@ export function mawbSignals(
 
 /**
  * A2: an export's BoL draft not Approved 3 days before the SI closing - and after it while the job
- * has not left and its ETD has not passed (stillBeforeDeparture). An import's draft is the agent's.
+ * has not left and "ETD passed, no ATD" has not taken over (stillBeforeDeparture). An import's
+ * draft is the agent's.
  * A3: a sea export departed and the House BoL not released 5 working days after the ATD - a job
  * on a Direct MBL has no House BoL to release.
  */
@@ -1174,6 +1223,13 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
   // Every family is in the answer, 0 for none: the page reads a tile's count without asking whether it is there.
   const signals: Record<string, number> = Object.fromEntries(SIGNAL_KINDS.map((kind) => [kind, 0]));
   for (const r of rows) for (const kind of new Set(r.row.tags.flatMap((t) => (t.kind ? [t.kind] : [])))) signals[kind] = (signals[kind] ?? 0) + 1;
+  const ofFamily = (kinds: readonly string[]) => (tag: OpsCockpitRow["tags"][number]) => !!tag.kind && kinds.includes(tag.kind);
+  // Each tile over every row, a row with two of its kinds once: the cards may be narrowed to another tile below.
+  const families: Record<string, number> = Object.fromEntries(Object.entries(SIGNAL_FAMILIES).map(([key, kinds]) => [key, withTag(ofFamily(kinds))]));
+  // The tile chosen narrows the cards before they are cut at their limit, so a low-ranked family
+  // still lists its rows and each card's total is that family's; nothing else is narrowed by it.
+  const signal = input.signal ?? null;
+  const carded = signal ? rows.filter((r) => r.row.tags.some(ofFamily(SIGNAL_FAMILIES[signal]))) : rows;
 
   const users = input.userEmails;
   const tiles: OpsCockpitTiles = {
@@ -1190,6 +1246,7 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
     notReleased: shown.filter((j) => isUnbilledArrival(j.job)).length,
     openClaims: shown.filter((j) => j.job.claim === "Yes").length,
     signals,
+    families,
   };
 
   const byJobNumber = (a: OpsCockpitRow, b: OpsCockpitRow) => a.jobNumber.localeCompare(b.jobNumber);
@@ -1200,9 +1257,10 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
     direction,
     handledBy,
     reports,
+    signal,
     tiles,
-    urgent: cockpitCard(rows.filter((r) => r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
-    attention: cockpitCard(rows.filter((r) => !r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
+    urgent: cockpitCard(carded.filter((r) => r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
+    attention: cockpitCard(carded.filter((r) => !r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
     people: peopleOf(scoped, pool, input, (email) => isReportOrNoUser(email, reports, input.reportEmails, input.userEmails)),
     audit: input.audit,
     // Over the jobs of the page, as the tiles: its mode, direction, "My reports" and Handled By.

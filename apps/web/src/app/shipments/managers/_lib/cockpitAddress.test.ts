@@ -16,6 +16,7 @@ import {
   tileHref,
   type OpsListTileKey,
 } from "./cockpitAddress";
+import { addressFiltersOf, arrivesByLink } from "@/app/shipments/_lib/addressFilters";
 
 describe("Shipments → Managers: who opens it", () => {
   it("is for superadmins, admins and managers", () => {
@@ -164,22 +165,36 @@ describe("Shipments → Managers: where a list tile leads", () => {
     expect(query(tileHref("openClaims", { ...everyone, handledBy: "nobody" }))).toEqual({ tile: "claims", handledBy: "nobody" });
   });
 
-  it("carries the page's Trade Direction as the list's column filter, in the value the column stores", () => {
-    expect(tileHref("etdEtaMoved", { ...everyone, direction: "import" })).toBe("/shipments?tile=etamoved&f.tradeDirection=Import");
-    expect(query(tileHref("active", { ...everyone, direction: "export" }))).toEqual({ tile: "active", "f.tradeDirection": "Export" });
+  it("carries the page's Trade Direction as the list's own direction filter, which the server matches over every job", () => {
+    expect(tileHref("etdEtaMoved", { ...everyone, direction: "import" })).toBe("/shipments?tile=etamoved&direction=import");
+    expect(query(tileHref("active", { ...everyone, direction: "export" }))).toEqual({ tile: "active", direction: "export" });
     expect(query(tileHref("openClaims", { mode: "road", direction: "domestic", handledBy: "jana@cto.cz", reports: "all" }))).toEqual({
       tile: "claims",
       mode: "road",
       handledBy: "jana@cto.cz",
-      "f.tradeDirection": "Domestic",
+      direction: "domestic",
     });
-    // Every direction: no column filter, so the list restores nothing it was not asked for.
-    for (const { key } of LIST_TILES) expect(tileHref(key, everyone)).not.toContain("f.");
+    // Every direction: none sent. And never a column filter: that one is applied in the browser, to the rows the list loaded.
+    for (const { key } of LIST_TILES) {
+      expect(query(tileHref(key, everyone)), key).not.toHaveProperty("direction");
+      for (const direction of ["import", "export", "domestic"] as const) expect(tileHref(key, { ...everyone, direction }), key).not.toContain("f.");
+    }
+  });
+
+  it("leads to a list that reads the direction back as the filter it sends, with its chip", () => {
+    for (const direction of ["import", "export", "domestic"] as const) {
+      const params = new URLSearchParams(tileHref("active", { ...everyone, direction })!.split("?")[1]);
+      const { request, chips } = addressFiltersOf(params);
+      expect(request).toEqual({ direction });
+      expect(chips.map((c) => c.param)).toEqual(["direction"]);
+      // A link's own filters: the list opens on exactly these rows.
+      expect(arrivesByLink(params)).toBe(true);
+    }
   });
 
   it("opens the jobs nobody handles from Nobody in Handled By, for everyone and on a page narrowed to nobody", () => {
     expect(query(tileHref("noHandledBy", { ...everyone, mode: "rail" }))).toEqual({ tile: "active", handledBy: "nobody", mode: "rail" });
-    expect(query(tileHref("noHandledBy", { mode: "all", direction: "import", handledBy: "nobody", reports: "all" }))).toEqual({ tile: "active", handledBy: "nobody", "f.tradeDirection": "Import" });
+    expect(query(tileHref("noHandledBy", { mode: "all", direction: "import", handledBy: "nobody", reports: "all" }))).toEqual({ tile: "active", handledBy: "nobody", direction: "import" });
   });
 
   it("gives Nobody in Handled By no link on a page narrowed to a person: it counts none of their jobs", () => {

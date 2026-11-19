@@ -1,7 +1,7 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { businessDay } from "../../../lib/businessDate";
-import type { OpsCockpitDirection, OpsCockpitMode, OpsCockpitReports, ShipmentsManagersCockpit } from "../interfaces/interfaces";
+import type { OpsCockpitDirection, OpsCockpitMode, OpsCockpitReports, OpsCockpitSignal, ShipmentsManagersCockpit } from "../interfaces/interfaces";
 import { COCKPIT_JOB_LIMIT, COCKPIT_READS_AT_ONCE } from "../lib/cockpitThresholds";
 import { closingDatesDismissed, jobsWithMissedCutoffOrLateCargo, withoutDismissed } from "../lib/cutoffDismissals";
 import {
@@ -44,6 +44,8 @@ export interface OpsCockpitFilters {
   reports: OpsCockpitReports;
   /** Who asks: "My reports" is counted from them. */
   userId: string;
+  /** The signal tile the two cards are narrowed to; left out or null, they are not (lib/managersCockpit SIGNAL_FAMILIES). */
+  signal?: OpsCockpitSignal | null;
 }
 
 /** Why "My reports" is not answered when the users could not be read: who reports to whom is theirs to say, and an empty page would read as "nobody has anything". */
@@ -221,6 +223,7 @@ class ManagersCockpitService {
       reports: filters.reports,
       // Whoever names the caller in "Reports to". Read only for "mine", which is refused above without the users.
       reportEmails: reportEmailsOf(users, filters.userId),
+      signal: filters.signal ?? null,
       now,
     });
   }

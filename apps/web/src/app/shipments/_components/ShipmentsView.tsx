@@ -19,8 +19,8 @@ import { HINT } from "@/styles/ui";
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
 // instead of only the rows already in the browser.
-// A link may narrow the list further by its address alone (?handledBy=, ?mode=, ?customs=,
-// ?invoicing=, and the tiles of Shipments → Managers): those go to the same server-side query and
+// A link may narrow the list further by its address alone (?handledBy=, ?mode=, ?direction=,
+// ?customs=, ?invoicing=, and the tiles of Shipments → Managers): those go to the same server-side query and
 // each shows as a chip over the table, so the list never is short without saying why (_lib/addressFilters).
 export const ShipmentsView = () => {
   const router = useRouter();

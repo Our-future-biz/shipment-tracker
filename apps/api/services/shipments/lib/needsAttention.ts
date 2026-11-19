@@ -1,6 +1,6 @@
 import { addDays } from "../../../lib/businessDate";
 import type { ShipmentDeadline, ShipmentDueItem } from "../interfaces/interfaces";
-import { PASSED_DATE_KEPT_DAYS } from "./cockpitThresholds";
+import { ETD_PASSED_AFTER_DAYS, PASSED_DATE_KEPT_DAYS } from "./cockpitThresholds";
 import { withoutDismissed, type CutoffDismissed } from "./cutoffDismissals";
 import { cargoIn, cutoffsOf, timelineFactsOf, type CutoffJob, type OpsDay, type TimelineFacts } from "./managersCockpit";
 
@@ -13,8 +13,9 @@ import { cargoIn, cutoffsOf, timelineFactsOf, type CutoffJob, type OpsDay, type 
 //             day, ATTENTION the two working days after
 //   cut-offs  Closing, VGM, SI, AMS, ISF, each with its time: the cockpit's cutoffsOf itself, not
 //             a copy. A job that has left (ATD, ATA or actual delivery) has none. A missed one
-//             stays URGENT (D7) while the ETD is today or later - with no ETD, for 7 days after
-//             its own date - and a Closing only until the cargo is in. A missed one a manager
+//             stays URGENT (D7) until the cockpit's "ETD passed, no ATD" takes over (the day after
+//             the ETD by air, two days after it otherwise) - with no ETD, for 7 days after its own
+//             date - and a Closing only until the cargo is in. A missed one a manager
 //             dismissed is left out while it keeps its date (lib/cutoffDismissals), as on the cockpit
 //   dates     what this list has always shown as coming up - cargo ready, pick-up, ETD, ETA, ETA
 //             warehouse, planned delivery. They count while still ahead: the day after, they are gone
@@ -146,11 +147,24 @@ export interface CandidateRange {
   until: string;
   /**
    * A job with no ETD keeps a missed or overdue cut-off while the cut-off's own date is not before
-   * this day (cutoffsOf: PASSED_DATE_KEPT_DAYS). A job with an ETD keeps it while the ETD is
-   * today (`from`) or later, however old the cut-off.
+   * this day (cutoffsOf: PASSED_DATE_KEPT_DAYS).
    */
   passedSince: string;
+  /**
+   * A job with an ETD keeps it, however old the cut-off, until "ETD passed, no ATD" takes over:
+   * ETD_PASSED_AFTER_DAYS of its mode after the ETD (cutoffsOf). This is the earliest ETD that can
+   * still hold one - the longest of those waits back - whatever the mode: the rule says which.
+   */
+  etdSince: string;
 }
 
-/** The read's bounds on `day`: the two windows, and how far back a cut-off that passed still counts on a job with no ETD. */
-export const candidateRange = (day: OpsDay): CandidateRange => ({ from: day.today, until: day.attentionUntil, passedSince: addDays(day.today, -PASSED_DATE_KEPT_DAYS) });
+/** The longest wait of any mode before "ETD passed, no ATD": a missed cut-off stays up to the day before it. */
+const LONGEST_ETD_PASSED_AFTER_DAYS = Math.max(...Object.values(ETD_PASSED_AFTER_DAYS));
+
+/** The read's bounds on `day`: the two windows, and how far back a cut-off that passed still counts - on a job with no ETD, and by the ETD of one with it. */
+export const candidateRange = (day: OpsDay): CandidateRange => ({
+  from: day.today,
+  until: day.attentionUntil,
+  passedSince: addDays(day.today, -PASSED_DATE_KEPT_DAYS),
+  etdSince: addDays(day.today, -(LONGEST_ETD_PASSED_AFTER_DAYS - 1)),
+});

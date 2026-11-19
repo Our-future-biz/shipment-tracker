@@ -129,13 +129,6 @@ const TILE_FILTERS: Record<OpsListTileKey, Record<string, string>> = {
   openClaims: { tile: "claims" },
 };
 
-// The list has no Trade Direction filter of its own beside a tile (its Imports and Exports are
-// tiles themselves), so the page's direction goes as the list's column filter on Trade Direction
-// (?f.tradeDirection=, lib/columnConfig; ShipmentsTable matches it ignoring case). That filter is
-// applied in the browser to the rows the list has loaded: a list longer than the list's own limit
-// shows the direction's jobs among those, under the list's notice that it is cut.
-const DIRECTION_COLUMN_FILTER = "f.tradeDirection";
-
 /**
  * What the "My reports" switch says on hover. Jobs whose Handled By is no longer a user are
  * counted in as well: a report who was deactivated must not take their jobs out of sight.
@@ -164,9 +157,9 @@ export function tileHref(key: OpsListTileKey, page: OpsCockpitFilter): string | 
     params.set("handledBy", page.handledBy);
   }
   if (page.mode !== "all") params.set("mode", page.mode);
-  const direction = OPS_DIRECTIONS.find((d) => d.value !== "all" && d.value === page.direction);
-  // The value as Trade Direction stores it: Import, Export, Domestic.
-  if (direction) params.set(DIRECTION_COLUMN_FILTER, direction.label);
+  // The list's own Trade Direction filter (?direction=, _lib/addressFilters), matched on the server
+  // as the cockpit matches it, over every job - not a column filter over the rows the list loaded.
+  if (page.direction !== "all") params.set("direction", page.direction);
   return `/shipments?${params}`;
 }
 

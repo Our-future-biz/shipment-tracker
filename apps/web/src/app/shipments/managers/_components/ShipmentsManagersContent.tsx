@@ -54,7 +54,7 @@ import {
 import { HANDOVER_HINT, HANDOVER_LABEL, HANDOVER_NOT_KNOWN, handoverParts, type HandoverFigure } from "../_lib/cockpitHandover";
 import { MONEY_LOAD_FAILED, moneyHandledByOptions, moneySignalOf } from "../_lib/cockpitMoney";
 import { filterValueOf, handledByOptions, isNotUser, personFigures, personName, teamOf } from "../_lib/cockpitPeople";
-import { CARD_TAG_LIMIT, SIGNAL_FAMILIES, cardWithSignal, figureText, listWithSignal, loadFailedText, notKnownText, signalFigure, signalOf, type ShownList, type SignalFamily } from "../_lib/cockpitSignals";
+import { CARD_TAG_LIMIT, SIGNAL_FAMILIES, cardWithSignal, figureText, loadFailedText, notKnownText, serverCard, signalFigure, signalOf, type ShownList, type SignalFamily } from "../_lib/cockpitSignals";
 import { ApprovalLinks } from "./ApprovalLinks";
 import { AuditLine } from "./AuditLine";
 import { ClaimTimeLimitsPanel } from "./ClaimTimeLimitsPanel";
@@ -389,8 +389,9 @@ function ShipmentsManagersCockpit() {
   const go = (next: Partial<OpsCockpitFilter> & { tab?: ShipmentsManagersTab; signal?: string | null; msignal?: string | null }) =>
     router.replace(shipmentsManagersHref({ tab, ...filter, signal: signal?.key ?? null, msignal: moneySignal?.key ?? null, ...next }), { scroll: false });
   const setSignal = (family: SignalFamily | null) => go({ signal: family?.key ?? null });
-  // The Cockpit and the Team tab read the same answer: changing between them asks nothing new.
-  const { cockpit, people, isLoading, isError, error, refetch } = useShipmentsManagersCockpit(filter, tab === "cockpit" || tab === "team");
+  // The Cockpit and the Team tab read the same answer: changing between them asks nothing new. The
+  // signal is asked of the server, which narrows the cards before it cuts them at their limit.
+  const { cockpit, cardsLoading, people, isLoading, isError, error, refetch } = useShipmentsManagersCockpit(filter, signal?.key ?? null, tab === "cockpit" || tab === "team");
   const loadFailed = loadFailedText(error);
   // The money is an answer of its own, asked only while its tab is shown - and the only one asked
   // there: its people fill the Handled By filter and say who is no longer a user.
@@ -420,9 +421,10 @@ function ShipmentsManagersCockpit() {
   // A shipment and a Master Job are numbered apart: the kind keeps their keys apart too.
   const rowKey = (r: OpsCockpitRow) => `${r.kind}:${r.id}`;
 
-  // The cards as shown: whole, or narrowed to the signal over the rows the server sent. The tiles
-  // and the Team line are not narrowed: they say what there is to pick from.
-  const shown = (key: CockpitCardKey): ShownList | undefined => (cockpit ? listWithSignal(cockpit[key], signal) : undefined);
+  // The cards as the server sent them: whole, or narrowed to the signal - not there yet while that
+  // signal's answer loads. The tiles and the Team line are not narrowed: they say what there is to
+  // pick from.
+  const shown = (key: CockpitCardKey): ShownList | undefined => (cockpit && !cardsLoading ? serverCard(cockpit[key]) : undefined);
 
   const menu = (r: OpsCockpitRow) => (
     <RowMenu
@@ -438,7 +440,7 @@ function ShipmentsManagersCockpit() {
     <CockpitCard<OpsCockpitRow>
       card={cardWithSignal(CARDS[key], key, signal, shown(key))}
       list={shown(key)}
-      isLoading={isLoading}
+      isLoading={isLoading || cardsLoading}
       isError={isError}
       loadFailed={loadFailed}
       onShowAll={() => setOpenCard(key)}

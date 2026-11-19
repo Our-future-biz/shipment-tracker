@@ -4298,6 +4298,7 @@ export namespace shipments {
             const query = makeRecord<string, string | string[]>({
                 customerId:    params.customerId,
                 customs:       params.customs,
+                direction:     params.direction,
                 handledBy:     params.handledBy,
                 invoicing:     params.invoicing,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
@@ -4352,6 +4353,7 @@ export namespace shipments {
                 handledBy: params.handledBy,
                 mode:      params.mode,
                 reports:   params.reports,
+                signal:    params.signal,
             })
 
             // Now make the actual call to the API
@@ -12035,6 +12037,11 @@ export namespace controllers {
         mode?: string
 
         /**
+         * Trade Direction: import | export | domestic, in any case
+         */
+        direction?: string
+
+        /**
          * Warehouse page filter: in | stock | out
          */
         warehouse?: string
@@ -12092,6 +12099,13 @@ export namespace controllers {
          * "mine": only the jobs handled by the users who report to the caller (Settings → Users, "Reports to") and those whose Handled By is not a user; all when left out.
          */
         reports?: string
+
+        /**
+         * A signal tile (cutoff, booking, customs, paperwork, free_time, delivery, departure, claim,
+         * request, not_user, away, todo, not_touched): the two cards hold only its rows, narrowed before
+         * they are cut at their limit. The tiles and the people are counted over everything as without it.
+         */
+        signal?: string
     }
 
     export interface ShipmentManagersMoneyRequest {
@@ -20247,6 +20261,24 @@ export namespace interfaces {
     export type OpsCockpitDirection = "all" | "import" | "export" | "domestic"
 
     /**
+     * A signal tile of the page, which the two cards can be narrowed to (?signal=): the kinds of tag each holds are lib/managersCockpit SIGNAL_FAMILIES.
+     */
+    export type OpsCockpitSignal =
+        | "cutoff"
+        | "booking"
+        | "customs"
+        | "paperwork"
+        | "free_time"
+        | "delivery"
+        | "departure"
+        | "claim"
+        | "request"
+        | "not_user"
+        | "away"
+        | "todo"
+        | "not_touched"
+
+    /**
      * The hand-over line (step 5, D30): over the jobs of the page - its mode, direction, Handled By
      * and "My reports" - the updates the warehouse and Trucking have for them that wait longer than
      * that module's own stale limit, and those that failed for good. A figure is null - not 0 - when
@@ -20441,6 +20473,13 @@ export namespace interfaces {
          * it, after the filters. Every family is there, 0 for none.
          */
         signals: { [key: string]: number }
+
+        /**
+         * Per signal tile (OpsCockpitSignal): how many rows carry a tag of any of its kinds, a row with
+         * two of them once. Over every row of the page, whatever `signal` narrows the cards to. Every
+         * tile is there, 0 for none.
+         */
+        families: { [key: string]: number }
     }
 
     export interface OpsMoneyList {
@@ -25324,6 +25363,13 @@ export namespace interfaces {
          * "mine": only the jobs handled by the users who report to the caller, and those whose Handled By is not a user - tiles, cards and `people` alike.
          */
         reports: OpsCockpitReports
+
+        /**
+         * The signal tile the two cards are narrowed to, null for none. They are narrowed before they
+         * are cut at their limit, so each card's `total` and first rows are those of the signal; the
+         * tiles, `people` and the lines are not narrowed by it.
+         */
+        signal: OpsCockpitSignal | null
 
         tiles: OpsCockpitTiles
         urgent: OpsCockpitList

@@ -85,6 +85,8 @@ export interface ShipmentQueryParams {
   handledBy?: string;
   /** How the job travels (sea | air | rail | road), matched server-side. */
   mode?: string;
+  /** Trade Direction (import | export | domestic), matched server-side over every job. */
+  direction?: string;
   /** Invoicing filter (unbilled-arrivals: arrived, not released for billing), matched server-side. */
   invoicing?: string;
   /** The houses of the master job with this MCZ number, matched server-side. */
@@ -378,6 +380,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   const customs = params.customs || undefined;
   const handledBy = params.handledBy?.trim() || undefined;
   const mode = params.mode || undefined;
+  const direction = params.direction || undefined;
   const invoicing = params.invoicing || undefined;
   const masterJobMcz = params.masterJobMcz?.trim() || undefined;
   // The columns only matter to a search: changing them without one doesn't reload the list.
@@ -397,10 +400,11 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
       searchColumns?.join(",") ?? "",
       handledBy ?? "",
       mode ?? "",
+      direction ?? "",
       invoicing ?? "",
     ],
     queryFn: () =>
-      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz, handledBy, mode, invoicing }),
+      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz, handledBy, mode, direction, invoicing }),
     placeholderData: (prev) => prev,
     refetchInterval: params.refetchInterval,
     enabled: params.enabled ?? true,

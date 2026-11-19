@@ -70,9 +70,11 @@ const grid = (): JobData[] => {
     { vgmClosing: day(n), vgm: "Pending (Red)" },
     { vgmClosing: day(n), vgm: "Confirmed (Green)" },
     { vgmClosing: day(n), vgm: "", estimatedDeparture: day(-8) },
-    // A passed cut-off stays while the ETD is today or later - and is history the day after.
+    // A passed cut-off stays until "ETD passed, no ATD" takes over: two days after a vessel's ETD, one after a flight's.
     { vgmClosing: day(n), vgm: "Pending", estimatedDeparture: day(0) },
     { siClosing: day(n), shippingInstructions: "", estimatedDeparture: day(-1) },
+    { siClosing: day(n), shippingInstructions: "", estimatedDeparture: day(-1), freightMode: "Air Freight" },
+    { siClosing: day(n), shippingInstructions: "", estimatedDeparture: day(-2) },
     // The filings' own times: due today, past its time is overdue.
     { vgmClosing: day(n), vgmClosingTime: "00:01", vgm: "Pending" },
     { siClosing: day(n), siClosingTime: "23:59", shippingInstructions: "", estimatedDeparture: day(n + 2) },
@@ -168,6 +170,9 @@ describe("Needs Attention against the database", () => {
         { vgmClosing: day(-20), vgm: "Pending", estimatedDeparture: day(40) },
         { closingDate: day(-7) },
         { ams: "Pending", estimatedDeparture: day(2) },
+        // An ETD of yesterday: a vessel's "ETD passed" starts tomorrow (a flight's today - the rule tells them apart).
+        { vgmClosing: day(-3), vgm: "Pending", estimatedDeparture: day(-1) },
+        { ams: "Pending", estimatedDeparture: day(-1) },
         // A plain date ahead is read whatever else is true of the job.
         { vgmClosing: day(-3), actualDeparture: day(-2), estimatedArrival: day(1) },
       ].map((over) => newJob(companyId, over)),
@@ -177,9 +182,9 @@ describe("Needs Attention against the database", () => {
         // No ETD and a cut-off older than the week it is kept for.
         { closingDate: day(-8) },
         { vgmClosing: day(-200), vgm: "Pending" },
-        // The ETD has passed.
-        { vgmClosing: day(-3), vgm: "Pending", estimatedDeparture: day(-1) },
-        { ams: "Pending", estimatedDeparture: day(-1) },
+        // "ETD passed, no ATD" has taken over, whatever the mode.
+        { vgmClosing: day(-3), vgm: "Pending", estimatedDeparture: day(-2) },
+        { ams: "Pending", estimatedDeparture: day(-2) },
         // Left: an ATD, an ATA or an actual delivery.
         { vgmClosing: day(-3), vgm: "Pending", estimatedDeparture: day(40), actualDeparture: day(-1) },
         { closingDate: day(1), actualArrival: day(-1) },

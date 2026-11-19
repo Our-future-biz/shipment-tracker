@@ -34,6 +34,15 @@ describe("the filters the Shipments list takes from its address", () => {
     expect(of("mode=Air").request.mode).toBe("air");
   });
 
+  it("reads the Trade Direction, in the page's words, however it was written", () => {
+    expect(of("direction=import")).toEqual({ request: { direction: "import" }, chips: [{ param: "direction", label: "Trade Direction: Import" }] });
+    expect(labels("direction=export")).toEqual(["Trade Direction: Export"]);
+    expect(labels("direction=domestic")).toEqual(["Trade Direction: Domestic"]);
+    // The column's own spelling, or spaces around it: still the filter.
+    expect(of("direction=Import").request.direction).toBe("import");
+    expect(of("direction=%20EXPORT%20").request.direction).toBe("export");
+  });
+
   it("reads Customs urgent and Arrived, not released for billing", () => {
     expect(of("customs=urgent")).toEqual({ request: { customs: "urgent" }, chips: [{ param: "customs", label: "Customs: urgent" }] });
     expect(of("invoicing=unbilled-arrivals")).toEqual({
@@ -52,7 +61,7 @@ describe("the filters the Shipments list takes from its address", () => {
   });
 
   it("ignores a value the list does not know: no chip, nothing sent", () => {
-    for (const query of ["mode=all", "mode=ship", "mode=", "customs=later", "customs=", "invoicing=invoiced", "invoicing=billing", "tile=free-time", "tile=toString", "mode=constructor", "customs=__proto__"]) {
+    for (const query of ["mode=all", "mode=ship", "mode=", "direction=all", "direction=inbound", "direction=", "direction=toString", "customs=later", "customs=", "invoicing=invoiced", "invoicing=billing", "tile=free-time", "tile=toString", "mode=constructor", "customs=__proto__"]) {
       expect(of(query), query).toEqual({ request: {}, chips: [] });
     }
     // The ones it knows still count beside one it does not.
@@ -60,9 +69,9 @@ describe("the filters the Shipments list takes from its address", () => {
   });
 
   it("combines them, the chips in one order whatever the address's", () => {
-    const all = of("tile=claims&invoicing=unbilled-arrivals&customs=urgent&mode=air&handledBy=jan%40firma.cz&q=CZ&status=active");
-    expect(all.request).toEqual({ handledBy: "jan@firma.cz", mode: "air", customs: "urgent", invoicing: "unbilled-arrivals" });
-    expect(all.chips.map((c) => c.label)).toEqual(["Handled By: jan@firma.cz", "Mode: Air", "Customs: urgent", "Arrived, not released for billing", "Open claims"]);
+    const all = of("tile=claims&invoicing=unbilled-arrivals&customs=urgent&direction=export&mode=air&handledBy=jan%40firma.cz&q=CZ&status=active");
+    expect(all.request).toEqual({ handledBy: "jan@firma.cz", mode: "air", direction: "export", customs: "urgent", invoicing: "unbilled-arrivals" });
+    expect(all.chips.map((c) => c.label)).toEqual(["Handled By: jan@firma.cz", "Mode: Air", "Trade Direction: Export", "Customs: urgent", "Arrived, not released for billing", "Open claims"]);
     // An Overview tile combined with them stays the Overview's.
     expect(labels("tile=active&customs=urgent&mode=air&handledBy=jan%40firma.cz")).toEqual(["Handled By: jan@firma.cz", "Mode: Air", "Customs: urgent"]);
   });
@@ -80,6 +89,7 @@ describe("an address that is a link's", () => {
       "handledBy=nobody",
       "handledBy=jan%40firma.cz",
       "mode=road",
+      "direction=import",
       "customs=urgent",
       "invoicing=unbilled-arrivals",
       "customs=urgent&status=active&f.customer=Alza",
@@ -89,7 +99,7 @@ describe("an address that is a link's", () => {
   });
 
   it("is not a plain arrival, a search, a status or column filters, or a value the list does not know", () => {
-    for (const query of ["", "q=CZ0001", "status=active", "f.customer=Alza", "chat=ship-id", "fromQuote=QCZ00000012", "tile=", "tile=all", "mode=ship", "mode=all", "customs=later", "invoicing=invoiced", "handledBy=%20"]) {
+    for (const query of ["", "q=CZ0001", "status=active", "f.customer=Alza", "f.tradeDirection=Import", "chat=ship-id", "fromQuote=QCZ00000012", "tile=", "tile=all", "mode=ship", "mode=all", "direction=all", "customs=later", "invoicing=invoiced", "handledBy=%20"]) {
       expect(byLink(query), query).toBe(false);
     }
   });
@@ -104,10 +114,13 @@ describe("what sends the list back to its first page", () => {
     expect(key("tile=active&customs=urgent&mode=air&handledBy=nobody")).not.toBe(start);
     expect(key("tile=active&mode=air&handledBy=jan%40firma.cz")).not.toBe(start);
     expect(key("tile=active&customs=urgent&mode=air&handledBy=jan%40firma.cz&invoicing=unbilled-arrivals")).not.toBe(start);
+    expect(key("tile=active&customs=urgent&mode=air&handledBy=jan%40firma.cz&direction=import")).not.toBe(start);
+    expect(key("direction=import")).not.toBe(key("direction=export"));
     expect(key("")).not.toBe(start);
     // One filter's value is never read as another's.
     expect(key("handledBy=air")).not.toBe(key("mode=air"));
     expect(key("customs=urgent")).not.toBe(key("handledBy=urgent"));
+    expect(key("direction=import")).not.toBe(key("handledBy=import"));
   });
 
   it("stays as it is for anything else in the address", () => {
@@ -128,6 +141,7 @@ describe("clearing a chip", () => {
     expect(withoutAddressFilter(address, "customs").get("customs")).toBeNull();
     expect(withoutAddressFilter(new URLSearchParams("tile=claims&mode=sea"), "tile").toString()).toBe("mode=sea");
     expect(withoutAddressFilter(new URLSearchParams("invoicing=unbilled-arrivals"), "invoicing").toString()).toBe("");
+    expect(withoutAddressFilter(new URLSearchParams("tile=active&direction=import"), "direction").toString()).toBe("tile=active");
   });
 
   it("leaves the address it was given as it is", () => {

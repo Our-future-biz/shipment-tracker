@@ -1,7 +1,7 @@
 // The numbers of the operations managers' cockpit (Shipments → Managers), all in one place. They
 // are Council Outlay 11's, as decided on 18 Nov 2026 (D6-D8): the two windows are working days
-// of Prague time, a missed cut-off stays until the job has left or its ETD has passed, and what "late" means depends on
-// how the job travels. Change a number here and the cockpit follows.
+// of Prague time, a missed cut-off stays until the job has left or "ETD passed, no ATD" takes over
+// from it, and what "late" means depends on how the job travels. Change a number here and the cockpit follows.
 import type { FreightKind } from "./trackingEvents";
 
 /** One number per way of travelling. "road" is an international Road Freight job: a Trucking job (Domestic, Road Department) has its stamps from Trucking and none of these rows. */
@@ -25,7 +25,9 @@ export const ATTENTION_WORKING_DAYS = 2;
  * A date that passed with nothing recorded still counts for this many days: "ETD within 3 days"
  * holds for an ETD that passed lately, and a job with NO ETD keeps a missed or overdue cut-off
  * this long after the cut-off's own date - not for ever. (A job with an ETD keeps a missed cut-off
- * until that ETD has passed: the day after, "ETD passed, no ATD" speaks instead.)
+ * up to the day before "ETD passed, no ATD" starts - ETD_PASSED_AFTER_DAYS of its mode after the
+ * ETD - so one hands over to the other with no day in between: a sea, rail or road job keeps it on
+ * the ETD and the day after, an air job on the ETD.)
  */
 export const PASSED_DATE_KEPT_DAYS = 7;
 /**
@@ -44,7 +46,11 @@ export const BOOKING_PENDING_WITHIN_DAYS: PerMode<{ cargoReady: number; etd: num
   road: { cargoReady: 3, etd: 7 },
   air: { cargoReady: 1, etd: 2 },
 };
-/** U6: days after the ETD with no ATD, imports too. Road has no number of its own in the Outlay: it keeps the Tracking tab's 2. */
+/**
+ * U6: days after the ETD with no ATD, imports too. Road has no number of its own in the Outlay: it
+ * keeps the Tracking tab's 2. A missed cut-off stays until the day before (lib/managersCockpit
+ * stillBeforeDeparture), and Needs Attention reads its jobs that far back (lib/needsAttention candidateRange).
+ */
 export const ETD_PASSED_AFTER_DAYS: PerMode<number> = { sea: 2, rail: 2, air: 1, road: 2 };
 /** U7: days after the ETA with no ATA. A train is late more often than a truck. */
 export const ETA_PASSED_AFTER_DAYS: PerMode<number> = { sea: 2, air: 1, rail: 4, road: 1 };

@@ -1283,6 +1283,21 @@ export interface TrackingAttentionItem {
 export type OpsCockpitMode = "all" | "sea" | "air" | "rail" | "road";
 /** Which jobs the cockpit counts by their Trade Direction. */
 export type OpsCockpitDirection = "all" | "import" | "export" | "domestic";
+/** A signal tile of the page, which the two cards can be narrowed to (?signal=): the kinds of tag each holds are lib/managersCockpit SIGNAL_FAMILIES. */
+export type OpsCockpitSignal =
+  | "cutoff"
+  | "booking"
+  | "customs"
+  | "paperwork"
+  | "free_time"
+  | "delivery"
+  | "departure"
+  | "claim"
+  | "request"
+  | "not_user"
+  | "away"
+  | "todo"
+  | "not_touched";
 
 /** A row of a cockpit card: one active job - or a Master Job with no house yet - with everything that asks for a manager's look. */
 export interface OpsCockpitRow {
@@ -1338,6 +1353,12 @@ export interface OpsCockpitTiles {
    * it, after the filters. Every family is there, 0 for none.
    */
   signals: Record<string, number>;
+  /**
+   * Per signal tile (OpsCockpitSignal): how many rows carry a tag of any of its kinds, a row with
+   * two of them once. Over every row of the page, whatever `signal` narrows the cards to. Every
+   * tile is there, 0 for none.
+   */
+  families: Record<string, number>;
 }
 
 /** One person named in Handled By, over the active jobs of the chosen mode and direction. */
@@ -1427,6 +1448,12 @@ export interface ShipmentsManagersCockpit {
   handledBy: string | null;
   /** "mine": only the jobs handled by the users who report to the caller, and those whose Handled By is not a user - tiles, cards and `people` alike. */
   reports: OpsCockpitReports;
+  /**
+   * The signal tile the two cards are narrowed to, null for none. They are narrowed before they
+   * are cut at their limit, so each card's `total` and first rows are those of the signal; the
+   * tiles, `people` and the lines are not narrowed by it.
+   */
+  signal: OpsCockpitSignal | null;
   tiles: OpsCockpitTiles;
   urgent: OpsCockpitList;
   attention: OpsCockpitList;

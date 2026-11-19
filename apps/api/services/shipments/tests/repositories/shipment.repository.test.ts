@@ -114,7 +114,7 @@ vi.mock("../../db/db", () => ({ db: fake.db }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
 import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
-import { attentionMatch, handledByMatch, modeMatch, searchMatch, searchedColumns, shipmentRepository, tilePredicate } from "../../repositories/shipment.repository";
+import { attentionMatch, directionMatch, handledByMatch, modeMatch, searchMatch, searchedColumns, shipmentRepository, tilePredicate } from "../../repositories/shipment.repository";
 import { shipmentTable } from "../../schemas/shipment.schema";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -485,6 +485,27 @@ describe("the list's mode filter", () => {
   });
 });
 
+describe("the list's Trade Direction filter", () => {
+  // lib/managersCockpit inDirection, in SQL: the stored value trimmed as JavaScript's trim() trims it, in any case.
+  const DIRECTION = `lower(btrim("shipment"."trade_direction", $1)) = $2`;
+  const TRIMMED = " \t\n\r ";
+
+  it("finds the jobs of the direction Shipments → Managers counts, however the stored value is written", () => {
+    expect(sent(directionMatch("import"))).toEqual({ sql: DIRECTION, params: [TRIMMED, "import"] });
+    expect(sent(directionMatch("export"))).toEqual({ sql: DIRECTION, params: [TRIMMED, "export"] });
+    expect(sent(directionMatch("domestic"))).toEqual({ sql: DIRECTION, params: [TRIMMED, "domestic"] });
+  });
+
+  it("reads the direction asked for trimmed and in any case", () => {
+    expect(sent(directionMatch(" Import "))).toEqual({ sql: DIRECTION, params: [TRIMMED, "import"] });
+    expect(sent(directionMatch("EXPORT"))).toEqual({ sql: DIRECTION, params: [TRIMMED, "export"] });
+  });
+
+  it("asks nothing for all directions, none, or a word that is no direction", () => {
+    for (const direction of [undefined, "", "  ", "all", "cross trade", "imports", "constructor", "toString"]) expect(directionMatch(direction), direction).toBeUndefined();
+  });
+});
+
 describe("the list's tile filters", () => {
   const ACTIVE = `"shipment"."invoicing_status" IS DISTINCT FROM 'Invoiced' AND "shipment"."status" IS DISTINCT FROM $1`;
 
@@ -513,11 +534,11 @@ describe("the list's tile filters", () => {
 });
 
 describe("what Needs Attention reads", () => {
-  const RANGE = { from: "2026-11-18", until: "2026-11-23", passedSince: "2026-11-11" };
+  const RANGE = { from: "2026-11-18", until: "2026-11-23", passedSince: "2026-11-11", etdSince: "2026-11-17" };
   const col = (name: string) => `"shipment"."${name}"`;
   const fourDaysBeforeEtd = `(${col("estimated_departure")} - 4)`;
 
-  it("reads the company's active jobs with a plain date ahead in the two windows, or - on a job that has not left - a cut-off date in them, or one that passed while the ETD is today or later, or lately with no ETD", async () => {
+  it("reads the company's active jobs with a plain date ahead in the two windows, or - on a job that has not left - a cut-off date in them, or one that passed while the ETD is not before etdSince, or lately with no ETD", async () => {
     await shipmentRepository.needsAttentionCandidates(COMPANY, RANGE, 2001);
     const [read] = fake.state.reads;
     const { sql, params } = sent(read!.where);
@@ -529,7 +550,7 @@ describe("what Needs Attention reads", () => {
     const cutoffs = [...typed, fourDaysBeforeEtd];
     // Left is an ATD, an ATA or an actual delivery: such a job has no cut-off.
     const notLeft = `${col("actual_departure")} IS NULL AND ${col("actual_arrival")} IS NULL AND ${col("actual_delivery_date")} IS NULL`;
-    // A passed cut-off counts while the ETD is today or later ...
+    // A passed cut-off counts while "ETD passed, no ATD" may not have taken over: the ETD not before etdSince ...
     const passedBeforeEtd = `(${col("estimated_departure")} >= ?::date AND (${cutoffs.map(passed).join(" OR ")}))`;
     // ... and with no ETD only for the days the rule keeps it: the typed dates, each within them.
     const passedLately = `(${col("estimated_departure")} IS NULL AND (${typed.map((date) => `(${date} >= ?::date AND ${date} < ?::date)`).join(" OR ")}))`;
@@ -545,7 +566,8 @@ describe("what Needs Attention reads", () => {
       "Cancelled Shipment",
       ...pairs,
       ...pairs,
-      ...Array.from({ length: 7 }, () => RANGE.from),
+      RANGE.etdSince,
+      ...Array.from({ length: 6 }, () => RANGE.from),
       ...Array.from({ length: 5 }, () => [RANGE.passedSince, RANGE.from]).flat(),
     ]);
   });
@@ -561,6 +583,9 @@ describe("what Needs Attention reads", () => {
       customerId: shipmentTable.customerId,
       customer: shipmentTable.customer,
       tradeDirection: shipmentTable.tradeDirection,
+      // How the job travels: how long the shared cut-off rule keeps a missed one after the ETD.
+      freightMode: shipmentTable.freightMode,
+      department: shipmentTable.department,
       status: shipmentTable.status,
       cargoReadinessDate: shipmentTable.cargoReadinessDate,
       pickupDate: shipmentTable.pickupDate,
