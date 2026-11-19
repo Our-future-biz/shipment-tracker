@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { noRetryWhenForbidden } from "@/hooks/useReceivableTools";
-import { ANSWER_LOST, exportChoices, exportFailureText, exportKeyFor, forgetExportKey, INCLUDE_EXPORTED_WARNING, type KeyStore } from "../export/_lib/export";
+import { ANSWER_LOST, exportChoices, exportFailureText, exportKeyFor, forgetExportKey, forgetExportKeysOf, INCLUDE_EXPORTED_WARNING, type KeyStore } from "../export/_lib/export";
 import { switchOnText } from "../settings/_lib/settings";
 import {
   bankStatementHref,
@@ -103,6 +103,22 @@ describe("an export whose answer was lost (m1)", () => {
     expect(exportKeyFor(store, exportChoices("2026-11-01", "2026-11-30", true), make)).toBe("pohoda:2");
     forgetExportKey(store, nov);
     expect(exportKeyFor(store, nov, make)).toBe("pohoda:3");
+  });
+
+  it("lets the period's keys go once its export is downloaded again, so a later Export is a new export, not the old one replayed", () => {
+    const store = memory();
+    let n = 0;
+    const make = () => `pohoda:${++n}`;
+    const nov = exportChoices("2026-11-01", "2026-11-30", false);
+    const novAll = exportChoices("2026-11-01", "2026-11-30", true);
+    const oct = exportChoices("2026-10-01", "2026-10-31", false);
+    for (const c of [nov, novAll, oct]) exportKeyFor(store, c, make);
+    // The list does not say which choice an export was made with: both of its period go.
+    forgetExportKeysOf(store, { from: "2026-11-01", to: "2026-11-30" });
+    expect(exportKeyFor(store, nov, make)).toBe("pohoda:4");
+    expect(exportKeyFor(store, novAll, make)).toBe("pohoda:5");
+    // Another period's export still answers its own.
+    expect(exportKeyFor(store, oct, make)).toBe("pohoda:3");
   });
 
   it("works with no storage, or one that throws", () => {

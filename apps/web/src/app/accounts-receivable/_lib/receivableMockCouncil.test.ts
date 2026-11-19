@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { TAKEN_BACK_RULE } from "../month-end/_lib/monthEnd";
 import { receivableTable } from "./receivableColumns";
 import {
+  batchCheck,
   earliestPaidOn,
   notAutoReminded,
   passesCheck,
@@ -58,7 +59,9 @@ describe("taking a payment back (P8)", () => {
   });
 
   it("reads in the drawer as a mistake or a reversal on its day, and the month-end says how each counts", () => {
-    expect(takenBackText({ kind: "mistake", reversedOn: null })).toBe("Taken back: noted by mistake");
+    // After "Taken back <when> · <who> · " in the drawer: never "Taken back" twice.
+    expect(takenBackText({ kind: "mistake", reversedOn: null })).toBe("Noted by mistake");
+    expect(takenBackText({ kind: null })).toBe("Noted by mistake");
     expect(takenBackText({ kind: "reversed", reversedOn: "2026-11-12" })).toBe("Reversed on 12.11.2026");
     expect(TAKEN_BACK_RULE).toMatch(/noted by mistake never counts.*reversed.*counts as paid up to the day before it went back/);
   });
@@ -73,5 +76,13 @@ describe("a payment on an invoice issued again after a credit note (Y2)", () => 
     expect(paymentProblem({ ...base, day: "2026-11-05", issuedAgainFrom: "2026-11-03" })).toBe("");
     expect(paymentProblem({ ...base, day: "2026-11-02", issuedAgainFrom: "2026-11-03" })).toBe("The day it was paid cannot be before the invoice this one replaces was issued (03.11.2026)");
     expect(paymentProblem({ ...base, day: "2026-11-05" })).toBe("The day it was paid cannot be before the invoice was issued (12.11.2026)");
+  });
+
+  it("may be from that day in one payment over several invoices too, as the server takes it", () => {
+    const again = row({ id: "y", number: "INV-Y", currency: "CZK", issueDate: "2026-11-12", issuedAgainFrom: "2026-11-03" });
+    const check = (day: string, r: ReceivableRow = again) => batchCheck({ day, today: "2026-11-19", lines: [{ row: r, amountText: "100" }] }).problem;
+    expect(check("2026-11-05")).toBe("");
+    expect(check("2026-11-02")).toBe("The day it was paid cannot be before the invoice INV-Y replaces was issued (03.11.2026)");
+    expect(check("2026-11-05", row({ ...again, issuedAgainFrom: null }))).toBe("The day it was paid cannot be before invoice INV-Y was issued (12.11.2026)");
   });
 });

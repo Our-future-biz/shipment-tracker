@@ -155,9 +155,10 @@ export const useReceivableActions = () => {
       api.invoicing.receivablePayment(row.id, { version: row.version, paidOn, amount, note, idempotencyKey }),
     onSettled: (data, _e, vars) => settle(data, vars, true),
   });
+  // How it is taken back (mock test council P8): by mistake (the server's default) or reversed on a day.
   const takeBackPayment = useMutation({
-    mutationFn: ({ row, paymentId, reason }: Target & { paymentId: string; reason: string }) =>
-      api.invoicing.receivableTakeBackPayment(row.id, paymentId, { version: row.version, reason }),
+    mutationFn: ({ row, paymentId, reason, kind, reversedOn }: Target & { paymentId: string } & Omit<controllers.TakeBackRequest, "version">) =>
+      api.invoicing.receivableTakeBackPayment(row.id, paymentId, { version: row.version, reason, kind, reversedOn }),
     onSettled: (data, _e, vars) => settle(data, vars, true),
   });
   const addNote = useMutation({

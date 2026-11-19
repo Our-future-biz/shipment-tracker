@@ -24,6 +24,7 @@ import { companyUsers, userEmailOf } from "../../../../lib/companyUsers";
 import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { containerRepository } from "../../repositories/container.repository";
+import { masterJobHouseKindsRepository } from "../../repositories/masterJobHouseKinds.repository";
 import { MASTER_JOB_PEOPLE_REFUSAL, masterJobService } from "../../services/masterJob.service";
 import { shipmentService } from "../../services/shipment.service";
 import { addDays, businessDay } from "../../../../lib/businessDate";
@@ -121,6 +122,32 @@ describe("only shipments of the master job's filling (Load Type)", () => {
       message: "MCZ00000001 can't become Consolidation: CZFCL00000019 on it is Full Load - take it off the master job first.",
     });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("tells its houses' mode leaving a cancelled house out - it goes nowhere - while their Load Types count every house", async () => {
+    vi.mocked(masterJobHouseKindsRepository.ofMasterJobs).mockResolvedValue(
+      new Map([
+        [
+          JOB,
+          [
+            { loadType: "Full Load", freightMode: "Road Freight", status: "Booked" },
+            { loadType: "Consolidation", freightMode: "Sea Freight", status: "Cancelled Shipment" },
+          ],
+        ],
+      ]),
+    );
+    const saved = await update({ vessel: "ONE RELIABILITY" });
+    expect(saved.houseFreightMode).toBe("Road Freight");
+    expect(saved.houseLoadTypes).toEqual(["Full Load", "Consolidation"]);
+  });
+
+  it("names the refused Load Type by its houses' mode on a master job with none of its own, as the screens do", async () => {
+    repository.getByIdForCompany.mockResolvedValue(record({ freightMode: "" }) as never);
+    vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([{ id: S, jobNumber: "CZ00000019", loadType: "Consolidation", freightMode: "Air Freight" }] as never);
+    await expect(update({ loadType: "Full Load" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "MCZ00000001 can't become Single Shipment: CZ00000019 on it is Consolidation - take it off the master job first.",
+    });
   });
 
   it("lets a save that sends the master job's Load Type back go through, leaving a house of another filling as it is", async () => {

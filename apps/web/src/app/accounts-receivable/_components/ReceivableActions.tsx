@@ -4,10 +4,9 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import dayjs from "dayjs";
 import { Alert, DatePicker, Input, Segmented, Tooltip } from "antd";
 import { BankOutlined, CalendarOutlined, CheckCircleOutlined, DollarOutlined, EditOutlined, ExclamationCircleOutlined, MailOutlined, MinusCircleOutlined, SendOutlined } from "@ant-design/icons";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { settleReceivableWrite, type useReceivableActions, type ReceivableDetail } from "@/hooks/useReceivables";
+import type { useReceivableActions, ReceivableDetail } from "@/hooks/useReceivables";
 import { REMINDER_LEVEL_LABEL } from "@/lib/accountsReceivable";
-import { api, apiErrorMessage, type interfaces } from "@/lib/api";
+import { apiErrorMessage, type interfaces } from "@/lib/api";
 import { addDays, formatDate } from "@/lib/date";
 import { MAILTO_LINK_TARGET, mailtoLink } from "@/lib/mailto";
 import { parseMoney, round2 } from "@/lib/money";
@@ -619,8 +618,8 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
  * Take back one line (managers, a reason required): a payment noted by mistake, or reversed on a day - a bank return or
  * a refund (mock test council P8: either way it is owed again, but a reversed payment counted as paid until that day at
  * month-end) - or a write-off or bank charge, confirmed or still waiting, always a mistake. Kept in the history with the
- * reason. Sent here with how it was taken back (the drawer's shared take-back sends only the reason), settled the same
- * way as the drawer's other writes.
+ * reason. Sent with how it was taken back through the drawer's one set of writes (actions.takeBackPayment), so every
+ * other form waits while it is on its way, and settled as they are.
  */
 export function TakeBackPayment({
   detail,
@@ -634,16 +633,10 @@ export function TakeBackPayment({
   label: string;
 }) {
   const toast = useToast();
-  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<TakeBackKind>("mistake");
   const [reversedOn, setReversedOn] = useState("");
   const [reason, setReason] = useState("");
-  const takeBack = useMutation({
-    mutationFn: (input: { reason: string; kind: TakeBackKind; reversedOn?: string }) =>
-      api.invoicing.receivableTakeBackPayment(detail.row.id, line.id, { version: detail.row.version, ...input }),
-    onSettled: (data) => settleReceivableWrite(queryClient, data, detail.row.customerId, true),
-  });
   const number = detail.row.number || "the invoice";
   const word = lineWord(line.kind);
   const Word = word.charAt(0).toUpperCase() + word.slice(1);
@@ -658,7 +651,7 @@ export function TakeBackPayment({
     : how === "reversed"
       ? `For a payment that came and went back (a bank return, a refund): ${number} is owed again; at month-end ${label} still counts as paid up to the day before it went back. It stays in the history with the reason.`
       : `For a payment noted by mistake: ${label} no longer counts as paid on ${number}, on any day - month-end too. It stays in the history with the reason.`;
-  const busy = actions.pending || takeBack.isPending;
+  const busy = actions.pending;
   const close = () => {
     setOpen(false);
     setKind("mistake");
@@ -667,8 +660,8 @@ export function TakeBackPayment({
   };
   const save = () => {
     if (problem || busy) return;
-    void takeBack
-      .mutateAsync({ reason: reason.trim(), kind: how, ...(how === "reversed" ? { reversedOn } : {}) })
+    void actions.takeBackPayment
+      .mutateAsync({ row: detail.row, paymentId: line.id, reason: reason.trim(), kind: how, ...(how === "reversed" ? { reversedOn } : {}) })
       .then(() => {
         toast.success(how === "reversed" ? `${Word} on ${number} taken back: reversed on ${formatDate(reversedOn)}` : `${Word} taken back on ${number}`);
         close();

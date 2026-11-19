@@ -12,28 +12,38 @@ export const POSITIONS_STORAGE_KEY_BEFORE = "warehouse:positions:v2";
 
 type LayoutStore = Pick<Storage, "getItem" | "setItem" | "key" | "length">;
 
+/** Set once the layout was carried: widths a user cleared since (their key removed) are never brought back. */
+const CARRIED_KEY = `${POSITIONS_STORAGE_KEY}:carried`;
+
 /**
- * Copies the user's Positions layout from the key before to v3, once: only while v3 has none of its own, so a
- * layout changed since is never written over. Its known columns stay behind (see above). Returns whether it copied.
+ * Copies the user's Positions layout from the key before to v3, once. The columns and each user's widths are kept
+ * apart (a user may have changed only the widths), so each goes on its own - each only while v3 has none of its own,
+ * so a layout changed since is never written over. Its known columns stay behind (see above). Returns whether it
+ * copied.
  */
 export function carryPositionsLayout(store: LayoutStore): boolean {
+  if (store.getItem(CARRIED_KEY) != null) return false;
   const columns = `${POSITIONS_STORAGE_KEY}:columns`;
-  if (store.getItem(columns) != null) return false;
   const before = store.getItem(`${POSITIONS_STORAGE_KEY_BEFORE}:columns`);
-  if (before == null) return false;
+  // Carried before the copy was marked: the columns went over, and every user's widths with them.
+  if (before != null && store.getItem(columns) != null) return false;
   // Every user's widths on this browser (useColumnWidths keeps them per user id under the grid's key).
   const widthsBefore = `${POSITIONS_STORAGE_KEY_BEFORE}:columnWidths:`;
   const widths: [string, string][] = [];
+  let found = before != null;
   for (let i = 0; i < store.length; i++) {
     const key = store.key(i);
     if (!key?.startsWith(widthsBefore)) continue;
+    found = true;
     const value = store.getItem(key);
     const to = `${POSITIONS_STORAGE_KEY}:columnWidths:${key.slice(widthsBefore.length)}`;
     if (value != null && store.getItem(to) == null) widths.push([to, value]);
   }
+  if (!found) return false;
   for (const [key, value] of widths) store.setItem(key, value);
-  // The columns last: they mark the copy as done.
-  store.setItem(columns, before);
+  if (before != null && store.getItem(columns) == null) store.setItem(columns, before);
+  // The mark last: the copy is done.
+  store.setItem(CARRIED_KEY, "1");
   return true;
 }
 

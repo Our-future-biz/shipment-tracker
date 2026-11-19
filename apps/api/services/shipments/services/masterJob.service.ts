@@ -107,8 +107,8 @@ function assertWarehouseReceived(
   }
 }
 
-/** A house as the master job's item tells its houses: its Load Type and Freight Mode. */
-type HouseKind = { loadType: string | null; freightMode: string | null };
+/** A house as the master job's item tells its houses: its Load Type and Freight Mode, and whether it is cancelled. */
+type HouseKind = { loadType: string | null; freightMode: string | null; status: string | null };
 
 function toItem(
   { companyId: _companyId, deletedAt: _deletedAt, ...fields }: MasterJobRecord,
@@ -118,7 +118,8 @@ function toItem(
   return {
     ...fields,
     shipmentCount,
-    // A plain MCZ's filling is its houses' (n32), and a master job with no Freight Mode goes by theirs (n31).
+    // A plain MCZ's filling is its houses' (n32), and a master job with no Freight Mode goes by theirs (n31) - the ones
+    // not cancelled: a cancelled house's Load Type still counts, its mode never decides (lib/masterJobKind masterJobMode).
     houseLoadTypes: loadTypesOf(houses.map((h) => ({ jobNumber: "", loadType: h.loadType }))),
     houseFreightMode: masterJobMode("", houses),
     createdAt: fields.createdAt.toISOString(),
@@ -317,9 +318,10 @@ class MasterJobService {
     // The Load Type is written onto the houses: one of another filling would be turned into this one
     // (lib/masterJobKind). Checked for a first Load Type only - it locks once set, and the same one
     // sent back (a document reading's MBL save sends it again) is no change to check.
+    // Named by the master job's mode - with none, its houses' one, as the screens name it (n31).
     const kindProblem =
       !existing.loadType.trim() && data.loadType
-        ? loadTypeKindProblem(existing.mczNumber, data.loadType, houses, data.freightMode ?? existing.freightMode)
+        ? loadTypeKindProblem(existing.mczNumber, data.loadType, houses, masterJobMode(data.freightMode ?? existing.freightMode, houses))
         : null;
     if (kindProblem) throw APIError.failedPrecondition(kindProblem);
     const locked = await this.invoicedTaxDateChanges(houses, synced);

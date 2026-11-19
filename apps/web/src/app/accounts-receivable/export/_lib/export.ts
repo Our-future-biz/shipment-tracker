@@ -90,6 +90,15 @@ export function forgetExportKey(store: KeyStore | null, choices: string): void {
   }
 }
 
+/**
+ * An export of this period was downloaded again from the list: the manager has its file, so the keys of the period
+ * are done with and the next Export of it is a new export, never the old one answered again (with none of what was
+ * issued since). The list does not say which choice of "include exported" an export was made with: both go.
+ */
+export function forgetExportKeysOf(store: KeyStore | null, period: { from: string; to: string }): void {
+  for (const includeExported of [false, true]) forgetExportKey(store, exportChoices(period.from, period.to, includeExported));
+}
+
 /** What the page says when the answer was lost: the export may be recorded already. */
 export const ANSWER_LOST = "The answer was lost: the export may already be recorded. Click Export again, or download it from the list.";
 

@@ -272,6 +272,20 @@ describe("downloading the linked shipments' documents in one ZIP", () => {
     expect(road.file!.fileName).toBe("MCZ00000008 CMRs.zip");
   });
 
+  it("goes by its houses' mode with none of its own - a cancelled house of another mode goes nowhere, so it never decides", async () => {
+    masterJobs.getByIdForCompany.mockResolvedValue({ id: MJ, mczNumber: "MCZ00000009", freightMode: "" });
+    shipments.findByMasterJobId.mockResolvedValue([
+      { id: S1, jobNumber: "CZ00000060", freightMode: "Road Freight" },
+      { id: S2, jobNumber: "CZ00000061", freightMode: "Road Freight" },
+      { id: S3, jobNumber: "CZ00000062", freightMode: "Sea Freight", status: "Cancelled Shipment" },
+    ]);
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a1", S1, "CMR.pdf"), bl("a2", S2, "CMR.pdf")]);
+    const res = await masterJobDocumentService.houseBols(MJ, "c1");
+    expect(attachments.listByShipmentIdsOfTypes).toHaveBeenLastCalledWith([S1, S2], "c1", ["CMR / POD"]);
+    expect(res).toMatchObject({ fileCount: 2, withoutFiles: [], leftOut: ["CZ00000062 (cancelled)"] });
+    expect(res.file!.fileName).toBe("MCZ00000009 CMRs.zip");
+  });
+
   it("is refused before anything is downloaded when the stored files come to more than 100 MB", async () => {
     attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a1", S1, "Invoice.pdf", undefined, 60 * MB), bl("a2", S2, "Scan.pdf", undefined, 50 * MB)]);
     await expect(masterJobDocumentService.commercialPaperwork(MJ, "c1")).rejects.toMatchObject({

@@ -39,10 +39,28 @@ describe("the Positions layout carried to its v3 key", () => {
     expect(store.getItem(`${v3}:columns`)).toBe(JSON.stringify(["customer"]));
   });
 
+  it("carries the widths of a browser whose columns were never changed (they are kept apart), once", () => {
+    const store = memoryStore({ [`${v2}:columnWidths:u-1`]: '{"ref":120}' });
+    expect(carryPositionsLayout(store)).toBe(true);
+    expect(store.getItem(`${v3}:columnWidths:u-1`)).toBe('{"ref":120}');
+    // No columns of its own: the grid's defaults, with ETA Warehouse/HUB.
+    expect(store.getItem(`${v3}:columns`)).toBeNull();
+    // Once: widths the user cleared since (useColumnWidths removes the key) are not brought back.
+    store.map.delete(`${v3}:columnWidths:u-1`);
+    expect(carryPositionsLayout(store)).toBe(false);
+    expect(store.getItem(`${v3}:columnWidths:u-1`)).toBeNull();
+  });
+
   it("leaves a browser with no layout before as it is", () => {
-    const store = memoryStore({ [`${v2}:columnWidths:u-1`]: "{}" });
+    const store = memoryStore({ "other:grid:columns": "[]" });
     expect(carryPositionsLayout(store)).toBe(false);
     expect(store.map.size).toBe(1);
+  });
+
+  it("takes a layout carried before the copy was marked as done, widths cleared since staying cleared", () => {
+    const store = memoryStore({ [`${v2}:columns`]: '["ref"]', [`${v2}:columnWidths:u-1`]: '{"ref":120}', [`${v3}:columns`]: '["ref"]' });
+    expect(carryPositionsLayout(store)).toBe(false);
+    expect(store.getItem(`${v3}:columnWidths:u-1`)).toBeNull();
   });
 
   it("does not write over widths a user has under v3 already", () => {

@@ -19943,7 +19943,7 @@ export namespace interfaces {
         houseLoadTypes: string[]
 
         /**
-         * The one Freight Mode its live shipments share; "" for none or several. Named and served by it while it has no Freight Mode (n31).
+         * The one Freight Mode its live shipments share, a cancelled one left out unless every one is; "" for none or several. Named and served by it while it has no Freight Mode (n31).
          */
         houseFreightMode: string
 

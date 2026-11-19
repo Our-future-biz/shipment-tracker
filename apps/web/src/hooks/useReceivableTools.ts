@@ -69,13 +69,22 @@ export const useOwedInvoices = (enabled: boolean) =>
     select: owedOnly,
   });
 
+/**
+ * After a statement is read, whatever its answer (exported for its test): every receivables view, the statements with
+ * them. Its entries are open, and an open entry marks the invoices it may pay - "a payment may be waiting" in the
+ * drawer, on the bell and in the reminder form - so these are read again, not left to the next minute's read.
+ */
+export function settleBankImport(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: receivableKeys.all });
+}
+
 /** A manager reads a statement file (sent as base64; the server keeps only what it read, not the file). */
 export const useImportBankStatement = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { fileName: string; contentBase64: string }) => api.invoicing.bankStatementImport(input),
     onSuccess: (data) => queryClient.setQueryData(receivableToolKeys.bankStatement(data.statement.id), data),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: receivableToolKeys.bankStatements }),
+    onSettled: () => settleBankImport(queryClient),
   });
 };
 
@@ -114,6 +123,16 @@ export function settleBankConfirm(queryClient: QueryClient, data: BankStatementD
 }
 
 /**
+ * After an entry is set aside, whatever its answer (exported for its test): the statement, and every receivables view -
+ * the entry no longer marks the invoices it may pay ("a payment may be waiting" in the drawer, on the bell and in the
+ * reminder form). Nothing was paid, so the customers' credit stays as it is.
+ */
+export function settleBankIgnore(queryClient: QueryClient, data: BankStatementDetail | undefined, statementId: string): void {
+  settleEntry(queryClient, data, statementId);
+  void queryClient.invalidateQueries({ queryKey: receivableKeys.all });
+}
+
+/**
  * Confirm an entry as payments, or set it aside. Each sends the entry's version the manager saw; the answer is the
  * statement as it is now. Settled, not only on success: a refusal (changed meanwhile, decided by someone else) means
  * what the manager saw is stale, so the statement is read again.
@@ -128,7 +147,7 @@ export const useBankEntryActions = () => {
   });
   const ignore = useMutation({
     mutationFn: ({ statementId, entry, reason }: EntryTarget & { reason: string }) => api.invoicing.bankStatementIgnore(statementId, entry.id, { version: entry.version, reason }),
-    onSettled: (data, _e, vars) => settleEntry(queryClient, data, vars.statementId),
+    onSettled: (data, _e, vars) => settleBankIgnore(queryClient, data, vars.statementId),
   });
   return { confirm, ignore, pending: confirm.isPending || ignore.isPending };
 };

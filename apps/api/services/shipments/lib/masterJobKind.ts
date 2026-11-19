@@ -7,6 +7,7 @@
 // Consolidation master would quietly become one. The messages name a Load Type as the screens do
 // (lib/loadTypeLabel): an air Full Load is a Single Shipment.
 
+import { CANCELLED_STATUS } from "./fieldDefaults";
 import { loadTypeLabel } from "./loadTypeLabel";
 
 export interface KindedShipment {
@@ -14,6 +15,8 @@ export interface KindedShipment {
   loadType: string | null;
   /** Names its Load Type in the messages; left out, the master job's is used. */
   freightMode?: string | null;
+  /** A cancelled house's mode never names the master job (masterJobMode); its Load Type still counts. */
+  status?: string | null;
 }
 
 export interface KindedMasterJob {
@@ -35,14 +38,17 @@ export const kindShipments = (name: string): string => (/shipment$/i.test(name.t
 
 /**
  * The freight mode a master job goes by (mock test council n31): its own, else - while it has none - the one mode
- * all its houses share, so a master job of air houses with no Freight Mode is not named or served as sea. "" when
- * it has none and its houses have none, or several.
+ * all its houses share, so a master job of air houses with no Freight Mode is not named or served as sea. A
+ * cancelled house goes nowhere, so its mode never decides: road houses with a cancelled sea one still send their
+ * CMRs, not B/Ls (only when every house is cancelled do theirs say). "" when it has none and its houses have none, or
+ * several. Its Load Types still count every house (loadTypesOf), as the link rule does.
  */
-export function masterJobMode(freightMode: string | null | undefined, houses: readonly { freightMode?: string | null }[]): string {
+export function masterJobMode(freightMode: string | null | undefined, houses: readonly { freightMode?: string | null; status?: string | null }[]): string {
   const own = (freightMode ?? "").trim();
   if (own) return own;
+  const going = houses.filter((h) => (h.status ?? "").trim() !== CANCELLED_STATUS);
   const modes: string[] = [];
-  for (const h of houses) {
+  for (const h of going.length ? going : houses) {
     const mode = (h.freightMode ?? "").trim();
     if (mode && !modes.some((m) => sameKind(m, mode))) modes.push(mode);
   }

@@ -21,6 +21,7 @@ import {
   exportFailureText,
   exportKeyFor,
   forgetExportKey,
+  forgetExportKeysOf,
   INCLUDE_EXPORTED_WARNING,
   kindLabel,
   periodProblem,
@@ -153,12 +154,14 @@ export function PohodaExportView() {
 
   // "Download again" (m1): the server builds the recorded export's file again, the same bytes; nothing is recorded. A
   // document it recorded and cancelled since is still in the file: the server names each one (n4), said here as well.
+  // Saved, the period's kept keys go (an export whose answer was lost is had now): a later Export is a new one.
   const again = useAccountingExportFile();
   const downloadAgain = (x: ExportSummary) =>
     again
       .mutateAsync(x.id)
       .then((f) => {
         saveExportFile(f);
+        forgetExportKeysOf(sessionStore(), x);
         toast.success(`Saved ${f.fileName} again`);
         for (const w of f.warnings ?? []) toast.warning(w);
       })

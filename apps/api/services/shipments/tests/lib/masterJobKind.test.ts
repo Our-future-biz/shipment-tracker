@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { houseLoadTypeProblem, kindShipments, linkKindProblem, loadTypeKindProblem, masterJobKind, masterJobMode } from "../../lib/masterJobKind";
+import { houseLoadTypeProblem, kindShipments, linkKindProblem, loadTypeKindProblem, loadTypesOf, masterJobKind, masterJobMode } from "../../lib/masterJobKind";
 
 const consol = { mczNumber: "MCZCONSOL00000003", loadType: "Consolidation" };
 const full = { mczNumber: "MCZFULL00000006", loadType: "Full Load" };
@@ -137,6 +137,20 @@ describe("the master job's words by its mode (n31)", () => {
     expect(masterJobMode("", [{ freightMode: "Air Freight" }, { freightMode: " air freight " }, { freightMode: "" }])).toBe("Air Freight");
     expect(masterJobMode(null, [{ freightMode: "Air Freight" }, { freightMode: "Sea Freight" }])).toBe("");
     expect(masterJobMode(null, [])).toBe("");
+  });
+
+  it("leaves a cancelled house out of its houses' mode - it goes nowhere - unless every house is cancelled", () => {
+    const road = { freightMode: "Road Freight", status: "Booked" };
+    const seaCancelled = { freightMode: "Sea Freight", status: "Cancelled Shipment" };
+    expect(masterJobMode("", [road, road, seaCancelled])).toBe("Road Freight");
+    expect(masterJobMode("", [seaCancelled])).toBe("Sea Freight");
+    expect(masterJobMode("Sea Freight", [road])).toBe("Sea Freight");
+    // Its Load Types still count every house, as the link rule does.
+    const noMode = { mczNumber: "MCZ00000011", loadType: null, freightMode: "" };
+    const live = { jobNumber: "CZ00000030", loadType: "Full Load", freightMode: "Road Freight", status: "Booked" };
+    const cancelled = { jobNumber: "CZ00000031", loadType: "Consolidation", freightMode: "Air Freight", status: "Cancelled Shipment" };
+    expect(loadTypesOf([live, cancelled])).toEqual(["Full Load", "Consolidation"]);
+    expect(linkKindProblem(noMode, [live, cancelled], [{ jobNumber: "CZ00000032", loadType: "Full Load" }])).toMatch(/already holds shipments of different Load Types/);
   });
 
   it("names a Full Load master job with no Freight Mode by its air houses: a Single Shipment", () => {

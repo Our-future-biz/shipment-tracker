@@ -67,10 +67,11 @@ function SettingsCard({ saved }: { saved: ReceivableSettings }) {
           <span>
             <span className="block text-[14px] font-semibold text-slate-900">Automatic reminders</span>
             <span className={`block ${HINT}`}>
-              Each working day around 10:00 the app e-mails reminder 1 and reminder 2 for overdue invoices, to the customer&apos;s accounts contact, in the customer&apos;s
-              language - not for an invoice that is disputed, has a promise to pay still running, is to be refunded, has less than 100 CZK / 5 EUR left to pay, or may be
-              paid by a payment waiting on a bank statement. A due day on a weekend or a holiday counts as the next working day. Each reminder goes once per invoice. The
-              final notice is never sent by itself: a manager sends it. A day with no bank statement read since the previous working day sends nothing.
+              Each working day at 10:00 in winter, 11:00 in summer (Prague time) the app e-mails reminder 1 and reminder 2 for overdue invoices, to the customer&apos;s
+              accounts contact, in the customer&apos;s language - not for an invoice that is disputed, has a promise to pay still running, is to be refunded, has less than
+              100 CZK / 5 EUR left to pay, or may be paid by a payment waiting on a bank statement. A due day on a weekend or a holiday counts as the next working day. Each
+              reminder goes once per invoice. The final notice is never sent by itself: a manager sends it. A day with no bank statement read since the previous working day
+              sends nothing.
               {!saved.emailOn && " It can be switched on now: it starts on the first day e-mail from the app can send, and reminds only invoices due from that day on."}
             </span>
             <span className={`block ${HINT} mt-1`}>{switchOnText(saved.autoReminders, saved.autoRemindersSince, saved.emailOn)}</span>

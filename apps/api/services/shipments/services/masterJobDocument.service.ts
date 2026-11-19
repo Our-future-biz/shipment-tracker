@@ -142,6 +142,7 @@ class MasterJobDocumentService {
   async houseBols(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
     const masterJob = await this.masterJobOf(masterJobId, companyId);
     // A master job with no Freight Mode goes by the one mode of its houses (n31): air houses send their AWBs, not B/Ls.
+    // A cancelled house goes nowhere (its papers are left out below), so its mode never decides (masterJobMode).
     return this.shipmentDocs(masterJob, companyId, (linked) => houseTransportDocs(masterJobMode(masterJob.freightMode, linked)));
   }
 
@@ -166,7 +167,7 @@ class MasterJobDocumentService {
   private async shipmentDocs(
     masterJob: { id: string; mczNumber: string },
     companyId: string,
-    downloadOf: ShipmentDocsDownload | ((linked: readonly { freightMode: string | null }[]) => ShipmentDocsDownload),
+    downloadOf: ShipmentDocsDownload | ((linked: readonly { freightMode: string | null; status: string | null }[]) => ShipmentDocsDownload),
   ): Promise<MasterJobDocumentsZip> {
     const linked = (await shipmentRepository.findByMasterJobId(masterJob.id, companyId)).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
     const download = typeof downloadOf === "function" ? downloadOf(linked) : downloadOf;

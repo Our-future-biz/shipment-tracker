@@ -546,7 +546,7 @@ export function batchCurrencyProblem(currencies: readonly string[]): string {
 }
 
 export interface BatchLineInput {
-  row: Pick<ReceivableRow, "id" | "number" | "status" | "leftToPay" | "currency" | "issueDate" | "marks">;
+  row: Pick<ReceivableRow, "id" | "number" | "status" | "leftToPay" | "currency" | "issueDate" | "marks" | "issuedAgainFrom">;
   amountText: string;
 }
 
@@ -562,8 +562,9 @@ export interface BatchCheck {
 
 /**
  * The batch dialog's check, as the server checks it (lib/receivables batchProblem, paymentProblem): 1 to 100 invoices,
- * all in one currency, a day not after today and not before an invoice was issued (unless it is on prepayment), and on
- * each invoice an amount above 0 and at most what is left to pay on it.
+ * all in one currency, a day not after today and not before an invoice was issued (unless it is on prepayment; for an
+ * invoice issued again, not before the invoice it replaces was issued - earliestPaidOn, Y2), and on each invoice an
+ * amount above 0 and at most what is left to pay on it.
  */
 export function batchCheck(input: { day: string; today: string; lines: readonly BatchLineInput[] }): BatchCheck {
   const lines: Record<string, string> = {};
@@ -590,8 +591,13 @@ export function batchCheck(input: { day: string; today: string; lines: readonly 
     if (cur) return cur;
     if (!input.day) return "Pick the day it was paid";
     if (input.day > input.today) return "The day it was paid cannot be after today";
-    const early = input.lines.find((l) => input.day < l.row.issueDate && !l.row.marks.includes("prepayment"));
-    if (early) return `The day it was paid cannot be before invoice ${early.row.number} was issued (${formatDate(early.row.issueDate)})`;
+    for (const { row } of input.lines) {
+      const from = earliestPaidOn({ issueDate: row.issueDate, prepayment: onPrepayment(row), issuedAgainFrom: row.issuedAgainFrom });
+      if (!from || input.day >= from) continue;
+      return from < row.issueDate
+        ? `The day it was paid cannot be before the invoice ${row.number} replaces was issued (${formatDate(from)})`
+        : `The day it was paid cannot be before invoice ${row.number} was issued (${formatDate(row.issueDate)})`;
+    }
     const bad = input.lines.find((l) => lines[l.row.id]);
     if (bad) return `Invoice ${bad.row.number}: ${lines[bad.row.id]}`;
     return "";
@@ -1026,7 +1032,10 @@ export function takeBackFormProblem(f: { reason: string; kind: TakeBackKind; rev
   return "";
 }
 
-/** How a line taken back reads in the drawer: "Taken back: noted by mistake" or "Reversed on 12.11.2026". */
+/**
+ * How a line taken back reads in the drawer, after "Taken back <when> · <who> · ": "Noted by mistake" or "Reversed on
+ * 12.11.2026".
+ */
 export function takenBackText(t: { kind?: string | null; reversedOn?: string | null }): string {
-  return t.kind === "reversed" && t.reversedOn ? `Reversed on ${formatDate(t.reversedOn)}` : "Taken back: noted by mistake";
+  return t.kind === "reversed" && t.reversedOn ? `Reversed on ${formatDate(t.reversedOn)}` : "Noted by mistake";
 }
