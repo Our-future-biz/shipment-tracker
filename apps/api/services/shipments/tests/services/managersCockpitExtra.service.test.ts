@@ -208,6 +208,23 @@ describe("the reads of the cockpit's step 2 signals", () => {
     expect(out.byJob.get("b")).toEqual([{ rank: 39, text: "Remeasurement accepted 16.11., costs not checked", urgent: false, area: "finance", kind: "remeasurement" }]);
   });
 
+  it("counts Quantities checked only for the acceptance it names, not by when it was written", async () => {
+    const accepted = at("2026-11-16 09:00");
+    attachments.reviewFactsByShipmentIds.mockResolvedValue([...verified("a"), ...verified("b")]);
+    audit.latestByShipmentIds.mockImplementation(
+      history([
+        // Checked for this acceptance: nothing to say.
+        change("a", "remeasurementAccepted", "2026-11-16 09:00"),
+        change("a", "remeasurementCostsChecked", "2026-11-16 10:00", { newValue: accepted.toISOString() }),
+        // Written after the acceptance, but naming an earlier one: the latest acceptance is not checked.
+        change("b", "remeasurementAccepted", "2026-11-16 09:00"),
+        change("b", "remeasurementCostsChecked", "2026-11-16 10:00", { newValue: at("2026-11-10 09:00").toISOString() }),
+      ]),
+    );
+    const out = await extraSignals([job("a"), job("b")], CTX);
+    expect([...out.byJob.keys()]).toEqual(["b"]);
+  });
+
   it("ages Under Customs Clearance only by the change that set it", async () => {
     attachments.reviewFactsByShipmentIds.mockResolvedValue(verified("a"));
     // The last change of the customs status on record set another step: since when it stands is not known.

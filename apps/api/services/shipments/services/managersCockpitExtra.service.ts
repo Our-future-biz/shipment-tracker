@@ -1,5 +1,6 @@
 import log from "encore.dev/log";
 import { addDays } from "../../../lib/businessDate";
+import { iso } from "../../../lib/db/serialize";
 import type { OpsSignal } from "../lib/managersCockpit";
 import { MASTER_JOB_NO_HOUSE_DAYS } from "../lib/cockpitThresholds";
 import {
@@ -157,11 +158,15 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
       const rows = historyOf.get(job.id) ?? [];
       const latest = (field: string) => rows.find((r) => r.field === field) ?? null;
       const informed = latest(REMEASURE_INFORMED);
+      const accepted = latest(REMEASURE_ACCEPTED);
+      const checked = latest(REMEASURE_COSTS_CHECKED);
       const fact: RemeasureFact = {
         // How the figures stood when the warehouse informed: old = the shipment's, new = the remeasured (services/alert.service).
         informed: informed ? { at: informed.changedAt, verdict: remeasureVerdict(readFigures(informed.oldValue), readFigures(informed.newValue)) } : null,
-        acceptedAt: latest(REMEASURE_ACCEPTED)?.changedAt ?? null,
-        costsCheckedAt: latest(REMEASURE_COSTS_CHECKED)?.changedAt ?? null,
+        acceptedAt: accepted?.changedAt ?? null,
+        // A check names the acceptance it was made for (services/shipment.service markRemeasureCostsChecked): only a
+        // check of the latest acceptance counts, as on Cargo Details and Costs Breakdown.
+        costsCheckedAt: checked && accepted && checked.newValue === iso(accepted.changedAt) ? checked.changedAt : null,
       };
       signals.push(...remeasurementSignals(job, fact, today, now, holidays));
 
