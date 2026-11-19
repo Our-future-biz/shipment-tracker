@@ -25,6 +25,7 @@ import {
   releasePassUsable,
   releaseReason,
   releaseRequestState,
+  uninvoicedReleaseLine,
   unpaidInvoiceDetail,
   type ReleaseCheckState,
   type ReleaseWhat,
@@ -111,8 +112,12 @@ export function useReleaseChecksState(shipmentIds: readonly string[], active: bo
   return { items, state: combinedReleaseState(items.map((x) => x.state)) };
 }
 
-/** The unpaid invoices of the job, each leading to it on Finance → Accounts Receivable, and why it warns. */
+/**
+ * The unpaid invoices of the job, each leading to it on Finance → Accounts Receivable, and why it warns; for a customer
+ * on prepayment also what is not invoiced yet (the stop before any invoice, mock test council n6).
+ */
 export function ReleasePaymentWarning({ check, label, className }: { check: ReleaseCheck; label?: ReactNode; className?: string }) {
+  const uninvoiced = uninvoicedReleaseLine(check);
   return (
     <Alert
       className={className}
@@ -125,7 +130,7 @@ export function ReleasePaymentWarning({ check, label, className }: { check: Rele
         </>
       }
       description={
-        check.unpaid.length > 0 ? (
+        check.unpaid.length > 0 || uninvoiced ? (
           <ul className="m-0 pl-0 list-none text-[13px]">
             {check.unpaid.map((i) => (
               <li key={i.invoiceId}>
@@ -136,6 +141,7 @@ export function ReleasePaymentWarning({ check, label, className }: { check: Rele
                 is unpaid ({unpaidInvoiceDetail(i)}).
               </li>
             ))}
+            {uninvoiced && <li>{uninvoiced}</li>}
           </ul>
         ) : undefined
       }

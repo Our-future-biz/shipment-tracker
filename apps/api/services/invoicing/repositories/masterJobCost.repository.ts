@@ -23,6 +23,7 @@ import {
 import { invoiceRepository } from "./invoice.repository";
 import { sellingAmountRequestRepository } from "./sellingAmountRequest.repository";
 import { truckingLinesLock } from "./truckingLines.repository";
+import type { AfterSellingSetWrite } from "./sellingCost.repository";
 
 export type { SplitRowValues };
 
@@ -158,9 +159,11 @@ class MasterJobCostRepository {
   /**
    * Takes the master job's shares off every shipment but these (worked out under its lock), and
    * the selling rows they called for unless those are on an issued invoice: a shipment that left
-   * carries no cost of it. Nothing is written to the shipments still on it.
+   * carries no cost of it. Nothing is written to the shipments still on it. The selling rows taken
+   * away are handed, per shipment, to the hook `followOf` gives (services/sellingStatusFollow), in the
+   * same transaction (n9): a job that read Not Invoiced only for such a row reads Invoiced again.
    */
-  async dropSplitRowsOutside(companyId: string, masterJobId: string, shipmentIds: () => Promise<string[]>): Promise<void> {
+  async dropSplitRowsOutside(companyId: string, masterJobId: string, shipmentIds: () => Promise<string[]>, followOf?: (shipmentId: string) => AfterSellingSetWrite): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.execute(lockMasterJobCosts(masterJobId));
       const keep = await shipmentIds();
@@ -178,8 +181,13 @@ class MasterJobCostRepository {
       const invoiced = await invoicedAmong(tx, companyId, shipments);
       const remove = gone.filter((r) => !invoiced.has(r.id)).map((r) => r.id);
       const s = invoiceSellingCostTable;
-      if (remove.length) await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(and(inArray(s.id, remove), eq(s.companyId, companyId), isNull(s.deletedAt)));
+      const dropped = remove.length ? await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(and(inArray(s.id, remove), eq(s.companyId, companyId), isNull(s.deletedAt))).returning() : [];
       await sellingAmountRequestRepository.withdrawFor(tx, companyId, remove);
+      if (followOf) {
+        for (const shipmentId of [...new Set(dropped.map((r) => r.shipmentId))].sort()) {
+          await followOf(shipmentId)(tx, dropped.filter((r) => r.shipmentId === shipmentId).map((before) => ({ before, now: null })));
+        }
+      }
     });
   }
 

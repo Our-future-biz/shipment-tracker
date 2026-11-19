@@ -19,7 +19,7 @@ import { carrierCodeOf } from "../lib/carriers";
 import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
-import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
+import { invalidContainerNumber, invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
 import { CANCELLED_STATUS, actionStamp, cancelReasonRefusal, isCancelling, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
 import { USER_ID_COLUMNS, USER_ID_FIELDS, linkedUser, mayNameUser } from "../lib/userLinks";
 import { quoteLinksService } from "./quoteLinks.service";
@@ -67,6 +67,9 @@ import {
   approvedByLockRefusal,
   blDateRefusal,
   cancelInvoicedRefusal,
+  INVOICED_STATUS_LOCKED,
+  INVOICED_UNCHECKED,
+  leavesInvoicedStatus,
   COSTS_CHECK_REFUSAL,
   creditCheckLockRefusal,
   customerRoleRefusal,
@@ -118,6 +121,9 @@ import {
   type CargoDetailsRead,
   type RemeasuredLine,
 } from "../lib/remeasureAccept";
+import { CARGO_LINES_CHANGED, sameCargoLines } from "../lib/cargoLinesGuard";
+import { keepsReleasedDay } from "../lib/gateReleasedDay";
+import { PREPAYMENT_UNCHECKED_FIELD, PREPAYMENT_UNCHECKED_LINE } from "../lib/releaseUnchecked";
 import { dimensionFiguresFilled } from "../lib/remeasureNotice";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
@@ -215,6 +221,12 @@ export interface ReleaseExtras {
   paymentOverrideReason?: string;
   /** The House BoL release's override, decided before the write (releaseHouseBol): recorded in its write turn. */
   houseBolOverride?: ReleaseOverride;
+  /**
+   * The app's own write of Warehouse Released (the gate's outbox, council round 4): the day is set only while the
+   * shipment's day is empty or one of these (the days the gate's own releases wrote), checked in the write turn - a
+   * day a person set in Shipments between the gate's read and this write stays. Left out, the day is written as sent.
+   */
+  warehouseReleasedReplaces?: readonly string[];
   /** Lines of the shipment's history the write adds in its own turn (an accepted remeasurement). */
   history?: { field: string; oldValue: string | null; newValue: string | null }[];
   /**
@@ -228,6 +240,13 @@ export interface ReleaseExtras {
    * async, in-transaction kin of StillHolds. It throws to refuse the write.
    */
   stillHoldsInTurn?: (tx: Tx) => Promise<void>;
+  /**
+   * The cargo dimension lines the page saving them started from (Cargo Details, mock test council
+   * Y10): the write's lines are saved only while the shipment still holds these, else it is refused
+   * (CARGO_LINES_CHANGED) - a page opened before an accepted remeasurement or a colleague's save
+   * would write its old lines back over theirs. Left out, the lines are saved as sent.
+   */
+  expectedCargoDimensions?: CargoDimensionLine[];
 }
 
 // The most open jobs of a customer one answer lists (Accounts Receivable's work not yet invoiced).
@@ -374,9 +393,10 @@ function toShipmentItem(s: EnrichedShipment): ShipmentItem {
   return { ...rest, createdAt: iso(createdAt), updatedAt: iso(updatedAt) };
 }
 
-// Checked before anything is written, so a bad number never leaves a half-saved shipment.
-function assertValidContainerNumbers(containers: ContainerLine[] | undefined) {
-  const bad = containers?.map((c) => c.containerNumber).find((n) => !isValidContainerNumber(n));
+// Checked before anything is written, so a bad number never leaves a half-saved shipment. `stored`:
+// the shipment's containers as they are - a number one already has is not asked again (n19).
+function assertValidContainerNumbers(containers: ContainerLine[] | undefined, stored: readonly ContainerLine[] = []) {
+  const bad = invalidContainerNumber(containers, stored);
   if (bad !== undefined) {
     throw APIError.invalidArgument(`Container number "${bad}" must be 4 letters followed by 7 digits (e.g. MSKU1234567)`);
   }
@@ -1415,15 +1435,16 @@ class ShipmentService {
     }
 
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, ...rest } = data;
-    assertValidContainerNumbers(containers);
+    // A number a container already has is not asked again (n19): the containers are read only for a
+    // write that sends a number which is no container number.
+    const oddNumber = !!containers?.some((c) => !isValidContainerNumber(c.containerNumber));
+    assertValidContainerNumbers(containers, oddNumber ? (await containerRepository.listByShipmentId(id, companyId)).map(toContainerLine) : []);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     assertCancelReason(shipmentData, existing);
-    // A person's cancel of an invoiced job is a manager's (lib/shipmentEditRule cancelInvoicedRefusal).
-    if (role !== undefined && !isDetailsManager(role) && isCancelling(existing.status, shipmentData.status)) {
-      const refusal = cancelInvoicedRefusal(role, isInvoicedStatus(existing.invoicingStatus) || (await this.isInvoiced(id)));
-      if (refusal) throw APIError.permissionDenied(refusal);
-    }
+    // A person's cancel of an invoiced job is a manager's, and so is taking Invoicing Status off
+    // Invoiced while an invoice is open (lib/shipmentEditRule).
+    if (role !== undefined && !isDetailsManager(role)) await this.assertInvoicedJobRules(id, role, existing, shipmentData);
     assertBlDates(shipmentData, existing);
     await this.assertLoadTypeFitsMasterJob(existing, shipmentData);
     if (role !== undefined) assertWarehouseDates(existing, shipmentData, role);
@@ -1568,7 +1589,8 @@ class ShipmentService {
     // release a manager approved on request (lib/releaseRequest), for whoever makes it. The app's own writes (no
     // role: Trucking, the gate, Invoicing) are never stopped.
     const releaseChecked = role !== undefined && setsWarehouseRelease(existing, shipmentData);
-    const releaseOverride = role !== undefined && releaseChecked ? await this.releaseGate(id, companyId, "warehouse_released", role, extras.paymentOverrideReason) : null;
+    const releaseGate = role !== undefined && releaseChecked ? await this.releaseGate(id, companyId, "warehouse_released", role, extras.paymentOverrideReason) : null;
+    const releaseOverride = releaseGate?.override ?? null;
     // Whether the turn looks at Warehouse Released again: a person's write of a date into it.
     const watchesRelease = role !== undefined && !!(shipmentData.warehouseReleasedDate ?? "").trim();
     const overrideBy = releaseOverride || extras.houseBolOverride ? await this.actorOf(userId) : "";
@@ -1585,6 +1607,18 @@ class ShipmentService {
         if (setsRelease && !releaseChecked) throw APIError.failedPrecondition(RELEASE_CHANGED_MEANWHILE);
       }
       if (extras.stillHoldsInTurn) await extras.stillHoldsInTurn(tx);
+      // The gate's day goes only over an empty day or one the gate wrote itself: a person's day set meanwhile stays
+      // (the rest of the write - the plate - still goes). Checked here, under the shipment's write lock.
+      if (role === undefined && extras.warehouseReleasedReplaces && (shipmentData.warehouseReleasedDate ?? "").trim()) {
+        const current = await shipmentRepository.getInTurn(tx, id, companyId);
+        if (!keepsReleasedDay(current?.warehouseReleasedDate, extras.warehouseReleasedReplaces)) delete shipmentData.warehouseReleasedDate;
+      }
+      // Cargo Details' lines saved from a page that started from other lines than the shipment holds
+      // now (an accepted remeasurement, a colleague's save in between): refused, not written over them.
+      if (extras.expectedCargoDimensions && cargoDimensions !== undefined) {
+        const now = await this.cargoDetailsOf(id, companyId, tx);
+        if (!sameCargoLines(extras.expectedCargoDimensions, now.lines, now.containers.length)) throw APIError.aborted(CARGO_LINES_CHANGED);
+      }
       const audit = (field: string, oldValue: string | null, newValue: string | null) =>
         shipmentAuditRepository.create({ companyId, shipmentId: id, userId, field, oldValue, newValue }, tx);
       for (const [key, newValue] of Object.entries(shipmentData)) {
@@ -1605,6 +1639,8 @@ class ShipmentService {
       const saved = await shipmentRepository.updateForCompany(id, companyId, shipmentData, tx);
       // A manager's release of an unpaid prepayment job is recorded with the release, or not at all.
       if (saved && setsRelease && releaseOverride) await this.recordOverride(tx, saved, "warehouse_released", releaseOverride, userId, overrideBy);
+      // Released with the work not yet invoiced left unchecked (P10): said in the job's history, with the release.
+      if (saved && setsRelease && releaseGate?.uninvoicedUnchecked) await audit(PREPAYMENT_UNCHECKED_FIELD, null, PREPAYMENT_UNCHECKED_LINE);
       if (saved && extras.houseBolOverride) await this.recordOverride(tx, saved, "house_bol", extras.houseBolOverride, userId, overrideBy);
       // A request to a manager still waiting for a release this write makes - by whoever, the app too - has
       // nothing left to ask, and an approval of it nobody used must not let a later release through (a Warehouse
@@ -1817,6 +1853,36 @@ class ShipmentService {
     return count > 0;
   }
 
+  /**
+   * A user's write on an invoiced job (lib/shipmentEditRule): a cancel is a manager's when the job
+   * reads Invoiced before the write or after it, or has an open invoice (K22, mock test council n35);
+   * taking Invoicing Status off Invoiced is a manager's while an invoice is open - else a user would
+   * move it to Not Invoiced first and then cancel. Invoicing is asked only when the statuses don't
+   * say it; when it can't be asked, the write is refused (n36) rather than failing as an error.
+   */
+  private async assertInvoicedJobRules(id: string, role: string, existing: ShipmentRecord, data: Partial<NewShipmentRecord>): Promise<void> {
+    const cancelling = isCancelling(existing.status, data.status);
+    const leaving = leavesInvoicedStatus(existing.invoicingStatus, data);
+    if (!cancelling && !leaving) return;
+    let open: boolean | undefined;
+    const openInvoice = async () => {
+      if (open !== undefined) return open;
+      try {
+        open = await this.isInvoiced(id);
+        return open;
+      } catch (err) {
+        log.warn(err, "whether the job is invoiced could not be checked", { shipmentId: id });
+        throw APIError.failedPrecondition(INVOICED_UNCHECKED);
+      }
+    };
+    if (cancelling) {
+      const marked = isInvoicedStatus(existing.invoicingStatus) || ("invoicingStatus" in data && isInvoicedStatus(data.invoicingStatus));
+      const refusal = cancelInvoicedRefusal(role, marked || (await openInvoice()));
+      if (refusal) throw APIError.permissionDenied(refusal);
+    }
+    if (leaving && (await openInvoice())) throw APIError.permissionDenied(INVOICED_STATUS_LOCKED);
+  }
+
   /** Whether an invoice was ever issued for the job, a credited one too: its Internal Reference is then final. */
   async hasHadInvoice(id: string): Promise<boolean> {
     const { shipmentIds } = await invoicing._internalInvoicedShipments({ shipmentIds: [id] });
@@ -1878,10 +1944,14 @@ class ShipmentService {
       if (houseBolRelease.trim()) throw APIError.failedPrecondition(`The House BoL was already released (${houseBolRelease.trim()})`);
     };
     notReleasedYet(existing);
-    const houseBolOverride = person ? await this.releaseGate(id, companyId, "house_bol", person.role, person.paymentOverrideReason) : null;
+    const gate = person ? await this.releaseGate(id, companyId, "house_bol", person.role, person.paymentOverrideReason) : null;
+    const houseBolOverride = gate?.override ?? null;
 
     const stamp = actionStamp(await this.actorOf(userId), new Date());
-    return this.update(id, companyId, { houseBolRelease: stamp }, userId, undefined, undefined, notReleasedYet, houseBolOverride ? { houseBolOverride } : {});
+    return this.update(id, companyId, { houseBolRelease: stamp }, userId, undefined, undefined, notReleasedYet, {
+      ...(houseBolOverride ? { houseBolOverride } : {}),
+      ...(gate?.uninvoicedUnchecked ? { history: [{ field: PREPAYMENT_UNCHECKED_FIELD, oldValue: null, newValue: PREPAYMENT_UNCHECKED_LINE }] } : {}),
+    });
   }
 
   /**
@@ -1908,12 +1978,13 @@ class ShipmentService {
       throw APIError.failedPrecondition(e instanceof Error ? e.message : "The remeasured lines cannot be read");
     }
     // The same lines twice (a stale page, a second person) would record a second acceptance and
-    // bring back a Costs warning already checked (council finding m8); lines of dangerous goods or
-    // several containers can't take another number of lines (council finding X2). Asked here for a
-    // quick answer, and again in the write turn below on what is there then.
+    // bring back a Costs warning already checked (council finding m8) - while Cargo Details still
+    // hold them (Y10: lines saved over since may be accepted again); lines of dangerous goods or of
+    // several containers are taken over only line for line, the same pieces on each (X2, Y8). Asked
+    // here for a quick answer, and again in the write turn below on what is there then.
     const lastAccepted = async () => (await shipmentAuditRepository.listByShipmentId(id, actor.companyID, [REMEASURE_ACCEPTED], 1))[0]?.newValue ?? null;
     const read = await this.cargoDetailsOf(id, actor.companyID);
-    const refusal = acceptRefusal(saved, remeasured.length, await lastAccepted(), read.lines);
+    const refusal = acceptRefusal(saved, remeasured, await lastAccepted(), read.lines);
     if (refusal) throw APIError.failedPrecondition(refusal);
     const current = [...read.lines];
     // What the shipment held: its cargo lines' totals, a figure they lack from its typed totals.
@@ -1931,16 +2002,16 @@ class ShipmentService {
     // its cargo. So the turn reads them again and refuses unless they are as read; then the one
     // container sent is the only one there, and only its figures change.
     const stillHoldsInTurn = async (tx: Tx) => {
+      const row = await shipmentRepository.getInTurn(tx, id, actor.companyID);
+      if (!row) throw APIError.notFound("Shipment not found");
+      const fresh = await this.cargoDetailsOf(id, actor.companyID, tx);
       // First: another Accept of these lines that had its turn before this one - it changed Cargo
       // Details itself, and that they were accepted is what to say. Its history entry is read
       // outside this transaction, which is fine: the turn is only had once the other has committed.
-      if (alreadyAccepted(saved, await lastAccepted())) throw APIError.failedPrecondition(ALREADY_ACCEPTED);
-      const row = await shipmentRepository.getInTurn(tx, id, actor.companyID);
-      if (!row) throw APIError.notFound("Shipment not found");
+      if (alreadyAccepted(saved, await lastAccepted(), fresh.lines)) throw APIError.failedPrecondition(ALREADY_ACCEPTED);
       const totalsAsRead = row.pcs === existing.pcs && row.totalWeightTons === existing.totalWeightTons && row.totalVolumeCbm === existing.totalVolumeCbm;
-      const fresh = await this.cargoDetailsOf(id, actor.companyID, tx);
       if (!totalsAsRead || !sameCargoDetails(read, fresh)) throw APIError.aborted(CARGO_DETAILS_CHANGED);
-      const byHand = acceptByHandRefusal(remeasured.length, fresh.lines);
+      const byHand = acceptByHandRefusal(remeasured, fresh.lines);
       if (byHand) throw APIError.failedPrecondition(byHand);
     };
     return this.update(
@@ -2016,7 +2087,12 @@ class ShipmentService {
       lines: acceptedLinesOf(accepted.newValue),
       freightMode: existing.freightMode,
       loadType: existing.loadType,
-      invoiced: await this.isInvoiced(id),
+      // Invoicing down says nothing about the acceptance (mock test council n18): read as not
+      // invoiced rather than failing - after an Accept that was saved, "Not accepted" would be said.
+      invoiced: await this.isInvoiced(id).catch((err: unknown) => {
+        log.warn(err, "whether the job is invoiced could not be read for its remeasurement", { shipmentId: id });
+        return false;
+      }),
       costsCheckedAt: costsChecked ? iso(costsChecked.changedAt)! : null,
       costsCheckedBy: costsChecked ? nameOf(costsChecked.userId) : null,
       mayCheckCosts: viewer ? await this.mayCheckRemeasureCosts(existing, viewer) : false,
@@ -2035,8 +2111,10 @@ class ShipmentService {
     return this.remeasureAcceptance(id, actor.companyID, actor);
   }
 
-  // Invoicing's word on whether the job is paid, for the prepayment stop; null when it can't be asked.
-  private async paymentCheck(shipmentId: string): Promise<PaymentCheck | null> {
+  // Invoicing's word on whether the job is paid, for the prepayment stop; null when it can't be asked. It
+  // also says when the work not yet invoiced could not be held against the customer's terms
+  // (prepaymentUninvoicedUnchecked): the release then goes through, with a line saying so (releaseGate).
+  private async paymentCheck(shipmentId: string): Promise<(PaymentCheck & { prepaymentUninvoicedUnchecked?: boolean }) | null> {
     try {
       return await invoicing._internalReleaseCheck({ shipmentId });
     } catch (err) {
@@ -2057,14 +2135,23 @@ class ShipmentService {
   // The prepayment stop of a person's release (lib/prepaymentStop): throws its refusal, else gives the override
   // to record with the release (null when there is none to record) - a manager's own, by their reason, or the
   // one a request a manager approved stands for (lib/releaseRequest): a pass, looked for only when the stop
-  // would refuse, so a manager's direct override and a job that is paid never touch it.
-  private async releaseGate(shipmentId: string, companyId: string, kind: ReleaseKind, role: string, reason: string | undefined): Promise<ReleaseOverride | null> {
+  // would refuse, so a manager's direct override and a job that is paid never touch it. `uninvoicedUnchecked`: the
+  // work not yet invoiced could not be checked (mock test council P10) - the release goes through, and its write
+  // records PREPAYMENT_UNCHECKED_LINE in the job's history.
+  private async releaseGate(
+    shipmentId: string,
+    companyId: string,
+    kind: ReleaseKind,
+    role: string,
+    reason: string | undefined,
+  ): Promise<{ override: ReleaseOverride | null; uninvoicedUnchecked: boolean }> {
     const check = await this.paymentCheck(shipmentId);
+    const uninvoicedUnchecked = check?.prepaymentUninvoicedUnchecked === true;
     const verdict = prepaymentStop(kind, check, role, reason);
-    if (!("refusal" in verdict)) return verdict.override;
+    if (!("refusal" in verdict)) return { override: verdict.override, uninvoicedUnchecked };
     const pass = await this.releasePass(shipmentId, companyId, kind);
     if (!pass) throw APIError.failedPrecondition(verdict.refusal);
-    return passOverride(check, pass, verdict.refusal);
+    return { override: passOverride(check, pass, verdict.refusal), uninvoicedUnchecked };
   }
 
   // The approved request that lets this release through now, with the reason it is recorded with; null when

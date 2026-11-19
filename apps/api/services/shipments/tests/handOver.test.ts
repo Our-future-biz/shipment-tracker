@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { HAND_OVER_FIELD, HAND_OVER_MAX_IDS_SENT, HAND_OVER_MAX_JOBS, handOverChange, handOverLine, stillAsDecided } from "../lib/handOver";
+import { HAND_OVER_FIELD, HAND_OVER_MAX_IDS_SENT, HAND_OVER_MAX_JOBS, handOverChange, handOverLine, listTarget, stillAsDecided } from "../lib/handOver";
 
 const job = { personInCharge: "jan@firma.cz", holidayCover: "" };
+
+describe("listTarget (n25: the jobs a chosen hand-over would change)", () => {
+  it("reads the choice as a hand-over reads it: Handled By left out or empty leaves it, a cover \"\" clears it", () => {
+    expect(listTarget({ handledBy: " Eva@Firma.cz " })).toEqual({ handledBy: "eva@firma.cz", holidayCover: null });
+    expect(listTarget({ handledBy: "", holidayCover: "" })).toEqual({ handledBy: null, holidayCover: "" });
+    expect(listTarget({ holidayCover: "Petr@firma.cz — Petr" })).toEqual({ handledBy: null, holidayCover: "petr@firma.cz" });
+  });
+
+  it("is nothing when nothing is chosen: every job is listed", () => {
+    expect(listTarget(undefined)).toBeNull();
+    expect(listTarget({})).toBeNull();
+    expect(listTarget({ handledBy: " " })).toBeNull();
+  });
+});
 
 describe("handOverChange", () => {
   it("gives the job its new Handled By, its new Holiday Cover, or both", () => {

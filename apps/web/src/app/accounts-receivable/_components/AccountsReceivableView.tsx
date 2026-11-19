@@ -94,7 +94,9 @@ export function AccountsReceivableView() {
 
   // The server's day (Prague), so "due this week" matches the tile; the browser's Prague day until it is in.
   const today = data?.today ?? businessToday();
-  const invoiceTable = useMemo(() => receivableTable(today), [today]);
+  // "Not reminded by the app" (P18) reads the day the automatic reminders start; none while they are off.
+  const autoRemindersSince = data?.autoRemindersSince ?? null;
+  const invoiceTable = useMemo(() => receivableTable(today, autoRemindersSince), [today, autoRemindersSince]);
   const invoiceControls = useTableControls(invoiceTable);
   const customerControls = useTableControls(CUSTOMER_TABLE);
   const byCustomer = tab === "customers";

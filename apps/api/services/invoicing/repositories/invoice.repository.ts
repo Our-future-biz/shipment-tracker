@@ -203,6 +203,30 @@ class InvoiceRepository extends TenantRepository<typeof t> {
     return new Set(rows.map((r) => r.shipmentId));
   }
 
+  /**
+   * The company's jobs that owe their customer a credit (M3): an open invoice, and a live selling row below nothing
+   * that no document billing now has a line of (lib/billingQueue countCreditsOwed, in SQL) - a price lowered after the
+   * invoice, on no credit note yet. However long ago the job was invoiced: the Money tab reads these besides the jobs
+   * invoiced lately. The newest such row first, at most `limit` jobs.
+   */
+  async creditOwedShipmentIds(companyId: string, limit: number): Promise<string[]> {
+    const rows = await this.db.execute<{ shipment_id: string }>(sql`
+      select sc.shipment_id from "invoice_selling_cost" sc
+      where sc.company_id = ${companyId} and sc.deleted_at is null
+        and coalesce(sc.amount, 0) * coalesce(sc.qty, 1) < 0
+        and exists (select 1 from "invoice" oi where oi.company_id = sc.company_id and oi.shipment_id = sc.shipment_id
+          and oi.kind = 'invoice' and oi.status = 'issued' and oi.deleted_at is null)
+        and not exists (select 1 from "invoice_line" bl join "invoice" bd on bd.id = bl.invoice_id
+          where bl.source_selling_cost_id = sc.id and bl.company_id = sc.company_id and bd.company_id = sc.company_id and bd.deleted_at is null
+            and ((bd.kind = 'invoice' and bd.status = 'issued')
+              or (bd.kind = 'credit_note' and exists (select 1 from "invoice" corrected where corrected.id = bd.corrects_invoice_id
+                and corrected.status = 'issued' and corrected.deleted_at is null))))
+      group by sc.shipment_id
+      order by max(sc.created_at) desc
+      limit ${limit}`);
+    return rows.rows.map((r) => r.shipment_id);
+  }
+
   /** Of the shipments, those an invoice was ever issued for (a credited one counts too). */
   async shipmentIdsWithInvoices(shipmentIds: string[], companyId: string): Promise<string[]> {
     if (!shipmentIds.length) return [];
@@ -230,6 +254,21 @@ class InvoiceRepository extends TenantRepository<typeof t> {
       .select({ id: t.id })
       .from(t)
       .where(and(openInvoice(companyId), eq(t.shipmentId, shipmentId)))
+      .orderBy(desc(t.createdAt))
+      .limit(1);
+    return row?.id ?? null;
+  }
+
+  /**
+   * The shipment's newest invoice whatever its state (issued, credited, cancelled); null when it never had
+   * one. A charge added to a job with no open invoice keeps its status follow-up under it (the outbox row
+   * needs an invoice: services/sellingStatusFollow).
+   */
+  async latestInvoiceId(shipmentId: string, companyId: string, reader: Reader = db): Promise<string | null> {
+    const [row] = await reader
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.kind, "invoice"), isNull(t.deletedAt), eq(t.shipmentId, shipmentId)))
       .orderBy(desc(t.createdAt))
       .limit(1);
     return row?.id ?? null;

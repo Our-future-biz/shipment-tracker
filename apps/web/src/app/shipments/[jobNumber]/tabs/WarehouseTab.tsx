@@ -22,7 +22,7 @@ import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
-import { RemeasureCompare, figuresCompared, figuresDiffer } from "./warehouse/RemeasureCompare";
+import { RemeasureCompare, figuresCompared, figuresDiffer, noFigures } from "./warehouse/RemeasureCompare";
 import { roundedFigures, shipmentCargoFigures, tidyNumber } from "./warehouse/remeasuredLines";
 
 interface JobSectionData {
@@ -385,6 +385,8 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const shipmentDims = useMemo(() => shipmentCargoFigures(shipment), [shipment]);
 
   const remeasured = roundedFigures({ colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm });
+  // A figure only the warehouse measured is a difference too (mock test council Y9) - also when the
+  // shipment has no figures at all, which still offers Inform Operations (n16).
   const hasMismatch = figuresDiffer(shipmentDims, remeasured);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
@@ -589,9 +591,10 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           </Tooltip>
         </div>
       )}
-      {/* nothing to hold the remeasured figures against: not "match", which would say they were checked */}
-      {hasData && !compared && (
-        <div className={`mt-3 ${HINT}`}>The shipment has no cargo dimension lines to compare with — Cargo Details holds them.</div>
+      {/* Nothing to hold the remeasured figures against: they are all new to the shipment - a difference,
+          with Inform Operations above (mock test council n16, Y9) - never "match". */}
+      {hasData && noFigures(shipmentDims) && (
+        <div className={`mt-3 ${HINT}`}>The shipment has no cargo figures yet: the remeasured ones are all new — Cargo Details holds them.</div>
       )}
       {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
       {informedAt && <div className={`mt-2 ${HINT}`}>Operations informed on {formatDateTime(informedAt)}</div>}

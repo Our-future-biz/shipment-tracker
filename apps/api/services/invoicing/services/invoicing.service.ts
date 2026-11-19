@@ -29,7 +29,7 @@ import { quoteCostImportRepository } from "../repositories/quoteCostImport.repos
 import { startBilling, startingBillingCurrency } from "./billingStart.service";
 import { quoteFixedChanged } from "../utils/quoteCostImport.utils";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
-import { sameCostCodes } from "../utils/truckingLines.utils";
+import { isQuoteAnchor, sameCostCodes } from "../utils/truckingLines.utils";
 import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
 import type { InvoiceCostRecord, NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { InvoiceSellingCostRecord, NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
@@ -368,7 +368,8 @@ class InvoicingService {
     ]);
     return {
       costs: costs.map(toCostItem),
-      sellingCosts: sellingCosts.map(toSellingItem),
+      // A consignment's quote-anchor marker (n8, B1) bills nothing and is no line of Costs Breakdown.
+      sellingCosts: sellingCosts.filter((r) => !isQuoteAnchor(r.sourceTruckingRef)).map(toSellingItem),
       additionalCharges: additionalCharges.map(toChargeItem),
       billingSettings: billingSettings ? toBillingSettingsItem(billingSettings) : null,
       billingOverrides: billingOverrides.map(toOverrideItem),

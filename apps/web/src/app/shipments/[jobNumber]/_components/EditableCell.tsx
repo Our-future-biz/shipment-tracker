@@ -16,7 +16,8 @@ import { UserPicker } from "@/components/UserPicker";
 import { CustomerContactPicker } from "@/components/CustomerContactPicker";
 import { ContactHoverCard } from "@/components/ContactHoverCard";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
+import { offeredStatuses } from "@/app/shipments/_components/cancelReason";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { loadTypeLabel } from "@/lib/enums";
 import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
@@ -81,6 +82,22 @@ export const TradeDirectionContext = createContext<string | undefined>(undefined
  * airports beside the UN/LOCODE places; by sea, its Origin and Destination ocean terminals (CYs).
  */
 export const FreightModeContext = createContext<string | undefined>(undefined);
+
+/**
+ * Whether Cancelled Shipment is offered in a Shipment Status cell inside it (mock test council n34,
+ * cancelReason cancelOffered): not to a user on a job that reads Invoiced. Provided by the shipment
+ * page and per row by a grid.
+ */
+export const CancelOfferedContext = createContext(true);
+
+/**
+ * The B/L dates that say when something happened (council finding m24): their picker offers no day
+ * after today on the company's calendar, as the server refuses one (mock test council n34).
+ */
+const PAST_DAY_FIELDS = new Set(["originalsReceivedDate", "telexReleaseReceivedDate", "deliveryOrderDate"]);
+
+/** Whether a day (YYYY-MM-DD) can't be picked in this field: one after `today` (Prague) in a B/L date. */
+export const dayBlocked = (fieldKey: string, day: string, today: string): boolean => PAST_DAY_FIELDS.has(fieldKey) && day > today;
 const AIRPORT_FIELDS = new Set(["pol", "pod"]);
 const TERMINAL_FIELDS = new Set(["origin", "destination"]);
 
@@ -196,7 +213,9 @@ function EditableCellBody({
   const freightMode = useContext(FreightModeContext);
   const airports = AIRPORT_FIELDS.has(fieldKey) && /^air/i.test(freightMode ?? "");
   const terminals = TERMINAL_FIELDS.has(fieldKey) && /^sea/i.test(freightMode ?? "");
-  const options = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
+  const cancelOk = useContext(CancelOfferedContext);
+  const columnOptions = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
+  const options = fieldKey === "status" ? offeredStatuses(columnOptions, cancelOk, value) : columnOptions;
   const original = value ?? "";
   // Statuses read without [IMP]/[EXP]/[DOM] once the list holds one direction only; with several
   // (no Trade Direction yet) the suffix is what tells the "Billing"s apart.
@@ -388,6 +407,7 @@ function EditableCellBody({
           format="YYYY-MM-DD"
           className="w-full min-w-[150px]"
           defaultValue={initial && initial.isValid() ? initial : undefined}
+          disabledDate={PAST_DAY_FIELDS.has(fieldKey) ? (d) => dayBlocked(fieldKey, d.format("YYYY-MM-DD"), businessToday()) : undefined}
           // Commit only when a day is picked — browsing months/years keeps the panel open.
           onChange={(d) => commit(d ? d.format("YYYY-MM-DD") : "")}
           // Close (without committing) when the panel is dismissed via click-away or Escape.

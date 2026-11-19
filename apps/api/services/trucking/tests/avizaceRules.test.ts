@@ -95,6 +95,24 @@ describe("POD missing", () => {
     expect(podMissing(tue, "2026-11-02")).toBe(true);
     expect(podMissing(fri, "2026-10-21", ["2026-10-20"])).toBe(false);
   });
+
+  // lib/workingDays addWorkingDays counts n working days after the day itself, also from a weekend
+  // or a holiday (n20): a delivery on such a day is missing its POD one working day sooner than
+  // when the count first rolled forward to the next working day. Pinned so the change is intended.
+  it("counts from a delivery on a weekend or a holiday: the 2 working days after it, not after the next working day", () => {
+    // Saturday 17 Oct: Mon 19 + Tue 20 are the 2 working days, missing from Wednesday (was Thursday 22).
+    const sat = consignment({ deliveredAt: new Date("2026-10-17T08:00:00Z") });
+    expect(podMissing(sat, "2026-10-20")).toBe(false);
+    expect(podMissing(sat, "2026-10-21")).toBe(true);
+    // Wednesday 28 Oct, a CZ holiday: Thu 29 + Fri 30, missing from Mon 2 Nov (was Tue 3 Nov).
+    const holiday = consignment({ deliveredAt: new Date("2026-10-28T08:00:00Z") });
+    expect(podMissing(holiday, "2026-10-30")).toBe(false);
+    expect(podMissing(holiday, "2026-11-02")).toBe(true);
+    // A company holiday the same: Tue 20 Oct off, Wed 21 + Thu 22, missing from Fri 23.
+    const companyHoliday = consignment({ deliveredAt: new Date("2026-10-20T08:00:00Z") });
+    expect(podMissing(companyHoliday, "2026-10-22", ["2026-10-20"])).toBe(false);
+    expect(podMissing(companyHoliday, "2026-10-23", ["2026-10-20"])).toBe(true);
+  });
 });
 
 describe("delivery exceptions", () => {

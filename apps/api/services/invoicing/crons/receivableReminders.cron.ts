@@ -5,8 +5,10 @@ import { _cronReceivableReminders } from "../controllers/receivableStatement.con
 // a cron schedule is in UTC, so 09:00 UTC is 10:00 in Prague in winter (CET, UTC+1) and 11:00 in summer (CEST, UTC+2) -
 // never before 10:00, never later than 11:00, with no second run on the days the clocks change. The run sends nothing
 // on a weekend or a Czech holiday (lib/reminderRules isReminderDay), and returns at once while e-mail from the app is
-// switched off (lib/email) or a company's settings say off. Cron jobs don't fire under `encore run` (and there is no
-// local timer: e-mail is off there anyway).
+// switched off (lib/email) or a company's settings say off. The first run that can send sets the day the reminders start
+// and sends nothing that day; a company that reads bank statements but read none since the previous working day is
+// skipped (mock test council P3, P11). Cron jobs don't fire under `encore run` (and there is no local timer: e-mail is
+// off there anyway).
 export const receivableReminders = new CronJob("invoicing-receivable-reminders", {
   title: "Send automatic payment reminders",
   schedule: "0 9 * * *",

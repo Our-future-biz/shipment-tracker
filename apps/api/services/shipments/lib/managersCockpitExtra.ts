@@ -90,13 +90,20 @@ export interface ExtraJob {
   mrn: string | null;
   warehouseReceivedDate: string | null;
   /**
-   * Cargo Details' Pcs, Total Weight (tons) and Total Volume, as stored: what the service checks a
-   * remeasurement from Warehouse Concept against (RemeasureFact matchesCargoDetails). Left out when
-   * the row read does not carry them: then Cargo Details is not known to match.
+   * The job's Pcs, Total Weight (tons) and Total Volume, as stored. With its Cargo Details rows they
+   * are the shipment as it shows, which the service checks a remeasurement from Warehouse Concept
+   * against (RemeasureFact matchesCargoDetails, lib/remeasureMatch): the stored Pcs counts only on a
+   * job with no rows. Left out when the row read does not carry them.
    */
   pcs?: string | null;
   totalWeightTons?: string | null;
   totalVolumeCbm?: string | null;
+  /**
+   * Full Load / LCL...: with freightMode, what the job is charged by (lib/remeasureNotice
+   * chargeKindOf), for a remeasurement whose history entry predates keeping the charge. Left out
+   * when the row read does not carry it: such an entry is then judged by the cautious default.
+   */
+  loadType?: string | null;
   createdAt: Date | string | null;
 }
 
@@ -129,9 +136,9 @@ export interface RemeasureFact {
    * none. `source`: which warehouse informed - "warehouse" (Shipments → Warehouse, whose lines
    * "Accept remeasurement" takes) or "warehouseConcept" (Warehouse Concept, whose lines it does not
    * read). Left out, the Warehouse's, as a line written before the source was kept.
-   * `matchesCargoDetails`: Cargo Details (Pcs, Total Weight, Total Volume) now say what it informed
-   * of, every figure known on both sides alike (lib/remeasureNotice remeasureVerdict); left out or
-   * false when that is not known.
+   * `matchesCargoDetails`: the shipment as it shows now - its Cargo Details rows, the stored
+   * figures filling in - says what it informed of, as the Alerts tab judges it (lib/remeasureMatch
+   * matchesNow); left out or false when that is not known.
    */
   informed: { at: Date; verdict: RemeasureVerdict; source?: "warehouse" | "warehouseConcept"; matchesCargoDetails?: boolean } | null;
   /** The latest "Accept remeasurement". */
@@ -254,7 +261,10 @@ const momentOf = (value: Date | string | null | undefined): Date | null => {
  */
 export function afterWorkingDays(since: Date, n: number, holidays: readonly string[]): Date {
   const day = businessDay(since);
-  return businessInstant(addWorkingDays(day, n, holidays), isWorkingDay(day, holidays) ? businessTime(since) : "00:00");
+  // The clock starts on the first working day (addWorkingDays counts the n-th working day after a
+  // weekend itself): begun on a Saturday, n working days end at the start of Monday + n.
+  const start = isWorkingDay(day, holidays) ? day : nextWorkingDay(day, holidays);
+  return businessInstant(addWorkingDays(start, n, holidays), isWorkingDay(day, holidays) ? businessTime(since) : "00:00");
 }
 
 /** Whether a wait that began at `since` has lasted longer than `n` working days. */
@@ -272,18 +282,41 @@ export const hasLeft = (job: { actualDeparture: string | null; actualArrival?: s
   !!dayOf(job.actualDeparture) || !!dayOf(job.actualArrival) || !!dayOf(job.actualDeliveryDate);
 
 /**
- * How many working days `day`, later than `today`, is away (D6): the fewest n for which
- * addWorkingDays(today, n) reaches it. On a Friday the Monday after is 1 away, and so are Saturday
- * and Sunday; on 23 Dec 28 Dec is 1 away, over the Christmas holidays. Past `cap` it stops
- * counting and answers cap + 1: no window here is that wide.
+ * The ends of the working-day windows ahead of each `today`, by holiday list: [n] is
+ * addWorkingDays(today, n). Every rule of every job asks for the same few ends, so they are worked
+ * out once per answer - the holiday list is read once per answer (services/companyHolidays) and
+ * keys the cache, which goes with it - and grown only as far as a rule asks.
+ */
+const windowEnds = new WeakMap<readonly string[], Map<string, string[]>>();
+
+/**
+ * The last day of a window of `n` working days after `today`: addWorkingDays(today, n, holidays),
+ * remembered for the answer (windowEnds), so a window is compared as two dates, not walked day by
+ * day for each job.
+ */
+export function workingDayEnd(today: string, n: number, holidays: readonly string[]): string {
+  if (!Number.isInteger(n) || n < 0) return addWorkingDays(today, n, holidays); // refuses it, with addWorkingDays' words
+  let byDay = windowEnds.get(holidays);
+  if (!byDay) windowEnds.set(holidays, (byDay = new Map()));
+  let ends = byDay.get(today);
+  if (!ends) byDay.set(today, (ends = [addWorkingDays(today, 0, holidays), addWorkingDays(today, 1, holidays)]));
+  while (ends.length <= n) ends.push(nextWorkingDay(ends[ends.length - 1]!, holidays));
+  return ends[n]!;
+}
+
+/**
+ * How many working days `day`, later than `today`, is away (D6): the fewest n ≥ 1 for which
+ * addWorkingDays(today, n) reaches it - so it is in the window of "within n working days" exactly
+ * when that window's end (workingDayEnd) is not before it, as the cockpit's URGENT and ATTENTION
+ * windows count (lib/managersCockpit opsDay). On a Friday the Monday after is 1 away, and so are
+ * Saturday and Sunday; on a Saturday Monday is 1 away and Tuesday 2 (n20); on 23 Dec 28 Dec is 1
+ * away, over the Christmas holidays. 0 for today or a day before it. Past `cap` it stops counting
+ * and answers cap + 1: no window here is that wide.
  */
 export function workingDaysAhead(today: string, day: string, holidays: readonly string[], cap = 31): number {
-  let n = 0;
-  for (let reached = addWorkingDays(today, 0, holidays); reached < day; reached = nextWorkingDay(reached, holidays)) {
-    n += 1;
-    if (n > cap) return n;
-  }
-  return n;
+  if (day <= today) return 0;
+  for (let n = 1; n <= cap; n++) if (workingDayEnd(today, n, holidays) >= day) return n;
+  return cap + 1;
 }
 
 /**
@@ -311,14 +344,16 @@ type DepartureJob = Pick<ExtraJob, "closingDate" | "estimatedDeparture" | "actua
 
 /**
  * What a job that has not left is measured against: its Closing, or its ETD when it has no
- * Closing, and the days to it (negative once passed). Null when it has left (hasLeft) or has
- * neither date.
+ * Closing, and the days to it - WORKING days while it is ahead (workingDaysAhead, D6: on a Friday
+ * a Monday Closing is a day away), calendar days once it has passed (negative), 0 today. Null when
+ * it has left (hasLeft) or has neither date.
  */
-export function departureAhead(job: DepartureJob, today: string): { what: "Closing" | "ETD"; day: string; days: number } | null {
+export function departureAhead(job: DepartureJob, today: string, holidays: readonly string[] = []): { what: "Closing" | "ETD"; day: string; days: number } | null {
   if (hasLeft(job)) return null;
   const closing = dayOf(job.closingDate);
   const day = closing ?? dayOf(job.estimatedDeparture);
-  return day ? { what: closing ? "Closing" : "ETD", day, days: daysBetween(today, day) } : null;
+  if (!day) return null;
+  return { what: closing ? "Closing" : "ETD", day, days: day > today ? workingDaysAhead(today, day, holidays) : daysBetween(today, day) };
 }
 
 const departureWords = (d: { what: string; day: string; days: number }, today: string) => (d.days < 0 ? `${d.what} ${dm(d.day)} passed` : `${d.what} ${dueWords(d.day, today)}`);
@@ -496,16 +531,18 @@ export function documentReviewSignals(
 /**
  * Dangerous = Yes on a job that has not left (hasLeft), with no MSDS or no Dangerous Goods Declaration
  * among its documents (lib/requiredDocuments: both are expected), measured against its Closing -
- * the ETD when it has no Closing: URGENT within DANGEROUS_URGENT_DAYS, and while a Closing that
- * passed is no older than PASSED_DATE_KEPT_DAYS; ATTENTION within DANGEROUS_ATTENTION_DAYS.
+ * the ETD when it has no Closing: URGENT within DANGEROUS_URGENT_DAYS working days, and while a
+ * Closing that passed is no older than PASSED_DATE_KEPT_DAYS calendar days; ATTENTION within
+ * DANGEROUS_ATTENTION_DAYS working days (departureAhead).
  */
 export function dangerousSignals(
   job: Pick<ExtraJob, "dangerous"> & DepartureJob,
   documents: readonly Pick<DocumentFact, "documentType" | "customsStatus">[],
   today: string,
+  holidays: readonly string[] = [],
 ): ExtraSignal[] {
   if (lower(job.dangerous) !== "yes") return [];
-  const ahead = departureAhead(job, today);
+  const ahead = departureAhead(job, today, holidays);
   if (!ahead || ahead.days > DANGEROUS_ATTENTION_DAYS || ahead.days < -PASSED_DATE_KEPT_DAYS) return [];
   const missing = missingDocumentTypes(SAFETY_PAPERWORK_TYPES, documents);
   if (!missing.length) return [];
@@ -640,10 +677,24 @@ export function importInstructionSignals(job: Pick<ExtraJob, "estimatedArrival" 
 export const REMEASURED_IN_WAREHOUSE_CONCEPT = "Remeasured in Warehouse Concept: check Cargo Details by hand";
 
 /**
+ * Whether the latest remeasurement is one from Warehouse Concept that still asks for Cargo Details
+ * to be checked by hand, whatever they say now: it differs from the shipment, nobody accepted it
+ * since, and it was informed less than REMEASURE_WAREHOUSE_CONCEPT_DAYS calendar days ago. Only
+ * then does it matter whether Cargo Details match it now (`matchesCargoDetails`), so only for such
+ * a job does services/managersCockpitExtra.service read the Cargo Details rows.
+ */
+export function conceptRemeasureOpen(fact: Pick<RemeasureFact, "informed" | "acceptedAt">, now: Date): boolean {
+  const { informed, acceptedAt } = fact;
+  if (!informed || informed.source !== "warehouseConcept" || informed.verdict !== "differs") return false;
+  if (acceptedAt && acceptedAt.getTime() >= informed.at.getTime()) return false;
+  return now.getTime() - informed.at.getTime() < REMEASURE_WAREHOUSE_CONCEPT_DAYS * DAY;
+}
+
+/**
  * The warehouse remeasured the cargo (lib/remeasureNotice, lib/remeasureAccept):
  *  - its last Inform Operations differs from the shipment and nobody has accepted it since:
  *    ATTENTION after 24 hours (by air after 4 office hours), URGENT after 48 hours - and by air
- *    as soon as the Closing (the ETD when no Closing) is a day away, whatever the wait - while
+ *    as soon as the Closing (the ETD when no Closing) is a working day away, whatever the wait - while
  *    the job has not left (hasLeft): a flight that landed is hurried by no Closing;
  *  - the same from Warehouse Concept (X4): "Accept remeasurement" reads only the Warehouse's own
  *    lines, so it cannot be cleared there - ATTENTION "Remeasured in Warehouse Concept: check Cargo
@@ -668,10 +719,11 @@ export function remeasurementSignals(
     const due = waited >= REMEASURE_ATTENTION_HOURS * HOUR || (air && officeMinutesBetween(informed.at, now, holidays) >= REMEASURE_ATTENTION_AIR_OFFICE_HOURS * 60);
     if (informed.source === "warehouseConcept") {
       // Done once Cargo Details say the same, or a week on: past that the figures were plainly looked at, or never will be.
-      const done = waited >= REMEASURE_WAREHOUSE_CONCEPT_DAYS * DAY || informed.matchesCargoDetails === true;
+      const done = !conceptRemeasureOpen(fact, now) || informed.matchesCargoDetails === true;
       if (!done) return due ? [signal(false, EXTRA_RANK.remeasure, "remeasurement", "details", `${REMEASURED_IN_WAREHOUSE_CONCEPT} · informed ${stamp(informed.at)}`)] : [];
     } else {
-      const ahead = air ? departureAhead(job, today) : null;
+      // In working days ahead (departureAhead): on a Friday a Monday Closing is a day away.
+      const ahead = air ? departureAhead(job, today, holidays) : null;
       const leaving = !!ahead && ahead.days >= 0 && ahead.days <= REMEASURE_URGENT_AIR_DEPARTURE_DAYS;
       const words = `Remeasurement differs, not accepted since ${stamp(informed.at)}`;
       if (ahead && leaving) return [signal(true, EXTRA_RANK.remeasureUrgent, "remeasurement", "details", `${words} · ${departureWords(ahead, today)}`)];
@@ -691,22 +743,22 @@ export function remeasurementSignals(
 const has = (value: string | null | undefined, fragment: string) => lower(value).includes(fragment);
 
 /**
- * An export house of a Master Job that closes within MASTER_JOB_CLOSING_DAYS, while the house is
- * out of step: its Shipping Instructions not Confirmed, its BoL draft not Approved, or its cargo
- * not received (no Warehouse Received date). Those are an export's duties before the vessel: an
- * import house owes none of them. Neither the Master Job nor the house may have left (hasLeft).
- * The Closing is the Master Job's own - the house's copy follows it, but it is the Master Job
- * that sails.
+ * An export house of a Master Job that closes within MASTER_JOB_CLOSING_DAYS working days
+ * (workingDaysAhead, D6), while the house is out of step: its Shipping Instructions not Confirmed,
+ * its BoL draft not Approved, or its cargo not received (no Warehouse Received date). Those are an
+ * export's duties before the vessel: an import house owes none of them. Neither the Master Job nor
+ * the house may have left (hasLeft). The Closing is the Master Job's own - the house's copy
+ * follows it, but it is the Master Job that sails.
  */
 export function masterJobHouseSignals(
   job: Pick<ExtraJob, "tradeDirection" | "shippingInstructions" | "bolDraft" | "warehouseReceivedDate" | "actualDeparture" | "actualArrival" | "actualDeliveryDate">,
   master: MasterJobFact | null,
   today: string,
+  holidays: readonly string[] = [],
 ): ExtraSignal[] {
   const closing = master ? dayOf(master.closingDate) : null;
   if (!master || !closing || lower(job.tradeDirection) !== "export" || hasLeft(master) || hasLeft(job)) return [];
-  const days = daysBetween(today, closing);
-  if (days < 0 || days > MASTER_JOB_CLOSING_DAYS) return [];
+  if (closing < today || workingDaysAhead(today, closing, holidays) > MASTER_JOB_CLOSING_DAYS) return [];
   const behind = [
     ...(has(job.shippingInstructions, "confirmed") ? [] : ["SI not confirmed"]),
     ...(has(job.bolDraft, "approved") ? [] : ["BoL draft not approved"]),
@@ -717,13 +769,19 @@ export function masterJobHouseSignals(
 }
 
 /**
- * A Master Job with no shipment linked, MASTER_JOB_NO_HOUSE_DAYS from its ETD and not departed:
- * it becomes a row of its own. `houses`: how many live shipments it has.
+ * A Master Job with no shipment linked, MASTER_JOB_NO_HOUSE_DAYS working days from its ETD
+ * (workingDaysAhead, D6) and not departed: it becomes a row of its own. `houses`: how many live
+ * shipments it has. The service reads the Master Jobs with an ETD up to masterJobWindowEnd.
  */
-export function masterJobRowSignals(master: MasterJobFact, houses: number, today: string): ExtraSignal[] {
+export function masterJobRowSignals(master: MasterJobFact, houses: number, today: string, holidays: readonly string[] = []): ExtraSignal[] {
   const etd = dayOf(master.estimatedDeparture);
   if (houses > 0 || !etd || dayOf(master.actualDeparture)) return [];
-  const days = daysBetween(today, etd);
-  if (days < 0 || days > MASTER_JOB_NO_HOUSE_DAYS) return [];
+  if (etd < today || workingDaysAhead(today, etd, holidays) > MASTER_JOB_NO_HOUSE_DAYS) return [];
   return [signal(false, EXTRA_RANK.masterJob, "master_job", "details", `No shipment linked · ETD ${dueWords(etd, today)}`)];
 }
+
+/**
+ * The last ETD masterJobRowSignals can speak of: MASTER_JOB_NO_HOUSE_DAYS working days after today
+ * - a day after it is more working days away. The read of the Master Jobs with no house goes as far.
+ */
+export const masterJobWindowEnd = (today: string, holidays: readonly string[]): string => workingDayEnd(today, MASTER_JOB_NO_HOUSE_DAYS, holidays);

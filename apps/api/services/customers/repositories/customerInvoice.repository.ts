@@ -179,9 +179,10 @@ class CustomerInvoiceRepository extends TenantRepository<typeof customerInvoiceT
   /**
    * The live entries of these issued documents (by the document's id, else by its customer and number - an entry that
    * names another document is not it), and each of them marked as posted by Invoicing with the document's id. One
-   * entry per document id; none when the customer's list has no live entry of it.
+   * entry per document id; none when the customer's list has no live entry of it. `readOnly` (m4): found the same,
+   * nothing marked - for a read that is polled (the bell), which must not write to the list on every poll.
    */
-  async entriesOfIssued(companyId: string, refs: IssuedRef[]): Promise<Map<string, CustomerInvoiceRecord>> {
+  async entriesOfIssued(companyId: string, refs: IssuedRef[], opts: { readOnly?: boolean } = {}): Promise<Map<string, CustomerInvoiceRecord>> {
     const found = new Map<string, CustomerInvoiceRecord>();
     if (!refs.length) return found;
     const live = (...where: SQL[]) => and(eq(customerInvoiceTable.companyId, companyId), isNull(customerInvoiceTable.deletedAt), ...where);
@@ -207,7 +208,7 @@ class CustomerInvoiceRepository extends TenantRepository<typeof customerInvoiceT
       }
     }
     const unmarked = [...found.entries()].filter(([invoiceId, row]) => row.source !== "invoicing" || row.invoiceId !== invoiceId);
-    if (unmarked.length) {
+    if (unmarked.length && !opts.readOnly) {
       const values = sql.join(unmarked.map(([invoiceId, row]) => sql`(${row.id}::uuid, ${invoiceId}::uuid)`), sql`, `);
       // Only an entry that names no other document; one marked meanwhile is left as it is.
       await this.db.execute(sql`

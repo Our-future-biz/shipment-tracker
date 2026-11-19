@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formOf, isChanged, settingsInput, settingsProblem, type SettingsForm } from "./settings";
+import { formOf, isChanged, settingsInput, settingsProblem, skippedText, type SettingsForm } from "./settings";
 
 const form = (over: Partial<SettingsForm> = {}): SettingsForm => ({ autoReminders: false, reminder1Days: "7", reminder2Days: "21", replyTo: "", ...over });
 
@@ -26,5 +26,14 @@ describe("the form", () => {
     expect(isChanged(form({ autoReminders: true }), saved)).toBe(true);
     expect(isChanged(form({ reminder2Days: "30" }), saved)).toBe(true);
     expect(isChanged(form({ replyTo: "  " }), saved)).toBe(false);
+  });
+});
+
+describe("skippedText (m5)", () => {
+  it("says the last day the run skipped the reminders, and since when no bank statement was read", () => {
+    expect(skippedText({ on: "2026-11-18", since: "2026-11-13" })).toBe("Skipped on 18.11.2026: no bank statement read since 13.11.2026");
+    expect(skippedText({ on: "2026-11-18", since: null })).toBe("Skipped on 18.11.2026: no bank statement read since the previous working day");
+    expect(skippedText(null)).toBeNull();
+    expect(skippedText(undefined)).toBeNull();
   });
 });

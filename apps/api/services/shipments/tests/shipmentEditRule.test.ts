@@ -9,6 +9,7 @@ import {
   isInvoicingDepartment,
   isDetailsManager,
   isOpenToPerson,
+  leavesInvoicedStatus,
   touchesDetails,
   warehouseReceivedRefusal,
   warehouseReleaseRefusal,
@@ -207,11 +208,21 @@ describe("cancelling an invoiced job (council finding K22)", () => {
     for (const role of ["manager", "admin", "superadmin"]) expect(cancelInvoicedRefusal(role, true)).toBeNull();
     expect(cancelInvoicedRefusal("user", false)).toBeNull();
   });
+
+  // Mock test council n35: Invoicing Status moved to Not Invoiced first, then the cancel.
+  it("knows a write that takes Invoicing Status off Invoiced", () => {
+    expect(leavesInvoicedStatus("Invoiced", { invoicingStatus: "Not Invoiced" })).toBe(true);
+    expect(leavesInvoicedStatus(" invoiced ", { invoicingStatus: "" })).toBe(true);
+    expect(leavesInvoicedStatus("Invoiced", { invoicingStatus: "Invoiced" })).toBe(false);
+    expect(leavesInvoicedStatus("Invoiced", {})).toBe(false);
+    expect(leavesInvoicedStatus("Billing", { invoicingStatus: "Not Invoiced" })).toBe(false);
+  });
 });
 
 describe("the B/L dates (council finding m24)", () => {
   it("are never a day after today, a day already stored aside", () => {
-    expect(blDateRefusal("Delivery Order", "2026-11-20", null, "2026-11-19")).toBe("Delivery Order can't be a day still to come: it says when it happened (today is 2026-11-19)");
+    // The day as the screens write it (mock test council n34).
+    expect(blDateRefusal("Delivery Order", "2026-11-20", null, "2026-11-19")).toBe("Delivery Order can't be a day still to come: it says when it happened (today is 19.11.2026)");
     expect(blDateRefusal("Delivery Order", "2026-11-19", null, "2026-11-19")).toBeNull();
     expect(blDateRefusal("Delivery Order", "2026-11-20", "2026-11-20", "2026-11-19")).toBeNull();
     expect(blDateRefusal("Delivery Order", "", "2026-11-20", "2026-11-19")).toBeNull();

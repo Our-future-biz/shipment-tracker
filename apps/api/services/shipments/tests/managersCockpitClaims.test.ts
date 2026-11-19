@@ -21,6 +21,23 @@ describe("with the claim time limits on", () => {
     expect(tags(job(), facts([claim()]), "2026-11-20")).toEqual([`URGENT ${CLAIM_RANK.noticeUrgent} claim Cargo claim: carrier not notified, notice deadline 19.11. passed`]);
   });
 
+  it("is URGENT from the WORKING day before the deadline: a Monday deadline from the Friday before (Y5)", () => {
+    // Delivered Friday the 20th: sea notice by Monday the 23rd.
+    const friday = job({ actualDeliveryDate: "2026-11-20" });
+    const raised = claim({ createdAt: new Date("2026-11-20T09:00:00Z") });
+    expect(tags(friday, facts([raised]), "2026-11-20")).toEqual([`URGENT ${CLAIM_RANK.noticeUrgent} claim Cargo claim: notify the carrier by 23.11.`]);
+    expect(tags(friday, facts([raised]), "2026-11-21")).toEqual([`URGENT ${CLAIM_RANK.noticeUrgent} claim Cargo claim: notify the carrier by 23.11.`]);
+    // Delivered Thursday the 19th: notice by Sunday the 22nd - URGENT on the Friday, its working day before.
+    const thursday = job({ actualDeliveryDate: "2026-11-19" });
+    expect(tags(thursday, facts([raised]), "2026-11-20")).toEqual([`URGENT ${CLAIM_RANK.noticeUrgent} claim Cargo claim: notify the carrier by 22.11.`]);
+    expect(tags(thursday, facts([raised]), "2026-11-19")).toEqual([`attention ${CLAIM_RANK.notNotified} claim Cargo claim: carrier not notified · notice by 22.11.`]);
+    // The company's day off is no working day: delivered Wednesday the 18th, notice by Saturday the 21st -
+    // with Friday the 20th off, Thursday is its working day before.
+    const wednesday = job({ actualDeliveryDate: "2026-11-18" });
+    expect(claimSignals(wednesday, facts([claim()]), "2026-11-19", ["2026-11-20"]).map((s) => s.urgent)).toEqual([true]);
+    expect(claimSignals(wednesday, facts([claim()]), "2026-11-19").map((s) => s.urgent)).toEqual([false]);
+  });
+
   it("counts from the ATA when there is no delivery, and says no deadline when there is neither", () => {
     expect(tags(job({ actualDeliveryDate: null, actualArrival: "2026-11-10" }), facts([claim()]))).toEqual([
       `URGENT ${CLAIM_RANK.noticeUrgent} claim Cargo claim: carrier not notified, notice deadline 13.11. passed`,

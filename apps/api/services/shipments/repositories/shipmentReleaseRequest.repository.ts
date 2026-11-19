@@ -194,9 +194,11 @@ class ShipmentReleaseRequestRepository {
    * Undoes a use() whose release was not made after all: the Warehouse Concept gate marks the pass used before
    * its own release is written (its database is not this one), and gives it back when that write stamps nothing.
    * Only that very use - the same person at the same moment, on an approval still approved: a pass withdrawn
-   * meanwhile is left as it is. Whether it was given back.
+   * meanwhile is left as it is. Without `usedById` the moment alone tells the use: the gate's outbox gives a pass
+   * back as whoever it can send as (the company's service identity once the user who stamped has left), so the
+   * person can't be matched there. Whether it was given back.
    */
-  async giveBack(id: string, companyId: string, used: { usedAt: Date; usedById: string }, at: Date): Promise<boolean> {
+  async giveBack(id: string, companyId: string, used: { usedAt: Date; usedById?: string }, at: Date): Promise<boolean> {
     const rows = await db
       .update(requests)
       .set({ usedAt: null, usedById: null, usedByName: "", updatedAt: at })
@@ -206,11 +208,26 @@ class ShipmentReleaseRequestRepository {
           eq(requests.companyId, companyId),
           eq(requests.status, "approved"),
           eq(requests.usedAt, used.usedAt),
-          eq(requests.usedById, used.usedById),
+          used.usedById ? eq(requests.usedById, used.usedById) : undefined,
           isNull(requests.deletedAt),
         ),
       )
       .returning({ id: requests.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Whether the request still carries the use made at `usedAt`: a give-back that changed nothing then left the
+   * approval used (a failure to show), while one whose use is gone already - given back before, by a delivery
+   * sent twice - has nothing left to do.
+   */
+  async stillUsedAt(id: string, companyId: string, usedAt: Date): Promise<boolean> {
+    const rows = await db
+      .select({ id: requests.id })
+      .from(requests)
+      // Only an approval still standing: a withdrawn one gives nothing back, and its row must not fail for good (round-4 review).
+      .where(and(eq(requests.id, id), eq(requests.companyId, companyId), eq(requests.status, "approved"), eq(requests.usedAt, usedAt), isNull(requests.deletedAt)))
+      .limit(1);
     return rows.length > 0;
   }
 

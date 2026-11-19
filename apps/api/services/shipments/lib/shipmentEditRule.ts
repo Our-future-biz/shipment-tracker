@@ -88,6 +88,19 @@ export function cancelInvoicedRefusal(role: string, invoiced: boolean): string |
   return invoiced && !isDetailsManager(role) ? "This shipment is invoiced: only a manager can cancel it" : null;
 }
 
+/** Invoicing could not be asked whether the job has an open invoice (mock test council n36). */
+export const INVOICED_UNCHECKED = "Whether the job is invoiced could not be checked: try again or ask a manager";
+
+/** A user taking Invoicing Status off Invoiced while an invoice of the job is open (mock test council n35). */
+export const INVOICED_STATUS_LOCKED = "This shipment has an open invoice: only a manager can move its Invoicing Status away from Invoiced";
+
+/** Whether the write takes Invoicing Status off Invoiced: it reads Invoiced and the write sets something else. */
+export const leavesInvoicedStatus = (before: string | null | undefined, data: { invoicingStatus?: string | null }): boolean =>
+  "invoicingStatus" in data && isInvoicedStatus(before) && !isInvoicedStatus(data.invoicingStatus);
+
+// "2026-11-19" → "19.11.2026", as the screens write a day.
+const shownDay = (day: string) => day.replace(/^(\d{4})-(\d{2})-(\d{2})$/, "$3.$2.$1");
+
 /**
  * Why this B/L date may not be saved, or null when it may (council finding m24): Originals Received,
  * Telex Release Received and the Delivery Order record what has happened, so never a day after
@@ -95,7 +108,7 @@ export function cancelInvoicedRefusal(role: string, invoiced: boolean): string |
  */
 export function blDateRefusal(label: string, day: string, stored: string | null | undefined, today: string): string | null {
   if (!day || day === (stored ?? "") || day <= today) return null;
-  return `${label} can't be a day still to come: it says when it happened (today is ${today})`;
+  return `${label} can't be a day still to come: it says when it happened (today is ${shownDay(today)})`;
 }
 
 // A person is kept by e-mail; an old value may carry a name after it ("a@b.cz — Name").

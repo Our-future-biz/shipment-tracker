@@ -46,6 +46,21 @@ const CANCELLED =
   "Cancelled: withdrawn on the day it was issued and issued again under a new number, so it is not a document for the books";
 const NOT_IN_THIS_EXPORT = "Not in this export (it was made before this document could go in): it goes in the next export";
 
+/**
+ * Mock test council n4: a document an export recorded that is cancelled now - answered again or downloaded again, the
+ * file stays the recorded bytes (it carries the document), so each such one is named, once.
+ */
+export function cancelledSinceWarnings(docs: readonly Pick<InvoiceRecord, "number" | "status">[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const d of docs) {
+    if (d.status !== "cancelled" || seen.has(d.number)) continue;
+    seen.add(d.number);
+    out.push(`${d.number} was cancelled after this export was made: it is still in this file. If the file was imported in Pohoda, remove ${d.number} there`);
+  }
+  return out;
+}
+
 export interface PohodaExportInput {
   from?: string;
   to?: string;
@@ -207,6 +222,8 @@ class AccountingExportService {
         const list = `${again.slice(0, 10).join(", ")}${again.length > 10 ? ` and ${again.length - 10} more` : ""}`;
         warnings.push(`Exported before and in this file again: ${list}. Pohoda refuses a number it already has: if an earlier file was imported there, remove them in Pohoda first`);
       }
+      // Answered again: a recorded document cancelled since is in the file all the same - named (n4).
+      if (earlier) warnings.push(...cancelledSinceWarnings(ordered.map((x) => x.record)));
       const notes: PohodaExportNote[] = ordered.flatMap(({ record, doc }) => pohodaNotes(doc).map((note) => ({ number: record.number, note })));
 
       const fileName = pohodaFileName(from, to);
@@ -244,7 +261,8 @@ class AccountingExportService {
 
   /**
    * "Download again" (m1): an export's file built again from the documents it recorded, checked against the recorded
-   * SHA-256 - the same bytes as its first answer. Records nothing. Managers only.
+   * SHA-256 - the same bytes as its first answer. Records nothing. Managers only. A recorded document cancelled since is
+   * named in a warning (n4): the bytes stay as recorded.
    */
   async exportFile(actor: Actor, exportId: string): Promise<AccountingExportFileResponse> {
     if (!this.canExport(actor)) throw managersOnly();
@@ -265,6 +283,7 @@ class AccountingExportService {
         encoding: "windows-1250",
         fileSha256,
         documents: ordered.length,
+        warnings: cancelledSinceWarnings(ordered.map((x) => x.record)),
       };
     });
   }

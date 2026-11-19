@@ -1,18 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { diffText, figuresCompared, figuresDiffer } from "./RemeasureCompare";
+import { diffText, differs, figuresCompared, figuresDiffer, noFigures } from "./RemeasureCompare";
 import type { CargoDimensionLine } from "@/lib/cargo";
 import {
   ACCEPT_BY_HAND,
   ALREADY_ACCEPTED,
   acceptByHandReason,
+  alreadyAccepted,
   descriptionNote,
   figuresText,
   keptText,
+  pcsAfterText,
   readRemeasuredLines,
   remeasuredFigures,
   roundedFigures,
   sameRemeasuredLines,
   shipmentCargoFigures,
+  takenOverText,
   tidyNumber,
   unmeasuredReason,
 } from "./remeasuredLines";
@@ -66,13 +69,30 @@ describe("remeasuredFigures", () => {
 });
 
 describe("the comparison", () => {
-  it("marks a difference only where both figures are known", () => {
+  it("marks a difference where both figures are known, and where only the remeasurement has one", () => {
     const re = remeasuredFigures(readRemeasuredLines(saved));
     expect(figuresDiffer(ship, re)).toBe(true);
     expect(figuresDiffer(ship, { ...ship })).toBe(false);
-    expect(figuresDiffer({ colli: 0, weightKg: 0, volumeCbm: 0 }, re)).toBe(false);
+    // Mock test council Y9: a shipment with no figures, or 1,000 kg and no volume against 4.8 m³.
+    expect(figuresDiffer({ colli: 0, weightKg: 0, volumeCbm: 0 }, re)).toBe(true);
+    expect(figuresDiffer({ colli: 5, weightKg: 1000, volumeCbm: 0 }, { colli: 5, weightKg: 1000, volumeCbm: 4.8 })).toBe(true);
+    // A figure only the shipment has is none: the warehouse did not measure it.
+    expect(differs(4.8, 0)).toBe(false);
     expect(figuresCompared({ colli: 0, weightKg: 0, volumeCbm: 0 }, re)).toBe(false);
+    expect(noFigures({ colli: 0, weightKg: 0, volumeCbm: 0 })).toBe(true);
+    expect(noFigures(ship)).toBe(false);
     expect(figuresCompared(ship, re)).toBe(true);
+  });
+
+  // Warehouse Concept's shipment Warehouse tab compares its own totals with the shipment's lines by
+  // this same rule: before, it compared only figures known on both sides, so lines with pieces and
+  // weight but no sizes against a remeasured 2.4 m³ read "All values match".
+  it("is the rule Warehouse Concept's Warehouse tab marks a difference by, whose lines may lack a volume", () => {
+    const lines = { colli: 4, weightKg: 800, volumeCbm: 0 };
+    expect(figuresDiffer(lines, { colli: 4, weightKg: 800, volumeCbm: 2.4 })).toBe(true);
+    expect(differs(lines.volumeCbm, 2.4)).toBe(true);
+    // Its raw totals are summed in floating point: within 0.001 is the same figure.
+    expect(figuresDiffer({ colli: 3, weightKg: 0.3, volumeCbm: 0 }, { colli: 3, weightKg: 0.1 + 0.2, volumeCbm: 0 })).toBe(false);
   });
 
   it("writes the difference with its sign", () => {
@@ -82,6 +102,8 @@ describe("the comparison", () => {
     expect(diffText(4, 5, 0)).toBe("−1");
     expect(diffText(5, 5, 0)).toBe("0");
     expect(diffText(0, 5, 0)).toBe("—");
+    // All new to the shipment.
+    expect(diffText(4.8, 0, 3)).toBe("+4.800");
     expect(diffText(7.2004, 7.2, 3)).toBe("0");
     expect(diffText(7.2016, 7.2, 3)).toBe("+0.002");
   });
@@ -124,12 +146,35 @@ describe("the shipment's figures the remeasurement is held against", () => {
 
 // Council finding X2: line n keeps the shipment's line n's container, packing and dangerous goods.
 describe("acceptByHandReason", () => {
+  const pcs = (...n: number[]) => n.map((p) => ({ pieces: String(p) }));
+
   it("refuses another number of lines on dangerous goods or several containers, as the server does", () => {
     const un1993 = dim({ pieces: "1", adrUn: "1993", adrClass: "3" });
-    expect(acceptByHandReason(1, [dim(), un1993])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandReason(3, [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandReason(2, [dim(), un1993])).toBeNull();
-    expect(acceptByHandReason(3, [dim()])).toBeNull();
+    expect(acceptByHandReason(pcs(5), [dim(), un1993])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandReason(pcs(4, 4, 1), [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandReason(pcs(4, 1), [dim(), un1993])).toBeNull();
+    expect(acceptByHandReason(pcs(1, 1, 1), [dim()])).toBeNull();
+  });
+
+  // Mock test council Y8: (1) 3 drums UN 1203, (2) 10 cartons; the warehouse saved the cartons first.
+  it("refuses the same number of lines when the pieces don't match line for line", () => {
+    const drums = dim({ pieces: "3", packageType: "Drums", adrUn: "1203", adrClass: "3" });
+    const cartons = dim({ pieces: "10", packageType: "Cartons" });
+    expect(acceptByHandReason(pcs(10, 3), [drums, cartons])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandReason(pcs(3, 10), [drums, cartons])).toBeNull();
+    expect(acceptByHandReason(pcs(5, 4), [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
+  });
+
+  it("says per line what it takes over: package type, UN number and container", () => {
+    const drums = dim({ pieces: "3", packageType: "Drums", adrUn: "1203", adrClass: "3" });
+    const cartons = dim({ pieces: "10", packageType: "Cartons", containerId: "c2" });
+    const boxes = [
+      { id: "c1", containerNumber: "MSKU1234567" },
+      { id: "c2", containerNumber: "TGHU7654321" },
+    ];
+    expect(takenOverText(2, [drums, cartons], boxes)).toBe("Taken over: line 1 Drums, UN 1203, container MSKU1234567; line 2 Cartons, container TGHU7654321.");
+    expect(takenOverText(2, [dim({ containerId: null, packageType: "" })], [])).toBe("Taken over: line 1 no package type; line 2 no package type.");
+    expect(takenOverText(1, [], boxes)).toBeNull();
   });
 
   it("says what the lines keep, never more than is true", () => {
@@ -165,6 +210,35 @@ describe("a figure typed with a point at its end or start", () => {
   it("refuses what the server refuses, in its words", () => {
     expect(unmeasuredReason(JSON.stringify([{ pieces: "5", lengthCm: "1.2.3", widthCm: "1", heightCm: "1", weightPerPcKg: "1" }]))).toBe("Remeasured line 1: length is not a number");
     expect(unmeasuredReason(JSON.stringify([{ pieces: "1.5", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1" }]))).toBe("Remeasured line 1: Qty must be a whole number");
+  });
+});
+
+// Mock test council n15: no container, description lines of 20 cartons, the warehouse counted 18.
+describe("pcsAfterText", () => {
+  const item = (pieces: string) => ({ containerId: null, cargoDescription: "Shoes", hsCode: "", pieces, packageType: "Cartons", grossWeight: "", commercialInvoiceValue: "", currency: "" });
+
+  it("says plainly that the job's Pcs follow the description lines with no container", () => {
+    expect(pcsAfterText([item("20")], 0, 18)).toBe("the job's Pcs stays 20: with no container it follows the description lines");
+    expect(pcsAfterText([item("20")], 1, 18)).toBe("Pcs becomes 18");
+    expect(pcsAfterText([item("")], 0, 18)).toBe("Pcs becomes 18");
+    expect(pcsAfterText([item("18")], 0, 18)).toBe("Pcs becomes 18");
+  });
+});
+
+// Mock test council Y10: "already accepted" only while Cargo Details still hold the accepted lines.
+describe("alreadyAccepted", () => {
+  const holding = dim({ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" });
+
+  it("is so while Cargo Details hold the lines the last acceptance took over", () => {
+    expect(alreadyAccepted(saved, saved, [holding])).toBe(true);
+    expect(alreadyAccepted(saved, saved, [{ ...holding, packageType: "Crates" }])).toBe(true);
+  });
+
+  it("is not once other lines were saved over them, nor with no acceptance or other lines", () => {
+    expect(alreadyAccepted(saved, saved, [dim({ pieces: "5" })])).toBe(false);
+    expect(alreadyAccepted(saved, saved, [holding, holding])).toBe(false);
+    expect(alreadyAccepted(null, saved, [holding])).toBe(false);
+    expect(alreadyAccepted(JSON.stringify([{ pieces: "6", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1" }]), saved, [holding])).toBe(false);
   });
 });
 

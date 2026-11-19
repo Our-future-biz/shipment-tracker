@@ -18,6 +18,7 @@ import { Pill } from "@/components/Pill";
 import { CARD, EMPTY, HINT, LABEL_TEXT, TH } from "@/styles/ui";
 import { PickupSection } from "./PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./JobExtras";
+import { differs, figuresDiffer } from "@/app/shipments/[jobNumber]/tabs/warehouse/RemeasureCompare";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -275,9 +276,11 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
     return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
   }, [shipment.cargoDimensions]);
 
-  const mismatchCls = (a: number, b: number) => (a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "");
-  const differs = (a: number, b: number) => a > 0 && b > 0 && Math.abs(a - b) > 0.001;
-  const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
+  // The Shipments Warehouse tab's rule (RemeasureCompare differs): a figure only the remeasurement
+  // has is new to the shipment, so a difference - compared only where both knew it, a volume the
+  // lines lacked read "All values match". Both cells of a figure are marked alike.
+  const mismatchCls = (ship: number, re: number) => (differs(ship, re) ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "");
+  const hasMismatch = figuresDiffer(shipmentDims, { colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm });
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
   // Inform Operations: one request records when and posts "Cargo has been remeasured by the
@@ -425,9 +428,9 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
         <div className={`${CARD} px-4 py-3`}>
           <div className={`${LABEL_TEXT} mb-2`}>Remeasured values</div>
           <div className="flex gap-4 text-[13px]">
-            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div></div>
-            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
-            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{totalColli || "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
           </div>
         </div>
       </div>

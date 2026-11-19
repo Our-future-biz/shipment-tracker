@@ -840,7 +840,12 @@ describe("Booking Confirmation still Pending (U4)", () => {
     const imported = (over: Partial<OpsCockpitJob>) => texts(bookingSignals(job({ ...soon, tradeDirection: "Import", ...over }), TODAY));
     expect(imported({ incotermOrigin: "FOB" })).toHaveLength(1);
     expect(imported({ incotermOrigin: " fob Hamburg " })).toHaveLength(1);
+    // Incoterms Destination speaks only when no Origin term is typed (P14).
     expect(imported({ incotermDestination: "EXW" })).toHaveLength(1);
+    expect(imported({ incotermOrigin: "  ", incotermDestination: "EXW" })).toHaveLength(1);
+    expect(imported({ incotermOrigin: "CIF", incotermDestination: "FOB" })).toEqual([]);
+    expect(imported({ incotermOrigin: "FOB", incotermDestination: "DAP" })).toHaveLength(1);
+    expect(weBookMainCarriage({ tradeDirection: "Import", incotermOrigin: "CFR Hamburg", incotermDestination: "EXW" })).toBe(false);
     expect(imported({ incotermOrigin: "FCA" })).toHaveLength(1);
     expect(imported({ incotermOrigin: "FAS" })).toHaveLength(1);
     // The seller's side books the main carriage under a C or D term.
@@ -931,6 +936,12 @@ describe("an air export with no MAWB number (U15)", () => {
     expect(flight("2026-11-24", "2026-11-20", ["2026-11-23"])).toHaveLength(1);
     expect(texts(flight("2026-12-28", "2026-12-23"))).toEqual(["No MAWB number · ETD 28.12."]);
     expect(flight("2026-12-29", "2026-12-23")).toEqual([]);
+    // On a Saturday or Sunday too, "within 1" ends on the Monday - where the URGENT window ends, so a
+    // Tuesday flight is not URGENT while a Tuesday Closing is ATTENTION (n20).
+    expect(flight("2026-11-23", "2026-11-21")).toHaveLength(1);
+    expect(flight("2026-11-24", "2026-11-21")).toEqual([]);
+    expect(flight("2026-11-24", "2026-11-22")).toEqual([]);
+    expect(cutoffsOf(job({ closingDate: "2026-11-24" }), opsDay(at("2026-11-21")), false).map((c) => c.state)).toEqual(["attention"]);
     // A date that passed counts in calendar days, as before.
     expect(flight("2026-11-13", "2026-11-20")).toHaveLength(1);
     expect(flight("2026-11-12", "2026-11-20")).toEqual([]);
@@ -948,12 +959,17 @@ describe("an air export with no MAWB number (U15)", () => {
 });
 
 describe("the B/L signals", () => {
-  describe("A2: the BoL draft not Approved 3 days before the SI closing", () => {
+  describe("A2: the BoL draft not Approved 3 working days before the SI closing", () => {
     const draft = (over: Partial<OpsCockpitJob>) => bolSignals(job({ tradeDirection: "Export", bolDraft: "Not Processed", siClosing: "2026-11-21", ...over }), WED);
 
-    it("is ATTENTION from 3 days before, whatever else the draft's state is", () => {
+    it("is ATTENTION from 3 working days before, whatever else the draft's state is", () => {
       expect(show(draft({}))).toEqual(["attention 202 bl details · BoL draft not Approved · SI closing 21.11."]);
-      expect(draft({ siClosing: "2026-11-22" })).toEqual([]);
+      // Counted in working days (Y5): from Wednesday the 18th the third is Monday the 23rd.
+      expect(draft({ siClosing: "2026-11-23" })).toHaveLength(1);
+      expect(draft({ siClosing: "2026-11-24" })).toEqual([]);
+      // On a Friday a Wednesday SI closing is 3 working days away.
+      expect(bolSignals(job({ tradeDirection: "Export", bolDraft: "", siClosing: "2026-11-25" }), FRI)).toHaveLength(1);
+      expect(bolSignals(job({ tradeDirection: "Export", bolDraft: "", siClosing: "2026-11-26" }), FRI)).toEqual([]);
       expect(draft({ bolDraft: "Waiting for approval" })).toHaveLength(1);
       expect(draft({ bolDraft: "" })).toHaveLength(1);
       expect(draft({ bolDraft: "Approved" })).toEqual([]);
@@ -1016,7 +1032,36 @@ describe("the B/L signals", () => {
 });
 
 describe("Credit Check not Green (A24)", () => {
-  const credit = (over: Partial<OpsCockpitJob>) => creditSignals(job({ creditCheck: "Red", estimatedDeparture: "2026-11-21", ...over }), TODAY);
+  // An export: judged by its ETD.
+  const credit = (over: Partial<OpsCockpitJob>) => creditSignals(job({ tradeDirection: "Export", creditCheck: "Red", estimatedDeparture: "2026-11-21", ...over }), TODAY);
+  const imported = (over: Partial<OpsCockpitJob>) => creditSignals(job({ tradeDirection: "Import", creditCheck: "Red", ...over }), TODAY);
+
+  it("judges an import the seller's side ships by its ETA, not its ETD (P14)", () => {
+    // CIF: the ETD of a vessel the seller booked is none of ours - the release at destination is.
+    expect(imported({ incotermOrigin: "CIF", estimatedDeparture: "2026-11-19", estimatedArrival: "2026-12-20" })).toEqual([]);
+    expect(show(imported({ incotermOrigin: "CIF", estimatedDeparture: "2026-10-20", estimatedArrival: "2026-11-23" }))).toEqual(["attention 204 credit details · Credit Check Red · ETA 23.11."]);
+    expect(imported({ incotermOrigin: "DAP", estimatedArrival: "2026-11-24" })).toEqual([]);
+    // No term typed (or not read): not known to be ours to book - by the ETA too.
+    expect(texts(imported({ estimatedArrival: "2026-11-19" }))).toEqual(["Credit Check Red · ETA 19.11."]);
+    expect(texts(imported({ incotermOrigin: undefined, incotermDestination: undefined, estimatedArrival: "2026-11-19" }))).toEqual(["Credit Check Red · ETA 19.11."]);
+    // Departed is no end of it; arrived or delivered is.
+    expect(imported({ estimatedArrival: "2026-11-19", actualDeparture: "2026-11-01" })).toHaveLength(1);
+    expect(imported({ estimatedArrival: "2026-11-19", actualArrival: TODAY })).toEqual([]);
+    expect(imported({ estimatedArrival: "2026-11-19", actualDeliveryDate: TODAY })).toEqual([]);
+    // An ETA that passed counts while the job is still arriving (14 days), then no more.
+    expect(imported({ estimatedArrival: "2026-11-04" })).toHaveLength(1);
+    expect(imported({ estimatedArrival: "2026-11-03" })).toEqual([]);
+    expect(imported({ estimatedArrival: null, estimatedDeparture: "2026-11-19" })).toEqual([]);
+    expect(imported({ creditCheck: "Green", estimatedArrival: "2026-11-19" })).toEqual([]);
+  });
+
+  it("judges an export and an import on E or F terms - ours to book - by the ETD", () => {
+    expect(texts(imported({ incotermOrigin: "FOB", estimatedDeparture: "2026-11-19", estimatedArrival: "2026-12-20" }))).toEqual(["Credit Check Red · ETD 19.11."]);
+    expect(imported({ incotermOrigin: "EXW", estimatedDeparture: "2026-12-01", estimatedArrival: "2026-11-19" })).toEqual([]);
+    expect(texts(credit({ estimatedArrival: "2026-12-20" }))).toEqual(["Credit Check Red · ETD 21.11."]);
+    // A Domestic job keeps its ETD.
+    expect(texts(credit({ tradeDirection: "Domestic" }))).toEqual(["Credit Check Red · ETD 21.11."]);
+  });
 
   it("is ATTENTION with the ETD within 3 working days, naming what the check says", () => {
     expect(show(credit({}))).toEqual(["attention 204 credit details · Credit Check Red · ETD 21.11."]);
@@ -1442,7 +1487,7 @@ describe("the ranks", () => {
       ...bolSignals(job({ tradeDirection: "Export", bolDraft: "", siClosing: TODAY }), WED),
       ...arrivalNoticeSignals(job({ arrivalNoticeSent: false, estimatedArrival: TODAY }), TODAY),
       ...boxSignals(job({ loadType: "Full Load", estimatedArrival: TODAY }), [{ containerNumber: "MSKU1234567", freeTimeDays: null, lastFreeDay: null }], TODAY),
-      ...creditSignals(job({ creditCheck: "Red", estimatedDeparture: TODAY }), TODAY),
+      ...creditSignals(job({ tradeDirection: "Export", creditCheck: "Red", estimatedDeparture: TODAY }), TODAY),
     ];
     expect(all.map((s) => s.kind)).toEqual(["owner", "not_user", "customs", "customs", "cutoff", "booking", "cargo_ready", "air", "departure", "delivery", "warehouse", "road", "bl", "arrival_notice", "free_time", "credit"]);
     expect(all.every((s) => (SIGNAL_KINDS as readonly string[]).includes(s.kind))).toBe(true);
@@ -1578,7 +1623,7 @@ describe("the cockpit", () => {
     expect(row(finance)).toMatchObject({ area: "finance", tags: [{ text: "Not released for billing · ATA 09.11.2026", urgent: false }] });
     // A job received at our warehouse made its Closing: only the billing is left to say.
     expect(row(details)).toMatchObject({ area: "finance", tags: [{ text: "Not released for billing · ATA 09.11.2026", urgent: false }] });
-    expect(cockpit([job({ closingDate: "2026-11-21", creditCheck: "Red", estimatedDeparture: "2026-11-21" })]).attention.rows[0]).toMatchObject({ area: "details", tags: [{ text: "Closing on Sat 21.11." }, { text: "Credit Check Red · ETD 21.11." }] });
+    expect(cockpit([job({ tradeDirection: "Export", closingDate: "2026-11-21", creditCheck: "Red", estimatedDeparture: "2026-11-21" })]).attention.rows[0]).toMatchObject({ area: "details", tags: [{ text: "Closing on Sat 21.11." }, { text: "Credit Check Red · ETD 21.11." }] });
   });
 
   it("puts a job on URGENT when any tag is urgent, else on ATTENTION; each card the most pressing first, then by job number", () => {

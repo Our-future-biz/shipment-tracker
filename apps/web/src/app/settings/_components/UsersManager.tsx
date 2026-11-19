@@ -359,7 +359,7 @@ export function UsersManager({
                 {handlesWarning}.{" "}
                 {handlesHref && (
                   <Link href={handlesHref} className={LINK} target="_blank">
-                    Open the jobs they handle on Shipments → Managers
+                    Open the Team tab on Shipments → Managers (Hand over all on their row)
                   </Link>
                 )}
               </div>

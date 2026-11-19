@@ -10,6 +10,8 @@ import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachment.repository";
 import { shipmentAuditRepository } from "../../repositories/shipmentAudit.repository";
 import { shipmentImportInstructionRepository } from "../../repositories/shipmentImportInstruction.repository";
+import { cargoDimensionTable } from "../../schemas/cargoDimension.schema";
+import { cargoItemTable } from "../../schemas/cargoItem.schema";
 import { customsOfficeRequestTable } from "../../schemas/customsOfficeRequest.schema";
 import { documentChangeRequestTable } from "../../schemas/documentChangeRequest.schema";
 import { masterJobTable, type NewMasterJobRecord } from "../../schemas/masterJob.schema";
@@ -257,11 +259,20 @@ describe("the step 2 signals, read from the database", () => {
     expect(out.masterJobRows.map((r) => [r.id, r.number, r.customer, r.signals.map((s) => s.text)])).toEqual([[empty.id, empty.mczNumber, "Globex Ltd", ["No shipment linked · ETD on Sat 21.11."]]]);
   });
 
-  it("reads a remeasurement from Warehouse Concept as a warning to check Cargo Details by hand, until they match it (X4)", async () => {
+  it("reads a remeasurement from Warehouse Concept as a warning to check Cargo Details by hand, until the shipment as it shows matches it (X4, Y4)", async () => {
     const companyId = randomUUID();
     const differs = await newJob(companyId, { pcs: "10", totalWeightTons: "1.0000", totalVolumeCbm: "5.0000" });
-    const typed = await newJob(companyId, { pcs: "10", totalWeightTons: "1.2000", totalVolumeCbm: "5.0000" });
-    for (const job of [differs, typed]) {
+    // Cargo Details saves lines, not Pcs or Total Weight - and a job made from a quote never stores a Pcs.
+    const lines = await newJob(companyId, { pcs: "", totalWeightTons: null, totalVolumeCbm: null });
+    await db.insert(cargoDimensionTable).values({ companyId, shipmentId: lines.id, pieces: "10", lengthCm: "100", widthCm: "100", heightCm: "50", weightPerPcKg: "120" });
+    // A stale stored Pcs and Total Weight that say the same as the warehouse, while the cargo lines hold 8 pieces.
+    const stale = await newJob(companyId, { pcs: "10", totalWeightTons: "1.2000", totalVolumeCbm: "5.0000" });
+    await db.insert(cargoItemTable).values({ companyId, shipmentId: stale.id, pieces: "8", grossWeight: "1200" });
+    // A deleted line is no line: the shipment shows its stored figures, which differ.
+    await db.insert(cargoDimensionTable).values({ companyId, shipmentId: differs.id, pieces: "10", lengthCm: "100", widthCm: "100", heightCm: "50", weightPerPcKg: "120", deletedAt: new Date() });
+    // Another company's lines on a job asked about by mistake count for nothing.
+    await db.insert(cargoDimensionTable).values({ companyId: randomUUID(), shipmentId: differs.id, pieces: "10", lengthCm: "100", widthCm: "100", heightCm: "50", weightPerPcKg: "120" });
+    for (const job of [differs, lines, stale]) {
       await newFile(companyId, job.id, { documentType: "Invoice", customsStatus: "approved" });
       await newFile(companyId, job.id, { documentType: "Packing list", customsStatus: "approved" });
       await newChange(companyId, job.id, "remeasureInformed", "2026-11-16 09:00", {
@@ -269,9 +280,13 @@ describe("the step 2 signals, read from the database", () => {
         newValue: JSON.stringify({ colli: 10, weightKg: 1200, volumeCbm: 5, comparedWith: "declared", source: "warehouseConcept" }),
       });
     }
-    // The rows as the cockpit reads them carry Cargo Details' totals.
-    const out = await extraSignals([differs, typed], { companyId, now: NOW, today: TODAY, holidays: [] });
-    expect(out.byJob.get(differs.id)!.map((s) => [s.text, s.urgent])).toEqual([["Remeasured in Warehouse Concept: check Cargo Details by hand · informed 16.11. 09:00", false]]);
-    expect(out.byJob.has(typed.id)).toBe(false);
+    const out = await extraSignals([differs, lines, stale], { companyId, now: NOW, today: TODAY, holidays: [] });
+    const warning = [["Remeasured in Warehouse Concept: check Cargo Details by hand · informed 16.11. 09:00", false]];
+    expect(out.notKnown).toEqual([]);
+    expect(out.byJob.get(differs.id)!.map((s) => [s.text, s.urgent])).toEqual(warning);
+    // The lines say what the warehouse measured: nothing left to check.
+    expect(out.byJob.has(lines.id)).toBe(false);
+    // The stored Pcs no longer ends it: the shipment shows the 8 pieces of its lines.
+    expect(out.byJob.get(stale.id)!.map((s) => [s.text, s.urgent])).toEqual(warning);
   });
 });

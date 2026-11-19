@@ -5,6 +5,9 @@ import Link from "next/link";
 import { CheckCircleFilled, ClockCircleOutlined, RightOutlined } from "@ant-design/icons";
 import { useGateLog, useGateMovement, type GateMovement, type GateStampKind, useStampMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { releaseStopOf } from "@/lib/paymentWarnings";
+import { floorReleaseStopText } from "../_lib/releaseStop";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { KpiTile } from "@/components/KpiTile";
@@ -12,7 +15,7 @@ import { CARD, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { TERMS, directionOf } from "@/app/warehouse-concept/_lib/glossary";
 import { dockSlotText, exceptionText, isOnHold } from "@/app/warehouse-concept/_lib/worklist";
 import { useUrlParam } from "@/hooks/useUrlParam";
-import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, errorMessage, hasSurvey, hhmm, nf, requiredSurveyPhase, surveyTargets } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, errorMessage, hasSurvey, hhmm, isManager, nf, requiredSurveyPhase, surveyTargets } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { cargoLeg, gateSteps, isOutbound, isQueueableStamp, leavesByRelease, stampConfirmText, stampPrecheck, type GateStep } from "@/app/warehouse-concept/gate-log/_lib/steps";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { applyPending, pendingStamps, uuid } from "../_lib/queue";
@@ -49,6 +52,9 @@ export function FloorPosition({ id }: { id: string }) {
   const [view, setView] = useUrlParam<View>("view", VIEWS, "main");
   const [confirm, setConfirm] = useState<GateStep | null>(null);
   const [busy, setBusy] = useState(false);
+  const { user } = useAuth();
+  // A WH release the prepayment stop refused: why, and what to do on the full gate job.
+  const [paymentStop, setPaymentStop] = useState<{ why: string; next: string } | null>(null);
   // The fixed next-step bar grows with its reason / "needs connection" text: the page keeps room
   // for all of it, so the last links can always be scrolled clear of it.
   const hasBar = !!m && !m.archivedAt;
@@ -101,7 +107,10 @@ export function FloorPosition({ id }: { id: string }) {
           if (res.outcome === "stamped") toast.success(`${step.label} stamped`);
           else toast.info(res.notice || `${step.label} was already stamped`);
         } catch (e) {
-          if (q.noteNetworkError(e)) toast.warning(`${step.label} needs a connection — not stamped. Try again when back online.`);
+          const stop = step.kind === "impRelease" ? releaseStopOf(e) : null;
+          // Held for payment: floor mode has no reason field - said here, with the way to the full gate job (n28).
+          if (stop) setPaymentStop(floorReleaseStopText(stop.message, isManager(user)));
+          else if (q.noteNetworkError(e)) toast.warning(`${step.label} needs a connection — not stamped. Try again when back online.`);
           else toast.error(errorMessage(e, `Failed to stamp ${step.label}`));
         }
         return;
@@ -147,6 +156,15 @@ export function FloorPosition({ id }: { id: string }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {paymentStop && (
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[14px] text-amber-900">
+          {paymentStop.why}{" "}
+          <Link href={`/warehouse-concept/gate-log/${m.id}`} className={LINK}>
+            {paymentStop.next}
+          </Link>
+          .
+        </div>
+      )}
       <FloorCard>
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">

@@ -54,6 +54,9 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock("../../db/db", () => ({ db: fake.db }));
+// Invoicing's open invoices (n12): which of the shipments asked about have one - none unless a test says so.
+const openInvoices = vi.hoisted(() => vi.fn());
+vi.mock("~encore/clients", () => ({ invoicing: { _internalOpenInvoiceShipments: openInvoices } }));
 
 import { partyLinksRepository } from "../../repositories/partyLinks.repository";
 import { masterJobTable } from "../../schemas/masterJob.schema";
@@ -78,6 +81,8 @@ beforeEach(() => {
   fake.state.returned = [];
   fake.state.executed = [];
   fake.state.selects = [];
+  openInvoices.mockReset();
+  openInvoices.mockResolvedValue({ shipmentIds: [] });
 });
 
 /** What a rename reads as the current name: records when it is asked, among the database steps. */
@@ -90,11 +95,13 @@ const current = (name: string | null) =>
 describe("renameCustomer", () => {
   it("writes the name into every copy holding the customer's id where it differs, on live rows of the company, in one transaction", async () => {
     const renamed = { id: "s-1", customer: "Alfa s.r.o.", customerPic: "" };
-    fake.state.returned = [[renamed], [{ id: "s-2" }], [], [], [{ id: "m-1" }]];
+    fake.state.returned = [[{ id: "s-1" }, { id: "s-2" }], [renamed], [{ id: "s-2" }], [], [], [{ id: "m-1" }]];
     await expect(partyLinksRepository.renameCustomer(COMPANY, ALFA, current("Alfa s.r.o."))).resolves.toEqual({ changed: 3, parties: [renamed] });
 
-    // The name is read once this customer's renames have given it its turn, inside the transaction.
-    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx update", "tx update", "tx update", "tx update", "tx update", "tx update", "tx update", "commit"]);
+    // The name is read once this customer's renames have given it its turn, inside the transaction;
+    // then the shipments it would change are read, and Invoicing asked which have an open invoice.
+    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx select", "tx update", "tx update", "tx update", "tx update", "tx update", "tx update", "tx update", "commit"]);
+    expect(openInvoices).toHaveBeenCalledWith({ shipmentIds: ["s-1", "s-2"] }, { authData: { userID: "", companyID: COMPANY, role: "user" } });
     expect(sent(fake.state.executed[0])).toEqual({ sql: "select pg_advisory_xact_lock(hashtext($1))", params: [`shipments-customer-rename:${COMPANY}:${ALFA}`] });
     const [customer, shipper, consignee, agent, principal, mjShipper, mjConsignee] = fake.state.updates;
     expect(customer!.values).toEqual({ customer: "Alfa s.r.o." });
@@ -117,6 +124,29 @@ describe("renameCustomer", () => {
     for (const update of fake.state.updates) expect(update.values).not.toHaveProperty("updatedAt");
   });
 
+  it("keeps the names of a shipment with an open invoice, whatever its Invoicing Status (a late charge sent it back to Not Invoiced, n12)", async () => {
+    fake.state.returned = [[{ id: "s-1" }, { id: "s-9" }]];
+    openInvoices.mockResolvedValue({ shipmentIds: ["s-9"] });
+    await partyLinksRepository.renameCustomer(COMPANY, ALFA, current("Alfa s.r.o."));
+    const [customer] = fake.state.updates;
+    expect(sent(customer!.where)).toEqual({
+      sql: `(("shipment"."company_id" = $1 and "shipment"."deleted_at" is null) and ${NOT_INVOICED} and "shipment"."id" not in ($2) and "shipment"."customer_id" = $3 and "shipment"."customer" <> $4)`,
+      params: [COMPANY, "s-9", ALFA, "Alfa s.r.o."],
+    });
+    for (const update of fake.state.updates.slice(0, 5)) expect(sent(update.where).sql).toContain('"shipment"."id" not in ($2)');
+  });
+
+  it("asks Invoicing nothing when no shipment would change, and rolls back when it can't be asked", async () => {
+    await partyLinksRepository.renameCustomer(COMPANY, ALFA, current("Alfa s.r.o."));
+    expect(openInvoices).not.toHaveBeenCalled();
+    fake.state.returned = [[{ id: "s-1" }]];
+    openInvoices.mockRejectedValue(new Error("invoicing is unreachable"));
+    fake.state.steps = [];
+    await expect(partyLinksRepository.renameCustomer(COMPANY, ALFA, current("Alfa s.r.o."))).rejects.toThrow("invoicing is unreachable");
+    expect(fake.state.steps).not.toContain("commit");
+    expect(fake.state.steps).not.toContain("tx update");
+  });
+
   it("writes nothing when the customer is gone or has no name", async () => {
     await expect(partyLinksRepository.renameCustomer(COMPANY, ALFA, current(null))).resolves.toEqual({ changed: 0, parties: [] });
     await expect(partyLinksRepository.renameCustomer(COMPANY, ALFA, current("  "))).resolves.toEqual({ changed: 0, parties: [] });
@@ -132,10 +162,11 @@ describe("renameCustomer", () => {
 describe("renameContact", () => {
   it("writes the name where the contact is linked as a contact of that same party, and returns the shipments whose PIC changed", async () => {
     const renamed = { id: "s-1", customer: "Alfa s.r.o.", customerPic: "Petr Masák" };
-    fake.state.returned = [[renamed], [], [{ id: "s-3" }]];
+    fake.state.returned = [[{ id: "s-1" }, { id: "s-3" }], [renamed], [], [{ id: "s-3" }]];
     await expect(partyLinksRepository.renameContact(COMPANY, ALFA, PETR, current("Petr Masák"))).resolves.toEqual({ changed: 2, parties: [renamed] });
 
-    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx update", "tx update", "tx update", "tx update", "commit"]);
+    expect(fake.state.steps).toEqual(["begin", "tx execute", "read name", "tx select", "tx update", "tx update", "tx update", "tx update", "commit"]);
+    expect(openInvoices).toHaveBeenCalledWith({ shipmentIds: ["s-1", "s-3"] }, expect.anything());
     expect(sent(fake.state.executed[0]).params).toEqual([`shipments-contact-rename:${COMPANY}:${PETR}`]);
     const [pic, shipperContact, consigneeContact, agentContact] = fake.state.updates;
     expect(pic!.values).toEqual({ customerPic: "Petr Masák" });
@@ -204,6 +235,21 @@ describe("applyLinks", () => {
     });
     expect(masterJob!.table).toBe(masterJobTable);
     expect(sent(masterJob!.where).params).toEqual([COMPANY, "m-1", "ALFA"]);
+  });
+
+  it("leaves a shipment with an open invoice as it is (n12)", async () => {
+    openInvoices.mockResolvedValue({ shipmentIds: ["s-1"] });
+    fake.state.returned = [[{ id: "s-2", customer: "New", customerPic: "" }]];
+    const written = await partyLinksRepository.applyLinks(COMPANY, {
+      shipments: [
+        { id: "s-1", from: { customer: "Old" }, to: { customer: "New" }, values: 1 },
+        { id: "s-2", from: { customer: "Old" }, to: { customer: "New" }, values: 1 },
+      ],
+      masterJobs: [],
+    });
+    expect(openInvoices).toHaveBeenCalledWith({ shipmentIds: ["s-1", "s-2"] }, expect.anything());
+    expect(written).toEqual({ changed: 1, parties: [{ id: "s-2", customer: "New", customerPic: "" }] });
+    expect(fake.state.updates.map((u) => sent(u.where).params[1])).toEqual(["s-2"]);
   });
 
   it("does nothing at all when there is nothing to change", async () => {

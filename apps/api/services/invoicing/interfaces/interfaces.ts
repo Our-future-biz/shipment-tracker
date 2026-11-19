@@ -338,8 +338,13 @@ export type InvoiceDocKind = "invoice" | "credit_note";
 /** cancelled: withdrawn on its issue day with a manager's approval, to be corrected and issued again under the next number */
 export type InvoiceDocStatus = "issued" | "credited" | "cancelled";
 
-/** Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status) */
-export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals";
+/**
+ * Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing,
+ * not invoiced yet) | not_invoiced | invoiced (Invoicing Status) | invoiced_charges_open (a check, P16: marked Invoiced
+ * while not every charge is on an invoice - lib/billingQueue countInvoicedLines - or while a credit is owed, M3:
+ * countCreditsOwed)
+ */
+export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals" | "invoiced_charges_open";
 
 /** Where a shipment stands with its ticked selling rows */
 export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none";
@@ -577,9 +582,12 @@ export interface BillingQueueItem {
   customerId: string | null;
   /** Owning department ("Operation Department", …): colours the Internal Reference as on Shipments */
   department: string;
-  /** House / Master BoL type: an OBL shows the whole row in red, as on Shipments */
+  /** House / Master BoL type: an OBL not in hand shows the whole row in red, as on Shipments */
   houseBolType: string;
   masterBolType: string;
+  /** The days the original B/Ls and the telex release came (YYYY-MM-DD; null until then): an OBL is in hand from either. */
+  originalsReceivedDate: string | null;
+  telexReleaseReceivedDate: string | null;
   tradeDirection: string;
   estimatedDeparture: string | null;
   estimatedArrival: string | null;
@@ -604,6 +612,11 @@ export interface BillingQueueItem {
   /** Selling lines of the job (with a value), and how many of them are on an open invoice */
   sellingLines: number;
   invoicedLines: number;
+  /**
+   * Lines below nothing on no open invoice of a job that has one: a credit owed to the customer (not counted in
+   * sellingLines - it is no charge to bill). The check "Invoiced, charges or credits open" lists such a job too (M3).
+   */
+  creditsOwed: number;
 }
 
 /** Number of shipments in each queue view */
@@ -614,6 +627,8 @@ export interface BillingQueueCounts {
   invoiced: number;
   /** Their tax date has passed, not released for billing yet, not invoiced. */
   unbilledArrivals: number;
+  /** Marked Invoiced, not every charge on an invoice or a credit owed: counted only when that view is asked for (it reads every invoiced job). */
+  invoicedChargesOpen?: number;
 }
 
 /** One job in the job-profit report (CZK at the month's fixed ČNB average) */
@@ -1427,6 +1442,11 @@ export interface ReceivableItem {
   issuedBy: string;
   /** The receivable's version (1 before any write) */
   version: number;
+  /**
+   * Issued again after a credit note (mock test council Y2): the issue day of the invoice it replaces - a payment may be
+   * noted from that day on. null (or absent) when it replaces none.
+   */
+  issuedAgainFrom?: string | null;
 }
 
 /** What one customer owes in one currency, by age. */
@@ -1479,6 +1499,11 @@ export interface ReceivablesResponse {
   /** The job and customer facts could be read (else names and owners are blank) */
   factsRead: boolean;
   today: string;
+  /**
+   * The day the app's automatic reminders start (mock test council P18): an owed invoice due before it is never
+   * reminded by the app. null while they are off, e-mail from the app is off, or no run has set the day yet.
+   */
+  autoRemindersSince: string | null;
 }
 
 export interface ReceivableLineItem {
@@ -1528,7 +1553,11 @@ export interface ReceivablePaymentItem {
   waiting: boolean;
   /** The signed-in user may confirm this waiting line */
   canConfirm: boolean;
-  takenBack: { by: string; at: string; reason: string } | null;
+  /**
+   * Taken back: by whom, when, why, and how (mock test council P8) - noted by mistake (it never counted), or reversed on
+   * `reversedOn` (a bank return, a refund: it counted as paid until that day)
+   */
+  takenBack: { by: string; at: string; reason: string; kind: "mistake" | "reversed"; reversedOn: string | null } | null;
 }
 
 export interface ReceivableNoteItem {
@@ -1641,6 +1670,13 @@ export interface ReleaseCheckResponse {
   prepayment: boolean;
   customerOverdueCount: number;
   unpaid: { invoiceId: string; number: string; leftToPay: number; currency: string; daysOverdue: number }[];
+  /**
+   * The job's customer is on prepayment and the job has selling with a value not yet invoiced (mock test council L3,
+   * n6): the amounts per currency, net as priced; empty when not, or when the customer's terms could not be read. Then
+   * warn and prepayment are true too: the release is stopped as for an unpaid prepayment invoice. Absent from older
+   * servers.
+   */
+  prepaymentUninvoiced?: ReceivableAmount[];
 }
 
 export interface ReceivableRowsResponse {
@@ -1761,6 +1797,12 @@ export interface ReceivableSettingsResponse {
   replyTo: string;
   /** The day automatic reminders were switched on (yyyy-mm-dd), null while off: only invoices due on or after it are reminded by the app */
   autoRemindersSince: string | null;
+  /**
+   * The last day the daily run skipped the reminders (yyyy-mm-dd) because no bank statement was read since the previous
+   * working day, and the day of the last one read then (m5): "Skipped on <on>: no bank statement read since <since>".
+   * Null while the reminders are off, or when they were never skipped.
+   */
+  remindersSkipped: { on: string; since: string | null } | null;
   /** Whether e-mail from the app is switched on (else nothing is sent: "E-mail from the app is switched off") */
   emailOn: boolean;
   /** A manager: may change the settings */
@@ -1919,6 +1961,18 @@ export interface OperationsMoneyJob {
   notYetInvoiced: MoneyAmount[];
   /** Of those, the lines not ticked for Invoice - they keep the job from reading Invoiced while profit ignores them */
   untickedSelling: MoneyAmount[];
+  /**
+   * On a job with an open invoice: its selling lines below nothing on no invoice (a Trucking price lowered after the
+   * invoice, a discount added late), per currency, as positive amounts - a credit owed to the customer until a credit
+   * note gives it. They are not in `notYetInvoiced` then (nothing to bill). [] on a job with none (they go on its invoice).
+   */
+  creditOwed: MoneyAmount[];
+  /**
+   * The Prague day the late charges were added, when every line of `notYetInvoiced` was added after the job's first
+   * open invoice (a charge added after invoicing): the earliest of those days. Null otherwise - nothing late, or a line
+   * left off the invoice since before it.
+   */
+  lateChargeSince: string | null;
   /** Selling / cost lines with a value; null when the lines could not be read */
   sellingLines: number | null;
   costLines: number | null;

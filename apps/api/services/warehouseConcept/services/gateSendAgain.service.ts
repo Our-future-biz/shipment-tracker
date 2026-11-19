@@ -6,7 +6,7 @@ import type { GateMovementItem } from "../interfaces/gate.interfaces";
 import type { ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import type { GateEventOutboxRecord } from "../schemas/gateEventOutbox.schema";
 import { sendFailedAgain } from "../../../lib/outbox/sendAgain";
-import { deliverDue, OUTBOX_WHAT } from "./shipmentOutbox.service";
+import { deliverDue, outboxWhat } from "./shipmentOutbox.service";
 import { deliverGateEvents, GATE_EVENT_WHAT } from "./gateEvents.service";
 import { gateMovementService } from "./gateMovement.service";
 import { isManager, userName } from "./users";
@@ -40,13 +40,13 @@ async function failedOf(id: string, companyId: string) {
 
 /** The failed rows as shown; null when nothing failed. */
 export function unsentState(
-  updates: Pick<ShipmentOutboxRecord, "kind" | "lastError" | "updatedAt">[],
+  updates: Pick<ShipmentOutboxRecord, "kind" | "payload" | "lastError" | "updatedAt">[],
   events: Pick<GateEventOutboxRecord, "event" | "lastError" | "updatedAt">[],
 ): GateUnsent | null {
   if (!updates.length && !events.length) return null;
   const latest = [...updates, ...events].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0]!;
   return {
-    shipmentUpdates: [...new Set(updates.map((r) => OUTBOX_WHAT[r.kind] ?? r.kind))],
+    shipmentUpdates: [...new Set(updates.map((r) => outboxWhat(r)))],
     gateEvents: [...new Set(events.map((r) => GATE_EVENT_WHAT[r.event.kind] ?? r.event.kind))],
     lastError: latest.lastError,
   };

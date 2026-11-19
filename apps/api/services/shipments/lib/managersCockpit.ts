@@ -1,7 +1,7 @@
 import { addDays, businessDay, businessMinutes, businessTime, isRealYmd } from "../../../lib/businessDate";
 import { cockpitCard, rankRow, type CockpitSignal, type RankedRow } from "../../../lib/cockpit";
 import { ROAD_DEPARTMENT } from "../../../lib/deliveryDated";
-import { addWorkingDays, nextWorkingDay, weekday } from "../../../lib/workingDays";
+import { weekday } from "../../../lib/workingDays";
 import type {
   OpsCockpitAudit,
   OpsCockpitDirection,
@@ -38,6 +38,7 @@ import {
 import { clockApplies } from "./detentionClock";
 import { isCreditApproved } from "./fieldDefaults";
 import { NO_CLAIM_FACTS, claimSignals, type ClaimFacts } from "./managersCockpitClaims";
+import { workingDayEnd } from "./managersCockpitExtra";
 import { NO_HANDOVER_FACTS, handoverLine, handoverSignals, stepTwoWarehouseTagStays, truckingSpeaksForRoad, type HandoverFacts } from "./managersCockpitHandover";
 import { highLoadAbove, type TeamFacts } from "./managersCockpitTeam";
 import { personEmail } from "./shipmentEditRule";
@@ -300,8 +301,11 @@ export interface OpsDay {
  */
 export function opsDay(now: Date, holidays: readonly string[] = []): OpsDay {
   const today = businessDay(now);
-  const urgentUntil = nextWorkingDay(today, holidays);
-  return { today, minutes: businessMinutes(now), holidays, urgentUntil, attentionUntil: addWorkingDays(urgentUntil, ATTENTION_WORKING_DAYS, holidays) };
+  // The same window ends as every "within N working days" rule reads (workingDayEnd): the next
+  // working day is 1 working day after today, on a Saturday too (n20), and the ATTENTION window
+  // ends ATTENTION_WORKING_DAYS after that.
+  const urgentUntil = workingDayEnd(today, 1, holidays);
+  return { today, minutes: businessMinutes(now), holidays, urgentUntil, attentionUntil: workingDayEnd(today, 1 + ATTENTION_WORKING_DAYS, holidays) };
 }
 
 /** "today", "tomorrow", or "on Mon 23.11." - the next working day after a Friday is no "tomorrow". */
@@ -313,14 +317,16 @@ const dueWords = (day: string, today: string) => {
 /**
  * Whether a planned date is coming within `workingDays` working days (D6): up to the day that many
  * working days after today (lib/workingDays addWorkingDays, the company's holidays skipped too), so
- * on a Friday "within 1" reaches Monday - and the weekend between - and on 23 Dec it reaches
- * 28 Dec over the Christmas holidays. A date that passed is counted in calendar days: it still
+ * on a Friday "within 1" reaches Monday - and the weekend between - on a Saturday Monday too, as
+ * the URGENT window does (n20), and on 23 Dec it reaches 28 Dec over the Christmas holidays. The
+ * window's end is worked out once per answer (lib/managersCockpitExtra workingDayEnd), not walked
+ * for each job and rule. A date that passed is counted in calendar days: it still
  * counts while no longer ago than `keptDays` (PASSED_DATE_KEPT_DAYS) - a date that passed with
  * nothing recorded is still to come, until it is so old that the job plainly went on without it
  * being typed.
  */
 const comingWithin = (date: string | null, today: string, workingDays: number, holidays: readonly string[] = [], keptDays = PASSED_DATE_KEPT_DAYS): date is string =>
-  !!date && date <= addWorkingDays(today, workingDays, holidays) && date >= addDays(today, -keptDays);
+  !!date && date <= workingDayEnd(today, workingDays, holidays) && date >= addDays(today, -keptDays);
 
 // ─── Filters ───────────────────────────────────────────────────
 
@@ -840,16 +846,19 @@ const incotermCode = (typed: string | undefined) => (typed ?? "").trim().slice(0
 
 /**
  * Whether the job's main carriage is ours to book, so its Booking Confirmation is watched: every
- * export, and an import whose Incoterms - Origin or Destination, whichever is typed - are one of
- * BUYER_BOOKS_INCOTERMS. An import with no such term (none typed, or not read) is not: Booking
- * Confirmation is Pending on every new job, and an import booked by the seller's side would be
- * "at risk" all its life. Nor is a Domestic job or one with no Trade Direction.
+ * export, and an import whose Incoterms Origin is one of BUYER_BOOKS_INCOTERMS - the term the
+ * seller sold under, which says who books the main carriage. Incoterms Destination speaks only
+ * when no Origin term is typed (P14): an import sold CIF and delivered on onward DAP terms is the
+ * seller's to book, and so is one sold CIF with FOB typed beside it at destination. An import with
+ * no such term (none typed, or not read) is not: Booking Confirmation is Pending on every new job,
+ * and an import booked by the seller's side would be "at risk" all its life. Nor is a Domestic job
+ * or one with no Trade Direction.
  */
 export function weBookMainCarriage(job: Pick<OpsCockpitJob, "tradeDirection" | "incotermOrigin" | "incotermDestination">): boolean {
   const direction = directionOf(job);
   if (direction === "export") return true;
   if (direction !== "import") return false;
-  return [job.incotermOrigin, job.incotermDestination].some((term) => BUYER_BOOKS_INCOTERMS.includes(incotermCode(term)));
+  return BUYER_BOOKS_INCOTERMS.includes(incotermCode(job.incotermOrigin) || incotermCode(job.incotermDestination));
 }
 
 /**
@@ -914,7 +923,7 @@ export function mawbSignals(
 }
 
 /**
- * A2: an export's BoL draft not Approved 3 days before the SI closing - and after it while the job
+ * A2: an export's BoL draft not Approved 3 working days before the SI closing - and after it while the job
  * has not left and "ETD passed, no ATD" has not taken over (stillBeforeDeparture). An import's
  * draft is the agent's.
  * A3: a sea export departed and the House BoL not released 5 working days after the ATD - a job
@@ -930,7 +939,8 @@ export function bolSignals(
   const out: OpsSignal[] = [];
   const isExport = directionOf(job) === "export";
   const si = job.siClosing;
-  if (isExport && si && !/^approved/i.test(job.bolDraft.trim()) && !hasLeft(job) && addDays(si, -BL_DRAFT_BEFORE_SI_DAYS) <= day.today && (si >= day.today || stillBeforeDeparture(job, si, day.today))) {
+  // The SI closing within BL_DRAFT_BEFORE_SI_DAYS working days ahead (D6): on a Friday a Wednesday SI closing is 3 away.
+  if (isExport && si && !/^approved/i.test(job.bolDraft.trim()) && !hasLeft(job) && si <= workingDayEnd(day.today, BL_DRAFT_BEFORE_SI_DAYS, day.holidays) && (si >= day.today || stillBeforeDeparture(job, si, day.today))) {
     out.push(attention(OPS_RANK.bolDraft, "bl", "details", `BoL draft not Approved · SI closing ${dm(si)}`));
   }
   const noHouseBol = job.houseBolType.trim().toLowerCase() === "direct mbl";
@@ -942,14 +952,31 @@ export function bolSignals(
   return out;
 }
 
-/** A24: Credit Check not Green with the ETD within 3 working days, on a job that has not left. */
+/**
+ * A24: Credit Check not Green within 3 working days of the date the job is ours to release by:
+ *  - an export, and an import whose main carriage is ours to book (weBookMainCarriage: E and F
+ *    terms) - by its ETD, while it has not left: we book and pay the carriage before it sails;
+ *  - any other import - by its ETA, while it has not arrived (no ATA, no delivery; an ATD typed
+ *    does not end it): the seller's side ships it, and what is ours is the release at destination
+ *    (P14). An ETA that passed counts as long as the job is still "arriving" (ETA_PASSED_KEPT_DAYS).
+ * A Domestic job or one with no Trade Direction goes by its ETD, as before.
+ */
 export function creditSignals(
-  job: Pick<OpsCockpitJob, "creditCheck" | "estimatedDeparture" | "actualDeparture" | "actualArrival" | "actualDeliveryDate">,
+  job: Pick<
+    OpsCockpitJob,
+    "creditCheck" | "estimatedDeparture" | "estimatedArrival" | "actualDeparture" | "actualArrival" | "actualDeliveryDate" | "tradeDirection" | "incotermOrigin" | "incotermDestination"
+  >,
   today: string,
   holidays: readonly string[] = [],
 ): OpsSignal[] {
-  if (isCreditApproved(job.creditCheck) || hasLeft(job) || !comingWithin(job.estimatedDeparture, today, CREDIT_CHECK_ETD_WITHIN_DAYS, holidays)) return [];
-  return [attention(OPS_RANK.credit, "credit", "details", `Credit Check ${job.creditCheck.trim() || "not set"} · ETD ${dm(job.estimatedDeparture)}`)];
+  if (isCreditApproved(job.creditCheck)) return [];
+  const check = `Credit Check ${job.creditCheck.trim() || "not set"}`;
+  if (directionOf(job) === "import" && !weBookMainCarriage(job)) {
+    if (job.actualArrival || job.actualDeliveryDate || !comingWithin(job.estimatedArrival, today, CREDIT_CHECK_ETD_WITHIN_DAYS, holidays, ETA_PASSED_KEPT_DAYS)) return [];
+    return [attention(OPS_RANK.credit, "credit", "details", `${check} · ETA ${dm(job.estimatedArrival)}`)];
+  }
+  if (hasLeft(job) || !comingWithin(job.estimatedDeparture, today, CREDIT_CHECK_ETD_WITHIN_DAYS, holidays)) return [];
+  return [attention(OPS_RANK.credit, "credit", "details", `${check} · ETD ${dm(job.estimatedDeparture)}`)];
 }
 
 // ─── On the way: rolled, arrival notice, free time ─────────────────────────
@@ -1165,7 +1192,7 @@ export function jobSignals(
     ...boxSignals(job, input.boxes ? (input.boxes.get(job.id) ?? []) : null, day.today, day.holidays),
     ...creditSignals(job, day.today, day.holidays),
     ...flagSignals(flags),
-    ...claimSignals(job, input.claims ?? NO_CLAIM_FACTS, day.today),
+    ...claimSignals(job, input.claims ?? NO_CLAIM_FACTS, day.today, day.holidays),
     ...(input.extraByJob.get(job.id) ?? []).map(onScale),
   ];
   const team = input.team.byJob.get(job.id);
@@ -1188,7 +1215,7 @@ function judge(job: OpsCockpitJob, input: OpsCockpitInput, day: OpsDay): Judged 
  * runs on - but nothing else of the job asks anybody for anything any more.
  */
 function judgeClaimOnly(job: OpsCockpitJob, input: OpsCockpitInput, day: OpsDay): Judged {
-  return judged(job, claimSignals(job, input.claims ?? NO_CLAIM_FACTS, day.today), [], input.now);
+  return judged(job, claimSignals(job, input.claims ?? NO_CLAIM_FACTS, day.today, day.holidays), [], input.now);
 }
 
 function judged(job: OpsCockpitJob, signals: OpsSignal[], flags: TrackingAttentionFlag[], now: Date): Judged {

@@ -34,6 +34,7 @@ import {
   mailLine,
   NOTE_LABELS,
   shipmentHref,
+  takenBackText,
   waitingTotal,
   type ReceivableMail,
   type ReceivableRow,
@@ -280,6 +281,8 @@ function Payments({ detail, actions }: { detail: ReceivableDetail; actions: Acti
               <div className="mt-1 text-[12px] text-slate-600">
                 Taken back {formatDateTime(p.takenBack.at)}
                 {p.takenBack.by ? ` · ${p.takenBack.by}` : ""}
+                {/* P8: noted by mistake, or reversed on a day (it counted as paid until then at month-end). */}
+                {!isWriteOffKind(p.kind) && ` · ${takenBackText(p.takenBack)}`}
                 {p.takenBack.reason && <span className="whitespace-pre-wrap"> · “{p.takenBack.reason}”</span>}
               </div>
             )}

@@ -137,7 +137,9 @@ describe("an export whose answer was lost (m1)", () => {
 describe("the day automatic reminders were switched on (L2)", () => {
   it("says which overdue invoices they take", () => {
     expect(switchOnText(true, "2026-11-19")).toBe("On since 19.11.2026: only invoices due on or after that day are reminded; the older ones stay for a manager to chase by hand.");
-    expect(switchOnText(false, null)).toMatch(/^Switched on, they remind only invoices that become overdue from then on/);
-    expect(switchOnText(true, null)).toMatch(/not known/);
+    expect(switchOnText(false, null)).toMatch(/^Switched on, they remind only invoices due from the first day e-mail from the app can send/);
+    // Mock test council P3: no day yet - it is the first day e-mail can really send, set by the daily run.
+    expect(switchOnText(true, null, false)).toMatch(/^On, waiting for e-mail from the app: they start on the first day it can send/);
+    expect(switchOnText(true, null, true)).toMatch(/^On: the next daily run sets the day they start and sends nothing that day/);
   });
 });

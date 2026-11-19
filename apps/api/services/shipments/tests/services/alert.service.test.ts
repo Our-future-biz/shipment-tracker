@@ -162,4 +162,41 @@ describe("the warehouse's Inform Operations on the Alerts tab", () => {
     ]);
     expect((await alertService.remeasureInformed("s1", "c1")).map((i) => i.verdict)).toEqual(["differs", "matches"]);
   });
+
+  // Mock test council Y9: 5 pcs and 1,000 kg with no volume; the warehouse measured 4.8 m³.
+  it("judges a figure only the warehouse measured by what the job was charged by when it informed, else by the job now", async () => {
+    const ours = { colli: 5, weightKg: 1000, volumeCbm: 0 };
+    const found = { colli: 5, weightKg: 1000, volumeCbm: 4.8 };
+    const withCharge = (id: string, charge: string) => ({ ...informed(id, ours, found), newValue: JSON.stringify({ ...found, comparedWith: "dimensions", charge, commentId: "m1" }) });
+    history([withCharge("a3", "wm"), withCharge("a2", "air"), informed("a1", ours, found)]);
+    shipmentNow({ freightMode: "Air Freight", loadType: "" });
+    expect(await alertService.remeasureInformed("s1", "c1")).toMatchObject([
+      { verdict: "differs", difference: "volume +4.800 CBM" },
+      { verdict: "matches" },
+      // Written before the charge was kept: the job is an air job now.
+      { verdict: "matches" },
+    ]);
+  });
+
+  // "Matches now" is lib/remeasureMatch's, as Shipments → Managers judges it: the remeasured figures
+  // rounded as a shipment stores them, and the charge kept on the entry before the job's own.
+  it("says the shipment matches now exactly when Shipments → Managers does", async () => {
+    // 7 × 13.25 kg = 92.75 kg informed; the Total Weight that took it over holds 92.8 kg.
+    history([informed("a1", { colli: 7, weightKg: 90, volumeCbm: 48.5 }, { colli: 7, weightKg: 92.75, volumeCbm: 48.5104 }, "declared")]);
+    shipmentNow({ pcs: "7", totalWeightTons: "0.0928", totalVolumeCbm: "48.5100", cargoDimensions: [] });
+    expect(await alertService.remeasureInformed("s1", "c1")).toMatchObject([{ nowMatches: true }]);
+
+    // A Sea Full Load job now with no volume; the warehouse measured 20 m³.
+    const ours = { colli: 10, weightKg: 1000, volumeCbm: 0 };
+    const found = { colli: 10, weightKg: 1000, volumeCbm: 20 };
+    const kept = { ...informed("b2", ours, found, "declared"), newValue: JSON.stringify({ ...found, comparedWith: "declared", charge: "wm", commentId: "m1" }) };
+    history([kept, informed("b1", ours, found, "declared")]);
+    shipmentNow({ freightMode: "Sea Freight", loadType: "Full Load", pcs: "10", totalWeightTons: "1.0000", totalVolumeCbm: null, cargoDimensions: [] });
+    expect((await alertService.remeasureInformed("s1", "c1")).map((i) => i.nowMatches)).toEqual([
+      // Judged by W/M when informed: 20 m³ is still a new charge.
+      false,
+      // Written before the charge was kept: the job is charged per container, the volume moves nothing.
+      true,
+    ]);
+  });
 });

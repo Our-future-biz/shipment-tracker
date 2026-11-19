@@ -198,17 +198,35 @@ export const canHandOverAll = (row: { nobody: boolean; active: number }): boolea
  * more (one hand-over takes 200: the rest are handed over by doing it again). `scope`: the mode and direction they
  * were listed in, "" for all.
  */
-export function handOverAllNote(listed: { jobs: readonly unknown[]; total: number }, person: string, scope: string): string {
-  const of = `active job${listed.total === 1 ? "" : "s"} with ${person} in Handled By${scope ? ` (${scope})` : ""}`;
+export function handOverAllNote(
+  listed: { jobs: readonly unknown[]; total: number },
+  person: string,
+  scope: string,
+  opts: { as?: "handledBy" | "holidayCover"; changing?: boolean } = {},
+): string {
+  const role = opts.as === "holidayCover" ? "as Holiday Cover" : "in Handled By";
+  // Once a new Handled By or cover is chosen, the server lists only the jobs it changes (n25).
+  const of = `active job${listed.total === 1 ? "" : "s"} with ${person} ${role}${scope ? ` (${scope})` : ""}${opts.changing ? " that this changes" : ""}`;
   if (listed.total > listed.jobs.length) {
     return `${listed.jobs.length} of ${listed.total} ${of}: at most ${HAND_OVER_MAX_JOBS} go in one hand-over. Hand over the rest the same way once these are done.`;
   }
+  if (opts.changing && listed.total === 0) return `No active job with ${person} ${role}${scope ? ` (${scope})` : ""} changes: they are all so already.`;
   return `All ${listed.total} ${of}, quiet ones too - not only those with a signal on the cards.`;
 }
 
+// ── Replacing a person as Holiday Cover (P12) ──
+
+/** The Team row's action for the jobs the person covers: "Replace as Holiday Cover on 4 jobs…". */
+export const replaceCoverLabel = (covers: number): string => `Replace as Holiday Cover on ${covers} job${covers === 1 ? "" : "s"}…`;
+
+/** Whether a Team row offers it: a person (never the jobs nobody handles) who covers an active job here. */
+export const canReplaceCover = (row: { nobody: boolean; covers: number }): boolean => !row.nobody && row.covers > 0;
+
 /**
- * Shipments → Managers narrowed to the jobs a person handles (the page's own ?handledBy=). Null when no job names
- * them in Handled By: the page narrows by Handled By alone, so the link would open an empty list.
+ * Shipments → Managers' Team tab, where the person's row offers "Hand over all N active jobs…" (and "Replace as
+ * Holiday Cover…" for the jobs they cover) - every active job, quiet ones too. The Cockpit narrowed to them would
+ * show only the jobs with a signal (S16). Null when no active job names them: there is nothing to hand over.
+ * `email` is kept for the callers; the Team tab lists everybody.
  */
-export const handledByJobsHref = (email: string, count: { handledBy: number }): string | null =>
-  count.handledBy > 0 ? `/shipments/managers?handledBy=${encodeURIComponent(email.trim().toLowerCase())}` : null;
+export const handledByJobsHref = (_email: string, count: { handledBy: number; covers?: number }): string | null =>
+  count.handledBy > 0 || (count.covers ?? 0) > 0 ? "/shipments/managers?tab=team" : null;

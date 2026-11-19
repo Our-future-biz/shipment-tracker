@@ -19,6 +19,14 @@ vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostReposit
 const trucking = vi.hoisted(() => ({ keptBuyingCodes: vi.fn() }));
 vi.mock("../../repositories/truckingLines.repository", () => ({ truckingLinesRepository: trucking }));
 const keptByTrucking = vi.hoisted(() => vi.fn());
+// What a shipment's selling rows taken away owe its statuses (services/sellingStatusFollow): a hook per shipment, sent after the write.
+const follow = vi.hoisted(() => ({ steps: [] as string[], afterSet: vi.fn(async () => undefined) }));
+vi.mock("../../services/sellingStatusFollow", () => ({
+  statusesFollow: (_companyId: string, shipmentId: string) => {
+    follow.steps.push(`hook for ${shipmentId}`);
+    return { after: vi.fn(), afterSet: follow.afterSet, deliver: async () => void follow.steps.push(`deliver ${shipmentId}`) };
+  },
+}));
 // The cleaning of a buying line is the shipment's own (tested there); here it passes the fields on.
 vi.mock("../../services/invoicing.service", () => ({
   assertNotKeptByTrucking: keptByTrucking,
@@ -300,6 +308,18 @@ describe("the shipments carry a master job's costs only once the split is proces
     const view = await masterJobCostService.process(COMPANY, MASTER);
     expect(written).toHaveLength(2);
     expect(view.split).toEqual({ written: 2, inSync: true });
+  });
+
+  it("hands the selling rows a house leaving gives up to its statuses' hook, and sends what it owes after the write (n9)", async () => {
+    follow.steps = [];
+    const dropped = [{ before: { amount: "89.89" }, now: null }];
+    costs.dropSplitRowsOutside.mockImplementation(async (_c: string, _m: string, _keep: unknown, followOf: (shipmentId: string) => (tx: unknown, writes: unknown[]) => Promise<void>) => {
+      await followOf("s3")({ tx: true }, dropped);
+      follow.steps.push("written");
+    });
+    await masterJobCostService.dropSharesOfLeftShipments(COMPANY, MASTER);
+    expect(follow.afterSet).toHaveBeenCalledWith({ tx: true }, dropped);
+    expect(follow.steps).toEqual(["hook for s3", "written", "deliver s3"]);
   });
 
   it("takes the shares off only the shipments that left, and puts none on", async () => {

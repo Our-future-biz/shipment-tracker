@@ -24,16 +24,23 @@ import {
   serviceDateOf,
   type QueueRow,
 } from "../_lib/queueColumnModel";
+import { linesInvoicedCell } from "../_lib/lineCounts";
 
 export type { QueueRow } from "../_lib/queueColumnModel";
 
-/** The fields the Shipments conditional formatting reads, by Shipments column key. */
+/**
+ * The fields the Shipments conditional formatting reads, by Shipments column key. The B/L days are
+ * there for the OBL rule (lib/columnConfig waitsForOriginalBl): an OBL whose originals or telex
+ * release came is in hand, and its row is not red (n22).
+ */
 export function queueRowData(r: QueueRow): Record<string, string> {
   return {
     jobNumber: r.jobNumber,
     department: r.department,
     houseBolType: r.houseBolType,
     masterBolType: r.masterBolType,
+    originalsReceivedDate: r.originalsReceivedDate ?? "",
+    telexReleaseReceivedDate: r.telexReleaseReceivedDate ?? "",
     tradeDirection: r.tradeDirection,
     status: r.shipmentStatus,
     invoicingStatus: invoicingStatusOf(r),
@@ -47,7 +54,7 @@ export interface RowInfo {
   rowStyle: CellStyle | null;
 }
 
-/** Row data and the whole-row style (OBL = red text) per shipment, computed once per list. */
+/** Row data and the whole-row style (an OBL not in hand = red text) per shipment, computed once per list. */
 export const queueRowInfo = (rows: QueueRow[]) =>
   new Map<string, RowInfo>(
     rows.map((r) => {
@@ -280,16 +287,28 @@ export function queueColumns({
       align: "center",
       sorter: (a, b) => lineShare(a) - lineShare(b),
       render: (_, r) => {
-        if (!r.sellingLines) return EMPTY_CELL;
-        const done = r.invoicedLines === r.sellingLines;
+        const cell = linesInvoicedCell(r);
+        if (!cell) return EMPTY_CELL;
         return (
-          <span
-            // cf-own-color: the count's colour is its meaning, so it keeps it on an OBL row's red text
-            className={`cf-own-color tabular-nums font-semibold ${done ? "text-emerald-600" : "text-red-600"}`}
-            style={{ "--cf-own-color": done ? "var(--color-emerald-600)" : "var(--color-red-600)" } as React.CSSProperties}
-            title={`${r.invoicedLines} of ${r.sellingLines} selling lines invoiced`}
-          >
-            {r.invoicedLines}/{r.sellingLines}
+          <span title={cell.title} className="inline-flex items-center gap-1.5">
+            {cell.count && (
+              <span
+                // cf-own-color: the count's colour is its meaning, so it keeps it on an OBL row's red text
+                className={`cf-own-color tabular-nums font-semibold ${cell.done ? "text-emerald-600" : "text-red-600"}`}
+                style={{ "--cf-own-color": cell.done ? "var(--color-emerald-600)" : "var(--color-red-600)" } as React.CSSProperties}
+              >
+                {cell.count}
+              </span>
+            )}
+            {/* A credit owed (M3): the job reads Invoiced, and the customer is owed it until a credit note gives it. */}
+            {cell.creditOwed && (
+              <span
+                className="cf-own-color text-xs font-medium text-amber-700"
+                style={{ "--cf-own-color": "var(--color-amber-700)" } as React.CSSProperties}
+              >
+                credit owed
+              </span>
+            )}
           </span>
         );
       },

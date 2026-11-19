@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrivalDay, buildAudit, buildCockpit, containerSignals, dayText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
+import { arrivalDay, arrivalPassedReason, buildAudit, buildCockpit, containerSignals, dayText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
 import type { GateMovementItem, GateStorageInfo } from "../interfaces/gate.interfaces";
 import type { WarehouseContainerItem } from "../interfaces/records.interfaces";
 
@@ -326,6 +326,22 @@ describe("time passed (step 2)", () => {
     expect(notArrivedReason(exp({ eta: "2026-10-20" }), TODAY, NOW)).toBeNull();
     expect(notArrivedReason(exp({ gateIn: hoursAgo(1), subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }), TODAY, NOW)).toBeNull();
     expect(texts(exp({ subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }))).toEqual(["U Not arrived: expected 22.10.2026"]);
+  });
+
+  it("an arrival day that passed without a gate-in is ATTENTION: the ETA Warehouse/HUB, else the ETA (P18)", () => {
+    const exp = (over: Partial<GateMovementItem>) => item({ status: "Expected", visit: "příjem", handling: "Export", ...over });
+    expect(arrivalPassedReason(exp({ eta: "2026-10-20" }), TODAY)).toBe("Not arrived: expected 20.10.2026");
+    // ETA Warehouse/HUB set: it is the day, not the vessel's ETA.
+    expect(arrivalPassedReason(exp({ eta: "2026-10-20", etaWarehouse: "2026-10-24" }), TODAY)).toBeNull();
+    expect(arrivalPassedReason(exp({ eta: "2026-10-25", etaWarehouse: "2026-10-21" }), TODAY)).toBe("Not arrived: expected 21.10.2026");
+    // Today, arrived, or going out: nothing.
+    expect(arrivalPassedReason(exp({ eta: TODAY }), TODAY)).toBeNull();
+    expect(arrivalPassedReason(exp({ eta: "2026-10-20", gateIn: hoursAgo(1) }), TODAY)).toBeNull();
+    expect(arrivalPassedReason(exp({ eta: "2026-10-20", visit: "výdej" }), TODAY)).toBeNull();
+    expect(arrivalPassedReason(exp({ eta: "" }), TODAY)).toBeNull();
+    expect(texts(exp({ eta: "2026-10-20" }))).toEqual(["A Not arrived: expected 20.10.2026"]);
+    // A slot that passed says the more: URGENT, and the arrival day is not said twice.
+    expect(texts(exp({ eta: "2026-10-20", subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }))).toEqual(["U Not arrived: expected 22.10.2026"]);
   });
 
   it("a release request still blocked after 2 h, naming the waiting gates", () => {

@@ -108,6 +108,28 @@ const dimLineKey = (l: CargoDimensionLine) => [
 ];
 const dimsKey = (ls: CargoDimensionLine[]) => JSON.stringify(ls.filter((l) => !dimIsEmpty(l)).map(dimLineKey));
 
+/**
+ * The lines the next save of the dimension lines is held to (expectedCargoDimensions) after a
+ * resync: the server's (`server`) only when the table is redrawn with them, else what it was
+ * (`base`). The base is always the lines the table was drawn from: moved without a redraw (a row
+ * open), the next save would send the old lines as drawn, held to the fresh ones, and write over a
+ * colleague's save or an accepted remeasurement unasked (round-4 review). Held to old lines, that
+ * save is refused instead, and the refusal redraws the table.
+ */
+export function heldDims(base: CargoDimensionLine[], server: CargoDimensionLine[], at: { redraw: boolean }): CargoDimensionLine[] {
+  return at.redraw ? server : base;
+}
+
+/**
+ * Whether a resync redraws the dimension lines: when the server's differ from what the page last
+ * sent, and either the refused save's own resync forces it, no row is open, or a save was refused
+ * and the lines read again have not been drawn yet (`refusedSinceSave`) - the refetch after a
+ * refusal is shown even while a row was opened in between.
+ */
+export function redrawsDims(at: { differs: boolean; forced: boolean; openRows: number; refusedSinceSave: boolean }): boolean {
+  return at.differs && (at.forced || at.openRows === 0 || at.refusedSinceSave);
+}
+
 // Weight and volume are typed and shown per piece, or for all the pieces of a line together. They
 // are always stored per piece (the server and every total count pieces × per piece); "All pieces"
 // only changes what is typed and shown. The choice is remembered in the browser.
@@ -198,7 +220,7 @@ export function CargoDetailsTab({
 }: {
   shipment: ShipmentItem;
   /** Saves a table; rejects when the server refuses it (the caller says why). */
-  onChange: (data: { cargoItems?: CargoItemLine[]; cargoDimensions?: CargoDimensionLine[] }) => Promise<unknown>;
+  onChange: (data: { cargoItems?: CargoItemLine[]; cargoDimensions?: CargoDimensionLine[]; expectedCargoDimensions?: CargoDimensionLine[] }) => Promise<unknown>;
   focusContainerId?: string | null;
   /**
    * The user may not change the shipment's details (lib/shipmentEditRule): the lines are shown, with
@@ -257,6 +279,15 @@ export function CargoDetailsTab({
   shipmentRef.current = shipment;
   const sentItems = useRef(itemsKey(shipment.cargoItems ?? []));
   const sentDims = useRef(dimsKey(shipment.cargoDimensions ?? []));
+  // The dimension lines the server holds as far as this page knows (mock test council Y10): what it
+  // loaded or last took over, else what it last sent. Each save sends them along, and the server
+  // saves only while it still holds them - a page opened before an accepted remeasurement or a
+  // colleague's save would else write its old lines back with its next line save. Refused, the
+  // lines are read again (the write's refetch) and shown once no row is open.
+  const baseDims = useRef<CargoDimensionLine[]>(shipment.cargoDimensions ?? []);
+  // A line save was refused and the lines read again not drawn yet: the next resync redraws them
+  // even with a row open (redrawsDims), and the base follows the drawing (heldDims).
+  const dimsRefused = useRef(false);
   // Kept in refs so resync, called from effects and timers, sees the current values.
   const openRef = useRef({ items: openItems.indexes, dims: openDims.indexes });
   openRef.current = { items: openItems.indexes, dims: openDims.indexes };
@@ -282,7 +313,11 @@ export function CargoDetailsTab({
     }
     const forceDims = refused?.table === "dims";
     const dKey = dimsKey(serverDims);
-    if (dKey !== sentDims.current && (forceDims || openRef.current.dims.size === 0)) {
+    const redraw = redrawsDims({ differs: dKey !== sentDims.current, forced: forceDims, openRows: openRef.current.dims.size, refusedSinceSave: dimsRefused.current });
+    baseDims.current = heldDims(baseDims.current, serverDims, { redraw });
+    // The lines read again after a refusal are drawn once; later reads follow the normal rule.
+    if (redraw && !refused) dimsRefused.current = false;
+    if (redraw) {
       sentDims.current = dKey;
       const kept = keepOpen(dimsRef.current, openRef.current.dims, dimIsEmpty, forceDims);
       setDims(withPanelRows([...serverDims.map(lineInUnit), ...kept], keys, (l) => lineKey(l.containerId), (c) => emptyDim(c)));
@@ -328,8 +363,15 @@ export function CargoDetailsTab({
     const key = dimsKey(payload);
     if (key === sentDims.current) return;
     sentDims.current = key;
+    // Saves go out one after another: the next one starts from what this one leaves.
+    const expectedCargoDimensions = baseDims.current;
+    baseDims.current = payload;
+    dimsRefused.current = false;
     const refused = { table: "dims" as const, rows: new Set(payload.map(rowKey)) };
-    onChange({ cargoDimensions: payload }).catch(() => setTimeout(() => resync(refused), 50));
+    onChange({ cargoDimensions: payload, expectedCargoDimensions }).catch(() => {
+      dimsRefused.current = true;
+      setTimeout(() => resync(refused), 50);
+    });
   };
   const persistItems = () => sendItems(itemsRef.current);
   const persistDims = () => sendDims(dimsRef.current);

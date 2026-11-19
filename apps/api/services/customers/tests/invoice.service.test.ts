@@ -234,9 +234,19 @@ describe("the customer's list as Accounts Receivable reads it", () => {
       { invoiceId: "nope", status: null, paidOn: null },
     ]);
     // An id that is no id is never asked for.
-    expect(repo.entriesOfIssued).toHaveBeenCalledWith(COMPANY, [
-      { invoiceId: INVOICE, number: "2026-117", customerId: CUSTOMER },
-      { invoiceId: OTHER, number: "2026-200", customerId: CUSTOMER },
-    ]);
+    expect(repo.entriesOfIssued).toHaveBeenCalledWith(
+      COMPANY,
+      [
+        { invoiceId: INVOICE, number: "2026-117", customerId: CUSTOMER },
+        { invoiceId: OTHER, number: "2026-200", customerId: CUSTOMER },
+      ],
+      { readOnly: false },
+    );
+  });
+
+  it("asked read only (the bell, m4), the repository marks nothing", async () => {
+    repo.entriesOfIssued.mockResolvedValue(new Map());
+    await invoiceService.statusesOfIssued(COMPANY, [{ invoiceId: INVOICE, number: "2026-117", customerId: CUSTOMER }], { readOnly: true });
+    expect(repo.entriesOfIssued).toHaveBeenLastCalledWith(COMPANY, [{ invoiceId: INVOICE, number: "2026-117", customerId: CUSTOMER }], { readOnly: true });
   });
 });

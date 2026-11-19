@@ -95,9 +95,15 @@ export const REMEASURE_INFORMED = "remeasureInformed";
  * the shipment's Alerts tab; "matches" when every figure known on both sides is the same - only the
  * chat message, in Notifications; "unknown" when no figure is known on both sides.
  *
+ * A figure only the remeasurement has (mock test council Y9: 5 pcs, 1,000 kg and no volume, the
+ * warehouse measured 4.8 m³) is new to the shipment: it "differs" when it changes what the freight
+ * is charged by - W/M, or the air chargeable weight - and then also with nothing known on both
+ * sides. A Full Load charged per container is not charged by it.
+ *
  * Warehouse Concept marks a remeasurement within its tolerance as no variance (council finding
  * L6): any difference in pieces, or more than 5 % on weight, volume or W/M (its _lib/cargoCompare).
- * One of its remeasurements within that tolerance "matches" here too - only its chat message.
+ * One of its remeasurements within that tolerance "matches" here too - only its chat message; a new
+ * figure of its counts when it moves the charge by more than the tolerance.
  */
 export type RemeasureVerdict = "differs" | "matches" | "unknown";
 
@@ -107,8 +113,47 @@ export type RemeasureFrom = "warehouse" | "warehouseConcept";
 /** Warehouse Concept's tolerance on weight, volume and W/M; pieces must match exactly. */
 export const CONCEPT_TOLERANCE = 0.05;
 
+/**
+ * What a shipment's freight is charged by (the web's lib/chargeBasis): "air" the chargeable weight
+ * (the greater of the kg and m³ × 1,000,000 ÷ 6000), "container" per container - a sea or rail Full
+ * Load (mock test council P18) - and "wm" the greater of tons and m³ for every other.
+ */
+export type ChargeKind = "air" | "wm" | "container";
+export const CHARGE_KINDS = ["air", "wm", "container"] as const;
+
+export function chargeKindOf(freightMode: string | null | undefined, loadType: string | null | undefined): ChargeKind {
+  const mode = (freightMode ?? "").trim().toLowerCase();
+  if (mode.startsWith("air")) return "air";
+  const fullLoad = (loadType ?? "").trim().toLowerCase() === "full load";
+  return fullLoad && (mode === "sea freight" || mode === "rail freight") ? "container" : "wm";
+}
+
+/** The air divisor: 6000 cm³ to the kg, as Sales quotes and the web's lib/chargeBasis use. */
+const AIR_DIVISOR = 6000;
+
+// The charged figure of `f`: the chargeable weight (kg, 0.1) or W/M (0.001).
+const chargedFigure = (f: CargoFigures, kind: "air" | "wm") =>
+  kind === "air" ? round(Math.max(f.weightKg, (f.volumeCbm * 1_000_000) / AIR_DIVISOR), 1) : round(Math.max(f.weightKg / 1000, f.volumeCbm), 3);
+
 const both = (a: number, b: number) => a > 0 && b > 0;
 const KEYS = ["colli", "weightKg", "volumeCbm"] as const;
+
+/** The figures only the remeasurement has: the shipment's is 0 or not known. */
+const added = (shipment: CargoFigures, remeasured: CargoFigures) => KEYS.filter((k) => remeasured[k] > 0 && !(shipment[k] > 0));
+
+/**
+ * Whether the remeasured figures change what the freight is charged by. `charge` left out (a reader
+ * that does not know the job's mode): when either W/M or the chargeable weight changes, so nothing
+ * that may cost money is taken for a match. Warehouse Concept's by more than its tolerance.
+ */
+export function chargeChanged(shipment: CargoFigures, remeasured: CargoFigures, charge?: ChargeKind, source: RemeasureFrom = "warehouse"): boolean {
+  const kinds: ("air" | "wm")[] = charge === undefined ? ["air", "wm"] : charge === "container" ? [] : [charge];
+  return kinds.some((k) => {
+    const [a, b] = [chargedFigure(shipment, k), chargedFigure(remeasured, k)];
+    if (!(a > 0)) return b > 0;
+    return source === "warehouseConcept" ? Math.abs((b - a) / a) > CONCEPT_TOLERANCE + 1e-9 : Math.abs(a - b) > 0.001;
+  });
+}
 
 // W/M as Warehouse Concept compares it: the larger of m³ and tonnes, to 2 decimals.
 const wm = (f: CargoFigures) => Math.round(Math.max(f.volumeCbm, f.weightKg / 1000) * 100) / 100;
@@ -123,9 +168,28 @@ export function withinConceptTolerance(shipment: CargoFigures, remeasured: Cargo
 const apart = (shipment: CargoFigures, remeasured: CargoFigures) =>
   KEYS.some((k) => both(shipment[k], remeasured[k]) && Math.abs(shipment[k] - remeasured[k]) > 0.001);
 
-export function remeasureVerdict(shipment: CargoFigures, remeasured: CargoFigures, source: RemeasureFrom = "warehouse"): RemeasureVerdict {
+/**
+ * `charge`: what the job is charged by (chargeKindOf), for a figure only the remeasurement has; left
+ * out, either W/M or the chargeable weight changing makes it differ (chargeChanged).
+ */
+export function remeasureVerdict(shipment: CargoFigures, remeasured: CargoFigures, source: RemeasureFrom = "warehouse", charge?: ChargeKind): RemeasureVerdict {
   if (apart(shipment, remeasured) && !(source === "warehouseConcept" && withinConceptTolerance(shipment, remeasured))) return "differs";
+  if (added(shipment, remeasured).length > 0 && chargeChanged(shipment, remeasured, charge, source)) return "differs";
   return KEYS.some((k) => both(shipment[k], remeasured[k])) ? "matches" : "unknown";
+}
+
+/**
+ * What the job was charged by when the warehouse informed (an Inform Operations' history entry, its
+ * new value): undefined for one written before it was kept - its reader then decides on the job as
+ * it is now, or leaves it out (remeasureVerdict).
+ */
+export function informedCharge(newValue: string | null | undefined): ChargeKind | undefined {
+  try {
+    const v = JSON.parse(newValue ?? "") as { charge?: unknown } | null;
+    return CHARGE_KINDS.find((k) => k === v?.charge);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Which warehouse an Inform Operations' history entry (its new value) came from; the Warehouse's for one written before it was kept. */
@@ -141,12 +205,15 @@ export function informedSource(newValue: string | null | undefined): RemeasureFr
 const signed = (d: number, digits: number) =>
   `${d > 0 ? "+" : "−"}${Math.abs(d).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 
-/** "weight +200.0 kg · volume +5.332 CBM": the figures that differ, the remeasured less the shipment's. */
+/**
+ * "weight +200.0 kg · volume +5.332 CBM": the figures that differ, the remeasured less the
+ * shipment's - also one the shipment lacks ("volume +4.800 CBM"), which is new to it.
+ */
 export function differenceText(shipment: CargoFigures, remeasured: CargoFigures): string {
   const parts: string[] = [];
   const add = (k: (typeof KEYS)[number], label: string, digits: number, unit: string) => {
     const d = remeasured[k] - shipment[k];
-    if (both(shipment[k], remeasured[k]) && Math.abs(d) > 0.001) parts.push(`${label} ${signed(d, digits)}${unit}`);
+    if (remeasured[k] > 0 && Math.abs(d) > 0.001) parts.push(`${label} ${signed(d, digits)}${unit}`);
   };
   add("colli", "colli", 0, "");
   add("weightKg", "weight", 1, " kg");
@@ -169,6 +236,7 @@ export function remeasureNotice(
   remeasured: CargoFigures,
   note = "",
   source: RemeasureFrom = "warehouse",
+  charge?: ChargeKind,
 ): RemeasureNotice {
   const tagged: CompanyUser[] = [];
   for (const value of [people.personInCharge, people.holidayCover]) {
@@ -176,10 +244,14 @@ export function remeasureNotice(
     if (user && !tagged.includes(user)) tagged.push(user);
   }
   const lines = ["Cargo has been remeasured by the warehouse.", `Shipment values: ${figures(shipment)}`, `Remeasured values: ${figures(remeasured)}`];
-  const verdict = remeasureVerdict(shipment, remeasured, source);
-  if (verdict === "differs") lines.push(`Difference: ${differenceText(shipment, remeasured)}`);
+  const verdict = remeasureVerdict(shipment, remeasured, source, charge);
+  const difference = differenceText(shipment, remeasured);
+  if (verdict === "differs") lines.push(`Difference: ${difference}`);
   else if (verdict === "matches" && apart(shipment, remeasured)) {
-    lines.push(`Difference: ${differenceText(shipment, remeasured)} - within the ${CONCEPT_TOLERANCE * 100} % tolerance.`);
+    lines.push(`Difference: ${difference} - within the ${CONCEPT_TOLERANCE * 100} % tolerance.`);
+  } else if (difference) {
+    // Only figures the shipment lacked, which leave the charge as it was.
+    lines.push(`New: ${difference} - the shipment values had none; the charge stays the same.`);
   } else if (verdict === "matches") lines.push("The remeasured values match the shipment values.");
   if (note.trim()) lines.push(`Note: ${note.trim()}`);
   // Written as the chat writes a tag: "@" and the name the @ list shows.

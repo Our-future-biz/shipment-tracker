@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { columnsFromLayout, knownColumns, parseColumnLayout } from "./gridLayout";
+import { columnsFromLayout, knownColumns, legacyKnown, parseColumnLayout } from "./gridLayout";
 
 const cols = [{ key: "ref" }, { key: "customer" }, { key: "notes", defaultVisible: false }, { key: "eta" }];
 
@@ -20,8 +20,26 @@ describe("columnsFromLayout", () => {
     expect(columnsFromLayout({ visible: ["ref", "away"], known: ["ref", "away", "customer", "notes", "eta"] }, cols)).toEqual(["ref", "away"]);
   });
 
-  it("leaves a layout saved without the known columns as it was", () => {
+  it("leaves a layout saved without the known columns as it was, when the grid names no column added later", () => {
     expect(columnsFromLayout({ visible: ["ref"], known: null }, cols)).toEqual(["ref"]);
+  });
+
+  it("shows once a column the grid added after layouts saved without the known columns - and keeps the user's other choices (P7)", () => {
+    // Customer was hidden by the user, ETA was added later: ETA shows, Customer stays hidden.
+    expect(columnsFromLayout({ visible: ["ref"], known: null }, cols, ["eta"])).toEqual(["ref", "eta"]);
+    // Already shown: not twice.
+    expect(columnsFromLayout({ visible: ["eta", "ref"], known: null }, cols, ["eta"])).toEqual(["eta", "ref"]);
+    // Hidden by default: not shown.
+    expect(columnsFromLayout({ visible: ["ref"], known: null }, cols, ["notes"])).toEqual(["ref"]);
+    // A layout with its known list goes by that list.
+    expect(columnsFromLayout({ visible: ["ref"], known: ["ref", "customer", "notes", "eta"] }, cols, ["eta"])).toEqual(["ref"]);
+  });
+});
+
+describe("legacyKnown", () => {
+  it("is the grid's columns but those added later", () => {
+    expect(legacyKnown(cols, ["eta"])).toEqual(["ref", "customer", "notes"]);
+    expect(legacyKnown(cols, [])).toEqual(["ref", "customer", "notes", "eta"]);
   });
 });
 

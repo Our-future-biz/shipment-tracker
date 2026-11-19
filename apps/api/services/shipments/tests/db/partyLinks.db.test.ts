@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 
 // The change events' handlers read the Customer Database and tell the warehouse: stand-ins here.
-const fake = vi.hoisted(() => ({ refs: vi.fn(), publish: vi.fn() }));
-vi.mock("~encore/clients", () => ({ customers: { _internalCustomerRefs: fake.refs } }));
+// Invoicing's open invoices (n12): none unless a test names the shipments that have one.
+const fake = vi.hoisted(() => ({ refs: vi.fn(), publish: vi.fn(), billed: [] as string[] }));
+vi.mock("~encore/clients", () => ({
+  customers: { _internalCustomerRefs: fake.refs },
+  invoicing: { _internalOpenInvoiceShipments: async ({ shipmentIds }: { shipmentIds: string[] }) => ({ shipmentIds: shipmentIds.filter((id) => fake.billed.includes(id)) }) },
+}));
 vi.mock("../../topics", () => ({ shipmentPartiesChanged: { publish: fake.publish } }));
 
 import { db } from "../../db/db";
@@ -217,5 +221,34 @@ describe("an invoiced shipment", () => {
     });
     expect(changed).toBe(0);
     expect((await shipmentOf(companyId, billed!.id)).customer).toBe("Alfa");
+  });
+});
+
+describe("a shipment with an open invoice (n12)", () => {
+  it("keeps the names it was billed with when a late charge sent it back to Not Invoiced; one without follows the rename", async () => {
+    const [companyId, customerId, contactId] = [randomUUID(), randomUUID(), randomUUID()];
+    const party = { customerId, customer: "Alfa", customerPicContactId: contactId, customerPic: "Petr", invoicingStatus: "Not Invoiced" };
+    const [billed, open] = await db
+      .insert(shipmentTable)
+      .values([
+        { companyId, jobNumber: "CZ1", ...party },
+        { companyId, jobNumber: "CZ2", ...party },
+      ])
+      .returning();
+    fake.billed = [billed!.id];
+    try {
+      const renamed = await partyLinksRepository.renameCustomer(companyId, customerId, named("Alfa s.r.o."));
+      expect(renamed.parties.map((r) => r.id)).toEqual([open!.id]);
+      await partyLinksRepository.renameContact(companyId, customerId, contactId, named("Petr Masák"));
+      expect(await shipmentOf(companyId, billed!.id)).toMatchObject({ customer: "Alfa", customerPic: "Petr" });
+      expect(await shipmentOf(companyId, open!.id)).toMatchObject({ customer: "Alfa s.r.o.", customerPic: "Petr Masák" });
+      const { changed } = await partyLinksRepository.applyLinks(companyId, {
+        shipments: [{ id: billed!.id, from: { customer: "Alfa" }, to: { customer: "Alfa a.s." }, values: 1 }],
+        masterJobs: [],
+      });
+      expect(changed).toBe(0);
+    } finally {
+      fake.billed = [];
+    }
   });
 });

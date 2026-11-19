@@ -8,6 +8,8 @@ import {
   MONEY_FAMILIES,
   MONEY_LOAD_FAILED,
   MONEY_SIGNAL_NOT_KNOWN,
+  NOT_YET_INVOICED_HINT,
+  PERSON_NOT_YET_INVOICED_HINT,
   approvalLinks,
   isMoneySignalNotKnown,
   moneyCard,
@@ -94,9 +96,17 @@ describe("Shipments → Managers, Money: the signal tiles", () => {
   it("words the Not invoiced tile as the server's rule: work left to bill, whether or not an invoice was issued already - a charge added after invoicing too", () => {
     const hint = moneySignalOf("not_invoiced")!.hint;
     expect(hint).toBe(
-      "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced; urgent from 15 days after the tax date. Also a charge added after invoicing on a job that reads Invoiced (urgent)",
+      "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced; urgent from 15 days after the tax date, or after the day a late charge was added. Also a charge added after invoicing on a job that reads Invoiced (urgent), and a credit owed to the customer until a credit note gives it",
     );
     expect(hint).not.toContain("with no invoice");
+  });
+
+  it("words Not yet invoiced for what it counts now: late charges on jobs that read Invoiced too, a credit owed apart (n11)", () => {
+    for (const hint of [NOT_YET_INVOICED_HINT, PERSON_NOT_YET_INVOICED_HINT]) {
+      expect(hint).not.toContain("on the active jobs counted");
+      expect(hint).toMatch(/after invoicing on (their )?jobs that read Invoiced/);
+    }
+    expect(NOT_YET_INVOICED_HINT).toContain("A credit owed is not in it");
   });
 
   it("words the Estimates tile as the server's rule: urgent at 60 days or once the job reads Invoiced, not for a Billing status", () => {

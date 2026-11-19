@@ -118,6 +118,26 @@ export function isValidContainerNumber(raw: string): boolean {
   return n === "" || /^[A-Z]{4}[0-9]{7}$/.test(n);
 }
 
+/**
+ * The first container number of a write that is not 4 letters and 7 digits, or undefined - a number
+ * the container already has is not asked again (mock test council n19): a shipment saved before the
+ * check, with "TBA" in its only container, would else be stopped by any save of its containers,
+ * an accepted remeasurement's too. Only a line with an id is a stored container - the one its id
+ * names - and keeps its number unasked: a line with no id is a new container, and taking any stored
+ * container's number for its own would let a new line add one more "TBA" beside the old.
+ */
+export function invalidContainerNumber(
+  lines: readonly Pick<ContainerLine, "id" | "containerNumber">[] | undefined,
+  stored: readonly Pick<ContainerLine, "id" | "containerNumber">[],
+): string | undefined {
+  const same = (a: string, b: string) => normalizeContainerNumber(a) === normalizeContainerNumber(b);
+  const unchanged = (l: Pick<ContainerLine, "id" | "containerNumber">) => {
+    const own = l.id ? stored.find((c) => c.id === l.id) : undefined;
+    return !!own && same(own.containerNumber, l.containerNumber);
+  };
+  return lines?.find((l) => !isValidContainerNumber(l.containerNumber) && !unchanged(l))?.containerNumber;
+}
+
 /** What a sync of a shipment's containers does with one line of the list it is given. */
 export interface ContainerRowMatch {
   line: ContainerLine;

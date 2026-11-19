@@ -40,13 +40,14 @@ import { ChatPanel } from "@/app/shipments/_components/ChatPanel";
 import { SectionBackLink } from "@/components/SectionBackLink";
 
 type View = BillingQueueView;
-const VIEWS = ["all", "to_bill", "invoiced", "unbilled_arrivals"] as const satisfies readonly View[];
+const VIEWS = ["all", "to_bill", "invoiced", "invoiced_charges_open", "unbilled_arrivals"] as const satisfies readonly View[];
 const VIEW_COUNT: Record<View, keyof interfaces.BillingQueueCounts> = {
   all: "all",
   to_bill: "toBill",
   not_invoiced: "notInvoiced",
   invoiced: "invoiced",
   unbilled_arrivals: "unbilledArrivals",
+  invoiced_charges_open: "invoicedChargesOpen",
 };
 const DEFAULT_VIEW: View = "all";
 type QueueParam = "queue" | "q";
@@ -57,10 +58,18 @@ const INVOICING_COLUMN_VIEW: ColumnViewScope = { scope: INVOICING_SCOPE, default
 const FIXED_QUEUE_COLUMNS = [FIRST_QUEUE_COLUMN];
 
 // The stage tabs, set apart by thin lines.
-const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean }[] = [
+const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean; title?: string }[] = [
   { key: "all", label: "All" },
   { key: "to_bill", label: "To bill", dividerBefore: true },
   { key: "invoiced", label: "Invoiced", dividerBefore: true },
+  // A check (P16): jobs that read Invoiced while a charge is still on no invoice - or a credit is
+  // owed to the customer (M3), however long ago the job was invoiced. Its count is there only once
+  // the tab is opened - it reads every invoiced job.
+  {
+    key: "invoiced_charges_open",
+    label: "Invoiced, charges or credits open",
+    title: "Marked Invoiced, not every charge on an invoice - or a credit owed to the customer",
+  },
   // Not released by operations yet, so not to be invoiced from here: what finance chases.
   { key: "unbilled_arrivals", label: "Unbilled arrivals", dividerBefore: true },
 ];
@@ -242,6 +251,8 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   let emptyText =
     view === "invoiced"
       ? "No invoiced jobs yet."
+      : view === "invoiced_charges_open"
+        ? "Every job marked Invoiced has all its charges on an invoice, and owes no credit."
       : view === "unbilled_arrivals"
         ? "No unbilled arrivals — a job appears here once its tax date has happened (it arrived, departed or was delivered) and operations hasn't set its Shipment Status to Billing yet."
         : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing.";
@@ -268,6 +279,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
                     type="button"
                     role="tab"
                     aria-selected={active}
+                    title={t.title}
                     onClick={() => setView(t.key)}
                     // the colours of the app's tab strip (RecordTabs), with a count on each tab
                     className={`flex items-center gap-2 h-full px-2 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-[13px] whitespace-nowrap transition-colors ${

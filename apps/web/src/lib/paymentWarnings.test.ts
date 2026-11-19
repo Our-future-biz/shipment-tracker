@@ -9,6 +9,7 @@ import {
   releasedEditStop,
   releaseElsewhereText,
   releaseStopLikely,
+  uninvoicedReleaseLine,
   releaseStopNote,
   releaseStopOf,
   unbilledLine,
@@ -250,6 +251,13 @@ describe("the prepayment stop (step 7): told apart from other refusals", () => {
     expect(releaseStopLikely(check({ prepayment: false, customerOverdueCount: 2 }))).toBe(false);
     expect(releaseStopLikely(check({ prepayment: true, unpaid: [] }))).toBe(false);
     expect(releaseStopLikely(undefined)).toBe(false);
+    // Mock test council n6: the stop before any invoice - on prepayment, selling not invoiced yet.
+    expect(releaseStopLikely(check({ prepayment: true, unpaid: [], prepaymentUninvoiced: [{ currency: "EUR", amount: 825 }] }))).toBe(true);
+    expect(releaseStopLikely(check({ prepayment: true, unpaid: [], prepaymentUninvoiced: [{ currency: "EUR", amount: 0 }] }))).toBe(false);
+    expect(uninvoicedReleaseLine(check({ prepaymentUninvoiced: [{ currency: "EUR", amount: 825 }, { currency: "CZK", amount: 200 }] }))).toMatch(
+      /^Not invoiced yet: 825\.00 EUR, 200\.00 CZK - it is released once it is invoiced and paid\.$/,
+    );
+    expect(uninvoicedReleaseLine(check())).toBeNull();
     expect(releaseStopNote(false)).toBe("This release is stopped for prepayment customers: a manager can release with a reason.");
     expect(releaseStopNote(true)).toContain("as a manager you can release with a reason");
   });

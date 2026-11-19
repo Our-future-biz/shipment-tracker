@@ -6,7 +6,7 @@ const history = vi.hoisted(() => ({ latestByShipmentIds: vi.fn() }));
 const holidays = vi.hoisted(() => ({ _internalHolidaysCzNational: vi.fn() }));
 const customers = vi.hoisted(() => ({ _internalCustomerCreditFacts: vi.fn() }));
 const fx = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
-const invoicing = vi.hoisted(() => ({ _internalOperationsMoney: vi.fn() }));
+const invoicing = vi.hoisted(() => ({ _internalOperationsMoney: vi.fn(), _internalCreditOwedShipments: vi.fn() }));
 const team = vi.hoisted(() => ({ cockpitUsers: vi.fn(), teamFacts: vi.fn() }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
@@ -101,6 +101,8 @@ const money = (shipmentId: string, over: Partial<InvoicingMoneyJob> = {}): Invoi
   shipmentId,
   notYetInvoiced: [],
   untickedSelling: [],
+  creditOwed: [],
+  lateChargeSince: null,
   sellingLines: 2,
   costLines: 2,
   totals: totals(),
@@ -125,6 +127,7 @@ beforeEach(() => {
   history.latestByShipmentIds.mockResolvedValue([]);
   holidays._internalHolidaysCzNational.mockResolvedValue({ dates: [] });
   customers._internalCustomerCreditFacts.mockResolvedValue({ customers: [] });
+  invoicing._internalCreditOwedShipments.mockResolvedValue({ shipmentIds: [] });
   fx.fxRatesOn.mockResolvedValue({ date: "2026-11-18", fixingDate: "2026-11-18", rates: [{ currency: "EUR", rate: 25 }] });
   invoicingAnswers();
   team.cockpitUsers.mockResolvedValue(USERS);
@@ -139,7 +142,8 @@ describe("the Money tab's reads", () => {
     const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
     // One statement for the active jobs and those invoiced within the last 90 days, each up to its own limit: one more of each than is kept.
     expect(shipments.managersMoneyRows).toHaveBeenCalledTimes(1);
-    expect(shipments.managersMoneyRows).toHaveBeenCalledWith(COMPANY, "2026-08-20", { active: COCKPIT_JOB_LIMIT + 1, invoiced: MONEY_INVOICED_JOB_LIMIT + 1 });
+    // Besides them the jobs owing a credit, by id: none here.
+    expect(shipments.managersMoneyRows).toHaveBeenCalledWith(COMPANY, "2026-08-20", { active: COCKPIT_JOB_LIMIT + 1, invoiced: MONEY_INVOICED_JOB_LIMIT + 1 }, []);
     const ids = ["id-1", "id-2", "id-3"];
     expect(invoicing._internalOperationsMoney).toHaveBeenCalledTimes(1);
     // With each job's dates: Invoicing values a job whose rates are not fixed by them, and fixes nothing.
@@ -317,6 +321,32 @@ describe("the jobs that read Invoiced", () => {
     expect(m.tiles).toMatchObject({ notYetInvoiced: [{ currency: "CZK", amount: 1099 }], notYetInvoicedCzk: { amount: 1099, label: "" }, notYetInvoicedJobs: 2 });
     expect(m.people).toEqual([person("jan@firma.cz", { notYetInvoiced: [{ currency: "CZK", amount: 1099 }], jobsAtLoss: 1 })]);
     expect(m).toMatchObject({ capped: false, notKnown: [] });
+  });
+
+  it("reads the invoiced jobs owing a credit however long ago they were invoiced, past the limit too (M3)", async () => {
+    const invoiced = (n: number) => Array.from({ length: n }, (_, i) => row(10_000 + i, INVOICED));
+    const owedLongAgo = row(99, INVOICED);
+    invoicing._internalCreditOwedShipments.mockResolvedValue({ shipmentIds: [owedLongAgo.id] });
+    givenJobs([...invoiced(MONEY_INVOICED_JOB_LIMIT), owedLongAgo]);
+    invoicingAnswers({ [owedLongAgo.id]: { creditOwed: [{ currency: "CZK", amount: 50 }] } });
+    const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
+    // Asked for by id, beside the lately invoiced ones - and not left out for their limit, nor counted in it.
+    expect(shipments.managersMoneyRows).toHaveBeenCalledWith(COMPANY, expect.any(String), expect.any(Object), [owedLongAgo.id]);
+    expect(invoicing._internalOperationsMoney.mock.calls.flatMap((call) => call[0].shipmentIds)).toContain(owedLongAgo.id);
+    expect(m.capped).toBe(false);
+    expect(m.attention.rows.concat(m.urgent.rows).find((r) => r.jobNumber === owedLongAgo.jobNumber)?.tags.map((t) => t.text)).toEqual([
+      expect.stringContaining("Credit owed"),
+    ]);
+
+    // Not known which jobs owe a credit: read as before, and said.
+    forgetMoneyAnswers();
+    vi.clearAllMocks();
+    invoicing._internalCreditOwedShipments.mockRejectedValue(new Error("invoicing down"));
+    givenJobs([row(1)]);
+    invoicingAnswers();
+    const without = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
+    expect(shipments.managersMoneyRows).toHaveBeenCalledWith(COMPANY, expect.any(String), expect.any(Object), []);
+    expect(without.notKnown).toContain(MONEY_NOT_KNOWN.creditOwed);
   });
 
   it("keeps two thousand active jobs and a thousand invoiced ones, and says capped when there were more of either", async () => {

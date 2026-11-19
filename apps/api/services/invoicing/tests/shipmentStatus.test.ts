@@ -77,20 +77,27 @@ describe("a domestic road job", () => {
 describe("chargeChangeOf (a selling line written after invoicing)", () => {
   const v = (amount: string | null, qty: string | null = "1") => ({ amount, qty });
 
-  it("is 'added' when the line becomes a charge or a charge's value changes: the job has a charge not invoiced", () => {
+  it("is 'added' when the line asks the customer for more: a new charge, a value given, or raised", () => {
     expect(chargeChangeOf(null, v("300"))).toBe("added");
     expect(chargeChangeOf(v("0"), v("300"))).toBe("added");
     expect(chargeChangeOf(v(null), v("300"))).toBe("added");
     expect(chargeChangeOf(v("300"), v("320"))).toBe("added");
     expect(chargeChangeOf(v("150", "2"), v("150", "3"))).toBe("added");
-    // A negative line counts as one too, as countInvoicedLines counts it.
-    expect(chargeChangeOf(null, v("-50"))).toBe("added");
+    expect(chargeChangeOf(v("-50"), v("20"))).toBe("added");
+  });
+
+  it("is null for a line below nothing or a value lowered above nothing: a credit owed sends no job back (Y1 / P1)", () => {
+    expect(chargeChangeOf(null, v("-50"))).toBeNull();
+    expect(chargeChangeOf(v("-50"), v("-80"))).toBeNull();
+    expect(chargeChangeOf(v("-50"), null)).toBeNull();
+    expect(chargeChangeOf(v("320"), v("300"))).toBeNull();
   });
 
   it("is 'removed' when a charge is deleted or set to nothing: the rest may now all be invoiced", () => {
     expect(chargeChangeOf(v("300"), null)).toBe("removed");
     expect(chargeChangeOf(v("300"), v("0"))).toBe("removed");
     expect(chargeChangeOf(v("300", "2"), v("300", "0"))).toBe("removed");
+    expect(chargeChangeOf(v("300"), v("-10"))).toBe("removed");
   });
 
   it("is null when the job's charges are as they were", () => {

@@ -73,7 +73,18 @@ async function suppliersOf(ids: string[]): Promise<Map<string, MoneySupplierFact
   return out;
 }
 
+/** Jobs owing a credit the Money tab is told of at most, the newest first (as many as it reads invoiced jobs). */
+export const CREDIT_OWED_JOB_LIMIT = 1000;
+
 class OperationsMoneyService {
+  /**
+   * The company's jobs that owe their customer a credit (M3): the Money tab reads them besides the jobs invoiced lately,
+   * so a price lowered long after the invoice still shows until a credit note gives it. Read only.
+   */
+  async creditOwedJobs(companyId: string): Promise<string[]> {
+    return invoiceRepository.creditOwedShipmentIds(companyId, CREDIT_OWED_JOB_LIMIT);
+  }
+
   async forJobs(companyId: string, shipmentIds: string[], jobDates: OperationsMoneyJobDates[] = []): Promise<OperationsMoney> {
     const asked = [...new Set(shipmentIds.map((id) => id.trim().toLowerCase()))];
     const ids = asked.filter(isUuid);

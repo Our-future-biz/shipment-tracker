@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasLineValue, invoicedLineCount } from "./lineCounts";
+import { hasLineValue, invoicedLineCount, linesInvoicedCell } from "./lineCounts";
 
 const row = (id: string, amount: string | null = "100.00", qty: string | null = "1.00") => ({ id, amount, qty });
 const doc = (kind: "invoice" | "credit_note", status: "issued" | "credited", ids: (string | null)[]) => ({
@@ -34,5 +34,19 @@ describe("hasLineValue", () => {
     expect(hasLineValue({ amount: "100.00", qty: "0" })).toBe(false);
     expect(hasLineValue({ amount: "0.00", qty: "1" })).toBe(false);
     expect(hasLineValue({ amount: null, qty: "1" })).toBe(false);
+  });
+});
+
+describe("linesInvoicedCell (the queue's Lines Invoiced, M3)", () => {
+  it("shows the charges invoiced, and a credit owed even when every charge is invoiced", () => {
+    expect(linesInvoicedCell({ sellingLines: 3, invoicedLines: 2, creditsOwed: 0 })).toEqual({ count: "2/3", done: false, creditOwed: false, title: "2 of 3 selling lines invoiced" });
+    expect(linesInvoicedCell({ sellingLines: 2, invoicedLines: 2, creditsOwed: 1 })).toEqual({
+      count: "2/2",
+      done: true,
+      creditOwed: true,
+      title: "2 of 2 selling lines invoiced; a credit owed to the customer - give it on a credit note",
+    });
+    expect(linesInvoicedCell({ sellingLines: 0, invoicedLines: 0, creditsOwed: 2 })).toMatchObject({ count: "", creditOwed: true, title: "2 credits owed to the customer - give it on a credit note" });
+    expect(linesInvoicedCell({ sellingLines: 0, invoicedLines: 0, creditsOwed: 0 })).toBeNull();
   });
 });

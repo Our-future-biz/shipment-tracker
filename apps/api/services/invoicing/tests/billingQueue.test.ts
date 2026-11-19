@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBillingQueue, countInvoicedLines, type QueueOpenInvoice, type QueueSellingRow } from "../lib/billingQueue";
+import { buildBillingQueue, countCreditsOwed, countInvoicedLines, type QueueOpenInvoice, type QueueSellingRow } from "../lib/billingQueue";
 
 const rates = { CZK: 1, EUR: 25, USD: 22 };
 const row = (id: string, shipmentId: string, amount: string, currency = "CZK", qty: string | null = "1.00"): QueueSellingRow => ({
@@ -78,7 +78,42 @@ describe("countInvoicedLines", () => {
     expect(counts.get("s2")).toEqual({ invoiced: 0, total: 1 });
   });
 
+  it("leaves a line below nothing on no invoice out: a credit owed, not a charge to bill (Y1 / P1)", () => {
+    const counts = countInvoicedLines(
+      [row("a", "s1", "1000.00"), row("diff", "s1", "-50.00"), row("disc", "s2", "-20.00"), row("b", "s2")],
+      [{ sourceSellingCostIds: ["a", "b", "disc"] }],
+    );
+    // The open −50 does not keep the job from reading Invoiced.
+    expect(counts.get("s1")).toEqual({ invoiced: 1, total: 1 });
+    // On an invoice (a discount billed with the rest, or settled by a partial credit note) it counts as invoiced.
+    expect(counts.get("s2")).toEqual({ invoiced: 2, total: 2 });
+  });
+
   it("has no entry for a job without lines", () => {
     expect(countInvoicedLines([], []).get("s1")).toBeUndefined();
+  });
+});
+
+describe("countCreditsOwed (M3)", () => {
+  const row = (id: string, shipmentId: string, amount: string | null, qty: string | null = "1.00") => ({ id, shipmentId, qty, amount });
+
+  it("counts a job's lines below nothing on no open invoice, only when the job has one", () => {
+    const owed = countCreditsOwed(
+      [
+        row("a", "s1", "1000.00"),
+        row("diff", "s1", "-50.00"),
+        // settled by a partial credit note: its line is on it
+        row("settled", "s1", "-20.00"),
+        // a discount of a job not invoiced yet: billed with the rest, owed to nobody
+        row("disc", "s2", "-30.00"),
+        row("blank", "s3", "-10.00", null),
+        row("zero", "s3", "-10.00", "0"),
+      ],
+      [
+        { shipmentId: "s1", sourceSellingCostIds: ["a", "settled"] },
+        { shipmentId: "s3", sourceSellingCostIds: [] },
+      ],
+    );
+    expect([...owed]).toEqual([["s1", 1], ["s3", 1]]);
   });
 });

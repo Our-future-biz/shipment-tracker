@@ -438,6 +438,13 @@ export interface MasterJobItem {
 
   /** Number of live shipments linked to this master job. */
   shipmentCount: number;
+  /**
+   * The distinct Load Types of its live shipments, as first written: a plain MCZ takes their filling
+   * (lib/masterJobKind), judged by all of them - not only the shipments a page has loaded (n32).
+   */
+  houseLoadTypes: string[];
+  /** The one Freight Mode its live shipments share; "" for none or several. Named and served by it while it has no Freight Mode (n31). */
+  houseFreightMode: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -495,6 +502,8 @@ export interface MasterJobShipmentItem {
   status: string;
   /** As stored ("Full Load", "Consolidation", "Project Shipment"); "" when none. A plain master job takes the filling of its houses (lib/masterJobKind). */
   loadType: string;
+  /** As stored ("Sea Freight", "Air Freight", …); "" when none. A master job with no Freight Mode goes by its houses' one (n31). */
+  freightMode: string;
   /** The house's own container numbers, comma separated. */
   containerNumber: string;
   /** Who may take it off the master job besides a manager (lib/shipmentEditRule): its Person in Charge and Holiday Cover. */

@@ -228,6 +228,24 @@ describe("trip fill and warnings", () => {
     expect(ok).toEqual([]);
   });
 
+  // lib/workingDays addWorkingDays counts n working days after the day itself, also from a weekend
+  // or a holiday (n20): a trip on such a day gets there one working day sooner than when the count
+  // first rolled forward to the next working day. Pinned so the change is intended.
+  it("counts a trip's transit from a weekend or holiday date: a Saturday pick-up run arrives Monday, not Tuesday", () => {
+    const warn = (kind: "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN", date: string, promisedDate: string, extraHolidays: string[] = []) =>
+      tripWarnings({ kind, date, capacity: null, fill: tripFill([], null), haulierName: "Bravo", haulierAdrCapable: true, legs: [leg({ promisedDate })], extraHolidays });
+    // Saturday 17 Oct: 1 working day of transit is Monday 19.
+    expect(warn("PICKUP_RUN", "2026-10-17", "2026-10-19")).toEqual([]);
+    expect(warn("PICKUP_RUN", "2026-10-17", "2026-10-18")).toEqual(["TCZ2026000001 is promised for 18 Oct 2026, before this trip can get it there (19 Oct 2026)"]);
+    // A line-haul on Wednesday 28 Oct, a CZ holiday: Thursday 29 (was Friday 30).
+    expect(warn("LINEHAUL", "2026-10-28", "2026-10-29")).toEqual([]);
+    // A company holiday the same: a line-haul on Tue 20 Oct off arrives Wed 21.
+    expect(warn("LINEHAUL", "2026-10-20", "2026-10-21", ["2026-10-20"])).toEqual([]);
+    // A delivery run on a Saturday still delivers on the next working day, Monday 19.
+    expect(warn("DELIVERY_RUN", "2026-10-17", "2026-10-16")).toEqual(["TCZ2026000001 is promised for 16 Oct 2026, before this trip can get it there (19 Oct 2026)"]);
+    expect(warn("DELIVERY_RUN", "2026-10-17", "2026-10-19")).toEqual([]);
+  });
+
   it("keeps the stop order, drops removed legs, puts new legs last; a given order must name every leg once", () => {
     expect(nextStopOrder(["a", "b", "c"], ["c", "a", "d"], null)).toEqual(["a", "c", "d"]);
     expect(nextStopOrder(["a", "b"], ["a", "b"], ["b", "a"])).toEqual(["b", "a"]);

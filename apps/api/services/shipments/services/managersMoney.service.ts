@@ -43,8 +43,10 @@ import { cockpitUsers } from "./managersCockpitTeam.service";
 // work not yet invoiced is converted at (labelled with its fixing's day, and as old when fx says
 // a newer fixing was not imported).
 //
-// Per answer that is read: the jobs (one statement, with each job's customer: the active ones and
-// the invoiced ones each up to a limit of its own), the users and the holidays (a call each), and
+// Per answer that is read: the jobs Invoicing says owe their customer a credit (a call, M3: read
+// however long ago they were invoiced), the jobs (one statement, with each job's customer: the active
+// ones and the invoiced ones each up to a limit of its own, and those owing a credit), the users and
+// the holidays (a call each), and
 // then, through one limiter (lib/readLimiter, COCKPIT_READS_AT_ONCE at a time):
 //   open cost claims      one statement
 //   in Billing since      one statement of the history, for the active jobs in Billing only (none: no statement)
@@ -76,6 +78,8 @@ export const MONEY_NOT_KNOWN = {
   rates: "today's ČNB rates",
   // The people line's "not a user" is said of nobody without them, as the cockpit's own tile.
   users: "who in Handled By is not a user",
+  // Without it the jobs invoiced longer ago than the lookback are not read, as before: their credit owed is not said.
+  creditOwed: "credits owed on jobs invoiced longer ago",
 } as const;
 
 /** A part that may fail without taking the answer with it: null when it did. */
@@ -112,21 +116,26 @@ interface JobsRead {
  * One statement, the newest first: the active jobs and the invoiced ones, each group up to its
  * own limit - so a company with more active jobs than are kept still has its invoiced ones read,
  * and the capped note says what is true of both. One more of each than is kept is asked for, so
- * "capped" means some were left out - of either.
+ * "capped" means some were left out - of either. The invoiced jobs owing a credit (`creditOwed`,
+ * M3) are read however long ago they were invoiced, and always kept: the limit is the others'.
  */
-async function moneyJobsRead(companyId: string, today: string): Promise<JobsRead> {
-  const rows: MoneyRow[] = await shipmentRepository.managersMoneyRows(companyId, addDays(today, -MONEY_INVOICED_LOOKBACK_DAYS), {
-    active: COCKPIT_JOB_LIMIT + 1,
-    invoiced: MONEY_INVOICED_JOB_LIMIT + 1,
-  });
+async function moneyJobsRead(companyId: string, today: string, creditOwed: readonly string[]): Promise<JobsRead> {
+  const rows: MoneyRow[] = await shipmentRepository.managersMoneyRows(
+    companyId,
+    addDays(today, -MONEY_INVOICED_LOOKBACK_DAYS),
+    { active: COCKPIT_JOB_LIMIT + 1, invoiced: MONEY_INVOICED_JOB_LIMIT + 1 },
+    creditOwed,
+  );
+  const owed = new Set(creditOwed);
   const isInvoiced = (row: MoneyRow) => row.invoicingStatus === INVOICED_STATUS;
   const active = rows.filter((r) => !isInvoiced(r));
   const invoiced = rows.filter(isInvoiced);
-  const kept = invoiced.slice(0, MONEY_INVOICED_JOB_LIMIT);
+  const lately = invoiced.filter((r) => !owed.has(r.id));
+  const kept = [...lately.slice(0, MONEY_INVOICED_JOB_LIMIT), ...invoiced.filter((r) => owed.has(r.id))];
   return {
     jobs: [...active.slice(0, COCKPIT_JOB_LIMIT), ...kept],
     invoicedIds: new Set(kept.map((r) => r.id)),
-    capped: active.length > COCKPIT_JOB_LIMIT || invoiced.length > MONEY_INVOICED_JOB_LIMIT,
+    capped: active.length > COCKPIT_JOB_LIMIT || lately.length > MONEY_INVOICED_JOB_LIMIT,
   };
 }
 
@@ -205,7 +214,14 @@ interface MoneyRead {
 
 async function readMoney(companyId: string, filters: MoneyScope, now: Date): Promise<MoneyRead> {
   const today = businessDay(now);
-  const [{ jobs, invoicedIds, capped }, users, uploaded] = await Promise.all([moneyJobsRead(companyId, today), cockpitUsers(), companyHolidays(companyId, today)]);
+  // Which jobs owe a credit, so the jobs' read takes them however long ago invoiced (M3). Not known: read as before.
+  const creditOwed = part(MONEY_NOT_KNOWN.creditOwed, () => invoicing._internalCreditOwedShipments());
+  const [{ jobs, invoicedIds, capped }, users, uploaded, owed] = await Promise.all([
+    creditOwed.then((o) => moneyJobsRead(companyId, today, o?.shipmentIds ?? [])),
+    cockpitUsers(),
+    companyHolidays(companyId, today),
+    creditOwed,
+  ]);
   // As the cockpit: who reports to whom is the users' to say, and an empty page would read as "nobody has anything".
   if (filters.reports === "mine" && !users) throw APIError.unavailable(REPORTS_NOT_KNOWN);
   const userEmails = users && new Set(users.map((u) => u.email));
@@ -260,6 +276,7 @@ async function readMoney(companyId: string, filters: MoneyScope, now: Date): Pro
       ...(statusChanges ? [] : [MONEY_NOT_KNOWN.billingSince]),
       ...(ratesUnread ? [MONEY_NOT_KNOWN.rates] : []),
       ...(users ? [] : [MONEY_NOT_KNOWN.users]),
+      ...(owed ? [] : [MONEY_NOT_KNOWN.creditOwed]),
     ],
     capped,
     mode: filters.mode,
@@ -269,7 +286,8 @@ async function readMoney(companyId: string, filters: MoneyScope, now: Date): Pro
     now,
   };
   // Whole: every part read, every job answered by Invoicing, the rates read where they were needed, the users and the holidays known.
-  const whole = !!money && money.notKnown.length === 0 && ids.every((id) => money.byJob.has(id)) && !!credit && !ratesUnread && !!claims && !!statusChanges && users !== null && uploaded !== null;
+  const whole =
+    !!money && money.notKnown.length === 0 && ids.every((id) => money.byJob.has(id)) && !!credit && !ratesUnread && !!claims && !!statusChanges && users !== null && uploaded !== null && !!owed;
   return { facts, whole };
 }
 

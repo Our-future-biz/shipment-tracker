@@ -13,6 +13,8 @@ import {
   coverClearedLine,
   coverSetLine,
   emailKey,
+  leaverCover,
+  overNotKnown,
   planOpenCovers,
   setDecision,
   standingCovers,
@@ -78,6 +80,54 @@ async function liveUserIds(): Promise<Set<string> | null> {
   }
 }
 
+/** How long a leaver's cover kept on a job (P12) is not read again: its job is checked at most once a day. */
+export const KEPT_RECHECK_MS = 24 * 3_600_000;
+/** At most this many jobs of leavers' kept covers are read in one company's run (they cost no write budget). */
+export const KEPT_READS_PER_RUN = 100;
+
+/**
+ * The leavers' covers kept (P12) and when each one's job was last read: a kept cover is cleared only once its
+ * job is handed over or no longer active, which no run of 15 minutes needs to see at once - and every one of
+ * them would be read again on every run, without the run's limit on jobs. In memory: a restarted service reads
+ * each once more, and a cover found to go is forgotten.
+ */
+export class KeptCovers {
+  readonly #checkedAt = new Map<string, number>();
+
+  /** Whether the row's job was read within KEPT_RECHECK_MS of `now` and is skipped this run. */
+  checkedLately(rowId: string, now: Date): boolean {
+    const at = this.#checkedAt.get(rowId);
+    return at !== undefined && now.getTime() - at < KEPT_RECHECK_MS;
+  }
+
+  /** The row was read now and its cover kept. */
+  kept(rowId: string, now: Date): void {
+    this.#checkedAt.set(rowId, now.getTime());
+  }
+
+  /** The row's cover went (cleared, closed, failed to be read): it is read on the next run as any other. */
+  forget(rowId: string): void {
+    this.#checkedAt.delete(rowId);
+  }
+
+  /** Drops what is older than a day, so the list holds no more than the covers kept lately. */
+  prune(now: Date): void {
+    for (const [id, at] of this.#checkedAt) if (now.getTime() - at >= KEPT_RECHECK_MS) this.#checkedAt.delete(id);
+  }
+
+  get size(): number {
+    return this.#checkedAt.size;
+  }
+
+  /** Forgets every row (tests start each case from none). */
+  clear(): void {
+    this.#checkedAt.clear();
+  }
+}
+
+/** The service's own list (one per running service). */
+export const keptCovers = new KeptCovers();
+
 const changedMeanwhile = (err: unknown) => err instanceof APIError && err.message === CHANGED_MEANWHILE;
 const jobGone = (err: unknown) => err instanceof APIError && err.code === "not_found";
 
@@ -96,6 +146,8 @@ class AbsenceCoverService {
     const plans = planOpenCovers((await covers.openOfCompany(companyId)).map(toOpen), absences);
     // Whether a user whose absence is over has left the company is said in the job's line: asked only when a cover is to be cleared so.
     const live = plans.some((p) => p.action === "clear" && p.why === "over") ? await liveUserIds() : null;
+    keptCovers.prune(now);
+    let keptReads = 0;
     for (const plan of plans) {
       if (plan.action === "keep") continue;
       if (plan.action === "move") {
@@ -113,11 +165,22 @@ class AbsenceCoverService {
         }
         continue;
       }
+      // Deleted, or its user left - not known while the users can't be read: the next run tells (P12).
+      if (overNotKnown(plan.why, plan.row, absences, live)) continue;
+      const why = clearWhy(plan.why, plan.row.absentUserId, live);
+      // A leaver's cover kept on its job lately (P12): not read again before a day has passed - and no more such
+      // reads than KEPT_READS_PER_RUN in one run (those left are read by the next run: they are not marked read).
+      if (why === "left" && (keptCovers.checkedLately(plan.row.id, now) || keptReads >= KEPT_READS_PER_RUN)) continue;
       if (budget <= 0) break;
       budget--;
-      const outcome = await this.#clear(actor, plan.row, clearWhy(plan.why, plan.row.absentUserId, live), now);
+      const outcome = await this.#clear(actor, plan.row, why, now);
+      if (outcome === "kept") {
+        keptCovers.kept(plan.row.id, now);
+        keptReads++;
+      } else keptCovers.forget(plan.row.id);
       if (outcome === "cleared") result.cleared++;
       else if (outcome === "left") result.left++;
+      else if (outcome === "kept") budget++;
       else result.failed++;
     }
 
@@ -174,8 +237,9 @@ class AbsenceCoverService {
     }
   }
 
-  // Clears the cover a row set, where the job still holds it; the row is closed either way, but when the write failed.
-  async #clear(actor: { companyID: string; userID: string }, row: OpenCover, why: ClearWhy, now: Date): Promise<"cleared" | "left" | "failed"> {
+  // Clears the cover a row set, where the job still holds it; the row is closed either way, but when the write failed -
+  // or the cover is a leaver's on a job that still names them in Handled By ("kept": it stays until handed over, P12).
+  async #clear(actor: { companyID: string; userID: string }, row: OpenCover, why: ClearWhy, now: Date): Promise<"cleared" | "left" | "kept" | "failed"> {
     const companyId = actor.companyID;
     const close = async (outcome: "cleared" | "changed" | "gone") => {
       await covers.close(companyId, row.id, outcome, now);
@@ -188,6 +252,11 @@ class AbsenceCoverService {
       const job = await shipmentRepository.getByIdForCompany(row.shipmentId, companyId);
       if (!job) return await close("gone");
       if (personEmail(job.holidayCover) !== emailKey(row.coverEmail)) return await close("changed");
+      if (why === "left") {
+        const leaver = leaverCover(row, job, isActive(job));
+        if (leaver === "stays") return "kept";
+        if (leaver === "done") return await close("gone");
+      }
       const line = coverClearedLine(row.coverEmail, { name: row.absentName, email: row.absentEmail }, why);
       await shipmentService.update(row.shipmentId, companyId, { holidayCover: "" }, actor.userID, undefined, undefined, stillHolding(row.coverEmail), {
         history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: line }],

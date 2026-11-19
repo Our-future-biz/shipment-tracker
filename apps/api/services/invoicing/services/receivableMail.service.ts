@@ -11,11 +11,12 @@ import { isUuid } from "../../../lib/uuid";
 import { variableSymbol } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { isOwed, type ReceivableState } from "../lib/receivables";
-import { isReminderDay, reminderDue, reminderKey, type ReminderDecision, type ReminderSettings } from "../lib/reminderRules";
+import { bankStatementsStale, isReminderDay, reminderDue, reminderKey, switchOnDayToSet, type ReminderDecision, type ReminderSettings } from "../lib/reminderRules";
 import { mailIssuerOf as issuerOf, reminderText, statementMailText, type MailBank } from "../lib/reminderTexts";
 import { csvText, fileNamePart, languageOf, statementCsv, statementCurrencies, statementOf, type Statement, type StatementLanguage } from "../lib/statement";
 import { renderStatementPdf, STATEMENT_TEXTS, type StatementIssuer } from "../lib/statementPdf";
 import { invoiceRepository } from "../repositories/invoice.repository";
+import { bankStatementRepository } from "../repositories/bankStatement.repository";
 import { invoiceProfileRepository } from "../repositories/invoiceProfile.repository";
 import { receivableRepository as repo, type InvoiceFigures } from "../repositories/receivable.repository";
 import { receivableMailRepository as mails } from "../repositories/receivableMail.repository";
@@ -377,9 +378,15 @@ class ReceivableMailService {
    * The daily run: for each company that switched automatic reminders on, reminder 1 and 2 of its overdue invoices
    * (lib/reminderRules), one mail per invoice and level ever. Returns at once, doing nothing, while e-mail from the
    * app is switched off; a company whose settings say off is left out.
+   *
+   * Mock test council P3: a company with them on and no switch-on day yet gets today as that day - the first day e-mail
+   * can really send - and nothing is sent that day (nothing due from today is overdue yet). P11: a company that reads
+   * bank statements but read none since the previous working day is skipped, with a log line saying so (a customer who
+   * paid may be on the statement nobody read yet); one that never read one reminds as before. m5: the skip is counted
+   * (`skippedCompanies`) and kept on the company's settings, which say it ("Skipped on …: no bank statement read since …").
    */
   async runReminders(now: Date = new Date()): Promise<ReceivableReminderRunResult> {
-    const result: ReceivableReminderRunResult = { companies: 0, sent: 0, failed: 0, skipped: 0 };
+    const result: ReceivableReminderRunResult = { companies: 0, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 };
     if (!emailConfigured()) return result;
     const today = businessDay(now);
     // Only on a Czech working day (K8): a weekend or a statutory holiday sends nothing; a company's own holiday below.
@@ -390,6 +397,24 @@ class ReceivableMailService {
         if (!settings.autoReminders) continue;
         const extra = await companyHolidaysOf(companyId, today);
         if (!isReminderDay(today, extra)) continue;
+        const startDay = switchOnDayToSet({ autoReminders: settings.autoReminders, emailOn: true, autoRemindersSince: settings.autoRemindersSince }, today);
+        if (startDay) {
+          const set = await repo.setAutoRemindersSinceIfMissing(companyId, startDay);
+          log.info("automatic reminders start today: only invoices due from today on are reminded, nothing is sent today", { companyId, day: startDay, set });
+          continue;
+        }
+        const lastImport = await bankStatementRepository.lastImportAt(companyId);
+        const lastImportDay = lastImport ? businessDay(lastImport) : null;
+        if (bankStatementsStale(lastImportDay, today, extra)) {
+          log.warn("automatic reminders skipped today: no bank statement was read since the previous working day, so a payment may not be known yet", {
+            companyId,
+            lastImportDay,
+          });
+          result.skippedCompanies += 1;
+          await repo.noteRemindersSkipped(companyId, today, lastImportDay);
+          continue;
+        }
+        await repo.clearRemindersSkipped(companyId);
         result.companies += 1;
         const counts = await this.runCompany(companyId, settings, today, extra);
         result.sent += counts.sent;
@@ -407,14 +432,20 @@ class ReceivableMailService {
     settings: ReminderSettings & { replyTo: string },
     today: string,
     holidayDays: readonly string[] = [],
-  ): Promise<Omit<ReceivableReminderRunResult, "companies">> {
+  ): Promise<Omit<ReceivableReminderRunResult, "companies" | "skippedCompanies">> {
     const counts = { sent: 0, failed: 0, skipped: 0 };
     // Read only (as the bell reads): the overdue invoices, the oldest due first - only those due around or after the
     // day the reminders were switched on (L2): the older ones are never reminded by the app, and read first they would
     // take the whole limit.
     if (!settings.autoRemindersSince) return counts;
     const dueFrom = addDays(settings.autoRemindersSince, -SWITCH_ON_MARGIN_DAYS);
-    const figures = await repo.figures(companyId, { overdueOn: today, dueFrom }, RUN_LIMIT);
+    // Mock test council n3: the read leaves out what the run never reminds of - reminder 2 sent, disputed, a promise
+    // running, a rest under the floor - so they never take the limit from those it does.
+    const read = await repo.figures(companyId, { overdueOn: today, dueFrom, remindable: true }, RUN_LIMIT + 1);
+    if (read.length > RUN_LIMIT) {
+      log.warn("automatic reminders: more overdue invoices than one run reads - the oldest due are reminded today, the rest on the next runs", { companyId, limit: RUN_LIMIT });
+    }
+    const figures = read.slice(0, RUN_LIMIT);
     if (!figures.length) return counts;
     // A payment read from a bank statement and not confirmed yet may be for one of them (X5): that one waits. When the
     // statements can't be read, none is sent today (the customer may have paid).

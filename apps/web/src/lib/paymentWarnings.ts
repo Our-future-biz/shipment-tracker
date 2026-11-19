@@ -13,6 +13,11 @@ export interface ReleaseCheckFacts {
   prepayment: boolean;
   customerOverdueCount: number;
   unpaid: { invoiceId: string; number: string; leftToPay: number; currency: string; daysOverdue: number }[];
+  /**
+   * The customer is on prepayment and the job has selling not yet invoiced (the stop before any invoice, mock test
+   * council L3, n6): per currency, net as priced. Absent from an older server.
+   */
+  prepaymentUninvoiced?: { currency: string; amount: number }[];
 }
 
 /** A customer's limit and what it owes (D21), as the server answers it. */
@@ -210,10 +215,18 @@ export function releaseStopOf(err: unknown): ReleaseStop | null {
 
 /**
  * Whether the release check already says the server will stop the release: the job has an invoice on prepayment
- * that is not paid. Only to word the dialog - the server decides, and nothing is stopped here.
+ * that is not paid, or - the customer on prepayment - selling not invoiced yet (mock test council n6, the stop before
+ * any invoice). Only to word the dialog - the server decides, and nothing is stopped here.
  */
-export const releaseStopLikely = (check: Pick<ReleaseCheckFacts, "prepayment" | "unpaid"> | null | undefined): boolean =>
-  !!check && check.prepayment && check.unpaid.some((u) => roundCents(u.leftToPay) > 0);
+export const releaseStopLikely = (check: Pick<ReleaseCheckFacts, "prepayment" | "unpaid" | "prepaymentUninvoiced"> | null | undefined): boolean =>
+  !!check && check.prepayment && (check.unpaid.some((u) => roundCents(u.leftToPay) > 0) || (check.prepaymentUninvoiced ?? []).some((a) => roundCents(a.amount) > 0));
+
+/** "Not invoiced yet: 825.00 EUR" - the selling the stop before any invoice is about (n6); null when none. */
+export function uninvoicedReleaseLine(check: Pick<ReleaseCheckFacts, "prepaymentUninvoiced"> | null | undefined): string | null {
+  const amounts = (check?.prepaymentUninvoiced ?? []).filter((a) => roundCents(a.amount) > 0);
+  if (!amounts.length) return null;
+  return `Not invoiced yet: ${amounts.map((a) => fmtMoney(a.amount, a.currency, true)).join(", ")} - it is released once it is invoiced and paid.`;
+}
 
 /** The dialog's line when the check says the release will be stopped. */
 export function releaseStopNote(manager: boolean): string {

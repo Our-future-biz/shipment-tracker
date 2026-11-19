@@ -15,6 +15,7 @@ const repo = vi.hoisted(() => ({
   confirm: vi.fn(),
   ignore: vi.fn(),
   takenBack: vi.fn(),
+  takenBackKinds: vi.fn(),
 }));
 vi.mock("../../repositories/bankStatement.repository", () => ({ bankStatementRepository: repo }));
 const receivables = vi.hoisted(() => ({ list: vi.fn(), detail: vi.fn(), prepareInvoices: vi.fn(), noteAllocations: vi.fn() }));
@@ -137,6 +138,8 @@ beforeEach(() => {
   repo.fileNames.mockResolvedValue(new Map());
   repo.statusCounts.mockResolvedValue([]);
   repo.takenBack.mockResolvedValue(new Set());
+  // The kinds as the take-backs say (a test that names reversed ones sets them itself).
+  repo.takenBackKinds.mockImplementation(async (c: string, ids: string[]) => ({ takenBack: await repo.takenBack(c, ids), reversed: new Set<string>() }));
   followups.deliverInvoiceFollowups.mockResolvedValue(undefined);
   owed(row());
 });
@@ -191,6 +194,19 @@ describe("opening a statement", () => {
     expect(d.entries[1]).toMatchObject({ status: "confirmed", firstReadIn: { statementId: ST_OLD, fileName: "vypis-older.xml" }, unallocated: 500, decidedBy: "petr@cto.cz" });
     expect(d.statement.counts).toMatchObject({ toDecide: 1, noMatch: 1, seenBefore: 1 });
     expect(d).toMatchObject({ canAct: true, fileKept: false, candidatesCapped: false });
+  });
+
+  it("proposes no invoice issued after the entry was booked - a confirm would refuse it - unless on prepayment or issued again (Y2)", async () => {
+    repo.entriesOf.mockResolvedValue([entry({ amount: "1210.00" })]);
+    // Booked on the 17th; the invoice issued on the 18th.
+    owed(row({ issueDate: "2026-11-18", paymentTerms: "14 days" }));
+    expect((await service.detail(manager, ST)).entries[0]).toMatchObject({ status: "no_match", candidates: [] });
+    owed(row({ issueDate: "2026-11-18", paymentTerms: "PREPAYMENT" }));
+    expect((await service.detail(manager, ST)).entries[0]!.candidates.map((c) => c.invoiceId)).toEqual([INV_A]);
+    owed(row({ issueDate: "2026-11-18", paymentTerms: "14 days", issuedAgainFrom: "2026-11-10" }));
+    expect((await service.detail(manager, ST)).entries[0]!.candidates.map((c) => c.invoiceId)).toEqual([INV_A]);
+    owed(row({ issueDate: "2026-11-17", paymentTerms: "14 days" }));
+    expect((await service.detail(manager, ST)).entries[0]!.candidates.map((c) => c.invoiceId)).toEqual([INV_A]);
   });
 
   it("is for managers only, the list too: a statement shows money out with names, accounts and messages (X6)", async () => {
@@ -339,6 +355,16 @@ describe("an entry whose payment was taken back", () => {
     ]);
     expect(d.entries[0]!.candidates.map((c) => c.invoiceId)).toEqual([INV_B]);
     expect(d.statement.counts).toMatchObject({ toDecide: 1, confirmed: 0 });
+  });
+
+  it("stays decided when the payment was taken back as reversed (a bank return): the money went back, nothing is free (P8)", async () => {
+    repo.takenBackKinds.mockResolvedValue({ takenBack: new Set(["pay-b"]), reversed: new Set(["pay-b"]) });
+    const d = await service.detail(manager, ST);
+    expect(d.entries[0]).toMatchObject({ status: "confirmed", reopened: false, unallocated: 0 });
+    expect(d.entries[0]!.allocations.map((a) => [a.paymentId, a.takenBack])).toEqual([
+      ["pay-a", false],
+      ["pay-b", true],
+    ]);
   });
 
   it("a manager confirms it again for what is free, with keys of its own, the earlier allocations kept", async () => {

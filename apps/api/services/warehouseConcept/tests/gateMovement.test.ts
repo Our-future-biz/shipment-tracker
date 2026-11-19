@@ -6,14 +6,33 @@ import { gateMovementRepository } from "../repositories/gateMovement.repository"
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateAdminService } from "../services/gateAdmin.service";
 import { reweighService } from "../services/reweigh.service";
-import { passesGivenBack, releaseChecks, releasePasses, shipmentOverrides } from "./shipmentFakes";
+import {
+  customerTermsOf,
+  gateDaysAsked,
+  jobsWithNoCustomer,
+  overrideKeys,
+  passesGivenBack,
+  passesNotGivenBack,
+  releaseChecks,
+  releasedInShipmentsOf,
+  releasePasses,
+  shipmentOverrides,
+  uncheckedRecorded,
+} from "./shipmentFakes";
+import { shipments } from "~encore/clients";
+import { eq } from "drizzle-orm";
+import { db } from "../db/db";
+import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
+import { shipmentOutboxTable } from "../schemas/shipmentOutbox.schema";
+import { deliverDue } from "../services/shipmentOutbox.service";
 
 // Shipments answer from the fakes (the real service needs an authenticated caller).
 vi.mock("~encore/clients", async () => {
   const { getShipment, releasePassFakes } = await import("./shipmentFakes");
   return {
-    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment), ...releasePassFakes },
+    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment), ...releasePassFakes, ...(await import("./shipmentFakes")).shipmentBasicsFake },
     invoicing: (await import("./shipmentFakes")).invoicingFake,
+    customers: (await import("./shipmentFakes")).customersFake,
     auth: (await import("./authFake")).authFake([]),
   };
 });
@@ -164,6 +183,236 @@ describe("gate movement flow", () => {
       expect(released.events.find((e) => e.kind === "paymentOverride")?.label).toBe("WH release on prepayment (payment not checked) - reason: Customer paid, bank slow");
     } finally {
       releaseChecks.delete(shipmentId);
+    }
+  });
+
+  it("does not stop again a job Shipments released first, says so on the record, and leaves its day as set there (Y6)", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    releasedInShipmentsOf.set(shipmentId, { date: "2026-11-18", by: "eva@firma.cz" });
+    const requestId = randomUUID();
+    releasePasses.set(shipmentId, { requestId, reason: "Asked by Jan: x — approved by Eva: y" });
+    try {
+      const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "user");
+      expect(released.impRelease).not.toBeNull();
+      expect(released.events.find((e) => e.kind === "releasedInShipments")?.label).toBe("Released in Shipments on 18.11.2026 by eva@firma.cz");
+      expect(released.events.some((e) => e.kind === "paymentOverride")).toBe(false);
+      // No approval used, no override recorded, and no day sent over the one set in Shipments.
+      expect(releasePasses.has(shipmentId)).toBe(true);
+      expect(shipmentOverrides.some((o) => o.shipmentId === shipmentId)).toBe(false);
+      const rows = await shipmentOutboxRepository.forMovement(m.id, c);
+      expect(rows.some((r) => "warehouseReleasedDate" in r.payload)).toBe(false);
+      const sent = vi.mocked(shipments.shipmentUpdate).mock.calls.map((call) => call[0] as { shipmentId: string; warehouseReleasedDate?: string });
+      expect(sent.some((u) => u.shipmentId === shipmentId && u.warehouseReleasedDate !== undefined)).toBe(false);
+    } finally {
+      releaseChecks.delete(shipmentId);
+      releasedInShipmentsOf.delete(shipmentId);
+      releasePasses.delete(shipmentId);
+    }
+  });
+
+  it("keeps the stop when whether Shipments released the job can't be read (Y6)", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    releasedInShipmentsOf.set(shipmentId, new Error("shipments down"));
+    try {
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/A manager can release it with a reason$/);
+    } finally {
+      releaseChecks.delete(shipmentId);
+      releasedInShipmentsOf.delete(shipmentId);
+    }
+  });
+
+  it("records the override on the shipment through the outbox, ahead of the released day (n27)", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    try {
+      await gateMovementService.stamp(m.id, c, user, "impRelease", "manager", { paymentOverrideReason: "Paid in cash at the gate" });
+      const rows = (await shipmentOutboxRepository.forMovement(m.id, c)).filter((r) => r.kind === "override" || r.kind === "released");
+      expect(rows.map((r) => [r.kind, r.status])).toEqual([
+        ["override", "sent"],
+        ["released", "sent"],
+      ]);
+    } finally {
+      releaseChecks.delete(shipmentId);
+    }
+  });
+
+  it("when Invoicing can't be asked, stops only a customer on prepayment by the Customer Database's terms (P17)", async () => {
+    const c = company();
+    const onTerms = randomUUID();
+    const onPrepayment = randomUUID();
+    const a = await linkedOutbound(c, onTerms);
+    const b = await linkedOutbound(c, onPrepayment);
+    releaseChecks.set(onTerms, new Error("invoicing down"));
+    releaseChecks.set(onPrepayment, new Error("invoicing down"));
+    customerTermsOf.set(onTerms, "14 days net");
+    customerTermsOf.set(onPrepayment, "Prepayment");
+    try {
+      expect((await gateMovementService.stamp(a.id, c, user, "impRelease", "user")).impRelease).not.toBeNull();
+      await expect(gateMovementService.stamp(b.id, c, user, "impRelease", "user")).rejects.toThrow(/Whether the job is paid could not be checked/);
+    } finally {
+      for (const id of [onTerms, onPrepayment]) {
+        releaseChecks.delete(id);
+        customerTermsOf.delete(id);
+      }
+    }
+  });
+
+  it("lets a customer not on prepayment through unchecked, saying so on the record and on the shipment once (P17)", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, new Error("invoicing down"));
+    customerTermsOf.set(shipmentId, "14 days net");
+    try {
+      const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "user");
+      expect(released.impRelease).not.toBeNull();
+      expect(released.events.find((e) => e.kind === "paymentNotChecked")?.label).toBe("WH release: payment not checked");
+      expect(released.events.some((e) => e.kind === "paymentOverride")).toBe(false);
+      const rows = await shipmentOutboxRepository.forMovement(m.id, c);
+      const note = rows.find((r) => r.kind === "override");
+      expect(note).toMatchObject({ payload: { note: "prepaymentUnchecked" }, status: "sent" });
+      // Ahead of the day, as an override is; and no override recorded on the shipment.
+      expect(rows.filter((r) => r.kind === "override" || r.kind === "released").map((r) => r.kind)).toEqual(["override", "released"]);
+      expect(uncheckedRecorded.filter((r) => r.shipmentId === shipmentId)).toEqual([{ shipmentId, idempotencyKey: note!.id }]);
+      expect(shipmentOverrides.some((o) => o.shipmentId === shipmentId)).toBe(false);
+    } finally {
+      releaseChecks.delete(shipmentId);
+      customerTermsOf.delete(shipmentId);
+    }
+  });
+
+  it("stops a job with no customer when Invoicing can't be asked: a user is refused, a manager releases it with a reason", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, new Error("invoicing down"));
+    jobsWithNoCustomer.add(shipmentId);
+    try {
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease", "user")).rejects.toThrow(/has no customer whose payment terms could tell/);
+      const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "manager", { paymentOverrideReason: "Customer named on the phone" });
+      expect(released.events.find((e) => e.kind === "paymentOverride")?.label).toBe("WH release on prepayment (payment not checked) - reason: Customer named on the phone");
+    } finally {
+      releaseChecks.delete(shipmentId);
+      jobsWithNoCustomer.delete(shipmentId);
+    }
+  });
+
+  it("runs the stop again on a release after a voided one: the day the voided release wrote is the gate's, not Shipments'", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    try {
+      await gateMovementService.stamp(m.id, c, user, "impRelease", "manager", { paymentOverrideReason: "Paid in cash at the gate" });
+      const day = (await shipmentOutboxRepository.forMovement(m.id, c)).find((r) => r.kind === "released")!.payload.warehouseReleasedDate!;
+      // The shipment now holds the gate's day, and a void does not take it back.
+      releasedInShipmentsOf.set(shipmentId, { date: day, by: "clerk@firma.cz" });
+      await gateAdminService.voidStamp(m.id, c, user, "manager", "impRelease", "Wrong pallet");
+      await expect(shipmentOutboxRepository.sentReleasedDays(c, m.id, shipmentId)).resolves.toEqual([day]);
+      // A user's release is stopped again - not "Released in Shipments" on the voided day.
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease", "user")).rejects.toThrow(/A manager can release it with a reason$/);
+      expect(gateDaysAsked.get(shipmentId)).toEqual([day]);
+      expect((await gateMovementService.get(m.id, c)).events.some((e) => e.kind === "releasedInShipments")).toBe(false);
+      // An approval is used for it as for any other release.
+      const requestId = randomUUID();
+      releasePasses.set(shipmentId, { requestId, reason: "Asked by Jan: x — approved by Eva: y" });
+      const again = await gateMovementService.stamp(m.id, c, user, "impRelease", "user");
+      expect(again.events.filter((e) => e.kind === "paymentOverride")).toHaveLength(2);
+      expect(releasePasses.has(shipmentId)).toBe(false);
+    } finally {
+      releaseChecks.delete(shipmentId);
+      releasedInShipmentsOf.delete(shipmentId);
+      releasePasses.delete(shipmentId);
+    }
+  });
+
+  it("keeps a day set in Shipments while the gate's released row waited in the outbox: only the plate goes, and the record says so", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    // Empty when the release is stamped; set in Shipments before the row is delivered.
+    const read = vi.spyOn(shipments, "_internalWarehouseReleasedOf").mockImplementationOnce(async () => {
+      releasedInShipmentsOf.set(shipmentId, { date: "2026-11-18", by: "eva@firma.cz" });
+      return { warehouseReleased: null };
+    });
+    try {
+      const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "user");
+      expect(released.impRelease).not.toBeNull();
+      const sent = vi.mocked(shipments.shipmentUpdate).mock.calls.map((call) => call[0] as { shipmentId: string; warehouseReleasedDate?: string });
+      expect(sent.some((u) => u.shipmentId === shipmentId && u.warehouseReleasedDate !== undefined)).toBe(false);
+      const row = (await shipmentOutboxRepository.forMovement(m.id, c)).find((r) => r.kind === "released")!;
+      expect(row.status).toBe("sent");
+      const line = (await gateMovementService.get(m.id, c)).events.find((e) => e.kind === "releasedInShipments" && e.by === "Shipments");
+      expect(line).toMatchObject({ label: "Released in Shipments on 18.11.2026 by eva@firma.cz", detail: expect.stringMatching(/is not sent over it/) });
+      // The day it did not write never counts as the gate's own later (round-4 review): a void and restamp still stops.
+      expect((await shipmentOutboxRepository.forMovement(m.id, c)).find((r) => r.kind === "released")!.payload.dayKept).toBe("true");
+      await expect(shipmentOutboxRepository.sentReleasedDays(c, m.id, shipmentId)).resolves.toEqual([]);
+    } finally {
+      read.mockRestore();
+      releasedInShipmentsOf.delete(shipmentId);
+    }
+  });
+
+  it("names the override recorded on the shipment when a release on prepayment is voided", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    try {
+      await gateMovementService.stamp(m.id, c, user, "impRelease", "manager", { paymentOverrideReason: "Paid in cash at the gate" });
+      const { notice, movement } = await gateAdminService.voidStamp(m.id, c, user, "manager", "impRelease", "Wrong pallet");
+      expect(notice).toMatch(/the release on prepayment recorded from this stamp \(reason: Paid in cash at the gate\) stays in its history/);
+      expect(movement.events.find((e) => e.kind === "shipmentMayNeedCorrecting")?.detail).toMatch(/^its warehouse released date was set from this stamp .*; the release on prepayment recorded/);
+    } finally {
+      releaseChecks.delete(shipmentId);
+    }
+  });
+
+  it("records an override once however often its outbox row is delivered (idempotency key)", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    try {
+      await gateMovementService.stamp(m.id, c, user, "impRelease", "manager", { paymentOverrideReason: "Paid in cash at the gate" });
+      const row = (await shipmentOutboxRepository.forMovement(m.id, c)).find((r) => r.kind === "override")!;
+      expect(overrideKeys).toContain(row.id);
+      // Delivered again (a claim that outlived its run, or "Send again"): Shipments records nothing more.
+      await db.update(shipmentOutboxTable).set({ status: "pending", nextAttemptAt: new Date(0), lockedUntil: null }).where(eq(shipmentOutboxTable.id, row.id));
+      await deliverDue(m.id);
+      expect(shipmentOverrides.filter((o) => o.shipmentId === shipmentId)).toHaveLength(1);
+    } finally {
+      releaseChecks.delete(shipmentId);
+    }
+  });
+
+  it("shows an approval Shipments did not give back as not sent, never as sent", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    const requestId = randomUUID();
+    releasePasses.set(shipmentId, { requestId, reason: "Asked by Jan: x — approved by Eva: y" });
+    passesNotGivenBack.add(requestId);
+    try {
+      const lost = vi.spyOn(gateMovementRepository, "conditionalUpdate").mockResolvedValueOnce(null);
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow();
+      lost.mockRestore();
+      const back = (await shipmentOutboxRepository.forMovement(m.id, c)).find((r) => r.kind === "passBack")!;
+      expect(back.status).toBe("failed");
+      expect((await gateMovementService.get(m.id, c)).events.some((e) => e.kind === "shipmentUpdateFailed" && e.label === "Shipment not updated: approval given back")).toBe(true);
+    } finally {
+      releaseChecks.delete(shipmentId);
+      releasePasses.delete(shipmentId);
+      passesNotGivenBack.delete(requestId);
     }
   });
 

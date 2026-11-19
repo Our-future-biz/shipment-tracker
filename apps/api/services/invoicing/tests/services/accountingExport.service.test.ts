@@ -299,6 +299,19 @@ describe("an export whose answer was lost (m1)", () => {
     expect(again.numbers).toContain("INV-a");
     // Only what is not in the file is listed: the one cancelled that the export never recorded.
     expect(again.skipped.map((s) => s.number)).toEqual(["INV-c"]);
+    // Mock test council n4: the recorded one cancelled since is named once - the file is the recorded bytes all the same.
+    expect(again.fileSha256).toBe(first.fileSha256);
+    expect(again.warnings.filter((w) => w.includes("cancelled after this export was made"))).toEqual([
+      "INV-a was cancelled after this export was made: it is still in this file. If the file was imported in Pohoda, remove INV-a there",
+    ]);
+  });
+
+  it("names on Download again each recorded document cancelled since, the bytes unchanged (n4)", async () => {
+    const { first } = await made();
+    repo.documentsByIds.mockResolvedValue([doc("a", { status: "cancelled" }), doc("b", { issueDate: "2026-11-02" })]);
+    const file = await service.exportFile(manager, first.exportId);
+    expect(file.contentBase64).toBe(first.contentBase64);
+    expect(file.warnings).toEqual(["INV-a was cancelled after this export was made: it is still in this file. If the file was imported in Pohoda, remove INV-a there"]);
   });
 
   it("refuses to answer a file that does not match the recorded SHA-256, never a different file under the same export", async () => {
@@ -312,7 +325,7 @@ describe("an export whose answer was lost (m1)", () => {
     const { first, record } = await made();
     repo.documentsByIds.mockResolvedValue([doc("a"), doc("b", { issueDate: "2026-11-02" })]);
     const file = await service.exportFile(manager, first.exportId);
-    expect(file).toEqual({ exportId: first.exportId, fileName: first.fileName, contentBase64: first.contentBase64, contentType: first.contentType, encoding: "windows-1250", fileSha256: first.fileSha256, documents: 2 });
+    expect(file).toEqual({ exportId: first.exportId, fileName: first.fileName, contentBase64: first.contentBase64, contentType: first.contentType, encoding: "windows-1250", fileSha256: first.fileSha256, documents: 2, warnings: [] });
     expect(repo.exportById).toHaveBeenLastCalledWith(TX, COMPANY, first.exportId);
     expect(repo.record).toHaveBeenCalledTimes(1);
 

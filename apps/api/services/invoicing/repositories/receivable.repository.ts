@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from "drizzle-orm";
 import { db } from "../db/db";
 import { invoiceLineTable as lineT, invoiceTable as t, type InvoiceLineRecord, type InvoiceRecord } from "../schemas/invoice.schema";
 import {
@@ -21,7 +21,8 @@ import { invoiceFollowupOutboxTable as o, type InvoiceFollowupKind, type NewInvo
 import { invoiceFollowupOutboxRepository } from "./invoiceFollowupOutbox.repository";
 import { invoiceRepository } from "./invoice.repository";
 import { invoiceSeriesPrefix } from "../lib/invoiceNumber";
-import { carriedOverAmount, leftToPayOf, statusOf } from "../lib/receivables";
+import { carriedOverAmount, leftToPayOf, statusOf, type TakeBackKind } from "../lib/receivables";
+import { REMINDER_FLOOR } from "../lib/reminderRules";
 import type { ReceivableStatus } from "../interfaces/interfaces";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -59,6 +60,11 @@ export interface InvoiceFigures {
   lastPaidOn: string | null;
   /** null until the invoice is first read by Accounts Receivable (made then: ensureRows) */
   receivable: ReceivableRecord | null;
+  /**
+   * Issued again after a credit note (mock test council Y2): the issue day of the earliest invoice it replaces - an
+   * invoice of the same job and customer, issued before it, now credited or cancelled. null (or left out) when none.
+   */
+  issuedAgainFrom?: string | null;
 }
 
 /** Which invoices a read or the lazy creation looks at. */
@@ -69,8 +75,12 @@ export type InvoiceScope =
   | { shipmentId: string }
   | { customerId: string }
   | { invoiceIds: string[] }
-  /** Owed and due before the day (overdue on it); with `dueFrom`, only those due on or after that day too */
-  | { overdueOn: string; dueFrom?: string }
+  /**
+   * Owed and due before the day (overdue on it); with `dueFrom`, only those due on or after that day too; `remindable`
+   * (the automatic reminders' read, mock test council n3): only those the run may remind - below reminder 2, not
+   * disputed, no promise running on the day, the rest at least the reminder floor
+   */
+  | { overdueOn: string; dueFrom?: string; remindable?: boolean }
   /** Issued on or before the day (the month-end list as at it) */
   | { issuedOnOrBefore: string };
 
@@ -128,7 +138,49 @@ const LAST_DISPUTE_REASON = sql<string | null>`(select de.reason from "receivabl
   where de.invoice_id = ${t.id} and de.company_id = ${t.companyId} and de.action = 'disputed' and de.deleted_at is null
     and coalesce(de.payload->>'reopened', '') <> 'true'
   order by de.created_at desc, de.id desc limit 1)`;
-const FIGURES = { invoice: t, credited: CREDITED, paid: PAID, writtenOff: WRITTEN_OFF, bankCharges: BANK_CHARGED, waiting: WAITING, lastPaidOn: LAST_PAID, receivable: r };
+// Issued again after a credit note (Y2): the earliest invoice of the same job and customer it replaces - made before
+// it, issued on or before its day, credited or cancelled since. Its issue day is the first a payment may be booked on.
+// An invoice names none it replaced, so "replaces" is what the two bill (m9): an earlier one that billed one of the
+// same selling rows (a credit note or a same-day cancellation opens its rows, and the new invoice bills them again -
+// a chain of such re-issues is one), or, when Trucking replaced the rows meanwhile, the invoice just before it of the
+// job and customer, for the same total in the same currency. Any other credited invoice of the job billed other
+// charges: a payment of it is no payment of this one.
+const ISSUED_AGAIN_FROM = sql<string | null>`(select min(pi.issue_date)::text from "invoice" pi
+  where pi.company_id = ${t.companyId} and pi.shipment_id = ${t.shipmentId} and pi.customer_id = ${t.customerId}
+    and pi.kind = 'invoice' and pi.status in ('credited', 'cancelled') and pi.deleted_at is null
+    and pi.id <> ${t.id} and pi.created_at < ${t.createdAt} and pi.issue_date <= ${t.issueDate}
+    and (
+      exists (select 1 from "invoice_line" pl join "invoice_line" nl on nl.source_selling_cost_id = pl.source_selling_cost_id
+        where pl.invoice_id = pi.id and nl.invoice_id = ${t.id} and pl.company_id = pi.company_id and nl.company_id = pi.company_id
+          and pl.source_selling_cost_id is not null and pl.deleted_at is null and nl.deleted_at is null)
+      or (pi.currency = ${t.currency} and pi.gross = ${t.gross}
+        and pi.id = (select li.id from "invoice" li
+          where li.company_id = ${t.companyId} and li.shipment_id = ${t.shipmentId} and li.customer_id = ${t.customerId}
+            and li.kind = 'invoice' and li.deleted_at is null and li.id <> ${t.id} and li.created_at < ${t.createdAt}
+          order by li.created_at desc, li.id desc limit 1))
+    ))`;
+const FIGURES = {
+  invoice: t,
+  credited: CREDITED,
+  paid: PAID,
+  writtenOff: WRITTEN_OFF,
+  bankCharges: BANK_CHARGED,
+  waiting: WAITING,
+  lastPaidOn: LAST_PAID,
+  receivable: r,
+  issuedAgainFrom: ISSUED_AGAIN_FROM,
+};
+
+// The rest at least the automatic reminders' floor (lib/reminderRules underReminderFloor): per currency, another one
+// weighed in CZK at the invoice's own rate, none with no rate.
+const ABOVE_FLOOR = (() => {
+  const own = Object.entries(REMINDER_FLOOR).map(([currency, floor]) => sql`when ${t.currency} = ${currency} then ${LEFT} >= ${floor}`);
+  return sql`(case ${sql.join(own, sql` `)} when ${t.fxRate} > 0 then ${LEFT} * ${t.fxRate} >= ${REMINDER_FLOOR.CZK!} else true end)`;
+})();
+// What the automatic reminders may still send for (lib/reminderRules reminderDue): below reminder 2, not disputed, no
+// promise running on the day. A receivable not made yet reads as none of these.
+const REMINDABLE = (day: string) =>
+  sql`(coalesce(${r.reminderLevel}, 0) < 2 and coalesce(${r.disputed}, false) = false and (${r.promisedOn} is null or ${r.promisedOn} < ${day}::date) and ${ABOVE_FLOOR})`;
 
 const INVOICES = (companyId: string) => and(eq(t.companyId, companyId), eq(t.kind, "invoice"), isNull(t.deletedAt));
 
@@ -139,7 +191,13 @@ function scopeWhere(scope: InvoiceScope): SQL | undefined {
   if ("customerId" in scope) return eq(t.customerId, scope.customerId);
   if ("invoiceIds" in scope) return scope.invoiceIds.length ? inArray(t.id, scope.invoiceIds) : sql`false`;
   if ("issuedOnOrBefore" in scope) return sql`${t.issueDate} <= ${scope.issuedOnOrBefore}::date`;
-  return and(eq(t.status, "issued"), sql`${LEFT} > 0`, lt(t.dueDate, scope.overdueOn), scope.dueFrom ? gte(t.dueDate, scope.dueFrom) : undefined);
+  return and(
+    eq(t.status, "issued"),
+    sql`${LEFT} > 0`,
+    lt(t.dueDate, scope.overdueOn),
+    scope.dueFrom ? gte(t.dueDate, scope.dueFrom) : undefined,
+    scope.remindable ? REMINDABLE(scope.overdueOn) : undefined,
+  );
 }
 
 // The same scope as raw SQL on an invoice aliased "i" (the lazy creation's INSERT … SELECT).
@@ -160,6 +218,7 @@ type FigureRow = {
   waiting: string | number | null;
   lastPaidOn: string | null;
   receivable: ReceivableRecord | null;
+  issuedAgainFrom?: string | null;
 };
 const figuresOf = (row: FigureRow): InvoiceFigures => ({
   invoice: row.invoice,
@@ -170,10 +229,21 @@ const figuresOf = (row: FigureRow): InvoiceFigures => ({
   waiting: Number(row.waiting ?? 0),
   lastPaidOn: row.lastPaidOn ?? null,
   receivable: row.receivable,
+  issuedAgainFrom: row.issuedAgainFrom ?? null,
 });
 
 /** The company's reminder settings when it never saved any (the table's defaults). */
-export const DEFAULT_RECEIVABLE_SETTINGS = { autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, updatedBy: "", updatedAt: null } as const;
+export const DEFAULT_RECEIVABLE_SETTINGS = {
+  autoReminders: false,
+  reminder1Days: 7,
+  reminder2Days: 21,
+  replyTo: "",
+  autoRemindersSince: null,
+  remindersSkippedOn: null,
+  remindersSkippedSince: null,
+  updatedBy: "",
+  updatedAt: null,
+} as const;
 
 /** The reminder settings as everyone reads them (the row, or the defaults). */
 export interface ReceivableSettingsValues {
@@ -183,6 +253,9 @@ export interface ReceivableSettingsValues {
   replyTo: string;
   /** The day automatic reminders were switched on (null while off, or not known) */
   autoRemindersSince: string | null;
+  /** The last day the run skipped them for want of a bank statement (m5), and the day of the last statement read then */
+  remindersSkippedOn: string | null;
+  remindersSkippedSince: string | null;
   updatedBy: string;
   updatedAt: Date | null;
 }
@@ -386,7 +459,12 @@ class ReceivableRepository {
    * history line by `by`, under the company's lock (as a person's close is written), read again there so a dispute
    * opened again meanwhile on money still owed is left as it is. Answers the invoices closed.
    */
-  async closeSettledDisputes(companyId: string, scope: InvoiceScope, by: string, reasonOf: (s: { invoiceStatus: string; status: ReceivableStatus }) => string): Promise<string[]> {
+  async closeSettledDisputes(
+    companyId: string,
+    scope: InvoiceScope,
+    by: string,
+    reasonOf: (s: { invoiceStatus: string; status: ReceivableStatus; paid: number; credited: number; writtenOff: number; bankCharges: number; currency: string }) => string,
+  ): Promise<string[]> {
     const settled = sql`(${t.status} <> 'issued' or ${LEFT} <= 0)`;
     const found = await db
       .select({ id: t.id })
@@ -415,7 +493,15 @@ class ReceivableRepository {
           .where(and(eq(r.companyId, companyId), eq(r.invoiceId, f.invoice.id), eq(r.disputed, true)))
           .returning({ id: r.id });
         if (!row) continue;
-        const reason = reasonOf({ invoiceStatus: f.invoice.status, status });
+        const reason = reasonOf({
+          invoiceStatus: f.invoice.status,
+          status,
+          paid: f.paid,
+          credited: f.credited,
+          writtenOff: f.writtenOff,
+          bankCharges: f.bankCharges,
+          currency: f.invoice.currency,
+        });
         const note = await this.addNote(tx, { companyId, invoiceId: f.invoice.id, kind: "dispute_closed", text: reason, promisedOn: null, reminderLevel: null, recipient: "", byUserId: null, by });
         await this.addEvent(tx, companyId, f.invoice.id, { action: "dispute_closed", fromStatus: status, toStatus: status, by, reason, payload: { noteId: note.id, automatic: true } });
         closed.push(f.invoice.id);
@@ -718,10 +804,11 @@ class ReceivableRepository {
    * The invoices the month-end list as at `day` may show - a superset the rules then decide on (lib/receivables asAtOf):
    * of kind invoice, issued on or before the day, not cancelled, and either owed now, or with something that did not
    * yet count on the day (a credit note issued after it, a payment paid after it, a write-off or bank charge confirmed
-   * after it). An invoice settled now with nothing after the day was settled on it too. A line taken back never counts
-   * on any day (countsAt, mock test council N2): an invoice a payment was taken back from is owed now (so it is here)
-   * or settled now by other lines, each of which counted on the day or is "after it" above. Up to `limit` (the caller
-   * asks one more, to know when there are more).
+   * after it). An invoice settled now with nothing after the day was settled on it too. A line taken back by mistake
+   * never counts on any day (countsAt, mock test council N2): an invoice a payment was taken back from is owed now (so
+   * it is here) or settled now by other lines, each of which counted on the day or is "after it" above. A payment taken
+   * back as reversed (P8) may count on the day, which only makes less owed then: never an invoice missing here.
+   * Up to `limit` (the caller asks one more, to know when there are more).
    */
   async asAtCandidates(companyId: string, day: string, limit: number): Promise<AsAtCandidate[]> {
     const later = sql`(
@@ -767,9 +854,43 @@ class ReceivableRepository {
       reminder2Days: row.reminder2Days,
       replyTo: row.replyTo,
       autoRemindersSince: row.autoRemindersSince ?? null,
+      remindersSkippedOn: row.remindersSkippedOn ?? null,
+      remindersSkippedSince: row.remindersSkippedSince ?? null,
       updatedBy: row.updatedBy,
       updatedAt: row.updatedAt,
     };
+  }
+
+  /**
+   * Notes that the daily run skipped the company's reminders on `day`: no bank statement read since the previous working
+   * day, the last one read on `since` (m5). The settings' own fields are not touched, nor when they were last saved.
+   */
+  /** A run that went ahead: an earlier skip is no longer the news (round-4 review) - the settings page says nothing more. */
+  async clearRemindersSkipped(companyId: string): Promise<void> {
+    await db
+      .update(settingsT)
+      .set({ remindersSkippedOn: null, remindersSkippedSince: null })
+      .where(and(eq(settingsT.companyId, companyId), isNull(settingsT.deletedAt), isNotNull(settingsT.remindersSkippedOn)));
+  }
+
+  async noteRemindersSkipped(companyId: string, day: string, since: string | null): Promise<void> {
+    await db
+      .update(settingsT)
+      .set({ remindersSkippedOn: day, remindersSkippedSince: since })
+      .where(and(eq(settingsT.companyId, companyId), isNull(settingsT.deletedAt)));
+  }
+
+  /**
+   * Sets the day automatic reminders start, only while none is stored and they are still on (mock test council P3: the
+   * first run that can really send). True when this call set it; false when a day was there already or they are off.
+   */
+  async setAutoRemindersSinceIfMissing(companyId: string, day: string): Promise<boolean> {
+    const rows = await db
+      .update(settingsT)
+      .set({ autoRemindersSince: day })
+      .where(and(eq(settingsT.companyId, companyId), eq(settingsT.autoReminders, true), isNull(settingsT.autoRemindersSince), isNull(settingsT.deletedAt)))
+      .returning({ id: settingsT.id });
+    return rows.length > 0;
   }
 
   /** Saves the company's reminder settings (one row per company, written or replaced). */
@@ -784,18 +905,30 @@ class ReceivableRepository {
       .onConflictDoUpdate({ target: settingsT.companyId, set: { ...values, updatedAt: now, deletedAt: null } });
   }
 
-  /** Takes a live payment back; null when it is not there or was taken back already. */
+  /**
+   * Takes a live payment back, noted by mistake or reversed on a day (P8; a mistake when no kind is given); null when it
+   * is not there or was taken back already.
+   */
   async takeBack(
     tx: Tx,
     companyId: string,
     invoiceId: string,
     paymentId: string,
-    by: { userId: string; email: string; reason: string },
+    by: { userId: string; email: string; reason: string; kind?: TakeBackKind; reversedOn?: string | null },
   ): Promise<ReceivablePaymentRecord | null> {
     const now = new Date();
+    const kind: TakeBackKind = by.kind === "reversed" ? "reversed" : "mistake";
     const [row] = await tx
       .update(p)
-      .set({ takenBackAt: now, takenBackByUserId: by.userId, takenBackBy: by.email, takenBackReason: by.reason, updatedAt: now })
+      .set({
+        takenBackAt: now,
+        takenBackByUserId: by.userId,
+        takenBackBy: by.email,
+        takenBackReason: by.reason,
+        takenBackKind: kind,
+        reversedOn: kind === "reversed" ? (by.reversedOn ?? null) : null,
+        updatedAt: now,
+      })
       .where(and(eq(p.companyId, companyId), eq(p.invoiceId, invoiceId), eq(p.id, paymentId), isNull(p.takenBackAt), isNull(p.deletedAt)))
       .returning();
     return row ?? null;

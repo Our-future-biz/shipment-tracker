@@ -126,26 +126,31 @@ export const figuresOf = (lines: readonly FigureLine[]): AcceptedFigures => roun
 const carriesAdr = (l: CargoDimensionLine) => !!(l.adrUn?.trim() || l.adrClass?.trim() || l.adrPackingGroup || l.adrLimitedQuantity);
 
 export const ACCEPT_BY_HAND =
-  "Dangerous goods or several containers are on these lines and the warehouse saved a different number of lines: update Cargo Details by hand";
+  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each): update Cargo Details by hand";
 
 /**
  * Why the remeasured lines can't replace the shipment's, or null when they can (council finding
- * X2): line n takes its container, packing and dangerous goods from the shipment's line n, so with
- * another number of lines a UN number would vanish or move to other cargo, and the lines of
- * several containers would fall into the first. Then a person updates Cargo Details. The web holds
- * the same rule (tabs/warehouse/remeasuredLines acceptByHandReason).
+ * X2, mock test council Y8): line n takes its container, packing and dangerous goods from the
+ * shipment's line n. With dangerous goods or several containers on the lines that is only safe
+ * when line n is the same cargo - the same number of lines, and the same pieces on each - else a UN
+ * number would vanish or move to other cargo (3 drums UN 1203 and 10 cartons, saved by the
+ * warehouse cartons first, would make the cartons "Drums UN 1203"), and lines of several
+ * containers would fall into another. Then a person updates Cargo Details. The web holds the same
+ * rule (tabs/warehouse/remeasuredLines acceptByHandReason).
  */
-export function acceptByHandRefusal(remeasuredCount: number, current: readonly CargoDimensionLine[]): string | null {
-  if (remeasuredCount === current.length) return null;
+export function acceptByHandRefusal(remeasured: readonly { pieces: string }[], current: readonly CargoDimensionLine[]): string | null {
   const containers = new Set(current.map((l) => l.containerId).filter(Boolean));
-  return current.some(carriesAdr) || containers.size > 1 ? ACCEPT_BY_HAND : null;
+  if (!current.some(carriesAdr) && containers.size < 2) return null;
+  const lineForLine = remeasured.length === current.length && remeasured.every((r, i) => cargoNum(r.pieces) === cargoNum(current[i]!.pieces));
+  return lineForLine ? null : ACCEPT_BY_HAND;
 }
 
 /**
  * The cargo dimension lines the remeasured lines become. Line n keeps what the warehouse does not
  * measure - its container, package type, stackability, pallet type and dangerous goods - from the
  * shipment's line n, or from its first line when there are fewer (only without dangerous goods
- * and with one container at most: acceptByHandRefusal); the sizes are in cm.
+ * and with one container at most; with them only line for line: acceptByHandRefusal); the sizes
+ * are in cm.
  */
 export function acceptedDimensionLines(remeasured: readonly RemeasuredLine[], current: readonly CargoDimensionLine[]): CargoDimensionLine[] {
   return remeasured.map((r, i) => {
@@ -171,17 +176,19 @@ export function acceptedDimensionLines(remeasured: readonly RemeasuredLine[], cu
 }
 
 /**
- * Pcs, Total Weight (tons) and Total Volume as the shipment stores them (4 decimals: tons to 0.1 kg),
- * from the lines' exact totals (exactFiguresOf), each rounded once - the weight to 0.1 kg, as it is
- * compared, and the volume to its 4th decimal rather than first to 0.001.
+ * Pcs, Total Weight (tons) and Total Volume as the shipment stores them, from the lines' exact
+ * totals (exactFiguresOf), each rounded once to what it is compared at - the weight to 0.1 kg, the
+ * volume to 0.001 m³ (mock test council n13: a volume kept to its 4th decimal, 1.2346 against lines
+ * of 1.23456, read 1.235 against 1.234 at the 3 decimals Cargo Details compares, and the Volume
+ * pill turned red right after the Accept). Kept in the 4 decimals the columns hold.
  */
 export function acceptedTotals(f: AcceptedFigures): { pcs: string; totalWeightTons: string | null; totalVolumeCbm: string | null } {
   const tenthsKg = Math.round(f.weightKg * 10);
-  const m3 = Math.round(f.volumeCbm * 10_000);
+  const litres = Math.round(f.volumeCbm * 1000);
   return {
     pcs: f.colli > 0 ? String(f.colli) : "",
     totalWeightTons: tenthsKg > 0 ? (tenthsKg / 10_000).toFixed(4) : null,
-    totalVolumeCbm: m3 > 0 ? (m3 / 10_000).toFixed(4) : null,
+    totalVolumeCbm: litres > 0 ? (litres / 1000).toFixed(4) : null,
   };
 }
 
@@ -230,22 +237,53 @@ export const ALREADY_ACCEPTED = "These remeasured lines were already accepted: t
 /** An acceptance whose containers or cargo lines were saved again before its write: decided on what is gone. */
 export const CARGO_DETAILS_CHANGED = "Cargo Details changed meanwhile: look again and accept";
 
+const MEASURED_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
+
 /**
- * Why the warehouse's saved lines (`saved`, `count` of them with pieces) can't be accepted over the
- * shipment's cargo dimension lines `current`, or null: the last acceptance (its history entry's new
- * value, `lastAccepted`) already took the same lines over (council finding m8 - a second one would
- * bring back a Costs warning already checked), or the lines must be updated by hand
- * (acceptByHandRefusal). Asked before the write and again in its write turn, on the lines and the
- * history as they are then, so two Accepts at once record one acceptance.
+ * Whether the cargo dimension lines `current` still hold the remeasured lines - line for line the
+ * same pieces, sizes (cm) and kg per piece, as an acceptance wrote them (to 0.001, so a line once
+ * shown in inches and saved back in cm is still the same). What the lines keep besides is not
+ * looked at: a package type or UN number set after the acceptance changes nothing measured.
  */
-export function acceptRefusal(saved: string, count: number, lastAccepted: string | null | undefined, current: readonly CargoDimensionLine[]): string | null {
-  if (alreadyAccepted(saved, lastAccepted)) return ALREADY_ACCEPTED;
-  return acceptByHandRefusal(count, current);
+export function holdsRemeasuredLines(current: readonly CargoDimensionLine[], remeasured: readonly RemeasuredLine[]): boolean {
+  return (
+    current.length === remeasured.length &&
+    remeasured.every((r, i) => MEASURED_FIELDS.every((f) => Math.abs(cargoNum(current[i]![f]) - cargoNum(r[f])) < 0.001))
+  );
 }
 
-/** Whether the last acceptance (its history entry's new value; null for none) took over the lines `saved`. */
-export const alreadyAccepted = (saved: string, lastAccepted: string | null | undefined): boolean =>
-  lastAccepted != null && sameRemeasuredLines(acceptedLinesOf(lastAccepted), saved);
+/**
+ * Why the warehouse's saved lines (`saved`, the `remeasured` ones with pieces) can't be accepted
+ * over the shipment's cargo dimension lines `current`, or null: the last acceptance (its history
+ * entry's new value, `lastAccepted`) already took the same lines over and Cargo Details still hold
+ * them (council finding m8 - a second one would bring back a Costs warning already checked), or the
+ * lines must be updated by hand (acceptByHandRefusal). Asked before the write and again in its write
+ * turn, on the lines and the history as they are then, so two Accepts at once record one acceptance.
+ */
+export function acceptRefusal(
+  saved: string,
+  remeasured: readonly RemeasuredLine[],
+  lastAccepted: string | null | undefined,
+  current: readonly CargoDimensionLine[],
+): string | null {
+  if (alreadyAccepted(saved, lastAccepted, current)) return ALREADY_ACCEPTED;
+  return acceptByHandRefusal(remeasured, current);
+}
+
+/**
+ * Whether the last acceptance (its history entry's new value; null for none) took over the lines
+ * `saved` and Cargo Details (`current`) still hold them (mock test council Y10). Lines changed on
+ * Cargo Details since - by hand, or by a page opened before the acceptance that saved its old lines
+ * over them - may be accepted again: else the acceptance could never be had back.
+ */
+export function alreadyAccepted(saved: string, lastAccepted: string | null | undefined, current: readonly CargoDimensionLine[]): boolean {
+  if (lastAccepted == null || !sameRemeasuredLines(acceptedLinesOf(lastAccepted), saved)) return false;
+  try {
+    return holdsRemeasuredLines(current, parseRemeasuredLines(saved));
+  } catch {
+    return false;
+  }
+}
 
 /** The containers and cargo dimension lines an acceptance is decided on, as Cargo Details shows them. */
 export interface CargoDetailsRead {

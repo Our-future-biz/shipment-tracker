@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, foreignKey, index, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, foreignKey, index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { OverrideInvoice, ReleaseKind } from "../lib/prepaymentStop";
 import { shipmentTable } from "./shipment.schema";
@@ -20,10 +20,16 @@ export const shipmentReleaseOverrideTable = pgTable(
     checked: boolean("checked").notNull(),
     byUserId: uuid("by_user_id").notNull(),
     by: text("by").notNull().default(""),
+    // The Warehouse Concept gate's outbox row that recorded it (its id): the outbox delivers at least once, and a
+    // manager may send a failed row again, so the same release must not be recorded twice. Null for a person's
+    // release in Shipments, which is written once in its own write turn.
+    idempotencyKey: text("idempotency_key"),
   },
   (table) => [
     tenantIndex("shipment_release_override", table),
     index("shipment_release_override_shipment_idx").on(table.shipmentId, table.createdAt),
+    // One row per gate outbox row (NULLs never clash, so a person's releases are not held to it).
+    uniqueIndex("shipment_release_override_idempotency_key_idx").on(table.companyId, table.idempotencyKey),
     foreignKey({ name: "shipment_release_override_shipment_fk", columns: [table.shipmentId], foreignColumns: [shipmentTable.id] }).onDelete("cascade"),
     check("shipment_release_override_kind_check", sql`${table.kind} IN ('house_bol', 'warehouse_released')`),
   ],

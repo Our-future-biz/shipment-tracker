@@ -93,6 +93,37 @@ describe("work not yet invoiced", () => {
     ]);
   });
 
+  it("on a job with an open invoice, a line below nothing on no invoice is a credit owed, not work to bill (Y1 / P1)", () => {
+    const billed = sell({ amount: "1000", currency: "EUR" });
+    const priceDown = sell({ amount: "-50", qty: "1.00", currency: "EUR" });
+    const late = sell({ amount: "200", currency: "EUR" });
+    const invoices = { open: [{ shipmentId: JOB, sourceSellingCostIds: [billed.id] }], billedOn: new Map([[JOB, "2026-11-05"]]) };
+    const job = only(facts({ lines: { selling: [billed, priceDown, late], buying: [], billingCurrency: new Map() }, invoices }));
+    expect(job.notYetInvoiced).toEqual([{ currency: "EUR", amount: 200 }]);
+    expect(job.creditOwed).toEqual([{ currency: "EUR", amount: 50 }]);
+    // Settled by a partial credit note (its line bills the difference line): nothing owed any more.
+    const settled = only(facts({ lines: { selling: [billed, priceDown], buying: [], billingCurrency: new Map() }, invoices: { ...invoices, open: [{ shipmentId: JOB, sourceSellingCostIds: [billed.id, priceDown.id] }] } }));
+    expect(settled.creditOwed).toEqual([]);
+    // A job never invoiced: a discount goes on its invoice with the rest, as before.
+    const fresh = only(facts({ lines: { selling: [sell({ amount: "1000" }), sell({ amount: "-100" })], buying: [], billingCurrency: new Map() } }));
+    expect(fresh.notYetInvoiced).toEqual([{ currency: "CZK", amount: 900 }]);
+    expect(fresh.creditOwed).toEqual([]);
+  });
+
+  it("says since when the charges added after invoicing wait, when every line still to bill came after the first invoice (P16)", () => {
+    const billed = sell({ amount: "1000", createdAt: new Date("2026-10-30T09:00:00Z") });
+    const invoices = { open: [{ shipmentId: JOB, sourceSellingCostIds: [billed.id] }], billedOn: new Map([[JOB, "2026-11-05"]]) };
+    const lines = (selling: MoneySellRow[]) => ({ selling: [billed, ...selling], buying: [], billingCurrency: new Map<string, string>() });
+    const late = [sell({ amount: "300", createdAt: new Date("2026-11-12T09:00:00Z") }), sell({ amount: "100", createdAt: new Date("2026-11-10T09:00:00Z") })];
+    expect(only(facts({ lines: lines(late), invoices })).lateChargeSince).toBe("2026-11-10");
+    // A line left off the invoice since before it: nothing late about it - the tax date counts.
+    const leftOff = sell({ amount: "100", createdAt: new Date("2026-11-01T09:00:00Z") });
+    expect(only(facts({ lines: lines([...late, leftOff]), invoices })).lateChargeSince).toBeNull();
+    // Nothing to bill, or never invoiced: none.
+    expect(only(facts({ lines: lines([]), invoices })).lateChargeSince).toBeNull();
+    expect(only(facts({ lines: lines(late), invoices: { open: [], billedOn: new Map() } })).lateChargeSince).toBeNull();
+  });
+
   it("leaves an unticked line that is on an open invoice out of the unticked ones", () => {
     const row = sell({ amount: "100", invoice: false });
     const job = only(facts({ lines: { selling: [row], buying: [], billingCurrency: new Map() }, invoices: { open: [{ shipmentId: JOB, sourceSellingCostIds: [row.id] }], billedOn: new Map() } }));
@@ -489,6 +520,8 @@ describe("a part that could not be read", () => {
       shipmentId: JOB,
       notYetInvoiced: [],
       untickedSelling: [],
+      creditOwed: [],
+      lateChargeSince: null,
       sellingLines: 0,
       costLines: 0,
       totals: { sellingCzk: 0, estimateCzk: 0, realCzk: 0, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, costCzk: 0, profitCzk: 0, marginPct: null, missingCurrencies: [], ratesNote: "", ratesStale: false },

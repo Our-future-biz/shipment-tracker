@@ -45,7 +45,12 @@ const repo = vi.hoisted(() => ({
 }));
 vi.mock("../../repositories/receivable.repository", () => ({ receivableRepository: repo }));
 // The open bank entries (the "payment waiting" check, X5) and the invoice profile (the reminder's issuer, m3).
-const bank = vi.hoisted(() => ({ openIncoming: vi.fn() }));
+const bank = vi.hoisted(() => ({
+  openIncoming: vi.fn(),
+  reopenedIncoming: vi.fn(async () => [] as unknown[]),
+  takenBackKinds: vi.fn(async () => ({ takenBack: new Set<string>(), reversed: new Set<string>() })),
+  lastImportAt: vi.fn(async () => null as Date | null),
+}));
 vi.mock("../../repositories/bankStatement.repository", () => ({ bankStatementRepository: bank }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
 vi.mock("../../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
@@ -159,6 +164,7 @@ const figures = (
     bankCharges?: number;
     waiting?: number;
     lastPaidOn?: string | null;
+    issuedAgainFrom?: string | null;
   } = {},
 ): Figures => {
   const inv = invoice(over.invoice);
@@ -171,6 +177,7 @@ const figures = (
     waiting: over.waiting ?? 0,
     lastPaidOn: over.lastPaidOn ?? null,
     receivable: over.receivable === null ? null : receivable({ invoiceId: inv.id, ...(over.receivable ?? {}) }),
+    ...(over.issuedAgainFrom !== undefined ? { issuedAgainFrom: over.issuedAgainFrom } : {}),
   };
 };
 
@@ -518,6 +525,16 @@ describe("noting a payment (D11, D12)", () => {
     await expect(service.notePayment(manager, INV, pay)).rejects.toMatchObject({ code: "failed_precondition", message: /credited/ });
   });
 
+  it("takes a day from the replaced invoice's issue day on an invoice issued again after a credit note (Y2)", async () => {
+    repo.figuresOne.mockResolvedValue(figures({ issuedAgainFrom: "2026-10-28" }));
+    await service.notePayment(manager, INV, { ...pay, paidOn: "2026-11-01" });
+    expect(repo.insertPayment).toHaveBeenCalledWith(TX, expect.objectContaining({ paidOn: "2026-11-01" }));
+    await expect(service.notePayment(manager, INV, { ...pay, paidOn: "2026-10-27" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "The day it was paid cannot be before the invoice this one replaces was issued (2026-10-28)",
+    });
+  });
+
   it("gives back the payment a request with the same key noted, without writing again", async () => {
     repo.paymentByKey.mockResolvedValue({ id: PAYMENT, invoiceId: INV });
     const answer = await service.notePayment(manager, INV, { ...pay, idempotencyKey: "k-1" });
@@ -562,11 +579,28 @@ describe("taking a payment back", () => {
     repo.takeBack.mockResolvedValue(payment({ takenBackAt: new Date() }));
     repo.figuresOne.mockResolvedValue(figures({ paid: 100 }));
     await service.takeBackPayment(manager, INV, PAYMENT, { version: 3, reason: " noted twice " });
-    expect(repo.takeBack).toHaveBeenCalledWith(TX, COMPANY, INV, PAYMENT, { userId: "u-boss", email: "u-boss@test.cz", reason: "noted twice" });
-    expect(lastDecision().event).toMatchObject({ action: "payment_taken_back", reason: "noted twice", payload: { paymentId: PAYMENT, amount: 100, paidOn: "2026-11-14", kind: "payment" } });
+    expect(repo.takeBack).toHaveBeenCalledWith(TX, COMPANY, INV, PAYMENT, { userId: "u-boss", email: "u-boss@test.cz", reason: "noted twice", kind: "mistake", reversedOn: null });
+    expect(lastDecision().event).toMatchObject({ action: "payment_taken_back", reason: "noted twice", payload: { paymentId: PAYMENT, amount: 100, paidOn: "2026-11-14", kind: "payment", takenBack: "mistake" } });
     expect(repo.refreshPaid).toHaveBeenCalledWith(TX, COMPANY, INV);
     expect(outbox.enqueue).toHaveBeenCalledWith(TX, expect.any(Array));
     expect(followups.deliverInvoiceFollowups).toHaveBeenCalledWith(INV);
+  });
+
+  it("takes a payment back as reversed on a day (a bank return, a refund) - not before it was paid, not after today (P8)", async () => {
+    repo.paymentById.mockResolvedValue(payment());
+    repo.takeBack.mockResolvedValue(payment({ takenBackAt: new Date() }));
+    repo.figuresOne.mockResolvedValue(figures({ paid: 100 }));
+    await service.takeBackPayment(manager, INV, PAYMENT, { version: 3, reason: "bank return", kind: "reversed", reversedOn: "2026-11-16" });
+    expect(repo.takeBack).toHaveBeenCalledWith(TX, COMPANY, INV, PAYMENT, { userId: "u-boss", email: "u-boss@test.cz", reason: "bank return", kind: "reversed", reversedOn: "2026-11-16" });
+    expect(lastDecision().event).toMatchObject({ payload: { takenBack: "reversed", reversedOn: "2026-11-16" } });
+    repo.takeBack.mockClear();
+    await expect(service.takeBackPayment(manager, INV, PAYMENT, { version: 3, reason: "bank return", kind: "reversed", reversedOn: "2026-11-13" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "The day it went back cannot be before it was paid (2026-11-14)",
+    });
+    await expect(service.takeBackPayment(manager, INV, PAYMENT, { version: 3, reason: "bank return", kind: "reversed" })).rejects.toMatchObject({ code: "failed_precondition" });
+    await expect(service.takeBackPayment(manager, INV, PAYMENT, { version: 3, reason: "bank return", kind: "lost" })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repo.takeBack).not.toHaveBeenCalled();
   });
 
   it("refuses one taken back already, one not there, and a version not the one read", async () => {
@@ -833,7 +867,7 @@ describe("the release check (D20)", () => {
   });
 
   it("answers no warning for an id that is not one", async () => {
-    expect(await service.releaseCheck(clerk, "nope")).toEqual({ warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [] });
+    expect(await service.releaseCheck(clerk, "nope")).toEqual({ warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUninvoiced: [] });
   });
 });
 
@@ -854,9 +888,21 @@ describe("the bell (D18)", () => {
     expect((await service.forMe(clerk)).notices).toEqual([]);
   });
 
-  it("says nothing of an invoice whose old Paid in the customer's list was not carried over yet (m4)", async () => {
+  it("waits only with an invoice not carried over yet that the customer's list says is Paid; the others are listed (m4, n7)", async () => {
     users.userEmailOf.mockResolvedValue("jana@test.cz");
     repo.figures.mockResolvedValue([figures({ invoice: { dueDate: "2026-11-03" }, receivable: { carriedChecked: false } }), figures({ invoice: { id: INV_B, dueDate: "2026-11-03" }, receivable: null })]);
+    clients.invoiceStatuses.mockResolvedValue({ items: [{ invoiceId: INV, status: "Paid" }, { invoiceId: INV_B, status: "Open" }] });
+    expect((await service.forMe(clerk)).notices).toEqual([expect.objectContaining({ invoiceId: INV_B, milestone: "overdue_14" })]);
+    // Only asked, never carried over here (the bell is polled) - and asked read only, so the list marks nothing (m4).
+    expect(clients.invoiceStatuses).toHaveBeenCalledWith(
+      { items: [{ invoiceId: INV, number: "INV2026CZ00000031-001", customerId: CUSTOMER }, { invoiceId: INV_B, number: "INV2026CZ00000031-001", customerId: CUSTOMER }], readOnly: true },
+      expect.anything(),
+    );
+    expect(repo.carryOver).not.toHaveBeenCalled();
+    // An invoice the list does not answer for waits too; when the list can't be asked, all of them wait, as before.
+    clients.invoiceStatuses.mockResolvedValue({ items: [{ invoiceId: INV, status: "Open" }] });
+    expect((await service.forMe(clerk)).notices.map((n) => n.invoiceId)).toEqual([INV]);
+    clients.invoiceStatuses.mockRejectedValue(new Error("customers down"));
     expect((await service.forMe(clerk)).notices).toEqual([]);
   });
 
@@ -1317,12 +1363,55 @@ describe("work not yet invoiced", () => {
 
 describe("reminder settings", () => {
   it("reads the defaults, whether e-mail is on, and who may change them", async () => {
-    expect(await service.settings(clerk)).toEqual({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, emailOn: false, canEdit: false, updatedBy: "", updatedAt: null });
+    expect(await service.settings(clerk)).toEqual({
+      autoReminders: false,
+      reminder1Days: 7,
+      reminder2Days: 21,
+      replyTo: "",
+      autoRemindersSince: null,
+      remindersSkipped: null,
+      emailOn: false,
+      canEdit: false,
+      updatedBy: "",
+      updatedAt: null,
+    });
     mail.emailConfigured.mockReturnValue(true);
     expect(await service.settings(manager)).toMatchObject({ emailOn: true, canEdit: true });
   });
 
+  it("says the last day the run skipped the reminders for want of a bank statement, while they are on (m5)", async () => {
+    const skipped = { reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: "2026-11-02", remindersSkippedOn: "2026-11-18", remindersSkippedSince: "2026-11-13", updatedBy: "", updatedAt: null };
+    repo.settingsOf.mockResolvedValue({ ...skipped, autoReminders: true });
+    expect((await service.settings(clerk)).remindersSkipped).toEqual({ on: "2026-11-18", since: "2026-11-13" });
+    // Switched off since: nothing is said of a run that no longer reminds.
+    repo.settingsOf.mockResolvedValue({ ...skipped, autoReminders: false });
+    expect((await service.settings(clerk)).remindersSkipped).toBeNull();
+  });
+
+  it("the list names the day the app's reminders start, none while they or e-mail are off (P18)", async () => {
+    repo.figures.mockResolvedValue([]);
+    repo.settingsOf.mockResolvedValue({ autoReminders: true, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: "2026-11-10", updatedBy: "", updatedAt: null });
+    mail.emailConfigured.mockReturnValue(true);
+    expect((await service.list(clerk)).autoRemindersSince).toBe("2026-11-10");
+    mail.emailConfigured.mockReturnValue(false);
+    expect((await service.list(clerk)).autoRemindersSince).toBeNull();
+    repo.settingsOf.mockRejectedValue(new Error("db down"));
+    mail.emailConfigured.mockReturnValue(true);
+    expect((await service.list(clerk)).autoRemindersSince).toBeNull();
+  });
+
+  it("switched on while e-mail from the app is off, stores no day: the first run that can send sets it (P3)", async () => {
+    mail.emailConfigured.mockReturnValue(false);
+    await service.saveSettings(manager, { autoReminders: true, reminder1Days: 5, reminder2Days: 20, replyTo: "" });
+    expect(repo.saveSettings).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ autoReminders: true, autoRemindersSince: null }));
+    // A day stored before (it can't be, after migration 0039) is not kept while e-mail is off either.
+    repo.settingsOf.mockResolvedValue({ autoReminders: true, reminder1Days: 5, reminder2Days: 20, replyTo: "", autoRemindersSince: "2026-11-02", updatedBy: "", updatedAt: null });
+    await service.saveSettings(manager, { autoReminders: true, reminder1Days: 6, reminder2Days: 20, replyTo: "" });
+    expect(repo.saveSettings).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ autoRemindersSince: null }));
+  });
+
   it("is saved by a manager, within the rules; switched on, today is the day only newer overdue invoices are reminded from (L2)", async () => {
+    mail.emailConfigured.mockReturnValue(true);
     const input = { autoReminders: true, reminder1Days: 5, reminder2Days: 20, replyTo: " ucetni@cto.cz " };
     await expect(service.saveSettings(clerk, input)).rejects.toMatchObject({ code: "permission_denied" });
     await expect(service.saveSettings(manager, { ...input, reminder2Days: 5 })).rejects.toMatchObject({ code: "invalid_argument" });
@@ -1386,6 +1475,14 @@ describe("the prepayment stop before any invoice (L3)", () => {
     clients.shipmentBasics.mockRejectedValue(new Error("shipments down"));
     repo.figures.mockResolvedValue([figures({ invoice: { customer: { companyName: "Delta Import s.r.o.", paymentTerms: "PREPAYMENT" } } })]);
     expect(await service.releaseCheckInternal(clerk, SHIP)).toMatchObject({ prepaymentUnpaid: true, prepaymentUninvoicedUnchecked: true });
+  });
+
+  it("tells the public release check too: the warning on, prepayment, and what is not invoiced (n6)", async () => {
+    prepaymentCustomer();
+    expect(await service.releaseCheck(clerk, SHIP)).toMatchObject({ warn: true, prepayment: true, unpaid: [], prepaymentUninvoiced: [{ currency: "EUR", amount: 825 }] });
+    // The terms not readable: the part is left out, the check still answers.
+    clients.shipmentBasics.mockRejectedValue(new Error("shipments down"));
+    expect(await service.releaseCheck(clerk, SHIP)).toMatchObject({ warn: false, prepayment: false, prepaymentUninvoiced: [] });
   });
 
   it("says nothing of the uninvoiced part when it was checked", async () => {

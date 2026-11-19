@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import log from "encore.dev/log";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
@@ -25,7 +26,13 @@ export const shipmentRemeasureAccept = api(
   async (req: AcceptRemeasurementRequest): Promise<AcceptRemeasurementResponse> => {
     const auth = getAuthData()!;
     const shipment = await shipmentService.acceptRemeasurement(req.shipmentId, auth, req.expected);
-    return { shipment, acceptance: await shipmentService.remeasureAcceptance(req.shipmentId, auth.companyID, auth) };
+    // The acceptance is saved: a read of it failing now (mock test council n18) must not answer
+    // "Not accepted". The page reads it again with the shipment.
+    const acceptance = await shipmentService.remeasureAcceptance(req.shipmentId, auth.companyID, auth).catch((err: unknown) => {
+      log.warn(err, "the accepted remeasurement could not be read back", { shipmentId: req.shipmentId });
+      return null;
+    });
+    return { shipment, acceptance };
   },
 );
 

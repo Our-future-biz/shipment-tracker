@@ -14,7 +14,8 @@ import { reportBulk, runBulk } from "@/app/warehouse-concept/_components/tabs/sh
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOf, releaseGatesText } from "@/app/warehouse-concept/_lib/glossary";
 import { formatDateTime } from "@/lib/date";
 import { useUrlParam } from "@/hooks/useUrlParam";
-import { Badge, CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, nf } from "../_lib/gate";
+import { Badge, CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, isManager, nf } from "../_lib/gate";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { PrintLabelsModal } from "./PrintLabelsModal";
 import { ExpectedTodayPanel } from "./ExpectedTodayPanel";
 import { ScanBox } from "./ScanBox";
@@ -201,6 +202,7 @@ const isNextStep = (m: GateMovement, kind: GateStampKind) => gateSteps(m).some((
 export function GateLogView({ embedded, header }: { embedded?: boolean; header?: ReactNode } = {}) {
   const router = useRouter();
   const toast = useToast();
+  const { user } = useAuth();
   const { stamp: stampMovement, refresh: refreshAfterStamps } = useStampMovement();
   // Show archived (?archived=1): archived records only, read-only here; managers restore them on the job.
   const [archivedParam, setArchivedParam] = useUrlParam("archived", ["0", "1"] as const, "0");
@@ -237,7 +239,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
       setStampAction(null);
       const label = (m: GateMovement) => m.gateRef;
       if (result.done.length + result.failed.length > 0) reportBulk(toast, result, { verb: `${a.label} stamped on`, nouns: ["movement", "movements"], label });
-      if (skipped.length > 0) toast.notify({ type: "warning", title: `${a.label}: ${skipped.length} skipped`, description: skippedText(skipped, label) });
+      if (skipped.length > 0) toast.notify({ type: "warning", title: `${a.label}: ${skipped.length} skipped`, description: skippedText(skipped, label, bulk.whyOf, isManager(user)) });
       if (result.failed.length === 0) selection.clear();
     } catch (e) {
       toast.error(e instanceof Error && e.message ? e.message : "Failed to stamp the movements");

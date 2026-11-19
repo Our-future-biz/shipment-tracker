@@ -15,6 +15,17 @@ import { cardWithSignal, familyOf, notKnownText, type ShownList, type SignalFami
 // D24: money is per currency, never added across currencies; the one CZK figure is the server's,
 // shown with the rate it names. D29: what could not be read is "–", never 0.
 
+/**
+ * What "Not yet invoiced" counts (n11): the work still to bill on the jobs the tab reads - the active
+ * ones, and a charge added after invoicing on a job that reads Invoiced. A credit owed is said apart.
+ */
+export const NOT_YET_INVOICED_HINT =
+  "Selling lines still to bill - on no open invoice - on the jobs counted: the active ones, and charges added after invoicing on jobs that read Invoiced. A credit owed is not in it. One amount per currency: amounts of different currencies are never added; the CZK figure is all of them at the rate it names.";
+
+/** The same, in the people table: per person, over the jobs they handle. */
+export const PERSON_NOT_YET_INVOICED_HINT =
+  "Selling lines still to bill, on their active jobs and as charges added after invoicing on their jobs that read Invoiced: one amount per currency, never added across currencies";
+
 /** The Money tab's signal tiles, in the order they are drawn: one per family of the server's money tags (MONEY_SIGNAL_KINDS). */
 export const MONEY_FAMILIES: readonly SignalFamily[] = [
   {
@@ -30,7 +41,7 @@ export const MONEY_FAMILIES: readonly SignalFamily[] = [
     label: "Not invoiced",
     // The server's rules (lib/managersMoney inBillingSignals, notInvoicedSignals, chargeAfterInvoicingSignals) go by the
     // work left to bill, whether or not some invoice exists already - on a job that reads Invoiced too.
-    hint: "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced; urgent from 15 days after the tax date. Also a charge added after invoicing on a job that reads Invoiced (urgent)",
+    hint: "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced; urgent from 15 days after the tax date, or after the day a late charge was added. Also a charge added after invoicing on a job that reads Invoiced (urgent), and a credit owed to the customer until a credit note gives it",
   },
   { key: "unticked", kinds: ["unticked"], label: "Selling not ticked", hint: "A job in Billing with a valued selling line that is not ticked: it holds the job open" },
   {

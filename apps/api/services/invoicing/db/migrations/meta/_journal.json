@@ -274,6 +274,20 @@
       "when": 1795060800000,
       "tag": "0038_receivable_reminders_since",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1795064400000,
+      "tag": "0039_receivable_take_back_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795068000000,
+      "tag": "0040_receivable_reminders_skipped",
+      "breakpoints": true
     }
   ]
 }

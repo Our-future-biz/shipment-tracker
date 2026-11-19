@@ -7,10 +7,12 @@ import { kpiService } from "../services/kpi.service";
 import { pragueDate } from "../services/storage";
 
 vi.mock("~encore/clients", async () => {
-  const { getShipment } = await import("./shipmentFakes");
+  const { getShipment, releasePassFakes, shipmentBasicsFake, customersFake } = await import("./shipmentFakes");
   return {
-    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
+    // A WH release now asks Shipments whether it was released there already, and for a pass (council Y6).
+    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment), ...releasePassFakes, ...shipmentBasicsFake },
     invoicing: (await import("./shipmentFakes")).invoicingFake,
+    customers: customersFake,
     auth: (await import("./authFake")).authFake([]),
   };
 });

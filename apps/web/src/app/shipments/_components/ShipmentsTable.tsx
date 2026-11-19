@@ -41,19 +41,19 @@ import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { dimensionLineIsEmpty } from "@/lib/cargo";
-import { DimensionsModal } from "./DimensionsModal";
+import { DimensionsModal, linesChangedMeanwhile } from "./DimensionsModal";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ShipmentChatDrawer } from "./ChatPanel";
-import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { ApprovedByLockedContext, CancelOfferedContext, CreditCheckLockedContext, EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { typedSearchParams } from "@/app/shipments/_lib/allFieldsSearch";
 import { addressFiltersKey } from "@/app/shipments/_lib/addressFilters";
 import { keepsToItsAddress, rememberedAfter, type RememberedFilters } from "@/app/shipments/_lib/rememberedFilters";
 import { CustomerCell } from "./CustomerCell";
 import { CancelReasonDialog } from "./CancelReasonDialog";
-import { asksCancelReason, cancelUpdate } from "./cancelReason";
+import { asksCancelReason, cancelOffered, cancelUpdate } from "./cancelReason";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { CANCELLED_STATUS, LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
 import { downloadCsv } from "@/lib/csv";
@@ -642,6 +642,8 @@ export const ShipmentsTable = ({
           <ApprovedByLockedContext.Provider value={isApprovedByLocked(user, record)}>
           <CreditCheckLockedContext.Provider value={isCreditCheckLocked(user, record)}>
           <FreightModeContext.Provider value={record.freightMode ?? undefined}>
+          {/* A user is not offered Cancelled Shipment on a job that reads Invoiced (the server refuses it). */}
+          <CancelOfferedContext.Provider value={cancelOffered(user?.role, record.invoicingStatus)}>
             <EditableCell
               fieldKey={col.key}
               value={val}
@@ -659,6 +661,7 @@ export const ShipmentsTable = ({
               emptyClassName={EMPTY}
               displayStyle={textStyle}
             />
+          </CancelOfferedContext.Provider>
           </FreightModeContext.Provider>
           </CreditCheckLockedContext.Provider>
           </ApprovedByLockedContext.Provider>
@@ -1093,12 +1096,17 @@ export const ShipmentsTable = ({
         // The dimensions are the shipment's details: only shown to whoever may not change them.
         readOnly={!!dimsShipment && !canChangeShipmentDetails(user, dimsShipment)}
         onClose={() => setDimsShipmentId(null)}
-        onSave={(shipment, cargoDimensions) =>
-          updateShipment({ id: shipment.id, data: { cargoDimensions } }).catch((e) => {
-            toast.error(`Could not save the dimensions: ${apiErrorMessage(e)}`);
+        // Held to the lines the dialog opened with, as Cargo Details' saves are (Y10): a dialog opened
+        // before a colleague's save or an accepted remeasurement would else write its old lines back.
+        onSave={(shipment, cargoDimensions, expectedCargoDimensions) =>
+          updateShipment({ id: shipment.id, data: { cargoDimensions, expectedCargoDimensions } }).catch((e) => {
+            // Refused as changed meanwhile, the dialog shows the lines as saved and says so itself.
+            if (!linesChangedMeanwhile(e)) toast.error(`Could not save the dimensions: ${apiErrorMessage(e)}`);
             throw e;
           })
         }
+        // Read on its own, not from the list: the list is read again only after the write settles.
+        reload={(shipment) => api.shipments.shipmentGet(shipment.id).then((r) => r.shipment)}
       />
 
       <Drawer

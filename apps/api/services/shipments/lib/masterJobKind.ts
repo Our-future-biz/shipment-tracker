@@ -27,6 +27,28 @@ const sameKind = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 // The first freight mode given (a house's own, else its master job's: a house takes the master job's).
 const modeOf = (...modes: (string | null | undefined)[]) => modes.find((m) => (m ?? "").trim()) ?? null;
 
+/**
+ * Shipments of a Load Type in words: "Full Load shipments", "Consolidation shipments" - but "Single Shipments" and
+ * "Project Shipments", never "Single Shipment shipments" (mock test council n31).
+ */
+export const kindShipments = (name: string): string => (/shipment$/i.test(name.trim()) ? `${name.trim()}s` : `${name.trim()} shipments`);
+
+/**
+ * The freight mode a master job goes by (mock test council n31): its own, else - while it has none - the one mode
+ * all its houses share, so a master job of air houses with no Freight Mode is not named or served as sea. "" when
+ * it has none and its houses have none, or several.
+ */
+export function masterJobMode(freightMode: string | null | undefined, houses: readonly { freightMode?: string | null }[]): string {
+  const own = (freightMode ?? "").trim();
+  if (own) return own;
+  const modes: string[] = [];
+  for (const h of houses) {
+    const mode = (h.freightMode ?? "").trim();
+    if (mode && !modes.some((m) => sameKind(m, mode))) modes.push(mode);
+  }
+  return modes.length === 1 ? modes[0]! : "";
+}
+
 /** The distinct Load Types of these shipments, as first written; those without one say nothing. */
 export function loadTypesOf(shipments: readonly KindedShipment[]): string[] {
   const out: string[] = [];
@@ -51,7 +73,8 @@ export function masterJobKind(masterJob: KindedMasterJob, houses: readonly Kinde
 /** The filling as masterJobKind gives it, with the freight mode that names it: the master job's, else its house's. */
 function kindWithMode(masterJob: KindedMasterJob, houses: readonly KindedShipment[]): { loadType: string; from: string; name: string } | null {
   const own = filled(masterJob.loadType);
-  if (own) return { loadType: own, from: masterJob.mczNumber, name: loadTypeLabel(own, masterJob.freightMode) };
+  // Named by the master job's mode - with none, its houses' one (n31).
+  if (own) return { loadType: own, from: masterJob.mczNumber, name: loadTypeLabel(own, masterJobMode(masterJob.freightMode, houses)) };
   const kinds = loadTypesOf(houses);
   if (kinds.length !== 1) return null;
   const house = houses.find((h) => filled(h.loadType))!;
@@ -80,7 +103,7 @@ export function linkKindProblem(masterJob: KindedMasterJob, houses: readonly Kin
       const why =
         kind.from === masterJob.mczNumber
           ? `${masterJob.mczNumber} is a ${kind.name} master job`
-          : `${masterJob.mczNumber} holds ${kind.name} shipments (${kind.from})`;
+          : `${masterJob.mczNumber} holds ${kindShipments(kind.name)} (${kind.from})`;
       const ownName = loadTypeLabel(own, modeOf(shipment.freightMode, masterJob.freightMode));
       return `${shipment.jobNumber} is ${ownName} and can't go on ${masterJob.mczNumber}: ${why} - a shipment goes only on a master job of its own Load Type`;
     }
@@ -128,6 +151,6 @@ export function houseLoadTypeProblem(shipment: KindedShipment, masterJob: Kinded
   const wanted = filled(shipment.loadType);
   const kind = kindWithMode(masterJob, others);
   if (!wanted || !kind || sameKind(kind.loadType, wanted)) return null;
-  const why = kind.from === masterJob.mczNumber ? `a ${kind.name} master job` : `which holds ${kind.name} shipments (${kind.from})`;
+  const why = kind.from === masterJob.mczNumber ? `a ${kind.name} master job` : `which holds ${kindShipments(kind.name)} (${kind.from})`;
   return `${shipment.jobNumber} is on ${masterJob.mczNumber}, ${why}, so its Load Type stays ${kind.name} - take it off the master job first`;
 }

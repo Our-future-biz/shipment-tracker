@@ -13,6 +13,7 @@ import { bankStatementRepository as repo } from "../../repositories/bankStatemen
 import { accountingExportRepository as exportsRepo } from "../../repositories/accountingExport.repository";
 import { bankStatementEntryTable as e, type NewBankStatementEntryRecord } from "../../schemas/bankStatement.schema";
 import { invoiceTable as t, type InvoiceRecord } from "../../schemas/invoice.schema";
+import { receivablePaymentTable as rp } from "../../schemas/receivable.schema";
 
 const IBAN = "CZ6508000000192000145399";
 const sha = () => createHash("sha256").update(randomUUID()).digest("hex");
@@ -249,5 +250,71 @@ describe("an export to the accounting system (accountingExportRepository)", () =
       expect((await exportsRepo.documentsByIds(tx, a, [...ids, theirs.id])).map((d) => d.id).sort()).toEqual([one.id, two.id].sort());
       expect(await exportsRepo.documentsByIds(tx, b, [one.id])).toEqual([]);
     });
+  });
+});
+
+// ── Mock test council fixes (19 Nov 2026) ──
+
+describe("an entry opened again by a take-back, and when statements were read (n2, P8, P11)", () => {
+  /** A payment on an invoice of the company, taken back by mistake, as reversed, or live. */
+  const payment = async (companyId: string, takeBack: "mistake" | "reversed" | null) => {
+    const inv = await issue(companyId, "2026-11-10");
+    const [made] = await db
+      .insert(rp)
+      .values({
+        companyId,
+        invoiceId: inv.id,
+        kind: "payment",
+        paidOn: "2026-11-16",
+        amount: "1210.00",
+        by: "boss@test.cz",
+        confirmedAt: new Date(),
+        ...(takeBack
+          ? { takenBackAt: new Date(), takenBackBy: "boss@test.cz", takenBackReason: "wrong invoice", takenBackKind: takeBack, reversedOn: takeBack === "reversed" ? "2026-11-17" : null }
+          : {}),
+      })
+      .returning();
+    return { invoiceId: inv.id, number: inv.number, amount: 1210, paymentId: made!.id };
+  };
+
+  it("finds a confirmed entry a payment of which was taken back by mistake - not one reversed, not a live one, not one booked too long ago", async () => {
+    const a = randomUUID();
+    const st = (await repo.importStatement(statement(a, { fromDate: "2026-10-01", toDate: "2026-11-30" }), [
+      entry(a, `${IBAN}|M-${randomUUID()}`),
+      entry(a, `${IBAN}|R-${randomUUID()}`),
+      entry(a, `${IBAN}|L-${randomUUID()}`),
+      entry(a, `${IBAN}|O-${randomUUID()}`, { bookingDate: "2026-10-01" }),
+    ]))!.statement;
+    const rows = await repo.entriesOf(st);
+    const [mistake, reversed, live, old] = await Promise.all([payment(a, "mistake"), payment(a, "reversed"), payment(a, null), payment(a, "mistake")]);
+    for (const [row, allocation] of [
+      [rows[1]!, mistake],
+      [rows[2]!, reversed],
+      [rows[3]!, live],
+      [rows[0]!, old],
+    ] as const) {
+      await repo.confirm(a, row.id, row.version, decision, async () => [allocation]);
+    }
+    const found = await repo.reopenedIncoming(a, "2026-10-20");
+    expect(found.map((x) => x.allocations[0]!.paymentId)).toEqual([mistake.paymentId]);
+    expect(found[0]).toMatchObject({ status: "confirmed", fileName: st.fileName });
+    // Another company's are never read.
+    expect(await repo.reopenedIncoming(randomUUID(), "2026-10-20")).toEqual([]);
+
+    const kinds = await repo.takenBackKinds(a, [mistake.paymentId, reversed.paymentId, live.paymentId]);
+    expect([...kinds.takenBack].sort()).toEqual([mistake.paymentId, reversed.paymentId].sort());
+    expect([...kinds.reversed]).toEqual([reversed.paymentId]);
+    expect(await repo.takenBack(a, [mistake.paymentId, live.paymentId])).toEqual(new Set([mistake.paymentId]));
+  });
+
+  it("knows when the company last read a statement, null when never", async () => {
+    const a = randomUUID();
+    expect(await repo.lastImportAt(a)).toBeNull();
+    const before = Date.now();
+    await repo.importStatement(statement(a), []);
+    const at = await repo.lastImportAt(a);
+    expect(at).toBeInstanceOf(Date);
+    expect(at!.getTime()).toBeGreaterThanOrEqual(before - 60_000);
+    expect(await repo.lastImportAt(randomUUID())).toBeNull();
   });
 });

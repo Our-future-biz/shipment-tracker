@@ -12,7 +12,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/db";
 import { asAtOf } from "../../lib/receivables";
 import { receivableRepository as repo, CARRIED_OVER_NOTE } from "../../repositories/receivable.repository";
-import { invoiceTable as t, type InvoiceRecord } from "../../schemas/invoice.schema";
+import { invoiceLineTable, invoiceTable as t, type InvoiceRecord } from "../../schemas/invoice.schema";
 import { invoiceFollowupOutboxTable as o } from "../../schemas/invoiceFollowupOutbox.schema";
 import { receivableEventTable as ev, receivablePaymentTable as p, receivableSettingsTable as settingsT, receivableTable as r } from "../../schemas/receivable.schema";
 
@@ -590,7 +590,17 @@ describe("disputes that close by themselves (closeSettledDisputes, n4)", () => {
 describe("reminder settings (step 7)", () => {
   it("reads the defaults until saved, then the saved ones; one row per company; the days checked", async () => {
     const a = randomUUID();
-    expect(await repo.settingsOf(a)).toEqual({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, updatedBy: "", updatedAt: null });
+    expect(await repo.settingsOf(a)).toEqual({
+      autoReminders: false,
+      reminder1Days: 7,
+      reminder2Days: 21,
+      replyTo: "",
+      autoRemindersSince: null,
+      remindersSkippedOn: null,
+      remindersSkippedSince: null,
+      updatedBy: "",
+      updatedAt: null,
+    });
     const by = { updatedByUserId: randomUUID(), updatedBy: "boss@test.cz" };
     await repo.saveSettings(a, { autoReminders: true, reminder1Days: 5, reminder2Days: 15, replyTo: "ucetni@cto.cz", autoRemindersSince: "2026-11-19", ...by });
     expect(await repo.settingsOf(a)).toMatchObject({ autoReminders: true, autoRemindersSince: "2026-11-19" });
@@ -614,5 +624,168 @@ describe("the reminder run's read (overdueOn with dueFrom, L2)", () => {
     expect(ids).not.toContain(notYet.id);
     // Without the day: every overdue one, as the bell reads them.
     expect((await repo.figures(a, { overdueOn: "2026-11-19" }, 10)).map((f) => f.invoice.id)).toEqual([old.id, fromDay.id, later.id]);
+  });
+});
+
+// ── Mock test council fixes (19 Nov 2026) ──
+
+describe("an invoice issued again after a credit note (issuedAgainFrom, Y2)", () => {
+  it("names the earliest invoice of the same job and customer it replaces, credited or cancelled - none for another job or customer", async () => {
+    const a = randomUUID();
+    const customerId = randomUUID();
+    const first = await issue(a, { customerId, issueDate: "2026-11-03", duzp: "2026-11-03", dueDate: "2026-11-17" });
+    await db.update(t).set({ status: "credited" }).where(eq(t.id, first.id));
+    const again = await issue(a, { customerId, shipmentId: first.shipmentId, issueDate: "2026-11-12", duzp: "2026-11-12", dueDate: "2026-11-26" });
+    const otherJob = await issue(a, { customerId, issueDate: "2026-11-12", duzp: "2026-11-12", dueDate: "2026-11-26" });
+    const otherCustomer = await issue(a, { shipmentId: first.shipmentId, issueDate: "2026-11-12", duzp: "2026-11-12", dueDate: "2026-11-26" });
+    expect((await repo.figuresOne(a, again.id))!.issuedAgainFrom).toBe("2026-11-03");
+    expect((await repo.figuresOne(a, otherJob.id))!.issuedAgainFrom).toBeNull();
+    expect((await repo.figuresOne(a, otherCustomer.id))!.issuedAgainFrom).toBeNull();
+    // The credited one itself replaces nothing; an issued (not credited) earlier invoice is no replaced one.
+    expect((await repo.figuresOne(a, first.id))!.issuedAgainFrom).toBeNull();
+    // A later invoice of the job billed other charges (it is not the one just after the credited one, and shares no
+    // row with it): it replaces nothing (m9).
+    const extra = await issue(a, { customerId, shipmentId: first.shipmentId, issueDate: "2026-11-15", duzp: "2026-11-15", dueDate: "2026-11-29" });
+    expect((await repo.figuresOne(a, extra.id))!.issuedAgainFrom).toBeNull();
+    expect((await repo.figures(a, { invoiceIds: [again.id] }, 1))[0]!.issuedAgainFrom).toBe("2026-11-03");
+  });
+
+  it("is the invoice that billed the same selling rows, whatever the totals; never one of other charges (m9)", async () => {
+    const a = randomUUID();
+    const customerId = randomUUID();
+    const shipmentId = randomUUID();
+    const lineOf = (invoiceId: string, sourceSellingCostId: string, seq = 1) =>
+      db.insert(invoiceLineTable).values({ companyId: a, invoiceId, seq, description: "Freight", qty: "1.00", unitPrice: "1000.00", unitCurrency: "CZK", net: "1000.00", vatCode: "OUT", vatRate: "0.00", sourceSellingCostId });
+    const [freight, storage] = [randomUUID(), randomUUID()];
+    // An invoice of storage, credited: other charges.
+    const storageInvoice = await issue(a, { customerId, shipmentId, issueDate: "2026-11-02", duzp: "2026-11-02", dueDate: "2026-11-16", gross: "500.00" });
+    await lineOf(storageInvoice.id, storage);
+    await db.update(t).set({ status: "credited" }).where(eq(t.id, storageInvoice.id));
+    // An invoice of freight, cancelled on its day and billed again with a corrected total.
+    const freightInvoice = await issue(a, { customerId, shipmentId, issueDate: "2026-11-05", duzp: "2026-11-05", dueDate: "2026-11-19" });
+    await lineOf(freightInvoice.id, freight);
+    await db.update(t).set({ status: "cancelled" }).where(eq(t.id, freightInvoice.id));
+    const again = await issue(a, { customerId, shipmentId, issueDate: "2026-11-05", duzp: "2026-11-05", dueDate: "2026-11-19", gross: "1331.00" });
+    await lineOf(again.id, freight);
+    expect((await repo.figuresOne(a, again.id))!.issuedAgainFrom).toBe("2026-11-05");
+    // The storage again, on an invoice of its own: from the storage invoice's day, not the freight's.
+    const storageAgain = await issue(a, { customerId, shipmentId, issueDate: "2026-11-09", duzp: "2026-11-09", dueDate: "2026-11-23", gross: "600.00" });
+    await lineOf(storageAgain.id, storage);
+    expect((await repo.figuresOne(a, storageAgain.id))!.issuedAgainFrom).toBe("2026-11-02");
+    // An invoice of a new charge, a different total: none.
+    const handling = await issue(a, { customerId, shipmentId, issueDate: "2026-11-10", duzp: "2026-11-10", dueDate: "2026-11-24", gross: "250.00" });
+    await lineOf(handling.id, randomUUID());
+    expect((await repo.figuresOne(a, handling.id))!.issuedAgainFrom).toBeNull();
+  });
+});
+
+describe("the reminder run's read leaves out what it never reminds (remindable, n3)", () => {
+  it("skips reminder 2 sent, disputed, a promise running on the day and a rest under the floor", async () => {
+    const a = randomUUID();
+    const due = { dueDate: "2026-11-01" };
+    const plain = await issue(a, due);
+    const twice = await issue(a, due);
+    const disputed = await issue(a, due);
+    const promised = await issue(a, due);
+    const promiseOver = await issue(a, due);
+    const small = await issue(a, due);
+    const smallEur = await issue(a, { ...due, currency: "EUR", fxRate: "25.000000", gross: "50.00" });
+    const tinyUsd = await issue(a, { ...due, currency: "USD", fxRate: "23.000000", gross: "10.00" });
+    const notMade = await issue(a, due);
+    await repo.ensureRows(a, { invoiceIds: [plain, twice, disputed, promised, promiseOver, small, smallEur, tinyUsd].map((i) => i.id) });
+    await db.update(r).set({ reminderLevel: 2 }).where(eq(r.invoiceId, twice.id));
+    await db.update(r).set({ disputed: true, disputedReason: "rate" }).where(eq(r.invoiceId, disputed.id));
+    await db.update(r).set({ promisedOn: "2026-11-19" }).where(eq(r.invoiceId, promised.id));
+    await db.update(r).set({ promisedOn: "2026-11-18" }).where(eq(r.invoiceId, promiseOver.id));
+    await pay(a, small.id, "1150.00", { paidOn: "2026-11-10" });
+    await pay(a, smallEur.id, "46.00", { paidOn: "2026-11-10" });
+
+    const ids = (await repo.figures(a, { overdueOn: "2026-11-19", remindable: true }, 20)).map((f) => f.invoice.id);
+    // 60 CZK left (under 100), 4 EUR left (under 5), 10 USD = 230 CZK (above the floor at its own rate).
+    expect(ids.sort()).toEqual([plain.id, promiseOver.id, tinyUsd.id, notMade.id].sort());
+    expect(await repo.figures(a, { overdueOn: "2026-11-19" }, 20)).toHaveLength(9);
+  });
+});
+
+describe("the switch-on day set by the first run (setAutoRemindersSinceIfMissing, P3)", () => {
+  it("sets it once, only while automatic reminders are on and no day is stored", async () => {
+    const a = randomUUID();
+    const by = { updatedByUserId: randomUUID(), updatedBy: "boss@test.cz" };
+    expect(await repo.setAutoRemindersSinceIfMissing(a, "2026-11-19")).toBe(false);
+    await repo.saveSettings(a, { autoReminders: true, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, ...by });
+    expect(await repo.setAutoRemindersSinceIfMissing(a, "2026-11-19")).toBe(true);
+    expect(await repo.setAutoRemindersSinceIfMissing(a, "2026-11-20")).toBe(false);
+    expect(await repo.settingsOf(a)).toMatchObject({ autoReminders: true, autoRemindersSince: "2026-11-19" });
+    await repo.saveSettings(a, { autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, ...by });
+    expect(await repo.setAutoRemindersSinceIfMissing(a, "2026-11-21")).toBe(false);
+  });
+});
+
+describe("the last day the run skipped the reminders (noteRemindersSkipped, m5)", () => {
+  it("keeps the day and the last statement's day, the newest over the older; a save keeps them; another company's untouched", async () => {
+    const a = randomUUID();
+    const b = randomUUID();
+    const by = { updatedByUserId: randomUUID(), updatedBy: "boss@test.cz" };
+    await repo.saveSettings(a, { autoReminders: true, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: "2026-11-02", ...by });
+    await repo.saveSettings(b, { autoReminders: true, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: "2026-11-02", ...by });
+    const savedAt = (await repo.settingsOf(a)).updatedAt;
+    await repo.noteRemindersSkipped(a, "2026-11-16", "2026-11-11");
+    await repo.noteRemindersSkipped(a, "2026-11-18", "2026-11-13");
+    expect(await repo.settingsOf(a)).toMatchObject({ remindersSkippedOn: "2026-11-18", remindersSkippedSince: "2026-11-13", updatedAt: savedAt });
+    await repo.saveSettings(a, { autoReminders: true, reminder1Days: 8, reminder2Days: 21, replyTo: "", autoRemindersSince: "2026-11-02", ...by });
+    expect(await repo.settingsOf(a)).toMatchObject({ reminder1Days: 8, remindersSkippedOn: "2026-11-18", remindersSkippedSince: "2026-11-13" });
+    expect(await repo.settingsOf(b)).toMatchObject({ remindersSkippedOn: null, remindersSkippedSince: null });
+  });
+});
+
+describe("a take-back noted by mistake or reversed on a day (P8)", () => {
+  it("stores the kind and the day; a mistake has no day; the table's check holds it", async () => {
+    const a = randomUUID();
+    const inv = await issue(a);
+    const one = (await pay(a, inv.id, "100.00", { paidOn: "2026-11-10" }))!;
+    const two = (await pay(a, inv.id, "200.00", { paidOn: "2026-11-10" }))!;
+    const by = { userId: randomUUID(), email: "boss@test.cz", reason: "bank return" };
+    expect(await db.transaction((tx) => repo.takeBack(tx, a, inv.id, one.id, { ...by, kind: "reversed", reversedOn: "2026-11-12" }))).toMatchObject({
+      takenBackKind: "reversed",
+      reversedOn: "2026-11-12",
+    });
+    expect(await db.transaction((tx) => repo.takeBack(tx, a, inv.id, two.id, { ...by, reversedOn: "2026-11-12" }))).toMatchObject({ takenBackKind: "mistake", reversedOn: null });
+    await expect(db.update(p).set({ reversedOn: null }).where(eq(p.id, one.id))).rejects.toThrow();
+    await expect(db.update(p).set({ reversedOn: "2026-11-12" }).where(eq(p.id, two.id))).rejects.toThrow();
+  });
+
+  it("a reversed payment counts at month-end on the days before it went back; one noted by mistake never", async () => {
+    const a = randomUUID();
+    const reversed = await issue(a, { issueDate: "2026-10-15", duzp: "2026-10-15", dueDate: "2026-10-29" });
+    const mistake = await issue(a, { issueDate: "2026-10-15", duzp: "2026-10-15", dueDate: "2026-10-29" });
+    const by = { userId: randomUUID(), email: "boss@test.cz", reason: "gone back" };
+    const r1 = (await pay(a, reversed.id, "1210.00", { paidOn: "2026-10-20" }))!;
+    const m1 = (await pay(a, mistake.id, "1210.00", { paidOn: "2026-10-20" }))!;
+    await db.transaction((tx) => repo.takeBack(tx, a, reversed.id, r1.id, { ...by, kind: "reversed", reversedOn: "2026-11-03" }));
+    await db.transaction((tx) => repo.takeBack(tx, a, mistake.id, m1.id, by));
+    const candidates = await repo.asAtCandidates(a, "2026-10-31", 10);
+    expect(candidates.map((c) => c.id).sort()).toEqual([reversed.id, mistake.id].sort());
+    const lines = await repo.paymentsOf(a, [reversed.id, mistake.id]);
+    const at = (id: string) =>
+      asAtOf({ invoiceStatus: "issued", issueDate: "2026-10-15", dueDate: "2026-10-29", gross: 1210, fxRate: 1, creditNotes: [], lines: lines.filter((l) => l.invoiceId === id) }, "2026-10-31");
+    expect(at(reversed.id)).toMatchObject({ paid: 1210, listed: false });
+    expect(at(mistake.id)).toMatchObject({ paid: 0, listed: true });
+  });
+});
+
+describe("a dispute's own close, worded from what settled it (n5)", () => {
+  it("hands the reason what was paid, credited and written off, in the invoice's currency", async () => {
+    const a = randomUUID();
+    const inv = await issue(a, { currency: "EUR", gross: "1000.00" });
+    await repo.ensureRows(a, { all: true });
+    await db.update(r).set({ disputed: true, disputedReason: "rate" }).where(eq(r.invoiceId, inv.id));
+    await pay(a, inv.id, "700.00");
+    await creditNote(a, inv, "-300.00");
+    const seen: unknown[] = [];
+    await repo.closeSettledDisputes(a, { all: true }, "Accounts Receivable (automatic)", (s) => {
+      seen.push(s);
+      return "closed";
+    });
+    expect(seen).toEqual([{ invoiceStatus: "issued", status: "paid", paid: 700, credited: 300, writtenOff: 0, bankCharges: 0, currency: "EUR" }]);
   });
 });

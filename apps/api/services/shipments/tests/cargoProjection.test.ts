@@ -6,6 +6,7 @@ import {
   houseCargo,
   dimensionVolumePerPiece,
   fmtNum,
+  invalidContainerNumber,
   invoiceValueByCurrency,
   isValidContainerNumber,
   matchContainerRows,
@@ -238,5 +239,31 @@ describe("a house's cargo on its master job", () => {
   it("falls back to the stored fields on a shipment without rows, weight from tons to kg", () => {
     const cargo = houseCargo({ pcs: "12", typeOfPackages: "Pallets", totalWeightTons: "1.25", totalVolumeCbm: "3.5" }, [], [], []);
     expect(cargo).toEqual({ pieces: "12", packages: "Pallets", weightKg: "1,250", volumeM3: "3.5", stackability: "" });
+  });
+});
+
+// Mock test council n19: a number a container already has is not asked again.
+describe("invalidContainerNumber", () => {
+  const stored = [{ id: "c1", containerNumber: "TBA" }];
+
+  it("lets a number the container its id names already has through", () => {
+    expect(invalidContainerNumber([{ id: "c1", containerNumber: "TBA" }], stored)).toBeUndefined();
+    expect(invalidContainerNumber([{ id: "c1", containerNumber: " tba " }], stored)).toBeUndefined();
+    expect(invalidContainerNumber(undefined, stored)).toBeUndefined();
+  });
+
+  // A line with no id is a new container: it does not borrow a stored container's bad number.
+  it("asks a new line with no id, also when a stored container has the same bad number", () => {
+    expect(invalidContainerNumber([{ containerNumber: "TBA" }], stored)).toBe("TBA");
+    expect(invalidContainerNumber([{ id: "", containerNumber: "TBA" }], stored)).toBe("TBA");
+    expect(invalidContainerNumber([{ id: "c1", containerNumber: "TBA" }, { containerNumber: "TBA" }], stored)).toBe("TBA");
+    expect(invalidContainerNumber([{ containerNumber: "MSKU1234567" }], stored)).toBeUndefined();
+  });
+
+  it("names a new or changed number that is no container number", () => {
+    expect(invalidContainerNumber([{ id: "c1", containerNumber: "TBD" }], stored)).toBe("TBD");
+    expect(invalidContainerNumber([{ id: "c2", containerNumber: "TBA" }], stored)).toBe("TBA");
+    expect(invalidContainerNumber([{ containerNumber: "XYZ" }], [])).toBe("XYZ");
+    expect(invalidContainerNumber([{ id: "c1", containerNumber: "MSKU1234567" }], stored)).toBeUndefined();
   });
 });

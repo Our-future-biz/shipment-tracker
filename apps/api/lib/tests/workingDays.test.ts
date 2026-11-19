@@ -67,8 +67,28 @@ describe("addWorkingDays", () => {
     expect(addWorkingDays("2026-12-24", 0)).toBe("2026-12-28");
   });
 
-  it("counts from the next working day when it starts on a non-working one", () => {
-    expect(addWorkingDays("2026-10-17", 1)).toBe("2026-10-20"); // Saturday + 1 = Tuesday
+  it("counts the n-th working day after a non-working day too: Saturday + 1 is Monday, as Friday + 1 is (n20)", () => {
+    expect(addWorkingDays("2026-10-17", 1)).toBe("2026-10-19"); // Saturday + 1 = Monday
+    expect(addWorkingDays("2026-10-18", 1)).toBe("2026-10-19"); // Sunday + 1 = Monday
+    expect(addWorkingDays("2026-10-17", 3)).toBe("2026-10-21"); // Saturday + 3 = Wednesday
+    expect(addWorkingDays("2026-10-16", 1)).toBe("2026-10-19"); // Friday + 1 = Monday
+    // A holiday on a weekday: 24 Dec 2026 (Thu) + 1 is Monday the 28th, as 23 Dec + 1 is.
+    expect(addWorkingDays("2026-12-24", 1)).toBe("2026-12-28");
+    // The company's own day off counts as one.
+    expect(addWorkingDays("2026-10-17", 1, ["2026-10-19"])).toBe("2026-10-20");
+  });
+
+  it("reaches nextWorkingDay with n = 1 from any day, so a window of one working day ends where the next working day is", () => {
+    for (let d = "2026-12-19"; d <= "2027-01-10"; d = addDays(d, 1)) expect(addWorkingDays(d, 1)).toBe(nextWorkingDay(d));
+  });
+
+  it("keeps every weekday's answer as it was: the working day rolled to first was the day itself", () => {
+    // Monday 12 Oct to Friday 16 Oct 2026, + 1 … + 6.
+    const want: Record<string, string[]> = {
+      "2026-10-12": ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-19", "2026-10-20"],
+      "2026-10-16": ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-26"],
+    };
+    for (const [from, days] of Object.entries(want)) days.forEach((day, i) => expect(addWorkingDays(from, i + 1)).toBe(day));
   });
 
   it("refuses negative or fractional counts", () => {

@@ -40,10 +40,13 @@ export const PASSED_DATE_KEPT_DAYS = 7;
 export const ETA_PASSED_KEPT_DAYS = 14;
 
 // ─── URGENT ────────────────────────────────────────────────────
-// A "within N days" ahead (a cargo ready, an ETD, an ETA coming) counts WORKING days (D6), as the
-// two windows do: on a Friday a Monday flight is a working day away. A date that passed counts
-// calendar days (PASSED_DATE_KEPT_DAYS, ETA_PASSED_KEPT_DAYS). lib/managersCockpit comingWithin,
-// lib/managersCockpitExtra arrivingIn.
+// A "within N days" ahead (a cargo ready, an ETD, a Closing, an SI closing, an ETA, a claim's
+// notice deadline coming) counts WORKING days (D6), as the two windows do: on a Friday - and on a
+// Saturday - a Monday flight is a working day away. A date that passed counts calendar days
+// (PASSED_DATE_KEPT_DAYS, ETA_PASSED_KEPT_DAYS); so does a time bar of months (the claims' suit).
+// lib/managersCockpit comingWithin, lib/managersCockpitExtra workingDaysAhead (its departureAhead
+// and arrivingIn), each window's end worked out once per answer (workingDayEnd). Every number
+// below that says "days" ahead of a date is working days, unless it says calendar.
 
 /**
  * U4: Booking Confirmation still Pending with the cargo ready within, or the ETD within, this many
@@ -71,7 +74,7 @@ export const POD_MISSING_URGENT_WORKING_DAYS = 5;
 
 // ─── ATTENTION ───────────────────────────────────────────────────
 
-/** A2: the B/L draft not Approved this many days before the SI closing. */
+/** A2: the B/L draft not Approved this many working days before the SI closing. */
 export const BL_DRAFT_BEFORE_SI_DAYS = 3;
 /** A3: working days after an export's ATD with the House BoL not released. */
 export const HOUSE_BOL_NOT_RELEASED_AFTER_WORKING_DAYS = 5;
@@ -89,7 +92,7 @@ export const WAREHOUSE_IDLE_AFTER_WORKING_DAYS = 2;
 export const HAULIER_TOMORROW_FROM = "14:00";
 /** A22: working days after the delivery with no POD. */
 export const POD_MISSING_AFTER_WORKING_DAYS = 2;
-/** A24: Credit Check not Green with the ETD within this many working days. */
+/** A24: Credit Check not Green with the ETD within this many working days - on an import the seller's side ships (a C or D term, or none), the ETA (P14). */
 export const CREDIT_CHECK_ETD_WITHIN_DAYS = 3;
 
 // ─── The signals read from other tables (lib/managersCockpitExtra) ──────────────
@@ -103,9 +106,9 @@ export const PAPERWORK_URGENT_DAYS = 1;
 export const PAPERWORK_ATTENTION_DAYS: PerMode<number> = { sea: 5, rail: 5, air: 2, road: 2 };
 /** U10: an import this many working days from its ETA whose Master BoL is an original not in hand yet. */
 export const ORIGINAL_BL_URGENT_DAYS = 2;
-/** U11: dangerous goods without their safety paperwork, this many days before the Closing (the ETD when no Closing): URGENT. */
+/** U11: dangerous goods without their safety paperwork, this many working days before the Closing (the ETD when no Closing): URGENT. */
 export const DANGEROUS_URGENT_DAYS = 3;
-/** A23: …and this many days before it: ATTENTION. */
+/** A23: …and this many working days before it: ATTENTION. */
 export const DANGEROUS_ATTENTION_DAYS = 7;
 /** U17: a request waiting for a manager longer than this many working days. */
 export const REQUEST_WAITING_WORKING_DAYS = 1;
@@ -131,19 +134,20 @@ export const REMEASURE_ATTENTION_HOURS = 24;
 export const REMEASURE_ATTENTION_AIR_OFFICE_HOURS = 4;
 /** …and URGENT after this many hours, */
 export const REMEASURE_URGENT_HOURS = 48;
-/** …or, by air, when the Closing (the ETD when no Closing) is this many days away. */
+/** …or, by air, when the Closing (the ETD when no Closing) is this many working days away: on a Friday, a Monday Closing. */
 export const REMEASURE_URGENT_AIR_DEPARTURE_DAYS = 1;
 /**
  * A19 (X4): a remeasurement Warehouse Concept informed about that differs from the shipment is a
  * warning to check Cargo Details by hand - its "Accept" reads only the Warehouse's own lines - for
- * this many days after it was informed, unless Cargo Details comes to match it first.
+ * this many calendar days after it was informed, unless Cargo Details - as the shipment shows them,
+ * the way the Alerts tab judges it (lib/remeasureMatch) - come to match it first.
  */
 export const REMEASURE_WAREHOUSE_CONCEPT_DAYS = 7;
 /** A19: an accepted remeasurement whose costs nobody checked for longer than this many working days. */
 export const REMEASURE_COSTS_WORKING_DAYS = 1;
-/** A25: an export house of a Master Job this many days from its Closing, out of step. */
+/** A25: an export house of a Master Job this many working days from its Closing, out of step. */
 export const MASTER_JOB_CLOSING_DAYS = 5;
-/** A25: a Master Job this many days from its ETD with no shipment linked. */
+/** A25: a Master Job this many working days from its ETD with no shipment linked (also how far ahead the Master Jobs are read). */
 export const MASTER_JOB_NO_HOUSE_DAYS = 10;
 
 // ─── The team's signals, the Team facts and the audit line (lib/managersCockpitTeam, lib/managersCockpitAudit) ───
@@ -280,10 +284,10 @@ export const AWAY_SOON_WORKING_DAYS = 2;
 // ─── Step 6: cargo claims (builder C's block; lib/managersCockpitClaims) ──────────
 /** "Cargo claim open since dd.mm.": an open cargo claim asks for a look this many days after it was raised. */
 export const CLAIM_OPEN_ATTENTION_DAYS = 14;
-/** With the claim time limits on: the carrier not notified is URGENT from this many days before the notice deadline. */
+/** With the claim time limits on: the carrier not notified is URGENT from this many working days before the notice deadline (a Monday deadline from the Friday before). */
 export const CLAIM_NOTICE_URGENT_DAYS_BEFORE = 1;
-/** With the claim time limits on: the suit time bar is ATTENTION this many days ahead… */
+/** With the claim time limits on: the suit time bar is ATTENTION this many calendar days ahead… */
 export const CLAIM_SUIT_ATTENTION_DAYS = 60;
-/** …and URGENT this many days ahead. */
+/** …and URGENT this many calendar days ahead. */
 export const CLAIM_SUIT_URGENT_DAYS = 30;
 // ─── end of builder C's block ───

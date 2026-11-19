@@ -42,6 +42,10 @@ export interface QueueEntry {
 /**
  * Per shipment: how many of its selling lines are on an open invoice, of all of them. A line with
  * no value is left out (it is never invoiced); a line on a credited invoice counts as not invoiced.
+ * A line below nothing on no open invoice (or partial credit note of one) is left out too: it is a
+ * credit owed to the customer, not a charge to bill (lib/shipmentStatus), so it never keeps a job
+ * from reading Invoiced. On an invoice - a discount billed with the rest, or settled by a partial
+ * credit note - it counts as invoiced.
  */
 export function countInvoicedLines(
   rows: Pick<QueueSellingRow, "id" | "shipmentId" | "qty" | "amount">[],
@@ -50,11 +54,36 @@ export function countInvoicedLines(
   const invoicedRowIds = new Set(openInvoices.flatMap((i) => i.sourceSellingCostIds).filter((x): x is string => !!x));
   const counts = new Map<string, { invoiced: number; total: number }>();
   for (const r of rows) {
-    if (!(Number(r.amount ?? 0) * qtyOrOne(r.qty))) continue;
+    const value = Number(r.amount ?? 0) * qtyOrOne(r.qty);
+    if (!value) continue;
+    const invoiced = invoicedRowIds.has(r.id);
+    if (value < 0 && !invoiced) continue;
     const c = counts.get(r.shipmentId) ?? { invoiced: 0, total: 0 };
     c.total += 1;
-    if (invoicedRowIds.has(r.id)) c.invoiced += 1;
+    if (invoiced) c.invoiced += 1;
     counts.set(r.shipmentId, c);
+  }
+  return counts;
+}
+
+/**
+ * Per shipment with an open invoice: how many of its selling lines are a credit owed - below nothing and on no open
+ * invoice (nor a partial credit note of one), the lines countInvoicedLines leaves out. Such a job reads Invoiced
+ * (a credit owed is no charge to bill), so the check of invoiced jobs lists it by this count (M3): the customer is
+ * owed it until a credit note gives it, however long ago the job was invoiced. A job with no open invoice owes
+ * nothing yet - its line below nothing goes on its invoice with the rest.
+ */
+export function countCreditsOwed(
+  rows: Pick<QueueSellingRow, "id" | "shipmentId" | "qty" | "amount">[],
+  openInvoices: Pick<QueueOpenInvoice, "shipmentId" | "sourceSellingCostIds">[],
+): Map<string, number> {
+  const invoicedRowIds = new Set(openInvoices.flatMap((i) => i.sourceSellingCostIds).filter((x): x is string => !!x));
+  const invoicedJobs = new Set(openInvoices.map((i) => i.shipmentId));
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    if (!invoicedJobs.has(r.shipmentId) || invoicedRowIds.has(r.id)) continue;
+    if (Number(r.amount ?? 0) * qtyOrOne(r.qty) >= 0) continue;
+    counts.set(r.shipmentId, (counts.get(r.shipmentId) ?? 0) + 1);
   }
   return counts;
 }

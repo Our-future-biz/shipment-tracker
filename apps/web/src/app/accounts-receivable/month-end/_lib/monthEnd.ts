@@ -7,6 +7,14 @@ import { round2 } from "@/lib/money";
 /** The words beside the one CZK total on the page. */
 export const CZK_TOTAL_LABEL = "at each invoice's own ČNB rate (its tax date)";
 
+/**
+ * How a payment taken back counts here (mock test council P8, the server's lib/receivables countsAt): one noted by
+ * mistake never counts on any day; one reversed - a bank return or a refund - was paid, so it counts up to the day
+ * before it went back.
+ */
+export const TAKEN_BACK_RULE =
+  "A payment taken back as noted by mistake never counts, on any day; one reversed (a bank return or a refund) counts as paid up to the day before it went back.";
+
 /** The month-end the page opens on: the last day of the month before today's (never after today). */
 export function defaultMonthEndDay(today: string): string {
   return addDays(`${today.slice(0, 7)}-01`, -1);

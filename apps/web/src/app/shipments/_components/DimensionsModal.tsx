@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Button, Input, Modal, Select, Tooltip } from "antd";
+import { Alert, Button, Input, Modal, Select, Tooltip } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { CheckPill } from "./CargoCheck";
@@ -73,10 +73,77 @@ const isEmpty = dimensionLineIsEmpty;
 // Why a read-only dialog has no Save.
 export const DIMENSIONS_READ_ONLY_HINT = "Only the user in Handled By or Holiday Cover, or a manager, can change its dimensions.";
 
+/** Said in the dialog after a save refused because the lines were changed meanwhile, once it shows them as saved. */
+export const LINES_RELOADED = "Cargo Details changed meanwhile: the dialog now shows the lines as saved - make your change again.";
+/** The same refusal, when the saved lines could not be read again. */
+export const LINES_NOT_RELOADED = "Cargo Details changed meanwhile, and the saved lines could not be read again: close the dialog and open it again.";
+
+const emptyLine = (containerId: string | null, dimensionUnit: DimensionUnit = "cm"): CargoDimensionLine => ({
+  containerId,
+  pieces: "",
+  lengthCm: "",
+  widthCm: "",
+  heightCm: "",
+  dimensionUnit,
+  weightPerPcKg: "",
+  volumePerPcM3: "",
+  packageType: "",
+  stackable: "",
+});
+
+/**
+ * The lines the dialog shows for `shipment`: its saved lines, each in its own unit (cm or inches;
+ * sent back in cm, lineInCm on save) - with one container all of them on it - and, to type
+ * into, an empty line for each container that has none (an untouched one is never saved).
+ * Read-only, only the saved lines.
+ */
+export function dialogLines(shipment: ShipmentItem, readOnly: boolean): CargoDimensionLine[] {
+  const ids = cargoContainers(shipment).map((c) => c.id);
+  const only = ids.length === 1 ? ids[0]! : null;
+  const saved = (shipment.cargoDimensions ?? []).map((l) => lineInUnit(only && l.containerId !== only ? { ...l, containerId: only } : l));
+  const targets: (string | null)[] = ids.length ? ids : [null];
+  const missing = readOnly ? [] : targets.filter((id) => !saved.some((l) => (l.containerId ?? null) === id));
+  return [...saved, ...missing.map((id) => emptyLine(id))];
+}
+
+/**
+ * Whether a save was refused because the shipment's lines are no longer those the dialog opened
+ * with (the server's "Cargo Details changed meanwhile", code aborted): nothing was written.
+ */
+export const linesChangedMeanwhile = (err: unknown): boolean => !!err && typeof err === "object" && (err as { code?: unknown }).code === "aborted";
+
+/**
+ * One Save of the dialog: the lines sent with the lines it opened with (`expected`), so the server
+ * writes them only while it still holds those - a dialog opened before a colleague's save or an
+ * accepted remeasurement would else write its old lines back over theirs (Y10, as Cargo Details).
+ * Refused for that, the shipment is read again: "reloaded" with it, to show its lines; "unread"
+ * when it could not be read. Any other failure is thrown on (the caller has said what went wrong).
+ */
+export async function saveDialogLines(
+  shipment: ShipmentItem,
+  lines: CargoDimensionLine[],
+  expected: CargoDimensionLine[],
+  onSave: (shipment: ShipmentItem, lines: CargoDimensionLine[], expected: CargoDimensionLine[]) => Promise<unknown>,
+  reload: ((shipment: ShipmentItem) => Promise<ShipmentItem>) | undefined,
+): Promise<{ outcome: "saved" } | { outcome: "reloaded"; shipment: ShipmentItem } | { outcome: "unread" }> {
+  try {
+    await onSave(shipment, lines, expected);
+    return { outcome: "saved" };
+  } catch (err) {
+    if (!linesChangedMeanwhile(err) || !reload) throw err;
+    try {
+      return { outcome: "reloaded", shipment: await reload(shipment) };
+    } catch {
+      return { outcome: "unread" };
+    }
+  }
+}
+
 export function DimensionsModal({
   shipment,
   onClose,
   onSave,
+  reload,
   readOnly = false,
 }: {
   /** The shipment whose dimensions are shown; null keeps the dialog closed. */
@@ -84,12 +151,21 @@ export function DimensionsModal({
   /** The user may not change the shipment's details: the lines are shown, with no Save. */
   readOnly?: boolean;
   onClose: () => void;
-  /** Saves the lines (empty ones already left out); the dialog closes when it resolves and
-   * stays open with the lines as typed when it rejects (the caller says what went wrong). */
-  onSave: (shipment: ShipmentItem, lines: CargoDimensionLine[]) => Promise<unknown>;
+  /** Saves the lines (empty ones already left out), held to `expected` - the lines the dialog
+   * opened with (expectedCargoDimensions); the dialog closes when it resolves and stays open with
+   * the lines as typed when it rejects (the caller says what went wrong) - but for a refusal
+   * because the lines changed meanwhile, which the dialog answers itself (saveDialogLines). */
+  onSave: (shipment: ShipmentItem, lines: CargoDimensionLine[], expected: CargoDimensionLine[]) => Promise<unknown>;
+  /** Reads the shipment again, after a save refused because its lines changed meanwhile. */
+  reload?: (shipment: ShipmentItem) => Promise<ShipmentItem>;
 }) {
   const [lines, setLines] = useState<CargoDimensionLine[]>([]);
   const [saving, setSaving] = useState(false);
+  // The saved lines the dialog shows were loaded from: every save is held to them. Taken when the
+  // dialog opens, not from the row as it is at Save - a refetch meanwhile would else hide a change.
+  const openedWith = useRef<CargoDimensionLine[]>([]);
+  // What the dialog says after a refused save it answered itself.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // The shipment's saved containers, in their order. With one, every line belongs to it
   // (also a line typed before the container existed). On an air job none (lib/cargo
@@ -97,30 +173,13 @@ export function DimensionsModal({
   // line keeps the container it names.
   const containers: (ContainerLine & { id: string })[] = shipment ? cargoContainers(shipment) : [];
   const containerIds = containers.map((c) => c.id);
-  const only = containers.length === 1 ? containers[0]!.id : null;
-
-  const emptyLine = (containerId: string | null, dimensionUnit: DimensionUnit = "cm"): CargoDimensionLine => ({
-    containerId,
-    pieces: "",
-    lengthCm: "",
-    widthCm: "",
-    heightCm: "",
-    dimensionUnit,
-    weightPerPcKg: "",
-    volumePerPcM3: "",
-    packageType: "",
-    stackable: "",
-  });
 
   const shipmentId = shipment?.id;
   useEffect(() => {
     if (!shipment) return;
-    // Each line in its own unit (cm or inches); sent back in cm (lineInCm on save).
-    const saved = (shipment.cargoDimensions ?? []).map((l) => lineInUnit(only && l.containerId !== only ? { ...l, containerId: only } : l));
-    // Every container gets a line to type into (an untouched one is never saved); read-only, only the saved lines.
-    const targets: (string | null)[] = containerIds.length ? containerIds : [null];
-    const missing = readOnly ? [] : targets.filter((id) => !saved.some((l) => (l.containerId ?? null) === id));
-    setLines([...saved, ...missing.map((id) => emptyLine(id))]);
+    openedWith.current = shipment.cargoDimensions ?? [];
+    setNotice(null);
+    setLines(dialogLines(shipment, readOnly));
     // Only when another shipment is opened: a refetch must not wipe what is being typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipmentId]);
@@ -152,8 +211,15 @@ export function DimensionsModal({
     if (!shipment || saving || readOnly) return;
     setSaving(true);
     try {
-      await onSave(shipment, lines.filter((l) => !isEmpty(l)).map(lineInCm));
-      onClose();
+      const done = await saveDialogLines(shipment, lines.filter((l) => !isEmpty(l)).map(lineInCm), openedWith.current, onSave, reload);
+      if (done.outcome === "saved") return onClose();
+      if (done.outcome === "reloaded") {
+        // The lines as saved now, and the next save held to them.
+        openedWith.current = done.shipment.cargoDimensions ?? [];
+        setLines(dialogLines(done.shipment, readOnly));
+        setActiveKey(null);
+      }
+      setNotice(done.outcome === "reloaded" ? LINES_RELOADED : LINES_NOT_RELOADED);
     } catch {
       // Nothing more to do here: the dialog stays open and the caller has said what went wrong.
     } finally {
@@ -230,6 +296,7 @@ export function DimensionsModal({
       }
     >
       <div className="pt-2 pb-2">
+        {notice && <Alert className="!mb-3" type="warning" showIcon message={<span className="text-xs">{notice}</span>} />}
         {/* Framed like the Cargo Dimensions card of Cargo Details. */}
         <div className={`${CARD} overflow-hidden`}>
           {containers.length > 0 && (

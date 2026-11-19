@@ -27,17 +27,20 @@ export function useRemeasureAcceptance(shipmentId: string) {
 
   const settle = (res: controllers.RemeasureAcceptanceResponse) => queryClient.setQueryData<controllers.RemeasureAcceptanceResponse>(key, { acceptance: res.acceptance });
 
-  // `expected`: the warehouse's remeasured lines as the page shows them. Changed meanwhile, the
-  // warehouse's lines are read again so the new ones show, and nothing is accepted.
+  // `expected`: the warehouse's remeasured lines as the page shows them. Refused, nothing is
+  // accepted, and what it was decided on is read again - the warehouse's lines, and the shipment
+  // with its Cargo Details and last acceptance (mock test council n14): after "changed meanwhile" or
+  // "already accepted" the page would else keep showing the Cargo Details that were refused.
   const accept = useMutation({
     mutationFn: async (expected: string) => {
       try {
         return await api.shipments.shipmentRemeasureAccept(shipmentId, { expected });
       } catch (e) {
-        if (e instanceof APIError && e.code === ErrCode.Aborted) {
-          await queryClient.invalidateQueries({ queryKey: ["warehouse-section", shipmentId] });
-          throw new SectionChangedError(e.message);
-        }
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["warehouse-section", shipmentId] }),
+          queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+        ]);
+        if (e instanceof APIError && e.code === ErrCode.Aborted) throw new SectionChangedError(e.message);
         throw e;
       }
     },

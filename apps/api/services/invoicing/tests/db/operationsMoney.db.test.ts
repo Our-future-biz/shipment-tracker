@@ -296,3 +296,39 @@ describe("a selling line written after invoicing", () => {
     ]);
   });
 });
+
+describe("the jobs owing their customer a credit (creditOwedShipmentIds, M3)", () => {
+  it("is every job with an open invoice and a line below nothing on no document billing now - however long ago invoiced", async () => {
+    const a = randomUUID();
+    const [owes, settled, notInvoiced, credited] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    // Invoiced long ago, a price lowered since: owed.
+    const billed = await sellLine(a, owes);
+    await invoiceLine(a, (await customerInvoice(a, owes, { issueDate: "2025-01-10", duzp: "2025-01-10", dueDate: "2025-01-24" })).id, billed.id);
+    await sellLine(a, owes, { amount: "-50.00", sourceTruckingRef: `trucking:consignment:${randomUUID()}:diff:1` });
+    // The credit given on a partial credit note of the open invoice: settled, nothing owed.
+    const settledRow = await sellLine(a, settled);
+    const open = await customerInvoice(a, settled);
+    await invoiceLine(a, open.id, settledRow.id);
+    const diff = await sellLine(a, settled, { amount: "-20.00" });
+    await invoiceLine(a, (await customerInvoice(a, settled, { kind: "credit_note", correctsInvoiceId: open.id, gross: "-20.00" })).id, diff.id);
+    // A discount on a job not invoiced yet: billed with the rest, owed to nobody.
+    await sellLine(a, notInvoiced, { amount: "-30.00" });
+    // Its only invoice credited in full: nothing stands invoiced, so nothing is owed back yet.
+    const creditedRow = await sellLine(a, credited);
+    await invoiceLine(a, (await customerInvoice(a, credited, { status: "credited" })).id, creditedRow.id);
+    await sellLine(a, credited, { amount: "-10.00" });
+    // A deleted line, and another company's job owing a credit: never.
+    await sellLine(a, settled, { amount: "-5.00", deletedAt: new Date() });
+    const b = randomUUID();
+    const theirs = randomUUID();
+    const theirRow = await sellLine(b, theirs);
+    await invoiceLine(b, (await customerInvoice(b, theirs)).id, theirRow.id);
+    await sellLine(b, theirs, { amount: "-40.00" });
+
+    const before = await snapshot(a);
+    expect(await invoiceRepository.creditOwedShipmentIds(a, 100)).toEqual([owes]);
+    expect(await invoiceRepository.creditOwedShipmentIds(b, 100)).toEqual([theirs]);
+    // Read only.
+    expect(await snapshot(a)).toBe(before);
+  });
+});

@@ -20,6 +20,11 @@ export interface OpenInvoice {
   dueDate: string;
   /** The receivable's version (a confirm sends it back) */
   version: number;
+  /**
+   * The first day a payment of it may be booked on (payableFromOf): an entry booked earlier is not proposed for it,
+   * as a confirm would refuse it (mock test council Y2). null or left out: any day (an invoice on prepayment).
+   */
+  payableFrom?: string | null;
 }
 
 export interface MatchableEntry {
@@ -29,6 +34,19 @@ export interface MatchableEntry {
   variableSymbol: string;
   endToEndId: string;
   message: string;
+  /** The day it was booked (the day a confirm notes as paid); null or left out: not known, no invoice is left out for it */
+  day?: string | null;
+}
+
+/**
+ * The first day a payment of an invoice may be booked on - the day a payment may be noted from (lib/receivables
+ * paymentProblem): its issue day; any day for an invoice on prepayment (the customer pays before it is issued); for an
+ * invoice issued again after a credit note, the day the invoice it replaces was issued (the customer may have paid
+ * that one). Mock test council Y2.
+ */
+export function payableFromOf(inv: { issueDate: string | null; prepayment?: boolean; issuedAgainFrom?: string | null }): string | null {
+  if (inv.prepayment || !inv.issueDate) return null;
+  return inv.issuedAgainFrom && inv.issuedAgainFrom < inv.issueDate ? inv.issuedAgainFrom : inv.issueDate;
 }
 
 /** A candidate as stored (BankEntryCandidate) with what the screen needs now. */
@@ -87,7 +105,8 @@ const cents = (n: number) => Math.round(n * 100);
 /**
  * What an entry is now: money out → not_incoming; money in → the owed invoices in its currency whose job's symbol is
  * its variable symbol or whose number is in its message or end-to-end id, best first (at most 20) → proposed, or
- * no_match when none. Never confirmed here.
+ * no_match when none. An invoice the entry was booked too early for (before its payableFrom) is left out. Never
+ * confirmed here.
  */
 export function matchEntry(
   entry: MatchableEntry,
@@ -98,6 +117,7 @@ export function matchEntry(
   const out: MatchedCandidate[] = [];
   for (const inv of invoices) {
     if (inv.currency !== entry.currency || !(inv.leftToPay > 0)) continue;
+    if (entry.day && inv.payableFrom && entry.day < inv.payableFrom) continue;
     const byNumber = invoiceNumberIn(inv.number, texts);
     const bySymbol = !!entry.variableSymbol && sameSymbol(entry.variableSymbol, variableSymbol(inv.jobNumber));
     if (!byNumber && !bySymbol) continue;
@@ -135,9 +155,13 @@ export interface OpenBankEntry extends MatchableEntry {
   readOn?: string | null;
 }
 
-/** An owed invoice as the "payment waiting" check reads it: with its issue day. */
+/** An owed invoice as the "payment waiting" check reads it: with its issue day, and what lets an earlier entry pay it. */
 export interface WaitingInvoice extends OpenInvoice {
   issueDate: string | null;
+  /** The customer's terms on the invoice are prepayment: an entry booked before it was issued may pay it (Y2) */
+  prepayment?: boolean;
+  /** Issued again after a credit note: the day the invoice it replaces was issued (Y2) */
+  issuedAgainFrom?: string | null;
 }
 
 /** An open entry booked longer ago than this no longer holds an invoice's reminders. */
@@ -159,8 +183,11 @@ export interface WaitingPayment {
  * the drawer and the reminder form say so.
  *
  * The variable symbol is the job number, shared by all the job's invoices, so an entry nobody decides would otherwise
- * hold every later invoice of the job for good: an entry booked before the invoice was issued is not its payment, and
- * one booked more than WAITING_ENTRY_DAYS before `today` holds nothing any more (it waits on its statement all the same).
+ * hold every later invoice of the job for good: an entry booked before the invoice was issued is not its payment -
+ * unless the invoice is on prepayment (the customer pays before it is issued) or issued again after a credit note (the
+ * customer may have paid the one it replaces; then from that one's issue day): payableFromOf, the same day a confirm
+ * accepts (mock test council Y2). One booked more than WAITING_ENTRY_DAYS before `today` holds nothing any more, the
+ * early ones too (it waits on its statement all the same).
  */
 export function waitingPaymentsOf(entries: readonly OpenBankEntry[], invoices: readonly WaitingInvoice[], today: string): Map<string, WaitingPayment> {
   const out = new Map<string, WaitingPayment>();
@@ -170,12 +197,10 @@ export function waitingPaymentsOf(entries: readonly OpenBankEntry[], invoices: r
   const ordered = [...entries]
     .filter((e) => e.credit && !((dayOf(e) ?? today) < oldest))
     .sort((a, b) => (a.bookingDate ?? "9999").localeCompare(b.bookingDate ?? "9999"));
+  const payable = invoices.map((inv) => ({ ...inv, payableFrom: payableFromOf(inv) }));
   for (const e of ordered) {
-    const day = dayOf(e);
     // An entry of no known day is held against every invoice, as before.
-    const payable = day ? invoices.filter((inv) => !inv.issueDate || inv.issueDate <= day) : invoices;
-    if (!payable.length) continue;
-    for (const c of matchEntry(e, payable).candidates) {
+    for (const c of matchEntry({ ...e, day: dayOf(e) }, payable).candidates) {
       if (out.has(c.invoiceId)) continue;
       out.set(c.invoiceId, { statementId: e.statementId, fileName: e.fileName, bookingDate: e.bookingDate, amount: round2(e.amount), currency: e.currency });
     }
@@ -208,9 +233,9 @@ export function decidableProblem(entry: { status: BankEntryStatus; decidedBy: st
 export interface EntryAllocationState {
   /** Allocated on payments not taken back */
   live: number;
-  /** The entry's amount less what is live: what a new confirmation may put on invoices */
+  /** The entry's amount less what is live and what went back (a reversed payment): what a new confirmation may put on invoices */
   free: number;
-  /** Confirmed, a payment of it taken back since, and something free: a manager may confirm it again (or set it aside) */
+  /** Confirmed, a payment of it taken back by mistake since, and something free: a manager may confirm it again (or set it aside) */
   reopened: boolean;
   /** The allocations of the latest confirmation (a double click of it is answered, not noted twice) */
   lastRound: BankEntryAllocation[];
@@ -218,12 +243,22 @@ export interface EntryAllocationState {
   nextRound: number;
 }
 
-export function entryAllocationState(entry: { status: BankEntryStatus; amount: number; allocations: readonly BankEntryAllocation[] }, takenBack: ReadonlySet<string>): EntryAllocationState {
+/**
+ * `takenBack`: the entry's payments taken back since. `reversed`: those of them taken back as reversed (mock test council
+ * P8: a bank return or a refund) - the money went back to the customer, so it is not free on the entry to put on
+ * another invoice; only a payment noted by mistake frees its amount.
+ */
+export function entryAllocationState(
+  entry: { status: BankEntryStatus; amount: number; allocations: readonly BankEntryAllocation[] },
+  takenBack: ReadonlySet<string>,
+  reversed: ReadonlySet<string> = new Set(),
+): EntryAllocationState {
   const roundOf = (a: BankEntryAllocation) => (Number.isInteger(a.round) && a.round! > 0 ? a.round! : 1);
   const live = entry.allocations.filter((a) => !takenBack.has(a.paymentId)).reduce((sum, a) => sum + cents(Number(a.amount)), 0);
-  const free = Math.max(0, cents(entry.amount) - live);
+  const gone = entry.allocations.filter((a) => takenBack.has(a.paymentId) && reversed.has(a.paymentId)).reduce((sum, a) => sum + cents(Number(a.amount)), 0);
+  const free = Math.max(0, cents(entry.amount) - live - gone);
   const last = entry.allocations.reduce((max, a) => Math.max(max, roundOf(a)), 0);
-  const anyTakenBack = entry.allocations.some((a) => takenBack.has(a.paymentId));
+  const anyTakenBack = entry.allocations.some((a) => takenBack.has(a.paymentId) && !reversed.has(a.paymentId));
   return {
     live: live / 100,
     free: free / 100,

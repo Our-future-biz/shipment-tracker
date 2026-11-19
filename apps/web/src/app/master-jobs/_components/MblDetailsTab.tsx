@@ -27,6 +27,7 @@ import {
   joinDateTime,
 } from "@/lib/columnConfig";
 import { loadTypeLabel } from "@/lib/enums";
+import { masterJobModeOf } from "../_lib/masterJobWords";
 import { LABEL } from "@/app/shipments/[jobNumber]/_components/detailStyles";
 import { EMPTY, LINK, REF } from "@/styles/ui";
 import { useMasterJob, type MasterJobItem, type MasterJobUpdate } from "@/hooks/useMasterJobs";
@@ -203,7 +204,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
               key: "loadType",
               label: "Load Type",
               row: mj.loadType ? (
-                <LockedLoadType value={loadTypeLabel(mj.loadType, mj.freightMode)} />
+                <LockedLoadType value={loadTypeLabel(mj.loadType, masterJobModeOf(mj))} />
               ) : (
                 <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} styleFor={styleFor} synced />
               ),

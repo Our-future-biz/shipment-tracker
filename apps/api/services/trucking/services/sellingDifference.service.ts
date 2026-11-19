@@ -36,7 +36,11 @@ export async function recordSellingDifferences(row: Pick<TruckingOutboxRecord, "
       const notice = {
         key,
         code: "PRICE_CHANGE_AFTER_INVOICE" as const,
-        text: `Price change after invoice: ${amount} added to job ${c.jobNumber} as its own line — invoice it${d.amount < 0 ? " as a credit note" : ""}`,
+        // A lower price is a credit owed: it leaves the job Invoiced, and a credit note of the invoice gives it (Y1 / P1).
+        text:
+          d.amount < 0
+            ? `Price change after invoice: ${amount} on job ${c.jobNumber} — a credit is owed: give it on a credit note of the invoice`
+            : `Price change after invoice: ${amount} added to job ${c.jobNumber} as its own line — invoice it`,
         at: new Date().toISOString(),
       };
       if (!(await consignmentRepository.addNotice(tx, c.companyId, c.id, notice))) continue;

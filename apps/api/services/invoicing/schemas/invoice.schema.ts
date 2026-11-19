@@ -166,6 +166,8 @@ export const invoiceLineTable = pgTable(
     ...defaultTableIndexes("invoice_line", table),
     tenantIndex("invoice_line", table),
     index("invoice_line_invoice_id_idx").on(table.invoiceId),
+    // The invoices that billed a selling row (a re-issue's earlier invoice, a credit owed's credit note - round-4 review).
+    index("invoice_line_source_selling_cost_idx").on(table.companyId, table.sourceSellingCostId),
     check("invoice_line_vat_code_check", sql`${table.vatCode} IN ('S21', 'Z69', 'RC', 'OUT', 'NP')`),
   ],
 );

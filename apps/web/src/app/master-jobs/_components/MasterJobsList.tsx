@@ -11,6 +11,7 @@ import { TOOLBAR_BUTTON_CLASS } from "@/components/gridFilters";
 import { COLUMN_MAP, DROPDOWN_OPTIONS, joinDateTime } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
+import { masterJobModeOf } from "../_lib/masterJobWords";
 import { compareMczNumbers } from "@/lib/mcz";
 import type { MasterJobItem } from "@/hooks/useMasterJobs";
 import { PillTabs } from "@/components/SectionCard";
@@ -135,7 +136,7 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
       // The search itself is the grid's (it reads every column, the hidden ones too); the page
       // keeps its text in the URL.
       masterJobs.filter((m) => {
-        if (load && loadTypeLabel(m.loadType, m.freightMode) !== load) return false;
+        if (load && loadTypeLabel(m.loadType, masterJobModeOf(m)) !== load) return false;
         if (etdFrom && (!m.estimatedDeparture || m.estimatedDeparture < etdFrom)) return false;
         if (etdTo && (!m.estimatedDeparture || m.estimatedDeparture > etdTo)) return false;
         return true;
@@ -168,9 +169,9 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
     {
       key: "loadType",
       ...asShipments("loadType"),
-      text: (m) => loadTypeLabel(m.loadType, m.freightMode),
+      text: (m) => loadTypeLabel(m.loadType, masterJobModeOf(m)),
       filterOptions: LOAD_TYPE_FILTER_OPTIONS,
-      render: (_, m) => (m.loadType ? <Pill tone="slate">{loadTypeLabel(m.loadType, m.freightMode)}</Pill> : orDash("")),
+      render: (_, m) => (m.loadType ? <Pill tone="slate">{loadTypeLabel(m.loadType, masterJobModeOf(m))}</Pill> : orDash("")),
     },
     textColumn("tradeDirection", (m) => m.tradeDirection, { filterOptions: DROPDOWN_OPTIONS["Trade Direction"] }),
     // picked under Filters from the lines the master jobs have

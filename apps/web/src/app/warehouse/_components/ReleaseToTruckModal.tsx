@@ -17,7 +17,7 @@ import {
 } from "@/components/finance/ReleasePaymentWarning";
 import { overrideReasonOk, PASS_CHECKING, RELEASE_ON_APPROVAL_LABEL, RELEASE_ON_APPROVAL_NOTE, releaseStopLikely, releaseStopNote } from "@/lib/paymentWarnings";
 import type { MoveOutcome } from "../_lib/moveOutcome";
-import { everyHeldOnApproval, mayBeStopped, overrideReasons, releaseStanding, type ReleaseJob } from "../_lib/releaseReasons";
+import { everyHeldOnApproval, mayBeStopped, overrideReasons, releaseBlocked, releaseStanding, type ReleaseJob } from "../_lib/releaseReasons";
 
 // Asked when shipments are released from Stock (Vyskladnit): do they leave on a new truck
 // or on one that is already being loaded? A new truck gets the next TCZ reference when the
@@ -36,6 +36,9 @@ import { everyHeldOnApproval, mayBeStopped, overrideReasons, releaseStanding, ty
 // typed reason is never sent with it (_lib/releaseReasons: the reason goes only with the jobs the stop holds and
 // no approval lets through). Whether an approval stands is read when the dialog opens and every 30 seconds while
 // it is open; until it is read, "stopped", the ask button and the reason field wait.
+// Mock test council n6: the check knows the stop before any invoice too (prepayment, not invoiced yet). When every job
+// is held and no manager's reason goes with them, the button waits - nothing is tried, so Stock takes no new TCZ truck
+// number for a release that can't happen (a manager types the reason first; a user asks a manager).
 
 /** What a release from the dialog came to: the truck it went on (null when none could be given) and per shipment. */
 export interface TruckRelease {
@@ -135,9 +138,11 @@ export function ReleaseToTruckModal({
   const reasonShown = manager && !passChecking && (stoppedShown.length > 0 || likelyStopped.length > 0);
   const reasonOk = overrideReasonOk(reason);
   const needsReason = manager && !passChecking && stoppedShown.length > 0 && !reasonOk;
+  // Every job held, no manager's reason with them: not tried (no truck number used up for nothing).
+  const blocked = !checking && !passChecking && releaseBlocked(jobs, { manager, reasonOk });
 
   const release = async () => {
-    if (!open || pending.length === 0 || !ready || checking || passChecking || needsReason || busy.current) return;
+    if (!open || pending.length === 0 || !ready || checking || passChecking || needsReason || blocked || busy.current) return;
     busy.current = true;
     setReleasing(true);
     const truck = truckUsed ?? (mode === "new" ? null : existing!);
@@ -178,7 +183,7 @@ export function ReleaseToTruckModal({
       centered
       destroyOnHidden
       confirmLoading={releasing || checking || passChecking}
-      okButtonProps={{ disabled: !ready || count === 0 || needsReason }}
+      okButtonProps={{ disabled: !ready || count === 0 || needsReason || blocked }}
       onOk={release}
       onCancel={onClose}
     >
@@ -277,6 +282,7 @@ export function ReleaseToTruckModal({
           <OverrideReasonField value={reason} onChange={setReason} disabled={releasing} />
         </div>
       )}
+      {blocked && !manager && <p className={`mt-3 mb-0 ${HINT}`}>Nothing can be released yet: a manager approves it, or releases it with a reason.</p>}
     </Modal>
   );
 }

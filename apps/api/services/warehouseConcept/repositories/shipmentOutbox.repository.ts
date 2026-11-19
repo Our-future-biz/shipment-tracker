@@ -96,6 +96,41 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
     return new Map(rows.map((r) => [r.shipmentId, { failed: Number(r.failed ?? 0), stalePending: Number(r.stale ?? 0) }]));
   }
 
+  /**
+   * The Warehouse Released days the gate's own WH releases wrote to this shipment: its "released" rows sent, of any
+   * gate record of the shipment (a voided release, a record before this one, one with no task or an earlier task -
+   * round-4 review). A row whose day was not written (a day set in Shipments kept, markDayKept) wrote nothing and
+   * is not one. Such a day on the shipment is the gate's, not a release made in Shipments (shipments
+   * gateRelease.service warehouseReleasedOf). Read by the shipment index (migration 0027). `movementId` is kept
+   * for the callers; the shipment decides.
+   */
+  async sentReleasedDays(companyId: string, _movementId: string, shipmentId: string): Promise<string[]> {
+    const day = sql<string>`${o.payload}->>'warehouseReleasedDate'`;
+    const rows = await db
+      .selectDistinct({ day })
+      .from(o)
+      .where(
+        and(
+          eq(o.companyId, companyId),
+          eq(o.shipmentId, shipmentId),
+          eq(o.kind, "released"),
+          eq(o.status, "sent"),
+          isNull(o.deletedAt),
+          sql`${day} IS NOT NULL`,
+          sql`${o.payload}->>'dayKept' IS NULL`,
+        ),
+      );
+    return rows.map((r) => r.day).filter(Boolean);
+  }
+
+  /** A "released" row whose day Shipments kept (a day set there): marked so it never counts as the gate's day. */
+  async markDayKept(id: string, companyId: string): Promise<void> {
+    await db
+      .update(o)
+      .set({ payload: sql`${o.payload} || '{"dayKept":"true"}'::jsonb` })
+      .where(and(eq(o.id, id), eq(o.companyId, companyId)));
+  }
+
   async openForMovements(movementIds: string[], companyId: string) {
     if (!movementIds.length) return [];
     return db

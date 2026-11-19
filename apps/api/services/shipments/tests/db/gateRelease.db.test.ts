@@ -17,7 +17,7 @@ import { shipmentReleaseOverrideTable } from "../../schemas/shipmentReleaseOverr
 import { shipmentReleaseRequestTable } from "../../schemas/shipmentReleaseRequest.schema";
 import { shipmentTable } from "../../schemas/shipment.schema";
 import { shipmentTrackingEventTable } from "../../schemas/shipmentTrackingEvent.schema";
-import { gateReleaseService } from "../../services/gateRelease.service";
+import { GATE_PREPAYMENT_UNCHECKED_LINE, gateReleaseService, uncheckedNoteId } from "../../services/gateRelease.service";
 
 // The SQL of the Warehouse Concept gate's WH release on the shipments' side (services/gateRelease.service), and
 // of the bell's word that an approval was withdrawn (repository answersFor / markSeen / withdraw), against the
@@ -38,6 +38,30 @@ const approve = (id: string, companyId: string, decidedAt = new Date()) =>
   requests.answer(id, companyId, { status: "approved", decidedById: MANAGER, decidedByName: "Eva Malá", decidedAt, comment: "Agreed with the owner" }, line(MANAGER, "approved"));
 const rowOf = async (id: string) => (await db.select().from(shipmentReleaseRequestTable).where(eq(shipmentReleaseRequestTable.id, id)))[0]!;
 const WEEK = 7 * 86_400_000;
+
+describe("the shipment's Warehouse Released as the gate reads it (Y6)", () => {
+  it("is the day set, with who set it by its history line - nothing while it is empty, nor for another company", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id)).resolves.toBeNull();
+    await db.update(shipmentTable).set({ warehouseReleasedDate: "2026-11-18" }).where(eq(shipmentTable.id, job.id));
+    // No history line: the day, nobody named.
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id)).resolves.toEqual({ date: "2026-11-18", by: "" });
+    await db.insert(shipmentAuditTable).values({ companyId, shipmentId: job.id, userId: MANAGER, field: "warehouseReleasedDate", oldValue: null, newValue: "2026-11-18" });
+    // The stand-in for auth names every user jan@firma.cz.
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id)).resolves.toEqual({ date: "2026-11-18", by: "jan@firma.cz" });
+    await expect(gateReleaseService.warehouseReleasedOf(randomUUID(), job.id)).resolves.toBeNull();
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, "not-a-uuid")).resolves.toBeNull();
+  });
+
+  it("is not a day the gate's own release wrote (a voided release leaves its day there)", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    await db.update(shipmentTable).set({ warehouseReleasedDate: "2026-11-18" }).where(eq(shipmentTable.id, job.id));
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id, ["2026-11-18"])).resolves.toBeNull();
+    await expect(gateReleaseService.warehouseReleasedOf(companyId, job.id, ["2026-11-17", "not a day"])).resolves.toMatchObject({ date: "2026-11-18" });
+  });
+});
 
 describe("an approved request used for the gate's WH release", () => {
   it("is the job's Warehouse Released pass, used once, by the stamping person", async () => {
@@ -89,14 +113,28 @@ describe("an approved request used for the gate's WH release", () => {
     const request = await ask(companyId, job.id);
     await approve(request.id, companyId);
     const used = (await gateReleaseService.usePass(companyId, USER, job.id, "warehouse_released"))!;
-    await expect(gateReleaseService.giveBack(companyId, MANAGER, request.id, used.usedAt)).resolves.toBe(false);
-    await expect(gateReleaseService.giveBack(companyId, USER, request.id, new Date(used.usedAt.getTime() + 1))).resolves.toBe(false);
-    await expect(gateReleaseService.giveBack(randomUUID(), USER, request.id, used.usedAt)).resolves.toBe(false);
-    await expect(gateReleaseService.giveBack(companyId, USER, request.id, used.usedAt)).resolves.toBe(true);
+    // Not given back, and the approval still carries the use: a failure to show.
+    await expect(gateReleaseService.giveBack(companyId, MANAGER, request.id, used.usedAt)).resolves.toEqual({ givenBack: false, stillUsed: true });
+    await expect(gateReleaseService.giveBack(companyId, USER, request.id, new Date(used.usedAt.getTime() + 1))).resolves.toEqual({ givenBack: false, stillUsed: false });
+    await expect(gateReleaseService.giveBack(randomUUID(), USER, request.id, used.usedAt)).resolves.toEqual({ givenBack: false, stillUsed: false });
+    await expect(gateReleaseService.giveBack(companyId, USER, request.id, used.usedAt)).resolves.toEqual({ givenBack: true, stillUsed: false });
     expect(await rowOf(request.id)).toMatchObject({ status: "approved", usedAt: null, usedById: null, usedByName: "" });
     await expect(requests.usablePass(companyId, job.id, "warehouse", passDecidedSince(new Date()))).resolves.toMatchObject({ id: request.id });
-    // Once: nothing is left to give back.
-    await expect(gateReleaseService.giveBack(companyId, USER, request.id, used.usedAt)).resolves.toBe(false);
+    // Once: nothing is left to give back - and nothing of that use is left either (a delivery sent twice).
+    await expect(gateReleaseService.giveBack(companyId, USER, request.id, used.usedAt)).resolves.toEqual({ givenBack: false, stillUsed: false });
+  });
+
+  it("is given back by the gate's outbox by the moment alone: sent as the service identity once the user who stamped has left", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    const request = await ask(companyId, job.id);
+    await approve(request.id, companyId);
+    const used = (await gateReleaseService.usePass(companyId, USER, job.id, "warehouse_released"))!;
+    const SERVICE = randomUUID();
+    // Another moment is not this use, by anyone.
+    await expect(gateReleaseService.giveBack(companyId, SERVICE, request.id, new Date(used.usedAt.getTime() + 1), true)).resolves.toEqual({ givenBack: false, stillUsed: false });
+    await expect(gateReleaseService.giveBack(companyId, SERVICE, request.id, used.usedAt, true)).resolves.toEqual({ givenBack: true, stillUsed: false });
+    expect(await rowOf(request.id)).toMatchObject({ status: "approved", usedAt: null, usedById: null });
   });
 
   it("the release it let through closes nothing it used: Warehouse Released set by the app afterwards leaves the used approval as it is", async () => {
@@ -126,6 +164,49 @@ describe("a release the gate let through, recorded on the shipment", () => {
     expect((await db.select().from(shipmentTrackingEventTable).where(eq(shipmentTrackingEventTable.shipmentId, job.id))).map((e) => [e.kind, e.source, e.note])).toEqual([
       ["note", "warehouse", lineText],
     ]);
+  });
+
+  it("is recorded once per idempotency key - the outbox delivers at least once - while a person's releases (no key) never clash", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    const override = { reason: "Paid in cash", invoices: [], checked: true };
+    const key = randomUUID();
+    await gateReleaseService.recordOverride(companyId, USER, job.id, "warehouse_released", override, key);
+    await gateReleaseService.recordOverride(companyId, USER, job.id, "warehouse_released", override, key);
+    // Both at once, as two deliveries of one row may come.
+    const other = randomUUID();
+    await Promise.all([
+      gateReleaseService.recordOverride(companyId, USER, job.id, "warehouse_released", override, other),
+      gateReleaseService.recordOverride(companyId, USER, job.id, "warehouse_released", override, other),
+    ]);
+    await gateReleaseService.recordOverride(companyId, USER, job.id, "warehouse_released", override);
+    await gateReleaseService.recordOverride(companyId, USER, job.id, "warehouse_released", override);
+    const rows = await db.select().from(shipmentReleaseOverrideTable).where(eq(shipmentReleaseOverrideTable.shipmentId, job.id));
+    expect(rows.map((r) => r.idempotencyKey).sort()).toEqual([key, other, null, null].sort());
+    expect(await db.select().from(shipmentAuditTable).where(and(eq(shipmentAuditTable.shipmentId, job.id), eq(shipmentAuditTable.field, "paymentOverride")))).toHaveLength(4);
+    expect(await db.select().from(shipmentTrackingEventTable).where(eq(shipmentTrackingEventTable.shipmentId, job.id))).toHaveLength(4);
+    // Another company may carry the same key (keys are unique per company).
+    const elsewhere = randomUUID();
+    const theirs = await newJob(elsewhere);
+    await gateReleaseService.recordOverride(elsewhere, USER, theirs.id, "warehouse_released", override, key);
+    expect(await db.select().from(shipmentReleaseOverrideTable).where(eq(shipmentReleaseOverrideTable.shipmentId, theirs.id))).toHaveLength(1);
+  });
+
+  it("says \"Prepayment not checked\" once per outbox row, in the history and on the Tracking tab (P17)", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    const key = randomUUID();
+    await gateReleaseService.recordUnchecked(companyId, USER, job.id, key);
+    await gateReleaseService.recordUnchecked(companyId, USER, job.id, key);
+    expect(
+      (await db.select().from(shipmentAuditTable).where(and(eq(shipmentAuditTable.shipmentId, job.id), eq(shipmentAuditTable.field, "prepaymentUnchecked")))).map((h) => [h.userId, h.newValue]),
+    ).toEqual([[USER, GATE_PREPAYMENT_UNCHECKED_LINE]]);
+    expect((await db.select().from(shipmentTrackingEventTable).where(eq(shipmentTrackingEventTable.shipmentId, job.id))).map((e) => [e.kind, e.source, e.externalId, e.note])).toEqual([
+      ["note", "warehouse", uncheckedNoteId(key), GATE_PREPAYMENT_UNCHECKED_LINE],
+    ]);
+    // No override row: the job was not on prepayment.
+    expect(await db.select().from(shipmentReleaseOverrideTable).where(eq(shipmentReleaseOverrideTable.shipmentId, job.id))).toEqual([]);
+    await expect(gateReleaseService.recordUnchecked(randomUUID(), USER, job.id, randomUUID())).rejects.toThrow("Shipment not found");
   });
 
   it("is refused for another company's shipment, and nothing is written", async () => {

@@ -90,13 +90,20 @@ export function previousWorkingDay(date: string, extraHolidays: readonly string[
 }
 
 /**
- * The day `n` working days after `date` (n ≥ 0). A non-working `date` first rolls forward to
- * the next working day and counting starts there: n = 0 is `date` itself when it is a working
- * day, else the next working day; Saturday + 1 is Tuesday.
+ * The day `n` working days after `date` (n ≥ 0): the n-th working day after it, whatever day
+ * `date` is - Saturday + 1 is Monday, as Friday + 1 is. n = 0 is `date` itself when it is a
+ * working day, else the next working day (the first day anything can be done).
+ *
+ * Counted from `date` itself, not from the working day a weekend rolls forward to: rolled first,
+ * Saturday + 1 was Tuesday, one day past "the next working day" (nextWorkingDay), so a window of
+ * "1 working day" reached further on a Saturday than the cockpit's URGENT window (n20). A caller
+ * whose clock only starts on the next working day (a wait begun on a weekend) rolls `date`
+ * forward itself.
  */
 export function addWorkingDays(date: string, n: number, extraHolidays: readonly string[] = []): string {
   if (!Number.isInteger(n) || n < 0) throw new Error("Working days to add must be a whole number, 0 or more");
-  let d = isWorkingDay(date, extraHolidays) ? date : nextWorkingDay(date, extraHolidays);
+  if (n === 0) return isWorkingDay(date, extraHolidays) ? date : nextWorkingDay(date, extraHolidays);
+  let d = date;
   for (let i = 0; i < n; i++) d = nextWorkingDay(d, extraHolidays);
   return d;
 }

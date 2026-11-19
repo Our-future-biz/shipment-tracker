@@ -131,7 +131,7 @@ describe("write-offs and bank charges", () => {
       "Confirmed by eva@example.com (self-confirmed: no other manager)",
     );
     expect(lineState({ ...line, kind: "payment" })).toBe("");
-    expect(lineState({ ...line, waiting: true, takenBack: { by: "a", at: "b", reason: "c" } })).toBe("");
+    expect(lineState({ ...line, waiting: true, takenBack: { by: "a", at: "b", reason: "c", kind: "mistake", reversedOn: null } })).toBe("");
   });
 
   it("shows confirmed write-offs and bank charges in how Left to pay comes about", () => {

@@ -4,9 +4,10 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import dayjs from "dayjs";
 import { Alert, DatePicker, Input, Segmented, Tooltip } from "antd";
 import { BankOutlined, CalendarOutlined, CheckCircleOutlined, DollarOutlined, EditOutlined, ExclamationCircleOutlined, MailOutlined, MinusCircleOutlined, SendOutlined } from "@ant-design/icons";
-import type { useReceivableActions, ReceivableDetail } from "@/hooks/useReceivables";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { settleReceivableWrite, type useReceivableActions, type ReceivableDetail } from "@/hooks/useReceivables";
 import { REMINDER_LEVEL_LABEL } from "@/lib/accountsReceivable";
-import { apiErrorMessage, type interfaces } from "@/lib/api";
+import { api, apiErrorMessage, type interfaces } from "@/lib/api";
 import { addDays, formatDate } from "@/lib/date";
 import { MAILTO_LINK_TARGET, mailtoLink } from "@/lib/mailto";
 import { parseMoney, round2 } from "@/lib/money";
@@ -16,6 +17,7 @@ import {
   actionsFor,
   amountText,
   blockedReasons,
+  earliestPaidOn,
   emailOk,
   fullAmountText,
   lineWord,
@@ -27,6 +29,8 @@ import {
   paymentIdempotencyKey,
   paymentProblem,
   reasonOk,
+  takeBackFormProblem,
+  type TakeBackKind,
   reminderLevels,
   promiseProblem,
   PROMISE_MAX_DAYS,
@@ -203,7 +207,9 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
   // payment, never two, and a payment changed after a lost answer is a new one, never a replay of the first.
   const keys = useRef(new Map<string, string>());
   const prepayment = onPrepayment(row);
-  const problem = paymentProblem({ day: paidOn, amountText: amount, today, issueDate: row.issueDate, leftToPay: row.leftToPay, currency: row.currency, prepayment });
+  const issuedAgainFrom = row.issuedAgainFrom ?? null;
+  const problem = paymentProblem({ day: paidOn, amountText: amount, today, issueDate: row.issueDate, leftToPay: row.leftToPay, currency: row.currency, prepayment, issuedAgainFrom });
+  const firstDay = earliestPaidOn({ issueDate: row.issueDate, prepayment, issuedAgainFrom });
   const value = parseMoney(amount);
   // The problem is the day's or the amount's: linked to that field, said in one live region below them.
   const problemId = useId();
@@ -226,7 +232,7 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
             // Not after today, nor before the invoice was issued - unless it is on prepayment, paid before it is
             // issued: the server refuses the rest. As bounds, not disabledDate, so the month and year panels stay
             // open for the days in between.
-            minDate={prepayment ? undefined : dayjs(row.issueDate)}
+            minDate={firstDay ? dayjs(firstDay) : undefined}
             maxDate={dayjs(today)}
             className="w-[160px]"
             aria-label="Paid on"
@@ -610,45 +616,103 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
 }
 
 /**
- * Take back one line (managers, a reason required): a payment noted by mistake, or a write-off or bank charge -
- * confirmed or still waiting. Kept in the history with the reason.
+ * Take back one line (managers, a reason required): a payment noted by mistake, or reversed on a day - a bank return or
+ * a refund (mock test council P8: either way it is owed again, but a reversed payment counted as paid until that day at
+ * month-end) - or a write-off or bank charge, confirmed or still waiting, always a mistake. Kept in the history with the
+ * reason. Sent here with how it was taken back (the drawer's shared take-back sends only the reason), settled the same
+ * way as the drawer's other writes.
  */
-export function TakeBackPayment({ detail, actions, line, label }: { detail: ReceivableDetail; actions: Actions; line: Pick<ReceivableLine, "id" | "kind" | "waiting">; label: string }) {
+export function TakeBackPayment({
+  detail,
+  actions,
+  line,
+  label,
+}: {
+  detail: ReceivableDetail;
+  actions: Actions;
+  line: Pick<ReceivableLine, "id" | "kind" | "waiting" | "paidOn">;
+  label: string;
+}) {
   const toast = useToast();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<TakeBackKind>("mistake");
+  const [reversedOn, setReversedOn] = useState("");
+  const [reason, setReason] = useState("");
+  const takeBack = useMutation({
+    mutationFn: (input: { reason: string; kind: TakeBackKind; reversedOn?: string }) =>
+      api.invoicing.receivableTakeBackPayment(detail.row.id, line.id, { version: detail.row.version, ...input }),
+    onSettled: (data) => settleReceivableWrite(queryClient, data, detail.row.customerId, true),
+  });
   const number = detail.row.number || "the invoice";
   const word = lineWord(line.kind);
   const Word = word.charAt(0).toUpperCase() + word.slice(1);
-  const explain =
-    line.kind === "write_off" || line.kind === "bank_charge"
-      ? line.waiting
-        ? `${label} will not wait for a second manager any more: it never counts on ${number}. It stays in the history with the reason.`
-        : `${label} no longer closes part of ${number}: that much is owed again. It stays in the history with the reason.`
-      : `For a payment noted by mistake: ${label} no longer counts as paid on ${number}. It stays in the history with the reason.`;
+  const money = line.kind !== "write_off" && line.kind !== "bank_charge";
+  const how: TakeBackKind = money ? kind : "mistake";
+  const problem = takeBackFormProblem({ reason, kind: how, reversedOn, paidOn: line.paidOn, today: detail.today });
+  const problemId = useId();
+  const explain = !money
+    ? line.waiting
+      ? `${label} will not wait for a second manager any more: it never counts on ${number}. It stays in the history with the reason.`
+      : `${label} no longer closes part of ${number}: that much is owed again. It stays in the history with the reason.`
+    : how === "reversed"
+      ? `For a payment that came and went back (a bank return, a refund): ${number} is owed again; at month-end ${label} still counts as paid up to the day before it went back. It stays in the history with the reason.`
+      : `For a payment noted by mistake: ${label} no longer counts as paid on ${number}, on any day - month-end too. It stays in the history with the reason.`;
+  const busy = actions.pending || takeBack.isPending;
+  const close = () => {
+    setOpen(false);
+    setKind("mistake");
+    setReversedOn("");
+    setReason("");
+  };
+  const save = () => {
+    if (problem || busy) return;
+    void takeBack
+      .mutateAsync({ reason: reason.trim(), kind: how, ...(how === "reversed" ? { reversedOn } : {}) })
+      .then(() => {
+        toast.success(how === "reversed" ? `${Word} on ${number} taken back: reversed on ${formatDate(reversedOn)}` : `${Word} taken back on ${number}`);
+        close();
+      })
+      .catch((e) => toast.error(apiErrorMessage(e)));
+  };
   return (
     <div>
-      <button type="button" disabled={actions.pending} onClick={() => setOpen((o) => !o)} className={`text-[12px] ${LINK}`} aria-pressed={open}>
+      <button type="button" disabled={busy} onClick={() => (open ? close() : setOpen(true))} className={`text-[12px] ${LINK}`} aria-pressed={open}>
         Take back…
       </button>
       {open && (
-        <ReasonForm
-          label={`Why the ${word} is taken back`}
-          explain={explain}
-          saveLabel={`Take back the ${word}`}
-          maxLength={MAX_REASON}
-          danger
-          saving={actions.pending}
-          onSave={(reason) =>
-            void actions.takeBackPayment
-              .mutateAsync({ row: detail.row, paymentId: line.id, reason })
-              .then(() => {
-                toast.success(`${Word} taken back on ${number}`);
-                setOpen(false);
-              })
-              .catch((e) => toast.error(apiErrorMessage(e)))
-          }
-          onCancel={() => setOpen(false)}
-        />
+        <FormBox>
+          {money && (
+            <Segmented<TakeBackKind>
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: "mistake", label: "Noted by mistake" },
+                { value: "reversed", label: "Reversed (bank return, refund)" },
+              ]}
+              aria-label="How it is taken back"
+            />
+          )}
+          <div className={HINT}>{explain}</div>
+          {how === "reversed" && (
+            <label className="flex flex-col">
+              <span className={`${LABEL_TEXT} mb-1`}>Reversed on</span>
+              <DatePicker
+                format="D.M.YYYY"
+                value={reversedOn ? dayjs(reversedOn) : null}
+                onChange={(d) => setReversedOn(d ? d.format("YYYY-MM-DD") : "")}
+                minDate={line.paidOn ? dayjs(line.paidOn) : undefined}
+                maxDate={dayjs(detail.today)}
+                className="w-[160px]"
+                aria-label="Reversed on"
+                aria-describedby={problemId}
+              />
+            </label>
+          )}
+          <TextField label={`Why the ${word} is taken back`} value={reason} onChange={setReason} maxLength={MAX_REASON} reason autoFocus />
+          <FieldProblem id={problemId} text={reason.trim() ? problem : ""} />
+          <SaveCancel saveLabel={`Take back the ${word}`} danger disabled={busy || !!problem} onSave={save} onCancel={close} />
+        </FormBox>
       )}
     </div>
   );

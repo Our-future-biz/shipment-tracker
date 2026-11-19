@@ -101,9 +101,10 @@ export function receivableCellText(r: ReceivableRow, key: string): string {
 
 /**
  * The invoices table's model. Its checks read today (Prague's day, as the server's `today` says it), so the model is
- * made per day; its column view keeps one stable defaults array, so the saved columns are read once.
+ * made per day; its column view keeps one stable defaults array, so the saved columns are read once. "Not reminded by
+ * the app" reads the day the automatic reminders start (the server's autoRemindersSince; null: off or not set).
  */
-export function receivableTable(today: string): TableModel<ReceivableRow, ReceivableCheck> {
+export function receivableTable(today: string, autoRemindersSince: string | null = null): TableModel<ReceivableRow, ReceivableCheck> {
   const m = tableModel<ReceivableRow, ReceivableCheck>({
     scope: RECEIVABLE_SCOPE,
     columns: RECEIVABLE_COLUMNS,
@@ -111,7 +112,7 @@ export function receivableTable(today: string): TableModel<ReceivableRow, Receiv
     checks: RECEIVABLE_CHECKS,
     checksTitle: "Show only",
     cellText: receivableCellText,
-    passesCheck: (r, check) => passesCheck(r, check, today),
+    passesCheck: (r, check) => passesCheck(r, check, today, autoRemindersSince),
   });
   return { ...m, view: RECEIVABLE_VIEW };
 }

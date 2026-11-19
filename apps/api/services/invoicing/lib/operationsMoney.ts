@@ -78,6 +78,8 @@ export interface MoneySellRow {
   invoice: boolean;
   /** The buying row it was copied from */
   sourceBuyId: string | null;
+  /** When the row was written (a Trucking re-push writes its rows anew): when a late charge was added */
+  createdAt?: Date;
 }
 
 export interface MoneyBuyRow extends CostBuyRow {
@@ -312,6 +314,35 @@ export function estimatesOpenOf(lines: readonly MoneyBuyRow[]): OperationsMoneyE
   };
 }
 
+const valueOf = (r: Pick<MoneySellRow, "amount" | "qty">) => lineAmount(r.amount, r.qty);
+
+/**
+ * A job's selling lines on no open invoice, as the Money tab reads them (Y1 / P1). On a job with an
+ * open invoice a line below nothing is a credit owed (`creditOwed`, as positive amounts), not work to
+ * bill: `notYetInvoiced` is what is left to bill, the lines above nothing. On a job with none, every
+ * valued line is work not yet invoiced as before (a discount goes on its invoice with the rest).
+ * `lateSince`: the earliest day a line still to bill was added, when all of them were added after
+ * `billedOn` (the job's first invoice) - a charge added after invoicing; null otherwise (P16).
+ */
+export function unbilledParts(
+  rows: readonly MoneySellRow[],
+  openInvoices: readonly { sourceSellingCostIds: readonly (string | null)[] }[],
+  billedOn: string | null,
+): { notYetInvoiced: MoneyAmount[]; creditOwed: MoneyAmount[]; lateSince: string | null } {
+  if (!openInvoices.length) return { notYetInvoiced: unbilledOf(rows, openInvoices).amounts, creditOwed: [], lateSince: null };
+  const invoiced = new Set(openInvoices.flatMap((i) => i.sourceSellingCostIds).filter((x): x is string => !!x));
+  const open = rows.filter((r) => !invoiced.has(r.id));
+  const toBill = open.filter((r) => valueOf(r) > 0);
+  const credits = open.filter((r) => valueOf(r) < 0);
+  const days = toBill.map((r) => (r.createdAt ? businessDay(r.createdAt) : null));
+  const allLate = !!billedOn && days.length > 0 && days.every((d) => d !== null && d > billedOn);
+  return {
+    notYetInvoiced: unbilledOf(toBill, []).amounts,
+    creditOwed: sumByCurrency(credits.map((r) => ({ amount: -valueOf(r), currency: r.currency || "CZK" }))).filter((a) => a.amount !== 0),
+    lateSince: allLate ? (days as string[]).sort()[0]! : null,
+  };
+}
+
 /** The money facts of every job asked about, one entry each. */
 export function operationsMoneyJobs(facts: OperationsMoneyFacts): OperationsMoneyJob[] {
   const selling = facts.lines ? byJob(facts.lines.selling) : null;
@@ -344,11 +375,15 @@ export function operationsMoneyJobs(facts: OperationsMoneyFacts): OperationsMone
     const sells = selling ? (selling.get(shipmentId) ?? []) : null;
     const buys = buying ? (buying.get(shipmentId) ?? []) : null;
     const openInvoices = open ? (open.get(shipmentId) ?? []) : null;
-    const unbilled = (rows: readonly MoneySellRow[]): MoneyAmount[] => (openInvoices ? unbilledOf(rows, openInvoices).amounts : []);
+    const billedOn = facts.invoices?.billedOn.get(shipmentId) ?? null;
+    const parts = (rows: readonly MoneySellRow[]) => (openInvoices ? unbilledParts(rows, openInvoices, billedOn) : null);
+    const all = sells ? parts(sells) : null;
     return {
       shipmentId,
-      notYetInvoiced: sells ? unbilled(sells) : [],
-      untickedSelling: sells ? unbilled(sells.filter((r) => !r.invoice)) : [],
+      notYetInvoiced: all?.notYetInvoiced ?? [],
+      untickedSelling: sells ? (parts(sells.filter((r) => !r.invoice))?.notYetInvoiced ?? []) : [],
+      creditOwed: all?.creditOwed ?? [],
+      lateChargeSince: all?.lateSince ?? null,
       sellingLines: sells ? sells.filter(hasValue).length : null,
       costLines: buys ? buys.filter((r) => realOf(r) !== 0 || estimateOf(r) !== 0).length : null,
       totals:

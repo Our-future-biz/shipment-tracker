@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Input, Modal, Radio } from "antd";
 import { UserPicker } from "@/components/UserPicker";
 import { useHandOver, type HandOverResult } from "@/hooks/useShipmentManagerActions";
@@ -18,6 +18,7 @@ import {
   type CoverChoice,
   type HandOverFieldChange,
   type HandOverJob,
+  type HandOverTarget,
 } from "@/lib/managerActions";
 import { BTN, BTN_PRIMARY, HINT, LABEL_TEXT, REF, TD, TH } from "@/styles/ui";
 
@@ -41,6 +42,18 @@ export interface HandOverDialogProps {
   onClose(): void;
   /** The hand-over was made and its result has been read (the dialog is closing). */
   onDone(result: HandOverResult): void;
+  /**
+   * Replacing a person as Holiday Cover (P12): only the Holiday Cover is chosen - replaced, or cleared - and
+   * Handled By stays as it is on every job.
+   */
+  coverOnly?: boolean;
+  /**
+   * Told the new Handled By / Holiday Cover each time the choice changes (null while none is complete), so the
+   * jobs can be listed anew - only those it changes (n25: a person's jobs past the first 200).
+   */
+  onTargetChange?(target: HandOverTarget | null): void;
+  /** The jobs are being listed anew for the choice: nothing is sent until they are there. */
+  relisting?: boolean;
 }
 
 export function HandOverDialog({ open, ...props }: HandOverDialogProps) {
@@ -51,10 +64,10 @@ export function HandOverDialog({ open, ...props }: HandOverDialogProps) {
 const HEAD = `${TH} !px-3 sticky top-0 bg-white`;
 const CELL = `${TD} !px-3 !align-top`;
 
-function Dialog({ jobs, people, note, title: named, onClose, onDone }: Omit<HandOverDialogProps, "open">) {
+function Dialog({ jobs, people, note, title: named, onClose, onDone, coverOnly = false, onTargetChange, relisting = false }: Omit<HandOverDialogProps, "open">) {
   const handOver = useHandOver();
   const [handledBy, setHandledBy] = useState("");
-  const [cover, setCover] = useState<CoverChoice>("leave");
+  const [cover, setCover] = useState<CoverChoice>(coverOnly ? "set" : "leave");
   const [holidayCover, setHolidayCover] = useState("");
   const [reason, setReason] = useState("");
   const [result, setResult] = useState<HandOverResult | null>(null);
@@ -68,10 +81,18 @@ function Dialog({ jobs, people, note, title: named, onClose, onDone }: Omit<Hand
   const rows = handOverPreview(jobs, target);
   const changing = handOverChanging(rows);
   const sending = handOver.isPending;
+  // The choice as a whole, whatever the jobs (one is enough to judge it): what the jobs are listed anew for.
+  const chosen = handOverProblem(choice, 1) === null ? target : null;
+  const chosenKey = chosen ? `${chosen.handledBy ?? ""}|${chosen.holidayCover ?? "-"}` : "";
+  useEffect(() => {
+    onTargetChange?.(chosen);
+    // Told once per choice: `chosen` is a new object each render, its key is not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenKey]);
   const notUsers = new Set(people.filter((p) => p.isUser === false).map((p) => p.handledBy.trim().toLowerCase()));
 
   const send = () => {
-    if (problem || !actionReasonOk(reason) || sending) return;
+    if (problem || !actionReasonOk(reason) || sending || relisting) return;
     setError("");
     handOver
       .mutateAsync(handOverRequest(jobs, target, reason))
@@ -161,21 +182,23 @@ function Dialog({ jobs, people, note, title: named, onClose, onDone }: Omit<Hand
           <button type="button" onClick={close} disabled={sending} className={BTN}>
             Cancel
           </button>
-          <button type="button" onClick={send} disabled={sending || !!problem || !actionReasonOk(reason) || changing === 0} className={BTN_PRIMARY}>
-            {sending ? "Handing over…" : `Hand over ${changing} job${changing === 1 ? "" : "s"}`}
+          <button type="button" onClick={send} disabled={sending || relisting || !!problem || !actionReasonOk(reason) || changing === 0} className={BTN_PRIMARY}>
+            {sending ? "Handing over…" : relisting ? "Listing the jobs…" : `Hand over ${changing} job${changing === 1 ? "" : "s"}`}
           </button>
         </div>
       }
     >
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor={handledById} className={`block mb-1 ${LABEL_TEXT}`}>
-              New Handled By
-            </label>
-            <UserPicker id={handledById} className="w-full" value={handledBy} onChange={setHandledBy} placeholder="Leave as it is" disabled={sending} />
-            <div className={`${HINT} mt-1`}>One of the company&apos;s users. Left empty, Handled By stays as it is.</div>
-          </div>
+          {!coverOnly && (
+            <div>
+              <label htmlFor={handledById} className={`block mb-1 ${LABEL_TEXT}`}>
+                New Handled By
+              </label>
+              <UserPicker id={handledById} className="w-full" value={handledBy} onChange={setHandledBy} placeholder="Leave as it is" disabled={sending} />
+              <div className={`${HINT} mt-1`}>One of the company&apos;s users. Left empty, Handled By stays as it is.</div>
+            </div>
+          )}
           <div>
             <div className={`mb-1 ${LABEL_TEXT}`}>Holiday Cover</div>
             <Radio.Group
@@ -183,8 +206,8 @@ function Dialog({ jobs, people, note, title: named, onClose, onDone }: Omit<Hand
               onChange={(e) => setCover(e.target.value as CoverChoice)}
               disabled={sending}
               options={[
-                { value: "leave", label: "Leave as it is" },
-                { value: "set", label: "Set to…" },
+                ...(coverOnly ? [] : [{ value: "leave", label: "Leave as it is" }]),
+                { value: "set", label: coverOnly ? "Replace with…" : "Set to…" },
                 { value: "clear", label: "Clear" },
               ]}
             />

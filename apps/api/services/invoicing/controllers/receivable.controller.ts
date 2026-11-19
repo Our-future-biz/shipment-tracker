@@ -158,12 +158,19 @@ interface TakeBackRequest {
   paymentId: string;
   version: number;
   reason: string & MaxLen<1000>;
+  /**
+   * How it is taken back (mock test council P8): noted by mistake (the default: it never counted), or reversed - a bank
+   * return or a refund, on `reversedOn` (it counted as paid until then). A write-off or bank charge is always a mistake.
+   */
+  kind?: "mistake" | "reversed";
+  /** A reversal: the day the money went back (yyyy-mm-dd) */
+  reversedOn?: string & MaxLen<20>;
 }
 
 export const receivableTakeBackPayment = api(
   { expose: true, auth: true, method: "POST", path: "/receivables/:invoiceId/payments/:paymentId/take-back" },
-  async ({ invoiceId, paymentId, version, reason }: TakeBackRequest): Promise<ReceivableDetailResponse> =>
-    receivableService.takeBackPayment(requireRole(), invoiceId, paymentId, { version, reason }),
+  async ({ invoiceId, paymentId, version, reason, kind, reversedOn }: TakeBackRequest): Promise<ReceivableDetailResponse> =>
+    receivableService.takeBackPayment(requireRole(), invoiceId, paymentId, { version, reason, kind, reversedOn }),
 );
 
 interface NoteRequest {

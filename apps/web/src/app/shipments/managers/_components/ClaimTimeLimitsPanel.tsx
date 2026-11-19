@@ -157,7 +157,7 @@ function LimitsForm({ settings }: { settings: ClaimTimeLimitsSettings }) {
             unCheckedChildren="Off"
             disabled={saving}
           />
-          <span className="text-[13px] text-slate-700">Show the deadlines on each job's Claims tab and as signals on the Cockpit</span>
+          <span className="text-[13px] text-slate-700">Show the deadlines on each job's Claim tab and as signals on the Cockpit</span>
         </label>
         {confirmed && <div className="text-[13px] font-medium text-emerald-700">{confirmed}</div>}
         <div className={HINT}>{savedText(settings)}</div>

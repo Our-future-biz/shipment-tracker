@@ -69,7 +69,7 @@ export function WithdrawReleaseRequest({ request, kind, className = "" }: Withdr
         <div className="flex flex-col gap-2">
           <div className="text-[13px] text-slate-700">
             {kind === "approval"
-              ? `${what}${request.jobNumber ? ` of ${request.jobNumber}` : ""}: nobody has used the approval yet. Withdrawn, it lets nothing through; whoever asked is not told under the bell, so tell them.`
+              ? `${what}${request.jobNumber ? ` of ${request.jobNumber}` : ""}: nobody has used the approval yet. Withdrawn, it lets nothing through. Whoever asked is told under the bell.`
               : `${what}: the request no longer waits for a manager. You can ask again later.`}
           </div>
           <label htmlFor={reasonId} className={`block ${LABEL_TEXT}`}>

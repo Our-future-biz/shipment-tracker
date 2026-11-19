@@ -1,5 +1,5 @@
 import { addDays } from "../../../lib/businessDate";
-import { isWorkingDay, nextWorkingDay } from "../../../lib/workingDays";
+import { isWorkingDay, nextWorkingDay, previousWorkingDay } from "../../../lib/workingDays";
 import { daysOverdue } from "./supplierInvoices";
 import type { ReceivableStatus } from "../interfaces/interfaces";
 
@@ -19,10 +19,30 @@ export interface ReminderSettings {
   reminder1Days: number;
   reminder2Days: number;
   /**
-   * The day automatic reminders were switched on (yyyy-mm-dd): only invoices due on or after it - overdue only after
-   * it - are reminded. null: not known, so none is (L2: never an old debt by surprise).
+   * The first day automatic reminders could really send (yyyy-mm-dd; mock test council P3: the first run with them on
+   * and e-mail from the app on sets it): only invoices due on or after it - overdue only after it - are reminded. null:
+   * not set yet, so none is (L2: never an old debt by surprise).
    */
   autoRemindersSince?: string | null;
+}
+
+/**
+ * The switch-on day a run sets (mock test council P3): when automatic reminders are on and e-mail from the app works but
+ * no day is stored yet, today - and that run sends nothing (an invoice due today is not overdue yet). null when a day
+ * is stored already, or nothing would be sent anyway.
+ */
+export function switchOnDayToSet(input: { autoReminders: boolean; emailOn: boolean; autoRemindersSince: string | null | undefined }, today: string): string | null {
+  return input.autoReminders && input.emailOn && !input.autoRemindersSince ? today : null;
+}
+
+/**
+ * Mock test council P11: the run reminds only when the bank statements are recent - one read since the previous
+ * working day (today counts). Otherwise a customer who paid yesterday would be reminded because the statement that
+ * shows it was not read yet. A company that never read a bank statement reminds as before (null).
+ */
+export function bankStatementsStale(lastImportDay: string | null, today: string, holidays: readonly string[] = []): boolean {
+  if (!lastImportDay) return false;
+  return lastImportDay < previousWorkingDay(today, holidays);
 }
 
 /** The smallest rest the run reminds of (K13), per currency; another currency is weighed in CZK at the invoice's own rate. */

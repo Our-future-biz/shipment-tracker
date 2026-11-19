@@ -9,7 +9,7 @@ const costs = vi.hoisted(() => ({ listByShipmentIds: vi.fn() }));
 vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: costs }));
 const billing = vi.hoisted(() => ({ currenciesOf: vi.fn() }));
 vi.mock("../../repositories/billingSettings.repository", () => ({ billingSettingsRepository: billing }));
-const invoices = vi.hoisted(() => ({ listOpenInvoicesWithSources: vi.fn(), firstBilledOn: vi.fn() }));
+const invoices = vi.hoisted(() => ({ listOpenInvoicesWithSources: vi.fn(), firstBilledOn: vi.fn(), creditOwedShipmentIds: vi.fn() }));
 vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: invoices }));
 const supplier = vi.hoisted(() => ({
   listOfShipments: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock("~encore/clients", () => ({
 }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 
-import { MONEY_PARTS, operationsMoneyService as service } from "../../services/operationsMoney.service";
+import { CREDIT_OWED_JOB_LIMIT, MONEY_PARTS, operationsMoneyService as service } from "../../services/operationsMoney.service";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const A = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
@@ -283,5 +283,14 @@ describe("the Money tab's facts of many jobs", () => {
     vi.clearAllMocks();
     await expect(service.forJobs(COMPANY, ["x"])).resolves.toEqual({ jobs: [], invoicesRead: true, unreadable: ["x"], notKnown: [] });
     expect(selling.listByShipmentIds).not.toHaveBeenCalled();
+  });
+});
+
+describe("the jobs owing a credit (M3)", () => {
+  it("asks the repository for the company's, at most the limit, and writes nothing", async () => {
+    invoices.creditOwedShipmentIds.mockResolvedValue([A, B]);
+    await expect(service.creditOwedJobs(COMPANY)).resolves.toEqual([A, B]);
+    expect(invoices.creditOwedShipmentIds).toHaveBeenCalledWith(COMPANY, CREDIT_OWED_JOB_LIMIT);
+    expect(supplier.sync).not.toHaveBeenCalled();
   });
 });

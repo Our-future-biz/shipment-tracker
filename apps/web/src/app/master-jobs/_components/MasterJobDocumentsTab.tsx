@@ -13,6 +13,7 @@ import { PreviewButton } from "@/components/PreviewButton";
 import { useMasterJobDocuments, type MasterJobDocumentItem } from "@/hooks/useMasterJobDocuments";
 import { base64ToBlob, fileToBase64, saveBlob } from "@/lib/files";
 import { COMMERCIAL_PAPERWORK_WORDS, docsDownloadNotice, houseDocsDownload, type DocsDownloadWords } from "../_lib/shipmentDocsDownload";
+import { masterJobModeOf } from "../_lib/masterJobWords";
 import { formatDate } from "@/lib/date";
 import { DOCUMENT_GROUPS, DOCUMENT_TYPES, documentGroupOf, documentTypeLabel, guessDocumentType } from "@/lib/documentTypes";
 import { ExtBadge, docPlural, formatFileSize } from "@/app/shipments/[jobNumber]/tabs/docsShared";
@@ -92,7 +93,8 @@ export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.Mas
   const filePreview = useFilePreview();
   const canManageDocuments = useCanManageDocuments();
   const { documents, isLoading, isError, refetch, refresh, previewSource } = useMasterJobDocuments(masterJob.id);
-  const houseDocs = houseDocsDownload(masterJob.freightMode);
+  // With no Freight Mode of its own, by its shipments' one: air houses give AWBs, not B/Ls (n31).
+  const houseDocs = houseDocsDownload(masterJobModeOf(masterJob));
   const [search, setSearch] = useState("");
 
   // Files get their type BEFORE they are uploaded, so nothing reaches the list unfiled.

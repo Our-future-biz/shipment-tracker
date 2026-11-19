@@ -24,7 +24,7 @@ vi.mock("../../services/shipment.service", () => ({ shipmentService }));
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { ABSENCE_COVER_FIELD, type CoverAbsence } from "../../lib/absenceCover";
 import { CANCELLED_STATUS } from "../../lib/fieldDefaults";
-import { absenceCoverService, CHANGED_MEANWHILE, runAbsenceCovers } from "../../services/absenceCover.service";
+import { absenceCoverService, CHANGED_MEANWHILE, keptCovers, runAbsenceCovers } from "../../services/absenceCover.service";
 
 const COMPANY = "c-1";
 const SVC = { companyID: COMPANY, userID: "svc-c-1" };
@@ -67,6 +67,8 @@ const inTurn = async (...args: unknown[]) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A leaver's cover kept in one case is not skipped as "read lately" in the next (the same row ids recur here).
+  keptCovers.clear();
   covers.openOfCompany.mockResolvedValue([]);
   covers.jobsToCover.mockResolvedValue([]);
   covers.openOf.mockResolvedValue(null);
@@ -160,15 +162,41 @@ describe("clearing a cover set", () => {
     ]);
   });
 
-  it("says the user left the company when they are no user of it any more - and just that the absence is over when the users can't be read", async () => {
+  it("keeps the cover of a user who left the company while the job still names them in Handled By (P12)", async () => {
+    covers.openOfCompany.mockResolvedValue([row()]);
+    shipmentRepo.getByIdForCompany.mockResolvedValue(job({ holidayCover: "eva@firma.cz", personInCharge: "Jan@firma.cz — Jan Novák" }));
+    clients.auth.usersList.mockResolvedValue({ users: [{ id: "u-eva", email: "eva@firma.cz", displayName: "Eva" }] });
+    const done = await absenceCoverService.applyForCompany(SVC, [], NOW);
+    expect(done).toMatchObject({ cleared: 0, left: 0, failed: 0 });
+    expect(shipmentService.update).not.toHaveBeenCalled();
+    expect(covers.close).not.toHaveBeenCalled();
+  });
+
+  it("clears a leaver's cover once the job is handed over, saying so - and closes the row of a job no longer active, its cover kept (P12)", async () => {
+    covers.openOfCompany.mockResolvedValue([row(), row({ id: "r-2", shipmentId: "s-2" })]);
+    shipmentRepo.getByIdForCompany.mockImplementation(async (id: string) =>
+      id === "s-1" ? job({ holidayCover: "eva@firma.cz", personInCharge: "petr@firma.cz" }) : job({ id: "s-2", holidayCover: "eva@firma.cz", status: CANCELLED_STATUS }),
+    );
+    clients.auth.usersList.mockResolvedValue({ users: [{ id: "u-eva", email: "eva@firma.cz", displayName: "Eva" }] });
+    const done = await absenceCoverService.applyForCompany(SVC, [], NOW);
+    expect(done).toMatchObject({ cleared: 1, left: 1 });
+    expect(shipmentService.update.mock.calls.map((c) => [c[0], c[7]])).toEqual([
+      ["s-1", { history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz cleared: Jan Novák left the company and no longer handles the job" }] }],
+    ]);
+    expect(covers.close.mock.calls).toEqual([
+      [COMPANY, "r-1", "cleared", NOW],
+      [COMPANY, "r-2", "gone", NOW],
+    ]);
+  });
+
+  it("leaves a cover whose absence auth no longer tells to the next run when the users can't be read - it may be a leaver's; an absence that ended is just over", async () => {
     covers.openOfCompany.mockResolvedValue([row()]);
     shipmentRepo.getByIdForCompany.mockResolvedValue(job({ holidayCover: "eva@firma.cz" }));
-    clients.auth.usersList.mockResolvedValue({ users: [{ id: "u-eva", email: "eva@firma.cz", displayName: "Eva" }] });
-    await absenceCoverService.applyForCompany(SVC, [], NOW);
-    expect(shipmentService.update.mock.calls[0]![7]).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz cleared: Jan Novák left the company" }] });
-    shipmentService.update.mockClear();
     clients.auth.usersList.mockRejectedValue(new Error("auth is down"));
     await absenceCoverService.applyForCompany(SVC, [], NOW);
+    expect(shipmentService.update).not.toHaveBeenCalled();
+    expect(covers.close).not.toHaveBeenCalled();
+    await absenceCoverService.applyForCompany(SVC, [absence({ inForce: false })], NOW);
     expect(shipmentService.update.mock.calls[0]![7]).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz cleared: absence over" }] });
   });
 

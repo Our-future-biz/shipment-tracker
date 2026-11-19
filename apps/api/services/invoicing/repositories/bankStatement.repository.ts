@@ -197,19 +197,71 @@ class BankStatementRepository {
     return rows.map((r) => ({ ...r.entry, fileName: r.fileName }));
   }
 
+  /**
+   * Confirmed incoming entries a payment of which was taken back by mistake since (mock test council n2): the entry is
+   * open again for what is free on it, so it may pay an invoice as an undecided one does. Booked on or after `since`
+   * (or with no booking day), at most `limit`, the newest booked first. A payment taken back as reversed (P8) frees
+   * nothing: the money went back.
+   */
+  async reopenedIncoming(companyId: string, since: string, limit = OPEN_INCOMING_LIMIT): Promise<(BankStatementEntryRecord & { fileName: string })[]> {
+    const takenBackByMistake = sql`exists (select 1 from jsonb_array_elements(coalesce(${e.allocations}, '[]'::jsonb)) a
+      join "receivable_payment" x on x.id::text = a->>'paymentId' and x.company_id = ${e.companyId}
+      where x.taken_back_at is not null and coalesce(x.taken_back_kind, 'mistake') = 'mistake')`;
+    const rows = await db
+      .select({ entry: e, fileName: s.fileName })
+      .from(e)
+      .innerJoin(s, eq(s.id, e.statementId))
+      .where(
+        and(
+          eq(e.companyId, companyId),
+          isNull(e.deletedAt),
+          isNull(s.deletedAt),
+          eq(e.credit, true),
+          eq(e.status, "confirmed"),
+          or(isNull(e.bookingDate), gte(e.bookingDate, since)),
+          takenBackByMistake,
+        ),
+      )
+      .orderBy(desc(e.bookingDate), desc(e.createdAt))
+      .limit(limit);
+    return rows.map((r) => ({ ...r.entry, fileName: r.fileName }));
+  }
+
   /** Of these payments (lines an entry's confirm noted), the ids of those taken back since. */
   async takenBack(companyId: string, paymentIds: string[]): Promise<Set<string>> {
+    return (await this.takenBackKinds(companyId, paymentIds)).takenBack;
+  }
+
+  /**
+   * Of these payments, those taken back since, and of them those taken back as reversed (P8: the money went back to the
+   * customer - it is not free on the entry again). One taken back before migration 0039 was a mistake.
+   */
+  async takenBackKinds(companyId: string, paymentIds: string[]): Promise<{ takenBack: Set<string>; reversed: Set<string> }> {
     const ids = [...new Set(paymentIds)];
-    if (!ids.length) return new Set();
-    const out = new Set<string>();
+    const takenBack = new Set<string>();
+    const reversed = new Set<string>();
+    if (!ids.length) return { takenBack, reversed };
     for (const batch of chunks(ids, 5000)) {
       const rows = await db
-        .select({ id: rp.id })
+        .select({ id: rp.id, kind: rp.takenBackKind })
         .from(rp)
         .where(and(eq(rp.companyId, companyId), inArray(rp.id, batch), isNotNull(rp.takenBackAt)));
-      for (const r of rows) out.add(r.id);
+      for (const r of rows) {
+        takenBack.add(r.id);
+        if (r.kind === "reversed") reversed.add(r.id);
+      }
     }
-    return out;
+    return { takenBack, reversed };
+  }
+
+  /** When the company last read a bank statement (null: never) - the automatic reminders wait for a recent one (P11). */
+  async lastImportAt(companyId: string): Promise<Date | null> {
+    const [row] = await db
+      .select({ at: sql<Date | string | null>`max(${s.createdAt})` })
+      .from(s)
+      .where(and(eq(s.companyId, companyId), isNull(s.deletedAt)));
+    if (!row?.at) return null;
+    return row.at instanceof Date ? row.at : new Date(row.at);
   }
 }
 

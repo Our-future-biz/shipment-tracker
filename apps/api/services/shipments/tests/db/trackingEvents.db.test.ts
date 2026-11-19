@@ -112,3 +112,19 @@ describe("tracking events", () => {
     expect(await eventsOf(s.id)).toEqual([]);
   });
 });
+
+describe("the gate's Warehouse Released over a day set in Shipments (council round 4)", () => {
+  it("goes over an empty day or the gate's own day, never over a person's day - the plate still goes", async () => {
+    const s = await newShipment();
+    const replaces = (days: string[]) => ({ warehouseReleasedReplaces: days });
+    await shipmentService.update(s.id, s.companyId, { warehouseReleasedDate: "2026-11-18" } as never, USER, undefined, undefined, undefined, replaces([]));
+    const dayOf = async () => (await db.select().from(shipmentTable).where(eq(shipmentTable.id, s.id)))[0]!;
+    expect((await dayOf()).warehouseReleasedDate).toBe("2026-11-18");
+    // The gate's own day (a voided release, restamped): replaced.
+    await shipmentService.update(s.id, s.companyId, { warehouseReleasedDate: "2026-11-19" } as never, USER, undefined, undefined, undefined, replaces(["2026-11-18"]));
+    expect((await dayOf()).warehouseReleasedDate).toBe("2026-11-19");
+    // A day the gate did not write (a person's): kept, the plate written.
+    await shipmentService.update(s.id, s.companyId, { warehouseReleasedDate: "2026-11-20", plateNumber: "1AB2345" } as never, USER, undefined, undefined, undefined, replaces(["2026-11-18"]));
+    expect(await dayOf()).toMatchObject({ warehouseReleasedDate: "2026-11-19", plateNumber: "1AB2345" });
+  });
+});

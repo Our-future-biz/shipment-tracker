@@ -11,6 +11,7 @@ vi.mock("../../repositories/masterJob.repository", () => ({
   masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn(), basicsByIds: vi.fn(), findByMczNumber: vi.fn() },
 }));
 vi.mock("../../repositories/masterJobContainer.repository", () => ({ masterJobContainerRepository: {} }));
+vi.mock("../../repositories/masterJobHouseKinds.repository", () => ({ masterJobHouseKindsRepository: { ofMasterJobs: vi.fn(async () => new Map()) } }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { findByMasterJobId: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: {} }));
 vi.mock("../../services/shipment.service", () => ({ shipmentService: { update: vi.fn(), isInvoiced: vi.fn(), mayChangeDetails: vi.fn() } }));

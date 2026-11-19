@@ -110,13 +110,28 @@ describe("the warehouse's remeasurement notice", () => {
       },
       expect.any(Function),
     );
-    // Its record, for the Alerts tab: the figures compared, the remeasured ones, which warehouse told, and the message it goes with.
+    // Its record, for the Alerts tab: the figures compared, the remeasured ones, which warehouse told, what the job is
+    // charged by (W/M: no Freight Mode), and the message it goes with.
     const history = repo.createWithHistory.mock.calls.at(-1)![2];
     expect(history("n1")).toEqual({
       field: "remeasureInformed",
       oldValue: JSON.stringify({ colli: 20, weightKg: 3000, volumeCbm: 10 }),
-      newValue: JSON.stringify({ colli: 11, weightKg: 2750, volumeCbm: 31.68, comparedWith: "dimensions", source: "warehouse", commentId: "n1" }),
+      newValue: JSON.stringify({ colli: 11, weightKg: 2750, volumeCbm: 31.68, comparedWith: "dimensions", source: "warehouse", charge: "wm", commentId: "n1" }),
     });
+  });
+
+  // Mock test council Y9: a figure only the warehouse measured, judged by what the job is charged by.
+  it("tells a volume the shipment lacks as a difference when it changes the W/M, and keeps the charge with the record", async () => {
+    repo.createWithHistory.mockImplementation(async (companyId, c) => ({ id: "n4", companyId, createdAt: new Date(), ...c }) as never);
+    const job = { personInCharge: "", holidayCover: "", pcs: "5", totalWeightTons: "1", totalVolumeCbm: "", cargoDimensions: [] };
+    shipments.get.mockResolvedValue({ ...job, freightMode: "Sea Freight", loadType: "Part Load" } as never);
+    await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured: { colli: 5, weightKg: 1000, volumeCbm: 4.8 }, comparedWith: "dimensions", source: "warehouse", note: "" });
+    expect(repo.createWithHistory.mock.calls.at(-1)![1].message).toContain("Difference: volume +4.800 CBM");
+    // By air the 1,000 kg stays chargeable: the new volume is told, no difference.
+    shipments.get.mockResolvedValue({ ...job, freightMode: "Air Freight", loadType: "" } as never);
+    await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured: { colli: 5, weightKg: 1000, volumeCbm: 4.8 }, comparedWith: "dimensions", source: "warehouse", note: "" });
+    expect(repo.createWithHistory.mock.calls.at(-1)![1].message).toContain("New: volume +4.800 CBM - the shipment values had none; the charge stays the same.");
+    expect(JSON.parse(repo.createWithHistory.mock.calls.at(-1)![2]("n5").newValue!)).toMatchObject({ charge: "air" });
   });
 
   it("compares with the lines' figures, one they lack from the shipment's totals, both sides rounded alike (council findings N1, X10)", async () => {

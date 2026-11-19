@@ -610,16 +610,45 @@ describe("a person's jobs to hand over all at once (X9)", () => {
     await newJob(companyId, { personInCharge: "jan@firma.cz", deletedAt: new Date() });
     await newJob(randomUUID(), { personInCharge: "jan@firma.cz" });
 
-    const all = await handOverJobs.ofPerson(companyId, "jan@firma.cz", {}, 200);
+    const all = await handOverJobs.ofPerson(companyId, { handledBy: "jan@firma.cz" }, {}, 200);
     expect(all.total).toBe(3);
     expect(all.jobs.map((j) => j.id)).toEqual([first.id, second.id, air.id]);
     expect(all.jobs[1]).toMatchObject({ jobNumber: second.jobNumber, personInCharge: " Jan@Firma.cz — Jan Novák", holidayCover: "eva@firma.cz" });
     // Cut at the limit, the count whole.
-    await expect(handOverJobs.ofPerson(companyId, "jan@firma.cz", { mode: "all", direction: "all" }, 2)).resolves.toMatchObject({ total: 3, jobs: [{ id: first.id }, { id: second.id }] });
+    await expect(handOverJobs.ofPerson(companyId, { handledBy: "jan@firma.cz" }, { mode: "all", direction: "all" }, 2)).resolves.toMatchObject({ total: 3, jobs: [{ id: first.id }, { id: second.id }] });
     // The Team tab's mode and direction.
-    expect((await handOverJobs.ofPerson(companyId, "jan@firma.cz", { mode: "air" }, 200)).jobs.map((j) => j.id)).toEqual([air.id]);
-    expect((await handOverJobs.ofPerson(companyId, "jan@firma.cz", { mode: "sea", direction: "import" }, 200)).jobs.map((j) => j.id)).toEqual([second.id]);
+    expect((await handOverJobs.ofPerson(companyId, { handledBy: "jan@firma.cz" }, { mode: "air" }, 200)).jobs.map((j) => j.id)).toEqual([air.id]);
+    expect((await handOverJobs.ofPerson(companyId, { handledBy: "jan@firma.cz" }, { mode: "sea", direction: "import" }, 200)).jobs.map((j) => j.id)).toEqual([second.id]);
     // Nobody is no person here.
-    await expect(handOverJobs.ofPerson(companyId, "", {}, 200)).resolves.toEqual({ jobs: [], total: 0 });
+    await expect(handOverJobs.ofPerson(companyId, { handledBy: "" }, {}, 200)).resolves.toEqual({ jobs: [], total: 0 });
+  });
+
+  it("are only the jobs the chosen hand-over would change, so the ones past the first 200 are reached when those are already so (n25)", async () => {
+    const companyId = randomUUID();
+    const covered = await newJob(companyId, { personInCharge: "jan@firma.cz", holidayCover: "Eva@Firma.cz — Eva Malá" });
+    const bare = await newJob(companyId, { personInCharge: "jan@firma.cz" });
+    const other = await newJob(companyId, { personInCharge: "jan@firma.cz", holidayCover: "petr@firma.cz" });
+    const jan = { handledBy: "jan@firma.cz" };
+    // Only the cover changes: a job with Eva as its cover already is left out, by e-mail in any case.
+    const toEva = await handOverJobs.ofPerson(companyId, jan, {}, 1, { handledBy: null, holidayCover: "eva@firma.cz" });
+    expect(toEva).toMatchObject({ total: 2, jobs: [{ id: bare.id }] });
+    // Cleared: the jobs with a cover.
+    expect((await handOverJobs.ofPerson(companyId, jan, {}, 200, { handledBy: null, holidayCover: "" })).jobs.map((j) => j.id)).toEqual([covered.id, other.id]);
+    // A new Handled By changes every one of them; with the cover too, still every one.
+    expect((await handOverJobs.ofPerson(companyId, jan, {}, 200, { handledBy: "eva@firma.cz", holidayCover: "eva@firma.cz" })).total).toBe(3);
+    // Nothing chosen: all of them.
+    expect((await handOverJobs.ofPerson(companyId, jan, {}, 200, null)).total).toBe(3);
+  });
+
+  it("are the jobs a person covers as Holiday Cover, for replacing them as the cover (P12)", async () => {
+    const companyId = randomUUID();
+    const covered = await newJob(companyId, { personInCharge: "jan@firma.cz", holidayCover: " Eva@Firma.cz — Eva Malá" });
+    await newJob(companyId, { personInCharge: "eva@firma.cz" });
+    await newJob(companyId, { personInCharge: "petr@firma.cz", holidayCover: "eva@firma.cz", status: CANCELLED_STATUS });
+    const eva = { holidayCover: "eva@firma.cz" };
+    expect(await handOverJobs.ofPerson(companyId, eva, {}, 200)).toMatchObject({ total: 1, jobs: [{ id: covered.id }] });
+    // Replaced by Petr: the job is listed until it has him.
+    expect((await handOverJobs.ofPerson(companyId, eva, {}, 200, { handledBy: null, holidayCover: "petr@firma.cz" })).total).toBe(1);
+    await expect(handOverJobs.ofPerson(companyId, { holidayCover: " " }, {}, 200)).resolves.toEqual({ jobs: [], total: 0 });
   });
 });

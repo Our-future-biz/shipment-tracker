@@ -169,7 +169,16 @@ describe("handing jobs over", () => {
       ],
       total: 240,
     });
-    expect(personJobs.ofPerson).toHaveBeenCalledExactlyOnceWith("c1", "jan@firma.cz", { mode: "sea", direction: "export" }, 200);
+    expect(personJobs.ofPerson).toHaveBeenCalledExactlyOnceWith("c1", { handledBy: "jan@firma.cz" }, { mode: "sea", direction: "export" }, 200, null);
+  });
+
+  it("lists, once a hand-over is chosen, only the jobs it changes (n25) - and the jobs a person covers, to replace them as the cover (P12)", async () => {
+    personJobs.ofPerson.mockResolvedValue({ jobs: [], total: 0 });
+    await handOverService.jobsOf("c1", "jan@firma.cz", {}, { to: { holidayCover: "Eva@firma.cz" } });
+    expect(personJobs.ofPerson).toHaveBeenLastCalledWith("c1", { handledBy: "jan@firma.cz" }, {}, 200, { handledBy: null, holidayCover: "eva@firma.cz" });
+    await handOverService.jobsOf("c1", " Eva@Firma.cz ", {}, { as: "holidayCover", to: { holidayCover: "petr@firma.cz" } });
+    expect(personJobs.ofPerson).toHaveBeenLastCalledWith("c1", { holidayCover: "eva@firma.cz" }, {}, 200, { handledBy: null, holidayCover: "petr@firma.cz" });
+    await expect(handOverService.jobsOf("c1", " ", {}, { as: "holidayCover" })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringMatching(/^coveredBy is required/) });
   });
 
   it("lists nobody's jobs for nobody: those are handed over one by one or ticked", async () => {

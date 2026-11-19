@@ -5,6 +5,7 @@ import { CUTOFF_DISMISSED_FIELD } from "./cutoffDismissals";
 import { HAND_OVER_FIELD } from "./handOver";
 import { NUDGE_FIELD } from "./nudge";
 import { RELEASE_REQUEST_FIELD } from "./releaseRequest";
+import { PREPAYMENT_UNCHECKED_FIELD } from "./releaseUnchecked";
 import { REMEASURE_ACCEPTED, REMEASURE_COSTS_CHECKED } from "./remeasureAccept";
 import { REMEASURE_INFORMED } from "./remeasureNotice";
 
@@ -34,6 +35,7 @@ const OWN_LABELS: Record<string, string> = {
   [REMEASURE_COSTS_CHECKED]: "Remeasurement: quantities checked on Costs",
   [REMEASURE_INFORMED]: "Remeasurement: Operations informed",
   paymentOverride: "Released before payment",
+  [PREPAYMENT_UNCHECKED_FIELD]: "Prepayment not checked",
   freeTime: "Free time",
   deletedAt: "Shipment deleted",
 };

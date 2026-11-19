@@ -151,7 +151,8 @@ export function PohodaExportView() {
       });
   };
 
-  // "Download again" (m1): the server builds the recorded export's file again, the same bytes; nothing is recorded.
+  // "Download again" (m1): the server builds the recorded export's file again, the same bytes; nothing is recorded. A
+  // document it recorded and cancelled since is still in the file: the server names each one (n4), said here as well.
   const again = useAccountingExportFile();
   const downloadAgain = (x: ExportSummary) =>
     again
@@ -159,6 +160,7 @@ export function PohodaExportView() {
       .then((f) => {
         saveExportFile(f);
         toast.success(`Saved ${f.fileName} again`);
+        for (const w of f.warnings ?? []) toast.warning(w);
       })
       .catch((e) => toast.error(e instanceof Error && !isAPIError(e) ? e.message : `The file was not downloaded: ${apiErrorMessage(e)}`));
   const columns: ColumnsType<ExportSummary> = [

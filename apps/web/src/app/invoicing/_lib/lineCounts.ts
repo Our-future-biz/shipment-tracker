@@ -24,3 +24,25 @@ export function invoicedLineCount(
   const lines = sellingCosts.filter(hasLineValue);
   return { invoiced: lines.filter((r) => onOpenInvoice.has(r.id)).length, total: lines.length };
 }
+
+/**
+ * The queue's Lines Invoiced cell: "invoiced/all" of the job's charges, and whether the job owes its customer a credit
+ * (M3: a line below nothing on no open invoice - not counted among the charges, so a job can read 2/2 and still owe
+ * one; the check "Invoiced, charges or credits open" lists it). Null when there is neither.
+ */
+export function linesInvoicedCell(
+  r: Pick<interfaces.BillingQueueItem, "sellingLines" | "invoicedLines"> & { creditsOwed?: number },
+): { count: string; done: boolean; creditOwed: boolean; title: string } | null {
+  const owed = r.creditsOwed ?? 0;
+  if (!r.sellingLines && !owed) return null;
+  const parts = [
+    r.sellingLines ? `${r.invoicedLines} of ${r.sellingLines} selling lines invoiced` : "",
+    owed ? `${owed === 1 ? "a credit" : `${owed} credits`} owed to the customer - give it on a credit note` : "",
+  ].filter(Boolean);
+  return {
+    count: r.sellingLines ? `${r.invoicedLines}/${r.sellingLines}` : "",
+    done: r.invoicedLines === r.sellingLines,
+    creditOwed: owed > 0,
+    title: parts.join("; "),
+  };
+}

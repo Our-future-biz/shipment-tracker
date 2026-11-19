@@ -7,6 +7,9 @@ import {
   partialCreditTotals,
   planPartialCredit,
   remainingLines,
+  settleTruckingCredit,
+  type CreditLineCalc,
+  type OpenCreditDiff,
   type StoredLine,
 } from "../lib/partialCredit";
 import { calculateInvoice } from "../lib/invoiceCalc";
@@ -152,5 +155,65 @@ describe("the same rate as the invoice", () => {
     const stored: StoredLine = { ...line, id: "l2", sourceSellingCostId: "s2" };
     const plan = partialCreditLines(remainingLines([stored], []), [{ lineId: "l2", amount: "1250" }]);
     expect("lines" in plan && plan.lines[0]!.net).toBe(-50);
+  });
+});
+
+describe("settleTruckingCredit (a credit Trucking says is owed, Y1 / P1)", () => {
+  // A credit note line of 50 EUR of a line made from row s1, at the invoice's rate 1.
+  const credit = (unitPrice: number, over: Partial<CreditLineCalc> = {}): CreditLineCalc => ({
+    sourceSellingCostId: "s1", description: "Freight", qty: -1, unitPrice, unitCurrency: "EUR", net: -unitPrice, vatCode: "S21", vatRate: 21, fxRate: 1, correctsLineId: "l1", ...over,
+  });
+  const owed: OpenCreditDiff = { id: "d1", ref: "trucking:consignment:c1:diff:1", currency: "EUR", amount: -50, version: 1 };
+  const diffsOf = (rowId: string | null) => (rowId === "s1" ? [owed] : []);
+  let n = 0;
+  const newId = () => `own${++n}`;
+
+  it("credited exactly what is owed: the line settles the difference line, no row of its own", () => {
+    expect(settleTruckingCredit([credit(50)], diffsOf, newId)).toEqual({ lines: [credit(50, { sourceSellingCostId: "d1" })], ownRows: [], shrink: [], rest: [], settled: [owed] });
+  });
+
+  it("credited less: it settles that much, the rest stays owed", () => {
+    const out = settleTruckingCredit([credit(30)], diffsOf, newId);
+    expect(out.lines).toEqual([credit(30, { sourceSellingCostId: "d1" })]);
+    expect(out.shrink).toEqual([{ id: "d1", amount: 30 }]);
+    expect(out.rest).toEqual([{ fromId: "d1", amount: 20, id: expect.any(String) }]);
+  });
+
+  it("two lines of one set settle the credit owed in turn: the second settles the rest the first left (m8)", () => {
+    const two = settleTruckingCredit([credit(30), credit(20, { correctsLineId: "l2" })], diffsOf, () => "rest1");
+    // The first bills the difference line (down to −30), the second the rest of −20 it left - no negative row of its own.
+    expect(two.lines.map((l) => [l.unitPrice, l.sourceSellingCostId])).toEqual([[30, "d1"], [20, "rest1"]]);
+    expect(two.ownRows).toEqual([]);
+    expect(two.shrink).toEqual([{ id: "d1", amount: 30 }]);
+    expect(two.rest).toEqual([{ fromId: "d1", amount: 20, id: "rest1" }]);
+    expect(two.settled).toEqual([owed]);
+
+    // The second credits less than the rest: the rest comes down to it, and what is left is owed on a row of its own.
+    let k = 0;
+    const less = settleTruckingCredit([credit(30), credit(15, { correctsLineId: "l2" })], diffsOf, () => `rest${++k}`);
+    expect(less.lines.map((l) => [l.unitPrice, l.sourceSellingCostId])).toEqual([[30, "d1"], [15, "rest1"]]);
+    expect(less.rest).toEqual([{ fromId: "d1", amount: 15, id: "rest1" }, { fromId: "d1", amount: 5, id: "rest2" }]);
+
+    // The second credits more than the rest: the rest is settled, the line's other part is a credit of its own.
+    let m = 0;
+    const more = settleTruckingCredit([credit(30), credit(25, { correctsLineId: "l2" })], diffsOf, () => `id${++m}`);
+    expect(more.lines.map((l) => [l.unitPrice, l.sourceSellingCostId])).toEqual([[30, "d1"], [20, "id1"], [5, "id2"]]);
+    expect(more.ownRows.map((l) => l.sourceSellingCostId)).toEqual(["id2"]);
+    expect(more.rest).toEqual([{ fromId: "d1", amount: 20, id: "id1" }]);
+  });
+
+  it("credited more: split - what is owed settles the difference line, the rest is a credit of its own; the net adds up to the line's", () => {
+    const out = settleTruckingCredit([credit(80, { net: -2000.01, fxRate: 25 })], diffsOf, () => "own");
+    expect(out.lines).toEqual([
+      credit(50, { net: -1250, fxRate: 25, sourceSellingCostId: "d1" }),
+      credit(30, { net: -750.01, fxRate: 25, sourceSellingCostId: "own" }),
+    ]);
+    expect(out.ownRows).toEqual([out.lines[1]]);
+  });
+
+  it("a line with no credit owed on its row, or in another currency, puts a negative row of its own on the shipment, as before; one difference line is settled once", () => {
+    const out = settleTruckingCredit([credit(50, { sourceSellingCostId: "s2" }), credit(50, { unitCurrency: "CZK" }), credit(50), credit(10)], diffsOf, () => "own");
+    expect(out.lines.map((l) => l.sourceSellingCostId)).toEqual(["own", "own", "d1", "own"]);
+    expect(out.settled).toEqual([owed]);
   });
 });

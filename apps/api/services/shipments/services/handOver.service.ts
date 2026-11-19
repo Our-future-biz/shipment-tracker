@@ -15,6 +15,7 @@ import {
   MIN_HAND_OVER_REASON,
   handOverChange,
   handOverLine,
+  listTarget,
   stillAsDecided,
   type HandOverTarget,
 } from "../lib/handOver";
@@ -127,16 +128,25 @@ class HandOverService {
   }
 
   /**
-   * A person's active jobs by Handled By, for handing them all over at once (X9, K18): every one,
-   * quiet ones too - not only those the cockpit's cards show - in the mode and direction asked, the
-   * oldest first and at most as many as one hand-over takes, with how many there are in all. The
-   * hand-over itself goes through handOver() as any other. `email` as sent, any case.
+   * A person's active jobs by Handled By - or, `as: "holidayCover"`, the jobs they cover (P12) - for handing
+   * them all over at once (X9, K18): every one, quiet ones too - not only those the cockpit's cards show - in
+   * the mode and direction asked, the oldest first and at most as many as one hand-over takes, with how many
+   * there are in all. With the hand-over's `to` chosen, only the jobs it would change (n25): a cover given to
+   * 240 jobs whose first 200 have it already lists the other 40. The hand-over itself goes through handOver()
+   * as any other. E-mails as sent, any case.
    */
-  async jobsOf(companyId: string, email: string, filter: { mode?: string; direction?: string } = {}): Promise<HandOverJobsAnswer> {
+  async jobsOf(
+    companyId: string,
+    email: string,
+    filter: { mode?: string; direction?: string } = {},
+    opts: { as?: "handledBy" | "holidayCover"; to?: { handledBy?: string; holidayCover?: string } } = {},
+  ): Promise<HandOverJobsAnswer> {
     const asked = (email ?? "").trim().toLowerCase();
+    const as = opts.as ?? "handledBy";
     // The jobs nobody handles have nobody to hand them over from: those are handed over one by one, or ticked.
-    if (!asked || asked === "nobody") throw APIError.invalidArgument("handledBy is required: the person's e-mail");
-    const { jobs, total } = await handOverJobsRepository.ofPerson(companyId, asked, filter, HAND_OVER_MAX_JOBS);
+    if (!asked || asked === "nobody") throw APIError.invalidArgument(`${as === "holidayCover" ? "coveredBy" : "handledBy"} is required: the person's e-mail`);
+    const who = as === "holidayCover" ? { holidayCover: asked } : { handledBy: asked };
+    const { jobs, total } = await handOverJobsRepository.ofPerson(companyId, who, filter, HAND_OVER_MAX_JOBS, listTarget(opts.to));
     return { jobs: jobs.map((j) => ({ id: j.id, jobNumber: j.jobNumber, handledBy: j.personInCharge, holidayCover: j.holidayCover })), total };
   }
 

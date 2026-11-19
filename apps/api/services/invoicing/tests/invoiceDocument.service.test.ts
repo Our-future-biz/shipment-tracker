@@ -25,6 +25,10 @@ const changes = vi.hoisted(() => ({ approve: vi.fn(), withdrawForInvoice: vi.fn(
 const trucking = vi.hoisted(() => ({
   lock: vi.fn(async () => undefined),
   liveSellingVersions: vi.fn(async (_tx: unknown, _c: string, _s: string, ids: string[]) => new Map(ids.map((id) => [id, new Date("2026-11-06T09:00:00Z").getTime()]))),
+  // The credits owed by Trucking a partial credit note settles (none unless a test says so), and what it writes to them.
+  openCreditDiffs: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
+  settleDiffs: vi.fn(async () => undefined),
+  retireNettedSets: vi.fn(async () => []),
 }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
@@ -77,7 +81,12 @@ vi.mock("../repositories/receivable.repository", () => ({ receivableRepository: 
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
   truckingLinesLock: trucking.lock,
-  truckingLinesRepository: { liveSellingVersions: trucking.liveSellingVersions },
+  truckingLinesRepository: {
+    liveSellingVersions: trucking.liveSellingVersions,
+    openCreditDiffs: trucking.openCreditDiffs,
+    settleDiffs: trucking.settleDiffs,
+    retireNettedSets: trucking.retireNettedSets,
+  },
 }));
 vi.mock("../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
 vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository: selling }));
@@ -158,6 +167,8 @@ const openInvoiceOf = (sourceSellingCostIds: string[]) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  trucking.openCreditDiffs.mockImplementation(async () => new Map());
+  trucking.retireNettedSets.mockImplementation(async () => []);
   clients.shipmentGet.mockResolvedValue({ shipment });
   clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: shipment.jobNumber });
   clients.customerGet.mockResolvedValue({ customer });
@@ -563,6 +574,13 @@ describe("issue", () => {
     expect(repo.issue).not.toHaveBeenCalled();
   });
 
+  it("says what to do when all that is left is a credit owed: a credit note of the invoice gives it (Y1 / P1)", async () => {
+    selling.listByShipmentId.mockResolvedValue([sellRow({}), sellRow({ id: "d1", amount: "-50.00", currency: "CZK", description: "Price change after invoice" })]);
+    repo.invoicedSellingRowIds.mockResolvedValue(new Set(["s1"]));
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/above zero: what is left is a credit - give it on a credit note of the invoice/);
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
   it("re-checks under the series lock and refuses rows another invoice took a moment ago", async () => {
     // free when the invoice was prepared, taken by the time the lock is held
     repo.invoicedSellingRowIds.mockResolvedValueOnce(new Set()).mockResolvedValueOnce(new Set(["s2"]));
@@ -688,6 +706,9 @@ describe("credit", () => {
     expect(lines[0]).toMatchObject({ qty: "-1.00", net: "-100.00", vatCode: "S21" });
     expect(header).toMatchObject({ vatSummary: [{ vatCode: "S21", base: -100, vat: -21, baseCzk: -2500, vatCzk: -525 }] });
     expect(repo.markCredited).toHaveBeenCalledWith({}, "inv1", COMPANY);
+    // A Trucking set that now comes to nothing on no invoice (a consignment cancelled after the invoice) goes, under the shipment's lock (Y1 / P1).
+    expect(trucking.lock).toHaveBeenCalledWith({}, SHIPMENT);
+    expect(trucking.retireNettedSets).toHaveBeenCalledWith({}, COMPANY, SHIPMENT);
     expect(cn.number).toBe("CN2026CZ00000028-001");
     // the credit note and the invoice it reverses stop counting as owed
     expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", status: "Credited" }), expect.anything());
@@ -827,6 +848,52 @@ describe("partial credit notes", () => {
     expect(cn.number).toBe("CN2026CZ00000028-001");
   });
 
+  describe("a credit Trucking says is owed (Y1 / P1)", () => {
+    // THC's row is a Trucking set whose price came down by 50 after the invoice: "Price change after invoice −50" on no invoice.
+    const diff = { id: "d1", ref: "trucking:consignment:c1:diff:1", currency: "EUR", amount: -50, version: 1 };
+    const asking = (amount: string) => ({ ...request, lines: [{ ...request.lines[0]!, amount }] });
+    beforeEach(() => {
+      trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [diff]]]));
+    });
+
+    it("credited exactly what is owed: the credit note line settles the difference line - no negative row of its own, so selling drops once", async () => {
+      await invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver);
+      const [, , written] = repo.issue.mock.calls[0]!;
+      expect(written).toEqual([expect.objectContaining({ correctsLineId: "l1", unitPrice: "50.00", net: "-50.00", sourceSellingCostId: "d1" })]);
+      expect(selling.insertCreditRows.mock.calls[0]![4]).toEqual([]);
+      expect(trucking.settleDiffs).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, [], []);
+      // Read again under the shipment's lock before the number is taken.
+      expect(trucking.openCreditDiffs).toHaveBeenCalledTimes(2);
+    });
+
+    it("credited less: it settles that much, and the rest stays owed as a difference line of its own", async () => {
+      await invoiceDocumentService.issuePartialCredit(asking("30.00") as never, approver);
+      const [, , written] = repo.issue.mock.calls[0]!;
+      expect(written).toEqual([expect.objectContaining({ unitPrice: "30.00", sourceSellingCostId: "d1" })]);
+      expect(trucking.settleDiffs).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, [{ id: "d1", amount: 30 }], [{ fromId: "d1", amount: 20, id: expect.any(String) }]);
+      expect(selling.insertCreditRows.mock.calls[0]![4]).toEqual([]);
+    });
+
+    it("credited more: the line is split - what is owed settles the difference line, the rest is a credit row of its own, the same total", async () => {
+      await invoiceDocumentService.issuePartialCredit(asking("80.00") as never, approver);
+      const [, header, written] = repo.issue.mock.calls[0]!;
+      expect(written).toEqual([
+        expect.objectContaining({ correctsLineId: "l1", unitPrice: "50.00", net: "-50.00", sourceSellingCostId: "d1" }),
+        expect.objectContaining({ correctsLineId: "l1", unitPrice: "30.00", net: "-30.00" }),
+      ]);
+      expect(header).toMatchObject({ net: "-80.00" });
+      const rows = selling.insertCreditRows.mock.calls[0]![4];
+      expect(rows).toEqual([expect.objectContaining({ sourceRowId: "s1", amount: 30, currency: "EUR" })]);
+      expect(written[1]!.sourceSellingCostId).toBe(rows[0].id);
+    });
+
+    it("refuses when Trucking changed the price meanwhile: the credit owed is not what it was", async () => {
+      trucking.openCreditDiffs.mockImplementationOnce(async () => new Map([["s1", [diff]]])).mockImplementationOnce(async () => new Map([["s1", [{ ...diff, version: 2 }]]]));
+      await expect(invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver)).rejects.toThrow(/Trucking changed the price/);
+      expect(requests.approve).not.toHaveBeenCalled();
+    });
+  });
+
   it("refuses when the invoice no longer has what was asked: the manager rejects it instead", async () => {
     // A line credited in part since: 180 of THC was taken already.
     repo.creditNotesOf.mockResolvedValue([{ id: "cnA", number: "CN2026CZ00000028-001", gross: "-217.80" }]);
@@ -964,6 +1031,47 @@ describe("queue", () => {
     expect(r.queue[0]).toMatchObject({ customerId: null, department: "", houseBolType: "", masterBolType: "" });
   });
 
+  it("carries the B/L days, so an OBL whose originals or telex release came is not painted red (n22)", async () => {
+    mockQueue();
+    clients.shipmentList.mockImplementation(async (req: { limit: number }) =>
+      req.limit === 1
+        ? { pagination: { total: 1 }, data: [] }
+        : { pagination: { total: 2 }, data: [listed({ originalsReceivedDate: "2026-11-10", telexReleaseReceivedDate: null }), listed({ id: "s2" })] },
+    );
+    const r = await invoiceDocumentService.queue(COMPANY, "all");
+    expect(r.queue.map((x) => [x.originalsReceivedDate, x.telexReleaseReceivedDate])).toEqual([[null, null], ["2026-11-10", null]]);
+  });
+
+  it("the check 'Invoiced, charges or credits open' lists only the invoiced jobs with a charge on no open invoice (P16) or a credit owed (M3)", async () => {
+    // Three jobs read Invoiced: one all invoiced but owing a credit, one with a late charge, one with no charge at all.
+    const jobs = [listed({ id: "a", jobNumber: "CZ1", invoicingStatus: "Invoiced" }), listed({ id: "b", jobNumber: "CZ2", invoicingStatus: "Invoiced" }), listed({ id: "c", jobNumber: "CZ3", invoicingStatus: "Invoiced" })];
+    clients.shipmentList.mockImplementation(async (req: { invoicing: string; limit: number }) => {
+      if (req.limit === 1) return { pagination: { total: { all: 6, billing: 2, "not-invoiced": 5, invoiced: 3 }[req.invoicing] }, data: [] };
+      expect(req.invoicing).toBe("invoiced");
+      return { pagination: { total: 3 }, data: jobs };
+    });
+    selling.listLiveByShipments.mockResolvedValue([
+      { id: "a1", shipmentId: "a", qty: "1.00", amount: "1000.00", currency: "CZK", invoice: true },
+      { id: "b1", shipmentId: "b", qty: "1.00", amount: "1000.00", currency: "CZK", invoice: true },
+      { id: "b2", shipmentId: "b", qty: "1.00", amount: "300.00", currency: "CZK", invoice: true },
+      // a credit owed on "a": not a charge to bill, but owed - listed, with its count
+      { id: "a2", shipmentId: "a", qty: "1.00", amount: "-50.00", currency: "CZK", invoice: true },
+    ]);
+    repo.listOpenInvoicesWithSources.mockResolvedValue([
+      { id: "i1", shipmentId: "a", number: "INV1", currency: "CZK", gross: "1000.00", duzp: "2026-11-01", sourceSellingCostIds: ["a1"] },
+      { id: "i2", shipmentId: "b", number: "INV2", currency: "CZK", gross: "1000.00", duzp: "2026-11-01", sourceSellingCostIds: ["b1"] },
+    ]);
+    settings.listByShipments.mockResolvedValue([]);
+
+    const r = await invoiceDocumentService.queue(COMPANY, "invoiced_charges_open");
+    expect(r.queue.map((x) => [x.jobNumber, x.invoicedLines, x.sellingLines, x.creditsOwed])).toEqual([["CZ2", 1, 2, 0], ["CZ1", 1, 1, 1]]);
+    expect(r.counts).toMatchObject({ invoiced: 3, invoicedChargesOpen: 2 });
+    expect(r.truncated).toBe(false);
+    // The other views do not count it: it reads every invoiced job.
+    mockQueue();
+    expect((await invoiceDocumentService.queue(COMPANY, "to_bill")).counts).not.toHaveProperty("invoicedChargesOpen");
+  });
+
   it("past its limit leaves out the oldest jobs, never the newest, and says so", async () => {
     // 1,200 jobs; the list endpoint pages them 200 at a time, newest (highest number) first.
     const all = Array.from({ length: 1200 }, (_, n) => listed({ id: `s${n}`, jobNumber: `CZ${String(n).padStart(8, "0")}` }));
@@ -1014,6 +1122,8 @@ describe("cancelling an invoice on its issue day", () => {
     expect(cancelled.status).toBe("cancelled");
     expect(repo.lockSeries).toHaveBeenCalledWith({}, COMPANY, "CN2026CZ00000028-");
     expect(repo.markCancelled).toHaveBeenCalledWith({}, "inv1", COMPANY, today);
+    // As after a full credit note: a Trucking set that comes to nothing on no invoice goes.
+    expect(trucking.retireNettedSets).toHaveBeenCalledWith({}, COMPANY, SHIPMENT);
     expect(changes.approve).toHaveBeenCalledWith({}, COMPANY, "chg1", approver);
     expect(requests.withdrawForInvoice).toHaveBeenCalledWith({}, COMPANY, "inv1", { id: "manager-1", name: "boss@test.cz" }, expect.stringMatching(/cancelled/));
     // no credit note: nothing issued

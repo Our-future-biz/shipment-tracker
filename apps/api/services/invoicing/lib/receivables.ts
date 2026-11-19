@@ -217,13 +217,22 @@ export function paymentProblem(input: {
   today: string;
   /** The invoice is on prepayment: the customer often pays before it is issued, so an earlier day is allowed */
   prepayment?: boolean;
+  /**
+   * The invoice was issued again after a credit note (mock test council Y2): the day the invoice it replaces was issued.
+   * The customer may have paid that one, so a day from then on is allowed.
+   */
+  issuedAgainFrom?: string | null;
 }): string | null {
   if (input.invoiceStatus === "credited") return "This invoice is credited: no payment is noted on it";
   if (input.invoiceStatus === "cancelled") return "This invoice was cancelled: it is not owed";
   if (input.invoiceStatus !== "issued") return "Only an issued invoice takes a payment";
   if (!isRealYmd(input.paidOn)) return "The day it was paid must be a date (yyyy-mm-dd)";
   if (input.paidOn > input.today) return "The day it was paid cannot be after today";
-  if (input.paidOn < input.issueDate && !input.prepayment) return `The day it was paid cannot be before the invoice was issued (${input.issueDate})`;
+  if (input.paidOn < input.issueDate && !input.prepayment) {
+    const from = input.issuedAgainFrom && input.issuedAgainFrom < input.issueDate ? input.issuedAgainFrom : null;
+    if (!from) return `The day it was paid cannot be before the invoice was issued (${input.issueDate})`;
+    if (input.paidOn < from) return `The day it was paid cannot be before the invoice this one replaces was issued (${from})`;
+  }
   const bad = amountProblem(input.amount);
   if (bad) return bad;
   if (input.leftToPay <= 0) return "Nothing is left to pay on this invoice";
@@ -234,11 +243,37 @@ export function paymentProblem(input: {
 /** How a line is named in a message. */
 export const lineWord = (kind: string | undefined | null): string => (kind === "write_off" ? "write-off" : kind === "bank_charge" ? "bank charge" : "payment");
 
-/** Why a line (a payment, or a write-off / bank charge, confirmed or waiting) may not be taken back, or null. */
-export function takeBackProblem(input: { reason: string; takenBackAt: Date | string | null; kind?: string }): string | null {
+/** How a line is taken back (P8): noted by mistake (it never counted), or reversed on a day (it counted until then). */
+export type TakeBackKind = "mistake" | "reversed";
+export const TAKE_BACK_KINDS: readonly TakeBackKind[] = ["mistake", "reversed"];
+
+/**
+ * Why a line (a payment, or a write-off / bank charge, confirmed or waiting) may not be taken back, or null. Mock test
+ * council P8: a payment is taken back as noted by mistake, or as reversed on a day - a bank return or a refund, the money
+ * came and went back - not before the day it was paid, not after today. A write-off or bank charge is only ever taken
+ * back as a mistake (no money moved). No kind given (an older caller): a mistake.
+ */
+export function takeBackProblem(input: {
+  reason: string;
+  takenBackAt: Date | string | null;
+  kind?: string;
+  takeBackKind?: string | null;
+  reversedOn?: string | null;
+  paidOn?: string | null;
+  today?: string;
+}): string | null {
   const word = lineWord(input.kind);
+  const how = input.takeBackKind || "mistake";
+  if (!TAKE_BACK_KINDS.includes(how as TakeBackKind)) return "A take-back is noted by mistake or reversed on a day";
   if (input.reason.trim().length < MIN_REASON) return `Say why the ${word} is taken back`;
   if (input.takenBackAt) return `This ${word} was taken back already`;
+  if (how === "mistake") return input.reversedOn?.trim() ? "A payment noted by mistake has no day it went back" : null;
+  if (!isMoneyKind(input.kind)) return `Only a payment is reversed: a ${word} taken back is a mistake`;
+  const day = (input.reversedOn ?? "").trim();
+  if (!day) return "Give the day the payment went back (the bank return or the refund)";
+  if (!isRealYmd(day)) return "The day it went back must be a date (yyyy-mm-dd)";
+  if (input.today && day > input.today) return "The day it went back cannot be after today";
+  if (input.paidOn && day < input.paidOn) return `The day it went back cannot be before it was paid (${input.paidOn})`;
   return null;
 }
 
@@ -367,10 +402,35 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** How far ahead a user may note a promise to pay (mock test council K13); a manager may go further. */
 export const PROMISE_MAX_DAYS = 60;
 
-/** Why a dispute closed by itself (n4, L5): nothing is left to pay, and why not. */
-export function settledDisputeReason(input: { invoiceStatus: string; status: ReceivableStatus }): string {
+/**
+ * Why a dispute closed by itself (n4, L5): nothing is left to pay, and why not. Mock test council n5: worded from what
+ * settled it - "paid" only when money alone did; a payment with a credit note, a write-off or a bank charge names each
+ * with its amount ("paid 700.00, credited 300.00 EUR"). Without the amounts (an older caller) as before.
+ */
+export function settledDisputeReason(input: {
+  invoiceStatus: string;
+  status: ReceivableStatus;
+  paid?: number;
+  credited?: number;
+  writtenOff?: number;
+  bankCharges?: number;
+  currency?: string;
+}): string {
   if (input.invoiceStatus === "cancelled" || input.status === "cancelled") return "Closed by itself: the invoice was cancelled";
   if (input.invoiceStatus === "credited" || input.status === "credited") return "Closed by itself: the invoice was credited in full";
+  const parts: [string, number][] = [];
+  for (const [word, amount] of [
+    ["paid", input.paid],
+    ["credited", input.credited],
+    ["written off", input.writtenOff],
+    ["bank charges", input.bankCharges],
+  ] as const) {
+    if (money(amount ?? 0) > 0) parts.push([word, money(amount!)]);
+  }
+  if (parts.length > 1) {
+    const list = parts.map(([word, amount]) => `${word} ${amount.toFixed(2)}`).join(", ");
+    return `Closed by itself: nothing is left to pay (${list}${input.currency ? ` ${input.currency}` : ""})`;
+  }
   if (input.status === "paid") return "Closed by itself: the invoice is paid";
   if (input.status === "written_off") return "Closed by itself: what was left is written off";
   return "Closed by itself: nothing is left to pay";
@@ -471,6 +531,32 @@ export function releaseWarning(
     customerOverdueCount: first ? (overdueByCustomer.get(first.customerId) ?? 0) : 0,
     unpaid: owed.map((r) => ({ invoiceId: r.invoiceId, number: r.number, leftToPay: r.leftToPay, currency: r.currency, daysOverdue: r.daysOverdue })),
   };
+}
+
+/**
+ * The public release check (mock test council n6): the warning, and the stop before any invoice (L3) - the customer on
+ * prepayment and selling not yet invoiced, per currency. Then the warning is on and says prepayment, as for an unpaid
+ * prepayment invoice, so the dialog tells the stop up front; the server's own check still decides.
+ */
+export function releaseCheckOf<W extends { warn: boolean; prepayment: boolean }>(
+  warning: W,
+  uninvoiced: readonly { currency: string; amount: number }[],
+): W & { prepaymentUninvoiced: { currency: string; amount: number }[] } {
+  const amounts = uninvoiced.filter((a) => money(a.amount) > 0).map((a) => ({ currency: a.currency, amount: money(a.amount) }));
+  return amounts.length ? { ...warning, warn: true, prepayment: true, prepaymentUninvoiced: amounts } : { ...warning, prepaymentUninvoiced: [] };
+}
+
+/**
+ * The day automatic reminders start, as a save of the settings stores it (mock test council P3): none while they are
+ * off or e-mail from the app is off (the first run that can really send sets it then: lib/reminderRules
+ * switchOnDayToSet); the stored day while they stay on; today when they are switched on with e-mail on.
+ */
+export function switchOnDayOnSave(
+  input: { autoReminders: boolean; emailOn: boolean; before: { autoReminders: boolean; autoRemindersSince: string | null } },
+  today: string,
+): string | null {
+  if (!input.autoReminders || !input.emailOn) return null;
+  return input.before.autoReminders && input.before.autoRemindersSince ? input.before.autoRemindersSince : today;
 }
 
 /** The highest overdue milestone the bell tells (D18): the first day, then 14 and 30 days; null when not overdue. */
@@ -593,17 +679,26 @@ export interface AsAtLine {
   paidOn: string | null;
   confirmedAt: Date | string | null;
   takenBackAt: Date | string | null;
+  /** How it was taken back (P8): none for a live line or one taken back before migration 0039 (a mistake) */
+  takenBackKind?: string | null;
+  /** A reversed payment: the day it went back */
+  reversedOn?: string | null;
 }
 
 /**
  * Whether a line counted at the end of `day`: a payment paid on or before it; one carried over from the customer's list
  * (its day not known: it counts, flagged); a write-off or bank charge confirmed on or before it (the Prague day of the
- * confirmation). A line taken back never counts on any day (mock test council N2, decision L1): a payment taken back
- * is one noted by mistake - most often on the wrong invoice, then noted on the right one with the same paid day - so
- * counting it on the days before its take-back would count the one payment twice and understate the receivables.
+ * confirmation). A line taken back as noted by mistake never counts on any day (mock test council N2, decision L1): it
+ * is most often a payment on the wrong invoice, then noted on the right one with the same paid day - so counting it on
+ * the days before its take-back would count the one payment twice and understate the receivables. A payment taken back
+ * as reversed (P8: a bank return, a refund) was paid all the same: it counts from its day up to the day before it went
+ * back.
  */
 export function countsAt(line: AsAtLine, day: string): boolean {
-  if (line.takenBackAt) return false;
+  if (line.takenBackAt) {
+    if (line.takenBackKind !== "reversed" || !line.reversedOn || !isMoneyKind(line.kind) || day >= line.reversedOn) return false;
+    return line.kind === "carried_over" || (!!line.paidOn && line.paidOn <= day);
+  }
   if (line.kind === "carried_over") return true;
   if (isWriteOffKind(line.kind)) return !!line.confirmedAt && businessDay(new Date(line.confirmedAt)) <= day;
   return !!line.paidOn && line.paidOn <= day;

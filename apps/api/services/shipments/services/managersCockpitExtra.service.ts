@@ -1,10 +1,9 @@
 import log from "encore.dev/log";
-import { addDays } from "../../../lib/businessDate";
 import { iso } from "../../../lib/db/serialize";
 import type { OpsSignal } from "../lib/managersCockpit";
-import { MASTER_JOB_NO_HOUSE_DAYS } from "../lib/cockpitThresholds";
 import {
   UNDER_CLEARANCE,
+  conceptRemeasureOpen,
   customsFieldSignals,
   dangerousSignals,
   deliveryOrderSignals,
@@ -12,6 +11,7 @@ import {
   importInstructionSignals,
   masterJobHouseSignals,
   masterJobRowSignals,
+  masterJobWindowEnd,
   originalBlSignals,
   paperworkSignals,
   remeasurementSignals,
@@ -29,8 +29,12 @@ import {
   type RequestFact,
 } from "../lib/managersCockpitExtra";
 import { unlimited, type Limit } from "../lib/readLimiter";
-import { REMEASURE_ACCEPTED, REMEASURE_COSTS_CHECKED, readFigures, roundedFigures } from "../lib/remeasureAccept";
-import { REMEASURE_INFORMED, declaredFigures, informedSource, remeasureVerdict, type CargoFigures, type RemeasureFrom } from "../lib/remeasureNotice";
+import { REMEASURE_ACCEPTED, REMEASURE_COSTS_CHECKED, readFigures } from "../lib/remeasureAccept";
+import { judgedCharge, matchesNow, shownCargo, type CargoRows } from "../lib/remeasureMatch";
+import { REMEASURE_INFORMED, chargeKindOf, informedSource, remeasureVerdict, type ChargeKind, type RemeasureFrom } from "../lib/remeasureNotice";
+import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
+import { cargoItemRepository } from "../repositories/cargoItem.repository";
+import { containerRepository } from "../repositories/container.repository";
 import { customsOfficeRequestRepository } from "../repositories/customsOfficeRequest.repository";
 import { documentChangeRequestRepository } from "../repositories/documentChangeRequest.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
@@ -43,7 +47,9 @@ export type { ExtraJob, ExtraSignals } from "../lib/managersCockpitExtra";
 // Shipments → Managers, step 2: what the cockpit's jobs are told by the tables beside the
 // shipment's own - documents, requests, Import Instructions, the history (a remeasurement, how
 // long a status has stood) and Master Jobs. Each read for all the jobs together (seven
-// statements in all) and judged by the pure rules of lib/managersCockpitExtra. It only reads.
+// statements in all; three more, after the history, for the Cargo Details rows of the jobs a
+// remeasurement from Warehouse Concept still asks to check) and judged by the pure rules of
+// lib/managersCockpitExtra. It only reads.
 //
 // Each part is read on its own: one that fails gives no signal and is named in `notKnown`, in
 // the words the page shows after "Not known right now:" - the others still answer (D29: not known
@@ -58,6 +64,7 @@ export const EXTRA_PARTS = {
   remeasurements: "remeasurements",
   statusAges: "how long a status has stood",
   masterJobs: "Master Jobs",
+  cargoDetails: "Cargo Details of jobs remeasured in Warehouse Concept",
 } as const;
 
 export interface ExtraContext {
@@ -92,16 +99,28 @@ export function remeasureSource(newValue: string | null): RemeasureFrom {
 }
 
 /**
- * Whether Cargo Details (the job's Pcs, Total Weight and Total Volume) now say what the warehouse
- * remeasured, every figure known on both sides alike (lib/remeasureNotice remeasureVerdict): what
- * ends the Warehouse Concept remeasurement's warning (X4). False when the row did not carry them.
- * The warehouse's figures are rounded as the job stores and compares them (kg to 0.1, m³ to
- * 0.001, lib/remeasureAccept roundedFigures): 7 × 13.25 kg informed is 92.75 kg, and the Total
- * Weight that takes it over holds 92.8 kg - unrounded, the warning would never clear.
+ * What a job is charged by now, for an Inform Operations whose entry kept no charge: only when the
+ * row read carries its Load Type - a guess without it could take a Full Load for W/M - else
+ * undefined, the cautious default.
  */
-export function cargoDetailsMatch(job: Pick<ExtraJob, "pcs" | "totalWeightTons" | "totalVolumeCbm">, remeasured: CargoFigures): boolean {
-  if (job.pcs === undefined || job.totalWeightTons === undefined || job.totalVolumeCbm === undefined) return false;
-  return remeasureVerdict(declaredFigures({ pcs: job.pcs, totalWeightTons: job.totalWeightTons, totalVolumeCbm: job.totalVolumeCbm }), roundedFigures(remeasured)) === "matches";
+export function jobChargeOf(job: Pick<ExtraJob, "freightMode" | "loadType">): ChargeKind | undefined {
+  return job.loadType === undefined ? undefined : chargeKindOf(job.freightMode, job.loadType);
+}
+
+const NO_CARGO_ROWS: CargoRows = { containers: [], items: [], dimensions: [] };
+
+/**
+ * The Container and Cargo Details rows of `ids`, by shipment: three statements, together. With the
+ * job's stored fields they are the shipment as it shows (lib/remeasureMatch shownCargo).
+ */
+async function cargoRowsOf(ids: readonly string[], companyId: string, run: Limit): Promise<Map<string, CargoRows>> {
+  const [containers, items, dimensions] = await Promise.all([
+    run(() => containerRepository.listByShipmentIds([...ids], companyId)),
+    run(() => cargoItemRepository.listByShipmentIds([...ids], companyId)),
+    run(() => cargoDimensionRepository.listByShipmentIds([...ids], companyId)),
+  ]);
+  const [byContainer, byItem, byDimension] = [byShipment(containers), byShipment(items), byShipment(dimensions)];
+  return new Map(ids.map((id) => [id, { containers: byContainer.get(id) ?? [], items: byItem.get(id) ?? [], dimensions: byDimension.get(id) ?? [] }]));
 }
 
 /** Each shipment's rows, in the order they were read. */
@@ -141,7 +160,7 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
     part(EXTRA_PARTS.importInstructions, () => run(() => shipmentImportInstructionRepository.liveByShipmentIds(ids, companyId))),
     part(`${EXTRA_PARTS.remeasurements}, ${EXTRA_PARTS.statusAges}`, () => run(() => shipmentAuditRepository.latestByShipmentIds(companyId, historyAsks))),
     part(EXTRA_PARTS.masterJobs, async () => {
-      const rows = await run(() => masterJobRepository.cockpitFacts(companyId, masterJobIds, today, addDays(today, MASTER_JOB_NO_HOUSE_DAYS)));
+      const rows = await run(() => masterJobRepository.cockpitFacts(companyId, masterJobIds, today, masterJobWindowEnd(today, holidays)));
       // Only a master job that is no house's of the jobs read can be without a shipment: those are counted.
       const loose = rows.filter((m) => !masterJobIds.includes(m.id)).map((m) => m.id);
       return { rows, houses: await run(() => masterJobRepository.shipmentCounts(loose, companyId)) };
@@ -154,6 +173,50 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
   const historyOf = history && byShipment(history);
   const masterOf = masters && new Map(masters.rows.map((m) => [m.id, m]));
 
+  // Each job's remeasurement as its history tells it - and, for one from Warehouse Concept that
+  // still asks for a check by hand (conceptRemeasureOpen), whether the shipment as it shows now
+  // matches it (lib/remeasureMatch, the Alerts tab's judgement, Y4). Only those jobs' Cargo
+  // Details rows are read, after the history said which they are: a handful, seldom any.
+  const remeasureOf = new Map<string, { fact: RemeasureFact; newValue: string | null }>();
+  for (const job of historyOf ? jobs : []) {
+    const rows = historyOf!.get(job.id) ?? [];
+    const latest = (field: string) => rows.find((r) => r.field === field) ?? null;
+    const informed = latest(REMEASURE_INFORMED);
+    const accepted = latest(REMEASURE_ACCEPTED);
+    const checked = latest(REMEASURE_COSTS_CHECKED);
+    const fact: RemeasureFact = {
+      // How the figures stood when the warehouse informed: old = the shipment's, new = the remeasured - and
+      // which warehouse it was (services/alert.service reads the line the same way).
+      informed: informed
+        ? {
+            at: informed.changedAt,
+            // Warehouse Concept's tolerance counts as a match, as in its chat message (lib/remeasureNotice remeasureVerdict);
+            // judged by the charge the entry kept, else the job's own - as Alerts and the chat judged it. Without
+            // one, a Full Load job with no volume measured at 20 m³ read as an urgent W/M change.
+            verdict: remeasureVerdict(readFigures(informed.oldValue), readFigures(informed.newValue), remeasureSource(informed.newValue), judgedCharge(informed.newValue, jobChargeOf(job))),
+            source: remeasureSource(informed.newValue),
+            matchesCargoDetails: false,
+          }
+        : null,
+      acceptedAt: accepted?.changedAt ?? null,
+      // A check names the acceptance it was made for (services/shipment.service markRemeasureCostsChecked): only a
+      // check of the latest acceptance counts, as on Cargo Details and Costs Breakdown.
+      costsCheckedAt: checked && accepted && checked.newValue === iso(accepted.changedAt) ? checked.changedAt : null,
+    };
+    remeasureOf.set(job.id, { fact, newValue: informed?.newValue ?? null });
+  }
+  const toCheck = jobs.filter((job) => {
+    const r = remeasureOf.get(job.id);
+    return !!r && conceptRemeasureOpen(r.fact, now);
+  });
+  // Not read: the warning stands (not known to match) and the page names the part.
+  const toCheckIds = toCheck.map((j) => j.id);
+  const cargo = toCheckIds.length ? await part(EXTRA_PARTS.cargoDetails, () => cargoRowsOf(toCheckIds, companyId, run)) : new Map<string, CargoRows>();
+  for (const job of toCheck) {
+    const r = remeasureOf.get(job.id)!;
+    if (cargo && r.fact.informed) r.fact.informed.matchesCargoDetails = matchesNow(shownCargo(job, cargo.get(job.id) ?? NO_CARGO_ROWS), r.newValue, jobChargeOf(job));
+  }
+
   const byJob = new Map<string, OpsSignal[]>();
   for (const job of jobs) {
     const signals: OpsSignal[] = [...originalBlSignals(job, today, holidays), ...deliveryOrderSignals(job, today, holidays)];
@@ -163,7 +226,7 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
     const files: DocumentFact[] | null = documentsOf ? (documentsOf.get(job.id) ?? []) : null;
     const shown = files ? shownCustomsStatus(job.customsStatus, files) : null;
     if (files && shown !== null) {
-      signals.push(...paperworkSignals(job, shown, today, holidays), ...documentReviewSignals(job, shown, files, now, holidays), ...dangerousSignals(job, files, today));
+      signals.push(...paperworkSignals(job, shown, today, holidays), ...documentReviewSignals(job, shown, files, now, holidays), ...dangerousSignals(job, files, today, holidays));
     }
     signals.push(...customsFieldSignals(job, shown, today, holidays));
 
@@ -179,27 +242,7 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
     if (historyOf) {
       const rows = historyOf.get(job.id) ?? [];
       const latest = (field: string) => rows.find((r) => r.field === field) ?? null;
-      const informed = latest(REMEASURE_INFORMED);
-      const accepted = latest(REMEASURE_ACCEPTED);
-      const checked = latest(REMEASURE_COSTS_CHECKED);
-      const fact: RemeasureFact = {
-        // How the figures stood when the warehouse informed: old = the shipment's, new = the remeasured - and
-        // which warehouse it was (services/alert.service reads the line the same way).
-        informed: informed
-          ? {
-              at: informed.changedAt,
-              // Warehouse Concept's tolerance counts as a match, as in its chat message (lib/remeasureNotice remeasureVerdict).
-              verdict: remeasureVerdict(readFigures(informed.oldValue), readFigures(informed.newValue), remeasureSource(informed.newValue)),
-              source: remeasureSource(informed.newValue),
-              matchesCargoDetails: cargoDetailsMatch(job, readFigures(informed.newValue)),
-            }
-          : null,
-        acceptedAt: accepted?.changedAt ?? null,
-        // A check names the acceptance it was made for (services/shipment.service markRemeasureCostsChecked): only a
-        // check of the latest acceptance counts, as on Cargo Details and Costs Breakdown.
-        costsCheckedAt: checked && accepted && checked.newValue === iso(accepted.changedAt) ? checked.changedAt : null,
-      };
-      signals.push(...remeasurementSignals(job, fact, today, now, holidays));
+      signals.push(...remeasurementSignals(job, remeasureOf.get(job.id)!.fact, today, now, holidays));
 
       signals.push(...statusStuckSignals(job, latest("status")?.changedAt ?? null, now, holidays));
       // Only the change that set it tells since when: a later step taken back leaves an older "since" unknown.
@@ -207,14 +250,14 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
       if (shown !== null) signals.push(...underClearanceSignals(shown, customs && customs.newValue === UNDER_CLEARANCE ? customs.changedAt : null, now, holidays));
     }
 
-    if (masterOf && job.masterJobId) signals.push(...masterJobHouseSignals(job, masterOf.get(job.masterJobId) ?? null, today));
+    if (masterOf && job.masterJobId) signals.push(...masterJobHouseSignals(job, masterOf.get(job.masterJobId) ?? null, today, holidays));
 
     if (signals.length) byJob.set(job.id, signals);
   }
 
   const masterJobRows: MasterJobRow[] = (masters?.rows ?? []).flatMap((m): MasterJobRow[] => {
     // A master job one of the jobs read is a house of has a shipment, whatever the count would say.
-    const signals = masterJobIds.includes(m.id) ? [] : masterJobRowSignals(m, masters!.houses.get(m.id) ?? 0, today);
+    const signals = masterJobIds.includes(m.id) ? [] : masterJobRowSignals(m, masters!.houses.get(m.id) ?? 0, today, holidays);
     if (!signals.length) return [];
     const direction = m.tradeDirection.trim().toLowerCase();
     const customer = direction === "export" ? m.shipper || m.consignee : m.consignee || m.shipper;
@@ -230,6 +273,7 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
     [EXTRA_PARTS.remeasurements, history],
     [EXTRA_PARTS.statusAges, history],
     [EXTRA_PARTS.masterJobs, masters],
+    [EXTRA_PARTS.cargoDetails, cargo],
   ];
   return { byJob, masterJobRows, notKnown: read.filter(([, rows]) => rows === null).map(([name]) => name) };
 }

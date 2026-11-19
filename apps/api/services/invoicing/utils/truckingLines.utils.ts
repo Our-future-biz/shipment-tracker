@@ -115,13 +115,13 @@ export function nextDifferenceNumber(sourceRef: string, refs: (string | null)[])
 
 const cents = (n: number) => Math.round(n * 100);
 
+type SellingValue = { qty?: string | null; amount?: string | null; currency?: string };
+
 /**
  * What the job must still be billed when a set is kept because it is on an issued invoice: per
  * currency, the new lines (qty × unit price) less what the kept rows (and earlier difference lines)
  * already bill. Currencies whose difference is 0 are left out; negative = a credit is owed.
  */
-type SellingValue = { qty?: string | null; amount?: string | null; currency?: string };
-
 export function sellingDifference(kept: SellingValue[], next: SellingValue[]): { currency: string; amount: number }[] {
   const by = new Map<string, number>();
   const add = (rows: SellingValue[], sign: 1 | -1) => {
@@ -136,6 +136,157 @@ export function sellingDifference(kept: SellingValue[], next: SellingValue[]): {
     .filter(([, c]) => c !== 0)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([currency, c]) => ({ currency, amount: c / 100 }));
+}
+
+/** Whether a row's sourceRef is one of the set's difference lines ("<sourceRef>:diff:<n>"). */
+export const isDifferenceOf = (ref: string | null | undefined, sourceRef: string): boolean => !!ref?.startsWith(`${sourceRef}:diff:`);
+
+/** The set a Trucking selling row belongs to: its sourceRef without ":diff:<n>" or ":quote:<id>"; null for a row Trucking did not push. */
+export function setRefOf(ref: string | null | undefined): string | null {
+  if (!ref?.startsWith("trucking:")) return null;
+  const at = [ref.indexOf(":diff:"), ref.indexOf(QUOTE_ANCHOR)].filter((i) => i >= 0);
+  return at.length ? ref.slice(0, Math.min(...at)) : ref;
+}
+
+// ---- a consignment priced on the quote's invoiced road line (n8, B1) -----------------------------
+
+const QUOTE_ANCHOR = ":quote:";
+
+/**
+ * The marker row of a consignment set priced on an invoiced quote road line: "<sourceRef>:quote:<quote row id>",
+ * valued at nothing and not ticked for the invoice. A consignment priced exactly at the quote line writes no
+ * difference line, so without it nothing would say the set is priced on that line: its next push (once another
+ * consignment of the job has rows) would bill the leg in full beside the invoiced quote line, or another
+ * consignment would be priced on the same line. The marker keeps the anchoring, and lets only one set have it.
+ */
+export const quoteAnchorRef = (sourceRef: string, quoteRowId: string) => `${sourceRef}${QUOTE_ANCHOR}${quoteRowId}`;
+
+/** Whether a row's sourceRef is a quote-anchor marker (of the given set, when one is named). */
+export const isQuoteAnchor = (ref: string | null | undefined, sourceRef?: string): boolean =>
+  !!ref?.startsWith("trucking:") && (sourceRef === undefined ? ref.includes(QUOTE_ANCHOR) : ref.startsWith(`${sourceRef}${QUOTE_ANCHOR}`));
+
+/** The quote road selling row a marker names; null for any other ref. */
+export function anchoredQuoteRowOf(ref: string | null | undefined): string | null {
+  if (!isQuoteAnchor(ref)) return null;
+  return ref!.slice(ref!.indexOf(QUOTE_ANCHOR) + QUOTE_ANCHOR.length) || null;
+}
+
+/**
+ * The Trucking set each credited selling row belongs to, as a partial credit note settles its credit owed (M2): a
+ * Trucking row its own set; the invoiced quote road line a consignment is priced on, the set anchored to it - by
+ * the set's marker, else (anchored before the markers) the one set of the job with difference lines and no rows of
+ * its own. `rows` are the job's live consignment rows. A row of no set is left out.
+ */
+export function creditSetsOf(
+  sources: readonly { id: string; ref: string | null; quoteRoad: boolean }[],
+  rows: readonly { ref: string | null }[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  const anchoredBy = new Map<string, string>();
+  for (const r of rows) {
+    const quoteRow = anchoredQuoteRowOf(r.ref);
+    if (quoteRow) anchoredBy.set(quoteRow, setRefOf(r.ref)!);
+  }
+  const sets = new Map<string, { own: boolean; diff: boolean; marker: boolean }>();
+  for (const r of rows) {
+    const set = setRefOf(r.ref);
+    if (!set) continue;
+    const seen = sets.get(set) ?? { own: false, diff: false, marker: false };
+    if (r.ref === set) seen.own = true;
+    else if (isQuoteAnchor(r.ref)) seen.marker = true;
+    else seen.diff = true;
+    sets.set(set, seen);
+  }
+  const unmarked = [...sets].filter(([, f]) => f.diff && !f.own && !f.marker).map(([set]) => set);
+  for (const src of sources) {
+    const own = setRefOf(src.ref);
+    if (own) out.set(src.id, own);
+    else if (src.quoteRoad && anchoredBy.has(src.id)) out.set(src.id, anchoredBy.get(src.id)!);
+    else if (src.quoteRoad && !anchoredBy.size && unmarked.length === 1) out.set(src.id, unmarked[0]!);
+  }
+  return out;
+}
+
+/** What a marker row is written with (besides its shipment, company, ref and sort order). */
+export const quoteAnchorRow = (currency: string) => ({
+  category: "road_freight",
+  description: "Priced on the quote's invoiced road line",
+  customer: "",
+  qty: "1.00",
+  amount: "0.00",
+  currency,
+  // Never on an invoice: it bills nothing, it only says which quote line the set's price is measured against.
+  invoice: false,
+});
+
+/**
+ * How a re-push of a set on an issued invoice bills what changed (decision 9, Y1 / P1). `fixed` is what
+ * stays as it is: the set's own rows and its difference lines on an invoice (or settled by a partial
+ * credit note) - and, for a set priced on an invoiced quote road line (n8), that line. `open` are its
+ * difference lines on nothing yet: they are replaced by one line per currency of what the new lines
+ * come to less `fixed`. So a price lowered and raised back leaves nothing open (never a +50 and a −50
+ * that come to nothing and could never be invoiced), and the same push again writes nothing.
+ * `write` false: the open lines are that difference already.
+ */
+export function planDifference(fixed: SellingValue[], open: SellingValue[], next: SellingValue[]): { write: boolean; difference: { currency: string; amount: number }[] } {
+  const difference = sellingDifference(fixed, next);
+  const asRows = difference.map((d) => ({ qty: "1", amount: String(d.amount), currency: d.currency }));
+  const same = open.length === difference.length && sellingDifference(open, asRows).length === 0;
+  return { write: !same, difference };
+}
+
+/**
+ * Whether a consignment's selling set is priced on the quote's invoiced road line (n8): Trucking's
+ * price of a road leg the customer was invoiced from the quote already bills only what it differs by,
+ * as a difference line - never the leg twice. So when the set has no rows of its own and the job has
+ * an invoiced quote road selling line: a set priced so before - it keeps a marker row of it
+ * (`anchored`, quoteAnchorRef), or, priced so before the marker was written, it has difference lines
+ * only - or a first price of a road leg when no other consignment of the job has selling rows (two
+ * consignments are not both priced on the one quote line: the first one's marker is a row of its own).
+ */
+export function pricedOnQuote(f: {
+  sourceRef: string;
+  ownRows: number;
+  differenceRows: number;
+  anchored?: number;
+  roadSelling: boolean;
+  otherConsignments: boolean;
+  invoicedQuoteRoad: number;
+}): boolean {
+  if (!f.sourceRef.startsWith("trucking:consignment:") || f.ownRows > 0 || f.invoicedQuoteRoad === 0) return false;
+  return (f.anchored ?? 0) > 0 || f.differenceRows > 0 || (f.roadSelling && !f.otherConsignments);
+}
+
+/**
+ * When the rows a push writes in place of others count as added (m6): the earliest of the rows they replace, so
+ * a re-push - the same charge priced again - keeps the day it first came on the job (the Money tab's "added after
+ * invoicing" clock, operationsMoney lateSince, runs from it); undefined when they replace nothing (now).
+ */
+export function firstAddedOf(replaced: readonly { createdAt: Date }[]): Date | undefined {
+  let first: Date | undefined;
+  for (const r of replaced) if (!first || r.createdAt.getTime() < first.getTime()) first = r.createdAt;
+  return first;
+}
+
+/**
+ * When a new difference line was first added (m6): the earliest of the open difference lines it replaces in its
+ * currency and of its sign - a charge to bill takes over a charge's day, never a credit owed's (round-4 review: a
+ * credit owed turned into a charge would else start the 15-day "added after invoicing" clock early). Undefined when
+ * none is alike: the line is new, added now.
+ */
+export function firstAddedLike(replaced: readonly { createdAt: Date; amount: string | null; currency: string }[], line: { amount: number; currency: string }): Date | undefined {
+  const sign = Math.sign(line.amount);
+  return firstAddedOf(replaced.filter((r) => r.currency === line.currency && Math.sign(Number(r.amount)) === sign && sign !== 0));
+}
+
+/**
+ * Of a group of selling rows none of which is on an invoice any more (an invoice credited in full or
+ * cancelled), whether it comes to nothing in every currency: a Trucking set whose difference lines
+ * take back all it billed (a consignment cancelled after the invoice), with the quote road line it was
+ * priced on. Such a group can never be invoiced again (an invoice of nothing is refused): it is retired.
+ */
+export function comesToNothing(rows: SellingValue[]): boolean {
+  return rows.length > 0 && sellingDifference(rows, []).length === 0;
 }
 
 /** The live difference lines of a set as the push answers them (one per ref and currency). */

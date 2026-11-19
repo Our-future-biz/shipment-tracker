@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { everyHeldOnApproval, mayBeStopped, overrideReasons, releaseStanding, takesOverrideReason, withOverrideReason, type ReleaseJob } from "./releaseReasons";
+import { everyHeldOnApproval, mayBeStopped, overrideReasons, releaseBlocked, releaseStanding, takesOverrideReason, withOverrideReason, type ReleaseJob } from "./releaseReasons";
+
+describe("releaseBlocked: nothing tried, no truck number taken (n6)", () => {
+  const job = (shipmentId: string, over: Partial<ReleaseJob> = {}): ReleaseJob => ({ shipmentId, held: false, unchecked: false, stopped: false, pass: false, ...over });
+
+  it("holds when every job is stopped or likely stopped and no manager's reason goes with them", () => {
+    const held = [job("a", { held: true }), job("b", { stopped: true })];
+    expect(releaseBlocked(held, { manager: false, reasonOk: false })).toBe(true);
+    expect(releaseBlocked(held, { manager: false, reasonOk: true })).toBe(true);
+    expect(releaseBlocked(held, { manager: true, reasonOk: false })).toBe(true);
+    expect(releaseBlocked(held, { manager: true, reasonOk: true })).toBe(false);
+  });
+
+  it("lets it be tried when one job is free, not checked or approved, and for no job at all", () => {
+    expect(releaseBlocked([job("a", { held: true }), job("b")], { manager: false, reasonOk: false })).toBe(false);
+    expect(releaseBlocked([job("a", { held: true }), job("b", { unchecked: true })], { manager: false, reasonOk: false })).toBe(false);
+    expect(releaseBlocked([job("a", { held: true, pass: true })], { manager: false, reasonOk: false })).toBe(false);
+    expect(releaseBlocked([], { manager: false, reasonOk: false })).toBe(false);
+  });
+});
 
 const job = (shipmentId: string, over: Partial<ReleaseJob> = {}): ReleaseJob => ({ shipmentId, held: false, unchecked: false, stopped: false, pass: false, ...over });
 

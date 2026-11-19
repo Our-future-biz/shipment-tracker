@@ -175,6 +175,19 @@ describe("days to POD and POD missing", () => {
     // A company holiday pushes the deadline out.
     expect(podMissingKpi([{ deliveredDay: "2026-10-26", haulierId: "h1", haulierName: null, n: 2 }], "2026-10-30", ["2026-10-29"], new Map()).value).toBe(0);
   });
+
+  // lib/workingDays addWorkingDays counts n working days after the day itself, also from a weekend
+  // or a holiday (n20): such a delivery counts as missing its POD one working day sooner - the same
+  // day the web's trucking/_lib/podMissing.ts says it. Pinned so the change is intended.
+  it("counts from a delivery on a weekend or a holiday: the 2 working days after it", () => {
+    const missingOn = (deliveredDay: string, today: string) => podMissingKpi([{ deliveredDay, haulierId: null, haulierName: null, n: 1 }], today, [], new Map()).value;
+    // Sunday 25 Oct: Mon 26 + Tue 27, missing from Wed 28 (was Fri 30, after the holiday on the 28th).
+    expect(missingOn("2026-10-25", "2026-10-27")).toBe(0);
+    expect(missingOn("2026-10-25", "2026-10-28")).toBe(1);
+    // Wednesday 28 Oct, a CZ holiday: Thu 29 + Fri 30, missing from Mon 2 Nov (was Tue 3 Nov).
+    expect(missingOn("2026-10-28", "2026-10-30")).toBe(0);
+    expect(missingOn("2026-10-28", "2026-11-02")).toBe(1);
+  });
 });
 
 describe("fill", () => {

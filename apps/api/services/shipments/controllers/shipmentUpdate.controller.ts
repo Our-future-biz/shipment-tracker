@@ -207,6 +207,18 @@ interface ShipmentUpdateRequest {
   containers?: ContainerLine[] & MaxLen<500>;
   cargoItems?: CargoItemLine[] & MaxLen<2000>;
   cargoDimensions?: CargoDimensionLine[] & MaxLen<2000>;
+  /**
+   * The cargo dimension lines the page started from when it sends cargoDimensions (Cargo Details):
+   * the lines are saved only while the shipment still holds these, else the write is refused
+   * ("Cargo Details changed meanwhile", code aborted) and the page reads them again. Not stored.
+   */
+  expectedCargoDimensions?: CargoDimensionLine[] & MaxLen<2000>;
+  /**
+   * The app's own writes only (the gate's outbox): Warehouse Released is set only while the shipment's day is empty
+   * or one of these days, checked in the write turn; otherwise the day is left as it is and the rest is written.
+   * Ignored on a person's edit. Not stored.
+   */
+  warehouseReleasedReplaces?: string[] & MaxLen<50>;
   // Replaces the shipment's commercial invoices when present.
   commercialInvoices?: CommercialInvoiceLine[] & MaxLen<500>;
 
@@ -233,10 +245,16 @@ interface ShipmentUpdateResponse {
 export const shipmentUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/shipments/:shipmentId" },
   async (req: ShipmentUpdateRequest): Promise<ShipmentUpdateResponse> => {
-    const { shipmentId, paymentOverrideReason, ...data } = req;
+    const { shipmentId, paymentOverrideReason, expectedCargoDimensions, warehouseReleasedReplaces, ...data } = req;
     const auth = getAuthData()!;
     // A person's edit is held to what their role may change; the app's own updates are not (see AuthData.appWrite).
     const role = auth.appWrite ? undefined : auth.role;
-    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID, role, undefined, undefined, { paymentOverrideReason }) };
+    return {
+      shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID, role, undefined, undefined, {
+        paymentOverrideReason,
+        expectedCargoDimensions,
+        warehouseReleasedReplaces: auth.appWrite ? warehouseReleasedReplaces : undefined,
+      }),
+    };
   },
 );

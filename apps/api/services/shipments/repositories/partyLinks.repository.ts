@@ -1,5 +1,7 @@
-import { and, eq, getTableColumns, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, getTableColumns, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
+import { invoicing } from "~encore/clients";
+import { asCompany } from "../../../lib/internalCall";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
 import { masterJobTable } from "../schemas/masterJob.schema";
@@ -56,6 +58,29 @@ const liveShipment = (companyId: string) => and(eq(shipmentTable.companyId, comp
 // followsPartyRenames (lib/shipmentEditRule) in SQL: an invoiced shipment - its Invoicing Status
 // Invoiced, however it is written - keeps the names it was billed with; a rename skips it.
 const FOLLOWS_RENAMES = sql`lower(btrim(${shipmentTable.invoicingStatus})) <> 'invoiced'`;
+
+/** How many shipments one ask of Invoicing's open invoices takes (its endpoint's limit). */
+const OPEN_INVOICE_ASK = 200;
+
+/**
+ * Of these shipments, those with an issued, not credited invoice (Invoicing's own count): they keep the
+ * names they were billed with too (n12). A charge added after invoicing sends a job back to Not
+ * Invoiced while its invoice stands - the Invoicing Status alone would let a rename reach the names the
+ * invoice was made out to. Asked only of the shipments a rename would change; a failure is thrown, so
+ * the rename is rolled back and its event delivered again.
+ */
+async function billedAmong(companyId: string, shipmentIds: string[]): Promise<string[]> {
+  const ids = [...new Set(shipmentIds)];
+  const billed: string[] = [];
+  for (let i = 0; i < ids.length; i += OPEN_INVOICE_ASK) {
+    const answer = await invoicing._internalOpenInvoiceShipments({ shipmentIds: ids.slice(i, i + OPEN_INVOICE_ASK) }, asCompany(companyId));
+    billed.push(...answer.shipmentIds);
+  }
+  return billed;
+}
+
+/** The rename's own conditions, and none of the shipments that keep their names for an open invoice. */
+const notBilled = (billed: string[]) => (billed.length ? notInArray(shipmentTable.id, billed) : undefined);
 const liveMasterJob = (companyId: string) => and(eq(masterJobTable.companyId, companyId), isNull(masterJobTable.deletedAt));
 
 /** Each value of `from` still as it was read (null compared as null): an edit made since wins. */
@@ -74,20 +99,26 @@ class PartyLinksRepository {
   /**
    * Writes a customer's current name into the company's live copies that hold its id and differ:
    * a shipment's Customer, Shipper, Consignee, Agent and Principal Party (not on an invoiced
-   * shipment), a master job's Shipper and Consignee - in one transaction.
+   * shipment, nor one with an open invoice: billedAmong), a master job's Shipper and Consignee - in
+   * one transaction.
    */
   async renameCustomer(companyId: string, customerId: string, currentName: CurrentName): Promise<PartyWrites> {
     return db.transaction(async (tx) => {
       await takeTurn(tx, `shipments-customer-rename:${companyId}:${customerId}`);
       const name = await currentName();
       if (!name?.trim()) return NOTHING;
+      const candidates = await tx
+        .select({ id: shipmentTable.id })
+        .from(shipmentTable)
+        .where(and(liveShipment(companyId), FOLLOWS_RENAMES, or(...SHIPMENT_NAMES.map(({ id, text }) => and(eq(id, customerId), ne(text, name))))));
+      const billed = candidates.length ? await billedAmong(companyId, candidates.map((r) => r.id)) : [];
       let changed = 0;
       let parties: ShipmentParties[] = [];
       for (const { id, text, key } of SHIPMENT_NAMES) {
         const rows = await tx
           .update(shipmentTable)
           .set({ [key]: name })
-          .where(and(liveShipment(companyId), FOLLOWS_RENAMES, eq(id, customerId), ne(text, name)))
+          .where(and(liveShipment(companyId), FOLLOWS_RENAMES, notBilled(billed), eq(id, customerId), ne(text, name)))
           .returning(PARTIES_OF);
         if (key === "customer") parties = rows;
         changed += rows.length;
@@ -107,20 +138,25 @@ class PartyLinksRepository {
   /**
    * Writes a contact's current name into the company's live shipments that link to it - as
    * Customer's PIC, Shipper or Consignee Contact, Agent's PIC - where it is still a contact of that
-   * party and the name differs, and the shipment is not invoiced, in one transaction.
+   * party and the name differs, and the shipment is not invoiced nor has an open invoice, in one transaction.
    */
   async renameContact(companyId: string, customerId: string, contactId: string, currentName: CurrentName): Promise<PartyWrites> {
     return db.transaction(async (tx) => {
       await takeTurn(tx, `shipments-contact-rename:${companyId}:${contactId}`);
       const name = await currentName();
       if (!name?.trim()) return NOTHING;
+      const candidates = await tx
+        .select({ id: shipmentTable.id })
+        .from(shipmentTable)
+        .where(and(liveShipment(companyId), FOLLOWS_RENAMES, or(...SHIPMENT_CONTACTS.map(({ id, party, text }) => and(eq(id, contactId), eq(party, customerId), ne(text, name))))));
+      const billed = candidates.length ? await billedAmong(companyId, candidates.map((r) => r.id)) : [];
       let changed = 0;
       let parties: ShipmentParties[] = [];
       for (const { id, party, text, key } of SHIPMENT_CONTACTS) {
         const rows = await tx
           .update(shipmentTable)
           .set({ [key]: name })
-          .where(and(liveShipment(companyId), FOLLOWS_RENAMES, eq(id, contactId), eq(party, customerId), ne(text, name)))
+          .where(and(liveShipment(companyId), FOLLOWS_RENAMES, notBilled(billed), eq(id, contactId), eq(party, customerId), ne(text, name)))
           .returning(PARTIES_OF);
         if (key === "customerPic") parties = rows;
         changed += rows.length;
@@ -190,7 +226,8 @@ class PartyLinksRepository {
   /**
    * Applies a chunk of the backfill's rewrites in one transaction. A row is changed only while it
    * still holds every value its rewrite was planned from, so an edit made since the read is kept,
-   * and while it is not invoiced: one invoiced since the read keeps its names too.
+   * and while it is not invoiced: one invoiced since the read keeps its names too - as does one with
+   * an open invoice whatever its Invoicing Status (n12).
    */
   async applyLinks(
     companyId: string,
@@ -199,10 +236,12 @@ class PartyLinksRepository {
     if (!rewrites.shipments.length && !rewrites.masterJobs.length) return NOTHING;
     const shipmentColumns = getTableColumns(shipmentTable);
     const masterJobColumns = getTableColumns(masterJobTable);
+    const billed = new Set(rewrites.shipments.length ? await billedAmong(companyId, rewrites.shipments.map((r) => r.id)) : []);
     return db.transaction(async (tx: Tx) => {
       let changed = 0;
       const parties: ShipmentParties[] = [];
       for (const { id, from, to, values } of rewrites.shipments) {
+        if (billed.has(id)) continue;
         const [row] = await tx
           .update(shipmentTable)
           .set(to)

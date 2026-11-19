@@ -3,7 +3,8 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Dropdown, Spin, Tabs, Tooltip } from "antd";
+import { Alert, Dropdown, Modal, Spin, Tabs, Tooltip } from "antd";
+import { AskManagerToRelease, ReleaseStopAlert } from "@/components/finance/ReleasePaymentWarning";
 import { CheckCircleOutlined, DownOutlined, PrinterOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
 import { useGateMovement, useStampMovement, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
 import { releaseStopOf } from "@/lib/paymentWarnings";
@@ -237,6 +238,8 @@ export function GateJobView({ id }: { id: string }) {
   const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
   // A WH release the prepayment stop refused, waiting for a manager's reason.
   const [paymentStop, setPaymentStop] = useState<{ label: string; message: string } | null>(null);
+  // The same refusal of a user's WH release: told why, and offered to ask a manager.
+  const [userStop, setUserStop] = useState<{ label: string; message: string } | null>(null);
   const { stamp: stampMovement, refresh: refreshAfterStamp } = useStampMovement();
   const [reweighOpen, setReweighOpen] = useState(false);
   const [linkChange, setLinkChange] = useState<controllers.GateMovementUpdateRequest | null>(null);
@@ -297,7 +300,9 @@ export function GateJobView({ id }: { id: string }) {
       // The prepayment stop (warehouseConcept services/releasePayment): a manager may let the cargo out with a
       // reason, asked for next with the server's sentence; a user is told why, as for any refusal.
       const stop = kind === "impRelease" ? releaseStopOf(e) : null;
+      // A user is offered "Ask a manager to release" beside the refusal - the same request as in Shipments (P17).
       if (stop && manager) setPaymentStop({ label, message: stop.message });
+      else if (stop && m.shipmentId) setUserStop({ label, message: stop.message });
       else toast.error(errorMessage(e, `Failed to stamp ${label}`));
     } finally {
       setConfirmStamp(null);
@@ -679,6 +684,25 @@ export function GateJobView({ id }: { id: string }) {
         onClose={() => setPaymentStop(null)}
         onSubmit={(reason) => releaseWithReason(paymentStop?.label ?? "WH release", reason).then(() => setPaymentStop(null))}
       />
+
+      <Modal
+        open={!!userStop}
+        title={`${userStop?.label ?? "WH release"} on prepayment`}
+        width={520}
+        onCancel={() => setUserStop(null)}
+        destroyOnHidden
+        footer={
+          <button type="button" className={btnDefault} onClick={() => setUserStop(null)}>
+            Close
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <ReleaseStopAlert message={userStop?.message ?? ""} />
+          {/* Approved, the WH release goes through on the approval: stamp it again here. */}
+          <AskManagerToRelease shipmentId={m.shipmentId} what="warehouse" offer />
+        </div>
+      </Modal>
 
       <PrintLabelsModal open={printOpen} movements={[m]} onClose={() => setPrintOpen(false)} />
       <ReweighModal open={reweighOpen} movementId={m.id} label={m.gateRef} declaredKg={m.weightKg} onClose={() => setReweighOpen(false)} />

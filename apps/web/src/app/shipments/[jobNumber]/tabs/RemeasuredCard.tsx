@@ -13,18 +13,20 @@ import { SectionCard } from "@/components/SectionCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { BTN_BAR_PRIMARY, HINT } from "@/styles/ui";
 import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
-import { RemeasureCompare, figuresCompared, figuresDiffer } from "./warehouse/RemeasureCompare";
+import { RemeasureCompare, figuresCompared, figuresDiffer, noFigures } from "./warehouse/RemeasureCompare";
 import {
   ALREADY_ACCEPTED,
   acceptByHandReason,
+  alreadyAccepted,
   descriptionNote,
   figuresText,
   keptText,
   lineCbm,
+  pcsAfterText,
   readRemeasuredLines,
   remeasuredFigures,
-  sameRemeasuredLines,
   shipmentCargoFigures,
+  takenOverText,
   unmeasuredReason,
 } from "./warehouse/remeasuredLines";
 
@@ -39,6 +41,10 @@ import {
 // line. The API refuses the same.
 
 const cell = (v: string) => v || "—";
+
+// "250.0 kg and 34.650 CBM", as the confirm names the totals.
+const totalsText = (f: { weightKg: number; volumeCbm: number }) =>
+  `${f.weightKg > 0 ? f.weightKg.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "—"} kg and ${f.volumeCbm > 0 ? f.volumeCbm.toFixed(3) : "—"} CBM`;
 
 export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem; readOnly: boolean }) {
   const messageApi = useMessages();
@@ -60,13 +66,16 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
 
   const current = shipment.cargoDimensions ?? [];
   const containers = shipment.containers ?? [];
+  // A figure only the warehouse measured is a difference too (mock test council Y9): Accept is offered.
   const mismatch = lines.length > 0 && figuresDiffer(ship, re);
   const compared = lines.length > 0 && figuresCompared(ship, re);
+  // "Already accepted" only while Cargo Details still hold the accepted lines (Y10): a page that
+  // saved its old lines over them since leaves them to be accepted again.
   const acceptBlocked = readOnly
     ? "Only the user in Handled By or Holiday Cover, or a manager, can accept the remeasurement"
     : lines.length === 0
       ? "The warehouse has no remeasured lines saved"
-      : (unmeasured ?? (acceptance && sameRemeasuredLines(acceptance.lines, saved) ? ALREADY_ACCEPTED : acceptByHandReason(lines.length, current)));
+      : (unmeasured ?? (alreadyAccepted(acceptance?.lines, saved, current) ? ALREADY_ACCEPTED : acceptByHandReason(lines, current)));
   // The server says the same of the same lines (shipment.service acceptRemeasurement).
 
   // The description lines are never changed: when their pieces differ, it is said.
@@ -95,7 +104,7 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
     <SectionCard
       title="Remeasured by warehouse"
       extra={
-        lines.length > 0 && (mismatch || !compared) ? (
+        lines.length > 0 && mismatch ? (
           <Tooltip title={acceptBlocked ?? undefined}>
             <span className="inline-flex">
               <button type="button" className={BTN_BAR_PRIMARY} disabled={!!acceptBlocked || isAccepting} onClick={() => setAsking(true)}>
@@ -156,7 +165,7 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
               <CheckCircleFilled /> Cargo Details matches the remeasurement
             </div>
           )}
-          {!compared && <div className={`mt-3 ${HINT}`}>Cargo Details has no dimension lines to compare with.</div>}
+          {noFigures(ship) && <div className={`mt-3 ${HINT}`}>Cargo Details has no figures yet: the remeasured ones are all new.</div>}
         </>
       ) : (
         <div className={HINT}>The warehouse has no remeasured lines saved now.</div>
@@ -173,7 +182,14 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
       <ConfirmModal
         open={asking}
         title="Accept the remeasurement?"
-        description={`The warehouse's lines replace the dimension lines here, and Pcs, Total Weight and Total Volume become ${figuresText(re)}.${containerText} ${keptText(lines.length, current)} The description lines are not changed${descriptionBefore ? ` (${descriptionBefore})` : ""}. Cost quantities are not changed: Costs Breakdown shows a warning to check them.`}
+        description={[
+          `The warehouse's lines replace the dimension lines here. Total Weight and Total Volume become ${totalsText(re)}; ${pcsAfterText(items, containers.length, re.colli)}.${containerText}`,
+          keptText(lines.length, current),
+          takenOverText(lines.length, current, containers),
+          `The description lines are not changed${descriptionBefore ? ` (${descriptionBefore})` : ""}. Cost quantities are not changed: Costs Breakdown shows a warning to check them.`,
+        ]
+          .filter(Boolean)
+          .join(" ")}
         confirmLabel="Accept"
         loading={isAccepting}
         onClose={() => setAsking(false)}

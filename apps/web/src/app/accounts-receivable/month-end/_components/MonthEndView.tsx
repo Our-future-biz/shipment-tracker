@@ -18,7 +18,7 @@ import { businessToday, formatDate } from "@/lib/date";
 import { replaceSearchParams } from "@/lib/urlParams";
 import { BTN, CARD, EMPTY, HINT, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { amountText } from "../../_lib/receivables";
-import { CZK_TOTAL_LABEL, defaultMonthEndDay, monthEndCsv, monthEndDayOf, monthEndFileName } from "../_lib/monthEnd";
+import { CZK_TOTAL_LABEL, defaultMonthEndDay, monthEndCsv, monthEndDayOf, monthEndFileName, TAKEN_BACK_RULE } from "../_lib/monthEnd";
 
 // Finance → Accounts Receivable → Month-end (step 7): what customers owed at the end of a day - every invoice issued
 // on or before it, not cancelled, with something left to pay then. Per invoice in its own currency and in CZK at the
@@ -162,7 +162,8 @@ export function MonthEndView() {
         <div className={HINT}>
           What customers owed at the end of {formatDate(day)}: every invoice issued on or before that day and not cancelled, less the credit notes issued by then, the
           payments paid by then and the write-offs and bank charges confirmed by then. Amounts are with VAT in each invoice&apos;s own currency; the CZK figures use each
-          invoice&apos;s own ČNB rate (of its tax date), not the rate of the day - revaluation stays in accounting. The one total across currencies is the CZK one.
+          invoice&apos;s own ČNB rate (of its tax date), not the rate of the day - revaluation stays in accounting. The one total across currencies is the CZK one.{" "}
+          {TAKEN_BACK_RULE}
           {carried > 0 &&
             ` ${carried} ${carried === 1 ? "invoice counts" : "invoices count"} a payment carried over from the customer's list: it was paid before Accounts Receivable, on a day not known, so it counts on every day.`}
         </div>

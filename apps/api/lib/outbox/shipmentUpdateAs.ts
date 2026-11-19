@@ -32,9 +32,17 @@ export async function actingAuthNow(row: Pick<ShipmentUpdateOwed, "companyId" | 
   return { userID: row.actingUserId, companyID: row.companyId, role: user.role, ...(user.homeCompanyId ? { homeCompanyID: user.homeCompanyId } : {}) };
 }
 
-/** Throws the upstream error when Shipments does not take the update. */
-export async function sendShipmentUpdateAs(row: ShipmentUpdateOwed): Promise<void> {
+/**
+ * Throws the upstream error when Shipments does not take the update. `warehouseReleasedReplaces`: the day is set only
+ * over an empty day or one of these (the gate's own, controllers/shipmentUpdate). Answers the shipment's Warehouse
+ * Released as the write left it.
+ */
+export async function sendShipmentUpdateAs(row: ShipmentUpdateOwed, warehouseReleasedReplaces?: string[]): Promise<{ warehouseReleasedDate: string | null }> {
   const authData = await actingAuthNow(row);
   // The app's own update, not the user's edit: it isn't held to who may change the shipment's details.
-  await shipments.shipmentUpdate({ shipmentId: row.shipmentId, ...row.payload }, { authData: { ...authData, appWrite: true } });
+  const answer = await shipments.shipmentUpdate(
+    { shipmentId: row.shipmentId, ...row.payload, ...(warehouseReleasedReplaces ? { warehouseReleasedReplaces } : {}) },
+    { authData: { ...authData, appWrite: true } },
+  );
+  return { warehouseReleasedDate: answer?.shipment?.warehouseReleasedDate ?? null };
 }

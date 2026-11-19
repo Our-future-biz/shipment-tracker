@@ -2,7 +2,8 @@ import { iso } from "../../../lib/db/serialize";
 import { userEmailOf } from "../../../lib/companyUsers";
 import type { CustomsVerdictNotice, RemeasureInformedItem, RemeasureSource } from "../interfaces/interfaces";
 import { companyUsers } from "../../../lib/companyUsers";
-import { REMEASURE_INFORMED, differenceText, informedSource, remeasureVerdict, shipmentFiguresFor } from "../lib/remeasureNotice";
+import { REMEASURE_INFORMED, chargeKindOf, differenceText, informedSource, remeasureVerdict } from "../lib/remeasureNotice";
+import { judgedCharge, matchesNow, type ShownCargo } from "../lib/remeasureMatch";
 import { REMEASURE_ACCEPTED, readFigures } from "../lib/remeasureAccept";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { userEmails } from "../lib/userEmails";
@@ -51,6 +52,16 @@ class AlertService {
     };
     // Oldest first, so an alert finds the first acceptance after it.
     const acceptances = [...accepted].sort((a, b) => a.changedAt.getTime() - b.changedAt.getTime());
+    // What the job is charged by now: for a record written before its own was kept.
+    const chargeNow = chargeKindOf(current.freightMode, current.loadType);
+    // The shipment as its page shows it (get() is enrich's). "Matches now" is lib/remeasureMatch's,
+    // the judgement Shipments → Managers ends its warning on, so the two never disagree.
+    const shown: ShownCargo = {
+      pcs: current.pcs ?? null,
+      totalWeightTons: current.totalWeightTons ?? null,
+      totalVolumeCbm: current.totalVolumeCbm ?? null,
+      cargoDimensions: current.cargoDimensions ?? [],
+    };
     return rows.map((r) => {
       const shipment = readFigures(r.oldValue);
       const remeasured = readFigures(r.newValue);
@@ -62,10 +73,10 @@ class AlertService {
         comparedWith = "";
       }
       const source: RemeasureSource = informedSource(r.newValue);
+      const charge = judgedCharge(r.newValue, chargeNow);
       // Settled (council finding K3): these figures were accepted after the warehouse informed, or
       // the shipment's figures match them now - compared as they were when it informed.
-      const settledBy = acceptances.find((a) => a.changedAt >= r.changedAt && remeasureVerdict(readFigures(a.newValue), remeasured) === "matches");
-      const now = shipmentFiguresFor(current, comparedWith === "declared" ? "declared" : "dimensions");
+      const settledBy = acceptances.find((a) => a.changedAt >= r.changedAt && remeasureVerdict(readFigures(a.newValue), remeasured, "warehouse", charge) === "matches");
       return {
         id: r.id,
         informedAt: iso(r.changedAt)!,
@@ -74,11 +85,11 @@ class AlertService {
         remeasured,
         comparedWith,
         source,
-        verdict: remeasureVerdict(shipment, remeasured, source),
+        verdict: remeasureVerdict(shipment, remeasured, source, charge),
         difference: differenceText(shipment, remeasured),
         acceptedAt: settledBy ? iso(settledBy.changedAt)! : null,
         acceptedBy: settledBy ? nameOf(settledBy.userId) : "",
-        nowMatches: remeasureVerdict(now, remeasured, source) === "matches",
+        nowMatches: matchesNow(shown, r.newValue, chargeNow),
       };
     });
   }

@@ -348,7 +348,7 @@ export function claimJobs(i: Pick<PayableInvoice, "lines">): ClaimJob[] {
  */
 export function raiseClaimState(i: Pick<PayableInvoice, "status" | "lines">): ActionState {
   if (i.status === "refused") return off;
-  return on(claimJobs(i).length ? "" : "Its lines are on a master job only: raise the claim on the Claims tab of one of the master job's shipments");
+  return on(claimJobs(i).length ? "" : "Its lines are on a master job only: raise the claim on the Claim tab of one of the master job's shipments");
 }
 
 /** What the claim starts with: the invoice it disputes, its supplier as the lines name it, its number and currency. */

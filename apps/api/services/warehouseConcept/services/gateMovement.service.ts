@@ -23,7 +23,20 @@ import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } fro
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { dueForListFollow, FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
-import { gateOverrideEvent, gatePaymentCheck, gateReleasePass, gateReleaseStop, giveBackPass, recordOnShipment, type GateReleaseOverride } from "./releasePayment";
+import {
+  gateOverrideEvent,
+  gateReleasePass,
+  gateReleaseVerdict,
+  giveBackPass,
+  overrideOutboxPayload,
+  passBackPayload,
+  paymentUncheckedEvent,
+  releasedInShipments,
+  releasedInShipmentsEvent,
+  uncheckedOutboxPayload,
+  type GateReleaseOverride,
+  type ReleasedInShipments,
+} from "./releasePayment";
 import { ownerFromRequest } from "./shipmentOwner";
 import { companyUsers } from "../../../lib/companyUsers";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
@@ -436,6 +449,19 @@ export interface StampOptions {
   clientRequestId?: string;
   /** A manager's reason to WH-release a job on prepayment that is not paid (services/releasePayment). */
   paymentOverrideReason?: string;
+}
+
+/** What the prepayment stop decided of a WH release (services/releasePayment): both null for any other stamp. */
+interface ReleaseDecision {
+  /** Let through on unpaid prepayment, by a manager's reason or an approved request: recorded with the release. */
+  paymentOverride: GateReleaseOverride | null;
+  /** The job's Warehouse Released set in Shipments already (Y6): said on the record, and its day not sent. */
+  released: ReleasedInShipments | null;
+  /**
+   * Let through while whether the job is paid could not be checked (Invoicing not asked, the customer not on
+   * prepayment, P17): said on the record, and as "Prepayment not checked" on the shipment.
+   */
+  unchecked?: boolean;
 }
 
 // A stamp request with an id that finds its stamp already there: the same request came before
@@ -1098,22 +1124,39 @@ class GateMovementService {
     // on the record in the release's own update. Asked after the gates, so a release they hold says that first.
     // A release a manager approved on request lets it through too, for whoever stamps it (gateReleasePass): that
     // pass is used in Shipments before this write and given back when the write below stamps nothing.
+    // A job Shipments released first (its Warehouse Released set by a manager's reason, or on an approval used in
+    // Stock) is neither stopped again nor uses a pass: the record says so, and the day set there stays (Y6). When
+    // that can't be read, the stop stands as before. A day the gate's own release wrote (this position's outbox,
+    // e.g. a release voided since - a void never takes its day back) is not Shipments': the stop runs again.
     let paymentOverride: GateReleaseOverride | null = null;
+    let released: ReleasedInShipments | null = null;
+    let unchecked = false;
     if (kind === "impRelease" && m.shipmentId) {
-      const check = await gatePaymentCheck(m.shipmentId);
-      const verdict = gateReleaseStop(check, role, opts.paymentOverrideReason);
-      if ("refusal" in verdict) {
-        paymentOverride = await gateReleasePass(m.shipmentId, check);
-        if (!paymentOverride) throw APIError.failedPrecondition(verdict.refusal);
-      } else paymentOverride = verdict.override;
+      const gateDays = await shipmentOutboxRepository.sentReleasedDays(companyId, m.id, m.shipmentId);
+      released = (await releasedInShipments(m.shipmentId, gateDays)) ?? null;
+      if (!released) {
+        const verdictOf = await gateReleaseVerdict(m.shipmentId, role, opts.paymentOverrideReason);
+        const { check, verdict } = verdictOf;
+        if ("refusal" in verdict) {
+          const answer = await gateReleasePass(m.shipmentId, check, gateDays);
+          if (answer?.released) released = answer.released;
+          else if (answer?.override) paymentOverride = answer.override;
+          else throw APIError.failedPrecondition(verdict.refusal);
+        } else {
+          paymentOverride = verdict.override;
+          unchecked = verdictOf.unchecked === true;
+        }
+      }
     }
-    return this.stampWritten(id, companyId, userId, kind, role, opts, m, requestId, paymentOverride);
+    return this.stampWritten(id, companyId, userId, kind, role, opts, m, requestId, { paymentOverride, released, unchecked });
   }
 
   // The stamp's own write, once its gates and the prepayment stop let it through (stampWithOutcome). A release on
-  // prepayment let through (`paymentOverride`) is recorded with the release on the gate record and, once written,
-  // on the shipment. When nothing is stamped - the write failed, or somebody else was first - an approved request
-  // used for it is given back (releasePayment giveBackPass); once the stamp is written, never.
+  // prepayment let through (`paymentOverride`) is recorded with the release on the gate record and, through the
+  // outbox in the same transaction, on the shipment (n27). A job Shipments released first (`released`, Y6) has
+  // that said on the record instead, and its day is not sent. When nothing is stamped - the write failed, or
+  // somebody else was first - an approved request used for it is given back (passBackOwed); once the stamp is
+  // written, never.
   private async stampWritten(
     id: string,
     companyId: string,
@@ -1123,31 +1166,44 @@ class GateMovementService {
     opts: StampOptions,
     m: Awaited<ReturnType<GateMovementService["load"]>>,
     requestId: string | undefined,
-    paymentOverride: GateReleaseOverride | null,
+    release: ReleaseDecision,
   ): Promise<{ movement: GateMovementItem; outcome: StampOutcome; notice: string }> {
     let written: Awaited<ReturnType<GateMovementService["stampTransaction"]>>;
     try {
-      written = await this.stampTransaction(id, companyId, userId, kind, role, opts, m, requestId, paymentOverride);
+      written = await this.stampTransaction(id, companyId, userId, kind, role, opts, m, requestId, release);
     } catch (err) {
-      await giveBackPass(paymentOverride);
+      await this.passBackOwed(m, userId, role, release.paymentOverride);
       throw err;
     }
     const { row, owed, published, at, now } = written;
     if (!row) {
-      await giveBackPass(paymentOverride);
+      await this.passBackOwed(m, userId, role, release.paymentOverride);
       // Someone else got there first (or the row is gone): report what the row says now.
       const cur = await this.load(id, companyId);
       const raced = requestId ? stampConflict(cur, kind, requestId) : null;
       if (raced) return { movement: await this.get(id, companyId), ...raced };
       throw APIError.failedPrecondition(stampBlocked(cur, kind, await this.stampContext(cur, companyId)) ?? `${kind} could not be stamped — reload and try again`);
     }
-    // Before the shipment's Warehouse Released is sent, so its history has the override line first (and the
-    // write that sets it then finds the approval used, not one to close unused).
-    if (paymentOverride && m.shipmentId) await recordOnShipment(m.shipmentId, paymentOverride);
     if (owed.length) await deliverDue(id);
     if (published) await deliverGateEvents(id);
     const notice = opts.recordedAt ? `${STAMP_LABEL[kind]} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";
     return { movement: await this.get(id, companyId), outcome: "stamped", notice };
+  }
+
+  // An approved request used for a release that was not made is given back through the outbox (n27), retried
+  // until Shipments takes it - not on the gate's stamp, so a stamp voided later cancels nothing of it. Only when
+  // the outbox can't take it either, it is given back at once (releasePayment giveBackPass), or logged.
+  private async passBackOwed(m: Awaited<ReturnType<GateMovementService["load"]>>, userId: string, role: string, override: GateReleaseOverride | null) {
+    const payload = passBackPayload(override);
+    if (!payload || !m.shipmentId) return;
+    try {
+      await db.transaction((tx) => shipmentOutboxRepository.enqueue(tx, [{ ...outboxRow(m, "passBack", "impRelease", payload, userId, role), stamp: "" }]));
+    } catch (err) {
+      log.warn(err, "warehouse: an approval to give back could not be put in the outbox; given back at once", { movementId: m.id });
+      await giveBackPass(override);
+      return;
+    }
+    await deliverDue(m.id);
   }
 
   // The stamp's transaction: the conditional update of its column with its events, the outbox rows it owes the
@@ -1161,7 +1217,7 @@ class GateMovementService {
     opts: StampOptions,
     m: Awaited<ReturnType<GateMovementService["load"]>>,
     requestId: string | undefined,
-    paymentOverride: GateReleaseOverride | null,
+    { paymentOverride, released, unchecked }: ReleaseDecision,
   ) {
     const now = new Date();
     const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, { ...stampNotBefore(m, kind), requestId }) : now;
@@ -1206,8 +1262,14 @@ class GateMovementService {
             id,
             companyId,
             { impRelease: at, status: "Released", gateOut: sql`COALESCE(${t.gateOut}, ${at.toISOString()}::timestamptz)` },
-            // A manager's release of an unpaid prepayment job is recorded with the release, or not at all.
-            [evt(kind, STAMP_LABEL.impRelease, true), ...(paymentOverride ? [gateOverrideEvent(paymentOverride, at.toISOString(), by)] : [])],
+            // A manager's release of an unpaid prepayment job is recorded with the release, or not at all - and so is
+            // the word that Shipments released the job first (Y6).
+            [
+              evt(kind, STAMP_LABEL.impRelease, true),
+              ...(paymentOverride ? [gateOverrideEvent(paymentOverride, at.toISOString(), by)] : []),
+              ...(released ? [releasedInShipmentsEvent(released, at.toISOString(), by)] : []),
+              ...(unchecked ? [paymentUncheckedEvent(at.toISOString(), by)] : []),
+            ],
             sql`${t.impRelease} IS NULL AND ${armedSql} AND ${houseReleaseOkSql}`,
             tx,
           );
@@ -1271,10 +1333,20 @@ class GateMovementService {
         if (sameTime(row.gateIn, at) && m.visit !== "výdej") {
           owed.push(outboxRow(m, "received", "gateIn", { warehouseReceivedDate: date, ...(m.positionRef ? { warehouseReference: m.positionRef } : {}) }, userId, role));
         }
+        // The override of a release on prepayment, ahead of the released day (n27): the shipment's history has its
+        // line first, and the write that sets the day then finds the approval used, not one to close unused.
+        if (kind === "impRelease" && paymentOverride) owed.push(outboxRow(m, "override", kind, overrideOutboxPayload(paymentOverride), userId, role));
+        // Let through unchecked (P17): "Prepayment not checked" on the shipment, ahead of the day as an override is.
+        if (kind === "impRelease" && unchecked) owed.push(outboxRow(m, "override", kind, uncheckedOutboxPayload(), userId, role));
         if ((kind === "impRelease" && sameTime(row.gateOut, at)) || (kind === "gateOut" && row.visit === "výdej")) {
           // Domestic cargo leaves on its OUT leg (the line haul), not on the truck that brought it.
           const plate = releasePlate(row);
-          owed.push(outboxRow(m, "released", kind, { warehouseReleasedDate: date, ...(plate ? { plateNumber: plate } : {}) }, userId, role));
+          // Released in Shipments first (Y6): its day stays as set there; only the plate is sent. A day set there
+          // after this read - while the row waits in the outbox, or before a výdej gate-out restamped after a void -
+          // is kept too: the delivery reads it again before it sends the day (shipmentOutbox releasedPayloadToSend).
+          if (kind === "impRelease" && released) {
+            if (plate) owed.push(outboxRow(m, "plate", kind, { plateNumber: plate }, userId, role));
+          } else owed.push(outboxRow(m, "released", kind, { warehouseReleasedDate: date, ...(plate ? { plateNumber: plate } : {}) }, userId, role));
         }
       }
       await shipmentOutboxRepository.enqueue(tx, owed);

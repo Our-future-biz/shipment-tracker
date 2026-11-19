@@ -51,8 +51,8 @@ import { TAX_DATE_LATE_DAYS } from "./trackingThresholds";
 //              that read Invoiced since lately (cockpitThresholds MONEY_INVOICED_LOOKBACK_DAYS),
 //              which only the rules ABOUT invoiced jobs speak of: a loss, a supplier invoice
 //              after billing, estimates nobody invoiced, supplier invoices, cost claims, what was
-//              not recharged, and a charge added after invoicing - never credit, the other "not
-//              invoiced" rules or a line not ticked
+//              not recharged, a charge added after invoicing and a credit owed - never the
+//              customer's credit, the other "not invoiced" rules or a line not ticked
 //   cards      a job appears once, with all its money tags: in URGENT when any is urgent
 //   tiles      work not yet invoiced per currency (an invoiced job's late charge too), and how many
 //              rows carry each signal family
@@ -103,6 +103,10 @@ export interface JobMoney {
   /** The work not yet invoiced - valued selling lines on no open invoice - per currency; null when the lines or the customer invoices were not read. */
   notYetInvoiced: MoneyAmount[] | null;
   untickedSelling: MoneyAmount[] | null;
+  /** A credit owed to the customer - lines below nothing on no invoice of a job with an open invoice - per currency, positive; null when not read. */
+  creditOwed: MoneyAmount[] | null;
+  /** The day the late charges were added, when all the work not yet invoiced came after the first invoice (a charge added after invoicing); null otherwise. */
+  lateChargeSince: string | null;
   sellingLines: number | null;
   costLines: number | null;
   totals: InvoicingMoneyTotals;
@@ -125,6 +129,8 @@ export function jobMoneyOf(job: InvoicingMoneyJob, invoicesRead: boolean): JobMo
   return {
     notYetInvoiced: linesRead && invoicesRead ? (job.notYetInvoiced ?? []) : null,
     untickedSelling: linesRead && invoicesRead ? (job.untickedSelling ?? []) : null,
+    creditOwed: linesRead && invoicesRead ? (job.creditOwed ?? []) : null,
+    lateChargeSince: linesRead && invoicesRead ? (job.lateChargeSince ?? null) : null,
     sellingLines,
     costLines,
     totals: {
@@ -381,6 +387,7 @@ export const MONEY_RANK = {
   chargeAfterInvoicing: 27,
   // ATTENTION
   notInvoiced: 300,
+  creditOwed: 301,
   inBilling: 302,
   unticked: 304,
   marginLow: 310,
@@ -465,11 +472,12 @@ const isBilledStatus = (status: string): boolean => /^billed\b/i.test(status.tri
  * URGENT from TAX_DATE_LATE_DAYS days after the job's tax date (L7) - whoever's desk it is on: the
  * invoice is late by law then, as notInvoicedSignals says of a job not yet in Billing. So late, it
  * is said without waiting for the working days, and with since when it is in Billing left out when
- * that is not known.
+ * that is not known. A charge added after the job was invoiced counts its days from the later of the
+ * tax date and the day it was added (P16, `lateChargeSince`): a charge added today is not late today.
  */
 export function inBillingSignals(
   job: Pick<OpsCockpitJob, "status" | "tradeDirection" | "department" | "actualArrival" | "actualDeparture" | "actualDeliveryDate">,
-  money: Pick<JobMoney, "notYetInvoiced">,
+  money: Pick<JobMoney, "notYetInvoiced"> & Partial<Pick<JobMoney, "lateChargeSince">>,
   since: Date | null,
   now: Date,
   holidays: readonly string[],
@@ -478,9 +486,12 @@ export function inBillingSignals(
   if (!isInBilling(job) || !amounts) return [];
   const where = isBilledStatus(job.status) ? "Billed" : "In Billing";
   const taxDay = dayOfStamp(unbilledTaxDate(job));
-  if (taxDay && daysBetween(taxDay, businessDay(now)) >= TAX_DATE_LATE_DAYS) {
+  const addedOn = dayOfStamp(money.lateChargeSince ?? null);
+  const lateFrom = taxDay && addedOn && addedOn > taxDay ? addedOn : taxDay;
+  if (taxDay && lateFrom && daysBetween(lateFrom, businessDay(now)) >= TAX_DATE_LATE_DAYS) {
     const sinceText = since ? ` since ${dm(businessDay(since))}` : "";
-    return [urgent(MONEY_RANK.notInvoicedLate, "not_invoiced", `${where}${sinceText}, ${amounts} not invoiced · tax date ${dm(taxDay)} · with Invoicing`)];
+    const added = lateFrom !== taxDay ? ` · added ${dm(lateFrom)}` : "";
+    return [urgent(MONEY_RANK.notInvoicedLate, "not_invoiced", `${where}${sinceText}, ${amounts} not invoiced · tax date ${dm(taxDay)}${added} · with Invoicing`)];
   }
   if (!since || !waitedWorkingDays(since, MONEY_IN_BILLING_WORKING_DAYS, now, holidays)) return [];
   return [attention(MONEY_RANK.inBilling, "not_invoiced", `${where} since ${dm(businessDay(since))}, ${amounts} not invoiced · with Invoicing`)];
@@ -498,6 +509,18 @@ export function inBillingSignals(
 export function chargeAfterInvoicingSignals(money: Pick<JobMoney, "notYetInvoiced">): MoneySignal[] {
   const amounts = amountsText(money.notYetInvoiced ?? []);
   return amounts ? [urgent(MONEY_RANK.chargeAfterInvoicing, "not_invoiced", `Work not invoiced on a job that reads Invoiced · ${amounts}`)] : [];
+}
+
+/**
+ * `not_invoiced`, ATTENTION: a credit owed to the customer (Y1 / P1) - a Trucking price lowered after
+ * the invoice, a discount added late: a line below nothing on no invoice of a job with an open
+ * invoice. It sends no job back to Not Invoiced; it is said here, on an invoiced job too, until a
+ * credit note gives it (a partial credit note settles a Trucking difference line). Not said while it
+ * is not known, or is nothing.
+ */
+export function creditOwedSignals(money: Partial<Pick<JobMoney, "creditOwed">>): MoneySignal[] {
+  const amounts = amountsText(money.creditOwed ?? []);
+  return amounts ? [attention(MONEY_RANK.creditOwed, "not_invoiced", `Credit owed · ${amounts} · give it on a credit note`)] : [];
 }
 
 /** The newest change of a job's status, as its history tells it: what it set, and when. */
@@ -780,8 +803,8 @@ function jobCredit(jobId: string, input: Pick<OpsMoneyInput, "customerOf" | "cre
  * Every money signal of one job. A fact that is not known gives none. Of a job that reads
  * Invoiced (`input.invoicedIds`) only the rules about invoiced jobs speak: a loss, supplier
  * invoices after billing, estimates nobody invoiced, supplier invoices, cost claims, what was
- * not recharged, and a charge added after invoicing - never credit, the other "not invoiced"
- * rules or a selling line not ticked.
+ * not recharged, a charge added after invoicing and a credit owed - never the customer's credit,
+ * the other "not invoiced" rules or a selling line not ticked.
  */
 export function moneySignals(
   job: RuleJob & { id: string },
@@ -797,6 +820,7 @@ export function moneySignals(
       ? [
           ...(closed ? lossSignals(money, billed) : marginSignals(money, billed)),
           ...(closed ? chargeAfterInvoicingSignals(money) : inBillingSignals(job, money, billingSince(job, input.statusChangedAt?.get(job.id), input.statusChangedAt !== null), input.now, input.holidays)),
+          ...creditOwedSignals(money),
           ...(closed ? [] : notInvoicedSignals(job, money, today)),
           ...(closed ? [] : untickedSignals(job, money)),
           ...costAfterBillingSignals(money, today),

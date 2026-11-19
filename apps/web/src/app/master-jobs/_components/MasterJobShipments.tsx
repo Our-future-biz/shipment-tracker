@@ -15,6 +15,7 @@ import { ResizableTh } from "@/components/ResizableTh";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { masterJobKindOf, shipmentFits } from "@/lib/masterJobKind";
 import { loadTypeLabel } from "@/lib/enums";
+import { kindShipments, masterJobModeOf } from "../_lib/masterJobWords";
 import { LINK_REFUSED_HINT, linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { Badge } from "@/components/Badge";
@@ -336,7 +337,7 @@ function LinkShipmentsModal({ open, masterJob, linked, onClose, onLink }: LinkSh
   // another is shown, not offered.
   const kind = masterJobKindOf(masterJob.loadType, [...linked, ...selected.map((id) => ({ loadType: pickedLoadTypes[id] }))]);
   // As the screen names it: an air Full Load is a Single Shipment (lib/enums).
-  const kindLabel = kind && kind !== "mixed" ? loadTypeLabel(kind, masterJob.freightMode) : "";
+  const kindLabel = kind && kind !== "mixed" ? loadTypeLabel(kind, masterJobModeOf(masterJob)) : "";
   const fits = (s: (typeof candidates)[number]) => selected.includes(s.id) || shipmentFits(kind, s);
   const mayLink = (s: (typeof candidates)[number]) => canChangeShipmentDetails(user, s) && fits(s);
 
@@ -393,7 +394,7 @@ function LinkShipmentsModal({ open, masterJob, linked, onClose, onLink }: LinkSh
           {kind === "mixed"
             ? " It already holds shipments of different Load Types: only shipments without a Load Type can go on it."
             : kind
-              ? ` Only ${kindLabel} shipments can go on it.`
+              ? ` Only ${kindShipments(kindLabel)} can go on it.`
               : ""}
         </p>
         <Input
@@ -429,7 +430,7 @@ function LinkShipmentsModal({ open, masterJob, linked, onClose, onLink }: LinkSh
                   ? LINK_REFUSED_HINT
                   : kind === "mixed"
                     ? `${masterJob.mczNumber} already holds shipments of different Load Types: it takes no more until those that don't belong are taken off`
-                    : `${s.jobNumber} is ${loadTypeLabel(s.loadType, s.freightMode)}: ${masterJob.mczNumber} takes ${kindLabel} shipments only`;
+                    : `${s.jobNumber} is ${loadTypeLabel(s.loadType, s.freightMode)}: ${masterJob.mczNumber} takes ${kindShipments(kindLabel)} only`;
                 const isChecked = !locked && selected.includes(s.id);
                 // The ports by their codes ("CNSGH → DEHAM"), in full on hover.
                 const route = [s.pol, s.pod].filter(Boolean).map((p) => placeCodeOf(p) ?? p).join(" → ");

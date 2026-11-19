@@ -55,5 +55,8 @@ export interface ReceivableReminderRunResult {
   companies: number;
   sent: number;
   failed: number;
+  /** Invoices whose reminder waited (a payment that may be for it on a bank statement, or the statements unreadable) */
   skipped: number;
+  /** Companies with reminders on that were skipped today: no bank statement read since the previous working day (m5) */
+  skippedCompanies: number;
 }

@@ -18,6 +18,7 @@ import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
 import { publishedSteps, voidedSteps } from "./gateEvents";
 import type { GateMovementRecord } from "../schemas/gateMovement.schema";
 import { CORRECTION_DISMISSED_EVENT, FLOOR_WRITE_LOST_EVENT, correctionNeeded } from "./correction";
+import { mayNeedCorrectingDetail } from "./voidNotice";
 
 // Manager actions on gate records — voiding a wrong stamp, archiving a stamped record and
 // restoring an archived one — and removing a position with its gate records. Every one needs a
@@ -130,7 +131,8 @@ class GateAdminService {
   // Voids a wrong stamp (manager, with reason): the stamp column is cleared and the status
   // follows the stamps that remain. Voiding the WH release also clears the gate-out it stamped.
   // What the stamp still owed the shipment is cancelled; a shipment already updated from it is
-  // NOT changed back — the record logs that the shipment may need correcting.
+  // NOT changed back — the record logs that the shipment may need correcting, naming a release on
+  // prepayment recorded on it from the stamp (it stays in the shipment's history).
   async voidStamp(id: string, companyId: string, userId: string, role: string, kind: StampKind, reason: string) {
     needManager(role);
     if (!STAMP_KINDS.includes(kind)) throw APIError.invalidArgument(`Unknown stamp "${kind}"`);
@@ -175,6 +177,7 @@ class GateAdminService {
     const what = cleared.some((k) => k === "gateIn") ? "warehouse received date" : "warehouse released date";
 
     let mayNeedCorrecting = false;
+    let notice = "";
     let published = 0;
     await db.transaction(async (tx) => {
       // Again under the locks (container, then position): a stuffed mark under way is seen.
@@ -187,24 +190,21 @@ class GateAdminService {
       // shipment although it is cancelled here (the delivery then logs it as well).
       const inFlight = (r: (typeof owed)[number]) => r.status === "pending" && !!r.lockedUntil && r.lockedUntil.getTime() > Date.now();
       const cancelled = owed.filter((r) => (r.status === "pending" && !inFlight(r)) || r.status === "failed");
-      const sent = owed.some((r) => r.status === "sent");
+      // The override of a release on prepayment (or its "Prepayment not checked" line) is told apart from the day:
+      // it reached the shipment's history and Tracking tab, and a void takes neither back.
+      const sentNotes = owed.filter((r) => r.kind === "override" && r.status === "sent");
+      const sent = owed.some((r) => r.kind !== "override" && r.status === "sent");
       const sending = !sent && owed.some(inFlight);
       // Stamps from before the outbox wrote to the shipment directly: no row, but it was sent.
       const legacy = noOutboxYet && cleared.some(writesBack);
       if (cancelled.length) {
         events.push({ kind: "shipmentUpdateCancelled", label: "Shipment update cancelled — the stamp was voided", at, by, detail: what });
       }
-      if (sent || legacy || sending) {
+      const correcting = mayNeedCorrectingDetail(what, { dateSet: sent || legacy, sending, notes: sentNotes.map((r) => r.payload) });
+      if (correcting) {
         mayNeedCorrecting = true;
-        events.push({
-          kind: "shipmentMayNeedCorrecting",
-          label: "Shipment may need correcting",
-          at,
-          by,
-          detail: sending
-            ? `its ${what} was being sent from this stamp at the moment of the void and is not changed back — check it in Shipments`
-            : `its ${what} was set from this stamp and is not changed back — correct it in Shipments if needed`,
-        });
+        notice = correcting.notice;
+        events.push({ kind: "shipmentMayNeedCorrecting", label: "Shipment may need correcting", at, by, detail: correcting.detail });
       }
       const set: Record<string, unknown> = { status, updatedBy: by };
       for (const c of cleared) set[c] = null;
@@ -244,7 +244,7 @@ class GateAdminService {
     if (published) await deliverGateEvents(id);
     return {
       movement: await gateMovementService.get(id, companyId),
-      notice: mayNeedCorrecting ? `The shipment is not changed back — its ${what} was (or is being) set from this stamp. Check it in Shipments and correct it if needed.` : "",
+      notice: mayNeedCorrecting ? notice : "",
     };
   }
 

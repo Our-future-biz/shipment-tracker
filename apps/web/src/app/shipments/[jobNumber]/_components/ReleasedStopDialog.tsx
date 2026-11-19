@@ -20,6 +20,11 @@ import { BTN, BTN_PRIMARY } from "@/styles/ui";
 export interface ReleasedStop {
   stop: ReleaseStop;
   resend: (reason: string) => Promise<void>;
+  /**
+   * Asked before anything was sent (mock test council n6): the release check already said the stop will hold
+   * the job, so a manager gives the reason up front - nothing was refused yet.
+   */
+  ahead?: boolean;
 }
 
 export function ReleasedStopDialog({ shipmentId, value, onClose }: { shipmentId: string; value: ReleasedStop | null; onClose: () => void }) {
@@ -67,7 +72,7 @@ function StopDialog({ shipmentId, value, onClose }: { shipmentId: string; value:
   return (
     <Modal
       open
-      title="Warehouse Released was not set"
+      title={value.ahead ? "Set Warehouse Released?" : "Warehouse Released was not set"}
       width={520}
       onCancel={() => !sending && onClose()}
       destroyOnHidden

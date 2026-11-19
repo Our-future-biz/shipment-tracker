@@ -40,4 +40,11 @@ describe("chargedByWeightOrMeasure", () => {
     expect(chargedByWeightOrMeasure("Road Freight", "Full Load")).toBe(true);
     expect(chargedByWeightOrMeasure(null, null)).toBe(true);
   });
+
+  // Mock test council P18: a rail Full Load is charged per container like a sea one.
+  it("is not a rail Full Load either", () => {
+    expect(chargedByWeightOrMeasure("Rail Freight", "Full Load")).toBe(false);
+    expect(chargedByWeightOrMeasure(" rail freight ", "full load")).toBe(false);
+    expect(chargedByWeightOrMeasure("Rail Freight", "Consolidation")).toBe(true);
+  });
 });

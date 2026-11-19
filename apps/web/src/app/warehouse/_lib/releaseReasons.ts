@@ -62,3 +62,17 @@ export function everyHeldOnApproval(jobs: readonly ReleaseJob[]): boolean {
   const heldJobs = jobs.filter((j) => j.held || j.stopped);
   return heldJobs.length > 0 && heldJobs.every((j) => releaseStanding(j) === "on_approval");
 }
+
+/**
+ * Whether the release can't go through as it stands, so it is not tried - and Stock takes no new TCZ truck number for
+ * it (mock test council n6): every job is held by the stop (stopped, or the check says it will be, and no approval lets
+ * it through), and no manager's reason goes with them - a user can't give one, a manager has not yet.
+ */
+export function releaseBlocked(jobs: readonly ReleaseJob[], input: { manager: boolean; reasonOk: boolean }): boolean {
+  if (!jobs.length) return false;
+  const allHeld = jobs.every((j) => {
+    const standing = releaseStanding(j);
+    return standing === "stopped" || standing === "likely_stopped";
+  });
+  return allHeld && !(input.manager && input.reasonOk);
+}

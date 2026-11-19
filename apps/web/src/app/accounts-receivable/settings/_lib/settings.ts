@@ -13,12 +13,30 @@ export const EMAIL_OFF_NOTE =
 
 /**
  * Which overdue invoices the automatic reminders take (mock test council L2): only those due on or after the day they
- * were switched on; the older ones stay for a manager to chase by hand.
+ * start; the older ones stay for a manager to chase by hand. That day is the first day e-mail from the app can really
+ * send (P3): the first daily run with them on and e-mail on sets it - never a save while e-mail is off.
  */
-export function switchOnText(autoReminders: boolean, since: string | null | undefined): string {
-  if (!autoReminders) return "Switched on, they remind only invoices that become overdue from then on: the older ones stay for a manager to chase by hand.";
-  if (!since) return "On, but the day they were switched on is not known: no invoice is reminded until they are switched on again.";
+export function switchOnText(autoReminders: boolean, since: string | null | undefined, emailOn = true): string {
+  if (!autoReminders) {
+    return "Switched on, they remind only invoices due from the first day e-mail from the app can send: the older ones stay for a manager to chase by hand.";
+  }
+  if (!since) {
+    return emailOn
+      ? "On: the next daily run sets the day they start and sends nothing that day; only invoices due from then on are reminded, the older ones stay for a manager to chase by hand."
+      : "On, waiting for e-mail from the app: they start on the first day it can send, with invoices due from that day on; the older ones stay for a manager to chase by hand.";
+  }
   return `On since ${formatDate(since)}: only invoices due on or after that day are reminded; the older ones stay for a manager to chase by hand.`;
+}
+
+/**
+ * The last day the daily run skipped the reminders (mock test council P11, m5): no bank statement was read since the
+ * previous working day, so a payment may not be known yet. Null when it never did (or they are off).
+ */
+export function skippedText(skipped: { on: string; since: string | null } | null | undefined): string | null {
+  if (!skipped) return null;
+  return skipped.since
+    ? `Skipped on ${formatDate(skipped.on)}: no bank statement read since ${formatDate(skipped.since)}`
+    : `Skipped on ${formatDate(skipped.on)}: no bank statement read since the previous working day`;
 }
 
 export interface SettingsForm {

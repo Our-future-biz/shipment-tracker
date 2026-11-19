@@ -782,7 +782,8 @@ describe("a price change after the customer invoice (decision 9, C8)", () => {
     expect(outboxOf("costs")[0]!.payload).toMatchObject({ selling: [], differenceLabel: `${c.ref} · Price change after invoice` });
     await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [{ sourceRef: `trucking:consignment:${c.id}:diff:1`, currency: "CZK", amount: -12000 }]);
     const { consignments, counts } = await consignmentService.list(user, { view: "attention" });
-    expect(consignments.map((x) => [x.status, x.needsAttention])).toEqual([["CANCELLED", ["Price change after invoice: −12,000 CZK added to job CZ00000042 as its own line — invoice it as a credit note"]]]);
+    // A credit owed, not a charge: the job stays Invoiced, and a credit note of the invoice gives it (Y1 / P1).
+    expect(consignments.map((x) => [x.status, x.needsAttention])).toEqual([["CANCELLED", ["Price change after invoice: −12,000 CZK on job CZ00000042 — a credit is owed: give it on a credit note of the invoice"]]]);
     expect(counts.attention).toBe(1);
   });
 });

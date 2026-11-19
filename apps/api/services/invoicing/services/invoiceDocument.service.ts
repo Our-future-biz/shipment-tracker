@@ -34,7 +34,7 @@ import type {
 } from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
-import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
+import { buildBillingQueue, countCreditsOwed, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
 import type { ChargeCount } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 import { BILLING_CURRENCY_UNKNOWN, startBilling } from "./billingStart.service";
@@ -48,7 +48,7 @@ import {
   followupsOfPartialCreditNote,
   type FollowupActor,
 } from "./invoiceFollowups.service";
-import { fullCreditLines, fullCreditTotalsAfter, partialCreditTotals, planPartialCredit, remainingLines, type CreditLineCalc, type RemainingLine } from "../lib/partialCredit";
+import { fullCreditLines, fullCreditTotalsAfter, partialCreditTotals, planPartialCredit, remainingLines, settleTruckingCredit, type CreditLineCalc, type RemainingLine } from "../lib/partialCredit";
 import { creditNoteRequestRepository } from "../repositories/creditNoteRequest.repository";
 import { invoiceChangeRequestRepository } from "../repositories/invoiceChangeRequest.repository";
 import type { InvoiceChangeRequestRecord } from "../schemas/invoiceChangeRequest.schema";
@@ -279,7 +279,9 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   if (calc.lines.length === 0) {
     problems.push(alreadyInvoiced.size ? "Every ticked selling row is invoiced already" : "Tick at least one selling row for Invoice");
   }
-  else if (calc.gross <= 0) problems.push("The invoice total must be above zero");
+  // What is left is a credit owed (a Trucking price lowered after the invoice, a discount added late):
+  // it is given on a credit note of the invoice, which settles it (Y1 / P1).
+  else if (calc.gross <= 0) problems.push(alreadyInvoiced.size ? "The invoice total must be above zero: what is left is a credit - give it on a credit note of the invoice" : "The invoice total must be above zero");
 
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
   // When each row the lines are built from was last changed: issuing checks them again under its lock.
@@ -504,10 +506,64 @@ async function storePdfQuietly(inv: InvoiceRecord, lines: InvoiceLineRecord[], c
 }
 
 /** Queue views and the shipments-list filter behind each. */
-export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced", unbilled_arrivals: "unbilled-arrivals" };
+export const QUEUE_VIEWS: Record<QueueView, string> = {
+  all: "all",
+  to_bill: "billing",
+  not_invoiced: "not-invoiced",
+  invoiced: "invoiced",
+  unbilled_arrivals: "unbilled-arrivals",
+  // the invoiced jobs, of which only those with a charge not on an invoice, or a credit owed, are kept
+  invoiced_charges_open: "invoiced",
+};
 
 /** How many shipments one queue view shows at most (shipments are fetched 200 per page). */
 const QUEUE_MAX = 1000;
+/** How many invoiced jobs the check "Marked Invoiced, not every charge on an invoice" looks through, the newest first. */
+const CHECK_SCAN_MAX = 5000;
+/** How many jobs' selling lines and invoices are read in one go by that check. */
+const CHECK_CHUNK = 1000;
+
+type ListedShipment = Awaited<ReturnType<typeof shipments.shipmentList>>["data"][number];
+
+/**
+ * The shipments of a shipments-list filter, 200 per page (the list endpoint's maximum), newest first,
+ * at most `max`: past it it is the oldest that are left out, never the latest. Also how many match.
+ */
+async function listedShipments(filter: string, search: string | undefined, max: number): Promise<{ listed: ListedShipment[]; total: number }> {
+  const listed: ListedShipment[] = [];
+  let total = 0;
+  do {
+    const page = await shipments.shipmentList({ invoicing: filter, search, limit: 200, offset: listed.length, sortDirection: "desc" });
+    total = page.pagination.total;
+    listed.push(...page.data);
+    if (page.data.length === 0) break;
+  } while (listed.length < total && listed.length < max);
+  return { listed, total };
+}
+
+/**
+ * The one-time check of P16: of the jobs that read Invoiced (the newest CHECK_SCAN_MAX), those with a
+ * charge on no open invoice - the queue's Lines Invoiced below its Selling Lines - or with a credit owed
+ * (M3: a price lowered after the invoice, on no credit note yet; it leaves the job Invoiced, so it would
+ * show nowhere else once the Money tab no longer reads the job). A job with no charge at all and nothing
+ * owed has nothing left to do and is not listed.
+ */
+async function invoicedWithChargesOpen(companyId: string, search: string | undefined): Promise<{ listed: ListedShipment[]; scanned: number; total: number }> {
+  const { listed, total } = await listedShipments(QUEUE_VIEWS.invoiced_charges_open, search, CHECK_SCAN_MAX);
+  const open: ListedShipment[] = [];
+  for (let i = 0; i < listed.length; i += CHECK_CHUNK) {
+    const chunk = listed.slice(i, i + CHECK_CHUNK);
+    const ids = chunk.map((s) => s.id);
+    const [rows, openInvoices] = await Promise.all([sellingCostRepository.listLiveByShipments(ids, companyId), invoiceRepository.listOpenInvoicesWithSources(ids, companyId)]);
+    const counts = countInvoicedLines(rows, openInvoices);
+    const owed = countCreditsOwed(rows, openInvoices);
+    open.push(...chunk.filter((s) => {
+      const c = counts.get(s.id);
+      return (!!c && c.invoiced < c.total) || (owed.get(s.id) ?? 0) > 0;
+    }));
+  }
+  return { listed: open, scanned: listed.length, total };
+}
 
 class InvoiceDocumentService {
   async preview(shipmentId: string, companyId: string, params: IssueParams): Promise<InvoicePreviewItem> {
@@ -677,6 +733,10 @@ class InvoiceDocumentService {
           afterInsert: async (tx, inserted) => {
             const ok = await invoiceRepository.markCredited(tx, original.id, companyId);
             if (!ok) throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
+            // A Trucking set that now comes to nothing on no invoice (a consignment cancelled after the
+            // invoice) could never be billed again: it goes. The status follow-up below counts without it.
+            await truckingLinesLock(tx, original.shipmentId);
+            await truckingLinesRepository.retireNettedSets(tx, companyId, original.shipmentId);
             await creditNoteRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: userId, name: userEmail }, `The invoice was credited in full on ${inserted.number}`);
             await invoiceChangeRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: userId, name: userEmail }, `The invoice was credited in full on ${inserted.number}`);
             await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCreditNote(inserted, original, actorOf(userId), credits.map((c) => c.number)));
@@ -719,6 +779,9 @@ class InvoiceDocumentService {
         throw APIError.failedPrecondition(`Invoice ${original.number} has been credited in part since: correct it with a credit note, and reject the request`);
       }
       if (!(await invoiceRepository.markCancelled(tx, original.id, companyId, today))) throw APIError.failedPrecondition(`Invoice ${original.number} can no longer be cancelled`);
+      // As after a full credit note: a Trucking set that comes to nothing on no invoice goes.
+      await truckingLinesLock(tx, original.shipmentId);
+      await truckingLinesRepository.retireNettedSets(tx, companyId, original.shipmentId);
       if (!(await invoiceChangeRequestRepository.approve(tx, companyId, request.id, approver))) throw APIError.failedPrecondition("This request was answered a moment ago");
       await creditNoteRequestRepository.withdrawForInvoice(tx, companyId, original.id, { id: approver.userId, name: approver.userEmail }, `The invoice was cancelled on its issue day`);
       await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfCancellation(original, actorOf(approver.userId)));
@@ -753,9 +816,12 @@ class InvoiceDocumentService {
       const { credits, remaining } = await creditState(original, companyId);
       const plan = planPartialCredit(remaining, request.lines.map((l) => ({ lineId: l.lineId, amount: l.amount })));
       if ("problem" in plan) throw APIError.failedPrecondition(`${plan.problem}. The invoice has changed since this was asked: reject the request`);
-      // Each line bills the negative row it puts on the shipment.
-      const rows = plan.lines.map((l) => ({ line: l, rowId: randomUUID() }));
-      const calcLines = rows.map(({ line, rowId }) => ({ ...line, sourceSellingCostId: rowId }));
+      // Each line bills the row it settles: a credit Trucking says is owed on the line's set (its
+      // "Price change after invoice" below nothing), else the negative row it puts on the shipment (Y1 / P1).
+      const diffs = await truckingLinesRepository.openCreditDiffs(db, companyId, original.shipmentId, plan.lines.flatMap((l) => (l.sourceSellingCostId ? [l.sourceSellingCostId] : [])));
+      const settled = settleTruckingCredit(plan.lines, (rowId) => (rowId ? (diffs.get(rowId) ?? []) : []), randomUUID);
+      const calcLines = settled.lines;
+      const ownRowIds = new Set(settled.ownRows.map((l) => l.sourceSellingCostId));
       const totals = partialCreditTotals(calcLines, Number(original.fxRate));
 
       const { invoice, lines, replayed: again } = await invoiceRepository.issue(
@@ -768,6 +834,14 @@ class InvoiceDocumentService {
             if ((await invoiceRepository.creditNotesOf(original.id, companyId, tx)).length !== credits.length) {
               throw APIError.failedPrecondition(`Invoice ${original.number} was credited a moment ago: open the request again`);
             }
+            // The credits owed it settles, read again under the shipment's lock: a Trucking push meanwhile changed what is owed.
+            if (settled.settled.length) {
+              const now = await truckingLinesRepository.openCreditDiffs(tx, companyId, original.shipmentId, [...diffs.keys()]);
+              const still = new Map([...now.values()].flat().map((d) => [d.id, d.version]));
+              if (settled.settled.some((d) => still.get(d.id) !== d.version)) {
+                throw APIError.failedPrecondition("Trucking changed the price of this job a moment ago: open the request again");
+              }
+            }
           },
           afterInsert: async (tx, inserted) => {
             const approved = await creditNoteRequestRepository.approve(tx, companyId, request.id, approver, { id: inserted.id, number: inserted.number });
@@ -779,11 +853,14 @@ class InvoiceDocumentService {
               companyId,
               original.shipmentId,
               inserted,
-              rows.map(({ line, rowId }) => {
-                const source = remaining.find((r) => r.lineId === line.correctsLineId);
-                return { id: rowId, sourceRowId: source?.sourceSellingCostId ?? null, lineText: line.description, amount: line.unitPrice, currency: line.unitCurrency, vatCode: line.vatCode };
-              }),
+              calcLines
+                .filter((line) => ownRowIds.has(line.sourceSellingCostId))
+                .map((line) => {
+                  const source = remaining.find((r) => r.lineId === line.correctsLineId);
+                  return { id: line.sourceSellingCostId, sourceRowId: source?.sourceSellingCostId ?? null, lineText: line.description, amount: line.unitPrice, currency: line.unitCurrency, vatCode: line.vatCode };
+                }),
             );
+            await truckingLinesRepository.settleDiffs(tx, companyId, original.shipmentId, settled.shrink, settled.rest);
             await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfPartialCreditNote(inserted, original, actorOf(approver.userId)));
           },
         },
@@ -864,16 +941,11 @@ class InvoiceDocumentService {
     const q = search?.trim() || undefined;
     const countOf = async (filter: string) => (await shipments.shipmentList({ invoicing: filter, search: q, limit: 1 })).pagination.total;
 
-    // The shipments of this view, 200 per page (the list endpoint's maximum), newest first: past
-    // QUEUE_MAX it is the oldest jobs that are left out (the client is told), never the latest.
-    const listed: Awaited<ReturnType<typeof shipments.shipmentList>>["data"] = [];
-    let total = 0;
-    do {
-      const page = await shipments.shipmentList({ invoicing: QUEUE_VIEWS[view], search: q, limit: 200, offset: listed.length, sortDirection: "desc" });
-      total = page.pagination.total;
-      listed.push(...page.data);
-      if (page.data.length === 0) break;
-    } while (listed.length < total && listed.length < QUEUE_MAX);
+    // The shipments of this view, newest first: past QUEUE_MAX it is the oldest jobs that are left
+    // out (the client is told), never the latest. The check reads every invoiced job up to its own
+    // maximum and keeps those with a charge not on an invoice.
+    const check = view === "invoiced_charges_open" ? await invoicedWithChargesOpen(companyId, q) : null;
+    const { listed, total } = check ? { listed: check.listed, total: check.listed.length + (check.total - check.scanned) } : await listedShipments(QUEUE_VIEWS[view], q, QUEUE_MAX);
     // Shown oldest first, as before.
     listed.reverse();
 
@@ -899,6 +971,7 @@ class InvoiceDocumentService {
     }
     const todayIso = pragueToday();
     const lineCounts = countInvoicedLines(rows, openInvoices);
+    const creditsOwed = countCreditsOwed(rows, openInvoices);
     const billing = new Map<string, QueueEntry>(
       buildBillingQueue({ rows: rows.filter((r) => r.invoice), openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
     );
@@ -915,6 +988,8 @@ class InvoiceDocumentService {
         department: s.department ?? "",
         houseBolType: s.houseBolType ?? "",
         masterBolType: s.masterBolType ?? "",
+        originalsReceivedDate: s.originalsReceivedDate ?? null,
+        telexReleaseReceivedDate: s.telexReleaseReceivedDate ?? null,
         tradeDirection: s.tradeDirection,
         estimatedDeparture: s.estimatedDeparture,
         estimatedArrival: s.estimatedArrival,
@@ -930,9 +1005,11 @@ class InvoiceDocumentService {
         invoiced: b?.invoiced ?? [],
         sellingLines: lineCounts.get(s.id)?.total ?? 0,
         invoicedLines: lineCounts.get(s.id)?.invoiced ?? 0,
+        creditsOwed: creditsOwed.get(s.id) ?? 0,
       };
     });
-    return { queue, counts: { all, toBill, notInvoiced, invoiced, unbilledArrivals }, truncated: total > listed.length };
+    const counts: BillingQueueCounts = { all, toBill, notInvoiced, invoiced, unbilledArrivals, ...(check ? { invoicedChargesOpen: check.listed.length } : {}) };
+    return { queue, counts, truncated: total > listed.length };
   }
 
   /** The main search (the top bar): the tax documents these words find, newest issue date first, and how many in all. */

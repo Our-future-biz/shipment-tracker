@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Dropdown } from "antd";
 import { EllipsisOutlined } from "@ant-design/icons";
-import { canHandOverAll, handOverAllLabel } from "@/lib/managerActions";
+import { canHandOverAll, canReplaceCover, handOverAllLabel, replaceCoverLabel } from "@/lib/managerActions";
 import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
@@ -26,16 +26,23 @@ interface TeamTableProps {
   loadFailed: string;
   /** "Hand over all N active jobs…" on a person's row (X9): opens the hand-over of every active job they handle. Left out, no row offers it. */
   onHandOverAll?: (row: TeamRow) => void;
+  /** "Replace as Holiday Cover on M jobs…" on a person's row (P12): opens the change of the cover on every active job they cover. */
+  onReplaceCover?: (row: TeamRow) => void;
 }
 
 // A person's row's actions, behind "⋯" as a card row's are (RowMenu): hand over every active job they handle -
-// the quiet ones too, which no card shows. Not on the jobs nobody handles: there is nobody to hand them over from.
-// The row around it opens the Cockpit tab on a click: nothing clicked in here may reach it.
-function TeamRowMenu({ row, onHandOverAll }: { row: TeamRow; onHandOverAll: (row: TeamRow) => void }) {
-  if (!canHandOverAll(row)) return null;
+// the quiet ones too, which no card shows - and put somebody else in as Holiday Cover on the jobs they cover. Not
+// on the jobs nobody handles: there is nobody to hand them over from. The row around it opens the Cockpit tab on a
+// click: nothing clicked in here may reach it.
+function TeamRowMenu({ row, onHandOverAll, onReplaceCover }: { row: TeamRow; onHandOverAll?: (row: TeamRow) => void; onReplaceCover?: (row: TeamRow) => void }) {
+  const items = [
+    ...(onHandOverAll && canHandOverAll(row) ? [{ key: "handOverAll", label: handOverAllLabel(row.active) }] : []),
+    ...(onReplaceCover && canReplaceCover(row) ? [{ key: "replaceCover", label: replaceCoverLabel(row.covers) }] : []),
+  ];
+  if (items.length === 0) return null;
   return (
     <span className="inline-flex" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-      <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: [{ key: "handOverAll", label: handOverAllLabel(row.active) }], onClick: () => onHandOverAll(row) }}>
+      <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items, onClick: ({ key }) => (key === "replaceCover" ? onReplaceCover?.(row) : onHandOverAll?.(row)) }}>
         <Button type="text" size="small" icon={<EllipsisOutlined className="!text-[20px]" />} aria-label={`Actions for ${row.name}`} />
       </Dropdown>
     </span>
@@ -111,12 +118,13 @@ const COLUMNS: ColumnsType<TeamRow> = [
 // Cover - in the order the server sends them. No sorting and no ranking: the table is for seeing
 // a load that needs sharing out, not for a league table. A row opens the Cockpit tab narrowed to
 // the person; the name is a link, so the keyboard reaches it too.
-export function TeamTable({ people, filter, scope, isLoading, isError, loadFailed, onHandOverAll }: TeamTableProps) {
+export function TeamTable({ people, filter, scope, isLoading, isError, loadFailed, onHandOverAll, onReplaceCover }: TeamTableProps) {
   const router = useRouter();
   const rows = people ? teamRows(people, filter) : [];
-  const columns: ColumnsType<TeamRow> = onHandOverAll
-    ? [...COLUMNS, { title: MENU_TITLE, key: "menu", width: 48, align: "right", render: (_: unknown, r) => <TeamRowMenu row={r} onHandOverAll={onHandOverAll} /> }]
-    : COLUMNS;
+  const columns: ColumnsType<TeamRow> =
+    onHandOverAll || onReplaceCover
+      ? [...COLUMNS, { title: MENU_TITLE, key: "menu", width: 48, align: "right", render: (_: unknown, r) => <TeamRowMenu row={r} onHandOverAll={onHandOverAll} onReplaceCover={onReplaceCover} /> }]
+      : COLUMNS;
   return (
     <section aria-label="Team" className={`${CARD} overflow-clip`}>
       <div className={CARD_BAR}>

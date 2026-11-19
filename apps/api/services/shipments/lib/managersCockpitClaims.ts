@@ -1,8 +1,9 @@
-import { addDays, businessDay } from "../../../lib/businessDate";
+import { businessDay } from "../../../lib/businessDate";
 import type { AnyClaimStatus } from "../interfaces/interfaces";
 import { claimDeadlines, TIME_LIMITS_OFF, type ClaimJob, type ClaimTimeLimits } from "./claimTimeLimits";
 import { CLAIM_NOTICE_URGENT_DAYS_BEFORE, CLAIM_OPEN_ATTENTION_DAYS, CLAIM_SUIT_ATTENTION_DAYS, CLAIM_SUIT_URGENT_DAYS } from "./cockpitThresholds";
 import type { OpsSignal } from "./managersCockpit";
+import { workingDayEnd } from "./managersCockpitExtra";
 
 // The cargo claims' signals on Shipments → Managers (Council Outlay 11, D21), family "claim". Pure;
 // tested in tests/managersCockpitClaims.test.ts. A claim on costs is the Money tab's
@@ -11,9 +12,11 @@ import type { OpsSignal } from "./managersCockpit";
 // With the company's claim time limits switched on (lib/claimTimeLimits), per open cargo claim:
 //   ATTENTION  from its creation while the carrier is not notified ("notice by dd.mm.", when the
 //              job's delivery - else its ATA - says when that is)
-//   URGENT     from CLAIM_NOTICE_URGENT_DAYS_BEFORE day before the notice deadline, and once it passed
-//   ATTENTION  the suit time bar CLAIM_SUIT_ATTENTION_DAYS days ahead, URGENT at CLAIM_SUIT_URGENT_DAYS
-//              and once it passed - until the claim is settled, rejected or withdrawn
+//   URGENT     from CLAIM_NOTICE_URGENT_DAYS_BEFORE working day before the notice deadline (D6: a
+//              Monday deadline from the Friday before), and once it passed
+//   ATTENTION  the suit time bar CLAIM_SUIT_ATTENTION_DAYS calendar days ahead, URGENT at
+//              CLAIM_SUIT_URGENT_DAYS and once it passed - until the claim is settled, rejected or
+//              withdrawn (a time bar of months is counted in calendar days, as the law counts it)
 // Switched off (the default: the numbers are not confirmed with the insurer) none of these: an
 // open claim only says "Cargo claim open since dd.mm." CLAIM_OPEN_ATTENTION_DAYS days after it was
 // raised - as it does with them on when none of them stands.
@@ -75,14 +78,15 @@ export function claimFactsByJob(
 }
 
 /** One open cargo claim's tags on `today`. */
-function oneClaim(claim: CargoClaimFact, job: ClaimJob, limits: ClaimTimeLimits | null, today: string): OpsSignal[] {
+function oneClaim(claim: CargoClaimFact, job: ClaimJob, limits: ClaimTimeLimits | null, today: string, holidays: readonly string[]): OpsSignal[] {
   const out: OpsSignal[] = [];
   if (limits?.enabled) {
     const { noticeBy, suitBy } = claimDeadlines(job, limits);
     if (!claim.noticeDate) {
       if (!noticeBy) out.push(tag(false, CLAIM_RANK.notNotified, "Cargo claim: carrier not notified"));
       else if (noticeBy < today) out.push(tag(true, CLAIM_RANK.noticeUrgent, `Cargo claim: carrier not notified, notice deadline ${dm(noticeBy)} passed`));
-      else if (addDays(noticeBy, -CLAIM_NOTICE_URGENT_DAYS_BEFORE) <= today) {
+      // From the working day before the deadline (D6): a deadline on a Monday is URGENT on the Friday before.
+      else if (noticeBy <= workingDayEnd(today, CLAIM_NOTICE_URGENT_DAYS_BEFORE, holidays)) {
         out.push(tag(true, CLAIM_RANK.noticeUrgent, noticeBy === today ? "Cargo claim: notify the carrier today" : `Cargo claim: notify the carrier by ${dm(noticeBy)}`));
       } else out.push(tag(false, CLAIM_RANK.notNotified, `Cargo claim: carrier not notified · notice by ${dm(noticeBy)}`));
     }
@@ -103,13 +107,14 @@ function oneClaim(claim: CargoClaimFact, job: ClaimJob, limits: ClaimTimeLimits 
 /**
  * The tags of a job's open cargo claims on `today` (the Prague day). The same words twice - two
  * claims of one job at the same stage - are said once. Nothing when the claims could not be read.
+ * `holidays`: the company's own days off, for the notice deadline's working day before.
  */
-export function claimSignals(job: ClaimJob & { id: string }, facts: ClaimFacts, today: string): OpsSignal[] {
+export function claimSignals(job: ClaimJob & { id: string }, facts: ClaimFacts, today: string, holidays: readonly string[] = []): OpsSignal[] {
   const claims = facts.byJob?.get(job.id);
   if (!claims?.length) return [];
   const seen = new Set<string>();
   return claims
-    .flatMap((c) => oneClaim(c, job, facts.limits, today))
+    .flatMap((c) => oneClaim(c, job, facts.limits, today, holidays))
     .filter((s) => {
       if (seen.has(s.text)) return false;
       seen.add(s.text);

@@ -206,4 +206,21 @@ describe("the entries of issued documents (entriesOfIssued)", () => {
     expect(q.sql).toContain("set source = 'invoicing', invoice_id = v.invoice_id");
     expect(q.params).toEqual(["e2", OTHER, COMPANY]);
   });
+
+  it("read only (the bell's poll, m4): finds the same entries and marks none", async () => {
+    const OTHER = "0b6a1c1e-1111-4a4a-8a8a-0000000000a2";
+    fake.state.found = [[entry()], [entry({ id: "e2", invoiceNumber: "INV-2", source: "typed", invoiceId: null })]];
+    const found = await customerInvoiceRepository.entriesOfIssued(
+      COMPANY,
+      [
+        { invoiceId: INVOICE, customerId: CUSTOMER, number: "INV-1" },
+        { invoiceId: OTHER, customerId: CUSTOMER, number: "INV-2" },
+      ],
+      { readOnly: true },
+    );
+    expect(found.get(INVOICE)?.id).toBe("e1");
+    // Found as it is in the list: still typed, naming no document.
+    expect(found.get(OTHER)).toMatchObject({ id: "e2", source: "typed", invoiceId: null });
+    expect(fake.state.steps.filter((s) => s.op !== "select")).toEqual([]);
+  });
 });

@@ -122,6 +122,11 @@ describe("the tiles the cockpit opens the list with", () => {
     await claimOn(settled, "cargo", "settled");
     await claimOn(settled, "cost", "open");
     await claimOn(await newJob(companyId, { claim: "Yes", status: CANCELLED_STATUS }), "cargo", "open", new Date());
+    // n21: a cargo claim row added with "+" and never filled in is no claim - here beside a claim on
+    // costs that makes the Claim field say Yes - as for the Claim field and the claims' tags.
+    const blank = await newJob(companyId, { claim: "Yes", invoicingStatus: "Invoiced" });
+    await claimOn(blank, "cost", "open");
+    await db.insert(shipmentClaimTable).values({ companyId, shipmentId: blank.id, kind: "cargo", status: "open" });
     expect(await listed(companyId, { tile: "claims" })).toEqual(ids([claim, claimToo, invoiced, cancelled]));
     const c = await cockpit(companyId);
     // Counted by Open claims, not as active jobs.

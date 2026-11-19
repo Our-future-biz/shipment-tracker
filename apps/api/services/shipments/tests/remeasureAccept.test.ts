@@ -11,6 +11,7 @@ import {
   acceptedTotals,
   exactFiguresOf,
   figuresOf,
+  holdsRemeasuredLines,
   parseRemeasuredLines,
   readFigures,
   roundedFigures,
@@ -111,14 +112,17 @@ describe("acceptedTotals", () => {
     expect(acceptedTotals({ colli: 3, weightKg: 0, volumeCbm: 0 })).toEqual({ pcs: "3", totalWeightTons: null, totalVolumeCbm: null });
   });
 
-  it("rounds the exact totals once: the weight to 0.1 kg as compared, the volume to its 4th decimal", () => {
+  it("rounds the exact totals once: the weight to 0.1 kg, the volume to 0.001 m³, as they are compared", () => {
     // 7 × 13.25 kg = 92.75 kg.
     const exact = exactFiguresOf(parseRemeasuredLines(JSON.stringify([{ pieces: "7", lengthCm: "10", widthCm: "10", heightCm: "10", weightPerPcKg: "13.25" }])));
     expect(exact.weightKg).toBe(92.75);
     expect(acceptedTotals(exact).totalWeightTons).toBe("0.0928");
     expect(roundedFigures(exact).weightKg).toBe(92.8);
-    // Not first to 0.001 (1.235): the volume keeps its 4th decimal.
-    expect(acceptedTotals({ colli: 3, weightKg: 1, volumeCbm: 1.23456 }).totalVolumeCbm).toBe("1.2346");
+    // Mock test council n13: lines of 1.23449 m³ are 1.234 at the 3 decimals Cargo Details compares;
+    // a Total Volume kept as 1.2345 read 1.235 there, and the Volume pill turned red after the Accept.
+    expect(acceptedTotals({ colli: 3, weightKg: 1, volumeCbm: 1.23449 }).totalVolumeCbm).toBe("1.2340");
+    expect(acceptedTotals({ colli: 3, weightKg: 1, volumeCbm: 1.23456 }).totalVolumeCbm).toBe("1.2350");
+    expect(acceptedTotals({ colli: 1, weightKg: 1, volumeCbm: 0.0004 }).totalVolumeCbm).toBeNull();
   });
 });
 
@@ -129,26 +133,38 @@ describe("acceptedContainerFigures", () => {
   });
 });
 
-// Council finding X2: line n keeps the shipment's line n's container, packing and dangerous goods.
+// Council finding X2, mock test council Y8: line n keeps the shipment's line n's container, packing
+// and dangerous goods - with dangerous goods or several containers only when it is the same cargo.
 describe("acceptByHandRefusal", () => {
   const general = { ...declared, adrUn: null, adrClass: null, adrPackingGroup: null, pieces: "4" };
   const un1993 = { ...general, pieces: "1", adrUn: "1993", adrClass: "3" };
+  const pcs = (...n: number[]) => n.map((p) => ({ pieces: String(p) }));
 
   it("refuses another number of lines when dangerous goods are on the lines, so a UN number neither vanishes nor moves", () => {
-    expect(acceptByHandRefusal(1, [general, un1993])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandRefusal(3, [general, un1993])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandRefusal(2, [general, un1993])).toBeNull();
+    expect(acceptByHandRefusal(pcs(5), [general, un1993])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandRefusal(pcs(4, 1, 1), [general, un1993])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandRefusal(pcs(4, 1), [general, un1993])).toBeNull();
   });
 
-  it("refuses another number of lines on several containers, so no line falls into the first", () => {
-    expect(acceptByHandRefusal(3, [general, { ...general, containerId: "c2" }])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandRefusal(2, [general, { ...general, containerId: "c2" }])).toBeNull();
+  it("refuses the same number of lines in another order: 3 drums UN 1203 and 10 cartons, the cartons saved first", () => {
+    const drums = { ...general, pieces: "3", packageType: "Drums", adrUn: "1203", adrClass: "3" };
+    const cartons = { ...general, pieces: "10", packageType: "Cartons" };
+    expect(acceptByHandRefusal(pcs(10, 3), [drums, cartons])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandRefusal(pcs(3, 10), [drums, cartons])).toBeNull();
+    // " 3" and "3.0" are the same pieces.
+    expect(acceptByHandRefusal([{ pieces: " 3" }, { pieces: "10.0" }], [drums, cartons])).toBeNull();
   });
 
-  it("lets general cargo of one container, or none, take another number of lines", () => {
-    expect(acceptByHandRefusal(3, [general])).toBeNull();
-    expect(acceptByHandRefusal(1, [general, { ...general, containerId: null }])).toBeNull();
-    expect(acceptByHandRefusal(2, [])).toBeNull();
+  it("refuses another number of lines, or other pieces on a line, on several containers, so no line falls into another", () => {
+    expect(acceptByHandRefusal(pcs(4, 4, 1), [general, { ...general, containerId: "c2" }])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandRefusal(pcs(5, 3), [general, { ...general, containerId: "c2" }])).toBe(ACCEPT_BY_HAND);
+    expect(acceptByHandRefusal(pcs(4, 4), [general, { ...general, containerId: "c2" }])).toBeNull();
+  });
+
+  it("lets general cargo of one container, or none, take another number of lines and other pieces", () => {
+    expect(acceptByHandRefusal(pcs(1, 1, 1), [general])).toBeNull();
+    expect(acceptByHandRefusal(pcs(9), [general, { ...general, containerId: null }])).toBeNull();
+    expect(acceptByHandRefusal(pcs(2, 2), [])).toBeNull();
   });
 });
 
@@ -188,29 +204,58 @@ describe("readFigures", () => {
 describe("acceptRefusal", () => {
   const general = { ...declared, adrUn: null, adrClass: null, adrPackingGroup: null };
   const accepted = (lines: string) => JSON.stringify({ colli: 5, weightKg: 250, volumeCbm: 34.65, lines });
+  const remeasured = parseRemeasuredLines(saved);
+  // Cargo Details as the acceptance of `saved` left them: its sizes and kg per piece, the packing kept.
+  const holding = { ...general, pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" };
 
-  it("refuses the lines the last acceptance took over, also saved again with other spacing", () => {
-    expect(acceptRefusal(saved, 1, accepted(saved), [general])).toBe(ALREADY_ACCEPTED);
-    expect(acceptRefusal(saved, 1, accepted(JSON.stringify([{ pieces: " 5 ", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" }])), [general])).toBe(ALREADY_ACCEPTED);
+  it("refuses the lines the last acceptance took over while Cargo Details hold them, also saved again with other spacing", () => {
+    expect(acceptRefusal(saved, remeasured, accepted(saved), [holding])).toBe(ALREADY_ACCEPTED);
+    expect(acceptRefusal(saved, remeasured, accepted(JSON.stringify([{ pieces: " 5 ", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" }])), [holding])).toBe(
+      ALREADY_ACCEPTED,
+    );
+  });
+
+  // Mock test council Y10: a page opened before the acceptance saved its old lines over it.
+  it("lets the same lines be accepted again once Cargo Details no longer hold them", () => {
+    expect(acceptRefusal(saved, remeasured, accepted(saved), [general])).toBeNull();
+    expect(acceptRefusal(saved, remeasured, accepted(saved), [{ ...holding, weightPerPcKg: "49" }])).toBeNull();
+    expect(acceptRefusal(saved, remeasured, accepted(saved), [holding, holding])).toBeNull();
   });
 
   it("lets new lines through, and lines when nothing was accepted or the entry names no lines", () => {
     const other = JSON.stringify([{ pieces: "6", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "40" }]);
-    expect(acceptRefusal(saved, 1, accepted(other), [general])).toBeNull();
-    expect(acceptRefusal(saved, 1, null, [general])).toBeNull();
-    expect(acceptRefusal(saved, 1, "{}", [general])).toBeNull();
+    expect(acceptRefusal(saved, remeasured, accepted(other), [holding])).toBeNull();
+    expect(acceptRefusal(saved, remeasured, null, [holding])).toBeNull();
+    expect(acceptRefusal(saved, remeasured, "{}", [holding])).toBeNull();
   });
 
   it("alreadyAccepted says the first half alone: what the write turn asks before anything else", () => {
-    expect(alreadyAccepted(saved, accepted(saved))).toBe(true);
-    expect(alreadyAccepted(saved, null)).toBe(false);
-    expect(alreadyAccepted(saved, accepted("[]"))).toBe(false);
+    expect(alreadyAccepted(saved, accepted(saved), [holding])).toBe(true);
+    // A package type or UN number set since changes nothing measured.
+    expect(alreadyAccepted(saved, accepted(saved), [{ ...holding, packageType: "Crates", adrUn: "1993" }])).toBe(true);
+    expect(alreadyAccepted(saved, accepted(saved), [general])).toBe(false);
+    expect(alreadyAccepted(saved, null, [holding])).toBe(false);
+    expect(alreadyAccepted(saved, accepted("[]"), [holding])).toBe(false);
   });
 
   it("then asks whether the lines must be updated by hand", () => {
-    expect(acceptRefusal(saved, 1, null, [general, declared])).toBe(ACCEPT_BY_HAND);
+    expect(acceptRefusal(saved, remeasured, null, [general, declared])).toBe(ACCEPT_BY_HAND);
     // Already accepted says more: nothing new to accept at all.
-    expect(acceptRefusal(saved, 1, accepted(saved), [general, declared])).toBe(ALREADY_ACCEPTED);
+    expect(acceptRefusal(saved, remeasured, accepted(saved), [{ ...holding, adrUn: "1203" }])).toBe(ALREADY_ACCEPTED);
+  });
+});
+
+describe("holdsRemeasuredLines", () => {
+  const line = { ...declared, pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" };
+
+  it("compares pieces, sizes and kg per piece line for line, as numbers", () => {
+    const remeasured = parseRemeasuredLines(saved);
+    expect(holdsRemeasuredLines([line], remeasured)).toBe(true);
+    // Shown in inches once and saved back in cm.
+    expect(holdsRemeasuredLines([{ ...line, lengthCm: "140.0000", dimensionUnit: "in" }], remeasured)).toBe(true);
+    expect(holdsRemeasuredLines([{ ...line, heightCm: "226" }], remeasured)).toBe(false);
+    expect(holdsRemeasuredLines([line, line], remeasured)).toBe(false);
+    expect(holdsRemeasuredLines([], remeasured)).toBe(false);
   });
 });
 

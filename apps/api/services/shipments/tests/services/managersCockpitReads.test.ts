@@ -48,6 +48,9 @@ vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: d
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: db.repository("event", { latestPerShipment: () => new Map(), arrivedAtHub: () => new Set() }) }));
 vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: db.repository("notice", { latestPerShipment: () => new Map() }) }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: db.repository("container") }));
+// Read only for a job a remeasurement from Warehouse Concept still asks to check (Y4): none here.
+vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: db.repository("cargoItem") }));
+vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: db.repository("cargoDimension") }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: db.repository("attachment") }));
 vi.mock("../../repositories/documentChangeRequest.repository", () => ({ documentChangeRequestRepository: db.repository("documentRequest") }));
 vi.mock("../../repositories/customsOfficeRequest.repository", () => ({ customsOfficeRequestRepository: db.repository("officeRequest") }));

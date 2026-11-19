@@ -7,6 +7,7 @@ import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { attachmentBucket } from "../storage/attachmentBucket";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
+import { masterJobMode } from "../lib/masterJobKind";
 import {
   COMMERCIAL_PAPERWORK,
   houseTransportDocs,
@@ -140,7 +141,8 @@ class MasterJobDocumentService {
    */
   async houseBols(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
     const masterJob = await this.masterJobOf(masterJobId, companyId);
-    return this.shipmentDocs(masterJob, companyId, houseTransportDocs(masterJob.freightMode));
+    // A master job with no Freight Mode goes by the one mode of its houses (n31): air houses send their AWBs, not B/Ls.
+    return this.shipmentDocs(masterJob, companyId, (linked) => houseTransportDocs(masterJobMode(masterJob.freightMode, linked)));
   }
 
   /** The linked shipments' commercial paperwork (Commercial Invoices and packing lists) in one ZIP, a folder per shipment. */
@@ -164,9 +166,10 @@ class MasterJobDocumentService {
   private async shipmentDocs(
     masterJob: { id: string; mczNumber: string },
     companyId: string,
-    download: ShipmentDocsDownload,
+    downloadOf: ShipmentDocsDownload | ((linked: readonly { freightMode: string | null }[]) => ShipmentDocsDownload),
   ): Promise<MasterJobDocumentsZip> {
     const linked = (await shipmentRepository.findByMasterJobId(masterJob.id, companyId)).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+    const download = typeof downloadOf === "function" ? downloadOf(linked) : downloadOf;
     // A cancelled house goes nowhere: its papers are not sent on with the others.
     const cancelled = linked.filter((s) => s.status === CANCELLED_STATUS);
     const shipments = linked.filter((s) => s.status !== CANCELLED_STATUS);

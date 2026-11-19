@@ -1,4 +1,5 @@
 import type { ColumnsType } from "antd/es/table";
+import { linesInvoicedCell } from "./lineCounts";
 import type { HTMLAttributes } from "react";
 import type { interfaces } from "@/lib/api/client";
 import { matchesGridFilters, type GridFilterColumn } from "@/components/gridFilters";
@@ -79,8 +80,11 @@ export function queueCellText(r: QueueRow, key: string, flagMissingLines: boolea
       if (r.invoiceNumbers.length > 0) return r.invoiceNumbers.join(", ");
       if (r.rowsToBill > 0) return `${r.rowsToBill} line${r.rowsToBill !== 1 ? "s" : ""}`;
       return "";
-    case "invoicedLines":
-      return r.sellingLines ? `${r.invoicedLines}/${r.sellingLines}` : "";
+    case "invoicedLines": {
+      // The cell's own text, "credit owed" too (M3), so a filter on it finds the jobs owing one.
+      const cell = linesInvoicedCell(r);
+      return cell ? [cell.count, cell.creditOwed ? "credit owed" : ""].filter(Boolean).join(" ") : "";
+    }
     case "invoicingStatus":
       return invoicingStatusOf(r);
     default:

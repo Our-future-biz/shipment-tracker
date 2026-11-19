@@ -13,6 +13,7 @@ import {
   buildOpsMoney,
   costAfterBillingSignals,
   costClaimSignals,
+  creditOwedSignals,
   creditSignals,
   currenciesWithoutRate,
   czkLabel,
@@ -136,6 +137,8 @@ const money = (shipmentId: string, over: Partial<Omit<JobMoney, "totals" | "supp
   shipmentId,
   notYetInvoiced: [],
   untickedSelling: [],
+  creditOwed: [],
+  lateChargeSince: null,
   sellingLines: 2,
   costLines: 2,
   invoicesRead: true,
@@ -150,6 +153,8 @@ const answered = (shipmentId: string, over: Partial<InvoicingMoneyJob> = {}): In
   shipmentId,
   notYetInvoiced: [],
   untickedSelling: [],
+  creditOwed: [],
+  lateChargeSince: null,
   sellingLines: 2,
   costLines: 2,
   totals: { ...QUIET_TOTALS, sellingCzk: 50_000, estimateCzk: 40_000, realCzk: 0, costCzk: 40_000 },
@@ -387,6 +392,32 @@ describe("not invoiced", () => {
     const m = money("a", { notYetInvoiced: [eur(5000)] });
     expect(words(inBillingSignals({ ...BILLING, status: "Billed [IMP]" }, m, at("2026-10-25"), NOW, []))).toEqual([["ATTENTION", "Billed since 25.10., 5,000.00 EUR not invoiced · with Invoicing"]]);
     expect(words(inBillingSignals({ ...BILLING, status: "Billing [EXP]" }, m, at("2026-10-25"), NOW, []))).toEqual([["ATTENTION", "In Billing since 25.10., 5,000.00 EUR not invoiced · with Invoicing"]]);
+  });
+
+  it("counts a charge added after invoicing from the later of the tax date and the day it was added (P16)", () => {
+    // Arrived 3 Oct, long past the tax date; the late charge was added on the 10th of November.
+    const old = { ...BILLING, actualArrival: "2026-10-03" };
+    const late = money("a", { notYetInvoiced: [eur(300)], lateChargeSince: "2026-11-10" });
+    expect(words(inBillingSignals(old, late, at("2026-11-12"), NOW, []))).toEqual([["ATTENTION", "In Billing since 12.11., 300.00 EUR not invoiced · with Invoicing"]]);
+    // 15 days after it was added: URGENT, and says when it was added.
+    const fifteen = new Date("2026-11-25T10:00:00Z");
+    expect(words(inBillingSignals(old, late, at("2026-11-13"), fifteen, []))).toEqual([
+      ["URGENT", "In Billing since 13.11., 300.00 EUR not invoiced · tax date 03.10. · added 10.11. · with Invoicing"],
+    ]);
+    // Added before the tax date: the tax date counts, as before.
+    expect(words(inBillingSignals({ ...BILLING, actualArrival: "2026-11-03" }, money("a", { notYetInvoiced: [eur(300)], lateChargeSince: "2026-11-01" }), at("2026-11-13"), NOW, []))).toEqual([
+      ["URGENT", "In Billing since 13.11., 300.00 EUR not invoiced · tax date 03.11. · with Invoicing"],
+    ]);
+  });
+
+  it("says a credit owed to the customer, on an invoiced job too, until a credit note gives it (Y1 / P1)", () => {
+    expect(words(creditOwedSignals(money("a", { creditOwed: [eur(50)] })))).toEqual([["ATTENTION", "Credit owed · 50.00 EUR · give it on a credit note"]]);
+    expect(creditOwedSignals(money("a", { creditOwed: [eur(50)] }))[0]).toMatchObject({ rank: MONEY_RANK.creditOwed, kind: "not_invoiced" });
+    expect(creditOwedSignals(money("a"))).toEqual([]);
+    expect(creditOwedSignals(money("a", { creditOwed: null }))).toEqual([]);
+    // Of Invoicing's answer: it is read like the work not yet invoiced.
+    expect(jobMoneyOf(answered("a", { creditOwed: [eur(50)], lateChargeSince: "2026-11-10" }), true)).toMatchObject({ creditOwed: [eur(50)], lateChargeSince: "2026-11-10" });
+    expect(jobMoneyOf(answered("a", { creditOwed: [eur(50)] }), false)).toMatchObject({ creditOwed: null, lateChargeSince: null });
   });
 
   it("is URGENT from the 15th day after the tax date, whoever's desk it is on (L7) - without waiting for the working days", () => {
@@ -651,6 +682,8 @@ describe("what Invoicing could not read", () => {
     expect(jobMoneyOf(job, true)).toEqual({
       notYetInvoiced: [eur(10)],
       untickedSelling: [eur(4)],
+      creditOwed: [],
+      lateChargeSince: null,
       sellingLines: 2,
       costLines: 2,
       totals: QUIET_TOTALS,

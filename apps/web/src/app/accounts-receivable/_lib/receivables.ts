@@ -181,7 +181,7 @@ export function customerOptions(rows: readonly ReceivableRow[], customers: reado
 
 // ── The operator's checks: rows of the Filter panel, so a saved filter set keeps them ──
 
-export type ReceivableCheck = "due_week" | "over_60" | "prepayment" | "to_refund" | "promise_passed";
+export type ReceivableCheck = "due_week" | "over_60" | "prepayment" | "to_refund" | "promise_passed" | "not_auto_reminded";
 
 export const RECEIVABLE_CHECKS: CheckDef<ReceivableCheck>[] = [
   { key: "due_week", label: "Due this week", tip: "Still owed, due today or in the next 7 days" },
@@ -190,7 +190,21 @@ export const RECEIVABLE_CHECKS: CheckDef<ReceivableCheck>[] = [
   { key: "to_refund", label: "To refund", tip: "Credited after it was paid: we owe the customer the difference (D14)" },
   // Mock test council m6: the broken promises, to chase again.
   { key: "promise_passed", label: "Promise passed", tip: "Still owed after the day the customer promised to pay by" },
+  // Mock test council P18: what the automatic reminders never take, to chase by hand.
+  {
+    key: "not_auto_reminded",
+    label: "Not reminded by the app",
+    tip: "Still owed and due before the day the app's automatic reminders started (all of them while those are off): chase these by hand",
+  },
 ];
+
+/**
+ * Not reminded by the app (P18): still owed and due before the day the automatic reminders start - every owed one while
+ * they are off or no day is set yet (`since` null). The app's own rule moves a due day on a weekend or holiday to the
+ * next working day; this list does not, so an invoice due on the weekend just before the day may still be reminded.
+ */
+export const notAutoReminded = (r: Pick<ReceivableRow, "status" | "leftToPay" | "dueDate">, since: string | null | undefined): boolean =>
+  isOwed(r) && (!since || r.dueDate < since);
 
 export const checkLabel = (key: ReceivableCheck): string => RECEIVABLE_CHECKS.find((c) => c.key === key)!.label;
 
@@ -213,7 +227,7 @@ export const isDueThisWeek = (r: Pick<ReceivableRow, "status" | "leftToPay" | "d
 /** Over 60 days, as the tile counts it: still owed and more than 60 days past due. */
 export const isOver60 = (r: Pick<ReceivableRow, "status" | "leftToPay" | "daysOverdue">): boolean => isOwed(r) && r.daysOverdue > 60;
 
-export function passesCheck(r: ReceivableRow, check: ReceivableCheck, today: string): boolean {
+export function passesCheck(r: ReceivableRow, check: ReceivableCheck, today: string, autoRemindersSince: string | null = null): boolean {
   switch (check) {
     case "due_week":
       return isDueThisWeek(r, today);
@@ -225,6 +239,8 @@ export function passesCheck(r: ReceivableRow, check: ReceivableCheck, today: str
       return r.marks.includes("to_refund");
     case "promise_passed":
       return isOwed(r) && r.marks.includes("promise_broken");
+    case "not_auto_reminded":
+      return notAutoReminded(r, autoRemindersSince);
     default:
       return false;
   }
@@ -394,16 +410,40 @@ export const onPrepayment = (r: Pick<ReceivableRow, "marks">): boolean => r.mark
  * Why the payment can't be noted as typed, or "" (the server's paymentProblem, for the form's fields). An invoice on
  * prepayment (`prepayment`) may be paid before the day it was issued, never after today.
  */
-export function paymentProblem(input: { day: string; amountText: string; today: string; issueDate: string; leftToPay: number; currency: string; prepayment?: boolean }): string {
+export function paymentProblem(input: {
+  day: string;
+  amountText: string;
+  today: string;
+  issueDate: string;
+  leftToPay: number;
+  currency: string;
+  prepayment?: boolean;
+  /** Issued again after a credit note (Y2): the replaced invoice's issue day, a payment may be from then on */
+  issuedAgainFrom?: string | null;
+}): string {
   if (!input.day) return "Pick the day it was paid";
   if (input.day > input.today) return "The day it was paid cannot be after today";
-  if (input.day < input.issueDate && !input.prepayment) return `The day it was paid cannot be before the invoice was issued (${formatDate(input.issueDate)})`;
+  const from = earliestPaidOn(input);
+  if (from && input.day < from) {
+    return from < input.issueDate
+      ? `The day it was paid cannot be before the invoice this one replaces was issued (${formatDate(from)})`
+      : `The day it was paid cannot be before the invoice was issued (${formatDate(input.issueDate)})`;
+  }
   const amount = parseMoney(input.amountText);
   if (!input.amountText.trim()) return "Give the amount paid";
   if (amount === null) return "The amount must be a number with at most 2 decimals";
   if (amount <= 0) return "The amount must be above 0";
   if (round2(amount) > round2(input.leftToPay)) return `More than is left to pay (${round2(input.leftToPay).toFixed(2)} ${input.currency})`;
   return "";
+}
+
+/**
+ * The first day a payment may be noted on (the server's rule): the issue day; none on prepayment; for an invoice issued
+ * again after a credit note, the day the invoice it replaces was issued (mock test council Y2).
+ */
+export function earliestPaidOn(input: { issueDate: string; prepayment?: boolean; issuedAgainFrom?: string | null }): string | null {
+  if (input.prepayment) return null;
+  return input.issuedAgainFrom && input.issuedAgainFrom < input.issueDate ? input.issuedAgainFrom : input.issueDate;
 }
 
 /** The amount the form starts with: the whole of what is left to pay, so the common case is one click (D12). */
@@ -955,3 +995,38 @@ export function receivableTools(canAct: boolean): { key: string; label: string }
 
 /** A bank statement opened on the Bank statements page (managers only). */
 export const bankStatementHref = (statementId: string): string => `/accounts-receivable/bank?statement=${encodeURIComponent(statementId)}`;
+
+// ── The bell (D18) ──
+
+/**
+ * The bell's line under an Accounts Receivable notice: the job, what is left to pay, and - an overdue one a payment on a
+ * bank statement may be for (mock test council X5, n1) - that it may be waiting, so nobody chases a customer who paid.
+ */
+export function receivableNoticeText(n: { jobNumber: string; milestone: string; leftToPay: number; currency: string; paymentWaiting?: boolean }): string {
+  const overdue = n.milestone !== "paid";
+  return [n.jobNumber, overdue ? `${formatAmount(n.leftToPay, n.currency)} left to pay` : "", overdue && n.paymentWaiting ? "a payment may be waiting on a bank statement" : ""]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+// ── Taking a payment back (mock test council P8) ──
+
+export type TakeBackKind = "mistake" | "reversed";
+
+/**
+ * Why a take-back can't be sent yet, or "" (the server checks it again): a reason; a reversal (a bank return or a
+ * refund) needs the day the money went back - not before it was paid, not after today.
+ */
+export function takeBackFormProblem(f: { reason: string; kind: TakeBackKind; reversedOn: string; paidOn: string | null; today: string }): string {
+  if (!reasonOk(f.reason)) return "Say why it is taken back";
+  if (f.kind === "mistake") return "";
+  if (!f.reversedOn) return "Give the day the payment went back";
+  if (f.reversedOn > f.today) return "The day it went back cannot be after today";
+  if (f.paidOn && f.reversedOn < f.paidOn) return `The day it went back cannot be before it was paid (${formatDate(f.paidOn)})`;
+  return "";
+}
+
+/** How a line taken back reads in the drawer: "Taken back: noted by mistake" or "Reversed on 12.11.2026". */
+export function takenBackText(t: { kind?: string | null; reversedOn?: string | null }): string {
+  return t.kind === "reversed" && t.reversedOn ? `Reversed on ${formatDate(t.reversedOn)}` : "Taken back: noted by mistake";
+}

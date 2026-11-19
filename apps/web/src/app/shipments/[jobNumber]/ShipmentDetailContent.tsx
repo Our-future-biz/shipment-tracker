@@ -63,7 +63,7 @@ import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsProcedureRow } from "./_components/CustomsProcedureRow";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
+import { ApprovedByLockedContext, CancelOfferedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -93,7 +93,7 @@ import {
 } from "@/styles/ui";
 import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
 import { CancelReasonDialog } from "../_components/CancelReasonDialog";
-import { asksCancelReason, cancelUpdate, isCancelled } from "../_components/cancelReason";
+import { asksCancelReason, cancelOffered, cancelUpdate, isCancelled } from "../_components/cancelReason";
 import { CANCELLED_STATUS } from "@/lib/enums";
 import { HistoryTab } from "./tabs/HistoryTab";
 import { CONTAINER_PARAM, containerToShow } from "../_lib/containerLink";
@@ -111,8 +111,10 @@ import {
   WarningConfirm,
 } from "@/components/finance/ReleasePaymentWarning";
 import { CreditWarningLines, useCreditWarningView } from "@/components/finance/CreditWarning";
+import { JobDismissedCutoffs } from "@/app/shipments/managers/_components/JobDismissedCutoffs";
 import {
   overrideReasonOk,
+  RELEASED_FIELD,
   RELEASE_ON_APPROVAL_LABEL,
   RELEASE_ON_APPROVAL_NOTE,
   releasedOnApproval,
@@ -1133,8 +1135,14 @@ export function ShipmentDetailContent() {
   // the release goes through on it, for whoever makes it - nothing is stopped, and no reason is asked for.
   // Read when the dialog opens and every 30 seconds while it is open.
   const { pass: releasePass, read: passRead } = useReleasePass(shipment?.id, "house_bol", releaseOpen && !shipment?.houseBolRelease);
-  // The check says the job is held for prepayment (not paid): the server stops the release - unless an approval stands.
-  const releaseHeld = releaseCheck.state === "warn" && releaseStopLikely(releaseCheck.check);
+  // The check says the job is held for prepayment (not paid, or not invoiced yet): the server stops the release -
+  // unless an approval stands. Asked of the check itself (mock test council n6), not only of a warning it shows: a
+  // job held with nothing invoiced has no unpaid invoice to warn of, and the manager's reason box shows up front
+  // rather than after a refused click. Only an answer read since the dialog opened counts (useReleaseCheckState).
+  const releaseHeld = releaseStopLikely(releaseCheck.check);
+  // The same for Warehouse Released set by hand on this page: read for a manager while it is empty, so a release
+  // the stop will hold asks for the reason first (ReleasedStopDialog) instead of after the server refused it.
+  const warehouseCheck = useReleaseCheckState(shipment?.id, canOverrideStop && !!shipment && !(shipment.warehouseReleasedDate ?? "").trim());
   // Whether an approval stands is not read yet (for a short while only): "stopped" and the manager's reason
   // field wait for it, so neither shows for a moment over an approval. Not read at all, the stop is said as it is.
   const passChecking = releaseHeld && passRead === "checking";
@@ -1292,8 +1300,21 @@ export function ShipmentDetailContent() {
   const detailsEditable = canChangeShipmentDetails(user, shipment);
   // Warehouse Released stopped for prepayment (step 7) opens a dialog: the server's sentence, and for a manager a
   // reason to send the same edit again with.
-  const commitField: CommitFn = (fieldKey, value, links) =>
+  const commitField: CommitFn = (fieldKey, value, links) => {
+    // A manager setting Warehouse Released on a job the stop will hold: the reason is asked first (n6), then the
+    // same edit goes with it. Anyone else sends it, and hears the server's stop as before.
+    const releasing = fieldKey === RELEASED_FIELD && !!value.trim() && !(shipment.warehouseReleasedDate ?? "").trim();
+    if (releasing && canOverrideStop && releaseStopLikely(warehouseCheck.check)) {
+      setReleasedStop({
+        stop: { kind: "unpaid", message: releaseStopNote(true) },
+        resend: (reason) =>
+          updateShipment({ id: shipment.id, data: { ...links, warehouseReleasedDate: value, ...(reason ? { paymentOverrideReason: reason } : {}) } }).then(() => undefined),
+        ahead: true,
+      });
+      return;
+    }
     updateField(shipment.id, fieldKey, value, shipment, links, { onReleaseStop: (stop, resend) => setReleasedStop({ stop, resend }) });
+  };
   // Setting the status to Cancelled Shipment asks why first (D22): the status and the reason then go in one write.
   const handleCommit: CommitFn = (fieldKey, value, links) =>
     asksCancelReason(fieldKey, value, shipment.status) ? setCancelAsk("cancel") : commitField(fieldKey, value, links);
@@ -1786,6 +1807,8 @@ export function ShipmentDetailContent() {
                   actualDeparture: <TaxDateLockNote shipmentId={shipment.id} />,
                   actualArrival: <TaxDateLockNote shipmentId={shipment.id} />,
                   plannedDeliveryDate: <TaxDateLockNote shipmentId={shipment.id} whenDeliveryDated />,
+                  // A manager takes back a dismissed missed cut-off here too, not only from the audit line (council P13).
+                  closingDate: <JobDismissedCutoffs shipmentId={shipment.id} jobNumber={shipment.jobNumber} className="mt-1" />,
                 }}
               />
 
@@ -1963,7 +1986,11 @@ export function ShipmentDetailContent() {
                         const containerId = shipment.containers?.find((c) => c.id)?.id ?? null;
                         updateShipment({
                           id: shipment.id,
-                          data: { cargoDimensions: withShipmentStackability(shipment.cargoDimensions ?? [], stackable, containerId) },
+                          // Held to the lines it was worked out from, as Cargo Details' own saves are (Y10).
+                          data: {
+                            cargoDimensions: withShipmentStackability(shipment.cargoDimensions ?? [], stackable, containerId),
+                            expectedCargoDimensions: shipment.cargoDimensions ?? [],
+                          },
                         }).catch((err) => toast.error(apiErrorMessage(err)));
                       }}
                     />
@@ -2185,7 +2212,10 @@ export function ShipmentDetailContent() {
           <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>
             <ShipmentEmailSubjectContext.Provider value={shipmentEmailSubject(shipment)}>
               <ApprovedByLockedContext.Provider value={isApprovedByLocked(user, shipment)}>
-                <CreditCheckLockedContext.Provider value={isCreditCheckLocked(user, shipment)}>{page}</CreditCheckLockedContext.Provider>
+                <CreditCheckLockedContext.Provider value={isCreditCheckLocked(user, shipment)}>
+                  {/* A user is not offered Cancelled Shipment on a job that reads Invoiced (the server refuses it). */}
+                  <CancelOfferedContext.Provider value={cancelOffered(user?.role, shipment.invoicingStatus)}>{page}</CancelOfferedContext.Provider>
+                </CreditCheckLockedContext.Provider>
               </ApprovedByLockedContext.Provider>
             </ShipmentEmailSubjectContext.Provider>
           </ShipmentCustomerPicContext.Provider>

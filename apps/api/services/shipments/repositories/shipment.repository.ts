@@ -181,7 +181,11 @@ const DATE_MOVED_LATELY = sql`EXISTS (
 // (X8): its notice deadline and suit time bar run on after the job is billed or cancelled. The
 // Claim field alone would not do - an open claim on costs says Yes too, and Accounts Payable raises
 // those on invoiced jobs - so it is asked of the claims themselves, by the statuses
-// shipmentClaimRepository.openCargoClaimsByShipmentIds reads (lib/cargoClaim isOpenClaim).
+// shipmentClaimRepository.openCargoClaimsByShipmentIds reads (lib/cargoClaim isOpenClaim). A row
+// added with "+" and never filled in is no claim (n21): it is asked to have something filled in,
+// by the same test as the Claim field (shipmentClaimRepository syncShipmentFlag) - the claims'
+// tags skip such a row too (lib/managersCockpitClaims claimFactsByJob), and without the test a
+// blank row kept an invoiced job on the page with no tag to say why.
 const HAS_OPEN_CARGO_CLAIM = sql`EXISTS (
   SELECT 1 FROM ${shipmentClaimTable} cargo_claim
   WHERE cargo_claim.shipment_id = ${shipmentTable.id}
@@ -189,6 +193,8 @@ const HAS_OPEN_CARGO_CLAIM = sql`EXISTS (
     AND cargo_claim.deleted_at IS NULL
     AND cargo_claim.kind = 'cargo'
     AND cargo_claim.status IN ('open', 'notified', 'with_insurer')
+    AND (btrim(cargo_claim.cargo_state || cargo_claim.note || cargo_claim.supplier || cargo_claim.invoice_number || cargo_claim.reason || cargo_claim.amount || cargo_claim.claim_currency) <> ''
+      OR cargo_claim.supplier_invoice_id IS NOT NULL OR cargo_claim.claim_amount IS NOT NULL)
 )`;
 
 // The jobs Shipments → Managers shows for a claim: an active one whose Claim field says Yes, and one
@@ -1279,7 +1285,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    * crowd out the invoiced ones, and the rows come the newest first. One statement - both groups
    * from one snapshot, so no job is read in both - and it judges nothing.
    */
-  async managersMoneyRows(companyId: string, invoicedSince: string, limits: { active: number; invoiced: number }) {
+  async managersMoneyRows(companyId: string, invoicedSince: string, limits: { active: number; invoiced: number }, creditOwedIds: readonly string[] = []) {
     const taxDate = sql`CASE
       WHEN ${IS_DELIVERY_DATED} THEN ${shipmentTable.actualDeliveryDate}
       WHEN lower(${shipmentTable.tradeDirection}) = 'export' THEN ${shipmentTable.actualDeparture}
@@ -1360,8 +1366,14 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), which))
         .orderBy(...newestFirst())
         .limit(limit);
-    // The union's own order goes by the columns it hands out; the caller tells the two groups apart by Invoicing Status.
-    return unionAll(group(ACTIVE, limits.active), group(invoicedLately, limits.invoiced)).orderBy(...newestFirst());
+    // The invoiced jobs that owe their customer a credit (Invoicing names them, M3), however long ago they were
+    // invoiced: a credit owed leaves a job Invoiced, so past the lookback it would show nowhere. All of them, beside
+    // the lately invoiced ones (whose own limit they do not take).
+    const owedEarlier = creditOwedIds.length ? and(INVOICED, NOT_CANCELLED, inArray(shipmentTable.id, [...creditOwedIds]), sql`NOT ${invoicedLately}`) : null;
+    // The union's own order goes by the columns it hands out; the caller tells the groups apart by Invoicing Status.
+    const active = group(ACTIVE, limits.active);
+    const lately = group(invoicedLately, limits.invoiced);
+    return (owedEarlier ? unionAll(active, lately, group(owedEarlier, creditOwedIds.length)) : unionAll(active, lately)).orderBy(...newestFirst());
   }
 
   /**

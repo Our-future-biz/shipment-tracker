@@ -3,10 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
 import {
+  chargeChanged,
+  chargeKindOf,
   declaredFigures,
   differenceText,
   dimensionFigures,
   dimensionFiguresFilled,
+  informedCharge,
   informedSource,
   remeasureNotice,
   remeasureVerdict,
@@ -95,9 +98,58 @@ describe("how the remeasured figures stand to the shipment's", () => {
     expect(differenceText(declared, { ...declared })).toBe("");
   });
 
-  it("is unknown when no figure is known on both sides", () => {
-    expect(remeasureVerdict({ colli: 0, weightKg: 0, volumeCbm: 0 }, found)).toBe("unknown");
+  it("is unknown when no figure is known on both sides and nothing new changes the charge", () => {
     expect(remeasureVerdict(declared, { colli: 0, weightKg: 0, volumeCbm: 0 })).toBe("unknown");
+    // A Full Load charged per container, the shipment with no figures at all.
+    expect(remeasureVerdict({ colli: 0, weightKg: 0, volumeCbm: 0 }, found, "warehouse", "container")).toBe("unknown");
+  });
+
+  // Mock test council Y9: CZ job of 5 pcs and 1,000 kg with no volume; the warehouse measured 4.8 m³.
+  describe("a figure only the remeasurement has", () => {
+    const ship = { colli: 5, weightKg: 1000, volumeCbm: 0 };
+    const re = { colli: 5, weightKg: 1000, volumeCbm: 4.8 };
+
+    it("differs when it changes W/M (1.000 → 4.800) - an Alert - and says what it adds", () => {
+      expect(remeasureVerdict(ship, re, "warehouse", "wm")).toBe("differs");
+      expect(differenceText(ship, re)).toBe("volume +4.800 CBM");
+      expect(remeasureNotice({}, [], ship, re, "", "warehouse", "wm").message).toContain("Difference: volume +4.800 CBM");
+    });
+
+    it("differs on an air job when it changes the chargeable weight, and matches when the gross weight still rules", () => {
+      // 4.8 m³ is 800 kg volumetric: 1,000 kg stays chargeable.
+      expect(remeasureVerdict(ship, re, "warehouse", "air")).toBe("matches");
+      expect(remeasureNotice({}, [], ship, re, "", "warehouse", "air").message).toContain("New: volume +4.800 CBM - the shipment values had none; the charge stays the same.");
+      expect(remeasureVerdict(ship, { ...re, volumeCbm: 7.2 }, "warehouse", "air")).toBe("differs");
+    });
+
+    it("is no difference on a Full Load charged per container, and either charge counts when the job's is not known", () => {
+      expect(remeasureVerdict(ship, re, "warehouse", "container")).toBe("matches");
+      expect(remeasureVerdict(ship, re)).toBe("differs");
+      expect(chargeChanged(ship, { ...re, volumeCbm: 0.5 })).toBe(false);
+    });
+
+    it("differs on a shipment with no figures at all, whatever it is charged by", () => {
+      const none = { colli: 0, weightKg: 0, volumeCbm: 0 };
+      expect(remeasureVerdict(none, found, "warehouse", "wm")).toBe("differs");
+      expect(remeasureVerdict(none, found, "warehouse", "air")).toBe("differs");
+      expect(remeasureVerdict(none, found)).toBe("differs");
+    });
+
+    it("from Warehouse Concept, counts when it moves the charge by more than the tolerance", () => {
+      expect(remeasureVerdict(ship, re, "warehouseConcept", "wm")).toBe("differs");
+      expect(remeasureVerdict(ship, { ...re, volumeCbm: 1.04 }, "warehouseConcept", "wm")).toBe("matches");
+    });
+  });
+
+  it("knows what a job is charged by: rail Full Load per container as sea Full Load (P18)", () => {
+    expect(chargeKindOf("Air Freight", "Full Load")).toBe("air");
+    expect(chargeKindOf("Sea Freight", "Full Load")).toBe("container");
+    expect(chargeKindOf(" rail freight ", "full load")).toBe("container");
+    expect(chargeKindOf("Sea Freight", "Part Load")).toBe("wm");
+    expect(chargeKindOf("Road Freight", "Full Load")).toBe("wm");
+    expect(informedCharge(JSON.stringify({ charge: "air" }))).toBe("air");
+    expect(informedCharge(JSON.stringify({ colli: 1 }))).toBeUndefined();
+    expect(informedCharge("nonsense")).toBeUndefined();
   });
 
   it("is said in the chat message", () => {

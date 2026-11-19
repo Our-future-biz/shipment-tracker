@@ -510,7 +510,8 @@ describe("the list's tile filters", () => {
   const ACTIVE = `"shipment"."invoicing_status" IS DISTINCT FROM 'Invoiced' AND "shipment"."status" IS DISTINCT FROM $1`;
 
   // Review: an open claim on costs sets the Claim field too, and Accounts Payable raises those on
-  // invoiced jobs - a job no longer active is the managers' for an open cargo claim only.
+  // invoiced jobs - a job no longer active is the managers' for an open cargo claim only. n21: one
+  // with something filled in, by the Claim field's own test - a row added with "+" is no claim.
   const OPEN_CARGO_CLAIM = `EXISTS (
   SELECT 1 FROM "shipment_claim" cargo_claim
   WHERE cargo_claim.shipment_id = "shipment"."id"
@@ -518,6 +519,8 @@ describe("the list's tile filters", () => {
     AND cargo_claim.deleted_at IS NULL
     AND cargo_claim.kind = 'cargo'
     AND cargo_claim.status IN ('open', 'notified', 'with_insurer')
+    AND (btrim(cargo_claim.cargo_state || cargo_claim.note || cargo_claim.supplier || cargo_claim.invoice_number || cargo_claim.reason || cargo_claim.amount || cargo_claim.claim_currency) <> ''
+      OR cargo_claim.supplier_invoice_id IS NOT NULL OR cargo_claim.claim_amount IS NOT NULL)
 )`;
 
   it("claims: an active job with a claim, and an Invoiced or cancelled one with an open cargo claim (X8) - the jobs Shipments → Managers counts under Open claims", () => {

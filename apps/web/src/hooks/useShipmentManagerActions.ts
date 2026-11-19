@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { invalidateShipmentDerivedViews } from "@/hooks/useShipments";
@@ -42,26 +42,43 @@ export const useHandOver = () => {
 /**
  * X9 (K18): a person's active jobs by Handled By - quiet ones too, not only those on the cards - for "Hand over all
  * N active jobs…" on a Team row: at most 200 (one hand-over), with how many there are in all. `mode` / `direction`
- * as the Team tab shows them. Read each time the dialog opens: the jobs change all day.
+ * as the Team tab shows them. Read each time the dialog opens: the jobs change all day. `as: "holidayCover"`: the
+ * jobs the person covers ("Replace as Holiday Cover…", P12). Once the dialog's new Handled By or Holiday Cover is
+ * chosen (`to`), only the jobs it would change are listed (n25), the last list shown while the next is read.
  */
-export const useHandOverJobs = (handledBy: string | null, filter: { mode: string; direction: string }) => {
-  const asked = (handledBy ?? "").trim().toLowerCase();
+export const useHandOverJobs = (
+  person: string | null,
+  filter: { mode: string; direction: string },
+  opts: { as?: "handledBy" | "holidayCover"; to?: { handledBy: string | null; holidayCover: string | null } | null } = {},
+) => {
+  const asked = (person ?? "").trim().toLowerCase();
+  const as = opts.as ?? "handledBy";
+  const to = opts.to ?? null;
   const query = useQuery({
     // Not under the cockpit's key: the hand-over reads the cockpit again, and the open dialog keeps the list it showed.
-    queryKey: ["shipments-hand-over-jobs", asked, filter.mode, filter.direction],
+    queryKey: ["shipments-hand-over-jobs", as, asked, filter.mode, filter.direction, to?.handledBy ?? null, to?.holidayCover ?? null],
     queryFn: () =>
       api.shipments.shipmentHandOverJobs({
-        handledBy: asked,
+        ...(as === "holidayCover" ? { coveredBy: asked } : { handledBy: asked }),
         ...(filter.mode !== "all" ? { mode: filter.mode } : {}),
         ...(filter.direction !== "all" ? { direction: filter.direction } : {}),
+        ...(to?.handledBy ? { toHandledBy: to.handledBy } : {}),
+        ...(to && to.holidayCover !== null ? { toHolidayCover: to.holidayCover } : {}),
       }),
     enabled: !!asked,
+    placeholderData: keepPreviousData,
     staleTime: Infinity,
     gcTime: 0,
     retry: 1,
     refetchOnWindowFocus: false,
   });
-  return { listed: query.data ?? null, isLoading: !!asked && query.isLoading, isError: query.isError && !query.data };
+  return {
+    listed: query.data ?? null,
+    isLoading: !!asked && query.isLoading,
+    /** A list for the chosen hand-over is being read; the one shown is the last. */
+    isRelisting: query.isPlaceholderData && query.isFetching,
+    isError: query.isError && !query.data,
+  };
 };
 
 /** D17: a to-do on the job and a chat line that tags its Handled By and Holiday Cover. */

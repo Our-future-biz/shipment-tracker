@@ -8,6 +8,7 @@ import { truckingLinesRepository } from "../repositories/truckingLines.repositor
 import { sameCostCodes } from "../utils/truckingLines.utils";
 import { assertNotKeptByTrucking, buyingChanges } from "./invoicing.service";
 import { supplierInvoiceService } from "./supplierInvoice.service";
+import { statusesFollow } from "./sellingStatusFollow";
 import { supplierInvoiceRepository } from "../repositories/supplierInvoice.repository";
 import { housesInSplit, masterJobRef, splitLine, splitWeights, type SplitHouse } from "../lib/masterJobSplit";
 import { lineVsEstimate, totalVsEstimate, type LineVsEstimate } from "../lib/masterJobVsEstimate";
@@ -246,10 +247,25 @@ class MasterJobCostService {
     return this.view(companyId, masterJobId);
   }
 
-  /** A shipment that left the master job, or was deleted, carries none of its costs: only that is written without processing. */
+  /**
+   * A shipment that left the master job, or was deleted, carries none of its costs: only that is
+   * written without processing. The statuses of a shipment whose selling rows were taken away follow
+   * (n9), sent once the write is done.
+   */
   async dropSharesOfLeftShipments(companyId: string, masterJobId: string): Promise<void> {
     assertMasterJobId(masterJobId);
-    await masterJobCostRepository.dropSplitRowsOutside(companyId, masterJobId, async () => (await housesOf(masterJobId)).map((h) => h.shipmentId));
+    const follows: ReturnType<typeof statusesFollow>[] = [];
+    await masterJobCostRepository.dropSplitRowsOutside(
+      companyId,
+      masterJobId,
+      async () => (await housesOf(masterJobId)).map((h) => h.shipmentId),
+      (shipmentId) => {
+        const follow = statusesFollow(companyId, shipmentId);
+        follows.push(follow);
+        return follow.afterSet;
+      },
+    );
+    for (const follow of follows) await follow.deliver();
   }
 }
 

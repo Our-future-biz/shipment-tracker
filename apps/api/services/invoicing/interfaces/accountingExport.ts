@@ -72,4 +72,6 @@ export interface AccountingExportFileResponse {
   /** Equal to the recorded SHA-256 (the file is refused otherwise) */
   fileSha256: string;
   documents: number;
+  /** One per recorded document cancelled since the export was made (it is still in the file): remove it in Pohoda (n4) */
+  warnings: string[];
 }

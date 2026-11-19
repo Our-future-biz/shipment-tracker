@@ -40,6 +40,17 @@ export function handOverChange(job: { personInCharge: string; holidayCover: stri
   return Object.keys(change).length ? change : null;
 }
 
+/**
+ * The hand-over's target as the list of jobs to hand over takes it (n25), read as a hand-over reads its
+ * request: a Handled By left out or "" leaves it, a Holiday Cover left out leaves it and "" clears it. Null
+ * when it names neither. Not checked against the users: the list only narrows, the hand-over checks.
+ */
+export function listTarget(to: { handledBy?: string; holidayCover?: string } | undefined): HandOverTarget | null {
+  const handledBy = personEmail(to?.handledBy) || null;
+  const holidayCover = to?.holidayCover === undefined ? null : personEmail(to.holidayCover);
+  return handledBy === null && holidayCover === null ? null : { handledBy, holidayCover };
+}
+
 const who = (value: string) => value.trim() || "nobody";
 
 /**

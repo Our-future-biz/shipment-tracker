@@ -48,6 +48,9 @@ const repo = vi.hoisted(() => ({
   chase: vi.fn(),
   addNote: vi.fn(),
   settingsOf: vi.fn(),
+  setAutoRemindersSinceIfMissing: vi.fn(async () => true),
+  noteRemindersSkipped: vi.fn(async () => undefined),
+  clearRemindersSkipped: vi.fn(async () => undefined),
 }));
 vi.mock("../../repositories/receivable.repository", () => ({ receivableRepository: repo }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
@@ -86,13 +89,19 @@ vi.mock("~encore/clients", () => ({
   holidays: { _internalHolidaysCzNational: clients.czHolidays },
 }));
 // The open bank entries: a payment that may be for an overdue invoice holds its reminder (X5).
-const bank = vi.hoisted(() => ({ openIncoming: vi.fn() }));
+const bank = vi.hoisted(() => ({
+  openIncoming: vi.fn(),
+  reopenedIncoming: vi.fn(async () => [] as unknown[]),
+  takenBackKinds: vi.fn(async () => ({ takenBack: new Set<string>(), reversed: new Set<string>() })),
+  lastImportAt: vi.fn(async () => null as Date | null),
+}));
 vi.mock("../../repositories/bankStatement.repository", () => ({ bankStatementRepository: bank }));
 const users = vi.hoisted(() => ({ userEmailOf: vi.fn() }));
 vi.mock("../../../../lib/companyUsers", () => users);
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+import log from "encore.dev/log";
 import { AUTOMATIC, EMAIL_OFF, NEVER_FINISHED, receivableMailService as service } from "../../services/receivableMail.service";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -202,7 +211,7 @@ describe("automatic reminders", () => {
   it("does nothing at all while e-mail from the app is switched off", async () => {
     mail.configured = false;
     overdue(figures());
-    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
     expect(mails.companiesWithAutoReminders).not.toHaveBeenCalled();
     expect(repo.figures).not.toHaveBeenCalled();
     expect(mail.calls).toHaveLength(0);
@@ -213,7 +222,7 @@ describe("automatic reminders", () => {
   it("does nothing for a company whose settings say off", async () => {
     repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoReminders: false });
     overdue(figures());
-    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
     expect(repo.figures).not.toHaveBeenCalled();
     expect(mail.calls).toHaveLength(0);
     expect(store.rows).toHaveLength(0);
@@ -221,9 +230,9 @@ describe("automatic reminders", () => {
 
   it("sends reminder 1 at reminder1Days overdue and records it as a person's reminder, by the automatic run", async () => {
     overdue(figures());
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 1, failed: 0, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 1, failed: 0, skipped: 0, skippedCompanies: 0 });
     // Only what is due around or after the switch-on day (1 Jan) is read: 14 days earlier, for a due day moved past a weekend or holiday.
-    expect(repo.figures).toHaveBeenCalledWith(COMPANY, { overdueOn: TODAY, dueFrom: "2025-12-18" }, 2000);
+    expect(repo.figures).toHaveBeenCalledWith(COMPANY, { overdueOn: TODAY, dueFrom: "2025-12-18", remindable: true }, 2001);
     // The customers service is asked as the company (the run has no login).
     expect(clients.receivableFacts).toHaveBeenCalledWith({ ids: [CUSTOMER] }, { authData: expect.objectContaining({ companyID: COMPANY }) });
     expect(mail.calls).toHaveLength(1);
@@ -255,7 +264,7 @@ describe("automatic reminders", () => {
 
   it("sends nothing before reminder1Days", async () => {
     overdue(figures({ dueDate: "2026-11-12" }));
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(0);
   });
 
@@ -286,12 +295,12 @@ describe("automatic reminders", () => {
       // Paid more than it was: to refund, not owed.
       figures({ id: ids[2] }, {}, { paid: 1300 }),
     );
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(0);
 
     clients.receivableFacts.mockResolvedValue(facts({ reminderTo: null }));
     overdue(figures());
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(0);
     expect(store.rows).toHaveLength(0);
     expect(repo.chase).not.toHaveBeenCalled();
@@ -299,7 +308,7 @@ describe("automatic reminders", () => {
 
   it("sends none while a write-off waiting for a second manager covers what is left", async () => {
     overdue({ ...figures(), waiting: 1210 });
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(0);
     // One that covers only part of it: the reminder goes.
     overdue({ ...figures(), waiting: 200 });
@@ -308,7 +317,7 @@ describe("automatic reminders", () => {
 
   it("waits with an invoice Accounts Receivable has not read yet (its old Paid not carried over)", async () => {
     overdue(figures({}, null), figures({ id: "5d0c7a1e-3b2f-4e6d-9a8c-1f2e3d4c5b09" }, { carriedChecked: false }));
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 2 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 2, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(0);
   });
 
@@ -316,7 +325,7 @@ describe("automatic reminders", () => {
     overdue(figures());
     await service.runReminders(NOW);
     // The figures as read still say no reminder (as if its note was not seen): the key holds it.
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(1);
     expect(store.rows).toHaveLength(1);
     expect(repo.addNote).toHaveBeenCalledTimes(1);
@@ -333,7 +342,7 @@ describe("automatic reminders", () => {
   it("writes a failed row and no reminder note when the provider refuses it, and tries again on a later run", async () => {
     mail.result = { sent: false, error: "The e-mail provider refused the message (422)", providerId: "" };
     overdue(figures());
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 1, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 1, skipped: 0, skippedCompanies: 0 });
     expect(store.rows).toEqual([expect.objectContaining({ status: "failed", error: "The e-mail provider refused the message (422)", reminderLevel: 1, idempotencyKey: `reminder:${INV}:1:failed:mail-1` })]);
     expect(repo.chase).not.toHaveBeenCalled();
     expect(repo.addNote).not.toHaveBeenCalled();
@@ -374,7 +383,7 @@ describe("automatic reminders", () => {
   it("waits when the Customer Database can't be read", async () => {
     clients.receivableFacts.mockRejectedValue(new Error("down"));
     overdue(figures());
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(0);
   });
 
@@ -382,11 +391,11 @@ describe("automatic reminders", () => {
     overdue(figures({ dueDate: "2026-11-02" }));
     // Saturday 21 November, and the 17 November holiday.
     for (const day of ["2026-11-21T09:00:00Z", "2026-11-17T09:00:00Z"]) {
-      expect(await service.runReminders(new Date(day))).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0 });
+      expect(await service.runReminders(new Date(day))).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
     }
     expect(mails.companiesWithAutoReminders).not.toHaveBeenCalled();
     clients.czHolidays.mockResolvedValue({ dates: [TODAY] });
-    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
     expect(clients.czHolidays).toHaveBeenCalledWith({ from: "2026-09-19", to: "2027-01-17" }, { authData: expect.objectContaining({ companyID: COMPANY }) });
     expect(mail.calls).toHaveLength(0);
     // The company's holidays can't be read: the statutory ones and weekends only, so it goes.
@@ -399,9 +408,9 @@ describe("automatic reminders", () => {
     bank.openIncoming.mockResolvedValue([
       { statementId: "st-1", fileName: "vypis.xml", bookingDate: "2026-11-17", credit: true, amount: "1210.00", currency: "EUR", variableSymbol: "00000028", endToEndId: "", message: "" },
     ]);
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1, skippedCompanies: 0 });
     bank.openIncoming.mockRejectedValue(new Error("db down"));
-    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1, skippedCompanies: 0 });
     expect(mail.calls).toHaveLength(0);
     // An entry for another job's symbol holds nothing.
     bank.openIncoming.mockResolvedValue([
@@ -425,11 +434,54 @@ describe("automatic reminders", () => {
     repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoRemindersSince: "2026-11-02" });
     overdue(figures());
     await service.runReminders(NOW);
-    expect(repo.figures).toHaveBeenLastCalledWith(COMPANY, { overdueOn: TODAY, dueFrom: "2026-10-19" }, 2000);
+    expect(repo.figures).toHaveBeenLastCalledWith(COMPANY, { overdueOn: TODAY, dueFrom: "2026-10-19", remindable: true }, 2001);
     repo.figures.mockClear();
     repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoRemindersSince: null });
     expect(await service.runReminders(NOW)).toMatchObject({ sent: 0 });
     expect(repo.figures).not.toHaveBeenCalled();
+  });
+
+  it("sets the switch-on day on the first run that can send, and sends nothing that day (P3)", async () => {
+    repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoRemindersSince: null });
+    overdue(figures());
+    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0, skippedCompanies: 0 });
+    expect(repo.setAutoRemindersSinceIfMissing).toHaveBeenCalledWith(COMPANY, TODAY);
+    expect(repo.figures).not.toHaveBeenCalled();
+    expect(mail.calls).toHaveLength(0);
+    // With a day stored, nothing is set again.
+    repo.settingsOf.mockResolvedValue(SETTINGS);
+    repo.setAutoRemindersSinceIfMissing.mockClear();
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 1 });
+    expect(repo.setAutoRemindersSinceIfMissing).not.toHaveBeenCalled();
+  });
+
+  it("skips a company that read no bank statement since the previous working day; one that never read one reminds as before (P11)", async () => {
+    overdue(figures());
+    // 18 Nov 2026: the 17th is a Czech holiday, so the previous working day is Monday the 16th.
+    bank.lastImportAt.mockResolvedValue(new Date("2026-11-13T10:00:00Z"));
+    // Counted in the run's result, and kept for the settings page to say (m5).
+    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0, skippedCompanies: 1 });
+    expect(repo.noteRemindersSkipped).toHaveBeenCalledWith(COMPANY, TODAY, "2026-11-13");
+    expect(repo.figures).not.toHaveBeenCalled();
+    expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/^automatic reminders skipped today: no bank statement was read since the previous working day/), {
+      companyId: COMPANY,
+      lastImportDay: "2026-11-13",
+    });
+    bank.lastImportAt.mockResolvedValue(new Date("2026-11-16T10:00:00Z"));
+    repo.noteRemindersSkipped.mockClear();
+    expect(await service.runReminders(NOW)).toMatchObject({ companies: 1, sent: 1, skippedCompanies: 0 });
+    expect(repo.noteRemindersSkipped).not.toHaveBeenCalled();
+    // A run that goes ahead clears the earlier skip's note (round-4 review).
+    expect(repo.clearRemindersSkipped).toHaveBeenCalledWith(COMPANY);
+    store.rows = [];
+    bank.lastImportAt.mockResolvedValue(null);
+    expect(await service.runReminders(NOW)).toMatchObject({ companies: 1, sent: 1 });
+  });
+
+  it("says so in the log when more overdue invoices wait than one run reads (n3)", async () => {
+    repo.figures.mockResolvedValue(Array.from({ length: 2001 }, () => figures({}, {}, { paid: 1210 })));
+    await service.runReminders(NOW);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/more overdue invoices than one run reads/), { companyId: COMPANY, limit: 2000 });
   });
 
   it("counts a due day on a weekend as due the next working day", async () => {

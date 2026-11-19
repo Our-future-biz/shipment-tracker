@@ -171,6 +171,18 @@ export function notArrivedReason(m: Item, today: string, now: Date): string | nu
   return passed ? `Not arrived: expected ${dayText(passed)}` : null;
 }
 
+/**
+ * Expected and not arrived although its arrival day passed (mock test council P18): the shipment's ETA
+ * Warehouse/HUB, else its ETA (arrivalDay), before today with no gate-in - ATTENTION, not URGENT, as the ETA is a
+ * copy of the shipment's and may only be out of date; a slot, trip or ETW that passed is notArrivedReason's.
+ * Cargo going out (výdej) is not expected by an arrival day.
+ */
+export function arrivalPassedReason(m: Item, today: string): string | null {
+  if (m.status !== "Expected" || m.gateIn || m.visit === "výdej") return null;
+  const day = arrivalDay(m);
+  return day && day < today ? `Not arrived: expected ${dayText(day)}` : null;
+}
+
 function customsSignal(c: CustomsClockInfo): Signal | null {
   if (!customsDue(c) || c.daysLeft === null) return null;
   const d = c.daysLeft;
@@ -219,6 +231,10 @@ export function recordSignals(m: Item, today: string, now: Date, ctx: RecordCont
   // Time passed: something was due and did not happen.
   const notArrived = notArrivedReason(m, today, now);
   if (notArrived) out.push(urgent(notArrived, 50));
+  else {
+    const late = arrivalPassedReason(m, today);
+    if (late) out.push(attention(late, 360));
+  }
   const requested = lastEvent(m, "releaseRequested");
   if (requested && !m.armed && !m.impRelease) {
     const h = hoursSince(requested.at, now);

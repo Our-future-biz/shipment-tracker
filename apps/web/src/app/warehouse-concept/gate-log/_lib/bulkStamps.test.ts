@@ -36,7 +36,21 @@ describe("a bulk WH release in the Gate Log", () => {
   });
 
   it("names the skipped rows and says to open the job", () => {
-    expect(skippedText(["WCZ1", "WCZ2"], (r) => r)).toBe("WCZ1, WCZ2: held for payment - open the job to release it with a reason");
-    expect(skippedText(["A", "B", "C", "D", "E", "F", ""], (r) => r)).toBe("A, B, C, D, E, … and 2 more: held for payment - open the job to release it with a reason");
+    expect(skippedText(["WCZ1", "WCZ2"], (r) => r)).toBe("WCZ1, WCZ2: on prepayment and not paid - open the job to release it with a reason");
+    expect(skippedText(["A", "B", "C", "D", "E", "F", ""], (r) => r)).toBe("A, B, C, D, E, … and 2 more: on prepayment and not paid - open the job to release it with a reason");
+  });
+
+  it("says why each was held, and tells a user to ask a manager (n29)", async () => {
+    const answers: Record<string, Error> = { B: refusal(STOP), C: refusal(UNCHECKED) };
+    const bulk = skippingPaymentStops("impRelease", async (row: string) => {
+      throw answers[row];
+    });
+    const { skipped } = bulk.split(await runAll(["B", "C"], bulk.run));
+    expect(skippedText(skipped, (r) => r, bulk.whyOf, true)).toBe(
+      "B: on prepayment and not paid - open the job to release it with a reason. C: whether they are paid could not be checked - open the job to release it with a reason",
+    );
+    expect(skippedText(skipped, (r) => r, bulk.whyOf, false)).toBe(
+      "B: on prepayment and not paid - open the job to ask a manager. C: whether they are paid could not be checked - open the job to ask a manager",
+    );
   });
 });

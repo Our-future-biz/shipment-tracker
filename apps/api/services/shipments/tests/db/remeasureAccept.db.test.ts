@@ -177,4 +177,42 @@ describe("accepting the warehouse's remeasurement", () => {
       .where(and(eq(shipmentAuditTable.shipmentId, s.id), eq(shipmentAuditTable.field, "remeasurementAccepted")));
     expect(entries).toHaveLength(1);
   });
+
+  // Mock test council Y10: a Cargo Details page opened before the Accept saves a line afterwards.
+  it("refuses a line save from a page that started from the lines before the Accept, and keeps the accepted lines", async () => {
+    const s = await newShipment();
+    const before = (await shipmentService.getById(s.id, s.companyId))!.cargoDimensions!;
+    section.data = { remeasure_rows: saved };
+    await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
+    const stale = [{ ...before[0]!, packageType: "Crates" }];
+    await expect(
+      shipmentService.update(s.id, s.companyId, { cargoDimensions: stale }, USER, "admin", undefined, undefined, { expectedCargoDimensions: before }),
+    ).rejects.toThrow(/Cargo Details changed meanwhile/);
+    expect((await shipmentService.getById(s.id, s.companyId))!.cargoDimensions).toMatchObject([{ lengthCm: "140", weightPerPcKg: "50", packageType: "Cartons" }]);
+    // From the lines as they are now, the save goes through.
+    const now = (await shipmentService.getById(s.id, s.companyId))!.cargoDimensions!;
+    await shipmentService.update(s.id, s.companyId, { cargoDimensions: [{ ...now[0]!, packageType: "Crates" }] }, USER, "admin", undefined, undefined, { expectedCargoDimensions: now });
+    expect((await shipmentService.getById(s.id, s.companyId))!.cargoDimensions).toMatchObject([{ lengthCm: "140", packageType: "Crates" }]);
+  });
+
+  it("accepts the same lines again once a save put other lines over them", async () => {
+    const s = await newShipment();
+    section.data = { remeasure_rows: saved };
+    await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
+    // An old page with no lines to start from (sent before the check) wrote the declared line back.
+    await shipmentService.update(s.id, s.companyId, { cargoDimensions: [declaredLine] }, USER, "admin");
+    await new Promise((r) => setTimeout(r, 5));
+    const shipment = await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
+    expect(shipment.cargoDimensions).toMatchObject([{ lengthCm: "140", weightPerPcKg: "50" }]);
+  });
+
+  // Mock test council n13: stored to the 0.001 m³ it is compared at.
+  it("stores Total Volume rounded to 0.001 m³", async () => {
+    const s = await newShipment();
+    // 3 × 0.411495 m³ = 1.234485 m³: 1.234 at 3 decimals, never 1.2345.
+    const odd = JSON.stringify([{ pieces: "3", lengthCm: "100", widthCm: "100", heightCm: "41.1495", weightPerPcKg: "10" }]);
+    section.data = { remeasure_rows: odd };
+    const shipment = await shipmentService.acceptRemeasurement(s.id, s.actor, odd);
+    expect(Number(shipment.totalVolumeCbm)).toBe(1.234);
+  });
 });

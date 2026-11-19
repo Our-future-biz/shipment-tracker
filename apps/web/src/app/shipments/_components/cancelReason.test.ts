@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CANCELLED_STATUS } from "@/lib/enums";
-import { CANCEL_REASON_MAX, asksCancelReason, cancelReasonOk, cancelUpdate, isCancelled } from "./cancelReason";
+import { CANCEL_REASON_MAX, asksCancelReason, cancelOffered, cancelReasonOk, cancelUpdate, isCancelled, offeredStatuses } from "./cancelReason";
 
 // Council Outlay 11, D22: cancelling a shipment asks why, and sends the reason with the status.
 describe("cancelling a shipment", () => {
@@ -31,5 +31,23 @@ describe("cancelling a shipment", () => {
     expect(isCancelled(CANCELLED_STATUS)).toBe(true);
     expect(isCancelled("Billed [EXP]")).toBe(false);
     expect(isCancelled(undefined)).toBe(false);
+  });
+});
+
+// Mock test council n34: a user is not offered what the server refuses.
+describe("Cancelled Shipment on an invoiced job", () => {
+  it("is offered to a manager, an admin and a superadmin, and to a user only while the job does not read Invoiced", () => {
+    for (const role of ["manager", "admin", "superadmin"]) expect(cancelOffered(role, "Invoiced")).toBe(true);
+    expect(cancelOffered("user", "Invoiced")).toBe(false);
+    expect(cancelOffered("user", " invoiced ")).toBe(false);
+    expect(cancelOffered("user", "Not Invoiced")).toBe(true);
+    expect(cancelOffered(undefined, "")).toBe(true);
+  });
+
+  it("is left out of the statuses, unless the job already is cancelled", () => {
+    const options = ["Booked [EXP]", CANCELLED_STATUS];
+    expect(offeredStatuses(options, false, "Booked [EXP]")).toEqual(["Booked [EXP]"]);
+    expect(offeredStatuses(options, false, CANCELLED_STATUS)).toEqual(options);
+    expect(offeredStatuses(options, true, "Booked [EXP]")).toEqual(options);
   });
 });

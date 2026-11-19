@@ -6,14 +6,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // back to Not Invoiced as after a credit note, or Invoiced again as after an issue.
 const repos = vi.hoisted(() => ({
   latestOpenInvoiceId: vi.fn(),
+  latestInvoiceId: vi.fn(),
+  generatedFor: vi.fn(),
   listOpenInvoicesWithSources: vi.fn(),
   listLiveByShipments: vi.fn(),
   enqueue: vi.fn(),
   claimDue: vi.fn(),
 }));
 vi.mock("../../repositories/invoice.repository", () => ({
-  invoiceRepository: { latestOpenInvoiceId: repos.latestOpenInvoiceId, listOpenInvoicesWithSources: repos.listOpenInvoicesWithSources },
+  invoiceRepository: { latestOpenInvoiceId: repos.latestOpenInvoiceId, latestInvoiceId: repos.latestInvoiceId, listOpenInvoicesWithSources: repos.listOpenInvoicesWithSources },
 }));
+vi.mock("../../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: { shipmentIdsWithInvoices: repos.generatedFor } }));
 vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostRepository: { listLiveByShipments: repos.listLiveByShipments } }));
 vi.mock("../../repositories/invoiceFollowupOutbox.repository", () => ({ invoiceFollowupOutboxRepository: { enqueue: repos.enqueue, claimDue: repos.claimDue } }));
 vi.mock("../../repositories/receivable.repository", () => ({ receivableRepository: {} }));
@@ -41,6 +44,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   auth.getAuthData.mockReturnValue({ userID: "u-ops", companyID: COMPANY, role: "user" });
   repos.latestOpenInvoiceId.mockResolvedValue("inv-2");
+  repos.latestInvoiceId.mockResolvedValue(null);
+  repos.generatedFor.mockResolvedValue([]);
   repos.enqueue.mockResolvedValue([]);
   repos.claimDue.mockResolvedValue([]);
 });
@@ -66,10 +71,20 @@ describe("a selling line's write on a job with an open invoice", () => {
     expect(repos.claimDue).toHaveBeenCalledWith(expect.any(Number), "inv-2");
   });
 
-  it("owes the same when a line is given a value, or its value changes", async () => {
+  it("owes the same when a line is given a value, or its value is raised", async () => {
     await statusesFollow(COMPANY, SHIPMENT).after(TX, line({ amount: "0" }), line());
     await statusesFollow(COMPANY, SHIPMENT).after(TX, line(), line({ amount: "175" }));
-    expect(repos.enqueue.mock.calls.map(([, rows]) => (rows as { kind: string }[])[0]!.kind)).toEqual(["status_after_credit", "status_after_credit"]);
+    await statusesFollow(COMPANY, SHIPMENT).after(TX, line({ amount: "-50" }), line({ amount: "20" }));
+    expect(repos.enqueue.mock.calls.map(([, rows]) => (rows as { kind: string }[])[0]!.kind)).toEqual(["status_after_credit", "status_after_credit", "status_after_credit"]);
+  });
+
+  it("owes nothing for a line below nothing, or a value lowered: a credit owed never sends an invoiced job back (Y1 / P1)", async () => {
+    const follow = statusesFollow(COMPANY, SHIPMENT);
+    await follow.after(TX, null, line({ amount: "-50" }));
+    await follow.after(TX, line({ amount: "-50" }), line({ amount: "-80" }));
+    await follow.after(TX, line({ amount: "-50" }), null);
+    await follow.after(TX, line({ amount: "175" }), line({ amount: "150" }));
+    expect(repos.enqueue).not.toHaveBeenCalled();
   });
 
   it("owes a row as after an issue when the line stops being a charge - deleted, or set to nothing - named as it was", async () => {
@@ -92,13 +107,53 @@ describe("a selling line's write on a job with an open invoice", () => {
     expect(repos.claimDue).not.toHaveBeenCalled();
   });
 
-  it("owes nothing on a job with no open invoice: nothing is invoiced to move back from", async () => {
+  it("a charge added to a job with no open invoice: kept under its newest invoice of any state, as it may read Invoiced all the same (n10)", async () => {
     repos.latestOpenInvoiceId.mockResolvedValue(null);
+    repos.latestInvoiceId.mockResolvedValue("inv-credited");
     const follow = statusesFollow(COMPANY, SHIPMENT);
     await follow.after(TX, null, line());
-    expect(repos.enqueue).not.toHaveBeenCalled();
+    expect(repos.latestInvoiceId).toHaveBeenCalledWith(SHIPMENT, COMPANY, TX);
+    expect(repos.enqueue.mock.calls[0]![1]).toEqual([expect.objectContaining({ kind: "status_after_credit", invoiceId: "inv-credited" })]);
     await follow.deliver();
-    expect(repos.claimDue).not.toHaveBeenCalled();
+    expect(repos.claimDue).toHaveBeenCalledWith(expect.any(Number), "inv-credited");
+  });
+
+  it("a charge taken away from a job with no open invoice owes nothing: nothing is on one, so it can't read Invoiced by it", async () => {
+    repos.latestOpenInvoiceId.mockResolvedValue(null);
+    repos.latestInvoiceId.mockResolvedValue("inv-credited");
+    const follow = statusesFollow(COMPANY, SHIPMENT);
+    await follow.after(TX, line(), null);
+    expect(repos.latestInvoiceId).not.toHaveBeenCalled();
+    expect(repos.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("a job with no invoice in this database: its statuses are moved after the write only when the old generator billed it", async () => {
+    repos.latestOpenInvoiceId.mockResolvedValue(null);
+    clients.shipmentGet.mockResolvedValue({ shipment: { status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
+    repos.listLiveByShipments.mockResolvedValue([{ id: "s1", shipmentId: SHIPMENT, qty: "1", amount: "300", currency: "EUR", invoice: true }]);
+    repos.listOpenInvoicesWithSources.mockResolvedValue([]);
+
+    const fresh = statusesFollow(COMPANY, SHIPMENT);
+    await fresh.after(TX, null, line());
+    await fresh.deliver();
+    expect(repos.enqueue).not.toHaveBeenCalled();
+    expect(clients.shipmentGet).not.toHaveBeenCalled();
+
+    repos.generatedFor.mockResolvedValue([SHIPMENT]);
+    const old = statusesFollow(COMPANY, SHIPMENT);
+    await old.after(TX, null, line());
+    await old.deliver();
+    expect(clients.shipmentUpdate).toHaveBeenCalledWith(
+      { shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]" },
+      { authData: { userID: "u-ops", companyID: COMPANY, role: "user", appWrite: true } },
+    );
+
+    // Shipments not answering: said in the log, never thrown at the write that is done.
+    clients.shipmentGet.mockRejectedValue(new Error("down"));
+    const failing = statusesFollow(COMPANY, SHIPMENT);
+    await failing.after(TX, null, line());
+    await expect(failing.deliver()).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalled();
   });
 
   it("writes nothing without a signed-in user, and says so in the log", async () => {
@@ -132,9 +187,9 @@ describe("a write of several lines at once (a Trucking push)", () => {
     expect(repos.enqueue).not.toHaveBeenCalled();
   });
 
-  it("counts a new charge first when the push also took lines away, and names at most three lines", async () => {
+  it("is 'added' when the push asks for more than it took away, naming at most three new lines", async () => {
     await statusesFollow(COMPANY, SHIPMENT).afterSet(TX, [
-      { before: freight("9000"), now: null },
+      { before: freight("900"), now: null },
       ...["100", "200", "300", "400"].map((amount) => ({ before: null, now: freight(amount) })),
     ]);
     expect(repos.enqueue.mock.calls[0]![1]).toEqual([
@@ -148,6 +203,28 @@ describe("a write of several lines at once (a Trucking push)", () => {
   it("owes a row as after an issue when the push only took charges away (a cancel)", async () => {
     await statusesFollow(COMPANY, SHIPMENT).afterSet(TX, [{ before: freight("9000"), now: null }]);
     expect(repos.enqueue.mock.calls[0]![1]).toEqual([expect.objectContaining({ kind: "status_after_issue", payload: { shipmentId: SHIPMENT, charge: "Freight 9000.00 CZK" } })]);
+  });
+
+  it("owes nothing for a lower Trucking price after the invoice: a difference line below nothing is a credit owed (Y1 / P1)", async () => {
+    await statusesFollow(COMPANY, SHIPMENT).afterSet(TX, [{ before: null, now: freight("-50", { description: "Price change after invoice" }) }]);
+    // A price put back: the open −50 goes and nothing is added - it raises nothing either.
+    await statusesFollow(COMPANY, SHIPMENT).afterSet(TX, [{ before: freight("-50", { description: "Price change after invoice" }), now: null }]);
+    // Lowered again below what was billed: the −50 replaced by a −80.
+    await statusesFollow(COMPANY, SHIPMENT).afterSet(TX, [
+      { before: freight("-50"), now: null },
+      { before: null, now: freight("-80") },
+    ]);
+    expect(repos.enqueue).not.toHaveBeenCalled();
+    // Raised above what was billed, the −50 replaced by a +100: a charge to bill.
+    await statusesFollow(COMPANY, SHIPMENT).afterSet(TX, [
+      { before: freight("-50"), now: null },
+      { before: null, now: freight("100") },
+    ]);
+    expect(repos.enqueue.mock.calls[0]![1]).toEqual([expect.objectContaining({ kind: "status_after_credit", payload: { shipmentId: SHIPMENT, charge: "Freight 100.00 CZK" } })]);
+  });
+
+  it("is not 'added' when a push replaces a set with less than it asked: it took a charge away", () => {
+    expect(setChangeOf([{ before: freight("9000"), now: null }, { before: null, now: freight("8000") }])).toEqual({ change: "removed", lines: [freight("9000")] });
   });
 
   it("works the change out as one: a value changed is the old value gone and the new one come", () => {

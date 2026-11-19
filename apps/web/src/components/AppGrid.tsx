@@ -97,7 +97,15 @@ interface AppGridProps<T> {
    * left for a record and come back to keeps them. Off, they last while the grid is shown.
    */
   rememberFilters?: boolean;
+  /**
+   * The columns added to the grid after layouts were first saved without the list of known columns: a layout
+   * saved before is taken to know every other column, so these show once and the user's other choices stay
+   * (components/gridLayout legacyKnown). Left out, such a layout stays as it was.
+   */
+  addedLater?: readonly string[];
 }
+
+const NONE_ADDED_LATER: readonly string[] = [];
 
 export function AppGrid<T extends object>({
   title,
@@ -121,6 +129,7 @@ export function AppGrid<T extends object>({
   emptyText = "No records found",
   resetKey,
   rememberFilters = false,
+  addedLater = NONE_ADDED_LATER,
 }: AppGridProps<T>) {
   const columnMap = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
   const defaultVisible = useMemo(() => columns.filter((c) => c.defaultVisible !== false).map((c) => c.key), [columns]);
@@ -134,7 +143,7 @@ export function AppGrid<T extends object>({
     try {
       const saved = parseColumnLayout(localStorage.getItem(`${storageKey}:columns`), localStorage.getItem(knownKey));
       if (!saved) return;
-      const next = columnsFromLayout(saved, columns);
+      const next = columnsFromLayout(saved, columns, addedLater);
       setVisibleState(next.filter((k) => columnMap.has(k)));
       // The new columns are known from now on: one the user then hides stays hidden.
       localStorage.setItem(`${storageKey}:columns`, JSON.stringify(next));

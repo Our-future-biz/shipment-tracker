@@ -9,7 +9,8 @@ import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
 import { houseCargo, isValidContainerNumber, normalizeContainerNumber } from "../lib/cargoProjection";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
-import { linkKindProblem, loadTypeKindProblem } from "../lib/masterJobKind";
+import { linkKindProblem, loadTypeKindProblem, loadTypesOf, masterJobMode } from "../lib/masterJobKind";
+import { masterJobHouseKindsRepository } from "../repositories/masterJobHouseKinds.repository";
 import { changesTaxDate } from "../lib/taxDate";
 import {
   FULL_LOAD,
@@ -106,13 +107,20 @@ function assertWarehouseReceived(
   }
 }
 
+/** A house as the master job's item tells its houses: its Load Type and Freight Mode. */
+type HouseKind = { loadType: string | null; freightMode: string | null };
+
 function toItem(
   { companyId: _companyId, deletedAt: _deletedAt, ...fields }: MasterJobRecord,
   shipmentCount: number,
+  houses: readonly HouseKind[] = [],
 ): MasterJobItem {
   return {
     ...fields,
     shipmentCount,
+    // A plain MCZ's filling is its houses' (n32), and a master job with no Freight Mode goes by theirs (n31).
+    houseLoadTypes: loadTypesOf(houses.map((h) => ({ jobNumber: "", loadType: h.loadType }))),
+    houseFreightMode: masterJobMode("", houses),
     createdAt: fields.createdAt.toISOString(),
     updatedAt: fields.updatedAt.toISOString(),
   };
@@ -196,8 +204,15 @@ class MasterJobService {
 
   async list(companyId: string): Promise<MasterJobItem[]> {
     const rows = await masterJobRepository.listForCompany(companyId);
-    const counts = await masterJobRepository.shipmentCounts(rows.map((r) => r.id), companyId);
-    return rows.map((r) => toItem(r, counts.get(r.id) ?? 0));
+    const ids = rows.map((r) => r.id);
+    const [counts, kinds] = await Promise.all([masterJobRepository.shipmentCounts(ids, companyId), masterJobHouseKindsRepository.ofMasterJobs(ids, companyId)]);
+    return rows.map((r) => toItem(r, counts.get(r.id) ?? 0, kinds.get(r.id) ?? []));
+  }
+
+  // A master job's item with its houses' Load Types and Freight Mode, read for it alone.
+  private async itemOf(row: MasterJobRecord, companyId: string): Promise<MasterJobItem> {
+    const [count, kinds] = await Promise.all([this.countShipments(row.id, companyId), masterJobHouseKindsRepository.ofMasterJobs([row.id], companyId)]);
+    return toItem(row, count, kinds.get(row.id) ?? []);
   }
 
   async get(id: string, companyId: string): Promise<MasterJobDetail> {
@@ -232,6 +247,7 @@ class MasterJobService {
         tradeDirection: h.tradeDirection,
         status: h.status,
         loadType: h.loadType,
+        freightMode: h.freightMode,
         containerNumber: houseContainers
           .filter((c) => c.shipmentId === h.id && c.containerNumber)
           .map((c) => c.containerNumber)
@@ -241,7 +257,7 @@ class MasterJobService {
         ...cargoItemOf(houseCargo(h, of(houseContainers, h.id), of(houseItems, h.id), of(houseDimensions, h.id))),
       }));
     return {
-      masterJob: toItem(row, houses.length),
+      masterJob: toItem(row, houses.length, houses),
       containers: masterContainers,
       shipments,
     };
@@ -265,7 +281,7 @@ class MasterJobService {
     if (!billOfLadingKey(masterBol)) return { masterJob: await this.create(companyId, userId), reused: false };
     const createdBy = userId ? await userEmailOf(userId) : "";
     const { row, reused } = await masterJobRepository.findOrCreateForMasterBol(companyId, masterBol, createdBy);
-    return { masterJob: toItem(row, reused ? await this.countShipments(row.id, companyId) : 0), reused };
+    return { masterJob: reused ? await this.itemOf(row, companyId) : toItem(row, 0), reused };
   }
 
   // `editor`: the person saving, when it is their edit (the Master Jobs page, and a date or vessel
@@ -326,7 +342,7 @@ class MasterJobService {
         await shipmentService.update(house.id, companyId, synced as ShipmentUpdateData, userId, undefined, "master_job");
       }
     }
-    return toItem(row, await this.countShipments(id, companyId));
+    return this.itemOf(row, companyId);
   }
 
   async setContainers(id: string, companyId: string, lines: MasterJobContainerLine[], userId: string, editor?: MasterJobEditor): Promise<MasterJobDetail> {

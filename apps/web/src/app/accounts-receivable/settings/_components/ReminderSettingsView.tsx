@@ -8,7 +8,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { BTN, BTN_PRIMARY, CARD, HINT, LABEL_TEXT, PAGE_TITLE } from "@/styles/ui";
-import { EMAIL_OFF_NOTE, formOf, isChanged, settingsInput, settingsProblem, switchOnText, type SettingsForm } from "../_lib/settings";
+import { EMAIL_OFF_NOTE, formOf, isChanged, settingsInput, settingsProblem, skippedText, switchOnText, type SettingsForm } from "../_lib/settings";
 
 // Finance → Accounts Receivable → Reminder settings (step 7): whether the app sends reminders 1 and 2 by itself, how
 // many days after the due day, and where a customer's answer goes. Managers change them; everyone reads them. The app
@@ -50,7 +50,11 @@ function SettingsCard({ saved }: { saved: ReceivableSettings }) {
     if (problem || !changed) return;
     save
       .mutateAsync(settingsInput(form))
-      .then((now) => toast.success(now.autoReminders && !now.emailOn ? "Saved: automatic reminders start once e-mail from the app is on" : "Reminder settings saved"))
+      .then((now) =>
+        toast.success(
+          now.autoReminders && !now.emailOn ? "Saved: automatic reminders start on the first day e-mail from the app can send, with invoices due from then on" : "Reminder settings saved",
+        ),
+      )
       .catch((e) => toast.error(apiErrorMessage(e)));
   };
 
@@ -66,10 +70,12 @@ function SettingsCard({ saved }: { saved: ReceivableSettings }) {
               Each working day around 10:00 the app e-mails reminder 1 and reminder 2 for overdue invoices, to the customer&apos;s accounts contact, in the customer&apos;s
               language - not for an invoice that is disputed, has a promise to pay still running, is to be refunded, has less than 100 CZK / 5 EUR left to pay, or may be
               paid by a payment waiting on a bank statement. A due day on a weekend or a holiday counts as the next working day. Each reminder goes once per invoice. The
-              final notice is never sent by itself: a manager sends it.
-              {!saved.emailOn && " It can be switched on now: it takes effect only once e-mail from the app is on."}
+              final notice is never sent by itself: a manager sends it. A day with no bank statement read since the previous working day sends nothing.
+              {!saved.emailOn && " It can be switched on now: it starts on the first day e-mail from the app can send, and reminds only invoices due from that day on."}
             </span>
-            <span className={`block ${HINT} mt-1`}>{switchOnText(saved.autoReminders, saved.autoRemindersSince)}</span>
+            <span className={`block ${HINT} mt-1`}>{switchOnText(saved.autoReminders, saved.autoRemindersSince, saved.emailOn)}</span>
+            {/* The run's last skip for want of a bank statement (m5): read one, and the next run reminds again. */}
+            {skippedText(saved.remindersSkipped) && <span className="block text-[13px] text-amber-700 mt-1">{skippedText(saved.remindersSkipped)}</span>}
           </span>
         </label>
 

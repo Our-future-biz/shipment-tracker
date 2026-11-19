@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { houseLoadTypeProblem, linkKindProblem, loadTypeKindProblem, masterJobKind } from "../../lib/masterJobKind";
+import { houseLoadTypeProblem, kindShipments, linkKindProblem, loadTypeKindProblem, masterJobKind, masterJobMode } from "../../lib/masterJobKind";
 
 const consol = { mczNumber: "MCZCONSOL00000003", loadType: "Consolidation" };
 const full = { mczNumber: "MCZFULL00000006", loadType: "Full Load" };
@@ -119,5 +119,29 @@ describe("houseLoadTypeProblem", () => {
     expect(houseLoadTypeProblem({ ...airConsol }, airFull, [])).toBe(
       "CZAIR00000018 is on MCZFULL00000007, a Single Shipment master job, so its Load Type stays Single Shipment - take it off the master job first",
     );
+  });
+});
+
+describe("the master job's words by its mode (n31)", () => {
+  it('names shipments of a Load Type without saying "Shipment shipments"', () => {
+    expect(kindShipments("Single Shipment")).toBe("Single Shipments");
+    expect(kindShipments("Project Shipment")).toBe("Project Shipments");
+    expect(kindShipments("Consolidation")).toBe("Consolidation shipments");
+    const airPlain = { mczNumber: "MCZ00000009", loadType: null, freightMode: "Air Freight" };
+    const airFull = { jobNumber: "CZAIR00000020", loadType: "Full Load", freightMode: "Air Freight" };
+    expect(houseLoadTypeProblem({ ...airConsol, freightMode: "Air Freight" }, airPlain, [airFull])).toMatch(/which holds Single Shipments \(CZAIR00000020\)/);
+  });
+
+  it("goes by the master job's own mode, else the one mode of its houses - none when they differ", () => {
+    expect(masterJobMode("Sea Freight", [{ freightMode: "Air Freight" }])).toBe("Sea Freight");
+    expect(masterJobMode("", [{ freightMode: "Air Freight" }, { freightMode: " air freight " }, { freightMode: "" }])).toBe("Air Freight");
+    expect(masterJobMode(null, [{ freightMode: "Air Freight" }, { freightMode: "Sea Freight" }])).toBe("");
+    expect(masterJobMode(null, [])).toBe("");
+  });
+
+  it("names a Full Load master job with no Freight Mode by its air houses: a Single Shipment", () => {
+    const noMode = { mczNumber: "MCZFULL00000010", loadType: "Full Load", freightMode: "" };
+    const airHouse = { jobNumber: "CZAIR00000021", loadType: "Full Load", freightMode: "Air Freight" };
+    expect(houseLoadTypeProblem({ ...airConsol, freightMode: "Air Freight" }, noMode, [airHouse])).toMatch(/a Single Shipment master job/);
   });
 });

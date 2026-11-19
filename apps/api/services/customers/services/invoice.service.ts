@@ -134,14 +134,18 @@ class InvoiceService {
 
   /**
    * How the customer's list has these issued documents (null when it has no live entry of one), each entry found
-   * marked as posted by Invoicing with the document's id.
+   * marked as posted by Invoicing with the document's id - unless `readOnly` (m4: the bell's poll), which marks nothing.
    */
-  async statusesOfIssued(companyId: string, items: { invoiceId: string; number: string; customerId: string }[]): Promise<CustomerInvoiceStatusItem[]> {
+  async statusesOfIssued(
+    companyId: string,
+    items: { invoiceId: string; number: string; customerId: string }[],
+    opts: { readOnly?: boolean } = {},
+  ): Promise<CustomerInvoiceStatusItem[]> {
     // Anything but an id matches nothing, as an unknown id does: Postgres would refuse it in a uuid column.
     const refs = items
       .filter((i) => isUuid(i.invoiceId) && isUuid(i.customerId))
       .map((i) => ({ invoiceId: i.invoiceId.toLowerCase(), customerId: i.customerId.toLowerCase(), number: i.number }));
-    const found = await customerInvoiceRepository.entriesOfIssued(companyId, refs);
+    const found = await customerInvoiceRepository.entriesOfIssued(companyId, refs, { readOnly: opts.readOnly === true });
     return items.map((i) => {
       const row = isUuid(i.invoiceId) ? found.get(i.invoiceId.toLowerCase()) : undefined;
       return { invoiceId: i.invoiceId, status: row?.status ?? null, paidOn: row?.paidOn ? String(row.paidOn).slice(0, 10) : null };

@@ -31,6 +31,7 @@ import { freeTimeSort, freeTimeText, freeTimeTone, storageHint } from "../_lib/s
 import { customsChipText, customsClockSort, movementCustomsClock } from "../_lib/customsClock";
 import { CustomsDeadlineChip } from "../_lib/customsDeadline";
 import { confirmLeave } from "../_lib/useUnsavedGuard";
+import { carryPositionsLayoutHere, POSITIONS_STORAGE_KEY } from "../_lib/positionsLayout";
 import { copiedCargoFigures } from "../_lib/cargoCompare";
 import { ContainersTab } from "./tabs/ContainersTab";
 import { StockTab } from "./tabs/StockTab";
@@ -72,6 +73,9 @@ const byText = (get: (r: PositionRow) => string) => (a: PositionRow, b: Position
 const byNum = (get: (m: GateMovement) => number) => (a: PositionRow, b: PositionRow) =>
   (a.m ? get(a.m) : Number.MAX_SAFE_INTEGER) - (b.m ? get(b.m) : Number.MAX_SAFE_INTEGER);
 const storageOf = (r: PositionRow) => (r.m?.storage.started ? r.m.storage : null);
+
+/** The Positions columns added after layouts were first saved without the list of known columns (AppGrid addedLater). */
+const POSITIONS_ADDED_LATER: readonly string[] = ["etaWarehouse"];
 
 const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   {
@@ -464,6 +468,8 @@ export const WarehouseView = () => {
   const { tasks, isLoading: tasksLoading, isError: tasksError, deleteTask } = useWarehouse();
   const { movements, isLoading: movementsLoading, isError: movementsError } = useGateLog();
   const [createOpen, setCreateOpen] = useState(false);
+  // The Positions layout moves to its v3 key once, in the first render: before the grid's own effect reads it.
+  useState(carryPositionsLayoutHere);
   // Read me lives in a help drawer; an old ?tab=readme link opens it on Positions.
   // Read from the URL on every render, so a ?tab=readme link opens it while the page is mounted too.
   const [helpToggled, setHelpOpen] = useState(false);
@@ -627,8 +633,11 @@ export const WarehouseView = () => {
           loading={tasksLoading || movementsLoading}
           // The position's one page is its Gate Log job; a position without one gets a short note.
           onRowClick={(r) => router.push(r.m ? `/warehouse-concept/gate-log/${r.m.id}` : `/warehouse-concept/${r.task.id}`)}
-          // v2: saved layouts reset once so the Lifecycle and Container columns appear.
-          storageKey="warehouse:positions:v2"
+          // v2: saved layouts reset once so the Lifecycle and Container columns appear. v3: the layout is carried
+          // over without its known columns, so ETA Warehouse/HUB shows once (_lib/positionsLayout).
+          storageKey={POSITIONS_STORAGE_KEY}
+          // Added after layouts were saved without their known columns: shown once on such a layout (P7).
+          addedLater={POSITIONS_ADDED_LATER}
           exportFilePrefix="warehouse"
           emptyText={
             tasksError || movementsError

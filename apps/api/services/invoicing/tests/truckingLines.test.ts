@@ -29,7 +29,19 @@ import {
   sellingDifference,
   sellingReplaceable,
   truckingBuyingRow,
-  truckingSellingRow, sameCostCodes } from "../utils/truckingLines.utils";
+  truckingSellingRow, sameCostCodes,
+  comesToNothing,
+  isDifferenceOf,
+  planDifference,
+  pricedOnQuote,
+  setRefOf,
+  anchoredQuoteRowOf,
+  creditSetsOf,
+  firstAddedLike,
+  firstAddedOf,
+  isQuoteAnchor,
+  quoteAnchorRef,
+  quoteAnchorRow } from "../utils/truckingLines.utils";
 import type { TruckingCostLine } from "../interfaces/interfaces";
 
 const C = "00000000-0000-0000-0000-000000000001";
@@ -230,5 +242,118 @@ describe("costs counted as one", () => {
     expect(sameCostCodes("pickup").sort()).toEqual(["delivery", "freight", "pickup", "road_freight"]);
     expect(sameCostCodes("road_freight")).toContain("freight");
     expect(sameCostCodes("customs")).toEqual(["customs"]);
+  });
+});
+
+describe("a set on an issued invoice, re-pushed (Y1 / P1, n8)", () => {
+  const v = (amount: string, currency = "CZK") => ({ qty: "1.00", amount, currency });
+
+  it("replaces the difference lines on nothing yet with one per currency: lowered, put back, raised, the same again", () => {
+    const fixed = [v("1000")];
+    expect(planDifference(fixed, [], [v("950")])).toEqual({ write: true, difference: [{ currency: "CZK", amount: -50 }] });
+    // Put back to the invoiced price: the open −50 goes, nothing comes (never +50 beside it).
+    expect(planDifference(fixed, [v("-50")], [v("1000")])).toEqual({ write: true, difference: [] });
+    expect(planDifference(fixed, [v("-50")], [v("1100")])).toEqual({ write: true, difference: [{ currency: "CZK", amount: 100 }] });
+    // The same push again: the open line is that difference already.
+    expect(planDifference(fixed, [v("100")], [v("1100")])).toEqual({ write: false, difference: [{ currency: "CZK", amount: 100 }] });
+    expect(planDifference(fixed, [], [v("1000")])).toEqual({ write: false, difference: [] });
+    // An old +50 and −50 left open: folded to nothing.
+    expect(planDifference(fixed, [v("50"), v("-50")], [v("1000")]).write).toBe(true);
+  });
+
+  it("prices a consignment on the quote's invoiced road line only when it has no rows of its own and no other consignment is priced (n8)", () => {
+    const base = { sourceRef: "trucking:consignment:c1", ownRows: 0, differenceRows: 0, roadSelling: true, otherConsignments: false, invoicedQuoteRoad: 1 };
+    expect(pricedOnQuote(base)).toBe(true);
+    expect(pricedOnQuote({ ...base, ownRows: 1 })).toBe(false);
+    expect(pricedOnQuote({ ...base, invoicedQuoteRoad: 0 })).toBe(false);
+    expect(pricedOnQuote({ ...base, otherConsignments: true })).toBe(false);
+    // Priced so before (difference lines only): it stays so, a cancel too.
+    expect(pricedOnQuote({ ...base, roadSelling: false, otherConsignments: true, differenceRows: 1 })).toBe(true);
+    expect(pricedOnQuote({ ...base, sourceRef: "trucking:internal:c1" })).toBe(false);
+  });
+
+  it("keeps a consignment priced on the quote line once it has a marker of it, whatever its price and whoever priced since (B1)", () => {
+    const base = { sourceRef: "trucking:consignment:c1", ownRows: 0, differenceRows: 0, roadSelling: true, otherConsignments: false, invoicedQuoteRoad: 1 };
+    // Priced exactly at the quote line: no difference line, only its marker - another consignment priced since changes nothing.
+    expect(pricedOnQuote({ ...base, anchored: 1, otherConsignments: true })).toBe(true);
+    // A cancel (no lines) of a set priced so: still priced on it, so the credit owed is the quote line's.
+    expect(pricedOnQuote({ ...base, anchored: 1, roadSelling: false, otherConsignments: true })).toBe(true);
+    // Its line no longer invoiced (credited): it bills on its own.
+    expect(pricedOnQuote({ ...base, anchored: 1, invoicedQuoteRoad: 0 })).toBe(false);
+    // Without a marker and with another consignment's rows (its marker counts): a second consignment is billed in full.
+    expect(pricedOnQuote({ ...base, anchored: 0, otherConsignments: true })).toBe(false);
+  });
+
+  it("names the marker of a set priced on a quote line, and tells it from the set's other rows (B1)", () => {
+    const ref = "trucking:consignment:c1";
+    const marker = quoteAnchorRef(ref, "q1");
+    expect(marker).toBe("trucking:consignment:c1:quote:q1");
+    expect(setRefOf(marker)).toBe(ref);
+    expect(isQuoteAnchor(marker)).toBe(true);
+    expect(isQuoteAnchor(marker, ref)).toBe(true);
+    expect(isQuoteAnchor(marker, "trucking:consignment:c2")).toBe(false);
+    expect(isQuoteAnchor(`${ref}:diff:1`)).toBe(false);
+    expect(isQuoteAnchor(null)).toBe(false);
+    expect(isDifferenceOf(marker, ref)).toBe(false);
+    expect(anchoredQuoteRowOf(marker)).toBe("q1");
+    expect(anchoredQuoteRowOf(`${ref}:diff:1`)).toBeNull();
+    // It bills nothing and is never on an invoice; the set's difference lines are answered without it.
+    expect(quoteAnchorRow("EUR")).toMatchObject({ amount: "0.00", invoice: false, currency: "EUR" });
+    expect(differencesOf([{ ref: marker, qty: "1.00", amount: "0.00", currency: "CZK" }], ref)).toEqual([]);
+    expect(nextDifferenceNumber(ref, [marker, `${ref}:diff:2`])).toBe(3);
+  });
+
+  it("finds the set a credited row's credit owed belongs to: its own, or the one priced on the credited quote line (M2)", () => {
+    const rows = [
+      { ref: "trucking:consignment:a:quote:q1" },
+      { ref: "trucking:consignment:a:diff:1" },
+      { ref: "trucking:consignment:b" },
+    ];
+    const sets = creditSetsOf(
+      [
+        { id: "q1", ref: null, quoteRoad: true },
+        { id: "rb", ref: "trucking:consignment:b", quoteRoad: false },
+        { id: "q2", ref: null, quoteRoad: true },
+        { id: "x", ref: null, quoteRoad: false },
+      ],
+      rows,
+    );
+    expect([...sets]).toEqual([["q1", "trucking:consignment:a"], ["rb", "trucking:consignment:b"]]);
+    // Priced on the quote line before the markers: the one set with difference lines and no rows of its own.
+    const before = creditSetsOf([{ id: "q1", ref: null, quoteRoad: true }], [{ ref: "trucking:consignment:a:diff:1" }, { ref: "trucking:consignment:b" }]);
+    expect(before.get("q1")).toBe("trucking:consignment:a");
+    // Two such sets: no telling which - none.
+    expect(creditSetsOf([{ id: "q1", ref: null, quoteRoad: true }], [{ ref: "trucking:consignment:a:diff:1" }, { ref: "trucking:consignment:b:diff:1" }]).size).toBe(0);
+  });
+
+  it("dates rows written in place of others by the earliest they replace (m6)", () => {
+    const at = (iso: string) => ({ createdAt: new Date(iso) });
+    expect(firstAddedOf([at("2026-11-10T08:00:00Z"), at("2026-11-02T08:00:00Z")])).toEqual(new Date("2026-11-02T08:00:00Z"));
+    expect(firstAddedOf([])).toBeUndefined();
+  });
+
+  it("tells a set's rows apart, and a group that comes to nothing", () => {
+    expect(setRefOf("trucking:consignment:c1:diff:3")).toBe("trucking:consignment:c1");
+    expect(setRefOf("trucking:consignment:c1")).toBe("trucking:consignment:c1");
+    expect(setRefOf(null)).toBeNull();
+    expect(setRefOf("master:m1:l1")).toBeNull();
+    expect(isDifferenceOf("trucking:consignment:c1:diff:1", "trucking:consignment:c1")).toBe(true);
+    expect(isDifferenceOf("trucking:consignment:c1", "trucking:consignment:c1")).toBe(false);
+    expect(comesToNothing([v("1000"), v("-1000")])).toBe(true);
+    expect(comesToNothing([v("1000"), v("-950")])).toBe(false);
+    expect(comesToNothing([v("100", "EUR"), v("-100")])).toBe(false);
+    expect(comesToNothing([])).toBe(false);
+  });
+});
+
+describe("firstAddedLike (round-4 review)", () => {
+  const row = (createdAt: string, amount: string, currency = "CZK") => ({ createdAt: new Date(createdAt), amount, currency });
+  it("takes the first day of the open lines alike: same currency, same sign", () => {
+    const open = [row("2026-11-02T08:00:00Z", "500.00"), row("2026-11-01T08:00:00Z", "-300.00"), row("2026-10-30T08:00:00Z", "200.00", "EUR")];
+    expect(firstAddedLike(open, { amount: 700, currency: "CZK" })).toEqual(new Date("2026-11-02T08:00:00Z"));
+    expect(firstAddedLike(open, { amount: -100, currency: "CZK" })).toEqual(new Date("2026-11-01T08:00:00Z"));
+  });
+  it("is undefined when a credit owed turns into a charge: the charge is added now", () => {
+    expect(firstAddedLike([row("2026-11-01T08:00:00Z", "-300.00")], { amount: 400, currency: "CZK" })).toBeUndefined();
   });
 });

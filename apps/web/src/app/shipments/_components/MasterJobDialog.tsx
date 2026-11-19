@@ -18,6 +18,7 @@ import { placeCodeOf } from "@/lib/places";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { kindFits, loadTypesOf, masterJobKindOf, shipmentFits } from "@/lib/masterJobKind";
 import { loadTypeLabel } from "@/lib/enums";
+import { kindShipments, masterJobModeOf } from "@/app/master-jobs/_lib/masterJobWords";
 import { EMPTY_STATE, HINT, LABEL_TEXT, MODAL_TITLE, REF, TD } from "@/styles/ui";
 
 /* The app's table look (Container Details, Linked shipments): column titles over a slate-200 rule
@@ -133,15 +134,21 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   }, [shipments, masterJobs]);
 
   // A shipment goes only on a master job of its filling (lib/masterJobKind): each master job's is its
-  // Load Type, else - a plain MCZ - that of the shipments on it.
+  // Load Type, else - a plain MCZ - that of the shipments on it: all of them, as the server lists their Load
+  // Types with the master job (n32), not only those loaded here.
   const kindByMcz = useMemo(() => {
-    const houses = new Map<string, ShipmentItem[]>();
+    const houses = new Map<string, { loadType?: string | null }[]>();
     for (const s of shipments) if (s.masterJobMczNumber) houses.set(s.masterJobMczNumber, [...(houses.get(s.masterJobMczNumber) ?? []), s]);
     const kinds = new Map<string, string | "mixed" | null>();
     for (const [mcz, on] of houses) kinds.set(mcz, masterJobKindOf(null, on));
-    for (const m of masterJobs) kinds.set(m.mczNumber, masterJobKindOf(m.loadType, houses.get(m.mczNumber) ?? []));
+    for (const m of masterJobs) {
+      const on = [...(houses.get(m.mczNumber) ?? []), ...(m.houseLoadTypes ?? []).map((loadType) => ({ loadType }))];
+      kinds.set(m.mczNumber, masterJobKindOf(m.loadType, on));
+    }
     return kinds;
   }, [shipments, masterJobs]);
+  // Each master job named by its own mode (n31): its Freight Mode, else its shipments' one.
+  const modeByMcz = useMemo(() => new Map(masterJobs.map((m) => [m.mczNumber, masterJobModeOf(m)])), [masterJobs]);
   const selectedKind = mode === "existing" && selectedExistingMCZ ? (kindByMcz.get(selectedExistingMCZ) ?? null) : null;
 
   const filteredShipments = useMemo(() => shipmentsOffered(shipments, search, onlyIds), [shipments, search, onlyIds]);
@@ -153,7 +160,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   const chosenKinds = useMemo(() => loadTypesOf(shipments.filter((s) => chosen.includes(s.id))), [shipments, chosen]);
   // Load Types are named by freight mode, as every other screen does: an air Full Load reads "Single Shipment".
   const chosenMode = shipments.find((s) => chosen.includes(s.id))?.freightMode ?? null;
-  const kindLabel = (kind: string | null | undefined) => loadTypeLabel(kind, chosenMode);
+  const kindLabel = (kind: string | null | undefined, mcz?: string) => loadTypeLabel(kind, (mcz && modeByMcz.get(mcz)) || chosenMode);
   // Shipments of two fillings never go on one master job together.
   const mixed = chosenKinds.length > 1;
   // The master jobs to link to: those of the chosen shipments' filling, and those with none yet.
@@ -282,17 +289,17 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                       <span className={`${REF} text-[13px] font-semibold text-slate-900`}>{mcz}</span>
                       <span className={`${HINT} ml-2`}>
                         {linkedCount(count)}
-                        {kindByMcz.get(mcz) === "mixed" ? " · mixed Load Types" : kindByMcz.get(mcz) ? ` · ${kindLabel(kindByMcz.get(mcz))}` : ""}
+                        {kindByMcz.get(mcz) === "mixed" ? " · mixed Load Types" : kindByMcz.get(mcz) ? ` · ${kindLabel(kindByMcz.get(mcz), mcz)}` : ""}
                       </span>
                     </Radio>
                   );
                 })}
               </Radio.Group>
               {offeredMCZs.length === 0 && (
-                <div className={EMPTY_STATE}>{chosenKinds.length === 1 ? `No master job for ${kindLabel(chosenKinds[0])} shipments matches.` : "No master job matches the search."}</div>
+                <div className={EMPTY_STATE}>{chosenKinds.length === 1 ? `No master job for ${kindShipments(kindLabel(chosenKinds[0]))} matches.` : "No master job matches the search."}</div>
               )}
             </div>
-            {chosenKinds.length === 1 && <p className={`m-0 ${HINT}`}>Only master jobs for {kindLabel(chosenKinds[0])} shipments are listed, and those with no Load Type yet.</p>}
+            {chosenKinds.length === 1 && <p className={`m-0 ${HINT}`}>Only master jobs for {kindShipments(kindLabel(chosenKinds[0]))} are listed, and those with no Load Type yet.</p>}
           </>
         )}
 
@@ -340,7 +347,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                   ? LINK_REFUSED_HINT
                   : selectedKind === "mixed"
                     ? `${selectedExistingMCZ} already holds shipments of different Load Types: it takes no more until those that don't belong are taken off`
-                    : `${s.jobNumber} is ${loadTypeLabel(s.loadType, s.freightMode)}: ${selectedExistingMCZ} takes ${loadTypeLabel(selectedKind, s.freightMode)} shipments only`;
+                    : `${s.jobNumber} is ${loadTypeLabel(s.loadType, s.freightMode)}: ${selectedExistingMCZ} takes ${kindShipments(loadTypeLabel(selectedKind, modeByMcz.get(selectedExistingMCZ) || s.freightMode))} only`;
                 const isChecked = !locked && selected.has(s.id);
                 // The ports by their codes ("CNSGH → DEHAM"), in full on hover.
                 const route = [s.pol, s.pod].filter(Boolean).map((p) => placeCodeOf(p) ?? p).join(" → ");

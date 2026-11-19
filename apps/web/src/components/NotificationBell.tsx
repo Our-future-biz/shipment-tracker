@@ -38,6 +38,7 @@ import { fold } from "@/lib/fold";
 import { apInvoiceHref } from "@/lib/accountsPayable";
 import { useReceivableNotices, useReceivableSeen, type ReceivableNotice } from "@/hooks/useReceivables";
 import { arInvoiceHref } from "@/lib/accountsReceivable";
+import { receivableNoticeText } from "@/app/accounts-receivable/_lib/receivables";
 import { rememberNew } from "@/lib/bellMemory";
 import { invalidateJobReleaseRequests, useReleaseRequestAnswers, type ReleaseRequestItem } from "@/hooks/useReleaseRequests";
 import { useOperationsApprovalsWaiting } from "@/hooks/useOperationsApprovalsWaiting";
@@ -166,8 +167,8 @@ const receivableTitle = (n: ReceivableNotice) =>
   n.milestone === "paid"
     ? `${n.customer || "A customer"} paid invoice ${n.number} (it was overdue)`
     : `Invoice ${n.number} of ${n.customer || "a customer"} is ${n.daysOverdue} day${n.daysOverdue === 1 ? "" : "s"} overdue`;
-const receivableText = (n: ReceivableNotice) =>
-  [n.jobNumber, n.milestone === "paid" ? "" : `${formatAmount(n.leftToPay, n.currency)} left to pay`].filter(Boolean).join(" · ");
+// …with "a payment may be waiting on a bank statement" when the server says so (mock test council n1).
+const receivableText = (n: ReceivableNotice) => receivableNoticeText(n);
 const changeAnswerDot = (r: InvoiceChangeRequestItem) => (r.status === "approved" ? "bg-emerald-500" : r.status === "rejected" ? "bg-red-500" : "bg-slate-400");
 
 // How long a read notification stays under the bell, in the "Last 7 days" view.

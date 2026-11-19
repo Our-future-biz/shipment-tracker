@@ -4,8 +4,12 @@ import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } 
 import { outboxColumns, outboxStatusCheck } from "../../../lib/outbox/outbox.columns";
 import { gateMovementTable } from "./gateMovement.schema";
 
-/** What a gate stamp writes to its shipment: the received or released date, or a plate added later. */
-export type OutboxKind = "received" | "released" | "plate";
+/**
+ * What a gate stamp writes to its shipment: the received or released date, or a plate added later - and, for a WH
+ * release on prepayment let through, the override recorded on the shipment ahead of the released date, or an
+ * approval given back when the release was not made (mock test council n27: retried as the dates are).
+ */
+export type OutboxKind = "received" | "released" | "plate" | "override" | "passBack";
 export type { OutboxStatus } from "../../../lib/outbox/outbox.columns";
 
 // One shipment update owed by a gate stamp. It is written in the same transaction as the stamp
@@ -23,7 +27,8 @@ export const shipmentOutboxTable = pgTable(
     // The gate stamp column this update comes from (gateIn | impRelease | gateOut), so a voided
     // stamp can cancel what it still owes.
     stamp: text("stamp").notNull().default(""),
-    // Exactly the ShipmentUpdate fields to send (besides shipmentId).
+    // Exactly the ShipmentUpdate fields to send (besides shipmentId); for an override or an approval given back,
+    // what that call takes, as strings (services/releasePayment overrideOutboxPayload, passBackPayload).
     payload: jsonb("payload").$type<Record<string, string>>().notNull(),
     // Acting user, status, attempts, next try, claim and last error (shared with other outboxes).
     ...outboxColumns,
@@ -34,8 +39,10 @@ export const shipmentOutboxTable = pgTable(
     index("warehouse_shipment_outbox_due_idx").on(table.nextAttemptAt).where(sql`status = 'pending'`),
     index("warehouse_shipment_outbox_shipment_idx").on(table.shipmentId, table.createdAt).where(sql`status = 'pending'`),
     index("warehouse_shipment_outbox_movement_idx").on(table.movementId),
+    // The gate's own released days of a shipment, of every status (repository sentReleasedDays, round-4 review).
+    index("warehouse_shipment_outbox_shipment_all_idx").on(table.companyId, table.shipmentId),
     foreignKey({ name: "wh_outbox_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
-    check("wh_outbox_kind_check", sql`${table.kind} IN ('received', 'released', 'plate')`),
+    check("wh_outbox_kind_check", sql`${table.kind} IN ('received', 'released', 'plate', 'override', 'passBack')`),
     outboxStatusCheck("wh_outbox_status_check", table),
   ],
 );

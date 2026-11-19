@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ColumnsType } from "antd/es/table";
 import type { interfaces } from "@/lib/api/client";
 import { matchesGridFilters } from "@/components/gridFilters";
-import { queueColumns } from "../_components/queueColumns";
+import { queueColumns, queueRowInfo } from "../_components/queueColumns";
 import {
   QUEUE_COLUMN_META,
   QUEUE_DEFAULT_COLUMNS,
@@ -23,6 +23,8 @@ const row = (partial: Partial<interfaces.BillingQueueItem> = {}): QueueRow => ({
   department: "",
   houseBolType: "",
   masterBolType: "",
+  originalsReceivedDate: null,
+  telexReleaseReceivedDate: null,
   tradeDirection: "Import",
   estimatedDeparture: null,
   estimatedArrival: null,
@@ -38,6 +40,7 @@ const row = (partial: Partial<interfaces.BillingQueueItem> = {}): QueueRow => ({
   invoiced: [],
   sellingLines: 0,
   invoicedLines: 0,
+  creditsOwed: 0,
   ...partial,
 });
 
@@ -198,5 +201,15 @@ describe("filterQueueRows", () => {
 
   it("returns every row with no filters, by service date, missing dates last", () => {
     expect(ids(filterQueueRows(rows, NO_FILTERS))).toEqual(["b", "d", "a", "c"]);
+  });
+});
+
+describe("the OBL row (n22)", () => {
+  it("is red only while the OBL is not in hand: Originals Received or Telex Release Received clear it, as on Shipments", () => {
+    const styleOf = (r: QueueRow) => queueRowInfo([r]).get(r.shipmentId)!.rowStyle;
+    expect(styleOf(row({ masterBolType: "OBL" }))).toEqual({ color: "#b91c1c" });
+    expect(styleOf(row({ masterBolType: "OBL", originalsReceivedDate: "2026-11-10" }))).toBeNull();
+    expect(styleOf(row({ houseBolType: "OBL", telexReleaseReceivedDate: "2026-11-11" }))).toBeNull();
+    expect(styleOf(row({ masterBolType: "SWB" }))).toBeNull();
   });
 });

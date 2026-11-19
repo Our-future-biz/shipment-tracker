@@ -116,7 +116,9 @@ function declaredLinesTotals(lines: DeclaredLine[]): CargoTotals {
 export function declaredTotals(s: DeclaredShipment | null | undefined): CargoTotals | null {
   if (!s) return null;
   const dims = declaredLinesTotals(s.cargoDimensions ?? []);
-  const pieces = num(s.pcs) || dims.pieces;
+  // Pcs may carry thousands separators ("1,200"), dropped as Shipments reads them (lib/cargo
+  // shipmentDeclaredFigures): read as a decimal comma it was 1.2 pieces (mock test council n17).
+  const pieces = num((s.pcs ?? "").replace(/,/g, "")) || dims.pieces;
   const kg = num(s.totalWeightTons) ? Math.round(num(s.totalWeightTons) * 1000 * 10) / 10 : dims.kg;
   const cbm = num(s.totalVolumeCbm) || dims.cbm;
   return pieces || kg || cbm ? { pieces, kg, cbm } : null;

@@ -5,6 +5,8 @@ import {
   cutoffName,
   handOverAllLabel,
   handOverAllNote,
+  canReplaceCover,
+  replaceCoverLabel,
   dismissalTitle,
   handOverChanging,
   handOverPreview,
@@ -143,9 +145,10 @@ describe("handledByWarning", () => {
   it("says nothing when no job names them", () => {
     expect(handledByWarning({ handledBy: 0, covers: 0 })).toBeNull();
   });
-  it("links to the jobs the person handles on Shipments → Managers - and nowhere when they handle none: that list would be empty", () => {
-    expect(handledByJobsHref(" Jan+ops@Firma.cz ", { handledBy: 2 })).toBe("/shipments/managers?handledBy=jan%2Bops%40firma.cz");
-    expect(handledByJobsHref("jan@firma.cz", { handledBy: 0 })).toBeNull();
+  it("links to the Team tab, where the person's row hands over all their jobs - and nowhere when no active job names them", () => {
+    expect(handledByJobsHref(" Jan+ops@Firma.cz ", { handledBy: 2, covers: 0 })).toBe("/shipments/managers?tab=team");
+    expect(handledByJobsHref("jan@firma.cz", { handledBy: 0, covers: 3 })).toBe("/shipments/managers?tab=team");
+    expect(handledByJobsHref("jan@firma.cz", { handledBy: 0, covers: 0 })).toBeNull();
   });
 });
 
@@ -166,5 +169,25 @@ describe("handing over all of a person's jobs (X9)", () => {
       "200 of 240 active jobs with jan@firma.cz in Handled By (Sea · Import): at most 200 go in one hand-over. Hand over the rest the same way once these are done.",
     );
     expect(handOverAllNote({ jobs: jobs(1), total: 1 }, "jan@firma.cz", "")).toBe("All 1 active job with jan@firma.cz in Handled By, quiet ones too - not only those with a signal on the cards.");
+  });
+  it("says the jobs are those the chosen hand-over changes once one is chosen (n25), and of a cover by the cover (P12)", () => {
+    const jobs = (n: number) => Array.from({ length: n }, (_, i) => i);
+    expect(handOverAllNote({ jobs: jobs(200), total: 210 }, "jan@firma.cz", "", { changing: true })).toBe(
+      "200 of 210 active jobs with jan@firma.cz in Handled By that this changes: at most 200 go in one hand-over. Hand over the rest the same way once these are done.",
+    );
+    expect(handOverAllNote({ jobs: jobs(0), total: 0 }, "jan@firma.cz", "Air", { changing: true })).toBe("No active job with jan@firma.cz in Handled By (Air) changes: they are all so already.");
+    expect(handOverAllNote({ jobs: jobs(4), total: 4 }, "eva@firma.cz", "", { as: "holidayCover" })).toBe(
+      "All 4 active jobs with eva@firma.cz as Holiday Cover, quiet ones too - not only those with a signal on the cards.",
+    );
+  });
+});
+
+describe("replacing a person as Holiday Cover (P12)", () => {
+  it("is offered on a person's Team row who covers an active job, labelled with how many", () => {
+    expect(canReplaceCover({ nobody: false, covers: 4 })).toBe(true);
+    expect(canReplaceCover({ nobody: false, covers: 0 })).toBe(false);
+    expect(canReplaceCover({ nobody: true, covers: 2 })).toBe(false);
+    expect(replaceCoverLabel(4)).toBe("Replace as Holiday Cover on 4 jobs…");
+    expect(replaceCoverLabel(1)).toBe("Replace as Holiday Cover on 1 job…");
   });
 });

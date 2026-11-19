@@ -197,7 +197,99 @@ export function fullCreditTotalsAfter(original: StoredTotals, credits: StoredTot
   };
 }
 
-export const WHOLE_INVOICE = "This credits the whole invoice: credit the whole invoice instead - that needs no approval";
+// ── A credit owed by Trucking (mock test council Y1 / P1) ──
+
+/** A Trucking difference line below nothing on no invoice yet: a price lowered after the invoice, a credit owed. */
+export interface OpenCreditDiff {
+  id: string;
+  /** "<set>:diff:<n>" */
+  ref: string;
+  currency: string;
+  /** What the line comes to (below nothing), in its own currency */
+  amount: number;
+  /** When it was last changed (ms): issuing checks it again under the shipment's lock. */
+  version: number;
+}
+
+/** What a partial credit note writes besides its lines when it settles credits owed by Trucking. */
+export interface SettledCredit {
+  /** The credit note's lines, each with the selling row it bills: a difference line it settles, or a negative row of its own. */
+  lines: CreditLineCalc[];
+  /** The lines that put a negative row of their own on the shipment (the row's id is the line's source), as before. */
+  ownRows: CreditLineCalc[];
+  /** The difference lines settled in part: each comes down to what was credited of it (positive). */
+  shrink: { id: string; amount: number }[];
+  /**
+   * What is left owed of a difference line settled in part (positive): it stays a difference line of its own, written
+   * under `id` - a later line of the same credit note may settle it (m8), and then bills that row.
+   */
+  rest: { fromId: string; amount: number; id: string }[];
+  /** The difference lines the credit note settles. */
+  settled: OpenCreditDiff[];
+}
+
+/**
+ * How a partial credit note gives a credit Trucking says is owed (Y1 / P1). A credited line made
+ * from a row of a Trucking set whose price was lowered after the invoice settles the set's open
+ * difference line in its currency (the "Price change after invoice −50"): the line bills that row
+ * instead of putting a negative row of its own on the shipment, so the selling drops once, by the
+ * credit - not by the difference line and the credit again - and the job's credit owed is given.
+ * Credited exactly what is owed: the line settles it. Less: it settles that much, and the rest stays
+ * owed as a line of its own. More: the line is split - what is owed settles the difference line, the
+ * rest is a credit of its own, as before, and its net comes from the line's so the total is the same.
+ * Lines whose row has no such difference line put a negative row of their own on the shipment (`newId`).
+ * Two lines of one set settle one credit owed in turn (m8): what an earlier line left owed of it (its rest) is
+ * settled by the next line, as the difference line itself would be.
+ */
+export function settleTruckingCredit(lines: CreditLineCalc[], diffsOf: (sourceRowId: string | null) => readonly OpenCreditDiff[], newId: () => string): SettledCredit {
+  const out: SettledCredit = { lines: [], ownRows: [], shrink: [], rest: [], settled: [] };
+  // Per difference line: the row that holds what is still owed of it (the line itself, else its rest), and how much (cents).
+  const left = new Map<string, { holder: string; owed: number; rest: SettledCredit["rest"][number] | null }>();
+  const own = (line: CreditLineCalc) => {
+    const row = { ...line, sourceSellingCostId: newId() };
+    out.lines.push(row);
+    out.ownRows.push(row);
+  };
+  for (const line of lines) {
+    const diff = diffsOf(line.sourceSellingCostId || null).find(
+      (d) => d.currency === line.unitCurrency && cents(d.amount) < 0 && (left.get(d.id)?.owed ?? -cents(d.amount)) > 0,
+    );
+    if (!diff) {
+      own(line);
+      continue;
+    }
+    let state = left.get(diff.id);
+    if (!state) {
+      state = { holder: diff.id, owed: -cents(diff.amount), rest: null };
+      left.set(diff.id, state);
+      out.settled.push(diff);
+    }
+    const owed = state.owed;
+    const credit = cents(line.unitPrice);
+    const settled = Math.min(credit, owed);
+    // The holder comes down to what this line credits of it, and what is left is owed on a row of its own.
+    if (settled < owed) {
+      if (state.rest) state.rest.amount = settled / 100;
+      else out.shrink.push({ id: diff.id, amount: settled / 100 });
+      const rest = { fromId: diff.id, amount: (owed - settled) / 100, id: newId() };
+      out.rest.push(rest);
+      out.lines.push({ ...line, sourceSellingCostId: state.holder });
+      left.set(diff.id, { holder: rest.id, owed: owed - settled, rest });
+      continue;
+    }
+    left.set(diff.id, { ...state, owed: 0 });
+    if (credit === owed) {
+      out.lines.push({ ...line, sourceSellingCostId: state.holder });
+      continue;
+    }
+    const settles = { ...line, unitPrice: owed / 100, net: round2((-owed / 100) * line.fxRate), sourceSellingCostId: state.holder };
+    out.lines.push(settles);
+    own({ ...line, unitPrice: (credit - owed) / 100, net: round2(line.net - settles.net) });
+  }
+  return out;
+}
+
+export const WHOLE_INVOICE ="This credits the whole invoice: credit the whole invoice instead - that needs no approval";
 
 /** Whether every line that has something left to credit is credited to its end (a line below zero, a discount, can't be picked). */
 function creditableToTheirEnd(remaining: RemainingLine[], lines: CreditLineCalc[]): boolean {

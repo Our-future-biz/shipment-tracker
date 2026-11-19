@@ -4273,15 +4273,20 @@ export namespace shipments {
 
         /**
          * X9 (K18). A person's active jobs by Handled By - quiet ones too, not only the jobs with a signal on
-         * the cards - for "Hand over all N active jobs…" on a Team row: at most 200 (as many as one hand-over
-         * takes), the oldest first, and how many there are in all. The hand-over itself is POST /shipments/hand-over.
+         * the cards - for "Hand over all N active jobs…" on a Team row, or the jobs they cover for "Replace as
+         * Holiday Cover…" (P12): at most 200 (as many as one hand-over takes), the oldest first, and how many there
+         * are in all. Once a new Handled By or Holiday Cover is chosen, only the jobs it would change (n25), so jobs
+         * past the first 200 are reached when those are already so. The hand-over itself is POST /shipments/hand-over.
          */
         public async shipmentHandOverJobs(params: controllers.HandOverJobsRequest): Promise<interfaces.HandOverJobsAnswer> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
-                direction: params.direction,
-                handledBy: params.handledBy,
-                mode:      params.mode,
+                coveredBy:      params.coveredBy,
+                direction:      params.direction,
+                handledBy:      params.handledBy,
+                mode:           params.mode,
+                toHandledBy:    params.toHandledBy,
+                toHolidayCover: params.toHolidayCover,
             })
 
             // Now make the actual call to the API
@@ -9954,9 +9959,14 @@ export namespace controllers {
 
     export interface HandOverJobsRequest {
         /**
-         * Whose jobs: the e-mail Handled By names (any case).
+         * Whose jobs: the e-mail Handled By names (any case). Left out when `coveredBy` is sent.
          */
-        handledBy: string
+        handledBy?: string
+
+        /**
+         * Or the jobs this person covers: the e-mail Holiday Cover names (any case) - "Replace as Holiday Cover…" (P12).
+         */
+        coveredBy?: string
 
         /**
          * sea | air | rail | road; left out or "all" for every mode - as the Shipments list's filter.
@@ -9967,6 +9977,16 @@ export namespace controllers {
          * import | export | domestic; left out or "all" for every direction.
          */
         direction?: string
+
+        /**
+         * The new Handled By chosen in the dialog: only the jobs it changes are listed (n25). Left out or "", none chosen.
+         */
+        toHandledBy?: string
+
+        /**
+         * The new Holiday Cover chosen, "" to clear it: only the jobs it changes are listed. Left out, none chosen.
+         */
+        toHolidayCover?: string
     }
 
     export interface HandledByCountRequest {
@@ -12529,6 +12549,20 @@ export namespace controllers {
         cargoItems?: interfaces.CargoItemLine[]
         cargoDimensions?: interfaces.CargoDimensionLine[]
         /**
+         * The cargo dimension lines the page started from when it sends cargoDimensions (Cargo Details):
+         * the lines are saved only while the shipment still holds these, else the write is refused
+         * ("Cargo Details changed meanwhile", code aborted) and the page reads them again. Not stored.
+         */
+        expectedCargoDimensions?: interfaces.CargoDimensionLine[]
+
+        /**
+         * The app's own writes only (the gate's outbox): Warehouse Released is set only while the shipment's day is empty
+         * or one of these days, checked in the write turn; otherwise the day is left as it is and the rest is written.
+         * Ignored on a person's edit. Not stored.
+         */
+        warehouseReleasedReplaces?: string[]
+
+        /**
          * Replaces the shipment's commercial invoices when present.
          */
         commercialInvoices?: interfaces.CommercialInvoiceLine[]
@@ -12793,6 +12827,16 @@ export namespace controllers {
     export interface TakeBackRequest {
         version: number
         reason: string
+        /**
+         * How it is taken back (mock test council P8): noted by mistake (the default: it never counted), or reversed - a bank
+         * return or a refund, on `reversedOn` (it counted as paid until then). A write-off or bank charge is always a mistake.
+         */
+        kind?: "mistake" | "reversed"
+
+        /**
+         * A reversal: the day the money went back (yyyy-mm-dd)
+         */
+        reversedOn?: string
     }
 
     export interface TaskListResponse {
@@ -14413,6 +14457,10 @@ export namespace interfaces {
         fileSha256: string
 
         documents: number
+        /**
+         * One per recorded document cancelled since the export was made (it is still in the file): remove it in Pohoda (n4)
+         */
+        warnings: string[]
     }
 
     export interface AccountingExportSummary {
@@ -14868,6 +14916,11 @@ export namespace interfaces {
          * Their tax date has passed, not released for billing yet, not invoiced.
          */
         unbilledArrivals: number
+
+        /**
+         * Marked Invoiced, not every charge on an invoice or a credit owed: counted only when that view is asked for (it reads every invoiced job).
+         */
+        invoicedChargesOpen?: number
     }
 
     /**
@@ -14890,11 +14943,17 @@ export namespace interfaces {
         department: string
 
         /**
-         * House / Master BoL type: an OBL shows the whole row in red, as on Shipments
+         * House / Master BoL type: an OBL not in hand shows the whole row in red, as on Shipments
          */
         houseBolType: string
 
         masterBolType: string
+        /**
+         * The days the original B/Ls and the telex release came (YYYY-MM-DD; null until then): an OBL is in hand from either.
+         */
+        originalsReceivedDate: string | null
+
+        telexReleaseReceivedDate: string | null
         tradeDirection: string
         estimatedDeparture: string | null
         estimatedArrival: string | null
@@ -14938,6 +14997,11 @@ export namespace interfaces {
         sellingLines: number
 
         invoicedLines: number
+        /**
+         * Lines below nothing on no open invoice of a job that has one: a credit owed to the customer (not counted in
+         * sellingLines - it is no charge to bill). The check "Invoiced, charges or credits open" lists such a job too (M3).
+         */
+        creditsOwed: number
     }
 
     export interface BillingSettingsItem {
@@ -19865,6 +19929,17 @@ export namespace interfaces {
          */
         shipmentCount: number
 
+        /**
+         * The distinct Load Types of its live shipments, as first written: a plain MCZ takes their filling
+         * (lib/masterJobKind), judged by all of them - not only the shipments a page has loaded (n32).
+         */
+        houseLoadTypes: string[]
+
+        /**
+         * The one Freight Mode its live shipments share; "" for none or several. Named and served by it while it has no Freight Mode (n31).
+         */
+        houseFreightMode: string
+
         createdAt: string
         updatedAt: string
     }
@@ -19894,6 +19969,11 @@ export namespace interfaces {
          * As stored ("Full Load", "Consolidation", "Project Shipment"); "" when none. A plain master job takes the filling of its houses (lib/masterJobKind).
          */
         loadType: string
+
+        /**
+         * As stored ("Sea Freight", "Air Freight", …); "" when none. A master job with no Freight Mode goes by its houses' one (n31).
+         */
+        freightMode: string
 
         /**
          * The house's own container numbers, comma separated.
@@ -21833,9 +21913,12 @@ export namespace interfaces {
     }
 
     /**
-     * Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status)
+     * Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing,
+     * not invoiced yet) | not_invoiced | invoiced (Invoicing Status) | invoiced_charges_open (a check, P16: marked Invoiced
+     * while not every charge is on an invoice - lib/billingQueue countInvoicedLines - or while a credit is owed, M3:
+     * countCreditsOwed)
      */
-    export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals"
+    export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals" | "invoiced_charges_open"
 
     /**
      * A file sent with a chat message.
@@ -23048,6 +23131,12 @@ export namespace interfaces {
          * The receivable's version (1 before any write)
          */
         version: number
+
+        /**
+         * Issued again after a credit note (mock test council Y2): the issue day of the invoice it replaces - a payment may be
+         * noted from that day on. null (or absent) when it replaces none.
+         */
+        issuedAgainFrom?: string | null
     }
 
     export interface ReceivableLineItem {
@@ -23206,10 +23295,16 @@ export namespace interfaces {
          */
         canConfirm: boolean
 
+        /**
+         * Taken back: by whom, when, why, and how (mock test council P8) - noted by mistake (it never counted), or reversed on
+         * `reversedOn` (a bank return, a refund: it counted as paid until that day)
+         */
         takenBack: {
             by: string
             at: string
             reason: string
+            kind: "mistake" | "reversed"
+            reversedOn: string | null
         } | null
     }
 
@@ -23291,6 +23386,16 @@ export namespace interfaces {
          * The day automatic reminders were switched on (yyyy-mm-dd), null while off: only invoices due on or after it are reminded by the app
          */
         autoRemindersSince: string | null
+
+        /**
+         * The last day the daily run skipped the reminders (yyyy-mm-dd) because no bank statement was read since the previous
+         * working day, and the day of the last one read then (m5): "Skipped on <on>: no bank statement read since <since>".
+         * Null while the reminders are off, or when they were never skipped.
+         */
+        remindersSkipped: {
+            on: string
+            since: string | null
+        } | null
 
         /**
          * Whether e-mail from the app is switched on (else nothing is sent: "E-mail from the app is switched off")
@@ -23474,6 +23579,11 @@ export namespace interfaces {
         factsRead: boolean
 
         today: string
+        /**
+         * The day the app's automatic reminders start (mock test council P18): an owed invoice due before it is never
+         * reminded by the app. null while they are off, e-mail from the app is off, or no run has set the day yet.
+         */
+        autoRemindersSince: string | null
     }
 
     /**
@@ -23540,6 +23650,13 @@ export namespace interfaces {
             currency: string
             daysOverdue: number
         }[]
+        /**
+         * The job's customer is on prepayment and the job has selling with a value not yet invoiced (mock test council L3,
+         * n6): the amounts per currency, net as priced; empty when not, or when the customer's terms could not be read. Then
+         * warn and prepayment are true too: the release is stopped as for an unpaid prepayment invoice. Absent from older
+         * servers.
+         */
+        prepaymentUninvoiced?: ReceivableAmount[]
     }
 
     /**

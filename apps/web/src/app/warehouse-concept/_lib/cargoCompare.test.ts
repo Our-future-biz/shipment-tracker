@@ -34,6 +34,11 @@ describe("declared", () => {
   it("uses the shipment totals (tonnes to kg)", () => {
     expect(declaredTotals({ pcs: "10", totalWeightTons: "1.25", totalVolumeCbm: "4.5" })).toEqual({ pieces: 10, kg: 1250, cbm: 4.5 });
   });
+  // Mock test council n17: "1,200" pieces is 1200, not 1.2.
+  it("reads Pcs with thousands separators as Shipments does", () => {
+    expect(declaredTotals({ pcs: "1,200", totalWeightTons: "", totalVolumeCbm: "" })).toMatchObject({ pieces: 1200 });
+    expect(declaredTotals({ pcs: "12,345,678", totalWeightTons: "", totalVolumeCbm: "" })).toMatchObject({ pieces: 12345678 });
+  });
   it("falls back to the cargo dimensions, and is null when nothing is declared", () => {
     expect(declaredTotals({ pcs: "", totalWeightTons: "", totalVolumeCbm: "", cargoDimensions: [line("2", "100", "100", "100", "50")] })).toEqual({
       pieces: 2,

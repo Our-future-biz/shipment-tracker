@@ -32,21 +32,32 @@ export const shipmentHandOver = api(
 );
 
 interface HandOverJobsRequest {
-  /** Whose jobs: the e-mail Handled By names (any case). */
-  handledBy: Query<string> & MaxLen<320>;
+  /** Whose jobs: the e-mail Handled By names (any case). Left out when `coveredBy` is sent. */
+  handledBy?: Query<string> & MaxLen<320>;
+  /** Or the jobs this person covers: the e-mail Holiday Cover names (any case) - "Replace as Holiday Cover…" (P12). */
+  coveredBy?: Query<string> & MaxLen<320>;
   /** sea | air | rail | road; left out or "all" for every mode - as the Shipments list's filter. */
   mode?: Query<string> & MaxLen<10>;
   /** import | export | domestic; left out or "all" for every direction. */
   direction?: Query<string> & MaxLen<10>;
+  /** The new Handled By chosen in the dialog: only the jobs it changes are listed (n25). Left out or "", none chosen. */
+  toHandledBy?: Query<string> & MaxLen<320>;
+  /** The new Holiday Cover chosen, "" to clear it: only the jobs it changes are listed. Left out, none chosen. */
+  toHolidayCover?: Query<string> & MaxLen<320>;
 }
 
 // X9 (K18). A person's active jobs by Handled By - quiet ones too, not only the jobs with a signal on
-// the cards - for "Hand over all N active jobs…" on a Team row: at most 200 (as many as one hand-over
-// takes), the oldest first, and how many there are in all. The hand-over itself is POST /shipments/hand-over.
+// the cards - for "Hand over all N active jobs…" on a Team row, or the jobs they cover for "Replace as
+// Holiday Cover…" (P12): at most 200 (as many as one hand-over takes), the oldest first, and how many there
+// are in all. Once a new Handled By or Holiday Cover is chosen, only the jobs it would change (n25), so jobs
+// past the first 200 are reached when those are already so. The hand-over itself is POST /shipments/hand-over.
 export const shipmentHandOverJobs = api(
   { expose: true, auth: true, method: "GET", path: "/shipments/hand-over/jobs" },
-  async ({ handledBy, mode, direction }: HandOverJobsRequest): Promise<HandOverJobsAnswer> => {
-    return handOverService.jobsOf(managers().companyID, handledBy, { mode, direction });
+  async ({ handledBy, coveredBy, mode, direction, toHandledBy, toHolidayCover }: HandOverJobsRequest): Promise<HandOverJobsAnswer> => {
+    const companyId = managers().companyID;
+    const to = { handledBy: toHandledBy, holidayCover: toHolidayCover };
+    if (coveredBy !== undefined && !handledBy) return handOverService.jobsOf(companyId, coveredBy, { mode, direction }, { as: "holidayCover", to });
+    return handOverService.jobsOf(companyId, handledBy ?? "", { mode, direction }, { to });
   },
 );
 

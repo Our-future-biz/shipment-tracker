@@ -1,7 +1,8 @@
 // A grid's saved column layout (order + visibility) is the list of the columns shown. Saved with it is
 // the list of every column the grid had then, so a column added to the grid later is told apart from
 // one the user hid: the new one is shown once (at the end, if it is shown by default), the hidden one
-// stays hidden.
+// stays hidden. A layout saved before that list was kept knows the grid's columns but those the grid
+// names as added after such layouts (legacyKnown).
 
 export interface SavedColumnLayout {
   /** The columns shown, in order. */
@@ -15,13 +16,21 @@ export interface SavedColumnLayout {
  * Columns the grid does not have now stay in the list, so one it shows only at times keeps its place;
  * the grid leaves them out when it draws.
  */
-export function columnsFromLayout(saved: SavedColumnLayout, columns: { key: string; defaultVisible?: boolean }[]): string[] {
-  // A layout saved before the known columns were kept cannot tell a new column from a hidden one:
-  // it stays as it was (the known list is stored from now on, so later columns do show).
-  if (!saved.known) return saved.visible;
-  const known = new Set(saved.known);
+export function columnsFromLayout(saved: SavedColumnLayout, columns: { key: string; defaultVisible?: boolean }[], addedLater: readonly string[] = []): string[] {
+  const known = new Set(saved.known ?? legacyKnown(columns, addedLater));
   const added = columns.filter((c) => !known.has(c.key) && c.defaultVisible !== false && !saved.visible.includes(c.key)).map((c) => c.key);
   return [...saved.visible, ...added];
+}
+
+/**
+ * What a layout saved before the known columns were kept is taken to know (mock test council P7): the grid's
+ * columns now, but those it says were added after such layouts (`addedLater`, e.g. Positions' ETA
+ * Warehouse/HUB) - those show once, like any new column, and the user's other choices stay as they were. A grid
+ * that names none leaves its old layouts as they were: it cannot tell a new column from a hidden one.
+ */
+export function legacyKnown(columns: { key: string }[], addedLater: readonly string[]): string[] {
+  const later = new Set(addedLater);
+  return columns.map((c) => c.key).filter((key) => !later.has(key));
 }
 
 /**

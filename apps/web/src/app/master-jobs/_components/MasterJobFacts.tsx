@@ -3,6 +3,7 @@
 import { CopyButton } from "@/components/CopyButton";
 import { formatDate } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
+import { masterJobModeOf } from "../_lib/masterJobWords";
 import { EMPTY, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
@@ -73,7 +74,7 @@ export function MasterJobFacts({ masterJob: mj, shipments, onJump = jumpTo }: Ma
       </Fact>
       <Fact label="Trade Direction">{text(mj.tradeDirection)}</Fact>
       <Fact label="Freight Mode">{text(mj.freightMode)}</Fact>
-      <Fact label="Load Type">{text(mj.loadType ? loadTypeLabel(mj.loadType, mj.freightMode) : "")}</Fact>
+      <Fact label="Load Type">{text(mj.loadType ? loadTypeLabel(mj.loadType, masterJobModeOf(mj)) : "")}</Fact>
       <Fact label="Shipping line / Coloader">{text(mj.shippingLine)}</Fact>
       <Fact label="Port of Loading">{text(mj.pol)}</Fact>
       {/* The dates jump to their rows in MBL Details, as the old summary tiles did. */}

@@ -24,6 +24,8 @@ import {
   moneyPersonRows,
   moneySignalFigure,
   notYetInvoicedView,
+  NOT_YET_INVOICED_HINT,
+  PERSON_NOT_YET_INVOICED_HINT,
   type MoneyCard,
   type MoneyPage,
   type MoneyPersonRow,
@@ -126,13 +128,12 @@ interface AnswerState {
   isError: boolean;
 }
 
-const NOT_YET_INVOICED_HINT =
-  "Valued selling lines that are on no open invoice, on the active jobs counted. One amount per currency: amounts of different currencies are never added; the CZK figure is all of them at the rate it names.";
 
 // One amount in its own currency: a box of its own, so no two read as one sum.
 const AMOUNT_CHIP = "inline-flex items-center h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 text-[13px] font-bold tabular-nums text-slate-900 whitespace-nowrap";
 
-// Work not yet invoiced on the active jobs counted: valued selling lines that are on no open invoice.
+// Work not yet invoiced on the jobs counted - the active ones, and late charges on jobs that read
+// Invoiced: selling lines still to bill, on no open invoice.
 // One chip per currency; the CZK figure beside them is the server's, under the label it sends.
 // Not read is "–" - never 0, and never an empty row of chips. A load that failed is said here in
 // the words the cards and the table say it.
@@ -200,7 +201,7 @@ const PEOPLE_COLUMNS: ColumnsType<MoneyPersonRow> = [
     ),
   },
   {
-    title: head("Not yet invoiced", "Valued selling lines on no open invoice, on their active jobs: one amount per currency, never added across currencies"),
+    title: head("Not yet invoiced", PERSON_NOT_YET_INVOICED_HINT),
     key: "notYetInvoiced",
     width: 190,
     render: (_: unknown, r) =>

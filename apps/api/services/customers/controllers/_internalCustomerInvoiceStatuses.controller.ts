@@ -7,6 +7,11 @@ import { invoiceService } from "../services/invoice.service";
 interface InvoiceStatusesRequest {
   /** Issued documents of Invoicing: the id, the number and the customer billed. */
   items: { invoiceId: string; number: string; customerId: string }[] & MaxLen<2000>;
+  /**
+   * Only read: nothing is marked as posted by Invoicing (m4). The bell asks this on every poll - a write there would
+   * touch the customer's list each time; the carry-over (which acts on the answer) still marks.
+   */
+  readOnly?: boolean;
 }
 
 interface InvoiceStatusesResponse {
@@ -15,10 +20,10 @@ interface InvoiceStatusesResponse {
 
 // Internal: Finance → Accounts Receivable (the invoicing service) reads how the customer's invoice list has its
 // invoices (an old Paid mark is carried over once; none is "Not in the customer's list"). Each entry found is marked
-// as posted by Invoicing, with the document's id. Company from the caller's auth.
+// as posted by Invoicing, with the document's id - not when asked read only. Company from the caller's auth.
 export const _internalCustomerInvoiceStatuses = api(
   { expose: false, auth: true, method: "POST", path: "/internal/customers/invoice-statuses" },
-  async ({ items }: InvoiceStatusesRequest): Promise<InvoiceStatusesResponse> => {
-    return { items: await invoiceService.statusesOfIssued(getAuthData()!.companyID, items) };
+  async ({ items, readOnly }: InvoiceStatusesRequest): Promise<InvoiceStatusesResponse> => {
+    return { items: await invoiceService.statusesOfIssued(getAuthData()!.companyID, items, { readOnly: readOnly === true }) };
   },
 );

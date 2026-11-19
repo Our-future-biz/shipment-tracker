@@ -11,6 +11,16 @@ describe("Invoicing job view wiring", () => {
     expect(view).not.toMatch(/open\[open\.length - 1\]/);
   });
 
+  it("offers the check 'Marked Invoiced, not every charge on an invoice - or a credit owed' as a tab of the queue, with its own count (P16, M3)", () => {
+    const queue = source("BillingQueue.tsx");
+    expect(queue).toMatch(/"invoiced_charges_open"/);
+    expect(queue).toMatch(/invoiced_charges_open: "invoicedChargesOpen"/);
+    expect(queue).toContain('label: "Invoiced, charges or credits open"');
+    expect(queue).toContain('title: "Marked Invoiced, not every charge on an invoice - or a credit owed to the customer"');
+    // The Lines Invoiced cell says a credit owed, by the tested helper.
+    expect(source("queueColumns.tsx")).toMatch(/linesInvoicedCell\(r\)/);
+  });
+
   it("builds the lines table with the tested helper", () => {
     expect(source("InvoicePanel.tsx")).toMatch(/lineTableRows\(/);
   });

@@ -9,7 +9,7 @@ import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl } from "../lib/contentToken";
 import { customsOfficeRequestNotice, documentChangeNotice } from "../lib/customsOfficeNotice";
 import { canManageDocuments } from "../lib/documentRules";
-import { COMPARED_WITH, REMEASURE_INFORMED, remeasureNotice, shipmentFiguresFor, type CargoFigures, type ComparedWith } from "../lib/remeasureNotice";
+import { COMPARED_WITH, REMEASURE_INFORMED, chargeKindOf, remeasureNotice, shipmentFiguresFor, type CargoFigures, type ComparedWith } from "../lib/remeasureNotice";
 import { roundedFigures } from "../lib/remeasureAccept";
 import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
 import { iso } from "../../../lib/db/serialize";
@@ -165,7 +165,10 @@ class CommentService {
     const users = await companyUsers();
     // The shipment's figures, a figure its lines lack from its own totals (lib/remeasureNotice).
     const ours = shipmentFiguresFor(shipment, comparedWith as ComparedWith);
-    const notice = remeasureNotice(shipment, users, ours, remeasured, note, source === "warehouseConcept" ? "warehouseConcept" : "warehouse");
+    // What the freight is charged by decides whether a figure only the warehouse measured is a
+    // difference (mock test council Y9); kept with the record, so the Alerts tab reads it as told.
+    const charge = chargeKindOf(shipment.freightMode, shipment.loadType);
+    const notice = remeasureNotice(shipment, users, ours, remeasured, note, source === "warehouseConcept" ? "warehouseConcept" : "warehouse", charge);
     // The message and its record (the Alerts tab lists those whose figures differ), together.
     const comment = await shipmentCommentRepository.createWithHistory(
       companyId,
@@ -173,7 +176,7 @@ class CommentService {
       (commentId) => ({
         field: REMEASURE_INFORMED,
         oldValue: JSON.stringify(ours),
-        newValue: JSON.stringify({ colli: remeasured.colli, weightKg: remeasured.weightKg, volumeCbm: remeasured.volumeCbm, comparedWith, source, commentId }),
+        newValue: JSON.stringify({ colli: remeasured.colli, weightKg: remeasured.weightKg, volumeCbm: remeasured.volumeCbm, comparedWith, source, charge, commentId }),
       }),
     );
     return { commentId: comment.id, tagged: notice.tagged.map((u) => u.email) };

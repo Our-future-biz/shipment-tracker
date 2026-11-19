@@ -3029,7 +3029,7 @@ describe("step 6: the B/L dates, the cancel reason and the users' ids", () => {
     ]) {
       await expect(update({ [field!]: tomorrow }, "manager")).rejects.toMatchObject({
         code: "invalid_argument",
-        message: `${label} can't be a day still to come: it says when it happened (today is ${today})`,
+        message: `${label} can't be a day still to come: it says when it happened (today is ${today.split("-").reverse().join(".")})`,
       });
     }
     await expect(create({ deliveryOrderDate: tomorrow })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("Delivery Order can't be a day still to come") });
@@ -3057,6 +3057,45 @@ describe("step 6: the B/L dates, the cancel reason and the users' ids", () => {
     open("");
     vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
     await update(cancel, "user");
+    expect(stored.get(SHIPMENT)).toMatchObject({ status: "Cancelled Shipment" });
+  });
+
+  // Mock test council n35: Invoicing Status moved off Invoiced first, or in the same write.
+  it("judges a user's cancel by the Invoicing Status before and after the write, and keeps Invoiced while an invoice is open", async () => {
+    const open = (invoicingStatus: string) => stored.set(SHIPMENT, row({ status: "Booking Confirmation Pending [IMP]", invoicingStatus, personInCharge: "", holidayCover: "" }));
+    const cancel = { status: "Cancelled Shipment", cancelReason: "Customer cancelled" };
+    open("Invoiced");
+    await expect(update({ ...cancel, invoicingStatus: "Not Invoiced" }, "user")).rejects.toMatchObject({ code: "permission_denied", message: "This shipment is invoiced: only a manager can cancel it" });
+    open("");
+    await expect(update({ ...cancel, invoicingStatus: "Invoiced" }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    // An open invoice: a user may not take the status off Invoiced, a manager may.
+    open("Invoiced");
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 1 });
+    await expect(update({ invoicingStatus: "Not Invoiced" }, "user")).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "This shipment has an open invoice: only a manager can move its Invoicing Status away from Invoiced",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    await update({ invoicingStatus: "Not Invoiced" }, "manager");
+    expect(stored.get(SHIPMENT)).toMatchObject({ invoicingStatus: "Not Invoiced" });
+    // Marked by hand with no invoice: a user may still correct it.
+    open("Invoiced");
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
+    await update({ invoicingStatus: "Not Invoiced" }, "user");
+    expect(stored.get(SHIPMENT)).toMatchObject({ invoicingStatus: "Not Invoiced" });
+  });
+
+  // Mock test council n36.
+  it("refuses a user's cancel, not fails, when Invoicing can't say whether the job is invoiced", async () => {
+    stored.set(SHIPMENT, row({ status: "Booking Confirmation Pending [IMP]", invoicingStatus: "", personInCharge: "", holidayCover: "" }));
+    vi.mocked(invoicing.openInvoiceCount).mockRejectedValue(new Error("invoicing is down"));
+    await expect(update({ status: "Cancelled Shipment", cancelReason: "Customer cancelled" }, "user")).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Whether the job is invoiced could not be checked: try again or ask a manager",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    // A manager's cancel never asks.
+    await update({ status: "Cancelled Shipment", cancelReason: "Customer cancelled" }, "manager");
     expect(stored.get(SHIPMENT)).toMatchObject({ status: "Cancelled Shipment" });
   });
 
@@ -3235,13 +3274,34 @@ describe("accepting the warehouse's remeasurement", () => {
     // 4 pallets of general cargo and 1 pallet of UN 1993; the warehouse saved 1 line of 5.
     vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ pieces: "1", adrUn: "1993", adrClass: "3" })] as never);
     const one = job([full]);
-    const byHand = "Dangerous goods or several containers are on these lines and the warehouse saved a different number of lines: update Cargo Details by hand";
+    const byHand =
+      "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each): update Cargo Details by hand";
     await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, one)).rejects.toMatchObject({ code: "failed_precondition", message: byHand });
     // An FCL job's lines in two containers.
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A), container(B)] as never);
     vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ containerId: B })] as never);
     await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, one)).rejects.toMatchObject({ message: byHand });
     expect(repository.writeTurn).not.toHaveBeenCalled();
+  });
+
+  // Mock test council Y8: Cargo Details (1) 3 drums UN 1203, (2) 10 cartons; the warehouse saved the cartons first.
+  it("is refused when dangerous goods are on the lines and the warehouse's lines are in another order, so the cartons never become drums UN 1203", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A)] as never);
+    const drums = dimRow({ pieces: "3", packageType: "Drums", adrUn: "1203", adrClass: "3" });
+    const cartons = dimRow({ pieces: "10", packageType: "Cartons" });
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([drums, cartons] as never);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, pieces: "10" }, { ...full, pieces: "3" }]))).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringContaining("update Cargo Details by hand"),
+    });
+    expect(repository.writeTurn).not.toHaveBeenCalled();
+    // In their own order: each line keeps its packing and its UN number.
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, pieces: "3" }, { ...full, pieces: "10" }]));
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([
+      { pieces: "3", packageType: "Drums", adrUn: "1203" },
+      { pieces: "10", packageType: "Cartons", adrUn: null },
+    ]);
   });
 
   it("gives the only container the accepted pieces, weight and volume in the same write, the description lines untouched", async () => {
@@ -3255,17 +3315,21 @@ describe("accepting the warehouse's remeasurement", () => {
     expect(cargoItemRepository.replaceForShipment).not.toHaveBeenCalled();
   });
 
-  it("leaves several containers alone when the number of lines stays", async () => {
+  it("leaves several containers alone when the lines stay line for line", async () => {
     vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A), container(B)] as never);
     vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ containerId: B })] as never);
-    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full, full]));
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, pieces: "4" }, { ...full, pieces: "4" }]));
     expect(containerRepository.syncForShipment).not.toHaveBeenCalled();
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ containerId: A }, { containerId: B }]);
   });
 
-  it("refuses the lines the last acceptance took over, so a stale page records no second acceptance", async () => {
+  // Cargo Details as an acceptance of `full` leaves them.
+  const accepted = () => dimRow({ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" });
+
+  it("refuses the lines the last acceptance took over while Cargo Details hold them, so a stale page records no second acceptance", async () => {
     const saved = job([full]);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([accepted()] as never);
     // Saved again with other spacing: still the same lines.
     const last = { id: "a1", userId: USER, field: "remeasurementAccepted", oldValue: "{}", newValue: JSON.stringify({ colli: 5, lines: JSON.stringify([{ ...full, pieces: " 5 " }]) }), changedAt: new Date() };
     vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([last] as never);
@@ -3274,6 +3338,27 @@ describe("accepting the warehouse's remeasurement", () => {
       message: "These remeasured lines were already accepted: the warehouse has saved nothing new since",
     });
     expect(repository.writeTurn).not.toHaveBeenCalled();
+  });
+
+  // Mock test council Y10: a Cargo Details page opened before the acceptance saved its old lines back.
+  it("accepts the same lines again once Cargo Details no longer hold them", async () => {
+    const saved = job([full]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A)] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow({ pieces: "5" })] as never);
+    const last = { id: "a1", userId: USER, field: "remeasurementAccepted", oldValue: "{}", newValue: JSON.stringify({ colli: 5, lines: saved }), changedAt: new Date() };
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([last] as never);
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, saved);
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225" }]);
+    expect(vi.mocked(shipmentAuditRepository.create).mock.calls.map(([entry]) => entry.field)).toContain("remeasurementAccepted");
+  });
+
+  // Mock test council n18: the acceptance is saved before its read-back asks Invoicing.
+  it("answers the acceptance with the job read as not invoiced when Invoicing can't be asked", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockImplementation(async (_id, _companyId, fields) =>
+      (fields.includes("remeasurementAccepted") ? [{ id: "a1", userId: USER, field: "remeasurementAccepted", oldValue: "{}", newValue: "{}", changedAt: new Date() }] : []) as never,
+    );
+    vi.mocked(invoicing.openInvoiceCount).mockRejectedValue(new Error("invoicing is down"));
+    expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY)).toMatchObject({ invoiced: false });
   });
 
   // Review: Cargo Details saved between the acceptance's read and its write turn. The read outside
@@ -3324,7 +3409,7 @@ describe("accepting the warehouse's remeasurement", () => {
     // Nothing accepted when this Accept looked; the other's entry is there once its turn comes, and
     // the lines and totals it wrote - which is not "changed meanwhile", but these lines accepted.
     vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValueOnce([]).mockResolvedValue([last] as never);
-    vi.mocked(cargoDimensionRepository.listByShipmentId).mockImplementation(inTurn([dimRow()], [dimRow({ pieces: "5", lengthCm: "140" })]));
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockImplementation(inTurn([dimRow()], [accepted()]));
     repository.getInTurn.mockResolvedValueOnce(row({ pcs: "5", totalWeightTons: "0.2500", totalVolumeCbm: "34.6500", personInCharge: "", holidayCover: "" }));
     await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, saved)).rejects.toMatchObject({
       code: "failed_precondition",
@@ -3351,6 +3436,107 @@ describe("accepting the warehouse's remeasurement", () => {
     vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
     await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, lengthCm: "140.", weightPerPcKg: ".5" }]));
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ lengthCm: "140", weightPerPcKg: "0.5" }]);
+  });
+});
+
+// Mock test council Y10: Cargo Details' line saves send the lines the page started from.
+describe("a save of Cargo Details' lines from a page that started from other lines", () => {
+  const line = (over: Record<string, unknown> = {}) => ({
+    containerId: null,
+    pieces: "4",
+    lengthCm: "120",
+    widthCm: "80",
+    heightCm: "150",
+    dimensionUnit: "cm",
+    weightPerPcKg: "34",
+    volumePerPcM3: "",
+    packageType: "Pallet(s)",
+    stackable: "",
+    palletType: null,
+    adrUn: null,
+    adrClass: null,
+    adrPackingGroup: null,
+    adrLimitedQuantity: false,
+    ...over,
+  });
+  const save = (expectedCargoDimensions: unknown[] | undefined) =>
+    shipmentService.update(SHIPMENT, COMPANY, { cargoDimensions: [line({ pieces: "6" })] } as never, USER, "manager", undefined, undefined, { expectedCargoDimensions } as never);
+
+  beforeEach(() => {
+    stored.set(SHIPMENT, row({ personInCharge: "", holidayCover: "" }));
+  });
+
+  it("is refused when the shipment holds other lines now - an accepted remeasurement - and nothing is written", async () => {
+    // The page started from the 4 pallets; an Accept wrote the warehouse's 5 × 140×220×225 since.
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([line({ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" })] as never);
+    await expect(save([line()])).rejects.toMatchObject({ code: "aborted", message: "Cargo Details changed meanwhile: they are shown again - make your change again" });
+    expect(cargoDimensionRepository.replaceForShipment).not.toHaveBeenCalled();
+    // Read in the write's turn.
+    expect(cargoDimensionRepository.listByShipmentId).toHaveBeenCalledWith(SHIPMENT, COMPANY, TX);
+  });
+
+  it("is saved while the shipment holds the lines it started from, written alike or not ('UN 1203', '1,5')", async () => {
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([line({ adrUn: "1203", weightPerPcKg: "1.5" })] as never);
+    await save([line({ adrUn: "UN 1203", weightPerPcKg: "1,5" })]);
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ pieces: "6" }]);
+  });
+
+  it("is saved as sent when the page names no lines it started from (the grid, a document reading)", async () => {
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([line({ pieces: "9" })] as never);
+    await save(undefined);
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ pieces: "6" }]);
+  });
+});
+
+// Mock test council n19: an old container number ("TBA") no longer stops every save of the containers.
+describe("a container number the container already has", () => {
+  const C = "0b8e1d2c-0000-4000-8000-00000000000c";
+  const box = (containerNumber: string, id: string | undefined = C) => ({ id, containerNumber, sealNumber: "", type: "40' HC", teu: "2", packages: "5", packageType: "", grossWeight: "170", volume: "7.2" });
+
+  beforeEach(() => {
+    stored.set(SHIPMENT, row({ personInCharge: "", holidayCover: "" }));
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([box("TBA")] as never);
+  });
+
+  it("is not asked again, while a new or changed number still is", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { containers: [{ ...box("TBA"), packages: "6" }] } as never, USER, "manager");
+    expect(containerRepository.syncForShipment).toHaveBeenCalled();
+    await expect(shipmentService.update(SHIPMENT, COMPANY, { containers: [box("TBD")] } as never, USER, "manager")).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: 'Container number "TBD" must be 4 letters followed by 7 digits (e.g. MSKU1234567)',
+    });
+    await expect(shipmentService.update(SHIPMENT, COMPANY, { containers: [box("TBA"), box("XYZ", "0b8e1d2c-0000-4000-8000-00000000000d")] } as never, USER, "manager")).rejects.toMatchObject({
+      message: expect.stringContaining('"XYZ"'),
+    });
+  });
+});
+
+// Mock test council P10: the work not yet invoiced could not be held against the customer's terms.
+describe("a release whose prepayment could not be checked in full", () => {
+  const NOT_CHECKED = "Prepayment not checked: the Customer Database could not be read";
+  const lines = () => vi.mocked(shipmentAuditRepository.create).mock.calls.map(([entry]) => entry);
+
+  beforeEach(() => {
+    stored.set(SHIPMENT, row({ personInCharge: "", holidayCover: "", warehouseReceivedDate: "2026-11-10", warehouseReleasedDate: null, houseBolRelease: "" }));
+    vi.mocked(invoicing._internalReleaseCheck).mockResolvedValue({ ...PAID, prepaymentUninvoicedUnchecked: true } as never);
+  });
+
+  it("sets Warehouse Released all the same, with a line saying so in the job's history", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { warehouseReleasedDate: "2026-11-11" } as never, USER, "user");
+    expect(stored.get(SHIPMENT)).toMatchObject({ warehouseReleasedDate: "2026-11-11" });
+    expect(lines()).toContainEqual(expect.objectContaining({ field: "prepaymentUnchecked", newValue: NOT_CHECKED }));
+  });
+
+  it("releases the House BoL all the same, with the same line", async () => {
+    vi.mocked(auth.userLookup).mockResolvedValue({ users: [{ id: USER, name: "Jan Novák", email: JAN.email, role: "user" }] } as never);
+    await shipmentService.releaseHouseBol(SHIPMENT, COMPANY, USER, { role: "user" });
+    expect(lines()).toContainEqual(expect.objectContaining({ field: "prepaymentUnchecked", newValue: NOT_CHECKED }));
+  });
+
+  it("writes no such line when it was checked", async () => {
+    vi.mocked(invoicing._internalReleaseCheck).mockResolvedValue(PAID);
+    await shipmentService.update(SHIPMENT, COMPANY, { warehouseReleasedDate: "2026-11-11" } as never, USER, "user");
+    expect(lines().map((l) => l.field)).not.toContain("prepaymentUnchecked");
   });
 });
 

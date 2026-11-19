@@ -109,7 +109,11 @@ export function followupsOfPartialCreditNote(creditNote: InvoiceRecord, original
 export interface SellingChange {
   companyId: string;
   shipmentId: string;
-  /** The job's newest open invoice: the row is kept under it (repositories/invoice.repository latestOpenInvoiceId). */
+  /**
+   * The invoice the row is kept under: the job's newest open one (repositories/invoice.repository
+   * latestOpenInvoiceId), else - for a charge added to a job with none open - its newest invoice of
+   * any state (latestInvoiceId): the outbox row needs one, and what it does is worked out from the job.
+   */
   invoiceId: string;
   /** lib/shipmentStatus chargeChangeOf: the line became a charge (or its value changed), or stopped being one. */
   change: "added" | "removed";
@@ -199,6 +203,22 @@ export async function receivableStateNow(companyId: string, invoiceId: string) {
   };
 }
 
+/**
+ * Moves the shipment's statuses after its charges, worked out from the shipment as it is now: a
+ * status someone moved since is left alone. "status_after_issue": Invoiced once the last charge is on
+ * an open invoice; "status_after_credit": back when one is not. Throws when Shipments does not answer.
+ */
+export async function followStatuses(companyId: string, shipmentId: string, kind: "status_after_issue" | "status_after_credit", actor: FollowupActor): Promise<void> {
+  const authData = { userID: actor.userId, companyID: companyId, role: actor.role };
+  const { shipment } = await shipments.shipmentGet({ shipmentId }, { authData });
+  const charges = await chargeCountOf(shipmentId, companyId);
+  const patch = kind === "status_after_issue" ? statusesAfterIssue(shipment, charges) : statusesAfterCredit(shipment, charges);
+  // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
+  // A selling line's row carries the line in words (`charge`); the shipment's history records the
+  // status change as this user's, and does not name the line yet - shipmentUpdate takes no line of its own.
+  if (changes(patch)) await shipments.shipmentUpdate({ shipmentId, ...patch }, { authData: { ...authData, appWrite: true } });
+}
+
 /** Sends one follow-up; throws when the service did not take it. Safe to send again. */
 export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<void> {
   const authData = { userID: row.actingUserId, companyID: row.companyId, role: row.actingRole };
@@ -217,19 +237,9 @@ export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<vo
       );
       return;
     case "status_after_issue":
-    case "status_after_credit": {
-      // Worked out from the shipment as it is now: a status someone moved since is left alone.
-      const shipmentId = String(payload.shipmentId);
-      const { shipment } = await shipments.shipmentGet({ shipmentId }, { authData });
-      // Both follow the job's charges: Invoiced once the last one is on an open invoice, back when one is not.
-      const charges = await chargeCountOf(shipmentId, row.companyId);
-      const patch = row.kind === "status_after_issue" ? statusesAfterIssue(shipment, charges) : statusesAfterCredit(shipment, charges);
-      // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
-      // A selling line's row carries the line in words (`charge`); the shipment's history records the
-      // status change as this user's, and does not name the line yet - shipmentUpdate takes no line of its own.
-      if (changes(patch)) await shipments.shipmentUpdate({ shipmentId, ...patch }, { authData: { ...authData, appWrite: true } });
+    case "status_after_credit":
+      await followStatuses(row.companyId, String(payload.shipmentId), row.kind, { userId: row.actingUserId, role: row.actingRole });
       return;
-    }
     case "receivable_state": {
       // The state as it is now (not as when the row was written): safe to repeat, never older than what was sent.
       const state = await receivableStateNow(row.companyId, String(payload.invoiceId));

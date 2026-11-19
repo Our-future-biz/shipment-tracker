@@ -2,7 +2,9 @@
 // absences), each of their active jobs with no Holiday Cover takes that cover; once the absence
 // ended, was shortened or deleted - or names another cover - the cover is cleared again on the
 // jobs it was set on, only where the job still holds the e-mail set (somebody may have changed it
-// since). Pure: what the cover job does with each absence and each row it keeps
+// since). A user who left the company while away is the one exception (mock test council P12): their
+// cover stays on a job until the job is handed over, so nobody is left answering for it. Pure: what the
+// cover job does with each absence and each row it keeps
 // (schemas/shipmentAbsenceCover.schema); services/absenceCover.service reads and writes, through
 // the shipment service's update - the very write an edit of Holiday Cover on the job makes.
 // Tested in tests/absenceCover.test.ts.
@@ -91,6 +93,28 @@ export function clearWhy(why: ClearWhy, absentUserId: string, liveUserIds: Reado
   return why === "over" && liveUserIds !== null && !liveUserIds.has(absentUserId) ? "left" : why;
 }
 
+/**
+ * Whether the run cannot tell yet why a cover's absence is over (P12): auth no longer tells the absence at
+ * all - it was deleted, or its user left - and the company's users could not be read. A leaver's cover is
+ * not to come off before their jobs are handed over, so it is left to the next run rather than cleared on a guess.
+ */
+export const overNotKnown = (why: ClearWhy, row: Pick<OpenCover, "absenceId">, absences: readonly CoverAbsence[], liveUserIds: ReadonlySet<string> | null): boolean =>
+  why === "over" && liveUserIds === null && !absences.some((a) => a.id === row.absenceId);
+
+/**
+ * What becomes of the cover set for a user who has left the company (P12), as the job is now: it stays
+ * while the job still names them in Handled By - somebody still has to answer for it until the job is
+ * handed over - and comes off once Handled By names somebody else. A job no longer active keeps it, and
+ * its row is done: nobody hands an invoiced or cancelled job over.
+ */
+export function leaverCover(row: Pick<OpenCover, "absentEmail">, job: { personInCharge: string }, active: boolean): "stays" | "clear" | "done" {
+  if (personEmailOf(job.personInCharge) !== emailKey(row.absentEmail)) return "clear";
+  return active ? "stays" : "done";
+}
+
+// The e-mail a person field names: the part before the name an old value may carry after it (lib/shipmentEditRule personEmail).
+const personEmailOf = (value: string) => emailKey(value.split(" — ")[0]);
+
 /** What the run does with a job of an absent user that has no Holiday Cover. */
 export type SetDecision = "set" | "already_set_once" | "other_cover_open";
 
@@ -118,11 +142,13 @@ export const coverSetLine = (cover: string, absent: { name: string; email: strin
 /**
  * The job's history line of a cover cleared, in words that claim nothing the job cannot know (m26):
  * "Holiday Cover eva@firma.cz cleared: absence over" - not "Jan is back", as he may have started
- * another absence -, "…: Jan Novák left the company", "…: the cover while Jan Novák is away changed".
+ * another absence -, "…: Jan Novák left the company and no longer handles the job", "…: the cover while
+ * Jan Novák is away changed".
  */
 export function coverClearedLine(cover: string, absent: { name: string; email: string }, why: ClearWhy): string {
   const head = `Holiday Cover ${cover} cleared`;
-  if (why === "left") return `${head}: ${absentWho(absent)} left the company`;
+  // Cleared once the job is handed over (P12: a leaver's cover stays until then).
+  if (why === "left") return `${head}: ${absentWho(absent)} left the company and no longer handles the job`;
   if (why === "changed") return `${head}: the cover while ${absentWho(absent)} is away changed`;
   return `${head}: absence over`;
 }

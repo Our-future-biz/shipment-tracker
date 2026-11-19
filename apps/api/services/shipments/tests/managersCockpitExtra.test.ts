@@ -13,6 +13,7 @@ import {
   UNDER_CLEARANCE,
   WAITING_STATUSES,
   afterWorkingDays,
+  conceptRemeasureOpen,
   arrivingIn,
   customsFieldSignals,
   dangerousSignals,
@@ -25,6 +26,7 @@ import {
   isWaitingStatus,
   masterJobHouseSignals,
   masterJobRowSignals,
+  masterJobWindowEnd,
   originalBlSignals,
   paperworkSignals,
   remeasurementSignals,
@@ -34,6 +36,7 @@ import {
   underClearanceSignals,
   waitedWorkingDays,
   watchesStatus,
+  workingDayEnd,
   workingDaysAhead,
   REMEASURED_IN_WAREHOUSE_CONCEPT,
   type DocumentFact,
@@ -173,9 +176,31 @@ describe("arrivingIn and departureAhead", () => {
     expect(workingDaysAhead("2026-11-20", "2026-11-21", NONE)).toBe(1);
     expect(workingDaysAhead("2026-11-20", "2026-11-23", NONE)).toBe(1);
     expect(workingDaysAhead("2026-11-20", "2026-11-24", NONE)).toBe(2);
-    // From a Saturday the Monday is the first working day: none to go.
-    expect(workingDaysAhead("2026-11-21", "2026-11-23", NONE)).toBe(0);
+    // From a Saturday the Monday is the next working day, 1 away as from the Friday, Tuesday 2 (n20):
+    // as the URGENT window, which on a Saturday ends on the Monday.
+    expect(workingDaysAhead("2026-11-21", "2026-11-22", NONE)).toBe(1);
+    expect(workingDaysAhead("2026-11-21", "2026-11-23", NONE)).toBe(1);
+    expect(workingDaysAhead("2026-11-21", "2026-11-24", NONE)).toBe(2);
+    expect(workingDaysAhead("2026-11-22", "2026-11-23", NONE)).toBe(1);
+    expect(workingDaysAhead("2026-11-18", "2026-11-18", NONE)).toBe(0);
+    expect(workingDaysAhead("2026-11-18", "2026-11-17", NONE)).toBe(0);
     expect(workingDaysAhead("2026-11-18", "2027-06-01", NONE)).toBe(32);
+  });
+
+  it("works each window's end out once per holiday list and day, as addWorkingDays would", () => {
+    const holidays = ["2026-11-23"];
+    // Wednesday 18th: Thursday, Friday, (Monday off) Tuesday, Wednesday.
+    expect([0, 1, 2, 3, 4].map((n) => workingDayEnd(TODAY, n, holidays))).toEqual(["2026-11-18", "2026-11-19", "2026-11-20", "2026-11-24", "2026-11-25"]);
+    // Asked out of order, or again, the same days.
+    expect(workingDayEnd(TODAY, 10, holidays)).toBe("2026-12-03");
+    expect(workingDayEnd(TODAY, 3, holidays)).toBe("2026-11-24");
+    // Another list is another calendar, though the day is the same.
+    expect(workingDayEnd(TODAY, 3, NONE)).toBe("2026-11-23");
+    // A Saturday's first working day after it is Monday, and so is its "0" (the first day work can be done).
+    expect(workingDayEnd("2026-11-21", 0, NONE)).toBe("2026-11-23");
+    expect(workingDayEnd("2026-11-21", 1, NONE)).toBe("2026-11-23");
+    expect(workingDayEnd("2026-11-21", 2, NONE)).toBe("2026-11-24");
+    expect(() => workingDayEnd(TODAY, -1, NONE)).toThrow();
   });
 
   it("is null for a job that has arrived, has no ETA, or one that is no date", () => {
@@ -194,8 +219,14 @@ describe("arrivingIn and departureAhead", () => {
 
   it("measures a job against its Closing, its ETD when it has none, until it departs", () => {
     expect(departureAhead(job({ closingDate: day(2), estimatedDeparture: day(5) }), TODAY)).toEqual({ what: "Closing", day: day(2), days: 2 });
-    expect(departureAhead(job({ estimatedDeparture: day(5) }), TODAY)).toEqual({ what: "ETD", day: day(5), days: 5 });
+    // Ahead in working days (Y5): Monday the 23rd is 3 away from Wednesday the 18th; passed, in calendar days.
+    expect(departureAhead(job({ estimatedDeparture: day(5) }), TODAY)).toEqual({ what: "ETD", day: day(5), days: 3 });
     expect(departureAhead(job({ closingDate: day(-1) }), TODAY)).toEqual({ what: "Closing", day: day(-1), days: -1 });
+    expect(departureAhead(job({ closingDate: day(-4) }), TODAY)).toEqual({ what: "Closing", day: day(-4), days: -4 });
+    expect(departureAhead(job({ closingDate: TODAY }), TODAY)).toEqual({ what: "Closing", day: TODAY, days: 0 });
+    // On a Friday the Monday is a day away; a company day off moves it on.
+    expect(departureAhead(job({ closingDate: "2026-11-23" }), "2026-11-20")?.days).toBe(1);
+    expect(departureAhead(job({ closingDate: "2026-11-24" }), "2026-11-20", ["2026-11-23"])?.days).toBe(1);
     expect(departureAhead(job({ closingDate: day(2), actualDeparture: day(-1) }), TODAY)).toBeNull();
     expect(departureAhead(job(), TODAY)).toBeNull();
   });
@@ -452,25 +483,30 @@ describe("A6: documents waiting for customs, declined and not replaced", () => {
 describe("U11 / A23: dangerous goods without their safety paperwork", () => {
   const dg = (over: Partial<ExtraJob>, documents: DocumentFact[] = []) => dangerousSignals(job({ dangerous: "Yes", tradeDirection: "Export", ...over }), documents, TODAY);
 
-  it("is URGENT 3 days before the Closing", () => {
+  it("is URGENT 3 working days before the Closing", () => {
     expect(dg({ closingDate: day(3) })).toEqual([
       { rank: 5, text: "Dangerous goods: no MSDS, no Dangerous Goods Declaration · Closing on Sat 21.11.", urgent: true, area: "details", kind: "dangerous" },
     ]);
     expect(tags(dg({ closingDate: TODAY }))).toEqual([["Dangerous goods: no MSDS, no Dangerous Goods Declaration · Closing today", true]]);
+    // Counted in working days (Y5): from Wednesday the 18th, Monday the 23rd is the third - and the weekend before it with it.
+    expect(tags(dg({ closingDate: day(5) }))).toEqual([["Dangerous goods: no MSDS, no Dangerous Goods Declaration · Closing on Mon 23.11.", true]]);
   });
 
-  it("is ATTENTION from 4 to 7 days before it", () => {
-    expect(dg({ closingDate: day(4) })).toEqual([
-      { rank: 31, text: "Dangerous goods: no MSDS, no Dangerous Goods Declaration · Closing on Sun 22.11.", urgent: false, area: "details", kind: "dangerous" },
+  it("is ATTENTION from 4 to 7 working days before it", () => {
+    expect(dg({ closingDate: day(6) })).toEqual([
+      { rank: 31, text: "Dangerous goods: no MSDS, no Dangerous Goods Declaration · Closing on Tue 24.11.", urgent: false, area: "details", kind: "dangerous" },
     ]);
-    expect(tags(dg({ closingDate: day(7) }))).toEqual([["Dangerous goods: no MSDS, no Dangerous Goods Declaration · Closing on Wed 25.11.", false]]);
-    expect(dg({ closingDate: day(8) })).toEqual([]);
+    expect(tags(dg({ closingDate: day(9) }))).toEqual([["Dangerous goods: no MSDS, no Dangerous Goods Declaration · Closing on Fri 27.11.", false]]);
+    // The weekend after the Friday belongs to the Monday: 8 working days away.
+    expect(dg({ closingDate: day(10) })).toEqual([]);
+    // The company's own day off counts as none: with Tuesday the 24th off, Monday the 30th is the 7th.
+    expect(dangerousSignals(job({ dangerous: "Yes", tradeDirection: "Export", closingDate: day(12) }), [], TODAY, ["2026-11-24"])).toHaveLength(1);
   });
 
   it("is measured against the ETD when the job has no Closing", () => {
     expect(tags(dg({ estimatedDeparture: day(1) }))).toEqual([["Dangerous goods: no MSDS, no Dangerous Goods Declaration · ETD tomorrow", true]]);
     // With a Closing the ETD does not count, however near.
-    expect(dg({ closingDate: day(8), estimatedDeparture: day(1) })).toEqual([]);
+    expect(dg({ closingDate: day(12), estimatedDeparture: day(1) })).toEqual([]);
     expect(dg({})).toEqual([]);
   });
 
@@ -750,6 +786,16 @@ describe("A19: the warehouse's remeasurement", () => {
     expect(told(f, { tradeDirection: "Export", closingDate: day(1) })).toEqual([]);
   });
 
+  it("counts the day away in working days (Y5): on a Friday - and a Saturday - a Monday Closing is a day away", () => {
+    const air = { freightMode: "Air Freight", tradeDirection: "Export", closingDate: "2026-11-23" };
+    const onFriday = fact({ informed: differs("2026-11-20 09:55") });
+    expect(tags(remeasurementSignals(job(air), onFriday, "2026-11-20", at("2026-11-20 10:00"), NONE))).toEqual([["Remeasurement differs, not accepted since 20.11. 09:55 · Closing on Mon 23.11.", true]]);
+    const onSaturday = fact({ informed: differs("2026-11-21 09:55") });
+    expect(tags(remeasurementSignals(job(air), onSaturday, "2026-11-21", at("2026-11-21 10:00"), NONE))).toEqual([["Remeasurement differs, not accepted since 21.11. 09:55 · Closing on Mon 23.11.", true]]);
+    // Tuesday's Closing is two working days from a Friday: no hurry yet.
+    expect(remeasurementSignals(job({ ...air, closingDate: "2026-11-24" }), onFriday, "2026-11-20", at("2026-11-20 10:00"), NONE)).toEqual([]);
+  });
+
   it("is not hurried by a Closing or an ETD once an air job has arrived or was delivered, ATD typed or not", () => {
     const f = fact({ informed: differs("2026-11-18 09:55") });
     const airImport = { freightMode: "Air Freight", tradeDirection: "Import", estimatedDeparture: TODAY };
@@ -800,6 +846,18 @@ describe("A19: the warehouse's remeasurement", () => {
       expect(told(fact({ informed: concept("2026-11-11 10:00") }))).toEqual([]);
     });
 
+    it("asks for Cargo Details to be read (conceptRemeasureOpen) only while it differs, is not accepted and is younger than a week", () => {
+      expect(conceptRemeasureOpen(fact({ informed: concept("2026-11-16 10:00") }), NOW)).toBe(true);
+      // Whatever Cargo Details say: that is what reading them tells.
+      expect(conceptRemeasureOpen(fact({ informed: concept("2026-11-16 10:00", true) }), NOW)).toBe(true);
+      expect(conceptRemeasureOpen(fact({ informed: concept("2026-11-11 10:01") }), NOW)).toBe(true);
+      expect(conceptRemeasureOpen(fact({ informed: concept("2026-11-11 10:00") }), NOW)).toBe(false);
+      expect(conceptRemeasureOpen(fact({ informed: concept("2026-11-16 10:00"), acceptedAt: at("2026-11-17 09:00") }), NOW)).toBe(false);
+      expect(conceptRemeasureOpen(fact({ informed: { ...concept("2026-11-16 10:00"), verdict: "matches" } }), NOW)).toBe(false);
+      expect(conceptRemeasureOpen(fact({ informed: differs("2026-11-16 10:00") }), NOW)).toBe(false);
+      expect(conceptRemeasureOpen(fact({}), NOW)).toBe(false);
+    });
+
     it("is the Warehouse's own rule for a line with no source - written before the source was kept", () => {
       expect(tags(told(fact({ informed: { ...differs("2026-11-16 10:00"), source: "warehouse" } })))).toEqual([["Remeasurement differs, not accepted since 16.11. 10:00", true]]);
       expect(tags(told(fact({ informed: differs("2026-11-16 10:00") })))).toEqual([["Remeasurement differs, not accepted since 16.11. 10:00", true]]);
@@ -831,13 +889,16 @@ describe("A25: Master Jobs", () => {
   /** An export house: the one kind this rule is about. */
   const house = (over: Partial<ExtraJob> = {}) => job({ tradeDirection: "Export", ...over });
 
-  it("tags an export house out of step when its Master Job closes within 5 days", () => {
-    expect(masterJobHouseSignals(house(), master({ closingDate: day(5) }), TODAY)).toEqual([
-      { rank: 36, text: "Master Job MCZCONSOL00000012: Closing on Mon 23.11. · SI not confirmed, BoL draft not approved, cargo not received", urgent: false, area: "details", kind: "master_job" },
+  it("tags an export house out of step when its Master Job closes within 5 working days", () => {
+    // Wednesday the 18th: the fifth working day on is Wednesday the 25th (Y5).
+    expect(masterJobHouseSignals(house(), master({ closingDate: day(7) }), TODAY)).toEqual([
+      { rank: 36, text: "Master Job MCZCONSOL00000012: Closing on Wed 25.11. · SI not confirmed, BoL draft not approved, cargo not received", urgent: false, area: "details", kind: "master_job" },
     ]);
     expect(masterJobHouseSignals(house(), master({ closingDate: TODAY }), TODAY).map((s) => s.text)).toEqual(["Master Job MCZCONSOL00000012: Closing today · SI not confirmed, BoL draft not approved, cargo not received"]);
-    expect(masterJobHouseSignals(house(), master({ closingDate: day(6) }), TODAY)).toEqual([]);
+    expect(masterJobHouseSignals(house(), master({ closingDate: day(8) }), TODAY)).toEqual([]);
     expect(masterJobHouseSignals(house(), master({ closingDate: day(-1) }), TODAY)).toEqual([]);
+    // A company day off counts as none: with Monday the 23rd off, Wednesday the 25th is the fourth, Thursday the fifth.
+    expect(masterJobHouseSignals(house(), master({ closingDate: day(8) }), TODAY, ["2026-11-23"])).toHaveLength(1);
   });
 
   it("names only what the house is behind with, and nothing for a house in step", () => {
@@ -868,11 +929,23 @@ describe("A25: Master Jobs", () => {
     expect(masterJobHouseSignals(house(), null, TODAY)).toEqual([]);
   });
 
-  it("makes a Master Job with no shipment linked a row of its own 10 days before its ETD", () => {
-    expect(masterJobRowSignals(master({ estimatedDeparture: day(10) }), 0, TODAY)).toEqual([{ rank: 36, text: "No shipment linked · ETD on Sat 28.11.", urgent: false, area: "details", kind: "master_job" }]);
+  it("makes a Master Job with no shipment linked a row of its own 10 working days before its ETD", () => {
+    // Wednesday the 18th: the tenth working day on is Wednesday 2 Dec (Y5).
+    expect(masterJobRowSignals(master({ estimatedDeparture: day(14) }), 0, TODAY)).toEqual([{ rank: 36, text: "No shipment linked · ETD on Wed 02.12.", urgent: false, area: "details", kind: "master_job" }]);
+    expect(masterJobRowSignals(master({ estimatedDeparture: day(10) }), 0, TODAY).map((s) => s.text)).toEqual(["No shipment linked · ETD on Sat 28.11."]);
     expect(masterJobRowSignals(master({ estimatedDeparture: TODAY }), 0, TODAY).map((s) => s.text)).toEqual(["No shipment linked · ETD today"]);
-    expect(masterJobRowSignals(master({ estimatedDeparture: day(11) }), 0, TODAY)).toEqual([]);
+    expect(masterJobRowSignals(master({ estimatedDeparture: day(15) }), 0, TODAY)).toEqual([]);
     expect(masterJobRowSignals(master({ estimatedDeparture: day(-1) }), 0, TODAY)).toEqual([]);
+    expect(masterJobRowSignals(master({ estimatedDeparture: day(15) }), 0, TODAY, ["2026-11-30"])).toHaveLength(1);
+  });
+
+  it("reads the Master Jobs as far ahead as the rule speaks of: the tenth working day", () => {
+    expect(masterJobWindowEnd(TODAY, NONE)).toBe("2026-12-02");
+    expect(masterJobWindowEnd(TODAY, ["2026-11-30"])).toBe("2026-12-03");
+    // Every ETD up to it is a row; the day after is not.
+    const end = masterJobWindowEnd(TODAY, NONE);
+    expect(masterJobRowSignals(master({ estimatedDeparture: end }), 0, TODAY)).toHaveLength(1);
+    expect(masterJobRowSignals(master({ estimatedDeparture: addDays(end, 1) }), 0, TODAY)).toEqual([]);
   });
 
   it("says nothing for one that has a shipment, has departed, or has no ETD - as before", () => {

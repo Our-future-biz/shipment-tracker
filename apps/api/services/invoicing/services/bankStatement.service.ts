@@ -14,6 +14,7 @@ import {
   entryAllocationState,
   ignoreProblem,
   matchEntry,
+  payableFromOf,
   storedCandidate,
   type EntryAllocationState,
   type MatchedCandidate,
@@ -21,7 +22,7 @@ import {
 } from "../lib/bankMatch";
 import { bookedEntriesOnce, Camt053Error, parseCamt053, type CamtEntry } from "../lib/camt053";
 import { round2 } from "../lib/invoiceCalc";
-import { isOwed } from "../lib/receivables";
+import { isOwed, isPrepayment } from "../lib/receivables";
 import { bankStatementRepository as repo, type StatusCount } from "../repositories/bankStatement.repository";
 import type { BankEntryAllocation, BankStatementEntryRecord, BankStatementRecord, NewBankStatementEntryRecord } from "../schemas/bankStatement.schema";
 import { deliverInvoiceFollowups } from "./invoiceFollowups.service";
@@ -55,6 +56,9 @@ const readersOnly = () => APIError.permissionDenied("Only a manager sees the ban
 /** dd.mm.yyyy of a yyyy-mm-dd day. */
 const czDay = (ymd: string) => `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}.${ymd.slice(0, 4)}`;
 
+// An entry booked before the first day a payment of the invoice may be noted on is not proposed for it (mock test
+// council Y2): a confirm would refuse it (lib/receivables paymentProblem) - except on prepayment, or for an invoice
+// issued again after a credit note, from the day of the one it replaces.
 const openInvoiceOf = (r: ReceivableItem): OpenInvoice => ({
   invoiceId: r.id,
   number: r.number,
@@ -64,7 +68,11 @@ const openInvoiceOf = (r: ReceivableItem): OpenInvoice => ({
   currency: r.currency,
   dueDate: r.dueDate,
   version: r.version,
+  payableFrom: payableFromOf({ issueDate: r.issueDate, prepayment: isPrepayment(r.paymentTerms), issuedAgainFrom: r.issuedAgainFrom ?? null }),
 });
+
+/** The day a confirm notes an entry as paid on: its booking day, else its value day. */
+const paidDayOf = (e: { bookingDate: string | null; valueDate: string | null }) => e.bookingDate ?? e.valueDate ?? null;
 
 const candidateItem = (c: MatchedCandidate): BankEntryCandidateItem => ({
   invoiceId: c.invoiceId,
@@ -181,7 +189,7 @@ class BankStatementService {
     const { invoices } = incoming ? await this.openInvoices(actor) : { invoices: [] };
     const by = await userEmailOf(actor.userID);
     const rows: Omit<NewBankStatementEntryRecord, "statementId">[] = entries.map((e) => {
-      const match = e.reversal ? { status: "not_incoming" as const, candidates: [] } : matchEntry(e, invoices);
+      const match = e.reversal ? { status: "not_incoming" as const, candidates: [] } : matchEntry({ ...e, day: paidDayOf(e) }, invoices);
       return {
         companyId: actor.companyID,
         entryKey: e.key,
@@ -266,11 +274,11 @@ class BankStatementService {
     const statement = await repo.byId(actor.companyID, statementId);
     if (!statement) throw notThere();
     const entries = await repo.entriesOf(statement);
-    const takenBack = await repo.takenBack(
+    const { takenBack, reversed } = await repo.takenBackKinds(
       actor.companyID,
       entries.flatMap((e) => e.allocations.map((a) => a.paymentId)),
     );
-    const states = new Map(entries.map((e) => [e.id, entryAllocationState({ status: e.status, amount: Number(e.amount), allocations: e.allocations }, takenBack)]));
+    const states = new Map(entries.map((e) => [e.id, entryAllocationState({ status: e.status, amount: Number(e.amount), allocations: e.allocations }, takenBack, reversed)]));
     const open = entries.some((e) => (DECIDABLE.includes(e.status) || states.get(e.id)!.reopened) && e.credit);
     const [{ invoices, capped }, files] = await Promise.all([
       open ? this.openInvoices(actor) : Promise.resolve({ invoices: [] as OpenInvoice[], capped: false }),
@@ -302,7 +310,7 @@ class BankStatementService {
     const amount = Number(e.amount);
     const open = DECIDABLE.includes(e.status) || state.reopened;
     // A reopened entry is matched for what is free on it, not its whole amount.
-    const fresh = open ? matchEntry({ ...e, amount: state.reopened ? state.free : amount }, invoices) : null;
+    const fresh = open ? matchEntry({ ...e, amount: state.reopened ? state.free : amount, day: paidDayOf(e) }, invoices) : null;
     return {
       id: e.id,
       entryKey: e.entryKey,
@@ -344,13 +352,13 @@ class BankStatementService {
     return { statement, entry };
   }
 
-  /** The entry's allocations as they stand now (its payments taken back since, if any). */
+  /** The entry's allocations as they stand now (its payments taken back since, if any; a reversed one frees nothing). */
   private async stateOf(actor: Actor, entry: BankStatementEntryRecord): Promise<EntryAllocationState> {
-    const takenBack = await repo.takenBack(
+    const { takenBack, reversed } = await repo.takenBackKinds(
       actor.companyID,
       entry.allocations.map((a) => a.paymentId),
     );
-    return entryAllocationState({ status: entry.status, amount: Number(entry.amount), allocations: entry.allocations }, takenBack);
+    return entryAllocationState({ status: entry.status, amount: Number(entry.amount), allocations: entry.allocations }, takenBack, reversed);
   }
 
   private refuseDecided(entry: BankStatementEntryRecord, state?: EntryAllocationState) {

@@ -35,12 +35,15 @@ import {
   prepaymentUninvoicedOf,
   prepaymentUnpaidOf,
   receivableStateOf,
+  releaseCheckOf,
   releaseWarning,
   settledDisputeReason,
   DISPUTE_REOPENED_REASON,
   settingsProblem,
+  switchOnDayOnSave,
   sumByCurrency,
   takeBackProblem,
+  TAKE_BACK_KINDS,
   unbilledOf,
   writeOffProblem,
   AS_AT_CZK_RATE,
@@ -49,6 +52,7 @@ import {
   type NoteKind,
   type ReceivableState,
   type ReleaseRow,
+  type TakeBackKind,
 } from "../lib/receivables";
 import { waitingPaymentText, type WaitingPayment } from "../lib/bankMatch";
 import { variableSymbol } from "../lib/invoicePdf";
@@ -65,6 +69,7 @@ import type { InvoiceFollowupKind } from "../schemas/invoiceFollowupOutbox.schem
 import type { NewReceivableRecord, ReceivableAction, ReceivablePaymentRecord, ReceivableRecord } from "../schemas/receivable.schema";
 import { deliverInvoiceFollowups, followupsOfReceivable, type FollowupActor } from "./invoiceFollowups.service";
 import { CARRY_OVER_CHUNK, carryOverAll, carryOverChunk, NOT_CHECKED } from "./receivableCarryOver";
+import { asCompany } from "../../../lib/internalCall";
 import type {
   ReceivableAsAtRow,
   ReceivableCustomerFacts,
@@ -384,6 +389,7 @@ class ReceivableService {
         myCustomer: (!!facts?.salesOwnerUserId && facts.salesOwnerUserId === actor.userID) || (!!email && sameEmail(salesOwner, email)),
         issuedBy: ctx.issuers.get(inv.issuedBy)?.email ?? "",
         version: rec?.version ?? 1,
+        issuedAgainFrom: f.issuedAgainFrom ?? null,
       };
     });
   }
@@ -438,7 +444,22 @@ class ReceivableService {
       canAct: this.canAct(actor),
       factsRead: ctx.factsRead,
       today,
+      autoRemindersSince: await this.autoRemindersSinceQuietly(actor),
     };
+  }
+
+  /**
+   * The day the app's automatic reminders start (mock test council P18: the "Not reminded by the app" filter), null
+   * while they are off, e-mail from the app is off or no run has set it yet - or the settings can't be read just now.
+   */
+  private async autoRemindersSinceQuietly(actor: Actor): Promise<string | null> {
+    try {
+      const s = await repo.settingsOf(actor.companyID);
+      return s.autoReminders && emailConfigured() ? s.autoRemindersSince : null;
+    } catch (err) {
+      log.warn(err, "the reminder settings could not be read for the list");
+      return null;
+    }
   }
 
   /** The job's invoices, any status (the payment chip on the shipment's invoice panel, D19). */
@@ -634,7 +655,9 @@ class ReceivableService {
         confirmed: isWriteOffKind(p.kind) && p.confirmedAt ? { by: p.confirmedBy ?? "", at: p.confirmedAt.toISOString(), self: !!p.selfConfirmed } : null,
         waiting,
         canConfirm: waiting && mayConfirm({ manager, byUserId: p.byUserId, userId: actor.userID, anotherManager }),
-        takenBack: p.takenBackAt ? { by: p.takenBackBy, at: p.takenBackAt.toISOString(), reason: p.takenBackReason } : null,
+        takenBack: p.takenBackAt
+          ? { by: p.takenBackBy, at: p.takenBackAt.toISOString(), reason: p.takenBackReason, kind: p.takenBackKind === "reversed" ? "reversed" : "mistake", reversedOn: p.reversedOn ?? null }
+          : null,
       };
     });
   }
@@ -704,6 +727,7 @@ class ReceivableService {
         issueDate: figures.invoice.issueDate,
         today,
         prepayment: isPrepayment(figures.invoice.customer?.paymentTerms),
+        issuedAgainFrom: figures.issuedAgainFrom ?? null,
       });
       if (problem) throw APIError.failedPrecondition(problem);
       return s;
@@ -756,10 +780,17 @@ class ReceivableService {
   }
 
   /**
-   * A manager takes a line back with a reason: a payment noted by mistake (the invoice is owed again), or a write-off or
-   * bank charge, confirmed or still waiting (step 7). It stays in the history.
+   * A manager takes a line back with a reason: a payment noted by mistake, or one reversed on a day - a bank return or a
+   * refund (mock test council P8; either way the invoice is owed again, but a reversed payment counted as paid on the
+   * days before it went back: the month-end says so) - or a write-off or bank charge, confirmed or still waiting
+   * (step 7), always as a mistake. It stays in the history.
    */
-  async takeBackPayment(actor: Actor, invoiceId: string, paymentId: string, input: { version: number; reason: string }): Promise<ReceivableDetailResponse> {
+  async takeBackPayment(
+    actor: Actor,
+    invoiceId: string,
+    paymentId: string,
+    input: { version: number; reason: string; kind?: string; reversedOn?: string },
+  ): Promise<ReceivableDetailResponse> {
     this.requireManager(actor);
     const why = String(input.reason ?? "").trim();
     if (why.length < MIN_REASON) throw APIError.invalidArgument("Say why it is taken back");
@@ -768,9 +799,12 @@ class ReceivableService {
     if (f.receivable.version !== input.version) throw changedMeanwhile();
     const payment = await repo.paymentById(actor.companyID, invoiceId, paymentId);
     if (!payment) throw paymentNotThere();
-    const problem = takeBackProblem({ reason: why, takenBackAt: payment.takenBackAt, kind: payment.kind });
-    if (problem) throw APIError.failedPrecondition(problem);
     const today = businessDay(new Date());
+    const how: TakeBackKind = input.kind === "reversed" ? "reversed" : "mistake";
+    const reversedOn = how === "reversed" ? String(input.reversedOn ?? "").trim() : null;
+    if (input.kind && !TAKE_BACK_KINDS.includes(input.kind as TakeBackKind)) throw APIError.invalidArgument("A take-back is noted by mistake or reversed on a day");
+    const problem = takeBackProblem({ reason: why, takenBackAt: payment.takenBackAt, kind: payment.kind, takeBackKind: how, reversedOn, paidOn: payment.paidOn, today });
+    if (problem) throw APIError.failedPrecondition(problem);
     const by = await userEmailOf(actor.userID);
     const word = lineWord(payment.kind);
     const row = await repo.decide(
@@ -783,10 +817,10 @@ class ReceivableService {
         byUserId: actor.userID,
         by,
         reason: why,
-        payload: { paymentId, kind: payment.kind, paidOn: payment.paidOn, amount: Number(payment.amount) },
+        payload: { paymentId, kind: payment.kind, paidOn: payment.paidOn, amount: Number(payment.amount), takenBack: how, ...(reversedOn ? { reversedOn } : {}) },
       },
       async (tx) => {
-        const taken = await repo.takeBack(tx, actor.companyID, invoiceId, paymentId, { userId: actor.userID, email: by, reason: why });
+        const taken = await repo.takeBack(tx, actor.companyID, invoiceId, paymentId, { userId: actor.userID, email: by, reason: why, kind: how, reversedOn });
         if (!taken) throw APIError.failedPrecondition(`This ${word} was taken back already`);
         await repo.refreshPaid(tx, actor.companyID, invoiceId);
         const now = await repo.figuresOne(actor.companyID, invoiceId, tx);
@@ -1147,6 +1181,7 @@ class ReceivableService {
           issueDate: f.invoice.issueDate,
           today,
           prepayment: isPrepayment(f.invoice.customer?.paymentTerms),
+          issuedAgainFrom: f.issuedAgainFrom ?? null,
         });
         if (problem) throw APIError.failedPrecondition(`Invoice ${f.invoice.number}: ${problem}`);
         return { item, f, s };
@@ -1335,6 +1370,7 @@ class ReceivableService {
       reminder2Days: s.reminder2Days,
       replyTo: s.replyTo,
       autoRemindersSince: s.autoReminders ? s.autoRemindersSince : null,
+      remindersSkipped: s.autoReminders && s.remindersSkippedOn ? { on: s.remindersSkippedOn, since: s.remindersSkippedSince } : null,
       emailOn: emailConfigured(),
       canEdit: this.canAct(actor),
       updatedBy: s.updatedBy,
@@ -1350,10 +1386,8 @@ class ReceivableService {
     const problem = settingsProblem({ reminder1Days: input.reminder1Days, reminder2Days: input.reminder2Days, replyTo });
     if (problem) throw APIError.invalidArgument(problem);
     const by = await userEmailOf(actor.userID);
-    // L2: the day they were switched on stays while they stay on; switched on (again) it is today, so only invoices
-    // overdue from now on are reminded by the app - the older ones stay for a manager to chase by hand.
     const before = await repo.settingsOf(actor.companyID);
-    const autoRemindersSince = !input.autoReminders ? null : before.autoReminders && before.autoRemindersSince ? before.autoRemindersSince : businessDay(new Date());
+    const autoRemindersSince = switchOnDayOnSave({ autoReminders: input.autoReminders, emailOn: emailConfigured(), before }, businessDay(new Date()));
     await repo.saveSettings(actor.companyID, {
       autoReminders: input.autoReminders,
       reminder1Days: input.reminder1Days,
@@ -1371,15 +1405,24 @@ class ReceivableService {
 
   /**
    * Whether releasing the job's cargo or documents should warn about payment: the job has an owed invoice on
-   * prepayment, or whose customer has an overdue invoice. Never a stop.
+   * prepayment, or whose customer has an overdue invoice. Never a stop here. Mock test council n6: also the stop before
+   * any invoice (L3) - the customer on prepayment and selling not invoiced yet - named in prepaymentUninvoiced, with the
+   * warning on, so a release dialog says the stop up front as for an unpaid prepayment invoice. When the customer's
+   * terms can't be read just now, that part is left out (the server's own stop still decides).
    */
   async releaseCheck(actor: Actor, shipmentId: string): Promise<ReleaseCheckResponse> {
-    if (!isUuid(shipmentId)) return { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [] };
-    const rows = await this.releaseRows(actor, shipmentId);
+    if (!isUuid(shipmentId)) return { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUninvoiced: [] };
+    const [rows, uninvoiced] = await Promise.all([
+      this.releaseRows(actor, shipmentId),
+      this.prepaymentUninvoiced(actor, shipmentId).catch((err: unknown) => {
+        log.warn(err, "the work not invoiced yet could not be read for a release check", { shipmentId });
+        return { amounts: [], unchecked: true };
+      }),
+    ]);
     const today = businessDay(new Date());
     const owedCustomers = unique(rows.filter(isOwed).map((r) => r.customerId));
     const overdueBy = await repo.overdueCountByCustomer(actor.companyID, owedCustomers, today);
-    return releaseWarning(rows, overdueBy);
+    return releaseCheckOf(releaseWarning(rows, overdueBy), uninvoiced.amounts);
   }
 
   /**
@@ -1502,20 +1545,27 @@ class ReceivableService {
       repo.figures(actor.companyID, { overdueOn: today }, LIST_LIMIT),
       repo.paidSince(actor.companyID, new Date(now.getTime() - BELL_PAID_DAYS * DAY)),
     ]);
-    // An invoice whose old "Paid" in the customer's list was not carried over yet may be paid (m4): it waits, as the
-    // automatic reminders do, until the page has read it.
-    const overdue = overdueRead.filter((f) => f.receivable?.carriedChecked);
-    const overdueIds = new Set(overdue.map((f) => f.invoice.id));
+    const overdueIds = new Set(overdueRead.map((f) => f.invoice.id));
     const paidOnly = paidIds.filter((id) => !overdueIds.has(id));
     const paid = paidOnly.length ? await repo.figures(actor.companyID, { invoiceIds: paidOnly }, paidOnly.length) : [];
+    const read = [...overdueRead, ...paid];
+    if (!read.length) return { notices: [] };
+    const readCtx = await this.context(actor, read);
+    // An invoice whose old "Paid" in the customer's list was not carried over yet may be paid (m4). Mock test council n7:
+    // only the user's own such invoices are asked about, and only those the customer's list says are Paid wait (until
+    // the page carries the Paid over); the others are listed as overdue, as the page lists them.
+    const listedPaid = await this.customerListPaidQuietly(
+      actor,
+      this.build(actor, overdueRead, readCtx, today, email)
+        .filter((row, i) => (row.mine || row.myCustomer) && !overdueRead[i]!.receivable?.carriedChecked)
+        .map((row) => ({ invoiceId: row.id, number: row.number, customerId: row.customerId })),
+    );
+    const overdue = overdueRead.filter((f) => !listedPaid.has(f.invoice.id));
     const all = [...overdue, ...paid];
     if (!all.length) return { notices: [] };
     const ids = all.map((f) => f.invoice.id);
-    const [ctx, payments, seen] = await Promise.all([
-      this.context(actor, all),
-      repo.paymentsOf(actor.companyID, paid.map((f) => f.invoice.id)),
-      repo.seenKeys(actor.companyID, actor.userID, ids),
-    ]);
+    const [payments, seen] = await Promise.all([repo.paymentsOf(actor.companyID, paid.map((f) => f.invoice.id)), repo.seenKeys(actor.companyID, actor.userID, ids)]);
+    const ctx = readCtx;
     const lastPayment = new Map<string, (typeof payments)[number]>();
     // Newest first: the first live money line per invoice is the payment noted last (a write-off after it is not a payment).
     for (const p of payments) if (!p.takenBackAt && isMoneyKind(p.kind) && !lastPayment.has(p.invoiceId)) lastPayment.set(p.invoiceId, p);
@@ -1562,6 +1612,27 @@ class ReceivableService {
       for (const n of overdueNotices) n.paymentWaiting = waiting.has(n.invoiceId);
     }
     return { notices };
+  }
+
+  /**
+   * Of these invoices not carried over yet, those the customer's list says are Paid (read only: nothing is carried over
+   * here - the bell is polled). At most one chunk is asked; when the customer's list can't be asked, every one of them
+   * counts as maybe paid (it waits, as before n7), never as owed by guess.
+   */
+  private async customerListPaidQuietly(actor: Actor, items: { invoiceId: string; number: string; customerId: string }[]): Promise<Set<string>> {
+    if (!items.length) return new Set();
+    const asked = items.slice(0, CARRY_OVER_CHUNK);
+    const out = new Set(items.slice(CARRY_OVER_CHUNK).map((i) => i.invoiceId));
+    try {
+      // Read only (m4): the bell is polled, and a poll must not write to the customer's list.
+      const answer = await customers._internalCustomerInvoiceStatuses({ items: asked, readOnly: true }, asCompany(actor.companyID));
+      const said = new Map(answer.items.map((i) => [i.invoiceId, i.status]));
+      for (const i of asked) if (!said.has(i.invoiceId) || said.get(i.invoiceId) === "Paid") out.add(i.invoiceId);
+    } catch (err) {
+      log.warn(err, "the customer's list could not be asked for the bell: invoices not carried over yet wait");
+      for (const i of asked) out.add(i.invoiceId);
+    }
+    return out;
   }
 
   async seen(actor: Actor, keys: string[]): Promise<void> {

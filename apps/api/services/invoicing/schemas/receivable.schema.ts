@@ -13,6 +13,8 @@ import { invoiceTable } from "./invoice.schema";
  * manager confirms it (or, with no other manager in the company, the same one, marked as a self-confirmation).
  */
 export type ReceivablePaymentKind = "payment" | "carried_over" | "write_off" | "bank_charge";
+/** How a payment was taken back (P8): noted by mistake, or reversed on a day (a bank return, a refund). */
+export type ReceivableTakeBackKind = "mistake" | "reversed";
 export type ReceivableNoteKind = "note" | "promise" | "dispute" | "dispute_closed" | "reminder";
 
 /** One per invoice: what is paid so far, the chasing state and a version, so two managers can't note the same payment twice. */
@@ -69,6 +71,15 @@ export const receivablePaymentTable = pgTable(
     takenBackByUserId: uuid("taken_back_by_user_id"),
     takenBackBy: text("taken_back_by").notNull().default(""),
     takenBackReason: text("taken_back_reason").notNull().default(""),
+    /**
+     * Why a payment was taken back (mock test council P8, migration 0039): `mistake` - noted by mistake, it never counted
+     * (the month-end never counts it on any day); `reversed` - it was paid, then went back (a bank return, a refund) on
+     * `reversedOn`, so it counts as paid on the days before that. Null while live; a write-off or bank charge taken back
+     * is always a mistake.
+     */
+    takenBackKind: text("taken_back_kind").$type<ReceivableTakeBackKind>(),
+    /** The day a reversed payment went back (yyyy-mm-dd): it counts as paid up to the day before */
+    reversedOn: date("reversed_on", { mode: "string" }),
     /** Why a write-off or a bank charge closes what is left (required for those two) */
     reason: text("reason").notNull().default(""),
     /** One bank payment over several invoices: the same reference on each of its lines (step 7) */
@@ -95,6 +106,11 @@ export const receivablePaymentTable = pgTable(
     check("receivable_payment_confirmed_check", sql`${table.kind} IN ('write_off', 'bank_charge') OR ${table.confirmedAt} IS NOT NULL`),
     check("receivable_payment_amount_check", sql`${table.amount} > 0`),
     check("receivable_payment_paid_on_check", sql`${table.paidOn} IS NOT NULL OR ${table.kind} = 'carried_over'`),
+    // A reversal names the day the money went back; a take-back by mistake names none (0039).
+    check(
+      "receivable_payment_taken_back_kind_check",
+      sql`${table.takenBackKind} IS NULL OR (${table.takenBackKind} = 'mistake' AND ${table.reversedOn} IS NULL) OR (${table.takenBackKind} = 'reversed' AND ${table.reversedOn} IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -201,10 +217,19 @@ export const receivableSettingsTable = pgTable(
     /** Where a customer's answer goes; "" = the sender's own address */
     replyTo: text("reply_to").notNull().default(""),
     /**
-     * The day automatic reminders were last switched on (Prague; null while off). Only invoices due on or after it are
-     * reminded by the app: the older ones stay for a manager to chase by hand (mock test council L2, migration 0038).
+     * The first day automatic reminders could really send (Prague): the first run with them on and e-mail from the app
+     * on sets it (mock test council P3), never a save while e-mail is off - so null while they are off, and while e-mail
+     * is. Only invoices due on or after it are reminded by the app: the older ones stay for a manager to chase by hand
+     * (L2; the column is migration 0038's, cleared for every company by 0039: e-mail from the app has never been on).
      */
     autoRemindersSince: date("auto_reminders_since", { mode: "string" }),
+    /**
+     * The last day the daily run skipped the company's reminders because no bank statement was read since the previous
+     * working day (mock test council P11, m5), and the day of the last one read then. Written by the run only - the run
+     * writes nothing else on such a day - so the settings page can say it; a save keeps them (migration 0040).
+     */
+    remindersSkippedOn: date("reminders_skipped_on", { mode: "string" }),
+    remindersSkippedSince: date("reminders_skipped_since", { mode: "string" }),
     updatedByUserId: uuid("updated_by_user_id"),
     updatedBy: text("updated_by").notNull().default(""),
   },
