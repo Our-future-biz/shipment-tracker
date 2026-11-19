@@ -10,9 +10,12 @@ import { NotificationBell } from "./NotificationBell";
 import { CompanySwitcher } from "./CompanySwitcher";
 
 export function TopNav() {
-  const { user, logout } = useAuth();
-  // "Away…" (Council Outlay 11, D12): every user records their own absences and who covers them.
+  const { user, company, logout } = useAuth();
+  // "Away…" (Council Outlay 11, D12): every user records their own absences and who covers them. A
+  // superadmin working as another company is no user of it, so an absence of their own there could
+  // not be saved: the item is offered only in their own company.
   const [awayOpen, setAwayOpen] = useState(false);
+  const mayRecordAway = !company?.switched;
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short",
     day: "numeric",
@@ -29,12 +32,16 @@ export function TopNav() {
       disabled: true,
     },
     { type: "divider" },
-    {
-      key: "away",
-      icon: <CalendarOutlined />,
-      label: "Away…",
-      onClick: () => setAwayOpen(true),
-    },
+    ...(mayRecordAway
+      ? [
+          {
+            key: "away",
+            icon: <CalendarOutlined />,
+            label: "Away…",
+            onClick: () => setAwayOpen(true),
+          },
+        ]
+      : []),
     {
       key: "logout",
       icon: <LogoutOutlined />,

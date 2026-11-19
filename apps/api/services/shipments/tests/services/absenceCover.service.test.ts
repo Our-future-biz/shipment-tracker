@@ -58,6 +58,12 @@ const row = (over = {}) => ({
   ...over,
 });
 const job = (over = {}) => ({ id: "s-1", personInCharge: "jan@firma.cz", holidayCover: "", status: "Booked", invoicingStatus: "", ...over });
+// The job's write turn: what the update is handed to do alongside runs in it, with this stand-in for its transaction.
+const TX = { fake: "tx" };
+const inTurn = async (...args: unknown[]) => {
+  await (args[7] as { alongside?: (tx: unknown) => Promise<void> } | undefined)?.alongside?.(TX);
+  return {};
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -66,7 +72,8 @@ beforeEach(() => {
   covers.openOf.mockResolvedValue(null);
   covers.ensureOpen.mockImplementation(async (values: Record<string, unknown>) => row({ ...values, id: "r-new", setAt: null }));
   covers.close.mockResolvedValue(true);
-  shipmentService.update.mockResolvedValue({});
+  covers.markSet.mockResolvedValue(true);
+  shipmentService.update.mockImplementation(inTurn);
 });
 
 describe("setting the cover of an absence in force", () => {
@@ -83,8 +90,9 @@ describe("setting the cover of an absence in force", () => {
     expect(covers.ensureOpen.mock.invocationCallOrder[0]!).toBeLessThan(shipmentService.update.mock.invocationCallOrder[0]!);
     const [id, company, data, userId, role, origin, stillHolds, extras] = shipmentService.update.mock.calls[0]!;
     expect([id, company, data, userId, role, origin]).toEqual(["s-1", COMPANY, { holidayCover: "eva@firma.cz" }, "svc-c-1", undefined, undefined]);
-    expect(extras).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11." }] });
-    expect(covers.markSet).toHaveBeenCalledWith(COMPANY, "r-new", NOW);
+    expect(extras).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11." }], alongside: expect.any(Function) });
+    // Marked set in the job's own write turn, with the cover.
+    expect(covers.markSet).toHaveBeenCalledWith(TX, COMPANY, "r-new", NOW);
     // The write turn refuses a job that changed meanwhile: a cover set, another Handled By, cancelled.
     expect(() => stillHolds(job())).not.toThrow();
     expect(() => stillHolds(job({ holidayCover: "petr@firma.cz" }))).toThrow(CHANGED_MEANWHILE);
@@ -108,6 +116,25 @@ describe("setting the cover of an absence in force", () => {
     shipmentService.update.mockRejectedValueOnce(APIError.aborted(CHANGED_MEANWHILE)).mockRejectedValueOnce(APIError.unavailable("auth is down"));
     expect(await absenceCoverService.applyForCompany(SVC, [absence()], NOW)).toEqual({ set: 0, cleared: 0, left: 0, moved: 0, failed: 1 });
     expect(covers.markSet).not.toHaveBeenCalled();
+  });
+
+  it("marks the row set inside the job's write turn, so a failure once the write is in still leaves the row saying the cover is set", async () => {
+    covers.jobsToCover.mockResolvedValue([{ id: "s-1", jobNumber: "CZFCL00000001" }]);
+    // The write turn commits (the cover and the mark), then a read the update makes afterwards fails.
+    shipmentService.update.mockImplementationOnce(async (...args: unknown[]) => {
+      await inTurn(...args);
+      throw APIError.unavailable("the shipment could not be read back");
+    });
+    expect((await absenceCoverService.applyForCompany(SVC, [absence()], NOW)).failed).toBe(1);
+    // Once, in the turn: nothing marks it after the update.
+    expect(covers.markSet.mock.calls).toEqual([[TX, COMPANY, "r-new", NOW]]);
+  });
+
+  it("refuses the write when the row was closed meanwhile (its absence over, by a run at the same moment): no cover that nothing would clear", async () => {
+    covers.jobsToCover.mockResolvedValue([{ id: "s-1", jobNumber: "CZFCL00000001" }]);
+    covers.markSet.mockResolvedValue(false);
+    expect(await absenceCoverService.applyForCompany(SVC, [absence()], NOW)).toEqual({ set: 0, cleared: 0, left: 0, moved: 0, failed: 0 });
+    expect(covers.markSet).toHaveBeenCalledWith(TX, COMPANY, "r-new", NOW);
   });
 });
 

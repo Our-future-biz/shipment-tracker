@@ -10,9 +10,9 @@ export type AbsenceCoverOutcome = "cleared" | "changed" | "gone";
 // user_absence) with a cover named, the cover job sets that cover as the Holiday Cover of each of
 // their active jobs that has none, and clears it again once the absence ended, was shortened or
 // deleted - only where the job still holds the e-mail it set. One row per absence and job it set
-// (or is about to set) a cover on; `set_at` stays empty until the job's write went through, so a
-// cover somebody cleared by hand meanwhile is not set again. A row is never written over once
-// cleared: an absence that sets the job again is a new row.
+// (or is about to set) a cover on; `set_at` is written in the job's write turn that sets the cover,
+// so it says for sure whether the cover job set it, and a cover somebody cleared by hand since is not
+// set again. A row is never written over once cleared: an absence that sets the job again is a new row.
 export const shipmentAbsenceCoverTable = pgTable(
   "shipment_absence_cover",
   {

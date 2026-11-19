@@ -121,7 +121,8 @@ class AbsenceCoverService {
     return result;
   }
 
-  // Sets the absence's cover on one job; the row first, so a run that stops between the two leaves a row to clear.
+  // Sets the absence's cover on one job. The row comes first, so a run that stops before the job's write leaves
+  // a row to close. The row is then marked set in that write's own turn.
   async #set(actor: { companyID: string; userID: string }, absence: CoverAbsence, shipmentId: string, now: Date): Promise<"set" | "skipped" | "failed"> {
     const companyId = actor.companyID;
     const coverEmail = absence.coverEmail!;
@@ -142,11 +143,16 @@ class AbsenceCoverService {
     try {
       await shipmentService.update(shipmentId, companyId, { holidayCover: coverEmail }, actor.userID, undefined, undefined, stillUncovered(absence.userEmail), {
         history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: line }],
+        // Marked in the job's write turn, with the cover: a failure after the commit (a read the update makes
+        // afterwards, a crash) never leaves a cover whose row says it was not set, which #clear would take
+        // for somebody's own and leave for good. A row closed meanwhile refuses the write, as nothing would clear it.
+        alongside: async (tx) => {
+          if (!(await covers.markSet(tx, companyId, row.id, now))) throw APIError.aborted(CHANGED_MEANWHILE);
+        },
       });
-      await covers.markSet(companyId, row.id, now);
       return "set";
     } catch (err) {
-      // Changed meanwhile, or gone: nothing to set. The row stays open, and is closed once the absence ends.
+      // Changed meanwhile (or its row closed), or gone: nothing to set. An open row is closed once the absence ends.
       if (changedMeanwhile(err) || jobGone(err)) return "skipped";
       log.warn(err, "absence cover: a job's Holiday Cover could not be set", { companyId, shipmentId, absenceId: absence.id });
       return "failed";
@@ -161,8 +167,8 @@ class AbsenceCoverService {
       return outcome === "cleared" ? "cleared" : "left";
     };
     try {
-      // A cover whose write never went through was not set by this job: the same e-mail on the job now is
-      // somebody's own doing (typed by hand meanwhile), and stays.
+      // A row is marked set in the very write turn that sets its cover (#set), so one not marked never set
+      // the job's cover: the same e-mail on the job now is somebody's own doing (typed by hand meanwhile), and stays.
       if (!row.setAt) return await close("changed");
       const job = await shipmentRepository.getByIdForCompany(row.shipmentId, companyId);
       if (!job) return await close("gone");

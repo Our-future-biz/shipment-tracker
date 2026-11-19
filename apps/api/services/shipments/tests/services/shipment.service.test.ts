@@ -2216,6 +2216,32 @@ describe("the detail rows of one write", () => {
   });
 });
 
+describe("the caller's own write alongside an update", () => {
+  const vessel = { vessel: "MSC ANNA" } as never;
+  beforeEach(() => stored.set(SHIPMENT, row()));
+
+  it("is done in the update's write turn, handed its transaction, once the shipment row is saved", async () => {
+    const alongside = vi.fn(async () => {});
+    await shipmentService.update(SHIPMENT, COMPANY, vessel, USER, undefined, undefined, undefined, { alongside });
+    expect(alongside).toHaveBeenCalledWith(TX);
+    expect(vi.mocked(shipmentRepository.updateForCompany).mock.invocationCallOrder[0]!).toBeLessThan(alongside.mock.invocationCallOrder[0]!);
+  });
+
+  it("is not done when the turn refuses the write, and refuses the write itself when it throws", async () => {
+    const alongside = vi.fn(async () => {});
+    const changed = () => {
+      throw APIError.aborted("The job changed meanwhile");
+    };
+    await expect(shipmentService.update(SHIPMENT, COMPANY, vessel, USER, undefined, undefined, changed, { alongside })).rejects.toMatchObject({ code: "aborted" });
+    expect(alongside).not.toHaveBeenCalled();
+    const refusing = vi.fn(async () => {
+      throw APIError.aborted("The row was closed meanwhile");
+    });
+    await expect(shipmentService.update(SHIPMENT, COMPANY, vessel, USER, undefined, undefined, undefined, { alongside: refusing })).rejects.toMatchObject({ code: "aborted" });
+    expect(refusing).toHaveBeenCalledWith(TX);
+  });
+});
+
 describe("the Pick-up tab's License Plate", () => {
   it("comes with the shipment, read from the warehouse service", async () => {
     stored.set(SHIPMENT, row());

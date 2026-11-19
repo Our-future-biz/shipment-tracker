@@ -72,10 +72,18 @@ describe("the jobs an absence's cover is set on", () => {
     expect(await covers.jobsToCover(company, "jan@firma.cz", of, 1)).toHaveLength(1);
   });
 
-  it("leave out a job the absence set this cover on once, or whose row of it was closed, so they never keep the newer ones waiting", async () => {
+  it("leave out a job a person took this cover off, so they never keep the newer ones waiting, and take in one the cover job cleared itself", async () => {
     const company = randomUUID();
     const absenceId = randomUUID();
-    const [setOnce, closed, pending, otherAbsence, otherCover, fresh] = [await newJob(company), await newJob(company), await newJob(company), await newJob(company), await newJob(company), await newJob(company)];
+    const setOnce = await newJob(company);
+    const changedByHand = await newJob(company);
+    const pending = await newJob(company);
+    const neverWritten = await newJob(company);
+    const clearedByJob = await newJob(company);
+    const gone = await newJob(company);
+    const otherAbsence = await newJob(company);
+    const otherCover = await newJob(company);
+    const fresh = await newJob(company);
     const rowOf = (shipmentId: string, over: Partial<typeof shipmentAbsenceCoverTable.$inferInsert> = {}) => ({
       companyId: company,
       absenceId,
@@ -87,19 +95,34 @@ describe("the jobs an absence's cover is set on", () => {
       coverEmail: "eva@firma.cz",
       ...over,
     });
+    const at = new Date();
     await db.insert(shipmentAbsenceCoverTable).values([
-      // Set once, emptied by hand since: that stands.
-      rowOf(setOnce.id, { setAt: new Date() }),
-      rowOf(closed.id, { clearedAt: new Date(), outcome: "changed" }),
-      // A write that failed: tried again.
+      // Set, and emptied by hand since (the row still open): that stands.
+      rowOf(setOnce.id, { setAt: at }),
+      // Set, and found changed by somebody when the cover job came to clear it: that stands too.
+      rowOf(changedByHand.id, { setAt: at, clearedAt: at, outcome: "changed" }),
+      // A write still to go through: tried again.
       rowOf(pending.id),
-      rowOf(otherAbsence.id, { absenceId: randomUUID(), setAt: new Date() }),
-      // The absence named another cover before: the new one is set.
-      rowOf(otherCover.id, { coverEmail: "petr@firma.cz", setAt: new Date(), clearedAt: new Date(), outcome: "cleared" }),
+      // Closed with its write never gone through: the cover job never set this job's cover.
+      rowOf(neverWritten.id, { clearedAt: at, outcome: "changed" }),
+      // Cleared by the cover job itself (the absence moved to later days): set again once it is in force.
+      rowOf(clearedByJob.id, { setAt: at, clearedAt: at, outcome: "cleared" }),
+      rowOf(gone.id, { setAt: at, clearedAt: at, outcome: "gone" }),
+      rowOf(otherAbsence.id, { absenceId: randomUUID(), setAt: at }),
+      // The absence named another cover before, changed by hand then: the new one is set.
+      rowOf(otherCover.id, { coverEmail: "petr@firma.cz", setAt: at, clearedAt: at, outcome: "changed" }),
     ]);
     const ids = (await covers.jobsToCover(company, "jan@firma.cz", { id: absenceId, coverEmail: " Eva@Firma.cz" }, 3)).map((j) => j.id);
-    expect(ids).toEqual([pending.id, otherAbsence.id, otherCover.id]);
-    expect((await covers.jobsToCover(company, "jan@firma.cz", { id: absenceId, coverEmail: "eva@firma.cz" }, 50)).map((j) => j.id)).toEqual([pending.id, otherAbsence.id, otherCover.id, fresh.id]);
+    expect(ids).toEqual([pending.id, neverWritten.id, clearedByJob.id]);
+    expect((await covers.jobsToCover(company, "jan@firma.cz", { id: absenceId, coverEmail: "eva@firma.cz" }, 50)).map((j) => j.id)).toEqual([
+      pending.id,
+      neverWritten.id,
+      clearedByJob.id,
+      gone.id,
+      otherAbsence.id,
+      otherCover.id,
+      fresh.id,
+    ]);
   });
 });
 
@@ -141,6 +164,32 @@ describe("a run of the cover job", () => {
     expect(cleared!.holidayCover).toBe("");
     expect((await historyOf(job.id)).at(-1)?.newValue).toBe("Holiday Cover eva@firma.cz cleared: Jan Novák is back");
     expect(await covers.openOfCompany(company)).toEqual([]);
+  });
+
+  it("sets the cover again on a job whose cover it cleared itself: the absence moved to later days, then in force again", async () => {
+    const company = randomUUID();
+    const job = await newJob(company);
+    const away = absence();
+    const actor = { companyID: company, userID: SVC };
+    expect((await absenceCoverService.applyForCompany(actor, [away])).set).toBe(1);
+    // Moved to later days, auth tells of it no more (neither in force nor ended lately): the cover is cleared.
+    expect((await absenceCoverService.applyForCompany(actor, [])).cleared).toBe(1);
+    // In force on its new days: the same absence (auth keeps its id when it is moved), the same cover.
+    const moved = { ...away, fromDate: "2026-11-23", toDate: "2026-11-27" };
+    expect((await absenceCoverService.applyForCompany(actor, [moved])).set).toBe(1);
+    const [again] = await db.select().from(shipmentTable).where(eq(shipmentTable.id, job.id));
+    expect(again!.holidayCover).toBe("eva@firma.cz");
+    expect((await historyOf(job.id)).filter((h) => h.field === ABSENCE_COVER_FIELD).map((h) => h.newValue)).toEqual([
+      "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11.",
+      "Holiday Cover eva@firma.cz cleared: Jan Novák is back",
+      "Holiday Cover eva@firma.cz while Jan Novák is away 23.11.–27.11.",
+    ]);
+    // The cleared row stays as it was; the new one is open, and marked set in the job's write turn.
+    const rows = await db.select().from(shipmentAbsenceCoverTable).where(eq(shipmentAbsenceCoverTable.shipmentId, job.id)).orderBy(asc(shipmentAbsenceCoverTable.createdAt));
+    expect(rows.map((r) => [r.outcome, r.fromDate, r.setAt !== null])).toEqual([
+      ["cleared", "2026-11-16", true],
+      [null, "2026-11-23", true],
+    ]);
   });
 
   it("closes a row whose write never went through without writing the job, though it holds the same e-mail - typed by hand", async () => {

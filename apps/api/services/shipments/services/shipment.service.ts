@@ -203,6 +203,11 @@ export interface ReleaseExtras {
   houseBolOverride?: ReleaseOverride;
   /** Lines of the shipment's history the write adds in its own turn (an accepted remeasurement). */
   history?: { field: string; oldValue: string | null; newValue: string | null }[];
+  /**
+   * The caller's own write, done in the shipment's write turn once its row is saved, so the two land
+   * together or not at all (the cover job marking the Holiday Cover it sets). It throws to refuse the write.
+   */
+  alongside?: (tx: Tx) => Promise<void>;
 }
 
 // The most open jobs of a customer one answer lists (Accounts Receivable's work not yet invoiced).
@@ -1586,6 +1591,7 @@ class ShipmentService {
         }
       }
       for (const h of extras.history ?? []) await audit(h.field, h.oldValue, h.newValue);
+      if (saved && extras.alongside) await extras.alongside(tx);
       if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
     });
