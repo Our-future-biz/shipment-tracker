@@ -1,6 +1,7 @@
 "use client";
 
-import { Table, Tooltip } from "antd";
+import { Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { PushpinFilled, WarningOutlined } from "@ant-design/icons";
 import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";

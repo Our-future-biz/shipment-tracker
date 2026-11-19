@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { Table, Button, Dropdown } from "antd";
+import { Button, Dropdown } from "antd";
+import { Table } from "@/components/Table";
 import { PlusOutlined, EditOutlined, DeleteOutlined, EllipsisOutlined, PaperClipOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { ColumnsType } from "antd/es/table";

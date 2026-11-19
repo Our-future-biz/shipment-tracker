@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { DatePicker, Input, Select, Table } from "antd";
+import { DatePicker, Input, Select } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { useDebounced } from "@/hooks/useDebounced";

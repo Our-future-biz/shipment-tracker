@@ -2,7 +2,7 @@
 
 import { useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { AppModal } from "@/components/AppModal";
 import { Pill } from "@/components/Pill";
@@ -92,7 +92,7 @@ export function TrackingAttentionCard() {
     <>
       <SectionCard
         title="Tracking and billing"
-        bodyClassName="p-0 overflow-hidden rounded-b-xl"
+        bodyClassName="p-0 overflow-clip rounded-b-xl"
         extra={
           <>
             <span className={`${HINT} hidden sm:inline`}>dates passed, not told, not billed</span>
@@ -131,9 +131,17 @@ export function TrackingAttentionCard() {
         <div className="space-y-3">
           <PillTabs tabs={AREAS} active={area} onChange={setArea} />
           {capped && <p className={`${HINT} m-0`}>Looks at the newest 1,000 active shipments.</p>}
-          <div className="overflow-x-auto">
-            <Table<TrackingAttentionItem> size="small" rowKey="id" dataSource={shown} columns={DIALOG_COLUMNS} pagination={{ pageSize: 25, hideOnSinglePage: true }} rowClassName={ROW_CLASS} onRow={rowProps} />
-          </div>
+          {/* The table scrolls sideways itself: a scrolling box around it would stop its titles staying in view. */}
+          <Table<TrackingAttentionItem>
+            size="small"
+            rowKey="id"
+            dataSource={shown}
+            columns={DIALOG_COLUMNS}
+            pagination={{ pageSize: 25, hideOnSinglePage: true }}
+            rowClassName={ROW_CLASS}
+            onRow={rowProps}
+            scroll={{ x: "max-content" }}
+          />
         </div>
       </AppModal>
     </>

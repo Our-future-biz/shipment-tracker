@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Table, Tooltip } from "antd";
+import { Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -243,7 +244,7 @@ interface PeopleProps {
 function MoneyPeople({ rows, scope, isLoading, isError, loadFailed }: PeopleProps) {
   const router = useRouter();
   return (
-    <section aria-label="Team's money" className={`${CARD} overflow-hidden`}>
+    <section aria-label="Team's money" className={`${CARD} overflow-clip`}>
       <div className={CARD_BAR}>
         <span className={CARD_TITLE}>Team</span>
         <span className="text-[13px] text-slate-500">money on their jobs · {scope}</span>

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Table } from "antd";
+import { Button } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { Pill } from "@/components/Pill";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Alert, Button, Table, Spin } from "antd";
+import { Alert, Button, Spin } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { KPI_GRID_CLASS, KpiTile } from "@/components/KpiTile";
 import { SectionCard } from "@/components/SectionCard";

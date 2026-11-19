@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";

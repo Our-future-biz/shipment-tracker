@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Dropdown, Table, Tooltip } from "antd";
+import { Button, Dropdown, Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import { DeleteOutlined, EditOutlined, EllipsisOutlined, FileTextOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";

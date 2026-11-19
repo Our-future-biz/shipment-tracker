@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Alert, Button, Spin, Table, Upload } from "antd";
+import { Alert, Button, Spin, Upload } from "antd";
+import { Table } from "@/components/Table";
 import { useToast } from "@/lib/toast";
 import { CloseOutlined, InboxOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -170,7 +171,7 @@ export function HolidaysUploadTab({ onSaved }: HolidaysUploadTabProps) {
       </div>
 
       {rows.length > 0 && (
-        <div className={`${CARD} overflow-hidden`}>
+        <div className={`${CARD} overflow-clip`}>
           <div className={`${CARD_BAR} flex-wrap`}>
             <h3 className={CARD_TITLE}>Check before saving</h3>
             <span className={HINT}>{rows.length} holidays — remove any row that is wrong.</span>

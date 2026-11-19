@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, DatePicker, Input, Popconfirm, Segmented, Select, Table } from "antd";
+import { Button, DatePicker, Input, Popconfirm, Segmented, Select } from "antd";
+import { Table } from "@/components/Table";
 import { useToast } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
@@ -132,7 +133,7 @@ export function WorldHolidaysTab({ items: allItems, loading, canManage }: WorldH
 
       <HolidayAlerts items={occurrences(items)} loading={loading} />
 
-      <div className={`${CARD} overflow-hidden`}>
+      <div className={`${CARD} overflow-clip`}>
         <div className="flex flex-wrap items-center gap-3 p-4 border-b border-slate-100">
           <Input
             allowClear

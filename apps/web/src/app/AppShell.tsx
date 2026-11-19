@@ -8,6 +8,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { ServerUnreachable } from "@/components/ServerUnreachable";
 import { SessionChangedNotice } from "@/components/SessionChangedNotice";
 import { CameFromTracker } from "@/lib/cameFrom";
+import { pinTableHeads } from "@/lib/pinnedTableHeads";
 import { Suspense, useEffect, useState } from "react";
 
 const PUBLIC_PATHS = ["/login"];
@@ -28,6 +29,9 @@ export const AppShell = ({ children }: AppShellProps) => {
   const router = useRouter();
   const pathname = usePathname();
   const [hasRedirected, setHasRedirected] = useState(false);
+
+  // Every plain table keeps its column titles in view while its rows scroll (antd's tables do it themselves).
+  useEffect(() => pinTableHeads(), []);
 
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const isOpenPath = OPEN_PATHS.some((p) => pathname.startsWith(p));
@@ -110,7 +114,7 @@ export const AppShell = ({ children }: AppShellProps) => {
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
           <TopNav />
-          <main className="flex-1 min-w-0 bg-slate-50 print:bg-white">{children}</main>
+          <main className="flex-1 min-w-0 bg-slate-50 print:bg-white [--table-sticky-top:70px]">{children}</main>
         </div>
       </div>
     );

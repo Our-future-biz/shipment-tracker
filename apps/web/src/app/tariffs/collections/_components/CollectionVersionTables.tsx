@@ -1,6 +1,6 @@
 "use client";
 
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { SectionCard } from "@/components/SectionCard";

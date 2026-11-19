@@ -15,7 +15,7 @@ interface AppCardProps {
 // A white card in the app's look (styles/ui.ts), as SectionCard: with a title, the indigo bar over it.
 export function AppCard({ title, extra, children, className, style, bodyStyle }: AppCardProps) {
   return (
-    <div className={`${CARD} overflow-hidden ${className ?? ""}`} style={style}>
+    <div className={`${CARD} overflow-clip ${className ?? ""}`} style={style}>
       {(title || extra) && (
         <div className={CARD_BAR}>
           {typeof title === "string" ? <h3 className={`${CARD_TITLE} min-w-0 truncate`}>{title}</h3> : title}

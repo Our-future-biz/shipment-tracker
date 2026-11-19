@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Button, Table, Tooltip } from "antd";
+import { Button, Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import { CheckOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";

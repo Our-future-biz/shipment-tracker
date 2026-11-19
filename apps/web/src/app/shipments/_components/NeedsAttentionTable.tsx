@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Modal, Table, Tag } from "antd";
+import { Modal, Tag } from "antd";
+import { Table } from "@/components/Table";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -105,7 +106,7 @@ export function NeedsAttentionTable() {
 
     return (
       // A card (CARD's corners and shadow) in the colour of its warning while it lists anything.
-      <section className={`bg-white border rounded-xl shadow-sm overflow-hidden ${urgent ? tone.border : "border-slate-200"}`}>
+      <section className={`bg-white border rounded-xl shadow-sm overflow-clip ${urgent ? tone.border : "border-slate-200"}`}>
         <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${urgent ? tone.header : "bg-slate-50"}`}>
           <WarningFilled className={urgent ? tone.icon : "text-slate-300"} />
           <h3 className={CARD_TITLE}>Needs Attention</h3>

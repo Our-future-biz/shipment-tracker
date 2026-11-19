@@ -1,6 +1,7 @@
 "use client";
 
-import { Modal, Table } from "antd";
+import { Modal } from "antd";
+import { Table } from "@/components/Table";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType, TableProps } from "antd/es/table";
 import { CARD, CARD_BAR, CARD_TITLE, HINT, MODAL_TITLE } from "@/styles/ui";
@@ -108,7 +109,7 @@ export interface CockpitCardLook {
 
 /** The look of Sales → Managers, built on the app's card (CARD, CARD_BAR): what a new page takes. */
 const COCKPIT_CARD_LOOK: CockpitCardLook = {
-  frame: (tone) => `${CARD} overflow-hidden ${tone ? tone.border : ""}`,
+  frame: (tone) => `${CARD} overflow-clip ${tone ? tone.border : ""}`,
   // The card's bar (CARD_BAR), in the card's own warning colour while it holds something.
   bar: (tone) => (tone ? `flex items-center gap-2.5 min-h-[42px] px-4 py-2 border-b ${tone.border} ${tone.header}` : CARD_BAR),
   window: "text-[13px] text-slate-500",

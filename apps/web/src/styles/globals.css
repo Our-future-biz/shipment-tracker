@@ -105,14 +105,67 @@
 
 /* Every antd table's head as a plain table's (TH in styles/ui.ts): small bold caps in black on
    white, over a slate-200 line. The extra classes outweigh antd's own selector. */
+/* antd also sets each title in a hidden row of the rows' own table, so that with the titles kept in
+   view (components/Table.tsx) a column is as wide as its title: that hidden copy needs the same lettering. */
 .ant-table-wrapper .ant-table .ant-table-thead > tr > th,
-.ant-table-wrapper .ant-table .ant-table-thead > tr > td {
+.ant-table-wrapper .ant-table .ant-table-thead > tr > td,
+.ant-table-wrapper .ant-table .ant-table-measure-row > th {
   font-size: 11px;
   line-height: 14px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.025em;
   color: var(--color-slate-900);
+}
+
+/* In a table that scrolls sideways a title never wrapped (each column as wide as its widest line),
+   so its hidden copy keeps to one line too. */
+.ant-table-wrapper .ant-table-scroll-horizontal .ant-table-measure-row > th {
+  white-space: nowrap;
+}
+
+/* A table's column titles stay in view while its rows scroll (components/Table.tsx): on a page they
+   stop under the top bar (AppShell's main sets --table-sticky-top to its 70px), in a drawer or a
+   dialog at its top. antd writes `top` on the element itself, hence !important. */
+.ant-table-wrapper .ant-table-sticky-holder {
+  top: var(--table-sticky-top, 0px) !important;
+}
+.ant-drawer,
+.ant-modal-root {
+  --table-sticky-top: 0px;
+}
+/* antd's extra scroll bar at the window's bottom follows the window only: in a drawer or a dialog
+   the table's own scroll bar is enough. */
+.ant-drawer .ant-table-sticky-scroll,
+.ant-modal-root .ant-table-sticky-scroll {
+  display: none;
+}
+@media print {
+  .ant-table-wrapper .ant-table-sticky-holder {
+    position: static;
+  }
+  .ant-table-sticky-scroll {
+    display: none;
+  }
+}
+
+/* A plain table's titles while they are moved down to stay in view (lib/pinnedTableHeads.ts): above
+   the rows, on white unless a title cell has a colour of its own (zero weight: any class wins), with a
+   line under them. */
+thead.table-head-pinned {
+  position: relative;
+  z-index: 3;
+}
+:where(thead.table-head-pinned > tr > th, thead.table-head-pinned > tr > td) {
+  background-color: #fff;
+}
+:where(thead.table-head-pinned > tr:last-child > th, thead.table-head-pinned > tr:last-child > td) {
+  box-shadow: inset 0 -1px 0 var(--color-slate-200);
+}
+@media print {
+  thead.table-head-pinned {
+    transform: none !important;
+  }
 }
 
 /* Remove extra borders from Ant table inside card */

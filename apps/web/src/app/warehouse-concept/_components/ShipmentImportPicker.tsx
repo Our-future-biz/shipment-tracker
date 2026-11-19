@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Select, Table, Tooltip } from "antd";
+import { Button, Input, Select, Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import { SearchOutlined } from "@ant-design/icons";
 import { useImportMasterJobDetails, useImportMasterJobs, useImportShipmentSearch } from "@/hooks/useWarehouseImport";
 import { useDebounced } from "@/hooks/useDebounced";

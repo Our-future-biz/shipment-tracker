@@ -1,6 +1,6 @@
 "use client";
 
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
 import type { ImportSheetReport } from "@/hooks/useTrucking";

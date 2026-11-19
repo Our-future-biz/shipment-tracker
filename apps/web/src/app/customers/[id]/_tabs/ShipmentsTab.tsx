@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import Link from "next/link";
-import { Button, Input, Select, Table, Tooltip } from "antd";
+import { Button, Input, Select, Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";

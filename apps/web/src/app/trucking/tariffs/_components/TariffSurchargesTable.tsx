@@ -1,6 +1,6 @@
 "use client";
 
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { interfaces } from "@/lib/api/client";
 import { EMPTY } from "@/styles/ui";
 import { SURCHARGE_CALC_LABELS, SURCHARGE_LABELS, formatMoney, formatPercent, formatQty } from "../../_lib/tariffs";

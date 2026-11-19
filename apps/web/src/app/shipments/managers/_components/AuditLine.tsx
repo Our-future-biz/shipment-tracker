@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Modal, Table } from "antd";
+import { Modal } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { CockpitLine } from "@/components/cockpit/CockpitLine";
 import { Pill } from "@/components/Pill";

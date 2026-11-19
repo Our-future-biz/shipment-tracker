@@ -1,6 +1,7 @@
 "use client";
 
-import { Table, Checkbox, Input, Tag } from "antd";
+import { Checkbox, Input, Tag } from "antd";
+import { Table } from "@/components/Table";
 import { Pill } from "@/components/Pill";
 import { EMPTY } from "@/styles/ui";
 import { fieldName, parseContainerNumbers, SEAL_LABEL, sealContainers, sealNote, type ExtractedField } from "../_lib/extraction";

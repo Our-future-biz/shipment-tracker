@@ -1,6 +1,7 @@
 "use client";
 
-import { Table, type TableColumnsType } from "antd";
+import { type TableColumnsType } from "antd";
+import { Table } from "@/components/Table";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import type { OceanLayout } from "@/hooks/useOceanTariffs";
 import type { interfaces } from "@/lib/api/client";

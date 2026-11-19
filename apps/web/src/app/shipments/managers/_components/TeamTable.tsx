@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
 import type { OpsCockpitFilter, OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
@@ -93,7 +93,7 @@ export function TeamTable({ people, filter, scope, isLoading, isError, loadFaile
   const router = useRouter();
   const rows = people ? teamRows(people, filter) : [];
   return (
-    <section aria-label="Team" className={`${CARD} overflow-hidden`}>
+    <section aria-label="Team" className={`${CARD} overflow-clip`}>
       <div className={CARD_BAR}>
         <span className={CARD_TITLE}>Team</span>
         <span className="text-[13px] text-slate-500">active jobs · {scope}</span>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Select, Table, Tooltip, type TableColumnsType } from "antd";
+import { Button, Select, Tooltip, type TableColumnsType } from "antd";
+import { Table } from "@/components/Table";
 import { Badge, type Tone } from "@/components/Badge";
 import { GeoSelect } from "@/components/GeoSelect";
 import { CountChip, PillTabs, SectionCard } from "@/components/SectionCard";

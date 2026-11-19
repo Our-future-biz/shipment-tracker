@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import dayjs from "dayjs";
-import { Alert, DatePicker, Input, Modal, Select, Table } from "antd";
+import { Alert, DatePicker, Input, Modal, Select } from "antd";
+import { Table } from "@/components/Table";
 import { DecimalInput } from "@/components/DecimalInput";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";

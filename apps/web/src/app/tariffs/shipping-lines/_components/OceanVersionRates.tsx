@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Input, Select, Table, type TableColumnsType } from "antd";
+import { Input, Select, type TableColumnsType } from "antd";
+import { Table } from "@/components/Table";
 import { SearchOutlined } from "@ant-design/icons";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { CountChip, SectionCard } from "@/components/SectionCard";

@@ -1,6 +1,6 @@
 "use client";
 
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { interfaces } from "@/lib/api/client";
 import { formatPsc } from "../../_lib/hauliers";
 

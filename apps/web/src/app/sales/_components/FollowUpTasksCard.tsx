@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Button, Checkbox, Table, Tag } from "antd";
+import { Alert, Button, Checkbox, Tag } from "antd";
+import { Table } from "@/components/Table";
 import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import type { ColumnsType } from "antd/es/table";

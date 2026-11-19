@@ -74,7 +74,7 @@ export function SectionCard({ title, extra, middle, dense, children, bodyClassNa
       {/* A folded card keeps its content in the page but out of reach (inert): the Tab key goes
           through what is on screen only. */}
       <div id={bodyId} inert={!fold.open} className={`grid transition-[grid-template-rows] duration-300 ease-out ${fold.open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
-        <div className="overflow-hidden">
+        <div className="min-h-0 overflow-clip">
           <div className={bodyClassName}>{children}</div>
         </div>
       </div>

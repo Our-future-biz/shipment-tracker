@@ -3,7 +3,8 @@
 import { Fragment, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Input, Spin, Table, Tooltip } from "antd";
+import { Button, Input, Spin, Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { EditOutlined, UploadOutlined } from "@ant-design/icons";
 import { AppModal } from "@/components/AppModal";

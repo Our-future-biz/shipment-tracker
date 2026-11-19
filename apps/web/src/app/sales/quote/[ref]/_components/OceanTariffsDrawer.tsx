@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { DatePicker, Switch, Table } from "antd";
+import { DatePicker, Switch } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { GeoSelect } from "@/components/GeoSelect";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, type Key, type ReactNode } from "react";
-import { Modal, Table } from "antd";
+import { Modal } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType, TableProps } from "antd/es/table";
 import { plural, type CockpitCardDef, type CockpitList } from "@/components/cockpit/CockpitCard";
 import { HINT, MODAL_TITLE } from "@/styles/ui";

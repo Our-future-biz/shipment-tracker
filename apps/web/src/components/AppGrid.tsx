@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Table, Input, Select, Tooltip, Popover, Pagination, Button, Badge, type InputRef } from "antd";
+import { Input, Select, Tooltip, Popover, Pagination, Button, Badge, type InputRef } from "antd";
+import { Table } from "@/components/Table";
 import { SearchOutlined, FilterOutlined, DownloadOutlined, SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
 import type { SortOrder } from "antd/es/table/interface";
@@ -396,7 +397,7 @@ export function AppGrid<T extends object>({
       )}
 
       {/* Table */}
-      <div className={`shipments-table app-grid ${CARD} overflow-hidden`}>
+      <div className={`shipments-table app-grid ${CARD} overflow-clip`}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
             <Table<T>

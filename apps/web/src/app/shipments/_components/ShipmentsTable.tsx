@@ -5,7 +5,8 @@ import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { partyUpdate } from "@/app/shipments/_lib/parties";
 import { useQuery } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
-import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal, Button, Checkbox } from "antd";
+import { Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal, Button, Checkbox } from "antd";
+import { Table } from "@/components/Table";
 import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, MessageOutlined, WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
@@ -1009,7 +1010,7 @@ export const ShipmentsTable = ({
       {cap && <ListCapNotice shown={cap.shown} total={cap.total} noun="shipments" />}
 
       {/* Table */}
-      <div className={`shipments-table ${CARD} overflow-hidden`}>
+      <div className={`shipments-table ${CARD} overflow-clip`}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
             <Table<ShipmentItem>

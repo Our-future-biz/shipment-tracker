@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Input, InputNumber, Switch, Table, Tooltip } from "antd";
+import { Button, Input, InputNumber, Switch, Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import { DecimalInput } from "@/components/DecimalInput";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { interfaces } from "@/lib/api/client";

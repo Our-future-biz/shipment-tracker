@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Input, Select, Table, Tooltip } from "antd";
+import { Button, Input, Select, Tooltip } from "antd";
+import { Table } from "@/components/Table";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { interfaces } from "@/lib/api/client";
 import { formatPsc, isValidPsc, LANE_KIND_LABELS, pscDigits, pscRangeProblem, type LaneDraft } from "../../_lib/hauliers";

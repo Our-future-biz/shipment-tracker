@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Table } from "antd";
+import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Table, Button, Modal, Form, Select } from "antd";
+import { Button, Modal, Form, Select } from "antd";
+import { Table } from "@/components/Table";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";

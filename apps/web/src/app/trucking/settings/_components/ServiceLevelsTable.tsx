@@ -1,7 +1,8 @@
 "use client";
 
 import dayjs from "dayjs";
-import { Switch, Table, TimePicker } from "antd";
+import { Switch, TimePicker } from "antd";
+import { Table } from "@/components/Table";
 import type { interfaces } from "@/lib/api/client";
 import { workingDaysText } from "../../_lib/settings";
 

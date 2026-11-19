@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Modal, Table } from "antd";
+import { Modal } from "antd";
+import { Table } from "@/components/Table";
 import { CalendarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
@@ -93,7 +94,7 @@ export function HolidayAlerts({ items, loading }: HolidayAlertsProps) {
     const list = lists[key];
     const any = list.length > 0;
     return (
-      <section className={`bg-white border rounded-xl shadow-sm overflow-hidden ${any ? tone.border : "border-slate-200"}`}>
+      <section className={`bg-white border rounded-xl shadow-sm overflow-clip ${any ? tone.border : "border-slate-200"}`}>
         <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${any ? tone.header : "bg-slate-50"}`}>
           <CalendarFilled className={any ? tone.icon : "text-slate-300"} />
           <h3 className={CARD_TITLE}>{title}</h3>

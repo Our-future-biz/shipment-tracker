@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Table, Button, Modal, Form, Input, Select } from "antd";
+import { Button, Modal, Form, Input, Select } from "antd";
+import { Table } from "@/components/Table";
 import { PlusOutlined, EditOutlined, StopOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";

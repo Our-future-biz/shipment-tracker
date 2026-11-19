@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Table, Select, Pagination } from "antd";
+import { Select, Pagination } from "antd";
+import { Table } from "@/components/Table";
 import type { TableProps } from "antd";
 import type { SorterResult } from "antd/es/table/interface";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
@@ -135,7 +136,7 @@ export function DataTable<T extends object>({ dataSource, resetKey, server, onCh
   }, [resetKey, ownPageSize]);
 
   return (
-    <div className={`data-table ${CARD} overflow-hidden`}>
+    <div className={`data-table ${CARD} overflow-clip`}>
       <Table<T>
         {...tableProps}
         columns={sizedColumns}
