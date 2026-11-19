@@ -548,6 +548,10 @@ export function agingByCustomer(rows: readonly AgingRowInput[]): AgingTotals[] {
 export const prepaymentUnpaidOf = (rows: readonly Pick<ReleaseRow, "status" | "leftToPay" | "paymentTerms">[]): boolean =>
   rows.some((r) => isOwed(r) && isPrepayment(r.paymentTerms));
 
+/** The invoices the prepayment stop is about: the owed ones on prepayment (not the job's other owed invoices). */
+export const prepaymentInvoicesOf = (rows: readonly ReleaseRow[]): { invoiceId: string; number: string; leftToPay: number; currency: string }[] =>
+  rows.filter((r) => isOwed(r) && isPrepayment(r.paymentTerms)).map((r) => ({ invoiceId: r.invoiceId, number: r.number, leftToPay: r.leftToPay, currency: r.currency }));
+
 // ── Month-end as at a day (step 7) ──
 
 /** A line of an invoice as the month-end list reads it. */

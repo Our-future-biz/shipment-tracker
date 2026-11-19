@@ -168,7 +168,11 @@ describe("sending it", () => {
       await sendFollowup(row({ invoiceId: "inv1" }));
       expect(receivables.ensureRows).toHaveBeenCalledWith(COMPANY, { invoiceIds: ["inv1"] });
       expect(receivables.notCarriedChecked).toHaveBeenCalledWith(COMPANY, { invoiceIds: ["inv1"] }, 500);
-      expect(clients.invoiceStatuses).toHaveBeenCalledWith({ items: [{ invoiceId: "inv1", number: "INV2026CZ00000031-001", customerId: "cust1" }] });
+      // As the company: the cron that sends this has nobody signed in, and the customers service needs a company.
+      expect(clients.invoiceStatuses).toHaveBeenCalledWith(
+        { items: [{ invoiceId: "inv1", number: "INV2026CZ00000031-001", customerId: "cust1" }] },
+        { authData: { userID: "", companyID: COMPANY, role: "user" } },
+      );
       expect(receivables.carryOver).toHaveBeenCalledWith(COMPANY, [{ invoiceId: "inv1", paid: true }], expect.any(Function));
       // It sends the state right after, so the carry-over writes no follow-up of its own.
       expect((receivables.carryOver.mock.calls[0]![2] as (i: unknown) => unknown[])(doc())).toEqual([]);

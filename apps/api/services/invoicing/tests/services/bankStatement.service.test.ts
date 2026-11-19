@@ -26,6 +26,7 @@ vi.mock("../../../../lib/companyUsers", () => users);
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 
+import { APIError } from "encore.dev/api";
 import { bankStatementService as service } from "../../services/bankStatement.service";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -251,6 +252,15 @@ describe("confirming an entry", () => {
     owed();
     receivables.detail.mockResolvedValue({ row: row({ status: "paid", leftToPay: 0 }) });
     expect((await code(service.confirm(manager, ST, E1, { version: 1, items: [items[0]!] }))).message).toBe("INV2026CZ00000031-001 is not owed any more: open the statement again");
+    expect(receivables.noteAllocations).not.toHaveBeenCalled();
+  });
+
+  it("an invoice beyond the page that can't be read just now says so, never that it is not owed", async () => {
+    owed();
+    receivables.detail.mockRejectedValue(APIError.unavailable("Accounts Receivable could not be read just now"));
+    expect(await code(service.confirm(manager, ST, E1, { version: 1, items: [items[0]!] }))).toEqual({ code: "unavailable", message: "Accounts Receivable could not be read just now" });
+    receivables.detail.mockRejectedValue(APIError.notFound("Invoice not found"));
+    expect((await code(service.confirm(manager, ST, E1, { version: 1, items: [items[0]!] }))).message).toBe("An invoice chosen is not owed any more: open the statement again");
     expect(receivables.noteAllocations).not.toHaveBeenCalled();
   });
 

@@ -31,6 +31,7 @@ import {
   parseNoticeKey,
   isPrepayment,
   paymentProblem,
+  prepaymentInvoicesOf,
   prepaymentUnpaidOf,
   receivableStateOf,
   releaseWarning,
@@ -1286,7 +1287,7 @@ class ReceivableService {
    * "paid": it throws, and the shipments service refuses the release ("could not be checked").
    */
   async releaseCheckInternal(actor: Actor, shipmentId: string): Promise<ReleaseCheckInternalResponse> {
-    if (!isUuid(shipmentId)) return { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUnpaid: false };
+    if (!isUuid(shipmentId)) return { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUnpaid: false, prepaymentInvoices: [] };
     // Strict: a prepayment invoice whose old Paid could not be checked is not answered as owed or paid - it throws
     // (unavailable), so the shipments service refuses the release ("could not be checked") and a manager's override is
     // recorded unchecked.
@@ -1294,7 +1295,7 @@ class ReceivableService {
     const today = businessDay(new Date());
     const owedCustomers = unique(rows.filter(isOwed).map((r) => r.customerId));
     const overdueBy = await repo.overdueCountByCustomer(actor.companyID, owedCustomers, today);
-    return { ...releaseWarning(rows, overdueBy), prepaymentUnpaid: prepaymentUnpaidOf(rows) };
+    return { ...releaseWarning(rows, overdueBy), prepaymentUnpaid: prepaymentUnpaidOf(rows), prepaymentInvoices: prepaymentInvoicesOf(rows) };
   }
 
   /**

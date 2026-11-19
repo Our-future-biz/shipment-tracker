@@ -72,7 +72,7 @@ export const bankStatementEntryTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     statementId: uuid("statement_id").notNull(),
-    /** The bank's own reference of the entry (AcctSvcrRef, else NtryRef, else a hash of its facts): one entry once */
+    /** The entry's key (lib/camt053): the bank's AcctSvcrRef, else a single transaction's bank reference, else a hash of its facts - one entry once */
     entryKey: text("entry_key").notNull(),
     bookingDate: date("booking_date", { mode: "string" }),
     valueDate: date("value_date", { mode: "string" }),

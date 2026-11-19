@@ -1,6 +1,7 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { customers } from "~encore/clients";
+import { asCompany } from "../../../lib/internalCall";
 import { receivableRepository as repo, type InvoiceScope } from "../repositories/receivable.repository";
 import type { InvoiceRecord } from "../schemas/invoice.schema";
 import type { NewInvoiceFollowupOutboxRecord } from "../schemas/invoiceFollowupOutbox.schema";
@@ -62,7 +63,11 @@ async function carryOverPending(companyId: string, pending: Pending, stateRows: 
   if (!ask.length) return true;
   let answer: { items: { invoiceId: string; status: string | null }[] };
   try {
-    answer = await customers._internalCustomerInvoiceStatuses({ items: ask.map((x) => ({ invoiceId: x.invoiceId, number: x.number, customerId: x.customerId })) });
+    // For the company named, also with nobody signed in: the receivable_state follow-up runs this from the cron.
+    answer = await customers._internalCustomerInvoiceStatuses(
+      { items: ask.map((x) => ({ invoiceId: x.invoiceId, number: x.number, customerId: x.customerId })) },
+      asCompany(companyId),
+    );
   } catch (err) {
     log.warn(err, "the customer's list could not be asked which invoices it says are paid: asked again next time", { invoices: ask.length });
     return false;

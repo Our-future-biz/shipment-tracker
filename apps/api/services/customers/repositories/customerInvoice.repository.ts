@@ -64,10 +64,14 @@ class CustomerInvoiceRepository extends TenantRepository<typeof customerInvoiceT
       // Posted by Invoicing from now on, whoever typed it first: only a credit note changes it.
       const posted = { source: "invoicing" as const, ...(values.invoiceId ? { invoiceId: values.invoiceId } : {}) };
       if (existing) {
-        // A status set since (Paid, Credited) stands, and so does what Accounts Receivable sent; the figures are the invoice's own.
+        // Sent again: a status set since (Paid, Credited) stands, and so does what Accounts Receivable sent; the figures
+        // are the invoice's own. An entry typed in before Invoicing issued the number takes the issued status instead: a
+        // Paid typed ahead of the invoice would otherwise be carried over to Accounts Receivable as paid in full, with no
+        // money and no second manager.
+        const status = existing.source === "invoicing" ? {} : { status: values.status };
         const [row] = await tx
           .update(customerInvoiceTable)
-          .set({ amount: values.amount, currency: values.currency, dueDate: values.dueDate, issuedAt: values.issuedAt, ...posted, updatedAt: new Date() })
+          .set({ amount: values.amount, currency: values.currency, dueDate: values.dueDate, issuedAt: values.issuedAt, ...status, ...posted, updatedAt: new Date() })
           .where(eq(customerInvoiceTable.id, existing.id))
           .returning();
         return row!;

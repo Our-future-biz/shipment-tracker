@@ -1627,6 +1627,8 @@ export interface ReceivableCustomerRowsResponse {
 export interface ReleaseCheckInternalResponse extends ReleaseCheckResponse {
   /** The job has an invoice on prepayment with something left to pay (unpaid or part paid): the release is refused for a user */
   prepaymentUnpaid: boolean;
+  /** The owed invoices on prepayment: those the stop names and a manager's override records */
+  prepaymentInvoices: { invoiceId: string; number: string; leftToPay: number; currency: string }[];
 }
 
 /** One line of the month-end list: an invoice as it stood at the end of the day asked. */

@@ -13,6 +13,7 @@ import {
   leftToPayOf,
   mayConfirm,
   paidOf,
+  prepaymentInvoicesOf,
   prepaymentUnpaidOf,
   receivableStateOf,
   settingsProblem,
@@ -238,6 +239,17 @@ describe("the prepayment stop (D20, step 7)", () => {
     expect(prepaymentUnpaidOf([{ ...row, status: "paid", leftToPay: 0 }])).toBe(false);
     expect(prepaymentUnpaidOf([{ ...row, status: "written_off", leftToPay: 0 }])).toBe(false);
     expect(prepaymentUnpaidOf([])).toBe(false);
+  });
+
+  it("names the owed invoices on prepayment only, not the job's other owed ones", () => {
+    const base = { invoiceId: "i1", number: "INV-1", customerId: "c", customer: "Alfa", currency: "CZK", daysOverdue: 0, ...row };
+    expect(
+      prepaymentInvoicesOf([
+        base,
+        { ...base, invoiceId: "i2", number: "INV-2", paymentTerms: "14 days" },
+        { ...base, invoiceId: "i3", number: "INV-3", status: "paid", leftToPay: 0 },
+      ]),
+    ).toEqual([{ invoiceId: "i1", number: "INV-1", leftToPay: 1210, currency: "CZK" }]);
   });
 });
 

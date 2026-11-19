@@ -442,7 +442,8 @@ function entryOf(
   txs: TxFacts[],
 ): Omit<CamtEntry, "key"> {
   const first = txs[0];
-  const credit = first?.credit ?? base.credit;
+  // The entry's own direction: a batch kept whole may list a fee the other way first (a split part comes with its own).
+  const credit = base.credit;
   const symbols = czechSymbols({
     structured: txs.flatMap((t) => t.structured),
     endToEndId: first?.endToEndId ?? "",
@@ -501,20 +502,22 @@ function readStatement(stmt: XmlNode, ns: string, index: number): CamtStatement 
       amount: amt.amount,
       currency: amt.currency,
       credit: creditOf(textOf(ntry, ns, "CdtDbtInd"), what),
-      reversal: textOf(ntry, ns, "RvslInd").toLowerCase() === "true",
+      // xs:boolean: "true" or "1".
+      reversal: ["true", "1"].includes(textOf(ntry, ns, "RvslInd").trim().toLowerCase()),
       booked: !sts || sts.toUpperCase() === "BOOK",
       additional: textOf(ntry, ns, "AddtlNtryInf"),
     };
     // The entry's key (an entry read again from another file must get the same one, two movements never one):
     // the bank's entry reference (AcctSvcrRef); else, for an entry of one transaction, that transaction's bank
-    // reference; else a hash of the movement's facts. Never NtryRef alone: it only numbers the entries within one
-    // statement (1, 2, 3 … again every day), so it goes into the hash, never stands for the entry.
+    // reference; else a hash of the movement's facts. Never NtryRef, not even in the hash: it only numbers the entries
+    // of one file's statement (1, 2, 3 … again every day, and other numbers in a monthly file of the same days), so
+    // the same movement would get another key from another file. Two identical movements of one statement stay two
+    // by their count (keyed).
     const bankRef = textOf(ntry, ns, "AcctSvcrRef");
-    const ntryRef = textOf(ntry, ns, "NtryRef");
     const txs = childrenOf(ntry, ns, "NtryDtls").flatMap((d) => childrenOf(d, ns, "TxDtls"));
     const facts = txs.map((tx, j) => txFacts(tx, ns, `${what}, transaction ${j + 1}`));
     const factsHash = (e: Omit<CamtEntry, "key">, part: (string | number)[] = []) =>
-      hash([iban, ntryRef, e.bookingDate, e.valueDate, e.amount, e.currency, e.credit, e.reversal, e.endToEndId, e.counterpartyAccount, e.message, e.variableSymbol, ...part]);
+      hash([iban, e.bookingDate, e.valueDate, e.amount, e.currency, e.credit, e.reversal, e.endToEndId, e.counterpartyAccount, e.message, e.variableSymbol, ...part]);
 
     // Several transactions in one entry (a batch): each its own entry when each gives its amount in the entry's
     // currency and they add up to it; otherwise the entry stays one, with every transaction's message.

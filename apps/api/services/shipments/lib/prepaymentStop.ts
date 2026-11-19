@@ -24,7 +24,13 @@ export interface OverrideInvoice {
 export interface PaymentCheck {
   prepaymentUnpaid: boolean;
   unpaid: readonly { number: string; leftToPay: number; currency: string }[];
+  /** The owed invoices on prepayment, the ones the stop is about (else every owed invoice is named). */
+  prepaymentInvoices?: readonly { number: string; leftToPay: number; currency: string }[];
 }
+
+/** The invoices a stop names and an override records: the prepayment ones, not the job's other owed invoices. */
+const stopInvoices = (check: PaymentCheck | null): OverrideInvoice[] =>
+  (check?.prepaymentInvoices ?? check?.unpaid ?? []).map((i) => ({ number: i.number, leftToPay: i.leftToPay, currency: i.currency }));
 
 /** A manager's release of an unpaid prepayment job, to be recorded with the release. */
 export interface ReleaseOverride {
@@ -77,7 +83,7 @@ export function prepaymentStop(kind: ReleaseKind, check: PaymentCheck | null, ro
   if (check && !check.prepaymentUnpaid) return { override: null };
   const manager = canDecideQuoteInquiry(role);
   const given = (reason ?? "").trim();
-  const invoices: OverrideInvoice[] = (check?.unpaid ?? []).map((i) => ({ number: i.number, leftToPay: i.leftToPay, currency: i.currency }));
+  const invoices = stopInvoices(check);
   const why = check
     ? `${WHAT[kind]}: the job is on prepayment and not paid - ${invoices.length ? invoiceWords(invoices) : "an invoice is left to pay"}.`
     : `${PAYMENT_UNCHECKED}.`;
@@ -93,7 +99,7 @@ export function prepaymentStop(kind: ReleaseKind, check: PaymentCheck | null, ro
  * own is, with the invoices left to pay as they are now and `reason` naming who asked and who approved.
  */
 export function passOverride(check: PaymentCheck | null, pass: { requestId: string; reason: string }, refusal: string): ReleaseOverride {
-  const invoices: OverrideInvoice[] = (check?.unpaid ?? []).map((i) => ({ number: i.number, leftToPay: i.leftToPay, currency: i.currency }));
+  const invoices = stopInvoices(check);
   return { reason: pass.reason, invoices, checked: !!check, pass: { requestId: pass.requestId, refusal } };
 }
 

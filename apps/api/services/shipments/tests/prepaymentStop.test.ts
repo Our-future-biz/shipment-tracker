@@ -28,6 +28,16 @@ describe("prepaymentStop", () => {
     }
   });
 
+  it("names and records only the invoices on prepayment, not the job's other owed invoices", () => {
+    const mixed = { ...UNPAID, prepaymentInvoices: [UNPAID.unpaid[1]!] };
+    expect(prepaymentStop("house_bol", mixed, "user", undefined)).toEqual({
+      refusal: "The House BoL can't be released: the job is on prepayment and not paid - FV2026-0013 (15,000.50 CZK left to pay). A manager can release it with a reason",
+    });
+    expect(prepaymentStop("house_bol", mixed, "manager", "Paid by phone")).toEqual({
+      override: { reason: "Paid by phone", invoices: [{ number: "FV2026-0013", leftToPay: 15000.5, currency: "CZK" }], checked: true },
+    });
+  });
+
   it("refuses a manager without a reason of at least 3 characters, and lets one with it through", () => {
     for (const reason of [undefined, "", "   ", "ab", " ab "]) {
       const verdict = prepaymentStop("warehouse_released", UNPAID, "manager", reason);

@@ -167,14 +167,22 @@ describe("an issued document posted to the customer's list (upsertIssued)", () =
     expect(fake.state.steps.find((s) => s.op === "insert")!.values).toMatchObject({ source: "invoicing", invoiceId: INVOICE, companyId: COMPANY });
   });
 
-  it("makes a typed entry of the same number posted by Invoicing, leaving its status and what Accounts Receivable sent", async () => {
+  it("makes a typed entry of the same number posted by Invoicing with the issued status: a Paid typed ahead of the invoice is not kept", async () => {
     fake.state.found = [[entry({ source: "typed", invoiceId: null, status: "Paid", leftToPay: 0 })]];
+    await customerInvoiceRepository.upsertIssued(COMPANY, values);
+    const set = updates()[0]!.set!;
+    expect(set).toMatchObject({ source: "invoicing", amount: 1000, status: "Open" });
+    expect(set).not.toHaveProperty("leftToPay");
+    expect(set).not.toHaveProperty("invoiceId");
+  });
+
+  it("sent again, leaves the status set since and what Accounts Receivable sent", async () => {
+    fake.state.found = [[entry({ source: "invoicing", status: "Paid", leftToPay: 0 })]];
     await customerInvoiceRepository.upsertIssued(COMPANY, values);
     const set = updates()[0]!.set!;
     expect(set).toMatchObject({ source: "invoicing", amount: 1000 });
     expect(set).not.toHaveProperty("status");
     expect(set).not.toHaveProperty("leftToPay");
-    expect(set).not.toHaveProperty("invoiceId");
   });
 });
 

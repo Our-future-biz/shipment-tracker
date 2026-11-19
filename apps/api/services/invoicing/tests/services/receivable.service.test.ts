@@ -368,12 +368,15 @@ describe("carrying the customer's list's Paid over (D15)", () => {
     });
     await service.list(manager);
     expect(repo.markCarriedChecked).toHaveBeenCalledWith(COMPANY, [INV_C]);
-    expect(clients.invoiceStatuses).toHaveBeenCalledWith({
-      items: [
-        { invoiceId: INV, number: "INV-1", customerId: CUSTOMER },
-        { invoiceId: INV_B, number: "INV-2", customerId: CUSTOMER },
-      ],
-    });
+    expect(clients.invoiceStatuses).toHaveBeenCalledWith(
+      {
+        items: [
+          { invoiceId: INV, number: "INV-1", customerId: CUSTOMER },
+          { invoiceId: INV_B, number: "INV-2", customerId: CUSTOMER },
+        ],
+      },
+      { authData: { userID: "", companyID: COMPANY, role: "user" } },
+    );
     expect(repo.carryOver).toHaveBeenCalledWith(
       COMPANY,
       [

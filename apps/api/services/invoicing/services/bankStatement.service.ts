@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
 import { businessDay } from "../../../lib/businessDate";
 import { userEmailOf } from "../../../lib/companyUsers";
@@ -381,10 +381,14 @@ class BankStatementService {
     const known = new Map(invoices.map((i) => [i.invoiceId, { number: i.number, leftToPay: i.leftToPay, currency: i.currency, owed: true }]));
     for (const id of new Set(items.map((i) => i.invoiceId))) {
       if (known.has(id)) continue;
+      // Only an invoice that isn't there reads as not owed; any other failure says so, never "not owed any more".
       const row = await receivableService
         .detail(actor, id)
         .then((d) => d.row)
-        .catch(() => null);
+        .catch((err: unknown) => {
+          if (err instanceof APIError && err.code === ErrCode.NotFound) return null;
+          throw err;
+        });
       if (row) known.set(id, { number: row.number, leftToPay: row.leftToPay, currency: row.currency, owed: isOwed(row) });
     }
     const amount = state.reopened ? state.free : Number(entry.amount);

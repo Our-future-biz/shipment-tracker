@@ -139,7 +139,7 @@ const row = (over: Record<string, unknown> = {}) =>
   }) as unknown as ShipmentRecord;
 
 // Invoicing's word on a job that is not stopped for payment (its _internalReleaseCheck).
-const PAID = { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUnpaid: false };
+const PAID = { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUnpaid: false, prepaymentInvoices: [] };
 
 const synced = (over: Partial<QuoteSyncResult> = {}): QuoteSyncResult => ({
   quoteNumber: REF,
@@ -2570,6 +2570,7 @@ describe("the prepayment stop", () => {
     customerOverdueCount: 0,
     unpaid: [{ invoiceId: "inv-1", number: "FV2026-0012", leftToPay: 1200, currency: "EUR", daysOverdue: 0 }],
     prepaymentUnpaid: true,
+    prepaymentInvoices: [{ invoiceId: "inv-1", number: "FV2026-0012", leftToPay: 1200, currency: "EUR" }],
   };
   const inStock = (over: Record<string, unknown> = {}) =>
     stored.set(SHIPMENT, row({ personInCharge: "", holidayCover: "", warehouseReceivedDate: earlier, warehouseReleasedDate: null, houseBolRelease: "", ...over }));

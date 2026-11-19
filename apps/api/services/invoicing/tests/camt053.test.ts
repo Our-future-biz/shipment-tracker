@@ -244,6 +244,48 @@ describe("parseCamt053 — entry keys", () => {
     expect(bookedEntriesOnce(parseCamt053(file(day, day)))).toHaveLength(1);
   });
 
+  it("the same movement numbered otherwise in another file (a daily NtryRef 1, a monthly NtryRef 7) gets the same key", () => {
+    const daily = stmt("2026-11-16", "1000.00", "Alfa s.r.o.", "31");
+    const monthly = daily.replace("<NtryRef>1</NtryRef>", "<NtryRef>7</NtryRef>").replace("<Id>2026-11-16</Id>", "<Id>2026-11</Id>");
+    expect(parseCamt053(file(monthly)).statements[0]!.entries[0]!.key).toBe(parseCamt053(file(daily)).statements[0]!.entries[0]!.key);
+  });
+
+  it("two identical movements of one statement stay two, and keep their keys in another file", () => {
+    const twice = (ref: string) => stmt("2026-11-16", "1000.00", "Alfa s.r.o.", "31").replace(/<Ntry>[\s\S]*<\/Ntry>/, (n) => `${n}${n.replace("<NtryRef>1</NtryRef>", `<NtryRef>${ref}</NtryRef>`)}`);
+    const keys = (xml: string) => parseCamt053(file(xml)).statements[0]!.entries.map((e) => e.key);
+    const daily = keys(twice("2"));
+    expect(new Set(daily).size).toBe(2);
+    expect(keys(twice("9").replaceAll("<NtryRef>1</NtryRef>", "<NtryRef>8</NtryRef>"))).toEqual(daily);
+  });
+
+  it("a batch kept whole keeps the entry's direction, though a transaction the other way comes first", () => {
+    const xml = file(`
+      <Stmt>
+        <Id>S</Id>
+        <FrToDt><FrDtTm>2026-11-16T00:00:00</FrDtTm><ToDtTm>2026-11-16T23:59:59</ToDtTm></FrToDt>
+        <Acct><Id><IBAN>${IBAN}</IBAN></Id><Ccy>CZK</Ccy></Acct>
+        <Ntry>
+          <Amt Ccy="CZK">985.00</Amt>
+          <CdtDbtInd>CRDT</CdtDbtInd>
+          <Sts>BOOK</Sts>
+          <BookgDt><Dt>2026-11-16</Dt></BookgDt>
+          <NtryDtls>
+            <TxDtls><Amt Ccy="CZK">15.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><AddtlTxInf>Poplatek</AddtlTxInf></TxDtls>
+            <TxDtls><Refs><EndToEndId>/VS28/SS/KS</EndToEndId></Refs><Amt Ccy="CZK">1000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd></TxDtls>
+          </NtryDtls>
+        </Ntry>
+      </Stmt>`);
+    expect(parseCamt053(xml).statements[0]!.entries).toEqual([expect.objectContaining({ amount: 985, credit: true })]);
+  });
+
+  it("a reversal written as 1 (xs:boolean) is a reversal", () => {
+    const entry = (ind: string) =>
+      parseCamt053(file(stmt("2026-11-16", "1000.00", "Alfa s.r.o.", "31").replace("<Sts>BOOK</Sts>", `<RvslInd>${ind}</RvslInd><Sts>BOOK</Sts>`))).statements[0]!.entries[0]!;
+    expect(entry("1").reversal).toBe(true);
+    expect(entry("true").reversal).toBe(true);
+    expect(entry("0").reversal).toBe(false);
+  });
+
   it("a single transaction's own bank reference is the key when the entry has none", () => {
     const xml = file(stmt("2026-11-16", "1000.00", "Alfa s.r.o.", "31").replace("<Refs>", "<Refs><AcctSvcrRef>T-9</AcctSvcrRef>"));
     expect(parseCamt053(xml).statements[0]!.entries[0]!.key).toBe(`${IBAN}|tx:T-9`);
