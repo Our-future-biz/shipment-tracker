@@ -200,6 +200,11 @@ describe("waitingPaymentsOf (mock test council X5)", () => {
     expect(waitingPaymentsOf([open({ bookingDate: "2026-10-19" })], [old], TODAY).size).toBe(0);
     expect(waitingPaymentsOf([open({ bookingDate: null, readOn: "2026-10-01" })], [old], TODAY).size).toBe(0);
     expect(waitingPaymentsOf([open({ bookingDate: null, readOn: "2026-11-10" })], [old], TODAY).size).toBe(1);
+    // With no booking day its value day is its day, as a confirm notes it: one valued before the invoice was issued
+    // does not pay it, read after or not.
+    const later = owed({ issueDate: "2026-11-10" });
+    expect(waitingPaymentsOf([open({ bookingDate: null, valueDate: "2026-11-05", readOn: "2026-11-15" })], [later], TODAY).size).toBe(0);
+    expect(waitingPaymentsOf([open({ bookingDate: null, valueDate: "2026-11-12", readOn: "2026-11-15" })], [later], TODAY).size).toBe(1);
     // A later, recent entry still holds it.
     expect(waitingPaymentsOf([open({ bookingDate: "2026-10-01" }), open({ statementId: "st-2", bookingDate: "2026-11-17" })], [old], TODAY).get("i-31a")?.statementId).toBe("st-2");
   });

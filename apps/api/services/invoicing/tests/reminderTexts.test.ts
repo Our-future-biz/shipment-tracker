@@ -153,6 +153,10 @@ describe("reminderDue", () => {
     expect(reminderDue(cand({ paymentWaiting: false }), SETTINGS, TODAY)).toEqual({ level: 1 });
   });
 
+  it("holds back only a reminder that is due: an invoice nothing is due on yet is not counted as held by the bank entry", () => {
+    expect(reminderDue(cand({ paymentWaiting: true, dueDate: "2026-11-17" }), SETTINGS, TODAY)).toEqual({ level: null, why: "not_due" });
+  });
+
   it("reminds of nothing under 100 CZK or 5 EUR; another currency weighed in CZK at the invoice's rate (K13)", () => {
     expect(reminderDue(cand({ currency: "EUR", leftToPay: 4.99 }), SETTINGS, TODAY)).toEqual({ level: null, why: "small" });
     expect(reminderDue(cand({ currency: "EUR", leftToPay: 5 }), SETTINGS, TODAY)).toEqual({ level: 1 });

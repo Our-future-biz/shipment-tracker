@@ -108,18 +108,20 @@ export function reminderDue(c: ReminderCandidate, settings: ReminderSettings, to
   // A write-off or bank charge waiting for a second manager covers what is left: once confirmed nothing is owed, so
   // the customer is not reminded of it meanwhile.
   if (Math.round((c.waiting ?? 0) * 100) >= Math.round(c.leftToPay * 100)) return { level: null, why: "waiting" };
-  if (c.paymentWaiting) return { level: null, why: "payment_waiting" };
   if (underReminderFloor(c.leftToPay, c.currency, c.fxRate)) return { level: null, why: "small" };
   const dueDay = reminderDueDay(c.dueDate, holidays);
   if (!settings.autoRemindersSince || dueDay < settings.autoRemindersSince) return { level: null, why: "before_switch_on" };
   if (c.promisedOn && c.promisedOn >= today) return { level: null, why: "promised" };
   if (c.reminderLevel >= 2) return { level: null, why: "done" };
   const overdue = reminderOverdueDays(c.dueDate, today, holidays);
-  if (c.reminderLevel < 1) return overdue >= settings.reminder1Days ? { level: 1 } : { level: null, why: "not_due" };
+  // A bank payment waiting to be confirmed holds only a reminder that is due: the run counts and logs it as held
+  // back, and an invoice nothing was due on is not one.
+  const due = (level: 1 | 2): ReminderDecision => (c.paymentWaiting ? { level: null, why: "payment_waiting" } : { level });
+  if (c.reminderLevel < 1) return overdue >= settings.reminder1Days ? due(1) : { level: null, why: "not_due" };
   if (overdue < settings.reminder2Days) return { level: null, why: "not_due" };
   const gap = Math.max(1, settings.reminder2Days - settings.reminder1Days);
   if (c.lastRemindedOn && c.lastRemindedOn > addDays(today, -gap)) return { level: null, why: "too_soon" };
-  return { level: 2 };
+  return due(2);
 }
 
 /** The key that makes one mail per invoice and level, ever. */

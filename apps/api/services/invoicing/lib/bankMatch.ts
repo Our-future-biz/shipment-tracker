@@ -151,7 +151,9 @@ export interface OpenBankEntry extends MatchableEntry {
   /** The statement file it was read from */
   fileName: string;
   bookingDate: string | null;
-  /** The day the statement was read: the entry's day when it has no booking date */
+  /** The entry's value day: its day when it has no booking date, as a confirm notes it (bankStatement.service paidDayOf) */
+  valueDate?: string | null;
+  /** The day the statement was read: the entry's day when it has neither */
   readOn?: string | null;
 }
 
@@ -193,7 +195,7 @@ export function waitingPaymentsOf(entries: readonly OpenBankEntry[], invoices: r
   const out = new Map<string, WaitingPayment>();
   if (!invoices.length) return out;
   const oldest = addDays(today, -WAITING_ENTRY_DAYS);
-  const dayOf = (e: OpenBankEntry) => e.bookingDate ?? e.readOn ?? null;
+  const dayOf = (e: OpenBankEntry) => e.bookingDate ?? e.valueDate ?? e.readOn ?? null;
   const ordered = [...entries]
     .filter((e) => e.credit && !((dayOf(e) ?? today) < oldest))
     .sort((a, b) => (a.bookingDate ?? "9999").localeCompare(b.bookingDate ?? "9999"));

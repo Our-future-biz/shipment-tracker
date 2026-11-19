@@ -20,7 +20,9 @@ const openEntryOf = (e: StoredEntry, amount: number): OpenBankEntry => ({
   statementId: e.statementId,
   fileName: e.fileName,
   bookingDate: e.bookingDate,
-  // An entry with no booking day is as old as the statement it was read from.
+  // An entry with no booking day has the day its value day says, as a confirm notes it; with neither, it is as old as
+  // the statement it was read from.
+  valueDate: e.valueDate,
   readOn: e.createdAt ? businessDay(e.createdAt) : null,
   credit: e.credit,
   amount,
