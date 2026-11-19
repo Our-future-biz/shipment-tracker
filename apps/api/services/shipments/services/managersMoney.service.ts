@@ -42,9 +42,9 @@ import { cockpitUsers } from "./managersCockpitTeam.service";
 // the Sales managers' cockpit compares a credit limit with, and the one the CZK total of the
 // work not yet invoiced is converted at.
 //
-// Per answer that is read: the jobs (one statement, with each job's customer), the users and the
-// holidays (a call each), and then, through one limiter (lib/readLimiter, COCKPIT_READS_AT_ONCE
-// at a time):
+// Per answer that is read: the jobs (one statement, with each job's customer: the active ones and
+// the invoiced ones each up to a limit of its own), the users and the holidays (a call each), and
+// then, through one limiter (lib/readLimiter, COCKPIT_READS_AT_ONCE at a time):
 //   open cost claims      one statement
 //   in Billing since      one statement of the history, for the active jobs in Billing only (none: no statement)
 //   Invoicing             one call per MONEY_IDS_PER_CALL jobs (two at most: the active jobs and the invoiced
@@ -56,7 +56,8 @@ import { cockpitUsers } from "./managersCockpitTeam.service";
 //   today's ČNB rates     one call, after those: only when work not yet invoiced stands in another currency
 //                         than CZK, or a customer owes in another currency than its limit's
 // Each part may fail on its own: it then gives no signal and no figure, and the answer names it
-// (D29). The jobs themselves are the answer: without them it fails.
+// (D29) - the users too: without them nobody is said not to be a user (and "My reports" is
+// refused). The jobs themselves are the answer: without them it fails.
 //
 // The page asks every five minutes, and every manager with the same filters asks the same: the
 // facts read whole are kept in memory for MONEY_ANSWER_KEPT_MINUTES per company, mode, direction
@@ -70,6 +71,10 @@ export const MONEY_NOT_KNOWN = {
   credit: "customers' credit",
   claims: "cost claims",
   billingSince: "since when a job is in Billing",
+  // Read only when something stands in another currency: without it nothing is converted or compared, and no currency is said to have no rate.
+  rates: "today's ČNB rates",
+  // The people line's "not a user" is said of nobody without them, as the cockpit's own tile.
+  users: "who in Handled By is not a user",
 } as const;
 
 /** A part that may fail without taking the answer with it: null when it did. */
@@ -98,16 +103,21 @@ interface JobsRead {
   jobs: MoneyRow[];
   /** Which of them read Invoiced. */
   invoicedIds: Set<string>;
-  /** There were more of either than are kept. */
+  /** There were more of either than are kept - and each group was read up to its own limit, so the other is whole. */
   capped: boolean;
 }
 
 /**
- * One statement: the active jobs first, then the invoiced ones, each the newest first. One more
- * of each than is kept is asked for, so "capped" means some were left out - of either.
+ * One statement, the newest first: the active jobs and the invoiced ones, each group up to its
+ * own limit - so a company with more active jobs than are kept still has its invoiced ones read,
+ * and the capped note says what is true of both. One more of each than is kept is asked for, so
+ * "capped" means some were left out - of either.
  */
 async function moneyJobsRead(companyId: string, today: string): Promise<JobsRead> {
-  const rows: MoneyRow[] = await shipmentRepository.managersMoneyRows(companyId, addDays(today, -MONEY_INVOICED_LOOKBACK_DAYS), COCKPIT_JOB_LIMIT + 1 + MONEY_INVOICED_JOB_LIMIT + 1);
+  const rows: MoneyRow[] = await shipmentRepository.managersMoneyRows(companyId, addDays(today, -MONEY_INVOICED_LOOKBACK_DAYS), {
+    active: COCKPIT_JOB_LIMIT + 1,
+    invoiced: MONEY_INVOICED_JOB_LIMIT + 1,
+  });
   const isInvoiced = (row: MoneyRow) => row.invoicingStatus === INVOICED_STATUS;
   const active = rows.filter((r) => !isInvoiced(r));
   const invoiced = rows.filter(isInvoiced);
@@ -213,9 +223,12 @@ async function readMoney(companyId: string, filters: MoneyScope, now: Date): Pro
   // yet invoiced (for its one CZK total), or what a customer owes against a limit in another one.
   const unbilled = active.flatMap((j) => money?.byJob.get(j.id)?.notYetInvoiced ?? []);
   const ratesNeeded = currenciesWithoutRate(unbilled, null).length > 0 || (!!credit && [...credit.values()].some(needsRates));
-  const sheet = ratesNeeded ? await part("today's ČNB rates", () => todaysRates(run)) : null;
-  // Without the sheet there is no rate in it: a figure only for what is all in CZK - which names no rate (lib czkTotalOf).
-  const czk: CzkRates = { rates: sheet?.rates ?? {}, label: czkLabel(sheet?.day ?? today) };
+  const sheet = ratesNeeded ? await part(MONEY_NOT_KNOWN.rates, () => todaysRates(run)) : null;
+  // Without the sheet (not needed, or not read) there are no rates: a figure only for what is all in
+  // CZK - which names no rate (lib czkTotalOf) - and no currency is said to have none. When it was
+  // needed and could not be read, the sheet itself is named: fx being down is no "ČNB has no rate".
+  const czk: CzkRates | null = sheet && { rates: sheet.rates, label: czkLabel(sheet.day ?? today) };
+  const ratesUnread = ratesNeeded && !sheet;
 
   const facts: MoneyRead["facts"] = {
     jobs,
@@ -235,6 +248,8 @@ async function readMoney(companyId: string, filters: MoneyScope, now: Date): Pro
       ...(credit ? [] : [MONEY_NOT_KNOWN.credit]),
       ...(claims ? [] : [MONEY_NOT_KNOWN.claims]),
       ...(statusChanges ? [] : [MONEY_NOT_KNOWN.billingSince]),
+      ...(ratesUnread ? [MONEY_NOT_KNOWN.rates] : []),
+      ...(users ? [] : [MONEY_NOT_KNOWN.users]),
     ],
     capped,
     mode: filters.mode,
@@ -243,8 +258,8 @@ async function readMoney(companyId: string, filters: MoneyScope, now: Date): Pro
     reportEmails,
     now,
   };
-  // Whole: every part read, every job answered by Invoicing, the rates read where they were needed, the holidays known.
-  const whole = !!money && money.notKnown.length === 0 && ids.every((id) => money.byJob.has(id)) && !!credit && !(ratesNeeded && !sheet) && !!claims && !!statusChanges && uploaded !== null;
+  // Whole: every part read, every job answered by Invoicing, the rates read where they were needed, the users and the holidays known.
+  const whole = !!money && money.notKnown.length === 0 && ids.every((id) => money.byJob.has(id)) && !!credit && !ratesUnread && !!claims && !!statusChanges && users !== null && uploaded !== null;
   return { facts, whole };
 }
 

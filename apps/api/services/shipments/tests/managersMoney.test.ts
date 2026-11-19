@@ -128,7 +128,7 @@ const job = (over: Partial<OpsCockpitJob> = {}): OpsCockpitJob => {
 };
 
 const QUIET_TOTALS: JobMoney["totals"] = { profitCzk: 10_000, marginPct: 20, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, ratesNote: "", missingCurrencies: [] };
-const QUIET_INVOICES: InvoicingSupplierInvoices = { toApprove: 0, refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] };
+const QUIET_INVOICES: InvoicingSupplierInvoices = { toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] };
 type TestMoney = JobMoney & { shipmentId: string };
 // What is known of the money of a job nothing is wrong with: a healthy margin, nothing left to bill, everything else empty.
 const money = (shipmentId: string, over: Partial<Omit<JobMoney, "totals" | "supplierInvoices">> & { totals?: Partial<JobMoney["totals"]>; supplierInvoices?: Partial<InvoicingSupplierInvoices> | null } = {}): TestMoney => ({
@@ -933,6 +933,12 @@ describe("the Money tab", () => {
     expect(jan.notKnown).toEqual([]);
     // All in CZK: no rate needed, none named - whatever the sheet holds.
     expect(answer([a2], { invoicing, czk: { rates: {}, label: LABEL } }).tiles.notYetInvoicedCzk).toEqual({ amount: 500, label: "" });
+    // The sheet not read at all (null): no total, and no currency said to have no rate - the reads name the sheet itself.
+    const unread = answer([a1, a2, a3], { invoicing, czk: null });
+    expect(unread.tiles.notYetInvoicedCzk).toBeNull();
+    expect(unread.tiles.notYetInvoiced).toEqual([czk(500), eur(100), { currency: "USD", amount: 10 }]);
+    expect(unread.notKnown).toEqual([]);
+    expect(answer([a2], { invoicing, czk: null }).tiles.notYetInvoicedCzk).toEqual({ amount: 500, label: "" });
     expect(answer([a2], { invoicing }).tiles.notYetInvoicedCzk).toEqual({ amount: 500, label: "" });
   });
 
@@ -965,7 +971,7 @@ describe("the Money tab", () => {
       costLines: 3,
       estimatesOpen: { lines: 2, oldestSince: "2026-11-02", amounts: [] },
       notRecharged: [{ code: "DET", label: "Detention", currency: "EUR", amount: 240 }],
-      supplierInvoices: { toApprove: 1, oldestWaitingSince: "2026-11-02", refused: 1, lastRefusedOn: "2026-11-17", afterBilling: [{ id: "si-1", number: "FV-1", supplier: "Maersk", currency: "CZK", amount: 12_400, aboveEstimate: true, bookedOn: "2026-11-14" }] },
+      supplierInvoices: { toApprove: 1, waitingIds: ["si-2"], oldestWaitingSince: "2026-11-02", refused: 1, lastRefusedOn: "2026-11-17", afterBilling: [{ id: "si-1", number: "FV-1", supplier: "Maersk", currency: "CZK", amount: 12_400, aboveEstimate: true, bookedOn: "2026-11-14" }] },
     });
     const a = answer([closed], {
       invoicedIds: new Set([closed.id]),
@@ -1103,8 +1109,8 @@ describe("the Money tab", () => {
         money(jobs[0]!.id),
         money(zoe!.id, { estimatesOpen: { lines: 2, oldestSince: null, amounts: [] } }),
         // Eva's one job is the worst of all: she is still listed by her load, not first.
-        money(eva!.id, { totals: { profitCzk: -90_000, marginPct: -50 }, supplierInvoices: { toApprove: 3 } }),
-        money(jan1!.id, { notYetInvoiced: [eur(100), czk(50)], estimatesOpen: { lines: 1, oldestSince: null, amounts: [] }, supplierInvoices: { toApprove: 1 } }),
+        money(eva!.id, { totals: { profitCzk: -90_000, marginPct: -50 }, supplierInvoices: { toApprove: 3, waitingIds: ["si-1", "si-2", "si-3"] } }),
+        money(jan1!.id, { notYetInvoiced: [eur(100), czk(50)], estimatesOpen: { lines: 1, oldestSince: null, amounts: [] }, supplierInvoices: { toApprove: 1, waitingIds: ["si-4"] } }),
         money(jan2!.id, { notYetInvoiced: [eur(200)], estimatesOpen: { lines: 4, oldestSince: null, amounts: [] } }),
       ),
       claims: new Map([
@@ -1117,6 +1123,24 @@ describe("the Money tab", () => {
       person("eva@firma.cz", { jobsAtLoss: 1, supplierInvoicesWaiting: 3, costClaimsOpen: 2 }),
       person("zoe@firma.cz", { isUser: false, estimatesOpen: 2 }),
       person("", { isUser: false }),
+    ]);
+  });
+
+  it("counts a supplier invoice waiting for approval once per person, however many of their jobs it has lines on", () => {
+    const [jan1, jan2, jan3, eva] = [job(), job(), job(), job({ personInCharge: "eva@firma.cz" })];
+    // One carrier's invoice booked over Jan's three jobs - and Eva's, who has it too, with one of her own.
+    const carrier = { toApprove: 1, waitingIds: ["si-carrier"] };
+    const a = answer([jan1, jan2, jan3, eva], {
+      invoicing: facts(
+        money(jan1.id, { supplierInvoices: carrier }),
+        money(jan2.id, { supplierInvoices: carrier }),
+        money(jan3.id, { supplierInvoices: carrier }),
+        money(eva.id, { supplierInvoices: { toApprove: 2, waitingIds: ["si-carrier", "si-eva"] } }),
+      ),
+    });
+    expect(a.people.map((p) => [p.handledBy, p.supplierInvoicesWaiting])).toEqual([
+      ["jan@firma.cz", 1],
+      ["eva@firma.cz", 2],
     ]);
   });
 
@@ -1181,11 +1205,16 @@ describe("the Money tab", () => {
         [a4.id, null],
       ]),
       credit: new Map([["c-eur", { creditLimit: 1000, currency: "CZK", unpaid: [eur(500)], overdueCount: 0 }]]),
-      creditRates: null,
+      // Today's sheet was read, and has no rate for the euro.
+      creditRates: {},
       notKnown: ["cost claims", "cost claims"],
     });
     expect(a.notKnown).toEqual(["cost claims", "customers' credit: 1 customer of these jobs not found", "customers' credit: the limit of 1 customer could not be compared (no ČNB rate today)"]);
     expect(a.tiles.signals.credit).toBe(0);
+    // The sheet not read at all (null): ČNB is not said to have no rate - the reads name the sheet itself. No tag either way.
+    const unread = answer([a2], { customerOf: new Map([[a2.id, "c-eur"]]), credit: new Map([["c-eur", { creditLimit: 1000, currency: "CZK", unpaid: [eur(500)], overdueCount: 0 }]]), creditRates: null });
+    expect(unread.notKnown).toEqual([]);
+    expect(unread.tiles.signals.credit).toBe(0);
     // With the rate it is over: both of the customer's jobs say so.
     const rated = answer([a1, a2, a3, a4], { customerOf: new Map([[a2.id, "c-eur"], [a3.id, "c-eur"]]), credit: new Map([["c-eur", { creditLimit: 1000, currency: "CZK", unpaid: [eur(500)], overdueCount: 0 }]]), creditRates: { EUR: 25 } });
     expect(rated.notKnown).toEqual([]);

@@ -28,7 +28,8 @@ export const MONEY_FAMILIES: readonly SignalFamily[] = [
     key: "not_invoiced",
     kinds: ["not_invoiced"],
     label: "Not invoiced",
-    hint: "In Billing for more than 2 working days with no invoice, or past its tax date and not released for billing - with the amount not yet invoiced",
+    // The server's rule (lib/managersMoney inBillingSignals) goes by the work left to bill, whether or not some invoice exists already.
+    hint: "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced",
   },
   { key: "unticked", kinds: ["unticked"], label: "Selling not ticked", hint: "A job in Billing with a valued selling line that is not ticked: it holds the job open" },
   {

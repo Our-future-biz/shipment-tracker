@@ -241,6 +241,24 @@ describe("delay charges not sold on", () => {
     );
     expect(out).toEqual([{ code: "container_demurrage", label: "Container demurrage (DEM)", currency: "CZK", amount: 700 }]);
   });
+
+  it("takes a selling line of the older code of the same charge as sold on, and the other way round - two newer codes stay two charges", () => {
+    const notSold = (buyCategory: string, sellCategory: string) =>
+      notRechargedOf([buy({ category: buyCategory, realAmount: "500" })], [sell({ category: sellCategory, amount: "600" })]).map((line) => line.code);
+    // A container's demurrage sold on as the older "Demurrage" line, by its code or by its label - and an older buy line sold on under the newer code.
+    expect(notSold("container_demurrage", "Demurrage")).toEqual([]);
+    expect(notSold("container_demurrage", "demurrage")).toEqual([]);
+    expect(notSold("demurrage", "container_demurrage")).toEqual([]);
+    // Every mode's storage was the older "Storage"; rail's one charge is both storage and demurrage.
+    expect(notSold("cfs_storage", "Storage")).toEqual([]);
+    expect(notSold("storage", "air_storage")).toEqual([]);
+    expect(notSold("rail_storage", "Demurrage")).toEqual([]);
+    expect(notSold("demurrage", "rail_storage")).toEqual([]);
+    // Not the same charge: bonded storage sold on says nothing of the container's storage, nor detention of demurrage.
+    expect(notSold("container_storage", "bonded_storage")).toEqual(["container_storage"]);
+    expect(notSold("container_demurrage", "container_detention")).toEqual(["container_demurrage"]);
+    expect(notSold("container_demurrage", "Storage")).toEqual(["container_demurrage"]);
+  });
 });
 
 describe("supplier invoices of a job", () => {
@@ -248,10 +266,12 @@ describe("supplier invoices of a job", () => {
   const none = new Map<string, string[]>();
 
   it("counts those to approve with the day the oldest was booked, the refused and the approved overdue", () => {
+    const later = supplierInvoice({ status: "booked", receivedAt: new Date("2026-11-12T09:00:00Z") });
+    const older = supplierInvoice({ status: "booked", receivedAt: null, createdAt: new Date("2026-11-03T23:30:00Z") }); // booked 4 Nov in Prague
     const out = supplierInvoicesOf(
       [
-        supplierInvoice({ status: "booked", receivedAt: new Date("2026-11-12T09:00:00Z") }),
-        supplierInvoice({ status: "booked", receivedAt: null, createdAt: new Date("2026-11-03T23:30:00Z") }), // booked 4 Nov in Prague
+        later,
+        older,
         supplierInvoice({ status: "refused", decidedAt: new Date("2026-11-11T23:30:00Z") }), // refused on 12 Nov in Prague
         supplierInvoice({ status: "approved", dueDate: "2026-11-10" }), // overdue
         supplierInvoice({ status: "approved", dueDate: "2026-11-18" }), // due today: not overdue
@@ -265,7 +285,7 @@ describe("supplier invoices of a job", () => {
       null,
       TODAY,
     );
-    expect(out).toEqual({ toApprove: 2, refused: 1, lastRefusedOn: "2026-11-12", claimed: 0, approvedOverdue: 1, oldestWaitingSince: "2026-11-04", afterBilling: [] });
+    expect(out).toEqual({ toApprove: 2, waitingIds: [later.id, older.id], refused: 1, lastRefusedOn: "2026-11-12", claimed: 0, approvedOverdue: 1, oldestWaitingSince: "2026-11-04", afterBilling: [] });
   });
 
   it("says the day of the newest refusal - none when no invoice is refused, or the refusal has no moment stored", () => {
@@ -385,6 +405,36 @@ describe("supplier invoices of a job", () => {
       afterBilling: [{ id: shared.id, number: "SHARED", supplier: "MSC", bookedOn: "2026-11-10", currency: "EUR", amount: 60, aboveEstimate: true }],
     });
   });
+
+  it("names the invoices each job waits on by their ids: one invoice with lines on three jobs is the same id on each", () => {
+    const THIRD = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c03";
+    const carrier = supplierInvoice({ invoiceNumber: "CARRIER-1" });
+    const own = supplierInvoice({ invoiceNumber: "OWN-2" });
+    const jobs = operationsMoneyJobs(
+      facts({
+        shipmentIds: [JOB, OTHER, THIRD],
+        supplierInvoices: {
+          invoices: [carrier, own],
+          lines: [
+            buy({ supplierInvoiceId: carrier.id, realAmount: "100" }),
+            buy({ shipmentId: OTHER, supplierInvoiceId: carrier.id, realAmount: "200" }),
+            buy({ shipmentId: THIRD, supplierInvoiceId: carrier.id, realAmount: "300" }),
+            buy({ shipmentId: THIRD, supplierInvoiceId: carrier.id, realAmount: "50" }),
+            buy({ shipmentId: THIRD, supplierInvoiceId: own.id, realAmount: "10" }),
+          ],
+          claims: [],
+          suppliers: new Map(),
+        },
+      }),
+    );
+    // Each job counts it as one to approve, so a count over the three must go by the ids: one invoice, not three.
+    expect(jobs.map((j) => [j.supplierInvoices!.toApprove, j.supplierInvoices!.waitingIds])).toEqual([
+      [1, [carrier.id]],
+      [1, [carrier.id]],
+      [2, [carrier.id, own.id]],
+    ]);
+    expect(new Set(jobs.flatMap((j) => j.supplierInvoices!.waitingIds)).size).toBe(2);
+  });
 });
 
 describe("estimates with no supplier invoice", () => {
@@ -422,7 +472,7 @@ describe("a part that could not be read", () => {
       totals: { sellingCzk: 0, estimateCzk: 0, realCzk: 0, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, costCzk: 0, profitCzk: 0, marginPct: null, missingCurrencies: [], ratesNote: "" },
       invoicedOn: null,
       notRecharged: [],
-      supplierInvoices: { toApprove: 0, refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] },
+      supplierInvoices: { toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] },
       estimatesOpen: { lines: 0, oldestSince: null, amounts: [] },
     });
   });

@@ -44,6 +44,29 @@ export const RECHARGED_CHARGE_CODES: readonly string[] = [
 
 const RECHARGED = new Set(RECHARGED_CHARGE_CODES);
 
+/**
+ * The older codes each delay charge was stored under before the catalogue had one per mode (lib/chargeCodes'
+ * legacy Demurrage and Storage). A line of the older code and one of the newer are the same charge, whichever side
+ * each is on; two newer codes stay two charges. Detention and waiting had no older code.
+ */
+const OLDER_CODES: Readonly<Record<string, readonly string[]>> = {
+  container_demurrage: ["demurrage"],
+  container_storage: ["storage"],
+  cfs_storage: ["storage"],
+  bb_terminal_storage: ["storage"],
+  air_storage: ["storage"],
+  bonded_storage: ["storage"],
+  // Rail's one charge for both: "Container storage / demurrage".
+  rail_storage: ["storage", "demurrage"],
+};
+
+/** A code with the codes that are the same charge under an older or a newer name. */
+const sameChargeAs = (code: string): string[] => [
+  code,
+  ...(OLDER_CODES[code] ?? []),
+  ...Object.entries(OLDER_CODES).flatMap(([newer, older]) => (older.includes(code) ? [newer] : [])),
+];
+
 export interface MoneySellRow {
   id: string;
   shipmentId: string;
@@ -187,8 +210,8 @@ export function moneyTotals(
 
 /**
  * The delay charges bought on a job that no selling line sells on: a buy line of those codes with a value (its real
- * cost, its estimate until then), unless a valued selling line has the same charge code or was copied from it.
- * Per charge code and currency.
+ * cost, its estimate until then), unless a valued selling line has the same charge code - or the older or newer code
+ * of the same charge (OLDER_CODES) - or was copied from it. Per charge code and currency.
  */
 export function notRechargedOf(buying: readonly MoneyBuyRow[], selling: readonly MoneySellRow[]): OperationsMoneyNotRecharged[] {
   const sold = selling.filter(hasValue);
@@ -197,7 +220,7 @@ export function notRechargedOf(buying: readonly MoneyBuyRow[], selling: readonly
   const byCode = new Map<string, { amount: number; currency: string }[]>();
   for (const r of buying) {
     const code = toChargeCode(r.category);
-    if (!RECHARGED.has(code) || soldCodes.has(code) || soldFrom.has(r.id)) continue;
+    if (!RECHARGED.has(code) || sameChargeAs(code).some((same) => soldCodes.has(same)) || soldFrom.has(r.id)) continue;
     const real = realOf(r);
     const line = real ? { amount: real, currency: r.realCurrency || "CZK" } : { amount: estimateOf(r), currency: r.estCurrency || "CZK" };
     if (!line.amount) continue;
@@ -263,6 +286,7 @@ export function supplierInvoicesOf(
   const refusedDays = refusals.flatMap((h) => (h.decidedAt ? [businessDay(h.decidedAt)] : [])).sort();
   return {
     toApprove: waiting.length,
+    waitingIds: waiting.map((h) => h.id),
     refused: refusals.length,
     lastRefusedOn: refusedDays.at(-1) ?? null,
     claimed: claims === null ? null : invoices.filter((h) => holdsPayment(claimsOf({ id: h.id, numberKey: h.numberKey, shipmentIds: jobsOf.get(h.id) ?? [] }, claims))).length,

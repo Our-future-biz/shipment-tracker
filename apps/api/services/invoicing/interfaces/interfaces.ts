@@ -1808,6 +1808,11 @@ export interface OperationsMoneyLateInvoice {
 export interface OperationsMoneySupplierInvoices {
   /** Booked, waiting for a manager */
   toApprove: number;
+  /**
+   * The ids of the invoices counted in `toApprove`. An invoice with lines on several jobs is in the list of each, so
+   * a count over several jobs counts these ids, each once - adding up the jobs' `toApprove` would count it per job
+   */
+  waitingIds: string[];
   refused: number;
   /** The day of the newest refusal among the job's refused invoices; null when none is refused (a refusal always stamps its moment) */
   lastRefusedOn: string | null;

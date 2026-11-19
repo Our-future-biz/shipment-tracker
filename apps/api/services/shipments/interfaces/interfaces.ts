@@ -1843,7 +1843,7 @@ export interface OpsMoneyPerson {
   jobsAtLoss: number | null;
   /** Estimated buy lines with no supplier invoice yet, on their jobs; null when Invoicing could not be read. */
   estimatesOpen: number | null;
-  /** Supplier invoices of their jobs waiting for approval; null when Invoicing could not be read. */
+  /** Supplier invoices of their jobs waiting for approval, each once however many of their jobs it is on; null when Invoicing could not be read. */
   supplierInvoicesWaiting: number | null;
   /** Open cost claims on their jobs; null when the cost claims could not be read. */
   costClaimsOpen: number | null;

@@ -91,6 +91,14 @@ describe("Shipments → Managers, Money: the signal tiles", () => {
     for (const f of MONEY_FAMILIES) expect(f.hint).not.toBe("");
   });
 
+  it("words the Not invoiced tile as the server's rule: work left to bill, whether or not an invoice was issued already", () => {
+    const hint = moneySignalOf("not_invoiced")!.hint;
+    expect(hint).toBe(
+      "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced",
+    );
+    expect(hint).not.toContain("with no invoice");
+  });
+
   it("reads the family the address names (?msignal=), and nothing for anything else", () => {
     expect(moneySignalOf("margin")?.label).toBe("Margin");
     expect(moneySignalOf(" Cost_Claim ")?.key).toBe("cost_claim");

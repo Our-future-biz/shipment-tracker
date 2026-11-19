@@ -91,8 +91,8 @@ describe("the Money tab's read of the jobs", () => {
     await newJob(companyId, { ...INVOICED, actualArrival: "2026-11-01", deletedAt: new Date() });
     await newJob(randomUUID(), { ...INVOICED, actualArrival: "2026-11-01" });
 
-    const rows = await shipmentRepository.managersMoneyRows(companyId, SINCE, 100);
-    // The active jobs first, then the invoiced ones, each the newest first (by when they were created).
+    const rows = await shipmentRepository.managersMoneyRows(companyId, SINCE, { active: 100, invoiced: 100 });
+    // The newest first, by when they were created - here every active job is newer than every invoiced one.
     expect(rows.map((r) => r.id)).toEqual([inBilling.id, active.id, noTaxDate.id, invoicedLately.id, roadByDelivery.id, byDelivery.id, byAtd.id, byAta.id]);
     expect(rows.map((r) => r.invoicingStatus)).toEqual(["Not Invoiced", "", "Invoiced", "Invoiced", "Invoiced", "Invoiced", "Invoiced", "Invoiced"]);
     expect(rows.find((r) => r.id === active.id)).toMatchObject({ customerId, jobNumber: active.jobNumber });
@@ -101,7 +101,17 @@ describe("the Money tab's read of the jobs", () => {
     expect(rows[0]).not.toHaveProperty("arrivalNoticeSent");
     // The active jobs are exactly the cockpit's.
     expect((await shipmentRepository.managersCockpitRows(companyId, 100)).map((r) => r.id)).toEqual([inBilling.id, active.id]);
-    // A cut leaves out invoiced jobs before an active one.
-    expect((await shipmentRepository.managersMoneyRows(companyId, SINCE, 3)).map((r) => r.id)).toEqual([inBilling.id, active.id, noTaxDate.id]);
+    // Each group is cut by itself, the newest of it kept: the active jobs cut to one still leave every invoiced one read…
+    expect((await shipmentRepository.managersMoneyRows(companyId, SINCE, { active: 1, invoiced: 100 })).map((r) => r.id)).toEqual([
+      inBilling.id,
+      noTaxDate.id,
+      invoicedLately.id,
+      roadByDelivery.id,
+      byDelivery.id,
+      byAtd.id,
+      byAta.id,
+    ]);
+    // …and the other way round.
+    expect((await shipmentRepository.managersMoneyRows(companyId, SINCE, { active: 100, invoiced: 2 })).map((r) => r.id)).toEqual([inBilling.id, active.id, noTaxDate.id, invoicedLately.id]);
   });
 });

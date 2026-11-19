@@ -20491,7 +20491,7 @@ export namespace interfaces {
         estimatesOpen: number | null
 
         /**
-         * Supplier invoices of their jobs waiting for approval; null when Invoicing could not be read.
+         * Supplier invoices of their jobs waiting for approval, each once however many of their jobs it is on; null when Invoicing could not be read.
          */
         supplierInvoicesWaiting: number | null
 

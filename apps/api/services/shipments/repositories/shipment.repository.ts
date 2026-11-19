@@ -1,5 +1,5 @@
 import { and, eq, ne, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql, getTableColumns, type SQL } from "drizzle-orm";
-import type { PgColumn } from "drizzle-orm/pg-core";
+import { unionAll, type PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
@@ -1198,83 +1198,89 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    * invoice that comes after billing, an estimate nobody invoiced and a loss are about exactly
    * those jobs, and the cockpit's read has none of them.
    *
-   * With each job its Invoicing Status (which of the two it is) and its linked customer. The
-   * active jobs come first, each group the newest first: a cut at `limit` leaves out invoiced
-   * jobs before it leaves out an active one. One statement; it judges nothing.
+   * With each job its Invoicing Status (which of the two it is) and its linked customer. Each
+   * group is read the newest first up to its own limit (`limits`), so many active jobs never
+   * crowd out the invoiced ones, and the rows come the newest first. One statement - both groups
+   * from one snapshot, so no job is read in both - and it judges nothing.
    */
-  async managersMoneyRows(companyId: string, invoicedSince: string, limit: number) {
+  async managersMoneyRows(companyId: string, invoicedSince: string, limits: { active: number; invoiced: number }) {
     const taxDate = sql`CASE
       WHEN ${IS_DELIVERY_DATED} THEN ${shipmentTable.actualDeliveryDate}
       WHEN lower(${shipmentTable.tradeDirection}) = 'export' THEN ${shipmentTable.actualDeparture}
       ELSE ${shipmentTable.actualArrival} END`;
     // GREATEST skips a tax date the job does not have.
     const invoicedLately = sql`(${INVOICED} AND ${NOT_CANCELLED} AND GREATEST(${taxDate}, (${shipmentTable.updatedAt} AT TIME ZONE 'Europe/Prague')::date) >= ${invoicedSince}::date)`;
-    return this.db
-      .select({
-        id: shipmentTable.id,
-        jobNumber: shipmentTable.jobNumber,
-        customer: shipmentTable.customer,
-        tradeDirection: shipmentTable.tradeDirection,
-        freightMode: shipmentTable.freightMode,
-        department: shipmentTable.department,
-        status: shipmentTable.status,
-        estimatedDeparture: shipmentTable.estimatedDeparture,
-        actualDeparture: shipmentTable.actualDeparture,
-        estimatedArrival: shipmentTable.estimatedArrival,
-        actualArrival: shipmentTable.actualArrival,
-        etaWarehouse: shipmentTable.etaWarehouse,
-        warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
-        plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
-        actualDeliveryDate: shipmentTable.actualDeliveryDate,
-        personInCharge: shipmentTable.personInCharge,
-        holidayCover: shipmentTable.holidayCover,
-        closingDate: shipmentTable.closingDate,
-        vgmClosing: shipmentTable.vgmClosing,
-        vgmClosingTime: shipmentTable.vgmClosingTime,
-        vgm: shipmentTable.vgm,
-        siClosing: shipmentTable.siClosing,
-        siClosingTime: shipmentTable.siClosingTime,
-        shippingInstructions: shipmentTable.shippingInstructions,
-        ams: shipmentTable.ams,
-        amsDeadline: shipmentTable.amsDeadline,
-        amsDeadlineTime: shipmentTable.amsDeadlineTime,
-        isf: shipmentTable.isf,
-        isfDeadline: shipmentTable.isfDeadline,
-        isfDeadlineTime: shipmentTable.isfDeadlineTime,
-        customsPriority: shipmentTable.customsPriority,
-        customsStatus: shipmentTable.customsStatus,
-        customsDeadline: shipmentTable.customsDeadline,
-        bookingConfirmation: shipmentTable.bookingConfirmation,
-        claim: shipmentTable.claim,
-        cargoReadinessDate: shipmentTable.cargoReadinessDate,
-        pickupDate: shipmentTable.pickupDate,
-        closingTime: shipmentTable.closingTime,
-        masterBolNumber: shipmentTable.masterBolNumber,
-        masterBolType: shipmentTable.masterBolType,
-        originalsReceivedDate: shipmentTable.originalsReceivedDate,
-        telexReleaseReceivedDate: shipmentTable.telexReleaseReceivedDate,
-        deliveryOrderDate: shipmentTable.deliveryOrderDate,
-        houseBolType: shipmentTable.houseBolType,
-        houseBolRelease: shipmentTable.houseBolRelease,
-        bolDraft: shipmentTable.bolDraft,
-        plateNumber: shipmentTable.plateNumber,
-        creditCheck: shipmentTable.creditCheck,
-        dangerous: shipmentTable.dangerous,
-        loadType: shipmentTable.loadType,
-        masterJobId: shipmentTable.masterJobId,
-        customsProcedure: shipmentTable.customsProcedure,
-        customsOffice: shipmentTable.customsOffice,
-        mrn: shipmentTable.mrn,
-        warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
-        createdAt: shipmentTable.createdAt,
-        updatedAt: shipmentTable.updatedAt,
-        invoicingStatus: shipmentTable.invoicingStatus,
-        customerId: shipmentTable.customerId,
-      })
-      .from(shipmentTable)
-      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`(${ACTIVE} OR ${invoicedLately})`))
-      .orderBy(sql`(${shipmentTable.invoicingStatus} IS NOT DISTINCT FROM 'Invoiced')`, desc(shipmentTable.createdAt), desc(shipmentTable.id))
-      .limit(limit);
+    const columns = {
+      id: shipmentTable.id,
+      jobNumber: shipmentTable.jobNumber,
+      customer: shipmentTable.customer,
+      tradeDirection: shipmentTable.tradeDirection,
+      freightMode: shipmentTable.freightMode,
+      department: shipmentTable.department,
+      status: shipmentTable.status,
+      estimatedDeparture: shipmentTable.estimatedDeparture,
+      actualDeparture: shipmentTable.actualDeparture,
+      estimatedArrival: shipmentTable.estimatedArrival,
+      actualArrival: shipmentTable.actualArrival,
+      etaWarehouse: shipmentTable.etaWarehouse,
+      warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+      plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+      actualDeliveryDate: shipmentTable.actualDeliveryDate,
+      personInCharge: shipmentTable.personInCharge,
+      holidayCover: shipmentTable.holidayCover,
+      closingDate: shipmentTable.closingDate,
+      vgmClosing: shipmentTable.vgmClosing,
+      vgmClosingTime: shipmentTable.vgmClosingTime,
+      vgm: shipmentTable.vgm,
+      siClosing: shipmentTable.siClosing,
+      siClosingTime: shipmentTable.siClosingTime,
+      shippingInstructions: shipmentTable.shippingInstructions,
+      ams: shipmentTable.ams,
+      amsDeadline: shipmentTable.amsDeadline,
+      amsDeadlineTime: shipmentTable.amsDeadlineTime,
+      isf: shipmentTable.isf,
+      isfDeadline: shipmentTable.isfDeadline,
+      isfDeadlineTime: shipmentTable.isfDeadlineTime,
+      customsPriority: shipmentTable.customsPriority,
+      customsStatus: shipmentTable.customsStatus,
+      customsDeadline: shipmentTable.customsDeadline,
+      bookingConfirmation: shipmentTable.bookingConfirmation,
+      claim: shipmentTable.claim,
+      cargoReadinessDate: shipmentTable.cargoReadinessDate,
+      pickupDate: shipmentTable.pickupDate,
+      closingTime: shipmentTable.closingTime,
+      masterBolNumber: shipmentTable.masterBolNumber,
+      masterBolType: shipmentTable.masterBolType,
+      originalsReceivedDate: shipmentTable.originalsReceivedDate,
+      telexReleaseReceivedDate: shipmentTable.telexReleaseReceivedDate,
+      deliveryOrderDate: shipmentTable.deliveryOrderDate,
+      houseBolType: shipmentTable.houseBolType,
+      houseBolRelease: shipmentTable.houseBolRelease,
+      bolDraft: shipmentTable.bolDraft,
+      plateNumber: shipmentTable.plateNumber,
+      creditCheck: shipmentTable.creditCheck,
+      dangerous: shipmentTable.dangerous,
+      loadType: shipmentTable.loadType,
+      masterJobId: shipmentTable.masterJobId,
+      customsProcedure: shipmentTable.customsProcedure,
+      customsOffice: shipmentTable.customsOffice,
+      mrn: shipmentTable.mrn,
+      warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
+      createdAt: shipmentTable.createdAt,
+      updatedAt: shipmentTable.updatedAt,
+      invoicingStatus: shipmentTable.invoicingStatus,
+      customerId: shipmentTable.customerId,
+    };
+    const newestFirst = () => [desc(shipmentTable.createdAt), desc(shipmentTable.id)];
+    const group = (which: SQL, limit: number) =>
+      this.db
+        .select(columns)
+        .from(shipmentTable)
+        .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), which))
+        .orderBy(...newestFirst())
+        .limit(limit);
+    // The union's own order goes by the columns it hands out; the caller tells the two groups apart by Invoicing Status.
+    return unionAll(group(ACTIVE, limits.active), group(invoicedLately, limits.invoiced)).orderBy(...newestFirst());
   }
 
   /**

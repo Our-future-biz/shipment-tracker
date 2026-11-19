@@ -69,8 +69,13 @@ const row = (n: number, over = {}) => ({
   customerId: null as string | null,
   ...over,
 });
-/** The jobs the read hands over: the active ones first, as the statement orders them. */
-const givenJobs = (rows: ReturnType<typeof row>[]) => shipments.managersMoneyRows.mockImplementation(async () => rows.map((r) => ({ ...r, customerId: customersOf[r.id] ?? r.customerId })));
+/** The jobs the read hands over: each group up to the limit the statement is given for it, as the statement reads them. */
+const givenJobs = (rows: ReturnType<typeof row>[]) =>
+  shipments.managersMoneyRows.mockImplementation(async (_companyId: string, _since: string, limits: { active: number; invoiced: number }) => {
+    const invoiced = (r: ReturnType<typeof row>) => r.invoicingStatus === "Invoiced";
+    const read = [...rows.filter((r) => !invoiced(r)).slice(0, limits.active), ...rows.filter(invoiced).slice(0, limits.invoiced)];
+    return read.map((r) => ({ ...r, customerId: customersOf[r.id] ?? r.customerId }));
+  });
 /** The customer each job is linked to. */
 let customersOf: Record<string, string | null> = {};
 const basics = (of: Record<string, string | null>) => {
@@ -101,7 +106,7 @@ const money = (shipmentId: string, over: Partial<InvoicingMoneyJob> = {}): Invoi
   totals: totals(),
   invoicedOn: null,
   notRecharged: [],
-  supplierInvoices: { toApprove: 0, refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] },
+  supplierInvoices: { toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] },
   estimatesOpen: { lines: 0, oldestSince: null, amounts: [] },
   ...over,
 });
@@ -132,9 +137,9 @@ describe("the Money tab's reads", () => {
     invoicingAnswers({ "id-1": { notYetInvoiced: [{ currency: "CZK", amount: 100 }] }, "id-3": { notYetInvoiced: [{ currency: "CZK", amount: 250 }], invoicedOn: "2026-11-03" } });
     customers._internalCustomerCreditFacts.mockResolvedValue({ customers: ["c-1", "c-2"].map((customerId) => ({ customerId, creditLimit: 0, currency: "CZK", unpaid: [{ currency: "EUR", amount: 5 }], overdueCount: 0, oldestOverdueDue: null })) });
     const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
-    // One statement for the active jobs and those invoiced within the last 90 days: one more of each than is kept.
+    // One statement for the active jobs and those invoiced within the last 90 days, each up to its own limit: one more of each than is kept.
     expect(shipments.managersMoneyRows).toHaveBeenCalledTimes(1);
-    expect(shipments.managersMoneyRows).toHaveBeenCalledWith(COMPANY, "2026-08-20", COCKPIT_JOB_LIMIT + 1 + MONEY_INVOICED_JOB_LIMIT + 1);
+    expect(shipments.managersMoneyRows).toHaveBeenCalledWith(COMPANY, "2026-08-20", { active: COCKPIT_JOB_LIMIT + 1, invoiced: MONEY_INVOICED_JOB_LIMIT + 1 });
     const ids = ["id-1", "id-2", "id-3"];
     expect(invoicing._internalOperationsMoney).toHaveBeenCalledTimes(1);
     // With each job's dates: Invoicing values a job whose rates are not fixed by them, and fixes nothing.
@@ -261,13 +266,15 @@ describe("the one CZK total of the work not yet invoiced", () => {
     expect(shipments.managersMoneyRows).toHaveBeenCalledTimes(1);
   });
 
-  it("is none when the sheet could not be read, and that answer is not kept", async () => {
+  it("is none when the sheet could not be read - the answer names the sheet, not a currency ČNB has no rate for - and that answer is not kept", async () => {
     givenJobs([row(1)]);
     unbilled([{ currency: "EUR", amount: 100 }]);
     fx.fxRatesOn.mockRejectedValueOnce(new Error("fx is down"));
     const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
     expect(m.tiles.notYetInvoicedCzk).toBeNull();
-    expect(m.notKnown).toEqual(["the CZK total of work not yet invoiced: no ČNB rate for EUR"]);
+    expect(m.tiles.notYetInvoiced).toEqual([{ currency: "EUR", amount: 100 }]);
+    expect(m.notKnown).toEqual([MONEY_NOT_KNOWN.rates]);
+    expect(MONEY_NOT_KNOWN.rates).toBe("today's ČNB rates");
     const again = await managersMoneyService.money(COMPANY, EVERYONE, later(1));
     expect(again.tiles.notYetInvoicedCzk).toEqual({ amount: 2500, label: "at today's ČNB rate (18.11.)" });
     expect(shipments.managersMoneyRows).toHaveBeenCalledTimes(2);
@@ -322,6 +329,18 @@ describe("the jobs that read Invoiced", () => {
     givenJobs([...active(COCKPIT_JOB_LIMIT), ...invoiced(5)]);
     expect((await managersMoneyService.money(COMPANY, EVERYONE, NOW)).capped).toBe(false);
     expect(invoicing._internalOperationsMoney.mock.calls.map((call) => call[0].shipmentIds.length)).toEqual([COCKPIT_JOB_LIMIT, 5]);
+  });
+
+  it("still reads the invoiced jobs when the company has more active jobs than both limits together", async () => {
+    // More than the 3,002 rows one shared limit would take: every one of them active, the invoiced ones after.
+    const many = COCKPIT_JOB_LIMIT + MONEY_INVOICED_JOB_LIMIT + 10;
+    givenJobs([...Array.from({ length: many }, (_, i) => row(i)), ...Array.from({ length: 3 }, (_, i) => row(10_000 + i, INVOICED))]);
+    const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
+    // Capped for the active ones alone: the invoiced ones were read whole, so what the capped note says of them is true.
+    expect(m.capped).toBe(true);
+    const asked = invoicing._internalOperationsMoney.mock.calls.flatMap((call) => call[0].shipmentIds);
+    expect(asked).toHaveLength(COCKPIT_JOB_LIMIT + 3);
+    expect(asked.slice(-3)).toEqual(["id-10000", "id-10001", "id-10002"]);
   });
 
   it("asks Invoicing its calls one after the other: never two at once", async () => {
@@ -417,13 +436,13 @@ describe("what the Money tab says when a part could not be read", () => {
     expect(m.tiles).toMatchObject({ notYetInvoiced: [], notYetInvoicedJobs: 0 });
   });
 
-  it("says the limit could not be compared when the rates could not be read - the overdue invoices are said all the same", async () => {
+  it("names today's ČNB rates when they could not be read - no limit is said to lack a rate, the overdue invoices are said all the same", async () => {
     givenJobs([row(1)]);
     basics({ "id-1": "c-1" });
     customers._internalCustomerCreditFacts.mockResolvedValue({ customers: [{ customerId: "c-1", creditLimit: 100_000, currency: "CZK", unpaid: [{ currency: "EUR", amount: 5000 }], overdueCount: 1, oldestOverdueDue: "2026-10-01" }] });
     fx.fxRatesOn.mockRejectedValue(new Error("fx is down"));
     const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
-    expect(m.notKnown).toEqual(["customers' credit: the limit of 1 customer could not be compared (no ČNB rate today)"]);
+    expect(m.notKnown).toEqual(["today's ČNB rates"]);
     expect(m.attention.rows.map((r) => r.tags.map((t) => t.text))).toEqual([["Customer has overdue invoices · 1"]]);
     // Not whole: the next ask reads again.
     await managersMoneyService.money(COMPANY, EVERYONE, later(1));
@@ -451,11 +470,30 @@ describe("what the Money tab says when a part could not be read", () => {
   it("refuses My reports when the users could not be read, and fails as a whole without the jobs", async () => {
     team.cockpitUsers.mockResolvedValue(null);
     await expect(managersMoneyService.money(COMPANY, { ...EVERYONE, reports: "mine" }, NOW)).rejects.toMatchObject({ code: "unavailable", message: REPORTS_NOT_KNOWN });
-    // Everybody's jobs need no users.
-    await expect(managersMoneyService.money(COMPANY, EVERYONE, NOW)).resolves.toMatchObject({ notKnown: [] });
+    // Everybody's jobs need no users - but who is not a user is not known, and the answer says so.
+    await expect(managersMoneyService.money(COMPANY, EVERYONE, NOW)).resolves.toMatchObject({ notKnown: [MONEY_NOT_KNOWN.users] });
     forgetMoneyAnswers();
     shipments.managersMoneyRows.mockRejectedValue(new Error("the database is down"));
     await expect(managersMoneyService.money(COMPANY, EVERYONE, NOW)).rejects.toThrow("the database is down");
+  });
+
+  it("marks nobody as not a user while the users could not be read, names them, and keeps no such answer", async () => {
+    givenJobs([row(1), row(2, { personInCharge: "gone@firma.cz" })]);
+    team.cockpitUsers.mockResolvedValueOnce(null);
+    const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
+    expect(m.notKnown).toEqual(["who in Handled By is not a user"]);
+    expect(m.people.map((p) => [p.handledBy, p.isUser])).toEqual([
+      ["gone@firma.cz", null],
+      ["jan@firma.cz", null],
+    ]);
+    // Not whole: a minute on the users are asked again - and read, they say who is not a user.
+    const again = await managersMoneyService.money(COMPANY, EVERYONE, later(1));
+    expect(team.cockpitUsers).toHaveBeenCalledTimes(2);
+    expect(again.notKnown).toEqual([]);
+    expect(again.people.map((p) => [p.handledBy, p.isUser])).toEqual([
+      ["gone@firma.cz", false],
+      ["jan@firma.cz", true],
+    ]);
   });
 });
 

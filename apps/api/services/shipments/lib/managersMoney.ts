@@ -207,13 +207,20 @@ export interface OpsMoneyInput {
   customerOf: ReadonlyMap<string, string | null> | null;
   /** What the customers owe, by customer id; null when it could not be read. A customer with no entry was not found. */
   credit: ReadonlyMap<string, CustomerCredit> | null;
-  /** Today's ČNB rates, CZK per unit, for comparing what a customer owes with a limit in another currency; null when not read. */
+  /**
+   * Today's ČNB rates, CZK per unit, for comparing what a customer owes with a limit in another currency; null when
+   * not read - then no limit is said to lack a rate on them: the reads name the sheet itself when it was needed.
+   */
   creditRates: Readonly<Record<string, number>> | null;
   /** The open cost claims, by shipment id (a job with none has no entry); null when they could not be read. */
   claims: ReadonlyMap<string, readonly MoneyClaim[]> | null;
   /** The last change of status of the jobs in Billing, by shipment id (statusChangesOf - no entry: it never changed); null when the history could not be read. */
   statusChangedAt: ReadonlyMap<string, StatusChange> | null;
-  /** Today's ČNB rates and their label, for the one CZK figure of "work not yet invoiced" (rates that could not be read: none in it - then only what is all in CZK has a figure, as with null). */
+  /**
+   * Today's ČNB rates and their label, for the one CZK figure of "work not yet invoiced". Null when they were not
+   * read: then only what is all in CZK has a figure, and no currency is said to have no rate - the reads name the
+   * sheet itself when it was needed.
+   */
   czk: CzkRates | null;
   /** The e-mails of the company's active users, trimmed and lower-cased; null when they could not be read. */
   userEmails: ReadonlySet<string> | null;
@@ -831,11 +838,12 @@ export function signalsNotKnownOf(known: Known, input: Pick<OpsMoneyInput, "cust
  * The people line: everybody named in Handled By on one of `jobs` (nobody is ""), in the
  * cockpit's order - by their ACTIVE jobs, so somebody with only invoiced ones comes after. The
  * figures count what the rows show, the jobs that read Invoiced too; the work not yet invoiced is
- * the active jobs'. A figure whose part was not read is null.
+ * the active jobs'. A supplier invoice waiting for approval is counted once per person, however
+ * many of their jobs it has lines on. A figure whose part was not read is null.
  */
 function peopleOf(jobs: readonly Judged[], known: Known, input: Pick<OpsMoneyInput, "claims" | "userEmails">): OpsMoneyPerson[] {
   const { claims, userEmails } = input;
-  const people = new Map<string, { person: OpsMoneyPerson; unbilled: MoneyAmount[] }>();
+  const people = new Map<string, { person: OpsMoneyPerson; unbilled: MoneyAmount[]; waiting: Set<string> }>();
   for (const j of jobs) {
     const mine = people.get(j.email) ?? {
       person: {
@@ -849,6 +857,7 @@ function peopleOf(jobs: readonly Judged[], known: Known, input: Pick<OpsMoneyInp
         costClaimsOpen: claims ? 0 : null,
       },
       unbilled: [],
+      waiting: new Set<string>(),
     };
     const { person } = mine;
     if (!j.invoiced) {
@@ -856,7 +865,8 @@ function peopleOf(jobs: readonly Judged[], known: Known, input: Pick<OpsMoneyInp
       mine.unbilled.push(...(j.money?.notYetInvoiced ?? []));
     }
     if (person.estimatesOpen !== null) person.estimatesOpen += Math.max(0, j.money?.estimatesOpen?.lines ?? 0);
-    if (person.supplierInvoicesWaiting !== null) person.supplierInvoicesWaiting += Math.max(0, j.money?.supplierInvoices?.toApprove ?? 0);
+    // Invoicing puts an invoice on every job it has a live line on: by its id, a carrier's invoice over three jobs is one to approve, not three.
+    for (const id of j.money?.supplierInvoices?.waitingIds ?? []) mine.waiting.add(id);
     // Every job whose profit is under nothing, at any stage: the cards say "profit −80,262 CZK" of a job
     // still being worked on, and a 0 beside them would contradict them. A margin not known is no loss.
     const profit = j.money?.totals.profitCzk ?? null;
@@ -865,7 +875,11 @@ function peopleOf(jobs: readonly Judged[], known: Known, input: Pick<OpsMoneyInp
     people.set(j.email, mine);
   }
   return [...people.values()]
-    .map(({ person, unbilled }) => ({ ...person, notYetInvoiced: known.unbilled ? perCurrency(unbilled) : null }))
+    .map(({ person, unbilled, waiting }) => ({
+      ...person,
+      notYetInvoiced: known.unbilled ? perCurrency(unbilled) : null,
+      supplierInvoicesWaiting: person.supplierInvoicesWaiting === null ? null : waiting.size,
+    }))
     .sort(byActiveThenEmail);
 }
 
@@ -887,7 +901,8 @@ export function buildOpsMoney(input: OpsMoneyInput): ShipmentsManagersMoney {
   // Work not yet invoiced is the active jobs': a job that reads Invoiced has none to count.
   const active = shown.filter((j) => !j.invoiced);
   const unbilled = active.flatMap((j) => j.money?.notYetInvoiced ?? []);
-  const noRate = known.unbilled ? currenciesWithoutRate(unbilled, input.czk) : [];
+  // A currency is said to have no rate only on a sheet that was read: one that could not be read is no "ČNB has none".
+  const noRate = known.unbilled && input.czk ? currenciesWithoutRate(unbilled, input.czk) : [];
   // Why a margin is not known, as Invoicing says it of the job: its rates are there and one is
   // missing - or they are not fixed yet and could not be had. Both are counted in the one figure.
   const noMargin = known.lines ? shown.flatMap((j) => (j.money && isMarginNotKnown(j.money) ? [j.money.totals.ratesNote] : [])) : [];
@@ -906,7 +921,8 @@ export function buildOpsMoney(input: OpsMoneyInput): ShipmentsManagersMoney {
   // Credit is the active jobs' alone.
   const customers = new Set(scoped.flatMap((j) => (j.invoiced ? [] : (input.customerOf?.get(j.job.id) ?? []))));
   const notFound = input.credit ? [...customers].filter((id) => !input.credit!.has(id)).length : 0;
-  const notCompared = input.credit ? [...customers].filter((id) => input.credit!.has(id) && overLimit(input.credit!.get(id)!, input.creditRates) === "not_known").length : 0;
+  // The same for a limit: "no ČNB rate today" only when today's sheet was read and lacks one.
+  const notCompared = input.credit && input.creditRates ? [...customers].filter((id) => input.credit!.has(id) && overLimit(input.credit!.get(id)!, input.creditRates) === "not_known").length : 0;
 
   const byJobNumber = (a: OpsMoneyRow, b: OpsMoneyRow) => a.jobNumber.localeCompare(b.jobNumber);
   return {

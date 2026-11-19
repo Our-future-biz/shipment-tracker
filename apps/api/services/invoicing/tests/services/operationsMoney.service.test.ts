@@ -264,7 +264,7 @@ describe("the Money tab's facts of many jobs", () => {
     expect(supplier.costLinesOf).not.toHaveBeenCalled();
     expect(clients.costClaims).not.toHaveBeenCalled();
     expect(clients.supplierFacts).not.toHaveBeenCalled();
-    expect(out.jobs[0]!.supplierInvoices).toEqual({ toApprove: 0, refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] });
+    expect(out.jobs[0]!.supplierInvoices).toEqual({ toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] });
   });
 
   it("names what is no id of a job as unreadable, and reads nothing when no id is left", async () => {
