@@ -41,32 +41,50 @@ const sent = () => {
 };
 
 describe("when each job was last touched", () => {
+  // What the service leaves out (services/managersCockpitTeam.service NOT_A_TOUCH), as it hands it in.
+  const NOT_A_TOUCH = {
+    fields: ["nudge", "cutoffDismissed"],
+    lines: { field: "releaseRequest", startsWith: ["House BoL release approved", "House BoL release rejected"] },
+    writtenWith: "nudge",
+  };
+
   it("is one statement over the five tables, every arm bounded by the time - the two no index knows the time of also by the jobs", async () => {
-    await shipmentAuditRepository.lastTouchedSince(COMPANY, IDS, SINCE);
+    await shipmentAuditRepository.lastTouchedSince(COMPANY, IDS, SINCE, NOT_A_TOUCH);
     const { text, values } = sent();
+    // A chat line or a to-do written with a nudge's line is found by that line: the same job at the same moment.
+    const notWithNudge = (table: string, param: number) =>
+      `not exists (select 1 from "shipment_audit" where ("shipment_audit"."company_id" = $${param} and "shipment_audit"."changed_at" = "${table}"."created_at" and "shipment_audit"."shipment_id" = "${table}"."shipment_id" and "shipment_audit"."field" = $${param + 1}))`;
     expect(text).toBe(
       'select "shipment_id", max("at") from ((((((' +
-        'select "shipment_id", "changed_at" as "at" from "shipment_audit" where ("shipment_audit"."company_id" = $1 and "shipment_audit"."changed_at" >= $2)) union all (' +
-        'select "shipment_id", "created_at" as "at" from "shipment_comment" where ("shipment_comment"."company_id" = $3 and "shipment_comment"."created_at" >= $4))) union all (' +
-        'select "shipment_id", "created_at" as "at" from "shipment_note" where ("shipment_note"."company_id" = $5 and "shipment_note"."created_at" >= $6))) union all (' +
-        'select "shipment_id", "done_at" as "at" from "shipment_note" where ("shipment_note"."company_id" = $7 and "shipment_note"."shipment_id" in ($8, $9) and "shipment_note"."done_at" >= $10))) union all (' +
-        'select "shipment_id", "completed_at" as "at" from "shipment_task" where ("shipment_task"."company_id" = $11 and "shipment_task"."shipment_id" in ($12, $13) and "shipment_task"."completed_at" >= $14))) union all (' +
-        'select "shipment_id", "created_at" as "at" from "shipment_tracking_event" where ("shipment_tracking_event"."company_id" = $15 and "shipment_tracking_event"."created_at" >= $16))) "touches" group by "touches"."shipment_id"',
+        'select "shipment_id", "changed_at" as "at" from "shipment_audit" where ("shipment_audit"."company_id" = $1 and "shipment_audit"."changed_at" >= $2 and ' +
+        '("shipment_audit"."field" not in ($3, $4) and not ("shipment_audit"."field" = $5 and ("shipment_audit"."new_value" like $6 or "shipment_audit"."new_value" like $7))))) union all (' +
+        `select "shipment_id", "created_at" as "at" from "shipment_comment" where ("shipment_comment"."company_id" = $8 and "shipment_comment"."created_at" >= $9 and ${notWithNudge("shipment_comment", 10)}))) union all (` +
+        `select "shipment_id", "created_at" as "at" from "shipment_note" where ("shipment_note"."company_id" = $12 and "shipment_note"."created_at" >= $13 and ${notWithNudge("shipment_note", 14)}))) union all (` +
+        'select "shipment_id", "done_at" as "at" from "shipment_note" where ("shipment_note"."company_id" = $16 and "shipment_note"."shipment_id" in ($17, $18) and "shipment_note"."done_at" >= $19))) union all (' +
+        'select "shipment_id", "completed_at" as "at" from "shipment_task" where ("shipment_task"."company_id" = $20 and "shipment_task"."shipment_id" in ($21, $22) and "shipment_task"."completed_at" >= $23))) union all (' +
+        'select "shipment_id", "created_at" as "at" from "shipment_tracking_event" where ("shipment_tracking_event"."company_id" = $24 and "shipment_tracking_event"."created_at" >= $25))) "touches" group by "touches"."shipment_id"',
     );
     const since = SINCE.toISOString();
-    expect(values).toEqual([COMPANY, since, COMPANY, since, COMPANY, since, COMPANY, ...IDS, since, COMPANY, ...IDS, since, COMPANY, since]);
+    expect(values).toEqual([
+      ...[COMPANY, since, "nudge", "cutoffDismissed", "releaseRequest", "House BoL release approved%", "House BoL release rejected%"],
+      ...[COMPANY, since, COMPANY, "nudge"],
+      ...[COMPANY, since, COMPANY, "nudge"],
+      ...[COMPANY, ...IDS, since],
+      ...[COMPANY, ...IDS, since],
+      ...[COMPANY, since],
+    ]);
   });
 
   it("answers each job's newest touch as a moment, and sends nothing for no jobs", async () => {
     fake.rows = [[IDS[0], "2026-11-16 10:00:00.5+00"], [IDS[1], "2026-11-12 23:30:00+01"]];
-    expect(await shipmentAuditRepository.lastTouchedSince(COMPANY, IDS, SINCE)).toEqual(
+    expect(await shipmentAuditRepository.lastTouchedSince(COMPANY, IDS, SINCE, NOT_A_TOUCH)).toEqual(
       new Map([
         [IDS[0], new Date("2026-11-16T10:00:00.500Z")],
         [IDS[1], new Date("2026-11-12T22:30:00.000Z")],
       ]),
     );
     fake.queries.length = 0;
-    expect(await shipmentAuditRepository.lastTouchedSince(COMPANY, [], SINCE)).toEqual(new Map());
+    expect(await shipmentAuditRepository.lastTouchedSince(COMPANY, [], SINCE, NOT_A_TOUCH)).toEqual(new Map());
     expect(fake.queries).toHaveLength(0);
   });
 });

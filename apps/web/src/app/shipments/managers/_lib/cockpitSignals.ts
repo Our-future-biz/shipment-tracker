@@ -114,7 +114,7 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     key: "not_touched",
     kinds: ["not_touched"],
     label: "Not touched",
-    hint: "No change, chat line, to-do, task tick or tracking event for 5 working days (air: 3), on a job with nothing urgent",
+    hint: "No change, chat line, to-do, task tick or tracking event for 5 working days (air: 3), on a job with nothing urgent - a manager's nudge, dismissed cut-off or answer to a release request does not count",
   },
 ];
 

@@ -202,6 +202,12 @@ export interface OpsCockpitInput {
    * When the dismissals could not be read it keeps them all: nothing is treated as dismissed.
    */
   cutoffsKept: (jobId: string, cutoffs: CutoffDue[]) => CutoffDue[];
+  /**
+   * The dates of the job's Closing a manager dismissed (lib/cutoffDismissals), [] for none - and when
+   * the dismissals could not be read. The cargo-ready rule reads them: a Closing dismissed as settled
+   * ("went on the next vessel") is not one the cargo is still reported late for.
+   */
+  closingsDismissed: (jobId: string) => readonly string[];
   /** The audit line, as read; null when none of it could be. Not narrowed by any filter: it is the company's. */
   audit: OpsCockpitAudit | null;
   /**
@@ -751,13 +757,17 @@ export function bookingSignals(
 /**
  * U5: the cargo is ready only after the Closing: it will miss the vessel or flight. Not once the
  * job has left or the cargo is known to be in, nor for a Closing longer ago than PASSED_DATE_KEPT_DAYS.
+ * Nor for a Closing a manager dismissed (`closingsDismissed`, its dates): missing it is what the
+ * dismissal settled, so the row does not stay URGENT for it.
  */
 export function cargoReadySignals(
   job: Pick<OpsCockpitJob, "cargoReadinessDate" | "closingDate" | "actualDeparture" | "actualArrival" | "actualDeliveryDate">,
   cargoIsIn: boolean | null,
   today: string,
+  closingsDismissed: readonly string[] = [],
 ): OpsSignal[] {
   if (!job.cargoReadinessDate || !job.closingDate || job.cargoReadinessDate <= job.closingDate) return [];
+  if (closingsDismissed.includes(job.closingDate)) return [];
   if (hasLeft(job) || cargoIsIn === true || job.closingDate < addDays(today, -PASSED_DATE_KEPT_DAYS)) return [];
   return [urgent(OPS_RANK.cargoReady, "cargo_ready", "details", `Cargo ready ${dm(job.cargoReadinessDate)}, after Closing ${dm(job.closingDate)}`)];
 }
@@ -985,7 +995,7 @@ interface Judged {
 /** Every signal of one job: its own columns, the timeline, Needs Attention's flags and what the other tables say. */
 export function jobSignals(
   job: OpsCockpitJob,
-  input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "team" | "cutoffsKept" | "now" | "handover" | "claims">,
+  input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "team" | "cutoffsKept" | "closingsDismissed" | "now" | "handover" | "claims">,
   day: OpsDay,
 ): { signals: OpsSignal[]; flags: TrackingAttentionFlag[] } {
   // A job with no event of these kinds has no entry: its timeline is known, and empty.
@@ -993,15 +1003,17 @@ export function jobSignals(
   const cargoIsIn = cargoIn(job, timeline);
   const flags = attentionFlags(job, input.facts.get(job.id) ?? NO_FACTS, day.today, attentionRulesFor(freightKindOf(job), day.holidays));
   const handover = input.handover ?? NO_HANDOVER_FACTS;
-  const cutoffs = input.cutoffsKept(job.id, cutoffsOf(job, day, cargoIsIn));
+  const due = cutoffsOf(job, day, cargoIsIn);
+  const cutoffs = input.cutoffsKept(job.id, due);
   // What the job says itself that a warehouse signal would say again (lib/managersCockpitHandover WAREHOUSE_SAID_BY_THE_JOB).
-  const says = { freeTimeClock: flags.some((f) => f.kind === "free_time"), closing: cutoffs.some((c) => c.key === "closingDate") };
+  // The Closing before any dismissal: a dismissed one is settled, and the warehouse's "… past the closing" is no news either.
+  const says = { freeTimeClock: flags.some((f) => f.kind === "free_time"), closing: due.some((c) => c.key === "closingDate") };
   const signals: OpsSignal[] = [
     ...handledBySignals(job, input.userEmails),
     ...customsSignals(job, timeline, input.now, day.today),
     ...cutoffSignals(cutoffs, day.today),
     ...bookingSignals(job, day.today),
-    ...cargoReadySignals(job, cargoIsIn, day.today),
+    ...cargoReadySignals(job, cargoIsIn, day.today, input.closingsDismissed(job.id)),
     ...mawbSignals(job, day.today),
     ...rolledSignals(timeline),
     ...deliverySignals(job, day),

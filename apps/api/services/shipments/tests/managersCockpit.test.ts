@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COCKPIT_LIST_LIMIT } from "../lib/cockpitThresholds";
+import { withoutDismissed } from "../lib/cutoffDismissals";
 import {
   COCKPIT_EVENT_KINDS,
   EXTRA_RANK_SCALE,
@@ -146,6 +147,7 @@ const cockpit = (jobs: OpsCockpitJob[], over: Partial<OpsCockpitInput> = {}) =>
     team: QUIET_TEAM,
     // No manager dismissed anything.
     cutoffsKept: (_jobId, cutoffs) => cutoffs,
+    closingsDismissed: () => [],
     audit: null,
     notKnown: [],
     capped: false,
@@ -785,6 +787,14 @@ describe("cargo ready after the Closing (U5)", () => {
   it("is not said of a Closing longer ago than 7 days", () => {
     expect(late({ closingDate: "2026-11-11", cargoReadinessDate: "2026-11-12" })).toHaveLength(1);
     expect(late({ closingDate: "2026-11-10", cargoReadinessDate: "2026-11-12" })).toEqual([]);
+  });
+
+  it("is not said of a Closing a manager dismissed - only while the Closing keeps the date dismissed", () => {
+    const missed = job({ cargoReadinessDate: "2026-11-17", closingDate: "2026-11-16" });
+    expect(cargoReadySignals(missed, false, TODAY)).toHaveLength(1);
+    expect(cargoReadySignals(missed, false, TODAY, ["2026-11-16"])).toEqual([]);
+    // Moved to another day, it is a new Closing: the cargo is late for it again.
+    expect(cargoReadySignals(job({ cargoReadinessDate: "2026-11-25", closingDate: "2026-11-24" }), false, TODAY, ["2026-11-16"])).toHaveLength(1);
   });
 });
 
@@ -2059,6 +2069,19 @@ describe("the cockpit", () => {
       expect(c.tiles).toMatchObject({ cutoffsDue: 1, signals: { cutoff: 1 } });
     });
 
+    it("does not keep the row URGENT for the cargo that missed a dismissed Closing: the dismissal settled that miss", () => {
+      const j = job({ closingDate: "2026-11-16", cargoReadinessDate: "2026-11-17", estimatedDeparture: "2026-11-20" });
+      const dismissed = [{ cutoff: "closingDate" as const, date: "2026-11-16" }];
+      const c = cockpit([j], {
+        cutoffsKept: (_jobId, cutoffs) => withoutDismissed(cutoffs, dismissed),
+        closingsDismissed: (jobId) => (jobId === j.id ? ["2026-11-16"] : []),
+      });
+      expect(c.urgent.total + c.attention.total).toBe(0);
+      expect(c.tiles).toMatchObject({ cutoffsDue: 0, signals: { cutoff: 0, cargo_ready: 0 } });
+      // Another job's dismissal is not this one's.
+      expect(tagsIn(cockpit([j], { cutoffsKept: (_jobId, cutoffs) => withoutDismissed(cutoffs, dismissed), closingsDismissed: () => [] }))).toEqual(["Cargo ready 17.11., after Closing 16.11."]);
+    });
+
     it("drops the job from the cards when the dismissed cut-off was all that asked for a look", () => {
       const j = job({ vgmClosing: "2026-11-16", estimatedDeparture: "2026-11-20" });
       const c = cockpit([j], { cutoffsKept: () => [] });
@@ -2387,6 +2410,19 @@ describe("the warehouse and Trucking", () => {
       const tags = Object.fromEntries(tagsOf(c));
       expect(tags[closing.jobNumber]).toEqual(["Closing tomorrow", "Warehouse · MSKU7654322: Stuffing: 1 house not stuffed · ETD in 1 day (19.11.2026)"]);
       expect(tags[plain.jobNumber]).toEqual(["Warehouse · MSKU7654321: Stuffing: 2 houses not stuffed · closing in 1 day (19.11.2026)"]);
+    });
+
+    it("gives no stuffing tag against a closing a manager dismissed as missed: the dismissal settled that Closing", () => {
+      const missed = job({ tradeDirection: "Export", closingDate: "2026-11-16", estimatedDeparture: "2026-11-20" });
+      const late = record("MSKU7654321", "Stuffing: 1 house not stuffed · 2 days past the closing (16.11.2026)");
+      const handover = handoverFactsOf(warehouseOf([{ shipmentId: missed.id, records: [late] }]), truckingOf([]));
+      expect(tagsOf(cockpit([missed], { handover }))).toEqual([[missed.jobNumber, ["Closing missed · 16.11."]]]);
+      const c = cockpit([missed], {
+        handover,
+        cutoffsKept: (_jobId, cutoffs) => withoutDismissed(cutoffs, [{ cutoff: "closingDate", date: "2026-11-16" }]),
+        closingsDismissed: () => ["2026-11-16"],
+      });
+      expect(c.urgent.total + c.attention.total).toBe(0);
     });
   });
 

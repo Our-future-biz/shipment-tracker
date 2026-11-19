@@ -434,6 +434,17 @@ describe("Shipments → Managers' reads", () => {
       expect(c.notKnown).toEqual([]);
     });
 
+    it("asks too about a job whose cargo is ready only after its Closing, and says nothing of that cargo once the Closing is dismissed", async () => {
+      // The ETD passed: "Closing missed" no longer counts, the cargo ready after it still would.
+      shipments.managersCockpitRows.mockResolvedValue([row(4, { closingDate: "2026-11-16", cargoReadinessDate: "2026-11-17", estimatedDeparture: "2026-11-17" })]);
+      const before = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(dismissals.cutoffDismissalsOf).toHaveBeenLastCalledWith(COMPANY, ["id-4"]);
+      expect(before.urgent.rows.flatMap((r) => r.tags.map((t) => t.text))).toContain("Cargo ready 17.11., after Closing 16.11.");
+      dismissals.cutoffDismissalsOf.mockResolvedValue(new Map([["id-4", [{ cutoff: "closingDate", date: "2026-11-16" }]]]));
+      const after = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+      expect(after.urgent.rows.flatMap((r) => r.tags.map((t) => t.text))).not.toContain("Cargo ready 17.11., after Closing 16.11.");
+    });
+
     it("treats nothing as dismissed when the dismissals could not be read, and says so", async () => {
       shipments.managersCockpitRows.mockResolvedValue(jobs());
       dismissals.cutoffDismissalsOf.mockRejectedValue(new Error("the dismissals could not be read"));
@@ -464,15 +475,15 @@ describe("Shipments → Managers' reads", () => {
     });
   });
 
-  it("hands the one limiter of the answer to every reader that sends statements of its own (the whole call is tests/services/managersCockpitReads.test.ts)", async () => {
+  it("hands the one limiter to every reader that sends statements of its own (the whole call is tests/services/managersCockpitReads.test.ts)", async () => {
     shipments.managersCockpitRows.mockResolvedValue([row(1)]);
     await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
     const run = team.teamFacts.mock.lastCall![1].run;
     expect(extra.extraSignals.mock.lastCall![1].run).toBe(run);
     expect(auditLine.managersAuditLine.mock.lastCall![3]).toBe(run);
-    // A limiter of this answer only: the next answer has its own.
-    await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
-    expect(team.teamFacts.mock.lastCall![1].run).not.toBe(run);
+    // Shared by every answer, of every company: the pool's connections are the same for all of them.
+    await managersCockpitService.cockpit("0d6f5a1e-2b8c-4c3d-9e7f-1a2b3c4d5e6f", EVERYONE, NOW);
+    expect(team.teamFacts.mock.lastCall![1].run).toBe(run);
   });
 
   describe("\"My reports\" (step 3, D3)", () => {

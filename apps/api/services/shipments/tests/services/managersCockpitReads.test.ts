@@ -225,6 +225,14 @@ describe("one answer of Shipments → Managers, every statement of it", () => {
     ]);
   });
 
+  it("shares the five with every other answer being built: two companies' pages asking at once hold no more than five together", async () => {
+    const OTHER = "0d6f5a1e-2b8c-4c3d-9e7f-1a2b3c4d5e6f";
+    await Promise.all([managersCockpitService.cockpit(COMPANY, EVERYONE, NOW), managersCockpitService.cockpit(OTHER, EVERYONE, NOW)]);
+    // Each answer whole - nothing of one company's is kept for the other's.
+    expect(db.state.sent).toHaveLength(56);
+    expect(db.state.peak).toBe(5);
+  });
+
   it("sends six statements fewer and no call while the company's audit line and the modules' answers are kept: 22, and still five at once", async () => {
     await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
     db.state.sent.length = 0;

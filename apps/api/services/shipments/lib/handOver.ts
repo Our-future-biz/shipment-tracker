@@ -53,5 +53,20 @@ export function handOverLine(job: { personInCharge: string; holidayCover: string
   return `${parts.join("; ")}: ${reason}`;
 }
 
+/**
+ * Whether the job, as its write turn finds it (`current`), still holds what the hand-over was
+ * decided on (`job`, read before) in each field the change writes. Otherwise somebody changed it
+ * meanwhile - by hand, or another hand-over - and the change and its line, made of the old read,
+ * could name a wrong "from", or one that was already so: nothing is written.
+ */
+export function stillAsDecided(
+  current: { personInCharge: string; holidayCover: string },
+  job: { personInCharge: string; holidayCover: string },
+  change: HandOverChange,
+): boolean {
+  return (Object.keys(change) as (keyof HandOverChange)[]).every((field) => current[field].trim() === job[field].trim());
+}
+
 export const ALREADY_SO = "Already so: nothing to change";
+export const CHANGED_MEANWHILE = "Changed by somebody else meanwhile: left as they made it";
 export const JOB_NOT_FOUND = "Job not found";

@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { businessDay } from "../../../lib/businessDate";
 import type { OpsCockpitDirection, OpsCockpitMode, OpsCockpitReports, ShipmentsManagersCockpit } from "../interfaces/interfaces";
 import { COCKPIT_JOB_LIMIT, COCKPIT_READS_AT_ONCE } from "../lib/cockpitThresholds";
-import { jobsWithMissedCutoff, withoutDismissed } from "../lib/cutoffDismissals";
+import { closingDatesDismissed, jobsWithMissedCutoffOrLateCargo, withoutDismissed } from "../lib/cutoffDismissals";
 import {
   COCKPIT_EVENT_KINDS,
   boxesWanted,
@@ -108,10 +108,10 @@ export const reportEmailsOf = (users: readonly CockpitUser[] | null, userId: str
 // Step 3 adds, beside them and each failing on its own in the same way: what the people around
 // the jobs left (services/managersCockpitTeam.service, at most five statements), the missed
 // cut-offs a manager dismissed (services/cutoffDismissal.service, one statement, and none when no
-// job has a missed cut-off), and the audit line (services/managersCockpitAudit.service: six
-// statements when it is read, none while a line read within the last minutes is kept). The
-// users are read once and with whom each reports to - "My reports" is the one thing here that
-// cannot be answered without them, and is refused then.
+// job has a missed cut-off or cargo ready only after its Closing), and the audit line
+// (services/managersCockpitAudit.service: six statements when it is read, none while a line read
+// within the last minutes is kept). The users are read once and with whom each reports to - "My
+// reports" is the one thing here that cannot be answered without them, and is refused then.
 //
 // Step 5 adds the warehouse's and Trucking's own word on the jobs (services/managersCockpitHandover.service):
 // one call to each, for every job read whatever the page's filters, each failing on its own, none
@@ -124,14 +124,19 @@ export const reportEmailsOf = (users: readonly CockpitUser[] | null, userId: str
 // company's claim time limits (one more). Each fails on its own and is named.
 //
 // The page asks every minute and the pool has ten connections (lib/db/pool), so every statement
-// of one answer - this file's own and those of the readers it calls, which are handed the limiter -
-// goes through one limiter (lib/readLimiter): COCKPIT_READS_AT_ONCE at a time, not all thirty.
+// of every answer - this file's own and those of the readers it calls, which are handed the
+// limiter - goes through one limiter (lib/readLimiter): COCKPIT_READS_AT_ONCE at a time, not all
+// thirty. It is this module's, shared by all the answers being built: two managers' pages asking
+// at once wait for each other rather than take the whole pool between them.
+const cockpitReads = readLimiter(COCKPIT_READS_AT_ONCE);
+
 class ManagersCockpitService {
   async cockpit(companyId: string, filters: OpsCockpitFilters, now = new Date()): Promise<ShipmentsManagersCockpit> {
     const today = businessDay(now);
     const [rows, users, uploaded] = await Promise.all([
-      // One more than counted, so "capped" means some were left out.
-      shipmentRepository.managersCockpitRows(companyId, COCKPIT_JOB_LIMIT + 1),
+      // One more than counted, so "capped" means some were left out. Through the limiter too: it is
+      // shared, and another answer's statements may be running.
+      cockpitReads(() => shipmentRepository.managersCockpitRows(companyId, COCKPIT_JOB_LIMIT + 1)),
       cockpitUsers(),
       companyHolidays(companyId, today),
     ]);
@@ -144,8 +149,8 @@ class ManagersCockpitService {
     // are no statement of the limiter's, and they run while the statements do. Every job read, not
     // only the page's: the answers are kept per company, and the filters applied to them afterwards.
     const handoverRead = handoverFacts(ids, { companyId, now });
-    // Every statement from here on goes through the one limiter, in the order it is asked for.
-    const run = readLimiter(COCKPIT_READS_AT_ONCE);
+    // Every statement goes through the one limiter (the jobs read above too), in the order it is asked for.
+    const run = cockpitReads;
     // The events are read once, for the timeline rules and for Needs Attention's free time clocks.
     // The timeline may fail on its own; the clocks are part of the answer itself: when the one read
     // failed they are asked for again, by themselves, and the answer fails only if that fails too.
@@ -165,8 +170,9 @@ class ManagersCockpitService {
       part(NOT_KNOWN.extra, () => extraSignals(jobs, { companyId, now, today, holidays: extraHolidays, run })),
       // The same: each of its parts fails by itself, this catches the rest.
       part(NOT_KNOWN.team, () => teamFacts(jobs, { companyId, now, today, holidays: extraHolidays, users, run })),
-      // Only a missed cut-off can have been dismissed: the jobs with one are asked about, and with none nothing is read.
-      part(DISMISSALS_NOT_KNOWN, () => run(() => cutoffDismissalsOf(companyId, jobsWithMissedCutoff(jobs, opsDay(now, extraHolidays))))),
+      // Only a missed cut-off can have been dismissed: the jobs with one are asked about - and those whose cargo is
+      // ready only after their Closing, which a dismissed Closing silences too - and with none nothing is read.
+      part(DISMISSALS_NOT_KNOWN, () => run(() => cutoffDismissalsOf(companyId, jobsWithMissedCutoffOrLateCargo(jobs, opsDay(now, extraHolidays))))),
       // The company's, whatever the page is narrowed to. It names what it could not read itself.
       managersAuditLine(companyId, now, emailOf, run).catch((err) => {
         log.warn(err, "a part of Shipments → Managers could not be read", { part: AUDIT_PARTS.all });
@@ -193,6 +199,7 @@ class ManagersCockpitService {
       // A dismissed cut-off gives no tag while its date stands (lib/cutoffDismissals). When the
       // dismissals could not be read nothing is treated as dismissed: a tag too many, never one too few.
       cutoffsKept: (jobId, cutoffs) => withoutDismissed(cutoffs, dismissed?.get(jobId)),
+      closingsDismissed: (jobId) => closingDatesDismissed(dismissed?.get(jobId)),
       audit: audit.audit,
       handover,
       claims: { byJob: cargoClaims && claimFactsByJob(cargoClaims), limits },

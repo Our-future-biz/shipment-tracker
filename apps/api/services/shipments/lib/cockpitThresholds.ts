@@ -156,7 +156,12 @@ export const APPROVAL_RATE_MIN_DECIDED = 10;
  * was six statements a minute per open page for figures that move a few times a day.
  */
 export const AUDIT_LINE_KEPT_MINUTES = 5;
-/** Connections of the pool (ten, lib/db/pool) one cockpit answer holds at once: half, so a page that polls never takes them all. */
+/**
+ * Connections of the pool (ten, lib/db/pool) the cockpit's answers hold at once, all of them
+ * together (one limiter, services/managersCockpit.service): half, so the pages that poll never
+ * take them all. The Money tab (services/managersMoney.service) gives each of its answers a
+ * limiter of the same size.
+ */
 export const COCKPIT_READS_AT_ONCE = 5;
 
 // ─── The Money tab (lib/managersMoney) ──────────────────────────────────

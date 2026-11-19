@@ -10,6 +10,7 @@ vi.mock("../../repositories/shipmentCutoffDismissal.repository", () => ({ shipme
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: events }));
 
+import { auth } from "~encore/clients";
 import { DISMISSALS_NOT_KNOWN, cutoffDismissalsOf } from "../../services/cutoffDismissal.service";
 import { cutoffDismissalActionsService as actions } from "../../services/cutoffDismissalActions.service";
 
@@ -100,6 +101,12 @@ describe("dismissing a missed cut-off", () => {
     expect(item).toMatchObject({ id: ID, cutoff: "siClosing", cutoffDate: "2026-11-17", reason: "Carrier took the SI late", dismissedByName: "Eva Malá" });
     // A filing's miss does not hang on the cargo: no events are read.
     expect(events.factsOfKinds).not.toHaveBeenCalled();
+  });
+
+  it("is refused, to be tried again, when the manager can't be looked up: no dismissal is kept without their name", async () => {
+    vi.mocked(auth.userLookup).mockRejectedValueOnce(new Error("auth is unreachable"));
+    await expect(actions.dismiss(manager, SHIPMENT, { cutoff: "siClosing", reason: "Carrier took the SI late" }, NOW)).rejects.toMatchObject({ code: "unavailable" });
+    expect(repo.createWithHistory).not.toHaveBeenCalled();
   });
 
   it("dismisses a filing overdue since its time today, and AMS by the 4 days before the ETD when no deadline is typed", async () => {

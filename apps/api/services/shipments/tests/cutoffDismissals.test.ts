@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { CUTOFF_KEYS, dismissable, dismissedLine, isCutoffKey, jobsWithMissedCutoff, takenBackLine, withoutDismissed } from "../lib/cutoffDismissals";
+import {
+  CUTOFF_KEYS,
+  closingDatesDismissed,
+  dismissable,
+  dismissedLine,
+  isCutoffKey,
+  jobsWithMissedCutoff,
+  jobsWithMissedCutoffOrLateCargo,
+  takenBackLine,
+  withoutDismissed,
+} from "../lib/cutoffDismissals";
 import { cutoffsOf, opsDay, type CutoffDue, type CutoffJob } from "../lib/managersCockpit";
 import { dueOf, needsAttentionOf, type DueJob } from "../lib/needsAttention";
 
@@ -90,6 +100,28 @@ describe("jobsWithMissedCutoff", () => {
     ];
     expect(jobsWithMissedCutoff(jobs, day)).toEqual(["missed-closing", "overdue-vgm", "timed"]);
     expect(jobsWithMissedCutoff([], day)).toEqual([]);
+  });
+});
+
+describe("jobsWithMissedCutoffOrLateCargo", () => {
+  it("adds the jobs whose cargo is ready only after their Closing - also once the ETD passed and the Closing no longer counts", () => {
+    const jobs = [
+      job({ id: "missed-closing", closingDate: "2026-11-16", estimatedDeparture: "2026-11-20" }),
+      job({ id: "late-cargo", closingDate: "2026-11-16", cargoReadinessDate: "2026-11-17", estimatedDeparture: "2026-11-17" }),
+      job({ id: "in-time", closingDate: "2026-11-16", cargoReadinessDate: "2026-11-15", estimatedDeparture: "2026-11-17" }),
+      job({ id: "left", closingDate: "2026-11-16", cargoReadinessDate: "2026-11-17", actualDeparture: "2026-11-17" }),
+    ];
+    expect(jobsWithMissedCutoff(jobs, day)).toEqual(["missed-closing"]);
+    expect(jobsWithMissedCutoffOrLateCargo(jobs, day)).toEqual(["missed-closing", "late-cargo"]);
+    expect(jobsWithMissedCutoffOrLateCargo([], day)).toEqual([]);
+  });
+});
+
+describe("closingDatesDismissed", () => {
+  it("is the dates of the job's dismissed Closing, none of its other cut-offs", () => {
+    expect(closingDatesDismissed([{ cutoff: "closingDate", date: "2026-11-16" }, { cutoff: "vgmClosing", date: "2026-11-16" }, { cutoff: "closingDate", date: "2026-11-09" }])).toEqual(["2026-11-16", "2026-11-09"]);
+    expect(closingDatesDismissed(undefined)).toEqual([]);
+    expect(closingDatesDismissed(null)).toEqual([]);
   });
 });
 

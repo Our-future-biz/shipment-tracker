@@ -1,8 +1,7 @@
-import { APIError, api, type Query } from "encore.dev/api";
+import { api, type Query } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { requireRole } from "../../../lib/rbac";
 import type { HandOverResult, HandledByCount, NudgeResult } from "../interfaces/interfaces";
-import { shipmentRepository } from "../repositories/shipment.repository";
 import { handOverService } from "../services/handOver.service";
 import { nudgeService } from "../services/nudge.service";
 
@@ -14,7 +13,7 @@ const managers = () => requireRole("superadmin", "admin", "manager");
 
 interface ShipmentHandOverRequest {
   /** The jobs to hand over: 1 to 200 shipment ids (a list of more than 1,000 entries is refused unread). */
-  shipmentIds: string[];
+  shipmentIds: string[] & MaxLen<1000>;
   /** The new Handled By: the e-mail of a user of the company. Left out (or ""), Handled By stays as it is. */
   handledBy?: string & MaxLen<320>;
   /** The new Holiday Cover: the e-mail of a user of the company, or "" to clear it. Left out, it stays as it is. */
@@ -59,10 +58,6 @@ interface HandledByCountRequest {
 export const shipmentHandledByCount = api(
   { expose: true, auth: true, method: "GET", path: "/shipments/handled-by-count" },
   async ({ email }: HandledByCountRequest): Promise<HandledByCount> => {
-    const { companyID } = managers();
-    const asked = (email ?? "").trim().toLowerCase();
-    // "nobody" is the list filter's word for the jobs nobody handles: no person to count.
-    if (!asked || asked === "nobody") throw APIError.invalidArgument("email is required: the person's e-mail");
-    return shipmentRepository.handledByCounts(companyID, asked);
+    return handOverService.handledByCount(managers().companyID, email);
   },
 );

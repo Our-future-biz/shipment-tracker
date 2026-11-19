@@ -5,8 +5,8 @@
 // cut-off through withoutDismissed, so they never disagree. Pure: the reads are in
 // services/cutoffDismissal.service.
 
-import type { CutoffDue, CutoffJob, CutoffKey, OpsDay } from "./managersCockpit";
-import { cutoffsOf } from "./managersCockpit";
+import type { CutoffDue, CutoffJob, CutoffKey, OpsCockpitJob, OpsDay } from "./managersCockpit";
+import { cargoReadySignals, cutoffsOf } from "./managersCockpit";
 
 /** A live dismissal, as the rule reads it: which cut-off, and the date it had when it was dismissed. */
 export interface CutoffDismissed {
@@ -49,6 +49,21 @@ export function withoutDismissed(cutoffs: readonly CutoffDue[], dismissals: read
 export function jobsWithMissedCutoff<J extends CutoffJob & { id: string }>(jobs: readonly J[], day: OpsDay): string[] {
   return jobs.filter((job) => cutoffsOf(job, day, false).some((c) => c.state === "missed")).map((job) => job.id);
 }
+
+/**
+ * The jobs whose dismissals Shipments → Managers reads: those with a missed cut-off, and those
+ * whose cargo is ready only after their Closing (lib/managersCockpit cargoReadySignals) - a
+ * dismissed Closing silences that tag too, also once the ETD has passed and the Closing itself no
+ * longer counts. Asked of the two rules themselves, so this cannot drift from them.
+ */
+export function jobsWithMissedCutoffOrLateCargo<J extends CutoffJob & Pick<OpsCockpitJob, "cargoReadinessDate"> & { id: string }>(jobs: readonly J[], day: OpsDay): string[] {
+  const missed = new Set(jobsWithMissedCutoff(jobs, day));
+  return jobs.filter((job) => missed.has(job.id) || cargoReadySignals(job, false, day.today).length > 0).map((job) => job.id);
+}
+
+/** The dates of a job's dismissed Closing, from its dismissals: what the cockpit's cargo-ready rule no longer reports. */
+export const closingDatesDismissed = (dismissals: readonly CutoffDismissed[] | null | undefined): string[] =>
+  (dismissals ?? []).filter((d) => d.cutoff === "closingDate").map((d) => d.date);
 
 /**
  * The missed cut-off a manager may dismiss now, or why not: only one the shared rule calls missed

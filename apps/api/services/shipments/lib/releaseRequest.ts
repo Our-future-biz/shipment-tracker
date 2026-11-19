@@ -108,12 +108,21 @@ export const RELEASE_REQUEST_FIELD = "releaseRequest";
 /** The history line of a request: "House BoL release asked: customer pays on Friday". */
 export const askedLine = (what: ReleaseRequestWhat, reason: string): string => `${RELEASE_WORDS[what]} asked: ${reason}`;
 
+/** How an answer's history line starts: "House BoL release approved", "Warehouse Released rejected". */
+const answeredHead = (what: ReleaseRequestWhat, approve: boolean): string => `${RELEASE_WORDS[what]} ${approve ? "approved" : "rejected"}`;
+
 /** The history line of an answer: "House BoL release approved (asked by Jan Novák): agreed with the owner", "… rejected (asked by Jan Novák): not before the payment". */
 export function answeredLine(request: { what: ReleaseRequestWhat; requestedByName: string }, approve: boolean, comment: string): string {
   const asker = request.requestedByName.trim();
-  const head = `${RELEASE_WORDS[request.what]} ${approve ? "approved" : "rejected"}${asker ? ` (asked by ${asker})` : ""}`;
+  const head = `${answeredHead(request.what, approve)}${asker ? ` (asked by ${asker})` : ""}`;
   return comment.trim() ? `${head}: ${comment.trim()}` : head;
 }
+
+/**
+ * Every way an answer's history line starts: what tells a manager's answer apart from the request
+ * asked and from a request closed by a release, which share its field (RELEASE_REQUEST_FIELD).
+ */
+export const ANSWERED_LINE_STARTS: readonly string[] = RELEASE_WHATS.flatMap((what) => [answeredHead(what, true), answeredHead(what, false)]);
 
 /** The history line of a waiting request closed by a release made another way. */
 export const closedLine = (what: ReleaseRequestWhat): string => `${RELEASE_WORDS[what]} request closed: released without it`;

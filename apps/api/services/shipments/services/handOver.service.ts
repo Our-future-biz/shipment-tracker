@@ -3,9 +3,10 @@ import log from "encore.dev/log";
 import { companyUsers, requireUserEmail, type CompanyUser } from "../../../lib/companyUsers";
 import type { Actor } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
-import type { HandOverResult, HandOverSkipped } from "../interfaces/interfaces";
+import type { HandOverResult, HandOverSkipped, HandledByCount } from "../interfaces/interfaces";
 import {
   ALREADY_SO,
+  CHANGED_MEANWHILE,
   HAND_OVER_FIELD,
   HAND_OVER_MAX_IDS_SENT,
   HAND_OVER_MAX_JOBS,
@@ -14,11 +15,12 @@ import {
   MIN_HAND_OVER_REASON,
   handOverChange,
   handOverLine,
+  stillAsDecided,
   type HandOverTarget,
 } from "../lib/handOver";
 import { PERSON_FIELDS } from "../lib/people";
 import { shipmentRepository } from "../repositories/shipment.repository";
-import { shipmentService } from "./shipment.service";
+import { shipmentService, type StillHolds } from "./shipment.service";
 
 /** What a hand-over asks for, as the request sends it. */
 export interface HandOverInput {
@@ -34,15 +36,17 @@ export interface HandOverInput {
 // one another - and 200 one after another would keep the manager waiting.
 const AT_ONCE = 5;
 
-// Handing many jobs over (lib/handOver). Managers only: the endpoint checks the role (requireRole)
-// and hands the manager over as `actor`.
+// Handing many jobs over (lib/handOver), and counting the jobs a person still has before they are
+// deactivated. Managers only: the endpoints check the role (requireRole) and hand the manager over
+// as `actor`, or their company.
 class HandOverService {
   /**
    * Changes Handled By and / or Holiday Cover on each job through the shipment service's update, as
    * the manager - the very write an edit of the two fields on the job makes, so its checks, its
    * history lines and the bell of whoever now covers the job are the same - with one more history
-   * line, in the same write turn, saying it was a hand-over and why. A job that can't be changed is
-   * left as it is and named with the reason; the others go on.
+   * line, in the same write turn, saying it was a hand-over and why. The turn checks first that the
+   * job still has the people it was read with: one changed meanwhile is left as it is, with no line.
+   * A job that can't be changed is left as it is and named with the reason; the others go on.
    */
   async handOver(actor: Actor, input: HandOverInput): Promise<HandOverResult> {
     const reason = (input.reason ?? "").trim();
@@ -92,7 +96,12 @@ class HandOverService {
       jobNumber = job.jobNumber ?? "";
       const change = handOverChange(job, target);
       if (!change) return { jobNumber, why: ALREADY_SO };
-      await shipmentService.update(id, actor.companyID, change, actor.userID, actor.role, undefined, undefined, {
+      // Checked again in the write turn: the line names `job`'s people as "from", so it is written
+      // only while they are still the ones the write replaces (lib/handOver stillAsDecided).
+      const asDecided: StillHolds = (current) => {
+        if (!stillAsDecided(current, job, change)) throw APIError.aborted(CHANGED_MEANWHILE);
+      };
+      await shipmentService.update(id, actor.companyID, change, actor.userID, actor.role, undefined, asDecided, {
         history: [{ field: HAND_OVER_FIELD, oldValue: null, newValue: handOverLine(job, change, reason) }],
       });
       return null;
@@ -102,6 +111,18 @@ class HandOverService {
       log.error(err, "hand-over: a job could not be changed", { shipmentId: id });
       return { jobNumber, why: "Could not be changed just now: try this job again" };
     }
+  }
+
+  /**
+   * How many ACTIVE jobs name this person in Handled By, and how many in Holiday Cover - the Users
+   * page's warning before a user is deactivated (D13), so the jobs can be handed over. `email` as
+   * sent, any case.
+   */
+  async handledByCount(companyId: string, email: string): Promise<HandledByCount> {
+    const asked = (email ?? "").trim().toLowerCase();
+    // "nobody" is the list filter's word for the jobs nobody handles: no person to count.
+    if (!asked || asked === "nobody") throw APIError.invalidArgument("email is required: the person's e-mail");
+    return shipmentRepository.handledByCounts(companyId, asked);
   }
 
   private async users(): Promise<CompanyUser[]> {

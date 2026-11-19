@@ -118,7 +118,7 @@ const tag = (urgent: boolean, rank: number, kind: "warehouse" | "road", text: st
 export interface JobSays {
   /** Needs Attention's free time clock of the job's boxes is on it ("Free time over", "Free time ends"). */
   freeTimeClock: boolean;
-  /** A Closing cut-off tag is on it (due, ahead or missed). */
+  /** A Closing cut-off counts on it (due, ahead or missed) - a missed one a manager dismissed too: the warehouse's word of that Closing is no news either. */
   closing: boolean;
 }
 const SAYS_NOTHING: JobSays = { freeTimeClock: false, closing: false };

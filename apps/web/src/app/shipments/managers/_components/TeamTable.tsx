@@ -75,7 +75,7 @@ const COLUMNS: ColumnsType<TeamRow> = [
     width: 150,
     render: (_: unknown, r) => figure(r.mentionsUnread),
   },
-  { title: head("Not touched", "Their jobs with no change, chat line, to-do, task tick or tracking event for 5 working days (air: 3)"), key: "notTouched", width: 110, render: (_: unknown, r) => figure(r.notTouched) },
+  { title: head("Not touched", "Their jobs with no change, chat line, to-do, task tick or tracking event for 5 working days (air: 3) - a manager's nudge, dismissed cut-off or answer to a release request does not count"), key: "notTouched", width: 110, render: (_: unknown, r) => figure(r.notTouched) },
   {
     title: head("Holiday Cover", "Active jobs where this person stands in as the Holiday Cover, and since when the oldest of those covers stands"),
     key: "covers",

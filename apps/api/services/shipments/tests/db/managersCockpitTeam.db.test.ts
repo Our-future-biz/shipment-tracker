@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { businessInstant } from "../../../../lib/businessDate";
 import { db } from "../../db/db";
+import { CUTOFF_DISMISSED_FIELD } from "../../lib/cutoffDismissals";
+import { NUDGE_FIELD } from "../../lib/nudge";
+import { RELEASE_REQUEST_FIELD, answeredLine, askedLine } from "../../lib/releaseRequest";
 import { customsOfficeRequestRepository } from "../../repositories/customsOfficeRequest.repository";
 import { documentChangeRequestRepository } from "../../repositories/documentChangeRequest.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
@@ -10,6 +13,7 @@ import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachm
 import { shipmentAuditRepository } from "../../repositories/shipmentAudit.repository";
 import { shipmentCommentRepository } from "../../repositories/shipmentComment.repository";
 import { shipmentNoteRepository } from "../../repositories/shipmentNote.repository";
+import { shipmentNudgeRepository } from "../../repositories/shipmentNudge.repository";
 import { shipmentReleaseOverrideRepository } from "../../repositories/shipmentReleaseOverride.repository";
 import { customsOfficeRequestTable } from "../../schemas/customsOfficeRequest.schema";
 import { documentChangeRequestTable } from "../../schemas/documentChangeRequest.schema";
@@ -22,6 +26,7 @@ import { shipmentNoteTable } from "../../schemas/shipmentNote.schema";
 import { shipmentReleaseOverrideTable } from "../../schemas/shipmentReleaseOverride.schema";
 import { shipmentTaskTable } from "../../schemas/shipmentTask.schema";
 import { shipmentTrackingEventTable } from "../../schemas/shipmentTrackingEvent.schema";
+import { NOT_A_TOUCH } from "../../services/managersCockpitTeam.service";
 
 // The reads behind Shipments → Managers' step 3 - the people around the jobs and the audit line -
 // against the shipments database: each new repository method finds the rows of the company (and
@@ -75,7 +80,7 @@ describe("when each job was last touched", () => {
     await newChange(companyId, several!.id, "eta", "2026-11-14 10:00");
 
     const ids = [byHistory, byChat, byTodo, byTick, byTask, byEvent, old, several].map((j) => j!.id);
-    const touched = await shipmentAuditRepository.lastTouchedSince(companyId, ids, SINCE);
+    const touched = await shipmentAuditRepository.lastTouchedSince(companyId, ids, SINCE, NOT_A_TOUCH);
     expect(touched.get(byHistory!.id)).toEqual(at("2026-11-12 10:00"));
     expect(touched.get(byChat!.id)).toEqual(at("2026-11-13 09:00"));
     expect(touched.get(byTodo!.id)).toEqual(at("2026-11-16 08:00"));
@@ -93,8 +98,8 @@ describe("when each job was last touched", () => {
     const theirs = await newJob(otherCompany);
     await newChange(otherCompany, theirs.id, "status", "2026-11-16 10:00");
     await newTodo(otherCompany, theirs.id, { doneAt: at("2026-11-16 15:00") });
-    expect(await shipmentAuditRepository.lastTouchedSince(companyId, [mine.id, theirs.id], SINCE)).toEqual(new Map());
-    expect(await shipmentAuditRepository.lastTouchedSince(companyId, [], SINCE)).toEqual(new Map());
+    expect(await shipmentAuditRepository.lastTouchedSince(companyId, [mine.id, theirs.id], SINCE, NOT_A_TOUCH)).toEqual(new Map());
+    expect(await shipmentAuditRepository.lastTouchedSince(companyId, [], SINCE, NOT_A_TOUCH)).toEqual(new Map());
   });
 
   it("asks about a ticked to-do or task only on the jobs handed in - the other tables answer for whatever job the company touched", async () => {
@@ -102,11 +107,43 @@ describe("when each job was last touched", () => {
     const asked = await newJob(companyId);
     const notAsked = await newJob(companyId);
     await newTodo(companyId, notAsked.id, { doneAt: at("2026-11-16 15:00") });
-    const touched = await shipmentAuditRepository.lastTouchedSince(companyId, [asked.id], SINCE);
+    const touched = await shipmentAuditRepository.lastTouchedSince(companyId, [asked.id], SINCE, NOT_A_TOUCH);
     expect(touched.has(notAsked.id)).toBe(false);
     // A chat line on a job not handed in is among the rows: the caller keeps its own jobs.
     await newLine(companyId, notAsked.id, "2026-11-13 09:00");
-    expect((await shipmentAuditRepository.lastTouchedSince(companyId, [asked.id], SINCE)).get(notAsked.id)).toEqual(at("2026-11-13 09:00"));
+    expect((await shipmentAuditRepository.lastTouchedSince(companyId, [asked.id], SINCE, NOT_A_TOUCH)).get(notAsked.id)).toEqual(at("2026-11-13 09:00"));
+  });
+
+  it("leaves out what a manager did from Shipments → Managers: a nudge with its to-do and chat line, a dismissed cut-off, an answer to a release request", async () => {
+    const companyId = randomUUID();
+    const [nudged, dismissed, answered, asked] = await Promise.all(Array.from({ length: 4 }, () => newJob(companyId)));
+    // The nudge as a manager sends it: its to-do, chat line and history line in one write turn, at the turn's moment.
+    const todo = await shipmentNudgeRepository.create({
+      companyId,
+      shipmentId: nudged.id,
+      authorId: USER,
+      text: "Send the SI today",
+      dueDate: "2026-11-19",
+      message: "To-do from Eva Malá: Send the SI today — due 19.11.2026\n@Jan Novák",
+      mentionedUserIds: [OTHER_USER],
+      history: { field: NUDGE_FIELD, newValue: "To-do for jan@firma.cz: Send the SI today — due 19.11.2026" },
+    });
+    expect(todo).not.toBeNull();
+    await newChange(companyId, dismissed.id, CUTOFF_DISMISSED_FIELD, "2026-11-16 10:00", { newValue: "Closing 16.11.2026: went on the next vessel" });
+    await newChange(companyId, answered.id, RELEASE_REQUEST_FIELD, "2026-11-16 10:00", { newValue: answeredLine({ what: "house_bol", requestedByName: "Jan Novák" }, false, "not before the payment") });
+    // The request asked is the job's people at work: it counts.
+    await newChange(companyId, asked.id, RELEASE_REQUEST_FIELD, "2026-11-13 10:00", { newValue: askedLine("house_bol", "customer pays on Friday") });
+
+    const ids = [nudged, dismissed, answered, asked].map((j) => j.id);
+    const touched = await shipmentAuditRepository.lastTouchedSince(companyId, ids, SINCE, NOT_A_TOUCH);
+    expect(touched.has(nudged.id)).toBe(false);
+    expect(touched.has(dismissed.id)).toBe(false);
+    expect(touched.has(answered.id)).toBe(false);
+    expect(touched.get(asked.id)).toEqual(at("2026-11-13 10:00"));
+
+    // The people of the job answering the nudge do touch it: a chat line of their own, at another moment.
+    await newLine(companyId, nudged.id, "2026-11-17 09:00");
+    expect((await shipmentAuditRepository.lastTouchedSince(companyId, ids, SINCE, NOT_A_TOUCH)).get(nudged.id)).toEqual(at("2026-11-17 09:00"));
   });
 });
 

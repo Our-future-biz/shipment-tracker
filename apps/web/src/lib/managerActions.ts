@@ -166,16 +166,25 @@ export const dismissalTitle = (d: { cutoff: string; cutoffDate: string }): strin
 export const HANDLED_BY_COUNT_NOT_READ = "How many jobs this person handles could not be read";
 export const HANDLES_NO_JOB = "No active job names this person in Handled By or Holiday Cover.";
 
+const jobsNaming = (n: number) => `${n} active job${n === 1 ? " names" : "s name"} this person`;
+
 /**
  * The warning before a user is deactivated, or null when no active job names them. The deactivation is never
- * held up by it: the jobs stay with the person, URGENT on Shipments → Managers, until a manager hands them over.
+ * held up by it. A job the person handles stays with them, URGENT on Shipments → Managers ("Handled By is not a
+ * user"), until a manager hands it over. A job they only cover is flagged by no rule there: it is said apart, as a
+ * job that keeps a Holiday Cover who can no longer sign in.
  */
 export function handledByWarning(count: { handledBy: number; covers: number }): string | null {
   const { handledBy: n, covers: m } = count;
   if (n <= 0 && m <= 0) return null;
-  const one = n === 1 && m <= 0;
-  return `${n} active job${n === 1 ? " names" : "s name"} this person in Handled By (${m} as Holiday Cover): ${one ? "it stays" : "they stay"} URGENT on Shipments → Managers until handed over`;
+  const handled = n > 0 ? `${jobsNaming(n)} in Handled By: ${n === 1 ? "it stays" : "they stay"} URGENT on Shipments → Managers until handed over` : "";
+  const covered = m > 0 ? `${jobsNaming(m)} as Holiday Cover: ${m === 1 ? "it" : "they"} will have a Holiday Cover who can no longer sign in` : "";
+  return [handled, covered].filter(Boolean).join(". ");
 }
 
-/** Shipments → Managers narrowed to the jobs a person handles (the page's own ?handledBy=). */
-export const handledByJobsHref = (email: string): string => `/shipments/managers?handledBy=${encodeURIComponent(email.trim().toLowerCase())}`;
+/**
+ * Shipments → Managers narrowed to the jobs a person handles (the page's own ?handledBy=). Null when no job names
+ * them in Handled By: the page narrows by Handled By alone, so the link would open an empty list.
+ */
+export const handledByJobsHref = (email: string, count: { handledBy: number }): string | null =>
+  count.handledBy > 0 ? `/shipments/managers?handledBy=${encodeURIComponent(email.trim().toLowerCase())}` : null;

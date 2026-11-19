@@ -217,7 +217,9 @@ export function touchCandidates(jobs: readonly TeamJob[], today: string, holiday
 /**
  * A job with no change, chat line, to-do, task tick or tracking event for
  * NOT_TOUCHED_WORKING_DAYS working days (a flight's job fewer), and created before that - a job
- * of this week is not forgotten, it is new.
+ * of this week is not forgotten, it is new. What a manager does from Shipments → Managers (a
+ * nudge, a dismissed cut-off, an answer to a release request) is no touch: the read leaves it out
+ * (services/managersCockpitTeam.service NOT_A_TOUCH).
  *
  * `lastTouch`: the newest touch found from touchReadFrom on; null for none. The read does not
  * look further back - whether ANY touch is recent is all the rule asks, and the whole history of

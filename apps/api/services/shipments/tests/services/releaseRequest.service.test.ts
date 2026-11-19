@@ -22,6 +22,7 @@ vi.mock("../../repositories/shipmentReleaseRequest.repository", () => ({ shipmen
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../services/shipment.service", () => ({ shipmentService: service }));
 
+import { auth } from "~encore/clients";
 import { releaseRequestService as requests } from "../../services/releaseRequest.service";
 
 // "Ask a manager to release", against stand-ins for its repository and for the shipment service:
@@ -168,6 +169,15 @@ describe("asking a manager to release", () => {
   it("may be asked again once the approval was used or has run out, and after a rejection: no usable one, none waiting", async () => {
     repo.usablePass.mockResolvedValue(null);
     await expect(requests.ask(user, SHIPMENT, { what: "house_bol", reason: "Customer pays on Friday" }, NOW)).resolves.toMatchObject({ status: "pending" });
+  });
+
+  it("is refused, to be tried again, when who asks can't be looked up: no request is kept without the asker's name", async () => {
+    vi.mocked(auth.userLookup).mockRejectedValueOnce(new Error("auth is unreachable"));
+    await expect(requests.ask(user, SHIPMENT, { what: "house_bol", reason: "Customer pays on Friday" })).rejects.toMatchObject({
+      code: "unavailable",
+      message: "Who you are could not be read just now — try again in a moment",
+    });
+    expect(repo.create).not.toHaveBeenCalled();
   });
 
   it("refuses a second request while one waits for the same thing", async () => {
@@ -332,6 +342,15 @@ describe("answering a request", () => {
       { status: "rejected", decidedById: manager.userID, decidedByName: "Eva Malá", decidedAt: NOW, comment: "Not before the payment" },
       { userId: manager.userID, field: "releaseRequest", oldValue: null, newValue: "House BoL release rejected (asked by Jan Novák): Not before the payment" },
     );
+  });
+
+  it("is refused, to be tried again, when the manager can't be looked up: no answer - nor the override reason it gives - is kept without their name", async () => {
+    vi.mocked(auth.userLookup).mockRejectedValueOnce(new Error("auth is unreachable"));
+    await expect(requests.decide(manager, ID, { approve: true, comment: "Agreed with the owner" }, NOW)).rejects.toMatchObject({
+      code: "unavailable",
+      message: "Who you are could not be read just now — try again in a moment",
+    });
+    expect(repo.answer).not.toHaveBeenCalled();
   });
 
   it("is given once: an answered or closed request, and one answered by another manager meanwhile, are refused", async () => {

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, not, notExists, notInArray, or, sql, type Column } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import { db, type Tx } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
@@ -7,6 +7,22 @@ import { shipmentCommentTable } from "../schemas/shipmentComment.schema";
 import { shipmentNoteTable } from "../schemas/shipmentNote.schema";
 import { shipmentTaskTable } from "../schemas/shipmentTask.schema";
 import { shipmentTrackingEventTable } from "../schemas/shipmentTrackingEvent.schema";
+
+/**
+ * The lines lastTouchedSince leaves out: what somebody did to a job that is no touch of it (the
+ * caller's rule, services/managersCockpitTeam.service NOT_A_TOUCH).
+ */
+export interface NotATouch {
+  /** History fields whose lines never count. */
+  fields: readonly string[];
+  /** A field whose lines do not count when their text starts with one of `startsWith`. */
+  lines: { field: string; startsWith: readonly string[] };
+  /**
+   * A history field whose line comes with a to-do and a chat line written in the same write turn -
+   * so at the very same moment, the turn's own time - which do not count either.
+   */
+  writtenWith: string;
+}
 
 // The audit log is append-only and has no created/updated/deleted columns, so it does not use
 // the tenant base repository; every entry is written with the shipment's company.
@@ -51,8 +67,9 @@ class ShipmentAuditRepository {
   /**
    * When each job was last touched, as far as that was at or after `since`: the newest of a change
    * in its history, a chat line, a to-do written or ticked off, a task ticked and a tracking event
-   * recorded. A job with none of them since then has no entry. For Shipments → Managers' "Not
-   * touched" (lib/managersCockpitTeam), which asks only whether ANY touch is recent.
+   * recorded - but none of what `notATouch` names. A job with none of them since then has no
+   * entry. For Shipments → Managers' "Not touched" (lib/managersCockpitTeam), which asks only
+   * whether ANY touch is recent.
    *
    * One statement for the five tables - the page asks every minute, and five would take five of
    * the pool's ten connections. Bounded by `since` everywhere, never a job's whole history:
@@ -63,15 +80,35 @@ class ShipmentAuditRepository {
    *       job id four times more and read each job's rows by shipment_id, older ones included;
    *   to-dos ticked off, tasks ticked   no index knows done_at or completed_at, so these two are
    *       asked only of `shipmentIds` (the jobs old enough to be untouched), by shipment_id.
+   * A chat line or a to-do written with a `notATouch.writtenWith` line is found by that line: the
+   * same job at the same moment, by the history's index on company and time too.
    */
-  async lastTouchedSince(companyId: string, shipmentIds: readonly string[], since: Date): Promise<Map<string, Date>> {
+  async lastTouchedSince(companyId: string, shipmentIds: readonly string[], since: Date, notATouch: NotATouch): Promise<Map<string, Date>> {
     if (shipmentIds.length === 0) return new Map();
     const ids = [...shipmentIds];
     const [history, chat, notes, tasks, events] = [shipmentAuditTable, shipmentCommentTable, shipmentNoteTable, shipmentTaskTable, shipmentTrackingEventTable];
+    const { fields, lines, writtenWith } = notATouch;
+    const countedLine = and(
+      ...(fields.length ? [notInArray(history.field, [...fields])] : []),
+      ...(lines.startsWith.length ? [not(and(eq(history.field, lines.field), or(...lines.startsWith.map((start) => like(history.newValue, `${start}%`))))!)] : []),
+    );
+    const notWrittenWith = (shipmentId: Column, at: Column) =>
+      notExists(
+        db
+          .select({ one: sql`1` })
+          .from(history)
+          .where(and(eq(history.companyId, companyId), eq(history.changedAt, at), eq(history.shipmentId, shipmentId), eq(history.field, writtenWith))),
+      );
     const touches = unionAll(
-      db.select({ shipmentId: history.shipmentId, at: sql<Date>`${history.changedAt}`.as("at") }).from(history).where(and(eq(history.companyId, companyId), gte(history.changedAt, since))),
-      db.select({ shipmentId: chat.shipmentId, at: sql<Date>`${chat.createdAt}`.as("at") }).from(chat).where(and(eq(chat.companyId, companyId), gte(chat.createdAt, since))),
-      db.select({ shipmentId: notes.shipmentId, at: sql<Date>`${notes.createdAt}`.as("at") }).from(notes).where(and(eq(notes.companyId, companyId), gte(notes.createdAt, since))),
+      db.select({ shipmentId: history.shipmentId, at: sql<Date>`${history.changedAt}`.as("at") }).from(history).where(and(eq(history.companyId, companyId), gte(history.changedAt, since), countedLine)),
+      db
+        .select({ shipmentId: chat.shipmentId, at: sql<Date>`${chat.createdAt}`.as("at") })
+        .from(chat)
+        .where(and(eq(chat.companyId, companyId), gte(chat.createdAt, since), notWrittenWith(chat.shipmentId, chat.createdAt))),
+      db
+        .select({ shipmentId: notes.shipmentId, at: sql<Date>`${notes.createdAt}`.as("at") })
+        .from(notes)
+        .where(and(eq(notes.companyId, companyId), gte(notes.createdAt, since), notWrittenWith(notes.shipmentId, notes.createdAt))),
       db.select({ shipmentId: notes.shipmentId, at: sql<Date>`${notes.doneAt}`.as("at") }).from(notes).where(and(eq(notes.companyId, companyId), inArray(notes.shipmentId, ids), gte(notes.doneAt, since))),
       db.select({ shipmentId: tasks.shipmentId, at: sql<Date>`${tasks.completedAt}`.as("at") }).from(tasks).where(and(eq(tasks.companyId, companyId), inArray(tasks.shipmentId, ids), gte(tasks.completedAt, since))),
       db.select({ shipmentId: events.shipmentId, at: sql<Date>`${events.createdAt}`.as("at") }).from(events).where(and(eq(events.companyId, companyId), gte(events.createdAt, since))),

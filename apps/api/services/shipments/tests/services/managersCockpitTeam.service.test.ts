@@ -15,7 +15,8 @@ vi.mock("../../repositories/shipmentReleaseRequest.repository", () => ({ shipmen
 
 import { TEAM_PARTS, type TeamJob } from "../../lib/managersCockpitTeam";
 import { readLimiter } from "../../lib/readLimiter";
-import { cockpitUsers, teamFacts, type CockpitUser } from "../../services/managersCockpitTeam.service";
+import { answeredLine, askedLine, closedLine, unusedLine } from "../../lib/releaseRequest";
+import { NOT_A_TOUCH, cockpitUsers, teamFacts, type CockpitUser } from "../../services/managersCockpitTeam.service";
 
 // The reads of Shipments → Managers' step 3 signals and Team facts, against stand-ins for the
 // repositories: what each is asked, that a part which fails takes only itself with it, and what
@@ -76,6 +77,26 @@ describe("the company's users, as the cockpit reads them", () => {
   });
 });
 
+describe("what is no touch of a job (A15)", () => {
+  const startsAnAnswer = (line: string) => NOT_A_TOUCH.lines.startsWith.some((start) => line.startsWith(start));
+
+  it("is what a manager does from Shipments → Managers: a nudge with its to-do and chat line, a cut-off dismissed or taken back", () => {
+    expect(NOT_A_TOUCH.fields).toEqual(["nudge", "cutoffDismissed"]);
+    expect(NOT_A_TOUCH.writtenWith).toBe("nudge");
+  });
+
+  it("is a manager's answer to a release request - not the request asked, nor one a release closed: those are the job's people at work", () => {
+    expect(NOT_A_TOUCH.lines.field).toBe("releaseRequest");
+    const asked = { what: "house_bol" as const, requestedByName: "Jan Novák" };
+    expect(startsAnAnswer(answeredLine(asked, true, "agreed with the owner"))).toBe(true);
+    expect(startsAnAnswer(answeredLine({ what: "warehouse", requestedByName: "" }, false, "not before the payment"))).toBe(true);
+    expect(startsAnAnswer(askedLine("house_bol", "customer pays on Friday"))).toBe(false);
+    expect(startsAnAnswer(askedLine("warehouse", "approved by the owner"))).toBe(false);
+    expect(startsAnAnswer(closedLine("house_bol"))).toBe(false);
+    expect(startsAnAnswer(unusedLine("warehouse"))).toBe(false);
+  });
+});
+
 describe("the reads of the people around the jobs", () => {
   it("asks each table once, for the jobs handed in, and judges them together", async () => {
     const jobs = [job(1, { holidayCover: "eva@firma.cz" }), job(2), job(3, { createdAt: at("2026-11-16"), updatedAt: at("2026-11-16") })];
@@ -95,7 +116,7 @@ describe("the reads of the people around the jobs", () => {
     // The last touches: of the jobs old enough to be untouched (not the one of Monday), from the first
     // minute of the first day a touch still counts on - Wednesday the 11th, five working days back.
     expect(history.lastTouchedSince).toHaveBeenCalledTimes(1);
-    expect(history.lastTouchedSince).toHaveBeenCalledWith(COMPANY, ["id-1", "id-2"], at("2026-11-11", "00:00"));
+    expect(history.lastTouchedSince).toHaveBeenCalledWith(COMPANY, ["id-1", "id-2"], at("2026-11-11", "00:00"), NOT_A_TOUCH);
     // Since when a cover stands: the newest change of Holiday Cover, on the jobs that have one.
     expect(history.latestByShipmentIds).toHaveBeenCalledTimes(1);
     expect(history.latestByShipmentIds).toHaveBeenCalledWith(COMPANY, [{ fields: ["holidayCover"], shipmentIds: ["id-1"] }]);
@@ -120,7 +141,7 @@ describe("the reads of the people around the jobs", () => {
 
   it("reaches back by the company's own days off too", async () => {
     await teamFacts([job(1)], { ...CTX, holidays: ["2026-11-16"] });
-    expect(history.lastTouchedSince).toHaveBeenCalledWith(COMPANY, ["id-1"], at("2026-11-10", "00:00"));
+    expect(history.lastTouchedSince).toHaveBeenCalledWith(COMPANY, ["id-1"], at("2026-11-10", "00:00"), NOT_A_TOUCH);
   });
 
   it("names a part that could not be read and still answers the others: no signal and no figure of it, which is not a zero", async () => {
@@ -184,7 +205,7 @@ describe("the reads of the people around the jobs", () => {
   it("hands the repositories an empty list where there is nothing to ask about: they then send no statement", async () => {
     // Two jobs of this week with no cover: no job is old enough to be untouched, none has a cover.
     await teamFacts([job(1, { createdAt: at("2026-11-16") }), job(2, { createdAt: at("2026-11-18", "09:00") })], CTX);
-    expect(history.lastTouchedSince).toHaveBeenCalledWith(COMPANY, [], at("2026-11-11", "00:00"));
+    expect(history.lastTouchedSince).toHaveBeenCalledWith(COMPANY, [], at("2026-11-11", "00:00"), NOT_A_TOUCH);
     expect(history.latestByShipmentIds).toHaveBeenCalledWith(COMPANY, [{ fields: ["holidayCover"], shipmentIds: [] }]);
     const facts = await teamFacts([], CTX);
     expect(notes.lateByShipmentIds).toHaveBeenLastCalledWith([], COMPANY, "2026-11-18");

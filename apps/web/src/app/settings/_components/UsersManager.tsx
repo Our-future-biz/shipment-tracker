@@ -78,6 +78,7 @@ export function UsersManager({
   // Read when the dialog opens. It never holds the deactivation up: the jobs stay with the person until handed over.
   const handles = useHandledByCount(deactivateTarget?.email, warnOfJobs && !!deactivateTarget);
   const handlesWarning = handles.count ? handledByWarning(handles.count) : null;
+  const handlesHref = deactivateTarget && handles.count ? handledByJobsHref(deactivateTarget.email, handles.count) : null;
   const refusalsFor = (target: ManagedUser) => userActionRefusals({ id: currentUserId, role: currentUserRole }, target);
   const roleRefusal = editTarget ? refusalsFor(editTarget).editRole : null;
   const [addForm] = Form.useForm();
@@ -356,9 +357,11 @@ export function UsersManager({
             ) : handlesWarning ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
                 {handlesWarning}.{" "}
-                <Link href={handledByJobsHref(deactivateTarget.email)} className={LINK} target="_blank">
-                  Open them on Shipments → Managers
-                </Link>
+                {handlesHref && (
+                  <Link href={handlesHref} className={LINK} target="_blank">
+                    Open the jobs they handle on Shipments → Managers
+                  </Link>
+                )}
               </div>
             ) : (
               <div className={HINT}>{HANDLES_NO_JOB}</div>

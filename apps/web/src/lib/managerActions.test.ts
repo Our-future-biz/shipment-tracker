@@ -123,21 +123,25 @@ describe("cut-off names", () => {
 });
 
 describe("handledByWarning", () => {
-  it("says how many active jobs name the person, and that they stay URGENT", () => {
+  it("says how many active jobs the person handles, and that those stay URGENT - the covers in a sentence of their own", () => {
     expect(handledByWarning({ handledBy: 12, covers: 3 })).toBe(
-      "12 active jobs name this person in Handled By (3 as Holiday Cover): they stay URGENT on Shipments → Managers until handed over",
+      "12 active jobs name this person in Handled By: they stay URGENT on Shipments → Managers until handed over. " +
+        "3 active jobs name this person as Holiday Cover: they will have a Holiday Cover who can no longer sign in",
     );
-    expect(handledByWarning({ handledBy: 1, covers: 0 })).toBe(
-      "1 active job names this person in Handled By (0 as Holiday Cover): it stays URGENT on Shipments → Managers until handed over",
-    );
-    expect(handledByWarning({ handledBy: 0, covers: 2 })).toBe(
-      "0 active jobs name this person in Handled By (2 as Holiday Cover): they stay URGENT on Shipments → Managers until handed over",
-    );
+    expect(handledByWarning({ handledBy: 1, covers: 0 })).toBe("1 active job names this person in Handled By: it stays URGENT on Shipments → Managers until handed over");
+    expect(handledByWarning({ handledBy: 0, covers: 1 })).toBe("1 active job names this person as Holiday Cover: it will have a Holiday Cover who can no longer sign in");
+  });
+  it("does not call the jobs of a person who only covers URGENT: no rule flags a cover who is not a user", () => {
+    const warning = handledByWarning({ handledBy: 0, covers: 2 });
+    expect(warning).toBe("2 active jobs name this person as Holiday Cover: they will have a Holiday Cover who can no longer sign in");
+    expect(warning).not.toContain("URGENT");
+    expect(warning).not.toContain("Handled By:");
   });
   it("says nothing when no job names them", () => {
     expect(handledByWarning({ handledBy: 0, covers: 0 })).toBeNull();
   });
-  it("links to the person's jobs on Shipments → Managers", () => {
-    expect(handledByJobsHref(" Jan+ops@Firma.cz ")).toBe("/shipments/managers?handledBy=jan%2Bops%40firma.cz");
+  it("links to the jobs the person handles on Shipments → Managers - and nowhere when they handle none: that list would be empty", () => {
+    expect(handledByJobsHref(" Jan+ops@Firma.cz ", { handledBy: 2 })).toBe("/shipments/managers?handledBy=jan%2Bops%40firma.cz");
+    expect(handledByJobsHref("jan@firma.cz", { handledBy: 0 })).toBeNull();
   });
 });

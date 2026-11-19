@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const shipments = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
+const shipments = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), handledByCounts: vi.fn() }));
 const service = vi.hoisted(() => ({ update: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
@@ -39,9 +39,26 @@ describe("handing jobs over", () => {
     const result = await handOverService.handOver(manager, { shipmentIds: [id(1), id(2)], handledBy: " EVA@firma.cz ", reason: " Jan is ill " });
     expect(result).toEqual({ changed: 2, skipped: [] });
     expect(service.update).toHaveBeenCalledTimes(2);
-    expect(service.update).toHaveBeenCalledWith(id(1), "c1", { personInCharge: "eva@firma.cz" }, manager.userID, "manager", undefined, undefined, {
+    expect(service.update).toHaveBeenCalledWith(id(1), "c1", { personInCharge: "eva@firma.cz" }, manager.userID, "manager", undefined, expect.any(Function), {
       history: [{ field: "handOver", oldValue: null, newValue: "jan@firma.cz → eva@firma.cz: Jan is ill" }],
     });
+  });
+
+  it("writes the change and its line only while the job, as its write turn finds it, still has the people it was read with", async () => {
+    // The shipment's update runs the check on the row its turn reads, before it writes anything.
+    let turnFinds = job(1);
+    service.update.mockImplementation(async (_id: string, _company: string, _data: unknown, _user: string, _role: string, _origin: unknown, stillHolds: (row: unknown) => void) => {
+      stillHolds(turnFinds);
+      return {};
+    });
+    await expect(handOverService.handOver(manager, { shipmentIds: [id(1)], handledBy: "eva@firma.cz", reason: "Jan is ill" })).resolves.toEqual({ changed: 1, skipped: [] });
+
+    // Handed over by somebody else meanwhile - to Eva already, or to Petr: nothing written, no line saying "jan → eva".
+    for (const meanwhile of ["eva@firma.cz", "petr@firma.cz"]) {
+      turnFinds = job(1, { personInCharge: meanwhile });
+      const result = await handOverService.handOver(manager, { shipmentIds: [id(1)], handledBy: "eva@firma.cz", reason: "Jan is ill" });
+      expect(result).toEqual({ changed: 0, skipped: [{ shipmentId: id(1), jobNumber: "CZFCL00000001", why: "Changed by somebody else meanwhile: left as they made it" }] });
+    }
   });
 
   it("sets a Holiday Cover, clears one with \"\", and leaves Handled By when it is not named", async () => {
@@ -130,6 +147,15 @@ describe("handing jobs over", () => {
     expect(result).toEqual({ changed: 200, skipped: [] });
     // The users are read once for the whole hand-over.
     expect(auth.usersList).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts, for the Users page, the active jobs a person is named on - by e-mail in any case; nobody is no person", async () => {
+    shipments.handledByCounts.mockResolvedValue({ handledBy: 2, covers: 1 });
+    await expect(handOverService.handledByCount("c1", " Jan@Firma.cz ")).resolves.toEqual({ handledBy: 2, covers: 1 });
+    expect(shipments.handledByCounts).toHaveBeenCalledWith("c1", "jan@firma.cz");
+    await expect(handOverService.handledByCount("c1", " ")).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(handOverService.handledByCount("c1", "Nobody")).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(shipments.handledByCounts).toHaveBeenCalledTimes(1);
   });
 
   it("is refused, to be tried again, when the company's users can't be read", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HAND_OVER_FIELD, HAND_OVER_MAX_IDS_SENT, HAND_OVER_MAX_JOBS, handOverChange, handOverLine } from "../lib/handOver";
+import { HAND_OVER_FIELD, HAND_OVER_MAX_IDS_SENT, HAND_OVER_MAX_JOBS, handOverChange, handOverLine, stillAsDecided } from "../lib/handOver";
 
 const job = { personInCharge: "jan@firma.cz", holidayCover: "" };
 
@@ -23,6 +23,21 @@ describe("handOverChange", () => {
 
   it("changes only what differs when two fields are named", () => {
     expect(handOverChange({ personInCharge: "eva@firma.cz", holidayCover: "" }, { handledBy: "eva@firma.cz", holidayCover: "petr@firma.cz" })).toEqual({ holidayCover: "petr@firma.cz" });
+  });
+});
+
+describe("stillAsDecided", () => {
+  it("holds while each field the change writes is as it was read - a field the change leaves alone may have moved", () => {
+    const read = { personInCharge: "jan@firma.cz", holidayCover: "" };
+    expect(stillAsDecided({ personInCharge: " jan@firma.cz ", holidayCover: "" }, read, { personInCharge: "eva@firma.cz" })).toBe(true);
+    expect(stillAsDecided({ personInCharge: "jan@firma.cz", holidayCover: "petr@firma.cz" }, read, { personInCharge: "eva@firma.cz" })).toBe(true);
+  });
+
+  it("does not hold once somebody changed it meanwhile: handed over already, or to somebody else", () => {
+    const read = { personInCharge: "jan@firma.cz", holidayCover: "" };
+    expect(stillAsDecided({ personInCharge: "eva@firma.cz", holidayCover: "" }, read, { personInCharge: "eva@firma.cz" })).toBe(false);
+    expect(stillAsDecided({ personInCharge: "petr@firma.cz", holidayCover: "" }, read, { personInCharge: "eva@firma.cz" })).toBe(false);
+    expect(stillAsDecided({ personInCharge: "jan@firma.cz", holidayCover: "petr@firma.cz" }, read, { holidayCover: "eva@firma.cz" })).toBe(false);
   });
 });
 

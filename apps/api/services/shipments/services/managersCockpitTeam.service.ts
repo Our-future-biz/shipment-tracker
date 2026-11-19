@@ -2,10 +2,13 @@ import log from "encore.dev/log";
 import { auth } from "~encore/clients";
 import { businessInstant } from "../../../lib/businessDate";
 import { companyUsersWithReportsTo } from "../../../lib/companyUsers";
+import { CUTOFF_DISMISSED_FIELD } from "../lib/cutoffDismissals";
 import { teamFactsOf, touchCandidates, touchReadFrom, type AbsenceFact, type MentionFact, type ReleaseRequestFact, type TeamFacts, type TeamJob, type TodoFact } from "../lib/managersCockpitTeam";
+import { NUDGE_FIELD } from "../lib/nudge";
 import { unlimited, type Limit } from "../lib/readLimiter";
+import { ANSWERED_LINE_STARTS, RELEASE_REQUEST_FIELD } from "../lib/releaseRequest";
 import { personEmail } from "../lib/shipmentEditRule";
-import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
+import { shipmentAuditRepository, type NotATouch } from "../repositories/shipmentAudit.repository";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentNoteRepository } from "../repositories/shipmentNote.repository";
 import { shipmentReleaseRequestRepository } from "../repositories/shipmentReleaseRequest.repository";
@@ -27,6 +30,19 @@ export type { TeamFacts, TeamJob } from "../lib/managersCockpitTeam";
 // Step 6 adds a sixth part: who is away (auth's absences ending today or later, one call per
 // answer, beside the users; it holds no connection of this pool, so it does not go through the
 // limiter). Not read: no `away` tag, nobody's `awayUntil` known, and "who is away" named.
+
+/**
+ * What a manager does to a job from Shipments → Managers is no touch of it (A15, "Not touched"):
+ * the job's own people did nothing. Their nudge - its history line, and the to-do and chat line
+ * written with it in one write turn (repositories/shipmentNudge) - a missed cut-off dismissed or
+ * taken back, and their answer to a release request. The request asked is the job's people at
+ * work, and a request closed by a release comes with the release's own line: both still count.
+ */
+export const NOT_A_TOUCH: NotATouch = {
+  fields: [NUDGE_FIELD, CUTOFF_DISMISSED_FIELD],
+  lines: { field: RELEASE_REQUEST_FIELD, startsWith: ANSWERED_LINE_STARTS },
+  writtenWith: NUDGE_FIELD,
+};
 
 /** A user of the company as the cockpit reads one: who they are and whom they report to. */
 export interface CockpitUser {
@@ -112,7 +128,7 @@ export async function teamFacts(jobs: readonly TeamJob[], ctx: TeamContext): Pro
     answering === null
       ? null
       : part("@mentions", async () => byShipment(await run(() => shipmentCommentRepository.unreadMentionsByShipmentIds(ids, companyId, answering)), (r): MentionFact => ({ userId: r.userId, at: r.createdAt }))),
-    part("last touches", () => run(() => shipmentAuditRepository.lastTouchedSince(companyId, touchCandidates(jobs, today, holidays), touchedSince))),
+    part("last touches", () => run(() => shipmentAuditRepository.lastTouchedSince(companyId, touchCandidates(jobs, today, holidays), touchedSince, NOT_A_TOUCH))),
     // The newest change of Holiday Cover on the jobs that have one: it is what set the cover that stands.
     part("covers", async () => new Map((await run(() => shipmentAuditRepository.latestByShipmentIds(companyId, [{ fields: ["holidayCover"], shipmentIds: covered }]))).map((r) => [r.shipmentId, r.changedAt]))),
     part("release requests", async () => byShipment(await run(() => shipmentReleaseRequestRepository.waitingByShipmentIds(ids, companyId)), (r): ReleaseRequestFact => ({ requestedAt: r.requestedAt }))),
