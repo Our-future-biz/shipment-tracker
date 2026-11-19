@@ -1,5 +1,5 @@
 import { addDays, businessDay, businessMinutes } from "../../../lib/businessDate";
-import { isCzechHoliday, isWeekend, nextWorkingDay, workingDaysAfter } from "../../../lib/workingDays";
+import { isCzechHoliday, isWeekend, nextWorkingDay, weekday, workingDaysAfter } from "../../../lib/workingDays";
 import { formatDay } from "./format";
 import type { ConsignmentStatus, TruckingConsignmentFacts, TruckingIssue, TruckingShipmentFacts } from "../interfaces/interfaces";
 import type { FailedReason } from "../interfaces/avizace.interfaces";
@@ -68,6 +68,18 @@ export interface IssueClock {
 
 const HOUR_MS = 3_600_000;
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/**
+ * When a pick-up counted as "soon" is, in a tag's words: "within 24 h" for today or tomorrow (and
+ * one that passed) - Trucking's own words; "on Mon 23.11." for one further out, which only the
+ * next working day after a weekend or a holiday reaches: on a Friday a Monday pick-up is not
+ * within 24 h, and Trucking's own page, counting the calendar day after today, says nothing of it yet.
+ */
+export function pickupWhen(pickupDate: string, today: string): string {
+  if (pickupDate <= addDays(today, 1)) return "within 24 h";
+  return `on ${WEEKDAYS[weekday(pickupDate)]} ${pickupDate.slice(8, 10)}.${pickupDate.slice(5, 7)}.`;
+}
 
 type Consignment = Pick<
   TruckingConsignmentRecord,
@@ -120,8 +132,9 @@ export function shownTrip<T extends Trip>(c: Pick<Consignment, "id" | "scope" | 
  * of these is said (an LTL consignment's confirmation is its trip's). "Tomorrow" is the next working
  * day (weekends, public and the company's holidays skipped), so on a Friday a Monday pick-up counts -
  * as does one on the weekend between; Trucking's own list counts the calendar day after today, its
- * words are kept.
- *  - BOOKED, pick-up by the next working day: "Pick-up within 24 h and no trip" (no_haulier)
+ * words are kept for today and tomorrow, and a later day is named (pickupWhen, m22).
+ *  - BOOKED, pick-up by the next working day: "Pick-up within 24 h and no trip" (no_haulier) -
+ *    "Pick-up on Mon 23.11. and no trip" on a Friday
  *  - PLANNED, pick-up by the next working day: "… and the transport order is not sent" (haulier_not_confirmed)
  *  - the trip's order rejected and nothing confirmed: "The haulier rejected the transport order"
  *  - ORDERED and not confirmed: pick-up today, or later up to the next working day from 14:00 Prague:
@@ -136,9 +149,10 @@ export function haulierIssues(c: Consignment, trip: Trip | null | undefined, clo
   const soon = c.pickupDate <= nextDay;
   const due = c.pickupDate <= today;
   const out: TruckingIssue[] = [];
-  if (c.status === "BOOKED" && soon) out.push({ kind: "no_haulier", text: "Pick-up within 24 h and no trip", urgent: due, since: iso(c.createdAt) });
+  const when = pickupWhen(c.pickupDate, today);
+  if (c.status === "BOOKED" && soon) out.push({ kind: "no_haulier", text: `Pick-up ${when} and no trip`, urgent: due, since: iso(c.createdAt) });
   if (c.status === "PLANNED" && soon) {
-    out.push({ kind: "haulier_not_confirmed", text: "Pick-up within 24 h and the transport order is not sent", urgent: due, since: iso(trip?.createdAt) });
+    out.push({ kind: "haulier_not_confirmed", text: `Pick-up ${when} and the transport order is not sent`, urgent: due, since: iso(trip?.createdAt) });
   }
   const confirmed = c.confirmedAt ?? trip?.confirmedAt ?? null;
   if (trip?.rejectedAt && !confirmed) {

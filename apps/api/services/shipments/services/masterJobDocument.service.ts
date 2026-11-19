@@ -6,9 +6,11 @@ import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { attachmentBucket } from "../storage/attachmentBucket";
+import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import {
   COMMERCIAL_PAPERWORK,
-  HOUSE_BOLS,
+  houseTransportDocs,
+  SHIPMENT_DOCS_TOO_LARGE_AS_READ,
   SHIPMENT_DOCS_ZIP_MAX_BYTES,
   shipmentDocsTooLarge,
   shipmentDocsZip,
@@ -131,31 +133,53 @@ class MasterJobDocumentService {
   }
 
   // The master job, in the caller's company. An id that is not one is not found either (it never reaches SQL).
-  /** The Bills of Lading of the master job's linked shipments (typed "Bill of Lading" on their Documents tabs) in one ZIP. */
-  houseBols(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
-    return this.shipmentDocs(masterJobId, companyId, HOUSE_BOLS);
+  /**
+   * The house transport documents of the master job's linked shipments in one ZIP: their Bills of
+   * Lading (typed "Bill of Lading" on their Documents tabs), by air their AWBs (filed the same way),
+   * by road their CMRs ("CMR / POD") - lib/shipmentDocsZip houseTransportDocs.
+   */
+  async houseBols(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
+    const masterJob = await this.masterJobOf(masterJobId, companyId);
+    return this.shipmentDocs(masterJob, companyId, houseTransportDocs(masterJob.freightMode));
   }
 
   /** The linked shipments' commercial paperwork (Commercial Invoices and packing lists) in one ZIP, a folder per shipment. */
-  commercialPaperwork(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
-    return this.shipmentDocs(masterJobId, companyId, COMMERCIAL_PAPERWORK);
+  async commercialPaperwork(masterJobId: string, companyId: string): Promise<MasterJobDocumentsZip> {
+    return this.shipmentDocs(await this.masterJobOf(masterJobId, companyId), companyId, COMMERCIAL_PAPERWORK);
+  }
+
+  private async masterJobOf(masterJobId: string, companyId: string): Promise<{ id: string; mczNumber: string; freightMode: string }> {
+    const masterJob = isUuid(masterJobId) ? await masterJobRepository.getByIdForCompany(masterJobId, companyId) : null;
+    if (!masterJob) throw APIError.notFound("Master job not found");
+    return masterJob;
   }
 
   /**
    * The linked shipments' files of the download's types in one ZIP, by job number and each one's
    * files oldest first, with the shipments that have none. A deleted shipment is no longer linked,
-   * so its files are not in it. Refused when the files come to more than one download holds
-   * (lib/shipmentDocsZip SHIPMENT_DOCS_ZIP_MAX_BYTES).
+   * so its files are not in it; a cancelled one's are left out, and so is commercial paperwork
+   * customs declined - both named in `leftOut`. Refused when the files come to more than one
+   * download holds (lib/shipmentDocsZip SHIPMENT_DOCS_ZIP_MAX_BYTES).
    */
-  private async shipmentDocs(masterJobId: string, companyId: string, download: ShipmentDocsDownload): Promise<MasterJobDocumentsZip> {
-    const masterJob = isUuid(masterJobId) ? await masterJobRepository.getByIdForCompany(masterJobId, companyId) : null;
-    if (!masterJob) throw APIError.notFound("Master job not found");
-    const shipments = (await shipmentRepository.findByMasterJobId(masterJobId, companyId)).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+  private async shipmentDocs(
+    masterJob: { id: string; mczNumber: string },
+    companyId: string,
+    download: ShipmentDocsDownload,
+  ): Promise<MasterJobDocumentsZip> {
+    const linked = (await shipmentRepository.findByMasterJobId(masterJob.id, companyId)).sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+    // A cancelled house goes nowhere: its papers are not sent on with the others.
+    const cancelled = linked.filter((s) => s.status === CANCELLED_STATUS);
+    const shipments = linked.filter((s) => s.status !== CANCELLED_STATUS);
+    const leftOut = cancelled.map((s) => `${s.jobNumber} (cancelled)`);
     const jobNumberOf = new Map(shipments.map((s) => [s.id, s.jobNumber]));
-    const rows = await shipmentAttachmentRepository.listByShipmentIdsOfTypes(shipments.map((s) => s.id), companyId, download.types);
+    const listed = await shipmentAttachmentRepository.listByShipmentIdsOfTypes(shipments.map((s) => s.id), companyId, download.types);
     // In the order of the shipments, each one's files oldest first.
     const order = new Map(shipments.map((s, i) => [s.id, i]));
-    rows.sort((a, b) => (order.get(a.shipmentId) ?? 0) - (order.get(b.shipmentId) ?? 0));
+    listed.sort((a, b) => (order.get(a.shipmentId) ?? 0) - (order.get(b.shipmentId) ?? 0));
+    // A commercial invoice or packing list customs declined is not the one to send on.
+    const declined = (r: (typeof listed)[number]) => !!download.leavesOutDeclined && r.customsStatus === "declined";
+    for (const r of listed.filter(declined)) leftOut.push(`${jobNumberOf.get(r.shipmentId) ?? ""} - ${r.fileName} (declined by customs)`);
+    const rows = listed.filter((r) => !declined(r));
 
     // Refused before anything is downloaded when the stored sizes already come to more than one
     // download holds; a file stored with no size is counted as it comes down, stopping there.
@@ -178,11 +202,12 @@ class MasterJobDocumentService {
       }
       downloaded += bytes.length;
       if (downloaded > SHIPMENT_DOCS_ZIP_MAX_BYTES) {
-        throw APIError.failedPrecondition(`These documents come to more than ${SHIPMENT_DOCS_ZIP_MAX_BYTES / (1024 * 1024)} MB in one download: download them per shipment`);
+        throw APIError.failedPrecondition(SHIPMENT_DOCS_TOO_LARGE_AS_READ);
       }
       files.push({ jobNumber, fileName: row.fileName, bytes });
     }
 
+    // A house whose only such files customs declined has none to send: it is named here too.
     const withFiles = new Set(rows.map((r) => r.shipmentId));
     return {
       file: files.length
@@ -195,6 +220,7 @@ class MasterJobDocumentService {
       fileCount: files.length,
       withoutFiles: shipments.filter((s) => !withFiles.has(s.id)).map((s) => s.jobNumber),
       unreadable,
+      leftOut,
     };
   }
 

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const shipments = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), handledByCounts: vi.fn() }));
 const service = vi.hoisted(() => ({ update: vi.fn() }));
+const personJobs = vi.hoisted(() => ({ ofPerson: vi.fn() }));
+vi.mock("../../repositories/handOverJobs.repository", () => ({ handOverJobsRepository: personJobs }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
@@ -156,6 +158,24 @@ describe("handing jobs over", () => {
     await expect(handOverService.handledByCount("c1", " ")).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(handOverService.handledByCount("c1", "Nobody")).rejects.toMatchObject({ code: "invalid_argument" });
     expect(shipments.handledByCounts).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists a person's active jobs to hand over all at once - at most 200, with how many there are - in the mode and direction asked (X9)", async () => {
+    personJobs.ofPerson.mockResolvedValue({ jobs: [job(1), job(2, { personInCharge: "Jan@firma.cz — Jan Novák", holidayCover: "eva@firma.cz" })], total: 240 });
+    await expect(handOverService.jobsOf("c1", " Jan@Firma.cz ", { mode: "sea", direction: "export" })).resolves.toEqual({
+      jobs: [
+        { id: id(1), jobNumber: "CZFCL00000001", handledBy: "jan@firma.cz", holidayCover: "" },
+        { id: id(2), jobNumber: "CZFCL00000002", handledBy: "Jan@firma.cz — Jan Novák", holidayCover: "eva@firma.cz" },
+      ],
+      total: 240,
+    });
+    expect(personJobs.ofPerson).toHaveBeenCalledExactlyOnceWith("c1", "jan@firma.cz", { mode: "sea", direction: "export" }, 200);
+  });
+
+  it("lists nobody's jobs for nobody: those are handed over one by one or ticked", async () => {
+    await expect(handOverService.jobsOf("c1", " ")).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(handOverService.jobsOf("c1", "Nobody")).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(personJobs.ofPerson).not.toHaveBeenCalled();
   });
 
   it("is refused, to be tried again, when the company's users can't be read", async () => {

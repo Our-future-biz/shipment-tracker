@@ -94,9 +94,13 @@ export function withShipmentStackability(
 // Road freight: the ADR (dangerous goods) details of a dimension line.
 export const ADR_PACKING_GROUPS: interfaces.AdrPackingGroup[] = ["I", "II", "III"];
 
-/** Whether a dimension line carries any ADR detail. */
+/**
+ * Whether a dimension line carries any ADR detail. A UN number or class of blanks is none, as the
+ * server reads it (lib/remeasureAccept carriesAdr): the page then never asks for a by-hand update
+ * the server would not ask for, nor the other way round.
+ */
 export const hasAdr = (l: interfaces.CargoDimensionLine): boolean =>
-  !!(l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
+  !!(l.adrUn?.trim() || l.adrClass?.trim() || l.adrPackingGroup || l.adrLimitedQuantity);
 
 /** Whether a shipment carries dangerous goods: marked so, or a cargo line with ADR details. */
 export const isDangerousShipment = (shipment: { dangerous?: string | null; cargoDimensions?: interfaces.CargoDimensionLine[] | null }): boolean =>
@@ -336,6 +340,8 @@ export interface FigureCheck {
   declared: number;
   empty: boolean;
   ok: boolean;
+  /** The decimals the two were compared at, which the pill shows them in. */
+  decimals: number;
 }
 
 export interface ConsistencyCheck {
@@ -347,8 +353,17 @@ export interface ConsistencyCheck {
 
 export function compareFigure(sum: number, declared: number, decimals: number): FigureCheck {
   const empty = !sum && !declared;
-  return { sum, declared, empty, ok: empty || fmtFixed(sum, decimals) === fmtFixed(declared, decimals) };
+  return { sum, declared, empty, ok: empty || fmtFixed(sum, decimals) === fmtFixed(declared, decimals), decimals };
 }
+
+/** A container's figures, or a shipment's own as one (shipmentDeclaredFigures), with the decimals its weight is known to. */
+export type DeclaredFigures = ContainerLine & { kgDecimals?: number };
+
+/**
+ * The decimals a shipment's own Total Weight is known to: it is stored in tons to 4 decimals, so
+ * to 0.1 kg - lines of 92.75 kg and a Total Weight of 92.8 kg agree (council finding X10).
+ */
+export const SHIPMENT_KG_DECIMALS = 1;
 
 /**
  * The containers a shipment's cargo lines are grouped and checked by (Cargo Details, the grid's
@@ -367,21 +382,23 @@ export function cargoContainers<C extends { id?: string | null }>(s: { freightMo
  * What a shipment with no container declares for its cargo - its Pcs, Total Weight (tons) and Total
  * Volume - as a container's figures, so its cargo lines are checked against them the way a
  * container's are. Pcs may carry thousands separators ("1,200"), read as the server reads them
- * (remeasureNotice.declaredFigures); the weight in kg is kept to grams, so 2.345 t is 2345 kg.
+ * (remeasureNotice.declaredFigures); the weight in kg is kept to grams, so 2.345 t is 2345 kg -
+ * and is checked to the 0.1 kg it is stored to (SHIPMENT_KG_DECIMALS).
  */
-export function shipmentDeclaredFigures(s: { pcs?: string | null; totalWeightTons?: string | null; totalVolumeCbm?: string | null }): ContainerLine {
+export function shipmentDeclaredFigures(s: { pcs?: string | null; totalWeightTons?: string | null; totalVolumeCbm?: string | null }): DeclaredFigures {
   const tons = num(s.totalWeightTons);
   return {
     packages: (s.pcs ?? "").replace(/,/g, ""),
     grossWeight: tons ? String(Math.round(tons * 1_000_000) / 1000) : "",
     volume: s.totalVolumeCbm ?? "",
-  } as ContainerLine;
+    kgDecimals: SHIPMENT_KG_DECIMALS,
+  } as DeclaredFigures;
 }
 
-export function checkConsistency(container: ContainerLine, dims: CargoDimensionLine[]): ConsistencyCheck {
+export function checkConsistency(container: DeclaredFigures, dims: CargoDimensionLine[]): ConsistencyCheck {
   const t = dimensionTotals(dims);
   const pcs = compareFigure(t.pcs, num(container.packages), 0);
-  const kg = compareFigure(t.kg, num(container.grossWeight), 2);
+  const kg = compareFigure(t.kg, num(container.grossWeight), container.kgDecimals ?? 2);
   const m3 = compareFigure(t.m3, num(container.volume), 3);
   return { matched: pcs.ok && kg.ok && m3.ok, pcs, kg, m3 };
 }

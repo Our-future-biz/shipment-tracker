@@ -38,6 +38,8 @@ const newJob = async (companyId: string, over: Partial<Omit<NewShipmentRecord, "
   const [row] = await db.insert(shipmentTable).values({ companyId, jobNumber: `CZ${jobs++}`, tradeDirection: "Export", freightMode: "Sea Freight", personInCharge: "jan@firma.cz", ...over }).returning();
   return row!;
 };
+/** Jan's id among the users the stand-in for auth lists. */
+const JAN_ID = "00000000-0000-4000-8000-00000000a001";
 const absence = (over: Partial<CoverAbsence> = {}): CoverAbsence => ({
   id: randomUUID(),
   userId: randomUUID(),
@@ -147,7 +149,8 @@ describe("a run of the cover job", () => {
   it("sets the cover with its lines, once however often it runs, and clears it once the absence is over", async () => {
     const company = randomUUID();
     const job = await newJob(company);
-    const away = absence();
+    // Jan, a user of the company still (the users the stand-in for auth lists): his absence is over, he did not leave.
+    const away = absence({ userId: JAN_ID });
     const actor = { companyID: company, userID: SVC };
 
     expect((await absenceCoverService.applyForCompany(actor, [away])).set).toBe(1);
@@ -162,14 +165,14 @@ describe("a run of the cover job", () => {
     expect((await absenceCoverService.applyForCompany(actor, [{ ...away, inForce: false }])).cleared).toBe(1);
     const [cleared] = await db.select().from(shipmentTable).where(eq(shipmentTable.id, job.id));
     expect(cleared!.holidayCover).toBe("");
-    expect((await historyOf(job.id)).at(-1)?.newValue).toBe("Holiday Cover eva@firma.cz cleared: Jan Novák is back");
+    expect((await historyOf(job.id)).at(-1)?.newValue).toBe("Holiday Cover eva@firma.cz cleared: absence over");
     expect(await covers.openOfCompany(company)).toEqual([]);
   });
 
   it("sets the cover again on a job whose cover it cleared itself: the absence moved to later days, then in force again", async () => {
     const company = randomUUID();
     const job = await newJob(company);
-    const away = absence();
+    const away = absence({ userId: JAN_ID });
     const actor = { companyID: company, userID: SVC };
     expect((await absenceCoverService.applyForCompany(actor, [away])).set).toBe(1);
     // Moved to later days, auth tells of it no more (neither in force nor ended lately): the cover is cleared.
@@ -181,7 +184,7 @@ describe("a run of the cover job", () => {
     expect(again!.holidayCover).toBe("eva@firma.cz");
     expect((await historyOf(job.id)).filter((h) => h.field === ABSENCE_COVER_FIELD).map((h) => h.newValue)).toEqual([
       "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11.",
-      "Holiday Cover eva@firma.cz cleared: Jan Novák is back",
+      "Holiday Cover eva@firma.cz cleared: absence over",
       "Holiday Cover eva@firma.cz while Jan Novák is away 23.11.–27.11.",
     ]);
     // The cleared row stays as it was; the new one is open, and marked set in the job's write turn.

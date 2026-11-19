@@ -7,6 +7,8 @@ vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceServic
 vi.mock("../../repositories/supplierInvoice.repository", () => ({ supplierInvoiceRepository: {} }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
+// A selling line's status follow-up (the signed-in user, the outbox) is not what these tests are about.
+vi.mock("../../services/sellingStatusFollow", () => ({ statusesFollow: () => ({ after: async () => undefined, deliver: async () => undefined }) }));
 vi.mock("~encore/clients", () => ({ quotes: {}, shipments: {}, customers: {} }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn() }));
 const repos = vi.hoisted(() => ({

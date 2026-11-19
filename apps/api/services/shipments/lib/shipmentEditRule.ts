@@ -66,6 +66,38 @@ export function invoicedRefusal(charges: { invoiced: number; total: number }): s
 
 export const DETAILS_REFUSAL = "Only the user in this shipment's Handled By or Holiday Cover, or a manager, can change its details";
 
+/**
+ * Whether a department (its name in Settings → Users) is Invoicing's: "Invoicing", "Invoicing CZ",
+ * "Invoices". The app has no Invoicing role - Invoicing is open to every role - so a user counts
+ * as Invoicing by the department they sit in.
+ */
+export const isInvoicingDepartment = (name: string | null | undefined): boolean => /^invoic/i.test((name ?? "").trim());
+
+/**
+ * Costs Breakdown's "Quantities checked" after an accepted remeasurement (council finding K6): the
+ * people of the shipment, a manager, and Invoicing, who bills the quantities.
+ */
+export const COSTS_CHECK_REFUSAL = "Only the user in Handled By or Holiday Cover, a manager or Invoicing can mark the quantities checked";
+
+/**
+ * Why this write may not cancel the job, or null when it may (council finding K22): an invoiced job -
+ * its Invoicing Status reads Invoiced, or it has an issued invoice not credited - is cancelled only by
+ * a manager, an admin or a superadmin, with the cancel reason every cancel needs.
+ */
+export function cancelInvoicedRefusal(role: string, invoiced: boolean): string | null {
+  return invoiced && !isDetailsManager(role) ? "This shipment is invoiced: only a manager can cancel it" : null;
+}
+
+/**
+ * Why this B/L date may not be saved, or null when it may (council finding m24): Originals Received,
+ * Telex Release Received and the Delivery Order record what has happened, so never a day after
+ * `today` (the Prague business day). A day already stored is not asked again.
+ */
+export function blDateRefusal(label: string, day: string, stored: string | null | undefined, today: string): string | null {
+  if (!day || day === (stored ?? "") || day <= today) return null;
+  return `${label} can't be a day still to come: it says when it happened (today is ${today})`;
+}
+
 // A person is kept by e-mail; an old value may carry a name after it ("a@b.cz — Name").
 export const personEmail = (value: string | null | undefined) => (value ?? "").split(" — ")[0]!.trim().toLowerCase();
 

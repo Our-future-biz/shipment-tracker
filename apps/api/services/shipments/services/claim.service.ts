@@ -36,7 +36,8 @@ import { shipmentService } from "./shipment.service";
 //
 // Doors (D20): a claim on the shipment (cargo) is added and changed by the job's Handled By, its
 // Holiday Cover or a manager (as the job's details are: a job nobody is named on is open to anyone -
-// lib/shipmentEditRule). A claim on costs stays open to every user of the company (D15: Accounts
+// lib/shipmentEditRule); its named owner - a claims clerk not on the job, say - changes that one
+// claim too (K23), but adds none and deletes none. A claim on costs stays open to every user of the company (D15: Accounts
 // Payable's "Raise claim" calls this same endpoint as the clerk). Either kind is deleted by a manager only. Its creation, every change of its status or owner and its
 // deletion are written into the job's history, in the same turn as the claim and the job's Claim
 // field (Yes while an OPEN claim stands), which is written into the history too when it changes.
@@ -172,9 +173,21 @@ async function liveShipment(shipmentId: string, companyId: string): Promise<Ship
   return shipment;
 }
 
-/** The door of a claim of this kind: a cargo claim the job's people's or a manager's, a claim on costs anyone's (D15). */
-async function assertMayEdit(kind: ClaimKind, shipment: ShipmentRecord, actor: Actor): Promise<void> {
+/**
+ * Whether the user is the named owner of this cargo claim (K23): a user of the company who looks after
+ * this one claim - a claims clerk who is not on the job - may change it, though not the job's other
+ * claims, nor add one, nor delete it.
+ */
+export const ownsClaim = (claim: Pick<ShipmentClaimRecord, "kind" | "ownerUserId">, userId: string): boolean =>
+  claim.kind === "cargo" && !!claim.ownerUserId && !!userId && claim.ownerUserId.toLowerCase() === userId.toLowerCase();
+
+/**
+ * The door of a claim of this kind: a cargo claim the job's people's or a manager's - and, to change
+ * one that stands (`claim`), its named owner's too (K23) -, a claim on costs anyone's (D15).
+ */
+async function assertMayEdit(kind: ClaimKind, shipment: ShipmentRecord, actor: Actor, claim?: Pick<ShipmentClaimRecord, "kind" | "ownerUserId">): Promise<void> {
   if (kind !== "cargo") return;
+  if (claim && ownsClaim(claim, actor.userID)) return;
   if (!(await shipmentService.mayChangeDetails(shipment, actor.userID, actor.role))) throw APIError.permissionDenied(CLAIM_EDIT_REFUSAL);
 }
 
@@ -221,7 +234,15 @@ class ClaimService {
       shipmentService.mayChangeDetails(shipment, actor.userID, actor.role),
     ]);
     const deadlines = this.deadlines(shipment, limits);
-    return { claims: rows.map((r) => claimView(r, deadlines)), timeLimitsOn: limits.enabled, mayEdit, mayEditCost: true, mayDelete: isDetailsManager(actor.role) };
+    return {
+      claims: rows.map((r) => claimView(r, deadlines)),
+      timeLimitsOn: limits.enabled,
+      mayEdit,
+      mayEditCost: true,
+      // K23: who may not change the job's cargo claims may still change those they own.
+      ownedClaimIds: mayEdit ? [] : rows.filter((r) => ownsClaim(r, actor.userID)).map((r) => r.id),
+      mayDelete: isDetailsManager(actor.role),
+    };
   }
 
   async create(actor: Actor, shipmentId: string, kind: ClaimKind, input: ClaimChangeInput): Promise<ShipmentClaimView> {
@@ -260,8 +281,8 @@ class ClaimService {
     const shipment = await liveShipment(shipmentId, actor.companyID);
     const existing = isUuid(id) ? await shipmentClaimRepository.findClaim(id, shipmentId, actor.companyID) : null;
     if (!existing) throw APIError.notFound("Claim not found");
-    // The stored claim's kind decides the door.
-    await assertMayEdit(existing.kind, shipment, actor);
+    // The stored claim's kind decides the door - and its owner as stored: whoever is named it now may change it.
+    await assertMayEdit(existing.kind, shipment, actor, existing);
     checkKind(existing.kind, parts);
     const owner = existing.kind === "cargo" && parts.ownerUserId !== undefined ? await ownerOf(parts.ownerUserId) : {};
     const status = parts.status as AnyClaimStatus | undefined;

@@ -661,17 +661,22 @@ class SalesQuoteService {
     if (!source) throw notFound();
     // Judged against the quote it is copied from: a contact it is linked to stays linked, also when
     // the caller does not send the link, and one deleted since is dropped instead of refused.
+    // Asked before the lock below: other services are not called while the row is held.
     const document = await linkedDocument(fields, isPlainObject(source.data) ? source.data : {});
     // Variants always branch off the base, also when a variant is the one being duplicated.
     const base = baseReference(source.quoteNumber);
     const at = new Date();
     const people = await companyPeople(actor);
-    const quote = await salesQuoteRepository.createWithReference(
+    // Inserted with the quote copied from locked and read again (createVariantOf): one deleted meanwhile is not
+    // copied, and a delete at the same moment then finds the copy and is refused - none is left without its original.
+    const quote = await salesQuoteRepository.createVariantOf(
       actor.companyID,
+      source.quoteNumber,
       `${base}-`,
       (existing) => salesReferenceFor(nextVariant(base, existing), document.serviceType),
       newRow(contextOf(actor, at, people), document),
     );
+    if (!quote) throw notFound();
     return toItem(quote, people.emails, actor, at, await marginsFor(actor.companyID, [quote], at));
   }
 

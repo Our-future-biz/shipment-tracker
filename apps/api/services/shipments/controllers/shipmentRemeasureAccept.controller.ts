@@ -25,7 +25,7 @@ export const shipmentRemeasureAccept = api(
   async (req: AcceptRemeasurementRequest): Promise<AcceptRemeasurementResponse> => {
     const auth = getAuthData()!;
     const shipment = await shipmentService.acceptRemeasurement(req.shipmentId, auth, req.expected);
-    return { shipment, acceptance: await shipmentService.remeasureAcceptance(req.shipmentId, auth.companyID) };
+    return { shipment, acceptance: await shipmentService.remeasureAcceptance(req.shipmentId, auth.companyID, auth) };
   },
 );
 
@@ -41,7 +41,8 @@ interface RemeasureAcceptanceResponse {
 export const shipmentRemeasureAcceptance = api(
   { expose: true, auth: true, method: "GET", path: "/shipments/:shipmentId/remeasurement/acceptance" },
   async (req: RemeasureAcceptanceRequest): Promise<RemeasureAcceptanceResponse> => {
-    return { acceptance: await shipmentService.remeasureAcceptance(req.shipmentId, getAuthData()!.companyID) };
+    const auth = getAuthData()!;
+    return { acceptance: await shipmentService.remeasureAcceptance(req.shipmentId, auth.companyID, auth) };
   },
 );
 

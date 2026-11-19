@@ -181,13 +181,15 @@ export function customerOptions(rows: readonly ReceivableRow[], customers: reado
 
 // ── The operator's checks: rows of the Filter panel, so a saved filter set keeps them ──
 
-export type ReceivableCheck = "due_week" | "over_60" | "prepayment" | "to_refund";
+export type ReceivableCheck = "due_week" | "over_60" | "prepayment" | "to_refund" | "promise_passed";
 
 export const RECEIVABLE_CHECKS: CheckDef<ReceivableCheck>[] = [
   { key: "due_week", label: "Due this week", tip: "Still owed, due today or in the next 7 days" },
   { key: "over_60", label: "Over 60 days overdue", tip: "Still owed, more than 60 days past its due day" },
   { key: "prepayment", label: "Prepayment", tip: "The customer's terms are prepayment: due on the day it was issued (D22)" },
   { key: "to_refund", label: "To refund", tip: "Credited after it was paid: we owe the customer the difference (D14)" },
+  // Mock test council m6: the broken promises, to chase again.
+  { key: "promise_passed", label: "Promise passed", tip: "Still owed after the day the customer promised to pay by" },
 ];
 
 export const checkLabel = (key: ReceivableCheck): string => RECEIVABLE_CHECKS.find((c) => c.key === key)!.label;
@@ -221,6 +223,8 @@ export function passesCheck(r: ReceivableRow, check: ReceivableCheck, today: str
       return r.marks.includes("prepayment");
     case "to_refund":
       return r.marks.includes("to_refund");
+    case "promise_passed":
+      return isOwed(r) && r.marks.includes("promise_broken");
     default:
       return false;
   }
@@ -683,9 +687,41 @@ export function waitingSplit<L extends Pick<interfaces.ReceivableWaitingLine, "c
 /** "2 of yours wait for another manager": the user's own write-offs and bank charges, which they cannot confirm. */
 export const mineWaitingText = (n: number): string => `${n} of yours ${n === 1 ? "waits" : "wait"} for another manager`;
 
+export type ReminderDraft = interfaces.ReceivableReminderDraft;
+
 /**
- * The reminder as the user's mail program opens it: subject and text only. The app sends nothing: the user sends it
- * and the app records that it was sent (D17).
+ * The reminder as the user's mail program opens it: the server's own text of that level (mock test council m3: the
+ * customer's language, the bank account and the variable symbol, as the app's e-mail writes it), else - an older
+ * answer without it - the plain English one below. The app sends nothing: the user sends it and records it (D17).
+ */
+export function reminderMailOf(
+  drafts: readonly ReminderDraft[] | undefined,
+  r: Pick<ReceivableRow, "number" | "jobNumber" | "issueDate" | "dueDate" | "leftToPay" | "currency" | "daysOverdue">,
+  level: 1 | 2 | 3,
+): { subject: string; message: string } {
+  const draft = drafts?.find((d) => d.level === level);
+  return draft ? { subject: draft.subject, message: draft.body } : reminderMail(r, level);
+}
+
+/** How far ahead a promise to pay may be noted: 60 days for a user, no limit for a manager (K13, the server's rule). */
+export const PROMISE_MAX_DAYS = 60;
+
+/** Why the promised day is refused ("" when it is fine): not before today; for a user at most 60 days ahead. */
+export function promiseProblem(promisedOn: string, today: string, canAct: boolean): string {
+  if (!promisedOn) return "Pick the day the customer promised to pay by";
+  if (promisedOn < today) return "The promised day cannot be before today";
+  if (!canAct && promisedOn > addDays(today, PROMISE_MAX_DAYS)) return `A promise is at most ${PROMISE_MAX_DAYS} days ahead: a manager notes a later one`;
+  return "";
+}
+
+/** The server said the user may not do or see this (a role's refusal), as opposed to any other failure. */
+export function isForbidden(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as { code?: unknown }).code === "permission_denied";
+}
+
+/**
+ * The reminder as the user's mail program opens it: subject and text only, in English (the fallback of
+ * reminderMailOf). The app sends nothing: the user sends it and the app records that it was sent (D17).
  */
 export function reminderMail(r: Pick<ReceivableRow, "number" | "jobNumber" | "issueDate" | "dueDate" | "leftToPay" | "currency" | "daysOverdue">, level: 1 | 2 | 3): { subject: string; message: string } {
   const what = level === 3 ? "Final notice" : `Payment reminder${level === 2 ? " (second)" : ""}`;
@@ -904,3 +940,18 @@ export const shipmentHref = (shipmentId: string): string => `/shipments/${encode
 export const customerHref = (customerId: string): string => `/customers/${encodeURIComponent(customerId)}`;
 /** The job's invoices in Invoicing, where a credit note is issued: never here (the page). */
 export const invoicingHref = (shipmentId: string): string => `/invoicing?shipment=${encodeURIComponent(shipmentId)}&tab=documents`;
+/**
+ * The Tools menu's pages (step 7): Bank statements and the export to Pohoda only for a manager (mock test council X6:
+ * the server refuses anyone else), month-end and the reminder settings for everyone.
+ */
+export function receivableTools(canAct: boolean): { key: string; label: string }[] {
+  return [
+    ...(canAct ? [{ key: "/accounts-receivable/bank", label: "Bank statements" }] : []),
+    { key: "/accounts-receivable/month-end", label: "Month-end" },
+    ...(canAct ? [{ key: "/accounts-receivable/export", label: "Export to Pohoda" }] : []),
+    { key: "/accounts-receivable/settings", label: "Reminder settings" },
+  ];
+}
+
+/** A bank statement opened on the Bank statements page (managers only). */
+export const bankStatementHref = (statementId: string): string => `/accounts-receivable/bank?statement=${encodeURIComponent(statementId)}`;

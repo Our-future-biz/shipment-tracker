@@ -5,6 +5,7 @@ import { db } from "../db/db";
 import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import { invoiceRepository } from "./invoice.repository";
+import type { AfterSellingSetWrite, SellingLineWrite } from "./sellingCost.repository";
 import { differenceRef, differencesOf, matchRealLines, nextDifferenceNumber, planBuyingReplace, ROAD_CODES, sellingDifference, sellingReplaceable } from "../utils/truckingLines.utils";
 import { realRowValues } from "../utils/truckingReal.utils";
 import type { TruckingLinesResult, TruckingRealLine } from "../interfaces/interfaces";
@@ -49,6 +50,10 @@ class TruckingLinesRepository {
    * Buying rows keep their real side (a haulier invoice approved, a statement issued): the new rows
    * take it over (planBuyingReplace), and a row with a real side no new row takes over is kept.
    * An advisory lock on the shipment keeps two pushes from interleaving.
+   *
+   * What the push did to the selling lines (taken away, added, a difference line) is handed to
+   * `after` in the same transaction, so a job that read Invoiced follows a charge it no longer has
+   * invoiced (services/sellingStatusFollow).
    */
   async replace(
     companyId: string,
@@ -57,14 +62,21 @@ class TruckingLinesRepository {
     buying: TruckingBuyingValues[],
     selling: TruckingSellingValues[],
     differenceLabel = "Price change after invoice",
+    after?: AfterSellingSetWrite,
   ): Promise<TruckingLinesResult> {
     return db.transaction(async (tx) => {
       await truckingLinesLock(tx, shipmentId);
+      const writes: SellingLineWrite[] = [];
+      const done = async (result: TruckingLinesResult) => {
+        if (after && writes.length) await after(tx, writes);
+        return result;
+      };
       // Road lines copied from a quote are the estimate the consignment now prices: they go when
       // Trucking writes its own road lines, or the cost and the charge are counted twice. Only
       // untouched estimates go - nothing with a real cost, a vendor invoice or on an invoice.
       if ([...buying, ...selling].some((r) => (ROAD_CODES as readonly string[]).includes(String(r.category ?? "")))) {
-        await this.retireQuoteRoadEstimates(tx, companyId, shipmentId);
+        const retired = await this.retireQuoteRoadEstimates(tx, companyId, shipmentId);
+        writes.push(...retired.map((before) => ({ before, now: null })));
       }
       const of = (table: CostTable) =>
         and(eq(table.companyId, companyId), eq(table.shipmentId, shipmentId), eq(table.sourceTruckingRef, sourceRef), isNull(table.deletedAt));
@@ -98,12 +110,17 @@ class TruckingLinesRepository {
       }
       if (sellingPlan.replace) {
         // Nothing of the set is invoiced: the new lines replace it, difference lines included.
-        await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(ofSet);
+        const gone = await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(ofSet).returning();
+        writes.push(...gone.map((before) => ({ before, now: null })));
         if (selling.length) {
           const next = await this.nextSort(tx, s, companyId, shipmentId);
-          await tx.insert(s).values(selling.map((row, i) => ({ ...row, companyId, shipmentId, sourceTruckingRef: sourceRef, sortOrder: next + i })));
+          const put = await tx
+            .insert(s)
+            .values(selling.map((row, i) => ({ ...row, companyId, shipmentId, sourceTruckingRef: sourceRef, sortOrder: next + i })))
+            .returning();
+          writes.push(...put.map((now) => ({ before: null, now })));
         }
-        return { buying: buying.length, selling: selling.length, sellingKept: 0, differences: [] };
+        return done({ buying: buying.length, selling: selling.length, sellingKept: 0, differences: [] });
       }
       // The set is on an issued invoice: it stays, and only what changed is billed as its own line (decision 9).
       const difference = sellingDifference(currentSelling, selling);
@@ -130,11 +147,13 @@ class TruckingLinesRepository {
               sortOrder: next + i,
             })),
           )
-          .returning({ id: s.id, ref: s.sourceTruckingRef, qty: s.qty, amount: s.amount, currency: s.currency });
-        added.push(...rows);
+          .returning();
+        added.push(...rows.map((r) => ({ id: r.id, ref: r.sourceTruckingRef, qty: r.qty, amount: r.amount, currency: r.currency })));
+        // A charge the issued invoice does not have: the job is no longer all invoiced.
+        writes.push(...rows.map((now) => ({ before: null, now })));
         log.warn("invoicing: Trucking price changed after the invoice; the difference was added as its own line", { shipmentId, sourceRef: ref, difference });
       }
-      return { buying: buying.length, selling: 0, sellingKept: sellingPlan.kept, differences: differencesOf([...currentSelling, ...added], sourceRef) };
+      return done({ buying: buying.length, selling: 0, sellingKept: sellingPlan.kept, differences: differencesOf([...currentSelling, ...added], sourceRef) });
     });
   }
 
@@ -168,8 +187,8 @@ class TruckingLinesRepository {
     });
   }
 
-  /** Whether Trucking keeps live buying rows of this charge code on the shipment (a trip, a share, a partner delivery, the internal line). */
-  private async retireQuoteRoadEstimates(tx: Tx, companyId: string, shipmentId: string): Promise<void> {
+  /** Retires the quote's road estimates Trucking's own lines replace; answers the selling rows it took away. */
+  private async retireQuoteRoadEstimates(tx: Tx, companyId: string, shipmentId: string): Promise<(typeof invoiceSellingCostTable.$inferSelect)[]> {
     const now = new Date();
     const c = invoiceCostTable;
     const buying = await tx
@@ -205,10 +224,11 @@ class TruckingLinesRepository {
         ),
       );
     const sellingIds = candidates.map((r) => r.id).filter((id) => !invoiced.has(id));
-    if (sellingIds.length) await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(inArray(s.id, sellingIds));
+    const selling = sellingIds.length ? await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(inArray(s.id, sellingIds)).returning() : [];
     if (buying.length || sellingIds.length) {
       log.info("invoicing: quote road estimates replaced by Trucking's lines", { shipmentId, buying: buying.length, selling: sellingIds.length });
     }
+    return selling;
   }
 
   /** Whether Trucking keeps a live buying row of any of these codes on the shipment. */

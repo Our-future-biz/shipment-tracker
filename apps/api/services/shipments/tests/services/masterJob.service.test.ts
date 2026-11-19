@@ -22,6 +22,7 @@ import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { companyUsers, userEmailOf } from "../../../../lib/companyUsers";
 import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
+import { containerRepository } from "../../repositories/container.repository";
 import { MASTER_JOB_PEOPLE_REFUSAL, masterJobService } from "../../services/masterJob.service";
 import { shipmentService } from "../../services/shipment.service";
 import { addDays, businessDay } from "../../../../lib/businessDate";
@@ -116,7 +117,7 @@ describe("only shipments of the master job's filling (Load Type)", () => {
     vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([{ id: S, jobNumber: "CZFCL00000019", loadType: "Full Load" }] as never);
     await expect(update({ loadType: "Consolidation" })).rejects.toMatchObject({
       code: "failed_precondition",
-      message: "MCZ00000001 can't be Consolidation: CZFCL00000019 (Full Load) on it is not - take it off the master job first",
+      message: "MCZ00000001 can't become Consolidation: CZFCL00000019 on it is Full Load - take it off the master job first.",
     });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
@@ -374,6 +375,15 @@ describe("attaching a shipment to a master job", () => {
     expect(unassign).not.toHaveBeenCalled();
     sync.mockRestore();
     unassign.mockRestore();
+  });
+
+  it("writes the master job's values onto it as a person's write, so its ETA Warehouse/HUB reaches the gate", async () => {
+    shipments.getByIdForCompany = vi.fn(async () => ({ id: S, masterJobId: NEW }));
+    repository.getByIdForCompany.mockResolvedValue(record({ id: NEW, loadType: "Full Load", etaWarehouse: "2026-11-24" }) as never);
+    (containerRepository as unknown as Record<string, unknown>).listByShipmentId = vi.fn(async () => []);
+    service.update = vi.fn();
+    await (masterJobService as unknown as { syncShipment: (id: string, c: string, u: string) => Promise<void> }).syncShipment(S, COMPANY, USER);
+    expect(service.update).toHaveBeenCalledWith(S, COMPANY, expect.objectContaining({ etaWarehouse: "2026-11-24" }), USER, undefined, "master_job");
   });
 });
 

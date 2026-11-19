@@ -1,5 +1,9 @@
+import type { InvoiceRecord } from "../schemas/invoice.schema";
+import type { InvoiceProfileRecord } from "../schemas/invoiceProfile.schema";
+import { normaliseProfile } from "./invoiceProfile";
 import { czDate, docMoney } from "./invoicePdf";
 import type { StatementLanguage } from "./statement";
+import type { StatementIssuer } from "./statementPdf";
 
 /**
  * The e-mails Accounts Receivable sends a customer (step 7), in the customer's language (Czech or English): payment
@@ -41,6 +45,37 @@ export interface ReminderFacts {
 export interface MailText {
   subject: string;
   body: string;
+}
+
+/**
+ * The issuer as the statement and the mails sign it: the invoice profile (Settings → Organization), else the snapshot
+ * on the invoice; and the issuer's account in the currency, from the profile, else that invoice's. One rule for the
+ * mails the app sends and the reminder a person sends from their own mail program (mock test council m3).
+ */
+export function mailIssuerOf(profileRow: InvoiceProfileRecord | null, currency: string, invoice: InvoiceRecord | null): { issuer: StatementIssuer; bank: MailBank | null } {
+  const p = profileRow ? normaliseProfile(profileRow) : null;
+  const sup = invoice?.supplier;
+  const issuer: StatementIssuer = p?.companyName
+    ? { companyName: p.companyName, street: p.street, city: p.city, postalCode: p.postalCode, country: p.country, ico: p.ico, dic: p.dic, registerEntry: p.registerEntry, email: p.email, phone: p.phone, web: p.web, logoData: p.logoData, footerNote: p.footerNote }
+    : {
+        companyName: sup?.companyName ?? "",
+        street: sup?.street ?? "",
+        city: sup?.city ?? "",
+        postalCode: sup?.postalCode ?? "",
+        country: sup?.country ?? "",
+        ico: sup?.ico ?? "",
+        dic: sup?.dic ?? "",
+        registerEntry: sup?.registerEntry ?? "",
+        email: sup?.email ?? "",
+        phone: sup?.phone ?? "",
+        web: sup?.web ?? "",
+        logoData: sup?.logoData ?? "",
+        footerNote: sup?.footerNote ?? "",
+      };
+  const own = p?.bankAccounts.find((a) => a.currency === currency);
+  const fromInvoice = sup?.bankAccount && sup.bankAccount.currency === currency ? sup.bankAccount : null;
+  const account = own ?? fromInvoice;
+  return { issuer, bank: account ? { bankName: account.bankName, accountNumber: account.accountNumber, iban: account.iban, swift: account.swift } : null };
 }
 
 /** "1 day", "12 days" / "1 den", "3 dny", "12 dní" */

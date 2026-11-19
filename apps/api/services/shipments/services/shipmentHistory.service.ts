@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { auth } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import type { ShipmentHistoryPage } from "../interfaces/interfaces";
-import { historyEntry, historyLimit } from "../lib/shipmentHistory";
+import { absenceCoverSaves, historyEntry, historyLimit } from "../lib/shipmentHistory";
 import { shipmentHistoryRepository } from "../repositories/shipmentHistory.repository";
 
 // A job's history for managers (Council Outlay 11, step 6): its shipment_audit rows page by page,
@@ -34,8 +34,10 @@ class ShipmentHistoryService {
     const rows = await shipmentHistoryRepository.page(shipmentId, companyId, limit + 1, before || null);
     const shown = rows.slice(0, limit);
     const who = await whoOf([...new Set(shown.map((r) => r.userId))]);
+    // The Holiday Cover job's saves are named as that job, not as the service identity it writes as (m26).
+    const coverSaves = absenceCoverSaves(shown);
     return {
-      entries: shown.map((r) => historyEntry(r, who)),
+      entries: shown.map((r) => historyEntry(r, who, coverSaves)),
       nextBefore: rows.length > limit ? shown.at(-1)!.id : null,
       namesKnown: who !== null,
     };

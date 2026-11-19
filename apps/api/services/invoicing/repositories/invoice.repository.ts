@@ -224,6 +224,17 @@ class InvoiceRepository extends TenantRepository<typeof t> {
     return new Map(rows.filter((r) => r.shipmentId && r.first).map((r) => [r.shipmentId as string, r.first]));
   }
 
+  /** The shipment's newest open invoice (issued, not credited, not cancelled); null when it has none. */
+  async latestOpenInvoiceId(shipmentId: string, companyId: string, reader: Reader = db): Promise<string | null> {
+    const [row] = await reader
+      .select({ id: t.id })
+      .from(t)
+      .where(and(openInvoice(companyId), eq(t.shipmentId, shipmentId)))
+      .orderBy(desc(t.createdAt))
+      .limit(1);
+    return row?.id ?? null;
+  }
+
   async countOpenInvoices(shipmentId: string, companyId: string): Promise<number> {
     const [row] = await this.db
       .select({ n: sql<number>`count(*)::int` })

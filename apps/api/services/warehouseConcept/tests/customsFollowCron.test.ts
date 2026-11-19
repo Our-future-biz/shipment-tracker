@@ -16,6 +16,7 @@ import { shipmentData } from "./shipmentFakes";
 const { shipmentGet, internalServiceUser } = vi.hoisted(() => ({ shipmentGet: vi.fn(), internalServiceUser: vi.fn(async () => ({ userId: "svc-warehouse" })) }));
 vi.mock("~encore/clients", async () => ({
   shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet },
+  invoicing: (await import("./shipmentFakes")).invoicingFake,
   auth: { ...(await import("./authFake")).authFake([]), _internalServiceUser: internalServiceUser },
 }));
 

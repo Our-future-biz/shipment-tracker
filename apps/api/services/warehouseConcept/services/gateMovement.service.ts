@@ -23,6 +23,7 @@ import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } fro
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { dueForListFollow, FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
+import { gateOverrideEvent, gatePaymentCheck, gateReleasePass, gateReleaseStop, giveBackPass, recordOnShipment, type GateReleaseOverride } from "./releasePayment";
 import { ownerFromRequest } from "./shipmentOwner";
 import { companyUsers } from "../../../lib/companyUsers";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
@@ -433,6 +434,8 @@ const STAMP_LABEL: Record<StampKind, string> = {
 export interface StampOptions {
   recordedAt?: string;
   clientRequestId?: string;
+  /** A manager's reason to WH-release a job on prepayment that is not paid (services/releasePayment). */
+  paymentOverrideReason?: string;
 }
 
 // A stamp request with an id that finds its stamp already there: the same request came before
@@ -1090,6 +1093,76 @@ class GateMovementService {
     if (known) return { movement: await this.get(id, companyId), ...known };
     const blocked = stampBlocked(m, kind, await this.stampContext(m, companyId));
     if (blocked) throw APIError.failedPrecondition(blocked);
+    // The prepayment stop (services/releasePayment): the WH release sets the shipment's Warehouse Released, so a
+    // job on prepayment that is not paid is refused to a user, and let out by a manager with a reason - recorded
+    // on the record in the release's own update. Asked after the gates, so a release they hold says that first.
+    // A release a manager approved on request lets it through too, for whoever stamps it (gateReleasePass): that
+    // pass is used in Shipments before this write and given back when the write below stamps nothing.
+    let paymentOverride: GateReleaseOverride | null = null;
+    if (kind === "impRelease" && m.shipmentId) {
+      const check = await gatePaymentCheck(m.shipmentId);
+      const verdict = gateReleaseStop(check, role, opts.paymentOverrideReason);
+      if ("refusal" in verdict) {
+        paymentOverride = await gateReleasePass(m.shipmentId, check);
+        if (!paymentOverride) throw APIError.failedPrecondition(verdict.refusal);
+      } else paymentOverride = verdict.override;
+    }
+    return this.stampWritten(id, companyId, userId, kind, role, opts, m, requestId, paymentOverride);
+  }
+
+  // The stamp's own write, once its gates and the prepayment stop let it through (stampWithOutcome). A release on
+  // prepayment let through (`paymentOverride`) is recorded with the release on the gate record and, once written,
+  // on the shipment. When nothing is stamped - the write failed, or somebody else was first - an approved request
+  // used for it is given back (releasePayment giveBackPass); once the stamp is written, never.
+  private async stampWritten(
+    id: string,
+    companyId: string,
+    userId: string,
+    kind: StampKind,
+    role: string,
+    opts: StampOptions,
+    m: Awaited<ReturnType<GateMovementService["load"]>>,
+    requestId: string | undefined,
+    paymentOverride: GateReleaseOverride | null,
+  ): Promise<{ movement: GateMovementItem; outcome: StampOutcome; notice: string }> {
+    let written: Awaited<ReturnType<GateMovementService["stampTransaction"]>>;
+    try {
+      written = await this.stampTransaction(id, companyId, userId, kind, role, opts, m, requestId, paymentOverride);
+    } catch (err) {
+      await giveBackPass(paymentOverride);
+      throw err;
+    }
+    const { row, owed, published, at, now } = written;
+    if (!row) {
+      await giveBackPass(paymentOverride);
+      // Someone else got there first (or the row is gone): report what the row says now.
+      const cur = await this.load(id, companyId);
+      const raced = requestId ? stampConflict(cur, kind, requestId) : null;
+      if (raced) return { movement: await this.get(id, companyId), ...raced };
+      throw APIError.failedPrecondition(stampBlocked(cur, kind, await this.stampContext(cur, companyId)) ?? `${kind} could not be stamped — reload and try again`);
+    }
+    // Before the shipment's Warehouse Released is sent, so its history has the override line first (and the
+    // write that sets it then finds the approval used, not one to close unused).
+    if (paymentOverride && m.shipmentId) await recordOnShipment(m.shipmentId, paymentOverride);
+    if (owed.length) await deliverDue(id);
+    if (published) await deliverGateEvents(id);
+    const notice = opts.recordedAt ? `${STAMP_LABEL[kind]} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";
+    return { movement: await this.get(id, companyId), outcome: "stamped", notice };
+  }
+
+  // The stamp's transaction: the conditional update of its column with its events, the outbox rows it owes the
+  // shipment and the gate events, and the stock line. `row` null when the update stamped nothing.
+  private async stampTransaction(
+    id: string,
+    companyId: string,
+    userId: string,
+    kind: StampKind,
+    role: string,
+    opts: StampOptions,
+    m: Awaited<ReturnType<GateMovementService["load"]>>,
+    requestId: string | undefined,
+    paymentOverride: GateReleaseOverride | null,
+  ) {
     const now = new Date();
     const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, { ...stampNotBefore(m, kind), requestId }) : now;
     const offline = opts.recordedAt ? { detail: offlineDetail(at, now) } : {};
@@ -1109,7 +1182,7 @@ class GateMovementService {
       events: sql`CASE WHEN ${t.gateIn} IS NULL THEN ${json([evt("gateIn", "Gate-in"), own])} ELSE ${json([own])} END`,
     });
 
-    const { row, owed, published } = await db.transaction(async (tx) => {
+    const written = await db.transaction(async (tx) => {
       let row: GateMovementRecord | null = null;
       switch (kind) {
         case "gateIn":
@@ -1133,7 +1206,8 @@ class GateMovementService {
             id,
             companyId,
             { impRelease: at, status: "Released", gateOut: sql`COALESCE(${t.gateOut}, ${at.toISOString()}::timestamptz)` },
-            [evt(kind, STAMP_LABEL.impRelease, true)],
+            // A manager's release of an unpaid prepayment job is recorded with the release, or not at all.
+            [evt(kind, STAMP_LABEL.impRelease, true), ...(paymentOverride ? [gateOverrideEvent(paymentOverride, at.toISOString(), by)] : [])],
             sql`${t.impRelease} IS NULL AND ${armedSql} AND ${houseReleaseOkSql}`,
             tx,
           );
@@ -1209,17 +1283,7 @@ class GateMovementService {
       await syncStockForMovement(tx, companyId, id, { by, at, why: STAMP_LABEL[kind] });
       return { row, owed, published };
     });
-    if (!row) {
-      // Someone else got there first (or the row is gone): report what the row says now.
-      const cur = await this.load(id, companyId);
-      const raced = requestId ? stampConflict(cur, kind, requestId) : null;
-      if (raced) return { movement: await this.get(id, companyId), ...raced };
-      throw APIError.failedPrecondition(stampBlocked(cur, kind, await this.stampContext(cur, companyId)) ?? `${kind} could not be stamped — reload and try again`);
-    }
-    if (owed.length) await deliverDue(id);
-    if (published) await deliverGateEvents(id);
-    const notice = opts.recordedAt ? `${STAMP_LABEL[kind]} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";
-    return { movement: await this.get(id, companyId), outcome: "stamped", notice };
+    return { ...written, at, now };
   }
 
   async refuse(id: string, companyId: string, userId: string, reason: string) {

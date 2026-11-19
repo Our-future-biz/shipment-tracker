@@ -19,6 +19,7 @@ import { PrintLabelsModal } from "./PrintLabelsModal";
 import { ExpectedTodayPanel } from "./ExpectedTodayPanel";
 import { ScanBox } from "./ScanBox";
 import { gateSteps } from "../_lib/steps";
+import { skippedText, skippingPaymentStops } from "../_lib/bulkStamps";
 import { shipmentOwnerOf } from "../_lib/owner";
 import { OwnerCell } from "./OwnerCell";
 import { BTN, BTN_PRIMARY, EMPTY, LABEL_TEXT, REF } from "@/styles/ui";
@@ -226,13 +227,17 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   const eligible = (a: StampAction) => selection.rows.filter((m) => isNextStep(m, a.kind));
   // Stamps row by row: one rejected movement does not stop the others, and the toast reports
   // how many were stamped and why the rest were not. Failed rows stay ticked to retry.
+  // A WH release the prepayment stop holds is skipped, not failed: the bulk bar takes no reason (_lib/bulkStamps).
   const runStamp = async (a: StampAction) => {
     setStamping(true);
     try {
-      const result = await runBulk(eligible(a), (m) => stampMovement(m.id, { kind: a.kind }));
+      const bulk = skippingPaymentStops(a.kind, (m: GateMovement) => stampMovement(m.id, { kind: a.kind }));
+      const { skipped, ...result } = bulk.split(await runBulk(eligible(a), bulk.run));
       await refreshAfterStamps();
       setStampAction(null);
-      reportBulk(toast, result, { verb: `${a.label} stamped on`, nouns: ["movement", "movements"], label: (m) => m.gateRef });
+      const label = (m: GateMovement) => m.gateRef;
+      if (result.done.length + result.failed.length > 0) reportBulk(toast, result, { verb: `${a.label} stamped on`, nouns: ["movement", "movements"], label });
+      if (skipped.length > 0) toast.notify({ type: "warning", title: `${a.label}: ${skipped.length} skipped`, description: skippedText(skipped, label) });
       if (result.failed.length === 0) selection.clear();
     } catch (e) {
       toast.error(e instanceof Error && e.message ? e.message : "Failed to stamp the movements");

@@ -19,6 +19,7 @@ export type ReceivablesAsAt = interfaces.ReceivablesAsAtResponse;
 export type ReceivableAsAtRow = interfaces.ReceivableAsAtRow;
 export type PohodaExport = interfaces.PohodaExportResponse;
 export type AccountingExports = interfaces.AccountingExportsResponse;
+export type AccountingExportFile = interfaces.AccountingExportFileResponse;
 export type ReceivableSettings = interfaces.ReceivableSettingsResponse;
 export type ReceivableSettingsInput = controllers.SettingsRequest;
 export type BankConfirmItem = controllers.ConfirmRequest["items"][number];
@@ -33,11 +34,16 @@ export const receivableToolKeys = {
 
 // ── Bank statements ──
 
-/** The statements read so far, the newest first (everyone reads). */
+/** A refusal for the user's role is the answer: asking again would only be refused again. */
+export const noRetryWhenForbidden = (failures: number, err: unknown): boolean =>
+  !(err && typeof err === "object" && (err as { code?: unknown }).code === "permission_denied") && failures < 3;
+
+/** The statements read so far, the newest first (managers only, mock test council X6). */
 export const useBankStatements = () =>
   useQuery({
     queryKey: receivableToolKeys.bankStatements,
     queryFn: () => api.invoicing.bankStatementList(),
+    retry: noRetryWhenForbidden,
   });
 
 /** One statement with its entries; an open entry's candidates are worked out again by the server at each read. */
@@ -139,11 +145,21 @@ export const useReceivablesAsAt = (day: string | null) =>
 
 // ── Export to Pohoda ──
 
-/** The exports made so far, the newest first. */
+/** The exports made so far, the newest first (managers only: anyone else is refused, and not asked again). */
 export const useAccountingExports = () =>
   useQuery({
     queryKey: receivableToolKeys.exports,
     queryFn: () => api.invoicing.receivableAccountingExports(),
+    retry: noRetryWhenForbidden,
+  });
+
+/**
+ * "Download again" on a row of the exports (mock test council m1): the server builds the export's file again from the
+ * documents it recorded, the same bytes; it records nothing, so it may be asked again freely.
+ */
+export const useAccountingExportFile = () =>
+  useMutation({
+    mutationFn: (exportId: string) => api.invoicing.receivableAccountingExportFile(exportId),
   });
 
 /** A manager exports a period: the server builds the file and records the export, so it is never sent twice by itself. */

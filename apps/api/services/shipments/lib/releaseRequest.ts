@@ -12,7 +12,12 @@
 //
 // Four eyes: whoever asked never decides their own request, a manager neither. When the job is released another
 // way (it was paid, a manager released it with their own reason, the app's gate did) a request still waiting is
-// closed - and so is an approved one nobody used: an old approval never lets a later release through.
+// closed - and so is an approved one nobody used: an old approval never lets a later release through. Closing
+// keeps the manager's comment: the closing has fields of its own (closed_at, closed_why).
+//
+// Withdrawn (K20): whoever asked may take back a request still waiting, and a manager an approval nobody has used
+// yet - each with a reason and a line in the job's history. A withdrawn request is closed as "withdrawn": it waits
+// no longer, and an approval lets nothing through any more.
 // Pure; the services read and write.
 
 import { businessDay } from "../../../lib/businessDate";
@@ -53,9 +58,6 @@ export function isUsable(request: { status: string; decidedAt: Date | null; used
   const until = validUntil(request);
   return !!until && !request.usedAt && now.getTime() <= until.getTime();
 }
-
-/** What a closed request says where a manager's comment would be: the job was released another way - while it waited, or before its approval was used. */
-export const CLOSED_COMMENT = "Released without it";
 
 // The day on Prague's calendar, as the app's tags write a day: "25.11.".
 const dm = (at: Date) => {
@@ -129,3 +131,53 @@ export const closedLine = (what: ReleaseRequestWhat): string => `${RELEASE_WORDS
 
 /** The history line of an approval nobody used, closed by a release made another way. */
 export const unusedLine = (what: ReleaseRequestWhat): string => `${RELEASE_WORDS[what]} approval closed unused: released without it`;
+
+// ─── Withdrawn (K20) ─────────────────────────────────────────────
+
+export const WITHDRAW_NOT_YOURS = "Only whoever asked can withdraw a request still waiting: a manager rejects it instead";
+export const WITHDRAW_ONLY_MANAGERS = "Only a manager can withdraw an approval";
+export const WITHDRAW_USED = "This approval was used for the release already: it can no longer be withdrawn";
+export const WITHDRAW_DONE = "This request is answered or closed already: nothing to withdraw";
+
+/** What a withdrawal takes back: the asker's request still waiting, or a manager's approval nobody used. */
+export type WithdrawKind = "request" | "approval";
+
+/**
+ * What this person would withdraw of this request, or why they may not. A request still waiting is
+ * withdrawn by whoever asked; a manager who did not ask rejects it instead, with a reason the asker
+ * hears of. An approval nobody used is withdrawn by any manager - also the one who asked, being a
+ * manager: taking a pass away needs no second pair of eyes - and one that ran out unused as well.
+ */
+export function withdrawOf(
+  request: { status: string; usedAt: Date | null; requestedById: string },
+  actor: { userID: string; role: string },
+): { kind: WithdrawKind } | { refusal: string } {
+  if (request.status === "pending") return request.requestedById === actor.userID ? { kind: "request" } : { refusal: WITHDRAW_NOT_YOURS };
+  if (request.status === "approved") {
+    if (request.usedAt) return { refusal: WITHDRAW_USED };
+    return canDecideRelease(actor.role) ? { kind: "approval" } : { refusal: WITHDRAW_ONLY_MANAGERS };
+  }
+  return { refusal: WITHDRAW_DONE };
+}
+
+/**
+ * The history line of a withdrawal: "House BoL release request withdrawn: paid meanwhile", "Warehouse Released
+ * approval withdrawn (asked by Jan Novák): the customer cancelled". Neither starts as an answer does
+ * (ANSWERED_LINE_STARTS): a withdrawal is no manager's answer.
+ */
+export function withdrawnLine(request: { what: ReleaseRequestWhat; requestedByName: string }, kind: WithdrawKind, reason: string): string {
+  const asker = request.requestedByName.trim();
+  const head = kind === "request" ? `${RELEASE_WORDS[request.what]} request withdrawn` : `${approvalWithdrawnHead(request.what)}${asker ? ` (asked by ${asker})` : ""}`;
+  return `${head}: ${reason.trim()}`;
+}
+
+// How a manager's withdrawal of an approval starts its history line: "Warehouse Released approval withdrawn".
+const approvalWithdrawnHead = (what: ReleaseRequestWhat): string => `${RELEASE_WORDS[what]} approval withdrawn`;
+
+/**
+ * Every way a manager's withdrawal of an approval starts its history line: as a manager's answer, it is a
+ * manager's act on Shipments → Managers, not the job's own people at work (services/managersCockpitTeam
+ * NOT_A_TOUCH). The asker's withdrawal of their own request still waiting is not among them: like asking, it is
+ * somebody working on the job.
+ */
+export const APPROVAL_WITHDRAWN_LINE_STARTS: readonly string[] = RELEASE_WHATS.map(approvalWithdrawnHead);

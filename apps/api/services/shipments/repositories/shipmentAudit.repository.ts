@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, like, not, notExists, notInArray, or, sql, type Column } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/pg-core";
+import { alias, unionAll } from "drizzle-orm/pg-core";
 import { db, type Tx } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
 import { shipmentAuditTable, type NewShipmentAuditRecord, type ShipmentAuditRecord } from "../schemas/shipmentAudit.schema";
@@ -22,6 +22,12 @@ export interface NotATouch {
    * so at the very same moment, the turn's own time - which do not count either.
    */
   writtenWith: string;
+  /**
+   * History fields whose line marks the whole save it is written in as no touch: the job's other
+   * history lines of the same write turn - the same job at the very same moment - do not count
+   * either (the Holiday Cover the absence-cover job sets or clears, beside its own line).
+   */
+  savedWith: readonly string[];
 }
 
 // The audit log is append-only and has no created/updated/deleted columns, so it does not use
@@ -81,16 +87,31 @@ class ShipmentAuditRepository {
    *   to-dos ticked off, tasks ticked   no index knows done_at or completed_at, so these two are
    *       asked only of `shipmentIds` (the jobs old enough to be untouched), by shipment_id.
    * A chat line or a to-do written with a `notATouch.writtenWith` line is found by that line: the
-   * same job at the same moment, by the history's index on company and time too.
+   * same job at the same moment, by the history's index on company and time too - and so is a
+   * history line of a save a `notATouch.savedWith` line marks.
    */
   async lastTouchedSince(companyId: string, shipmentIds: readonly string[], since: Date, notATouch: NotATouch): Promise<Map<string, Date>> {
     if (shipmentIds.length === 0) return new Map();
     const ids = [...shipmentIds];
     const [history, chat, notes, tasks, events] = [shipmentAuditTable, shipmentCommentTable, shipmentNoteTable, shipmentTaskTable, shipmentTrackingEventTable];
-    const { fields, lines, writtenWith } = notATouch;
+    const { fields, lines, writtenWith, savedWith } = notATouch;
+    // The history read again under its own name, for the line that marks a save (savedWith).
+    const marker = alias(shipmentAuditTable, "saved_with");
     const countedLine = and(
       ...(fields.length ? [notInArray(history.field, [...fields])] : []),
       ...(lines.startsWith.length ? [not(and(eq(history.field, lines.field), or(...lines.startsWith.map((start) => like(history.newValue, `${start}%`))))!)] : []),
+      // A line of a save another line marks as no touch: found by that line, as a chat line written with a
+      // nudge is - the same job at the same moment, by the history's index on company and time.
+      ...(savedWith.length
+        ? [
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(marker)
+                .where(and(eq(marker.companyId, companyId), eq(marker.changedAt, history.changedAt), eq(marker.shipmentId, history.shipmentId), inArray(marker.field, [...savedWith]))),
+            ),
+          ]
+        : []),
     );
     const notWrittenWith = (shipmentId: Column, at: Column) =>
       notExists(

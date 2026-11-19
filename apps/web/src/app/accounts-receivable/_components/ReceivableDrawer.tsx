@@ -19,6 +19,7 @@ import { ConfirmLine, ReceivableActions, TakeBackPayment, type Actions } from ".
 import { StatementMenu } from "./StatementMenu";
 import {
   amountText,
+  bankStatementHref,
   customerHref,
   EMAIL_OFF_TEXT,
   EVENT_LABELS,
@@ -496,6 +497,21 @@ export function ReceivableDrawer({ id, onClose }: { id: string | null; onClose: 
               </Link>
             )}
           </div>
+          {/* A payment read from a bank statement may be this invoice's (mock test council X5): said before anyone chases it. */}
+          {detail.paymentWaiting && (
+            <Alert
+              type="info"
+              showIcon
+              message={detail.paymentWaiting.text}
+              description={
+                detail.canAct ? (
+                  <Link href={bankStatementHref(detail.paymentWaiting.statementId)} className={LINK}>
+                    Open the bank statement
+                  </Link>
+                ) : undefined
+              }
+            />
+          )}
           <Section title="Actions">
             <ReceivableActions key={row.id} detail={detail} actions={actions} />
           </Section>

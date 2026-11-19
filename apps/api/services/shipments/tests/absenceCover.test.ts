@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coverClearedLine, coverSetLine, planOpenCovers, setDecision, standingCovers, type CoverAbsence, type OpenCover } from "../lib/absenceCover";
+import { clearWhy, coverClearedLine, coverSetLine, planOpenCovers, setDecision, standingCovers, type CoverAbsence, type OpenCover } from "../lib/absenceCover";
 
 const absence = (over: Partial<CoverAbsence> = {}): CoverAbsence => ({
   id: "a-1",
@@ -48,15 +48,33 @@ describe("the covers set", () => {
     expect(planOpenCovers([open({ coverEmail: "EVA@firma.cz" })], [absence()])[0]!.action).toBe("keep");
   });
 
-  it("are cleared when the user is back - the absence ended, was shortened to before today, or deleted - or their user left", () => {
-    expect(planOpenCovers([open()], [absence({ inForce: false })])).toEqual([{ row: open(), action: "clear", why: "back" }]);
-    expect(planOpenCovers([open()], [])).toEqual([{ row: open(), action: "clear", why: "back" }]);
+  it("are cleared when the absence is over - it ended, was shortened to before today, or deleted - or their user left", () => {
+    expect(planOpenCovers([open()], [absence({ inForce: false })])).toEqual([{ row: open(), action: "clear", why: "over" }]);
+    expect(planOpenCovers([open()], [])).toEqual([{ row: open(), action: "clear", why: "over" }]);
   });
 
   it("are cleared when the absence names another cover, or none, or a cover who left", () => {
     for (const coverEmail of ["petr@firma.cz", null]) {
       expect(planOpenCovers([open()], [absence({ coverEmail })])).toEqual([{ row: open(), action: "clear", why: "changed" }]);
     }
+  });
+
+  it("are cleared as changed - not as over - when the user started another absence with another cover, or none (m26)", () => {
+    for (const coverEmail of ["petr@firma.cz", null]) {
+      const next = absence({ id: "a-2", fromDate: "2026-11-21", toDate: "2026-11-27", coverEmail });
+      expect(planOpenCovers([open()], [absence({ inForce: false }), next])).toEqual([{ row: open(), action: "clear", why: "changed" }]);
+    }
+    // Somebody else away is not the user away.
+    expect(planOpenCovers([open()], [absence({ id: "a-3", userId: "u-petr", userEmail: "petr@firma.cz", coverEmail: "jan@firma.cz" })])[0]).toMatchObject({ why: "over" });
+  });
+
+  it("say the user left when their absence is over and they are no user of the company any more", () => {
+    expect(clearWhy("over", "u-jan", new Set(["u-eva"]))).toBe("left");
+    expect(clearWhy("over", "u-jan", new Set(["u-jan"]))).toBe("over");
+    // The users not known: just over - nothing is claimed that was not read.
+    expect(clearWhy("over", "u-jan", null)).toBe("over");
+    // Another cover named while away is that, whoever is a user.
+    expect(clearWhy("changed", "u-jan", new Set())).toBe("changed");
   });
 
   it("go over to the user's next absence when it names the same cover: the job keeps it", () => {
@@ -71,7 +89,10 @@ describe("the job's history lines", () => {
   it("say whom, while whom is away, and when", () => {
     expect(coverSetLine("eva@firma.cz", { name: "Jan Novák", email: "jan@firma.cz" }, "2026-11-23", "2026-11-27")).toBe("Holiday Cover eva@firma.cz while Jan Novák is away 23.11.–27.11.");
     expect(coverSetLine("eva@firma.cz", { name: " ", email: "jan@firma.cz" }, "2026-11-23", "2026-11-23")).toBe("Holiday Cover eva@firma.cz while jan@firma.cz is away 23.11.–23.11.");
-    expect(coverClearedLine("eva@firma.cz", { name: "Jan Novák", email: "jan@firma.cz" }, "back")).toBe("Holiday Cover eva@firma.cz cleared: Jan Novák is back");
+    // Neutral: an absence over says nothing of the user being back - they may be on another one (m26).
+    expect(coverClearedLine("eva@firma.cz", { name: "Jan Novák", email: "jan@firma.cz" }, "over")).toBe("Holiday Cover eva@firma.cz cleared: absence over");
+    expect(coverClearedLine("eva@firma.cz", { name: "Jan Novák", email: "jan@firma.cz" }, "left")).toBe("Holiday Cover eva@firma.cz cleared: Jan Novák left the company");
+    expect(coverClearedLine("eva@firma.cz", { name: "", email: "jan@firma.cz" }, "left")).toBe("Holiday Cover eva@firma.cz cleared: jan@firma.cz left the company");
     expect(coverClearedLine("eva@firma.cz", { name: "Jan Novák", email: "jan@firma.cz" }, "changed")).toBe("Holiday Cover eva@firma.cz cleared: the cover while Jan Novák is away changed");
   });
 });

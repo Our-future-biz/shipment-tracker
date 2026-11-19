@@ -22,6 +22,8 @@ import {
   canAskForRelease,
   isOwnReleaseRequest,
   isReleaseAnswer,
+  isWithdrawnApproval,
+  releaseAnswerBy,
   passRereadAt,
   releaseAnsweredNote,
   releaseAnswersMark,
@@ -213,6 +215,12 @@ describe("the prepayment stop (step 7): told apart from other refusals", () => {
     "Warehouse Released can't be set: the job is on prepayment and not paid - an invoice is left to pay. As a manager you can release it all the same: give a reason (at least 3 characters)";
   const unchecked = "Whether the job is paid could not be checked: try again in a moment. A manager can release it with a reason";
   const err = (code: string, message: string) => Object.assign(new Error(message), { code });
+
+  it("reads the stop of a job with nothing invoiced yet (L3) as the same stop", () => {
+    const notInvoiced =
+      "The House BoL can't be released: the job is on prepayment and not invoiced and paid yet - Not invoiced yet (1,200.00 EUR). As a manager you can release it all the same: give a reason (at least 3 characters)";
+    expect(releaseStopOf(err("failed_precondition", notInvoiced))).toEqual({ kind: "unpaid", message: notInvoiced });
+  });
 
   it("reads the stop from a failed precondition with the stop's sentence", () => {
     expect(releaseStopOf(err("failed_precondition", unpaidUser))).toEqual({ kind: "unpaid", message: unpaidUser });
@@ -431,6 +439,31 @@ describe("Ask a manager to release (Council Outlay 11, D16): the request's state
     expect(isReleaseAnswer({ status: "rejected" })).toBe(true);
     expect(isReleaseAnswer({ status: "closed" })).toBe(false);
     expect(isReleaseAnswer({ status: "pending" })).toBe(false);
+  });
+
+  it("lists an approval a manager withdrew after giving it, not a request the asker withdrew nor one a release closed", () => {
+    expect(isReleaseAnswer({ status: "closed", closedWhy: "withdrawn", decidedAt: "2026-11-18T14:10:00Z" })).toBe(true);
+    expect(isReleaseAnswer({ status: "closed", closedWhy: "withdrawn", decidedAt: null })).toBe(false);
+    expect(isReleaseAnswer({ status: "closed", closedWhy: "released", decidedAt: "2026-11-18T14:10:00Z" })).toBe(false);
+    expect(isWithdrawnApproval({ status: "approved", closedWhy: null, decidedAt: "2026-11-18T14:10:00Z" })).toBe(false);
+  });
+
+  it("words an approval withdrawn under the bell: the job and the reason, and who withdrew it when", () => {
+    const withdrawn = {
+      ...request({ ...pass, status: "closed", usable: false }),
+      closedWhy: "withdrawn",
+      closedAt: "2026-11-19T08:30:00Z",
+      closedByName: "Petr Dvořák",
+      closeReason: " the customer cancelled ",
+      jobNumber: "CZ00000053",
+    };
+    expect(releaseAnswerTitle(withdrawn)).toBe("Approval withdrawn: CZ00000053 — the customer cancelled");
+    expect(releaseAnswerTitle({ ...withdrawn, jobNumber: "", closeReason: "" })).toBe("Approval withdrawn: a job");
+    expect(releaseAnswerText(withdrawn)).toBe("House BoL release — no longer approved: ask again if it is still needed");
+    expect(releaseAnswerBy(withdrawn)).toEqual({ name: "Petr Dvořák", at: "2026-11-19T08:30:00Z" });
+    // Any other answer is the deciding manager's.
+    expect(releaseAnswerBy(request(pass))).toEqual({ name: "Eva Malá", at: "2026-11-18T14:10:00.000Z" });
+    expect(releaseAnswerBy({ ...request(pass), decidedByName: " " })).toMatchObject({ name: "Manager" });
   });
 
   it("marks the answers so that a new answer or a used approval is told from the same list read again", () => {

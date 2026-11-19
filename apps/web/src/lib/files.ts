@@ -46,7 +46,19 @@ export function saveBlob(blob: Blob, fileName: string) {
 export function dataUrlToBlob(dataUrl: string, type: string): Blob {
   const match = /^data:[^,]*;base64,(.*)$/.exec(dataUrl);
   if (!match) throw new Error("Not a base64 data URL");
-  return new Blob([Uint8Array.from(atob(match[1]!), (c) => c.charCodeAt(0))], { type });
+  return base64ToBlob(match[1]!, type);
+}
+
+/**
+ * Base64 the server sent (a file of up to 100 MB, e.g. a master job's ZIP) as a Blob of the given
+ * type, without first making it a data URL: such a long link is slow to build and some browsers
+ * refuse to follow it. Decoded into one array, byte by byte.
+ */
+export function base64ToBlob(base64: string, type: string): Blob {
+  const text = atob(base64);
+  const bytes = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+  return new Blob([bytes], { type });
 }
 
 // "1.4 MB" style size for file lists.

@@ -3,6 +3,7 @@ import { unzipSync, strFromU8 } from "fflate";
 import {
   COMMERCIAL_PAPERWORK,
   HOUSE_BOLS,
+  houseTransportDocs,
   SHIPMENT_DOCS_ZIP_MAX_BYTES,
   shipmentDocEntryNames,
   shipmentDocsTooLarge,
@@ -72,8 +73,8 @@ describe("a master job's shipment documents in one ZIP", () => {
     const MB = 1024 * 1024;
     expect(SHIPMENT_DOCS_ZIP_MAX_BYTES).toBe(100 * MB);
     expect(shipmentDocsTooLarge(100 * MB)).toBeNull();
-    expect(shipmentDocsTooLarge(100 * MB + 1)).toBe("These documents come to 101 MB, more than 100 MB in one download: download them per shipment");
-    expect(shipmentDocsTooLarge(240 * MB)).toBe("These documents come to 240 MB, more than 100 MB in one download: download them per shipment");
+    expect(shipmentDocsTooLarge(100 * MB + 1)).toBe("These documents come to 101 MB, more than 100 MB in one download: download the files from each shipment's Documents tab");
+    expect(shipmentDocsTooLarge(240 * MB)).toBe("These documents come to 240 MB, more than 100 MB in one download: download the files from each shipment's Documents tab");
   });
 
   it("are named after the master job and what is in them", () => {
@@ -83,6 +84,15 @@ describe("a master job's shipment documents in one ZIP", () => {
 
   it("take the Commercial Documents group for the commercial paperwork", () => {
     expect(COMMERCIAL_PAPERWORK.types).toEqual(["Invoice", "Packing list"]);
+    expect(COMMERCIAL_PAPERWORK.leavesOutDeclined).toBe(true);
     expect(HOUSE_BOLS.types).toEqual(["Bill of Lading"]);
+  });
+
+  it("take the house transport documents by mode: AWBs by air (filed as Bills of Lading), CMRs by road, else BLs", () => {
+    expect(houseTransportDocs("Air Freight")).toMatchObject({ types: ["Bill of Lading"], title: "House AWBs" });
+    expect(houseTransportDocs("Road Freight")).toMatchObject({ types: ["CMR / POD"], title: "CMRs" });
+    expect(houseTransportDocs("Sea Freight")).toBe(HOUSE_BOLS);
+    expect(houseTransportDocs("Rail Freight")).toBe(HOUSE_BOLS);
+    expect(houseTransportDocs("")).toBe(HOUSE_BOLS);
   });
 });

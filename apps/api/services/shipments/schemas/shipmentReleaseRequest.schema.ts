@@ -5,6 +5,8 @@ import { shipmentTable } from "./shipment.schema";
 
 /** closed: the job was released another way - while the request still waited (nobody answered it), or before its approval was used. */
 export type ShipmentReleaseRequestStatus = "pending" | "approved" | "rejected" | "closed";
+/** Why a request was closed: the job was released another way, or somebody withdrew it (the asker a request still waiting, a manager an approval nobody used). */
+export type ShipmentReleaseRequestClosedWhy = "released" | "withdrawn";
 /** What is asked to be released: the House BoL, or the cargo from the warehouse (Warehouse Released). */
 export type ShipmentReleaseRequestWhat = "house_bol" | "warehouse";
 
@@ -14,7 +16,8 @@ export type ShipmentReleaseRequestWhat = "house_bol" | "warehouse";
 // releases nothing: the approved request is a pass (lib/releaseRequest) for that job and that release, used once,
 // in the write turn of the release it lets through - which records it as the override it is. A request still
 // waiting when the job is released another way is closed, and so is an approval nobody used (it keeps who
-// approved it). As a Customs Office request, a row is never written
+// approved it, and why). Whoever asked may withdraw a request still waiting, and a manager an approval nobody used:
+// closed too, as withdrawn, with who and why. As a Customs Office request, a row is never written
 // over: a new request is a new row. At most one waits per shipment and thing asked.
 export const shipmentReleaseRequestTable = pgTable(
   "shipment_release_request",
@@ -33,7 +36,7 @@ export const shipmentReleaseRequestTable = pgTable(
     decidedByName: text("decided_by_name").notNull().default(""),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     // The manager's reason, required either way: why not (rejected), or why all the same (approved - it becomes
-    // part of the override's reason). Closed: "Released without it".
+    // part of the override's reason). Kept when the request is closed afterwards: the closing has fields of its own.
     comment: text("comment").notNull().default(""),
     // When the one who asked opened the answer under the bell.
     answerSeenAt: timestamp("answer_seen_at", { withTimezone: true }),
@@ -41,6 +44,13 @@ export const shipmentReleaseRequestTable = pgTable(
     usedAt: timestamp("used_at", { withTimezone: true }),
     usedById: uuid("used_by_id"),
     usedByName: text("used_by_name").notNull().default(""),
+    // A closed request: when, why (released another way, or withdrawn), and - withdrawn - by whom, as named
+    // then, with their reason. Released another way, nobody closed it: no name, no reason.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedWhy: text("closed_why").$type<ShipmentReleaseRequestClosedWhy>(),
+    closedById: uuid("closed_by_id"),
+    closedByName: text("closed_by_name").notNull().default(""),
+    closeReason: text("close_reason").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("shipment_release_request", table),
@@ -53,6 +63,7 @@ export const shipmentReleaseRequestTable = pgTable(
     foreignKey({ name: "shipment_release_request_shipment_fk", columns: [table.shipmentId], foreignColumns: [shipmentTable.id] }).onDelete("cascade"),
     check("shipment_release_request_what_check", sql`${table.what} IN ('house_bol', 'warehouse')`),
     check("shipment_release_request_status_check", sql`${table.status} IN ('pending', 'approved', 'rejected', 'closed')`),
+    check("shipment_release_request_closed_why_check", sql`${table.closedWhy} IS NULL OR ${table.closedWhy} IN ('released', 'withdrawn')`),
   ],
 );
 

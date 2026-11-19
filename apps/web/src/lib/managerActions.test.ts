@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   actionReasonOk,
+  canHandOverAll,
   cutoffName,
+  handOverAllLabel,
+  handOverAllNote,
   dismissalTitle,
   handOverChanging,
   handOverPreview,
@@ -126,14 +129,14 @@ describe("handledByWarning", () => {
   it("says how many active jobs the person handles, and that those stay URGENT - the covers in a sentence of their own", () => {
     expect(handledByWarning({ handledBy: 12, covers: 3 })).toBe(
       "12 active jobs name this person in Handled By: they stay URGENT on Shipments → Managers until handed over. " +
-        "3 active jobs name this person as Holiday Cover: they will have a Holiday Cover who can no longer sign in",
+        '3 active jobs have this person as Holiday Cover: they will show "Holiday Cover is not a user" on Shipments → Managers until changed',
     );
     expect(handledByWarning({ handledBy: 1, covers: 0 })).toBe("1 active job names this person in Handled By: it stays URGENT on Shipments → Managers until handed over");
-    expect(handledByWarning({ handledBy: 0, covers: 1 })).toBe("1 active job names this person as Holiday Cover: it will have a Holiday Cover who can no longer sign in");
+    expect(handledByWarning({ handledBy: 0, covers: 1 })).toBe('1 active job has this person as Holiday Cover: it will show "Holiday Cover is not a user" on Shipments → Managers until changed');
   });
-  it("does not call the jobs of a person who only covers URGENT: no rule flags a cover who is not a user", () => {
+  it("says plainly what happens to the jobs of a person who only covers - not URGENT, a signal of its own until the cover is changed (S16)", () => {
     const warning = handledByWarning({ handledBy: 0, covers: 2 });
-    expect(warning).toBe("2 active jobs name this person as Holiday Cover: they will have a Holiday Cover who can no longer sign in");
+    expect(warning).toBe('2 active jobs have this person as Holiday Cover: they will show "Holiday Cover is not a user" on Shipments → Managers until changed');
     expect(warning).not.toContain("URGENT");
     expect(warning).not.toContain("Handled By:");
   });
@@ -143,5 +146,25 @@ describe("handledByWarning", () => {
   it("links to the jobs the person handles on Shipments → Managers - and nowhere when they handle none: that list would be empty", () => {
     expect(handledByJobsHref(" Jan+ops@Firma.cz ", { handledBy: 2 })).toBe("/shipments/managers?handledBy=jan%2Bops%40firma.cz");
     expect(handledByJobsHref("jan@firma.cz", { handledBy: 0 })).toBeNull();
+  });
+});
+
+describe("handing over all of a person's jobs (X9)", () => {
+  it("is offered on a person's Team row with an active job - never on the jobs nobody handles", () => {
+    expect(canHandOverAll({ nobody: false, active: 3 })).toBe(true);
+    expect(canHandOverAll({ nobody: true, active: 5 })).toBe(false);
+    expect(canHandOverAll({ nobody: false, active: 0 })).toBe(false);
+  });
+  it("is labelled with how many active jobs there are", () => {
+    expect(handOverAllLabel(12)).toBe("Hand over all 12 active jobs…");
+    expect(handOverAllLabel(1)).toBe("Hand over the 1 active job…");
+  });
+  it("says whether every job is listed, or 200 of more - and that the quiet ones are among them", () => {
+    const jobs = (n: number) => Array.from({ length: n }, (_, i) => i);
+    expect(handOverAllNote({ jobs: jobs(3), total: 3 }, "jan@firma.cz", "")).toBe("All 3 active jobs with jan@firma.cz in Handled By, quiet ones too - not only those with a signal on the cards.");
+    expect(handOverAllNote({ jobs: jobs(200), total: 240 }, "jan@firma.cz", "Sea · Import")).toBe(
+      "200 of 240 active jobs with jan@firma.cz in Handled By (Sea · Import): at most 200 go in one hand-over. Hand over the rest the same way once these are done.",
+    );
+    expect(handOverAllNote({ jobs: jobs(1), total: 1 }, "jan@firma.cz", "")).toBe("All 1 active job with jan@firma.cz in Handled By, quiet ones too - not only those with a signal on the cards.");
   });
 });

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Dropdown, Spin, Tabs, Tooltip } from "antd";
 import { CheckCircleOutlined, DownOutlined, PrinterOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
-import { useGateMovement, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
+import { useGateMovement, useStampMovement, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
+import { releaseStopOf } from "@/lib/paymentWarnings";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
@@ -234,6 +235,9 @@ export function GateJobView({ id }: { id: string }) {
   const [voidStep, setVoidStep] = useState<GateStep | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
   const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
+  // A WH release the prepayment stop refused, waiting for a manager's reason.
+  const [paymentStop, setPaymentStop] = useState<{ label: string; message: string } | null>(null);
+  const { stamp: stampMovement, refresh: refreshAfterStamp } = useStampMovement();
   const [reweighOpen, setReweighOpen] = useState(false);
   const [linkChange, setLinkChange] = useState<controllers.GateMovementUpdateRequest | null>(null);
 
@@ -290,9 +294,25 @@ export function GateJobView({ id }: { id: string }) {
       await stamp.mutateAsync(kind);
       toast.success(`${label} stamped`);
     } catch (e) {
-      toast.error(errorMessage(e, `Failed to stamp ${label}`));
+      // The prepayment stop (warehouseConcept services/releasePayment): a manager may let the cargo out with a
+      // reason, asked for next with the server's sentence; a user is told why, as for any refusal.
+      const stop = kind === "impRelease" ? releaseStopOf(e) : null;
+      if (stop && manager) setPaymentStop({ label, message: stop.message });
+      else toast.error(errorMessage(e, `Failed to stamp ${label}`));
     } finally {
       setConfirmStamp(null);
+    }
+  };
+  // The WH release again, with the manager's reason: recorded on the record's history with the release.
+  const releaseWithReason = async (label: string, reason: string) => {
+    try {
+      await stampMovement(m.id, { kind: "impRelease", paymentOverrideReason: reason });
+      void refreshAfterStamp();
+      toast.success(`${label} stamped with your reason`);
+    } catch (e) {
+      toast.error(errorMessage(e, `Failed to stamp ${label}`));
+      // Rethrown so the dialog stays open with the reason typed (ReasonModal).
+      throw e;
     }
   };
 
@@ -649,6 +669,16 @@ export function GateJobView({ id }: { id: string }) {
           loading={stamp.isPending}
         />
       )}
+
+      <ReasonModal
+        open={!!paymentStop}
+        title={`${paymentStop?.label ?? "WH release"} on prepayment`}
+        hint={`${paymentStop?.message ?? ""}. The reason is recorded with the release, with your name.`}
+        okText="Release with a reason"
+        danger
+        onClose={() => setPaymentStop(null)}
+        onSubmit={(reason) => releaseWithReason(paymentStop?.label ?? "WH release", reason).then(() => setPaymentStop(null))}
+      />
 
       <PrintLabelsModal open={printOpen} movements={[m]} onClose={() => setPrintOpen(false)} />
       <ReweighModal open={reweighOpen} movementId={m.id} label={m.gateRef} declaredKg={m.weightKg} onClose={() => setReweighOpen(false)} />

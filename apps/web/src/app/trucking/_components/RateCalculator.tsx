@@ -81,7 +81,7 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
       {error && <Alert type="error" showIcon message={`Could not price it — ${apiErrorMessage(error)}.`} />}
 
       {result && !error && (
-        <section className={`${CARD} overflow-hidden`}>
+        <section className={`${CARD} overflow-clip`}>
           <div className={`${CARD_BAR} flex-wrap`}>
             <h3 className={CARD_TITLE}>Prices</h3>
             <span className={HINT}>rated {businessDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>

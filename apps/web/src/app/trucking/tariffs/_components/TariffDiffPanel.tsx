@@ -79,7 +79,7 @@ export const TariffDiffPanel = ({ versionId, currency, side, levelLabel }: Tarif
       )}
 
       {diff.cells.length > 0 && (
-        <div className={`${CARD} overflow-hidden`}>
+        <div className={`${CARD} overflow-clip`}>
           <TariffDiffCellsTable cells={diff.cells} currency={currency} side={side} levelLabel={levelLabel} />
           {diff.cells.length >= DIFF_CELL_LIMIT && (
             <p className={`m-0 px-3 py-2 ${HINT}`}>Only the {DIFF_CELL_LIMIT} largest changes are listed.</p>

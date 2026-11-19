@@ -19,6 +19,7 @@ import {
   parseNoticeKey,
   paymentProblem,
   receivableStateOf,
+  settledDisputeReason,
   releaseWarning,
   statusOf,
   takeBackProblem,
@@ -142,6 +143,23 @@ describe("receivableStateOf", () => {
       TODAY,
     );
     expect(s.marks).toEqual(["overdue", "prepayment", "promised", "disputed", "reminded", "not_in_customer_list"]);
+  });
+
+  it("shows a dispute only while something is owed: paid or credited in full, it is not disputed any more (n4, L5)", () => {
+    expect(receivableStateOf(input({ disputed: true }), TODAY).marks).toContain("disputed");
+    expect(receivableStateOf(input({ disputed: true, paid: 1210 }), TODAY).marks).not.toContain("disputed");
+    expect(receivableStateOf(input({ disputed: true, credited: 1210 }), TODAY).marks).not.toContain("disputed");
+    expect(receivableStateOf(input({ disputed: true, invoiceStatus: "cancelled" }), TODAY).marks).not.toContain("disputed");
+    // Part paid: still owed, still disputed.
+    expect(receivableStateOf(input({ disputed: true, paid: 200 }), TODAY).marks).toContain("disputed");
+  });
+
+  it("says why a dispute closed by itself", () => {
+    expect(settledDisputeReason({ invoiceStatus: "issued", status: "paid" })).toBe("Closed by itself: the invoice is paid");
+    expect(settledDisputeReason({ invoiceStatus: "credited", status: "credited" })).toBe("Closed by itself: the invoice was credited in full");
+    expect(settledDisputeReason({ invoiceStatus: "issued", status: "credited" })).toBe("Closed by itself: the invoice was credited in full");
+    expect(settledDisputeReason({ invoiceStatus: "cancelled", status: "cancelled" })).toBe("Closed by itself: the invoice was cancelled");
+    expect(settledDisputeReason({ invoiceStatus: "issued", status: "written_off" })).toBe("Closed by itself: what was left is written off");
   });
 
   it("a promise is kept until its day and broken after it, only while something is owed", () => {
@@ -297,6 +315,13 @@ describe("noteProblem (D16, D17)", () => {
     expect(noteProblem({ ...base, kind: "promise", promisedOn: "2026-11-17" })).toEqual({ kind: "invalid", message: "The promised day cannot be before today" });
     expect(noteProblem({ ...base, kind: "promise", promisedOn: TODAY })).toBeNull();
     expect(noteProblem({ ...base, kind: "promise", promisedOn: TODAY, status: "paid", leftToPay: 0 })).toMatchObject({ kind: "state" });
+  });
+
+  it("a user's promise is at most 60 days ahead; a manager's may be later (K13)", () => {
+    // 60 days after 18.11.2026 is 17.01.2027.
+    expect(noteProblem({ ...base, kind: "promise", promisedOn: "2027-01-17" })).toBeNull();
+    expect(noteProblem({ ...base, kind: "promise", promisedOn: "2027-01-18" })).toEqual({ kind: "forbidden", message: "A promise is at most 60 days ahead: a manager notes a later one" });
+    expect(noteProblem({ ...base, kind: "promise", promisedOn: "2027-06-30", manager: true })).toBeNull();
   });
 
   it("a dispute needs a reason, once; its end needs a reason and a dispute", () => {

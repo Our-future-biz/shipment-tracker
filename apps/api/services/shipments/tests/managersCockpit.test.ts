@@ -6,6 +6,7 @@ import { addDays } from "../../../lib/businessDate";
 import { COCKPIT_LIST_LIMIT, ETD_PASSED_AFTER_DAYS } from "../lib/cockpitThresholds";
 import { withoutDismissed } from "../lib/cutoffDismissals";
 import {
+  BUYER_BOOKS_INCOTERMS,
   COCKPIT_EVENT_KINDS,
   EXTRA_RANK_SCALE,
   OPS_RANK,
@@ -42,6 +43,8 @@ import {
   rolledSignals,
   timelineFactsOf,
   warehouseSignals,
+  weBookMainCarriage,
+  namesNoUser,
   type CockpitBox,
   type OpsCockpitInput,
   type OpsCockpitJob,
@@ -49,6 +52,7 @@ import {
   type TimelineEvent,
   type TimelineFacts,
 } from "../lib/managersCockpit";
+import { TIME_LIMITS_OFF } from "../lib/claimTimeLimits";
 import { handoverFactsOf } from "../lib/managersCockpitHandover";
 import type { TeamFacts, TeamJobFacts } from "../lib/managersCockpitTeam";
 import { attentionFlags, type AttentionFacts } from "../lib/trackingAttention";
@@ -790,26 +794,65 @@ describe("the customs signals (U9)", () => {
 describe("Booking Confirmation still Pending (U4)", () => {
   const pending = (over: Partial<OpsCockpitJob>) => texts(bookingSignals(job({ tradeDirection: "Export", bookingConfirmation: "Pending", ...over }), TODAY));
 
-  it("is URGENT with the cargo ready within 3 days or the ETD within 7", () => {
-    expect(show(bookingSignals(job({ bookingConfirmation: "Pending", cargoReadinessDate: "2026-11-21" }), TODAY))).toEqual(["URGENT 52 booking details · Booking Confirmation Pending · cargo ready 21.11."]);
-    expect(pending({ cargoReadinessDate: "2026-11-22" })).toEqual([]);
-    expect(pending({ estimatedDeparture: "2026-11-25" })).toEqual(["Booking Confirmation Pending · ETD 25.11."]);
-    expect(pending({ estimatedDeparture: "2026-11-26" })).toEqual([]);
+  it("is URGENT with the cargo ready within 3 working days or the ETD within 7 (X7: the weekend between counts no day)", () => {
+    // Wednesday the 18th: 3 working days on is Monday the 23rd, 7 is Friday the 27th.
+    expect(show(bookingSignals(job({ tradeDirection: "Export", bookingConfirmation: "Pending", cargoReadinessDate: "2026-11-23" }), TODAY))).toEqual([
+      "URGENT 52 booking details · Booking Confirmation Pending · cargo ready 23.11.",
+    ]);
+    expect(pending({ cargoReadinessDate: "2026-11-21" })).toHaveLength(1);
+    expect(pending({ cargoReadinessDate: "2026-11-24" })).toEqual([]);
+    expect(pending({ estimatedDeparture: "2026-11-27" })).toEqual(["Booking Confirmation Pending · ETD 27.11."]);
+    expect(pending({ estimatedDeparture: "2026-11-28" })).toEqual([]);
+    expect(pending({ estimatedDeparture: "2026-11-30" })).toEqual([]);
     expect(pending({ cargoReadinessDate: "2026-11-18", estimatedDeparture: "2026-11-24" })).toEqual(["Booking Confirmation Pending · cargo ready 18.11. · ETD 24.11."]);
     expect(pending({})).toEqual([]);
   });
 
   it("by rail and road the same; by air only with the cargo ready within 1 day or the ETD within 2", () => {
     for (const freightMode of ["Rail Freight", "Road Freight"]) {
-      expect(pending({ freightMode, cargoReadinessDate: "2026-11-21" })).toHaveLength(1);
-      expect(pending({ freightMode, estimatedDeparture: "2026-11-25" })).toHaveLength(1);
-      expect(pending({ freightMode, cargoReadinessDate: "2026-11-22", estimatedDeparture: "2026-11-26" })).toEqual([]);
+      expect(pending({ freightMode, cargoReadinessDate: "2026-11-23" })).toHaveLength(1);
+      expect(pending({ freightMode, estimatedDeparture: "2026-11-27" })).toHaveLength(1);
+      expect(pending({ freightMode, cargoReadinessDate: "2026-11-24", estimatedDeparture: "2026-11-30" })).toEqual([]);
     }
     const air = { freightMode: "Air Freight" };
     expect(pending({ ...air, cargoReadinessDate: "2026-11-19" })).toEqual(["Booking Confirmation Pending · cargo ready 19.11."]);
     expect(pending({ ...air, cargoReadinessDate: "2026-11-20" })).toEqual([]);
     expect(pending({ ...air, estimatedDeparture: "2026-11-20" })).toEqual(["Booking Confirmation Pending · ETD 20.11."]);
     expect(pending({ ...air, estimatedDeparture: "2026-11-21" })).toEqual([]);
+  });
+
+  it("on a Friday a Monday flight is a working day away; over Christmas 28.12. is one from 23.12. (X7)", () => {
+    const air = (over: Partial<OpsCockpitJob>, today: string, holidays: readonly string[] = []) =>
+      texts(bookingSignals(job({ tradeDirection: "Export", bookingConfirmation: "Pending", freightMode: "Air Freight", ...over }), today, holidays));
+    // Friday the 20th: the cargo ready on Monday is within 1 working day, Tuesday's ETD within 2.
+    expect(air({ cargoReadinessDate: "2026-11-23" }, "2026-11-20")).toEqual(["Booking Confirmation Pending · cargo ready 23.11."]);
+    expect(air({ estimatedDeparture: "2026-11-24" }, "2026-11-20")).toEqual(["Booking Confirmation Pending · ETD 24.11."]);
+    expect(air({ estimatedDeparture: "2026-11-25" }, "2026-11-20")).toEqual([]);
+    // A company day off on the Monday moves it on by one.
+    expect(air({ estimatedDeparture: "2026-11-25" }, "2026-11-20", ["2026-11-23"])).toHaveLength(1);
+    // Wednesday 23 Dec: 24-26 Dec are public holidays, then a Sunday - Monday the 28th is the next working day.
+    expect(air({ cargoReadinessDate: "2026-12-28" }, "2026-12-23")).toEqual(["Booking Confirmation Pending · cargo ready 28.12."]);
+    expect(air({ cargoReadinessDate: "2026-12-29" }, "2026-12-23")).toEqual([]);
+  });
+
+  it("is only where the main carriage is ours to book (K26): every export, an import on EXW, FCA, FAS or FOB", () => {
+    const soon = { bookingConfirmation: "Pending", estimatedDeparture: "2026-11-20" };
+    const imported = (over: Partial<OpsCockpitJob>) => texts(bookingSignals(job({ ...soon, tradeDirection: "Import", ...over }), TODAY));
+    expect(imported({ incotermOrigin: "FOB" })).toHaveLength(1);
+    expect(imported({ incotermOrigin: " fob Hamburg " })).toHaveLength(1);
+    expect(imported({ incotermDestination: "EXW" })).toHaveLength(1);
+    expect(imported({ incotermOrigin: "FCA" })).toHaveLength(1);
+    expect(imported({ incotermOrigin: "FAS" })).toHaveLength(1);
+    // The seller's side books the main carriage under a C or D term.
+    for (const term of ["CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"]) expect(imported({ incotermOrigin: term, incotermDestination: term }), term).toEqual([]);
+    // No term typed, or the row read without them: not known to be ours - every job is born Pending.
+    expect(imported({ incotermOrigin: "", incotermDestination: "" })).toEqual([]);
+    expect(imported({})).toEqual([]);
+    // An export is ours whatever its terms; a job with no Trade Direction is no export.
+    expect(texts(bookingSignals(job({ ...soon, tradeDirection: "Export", incotermOrigin: "DAP" }), TODAY))).toHaveLength(1);
+    expect(texts(bookingSignals(job({ ...soon, tradeDirection: "", incotermOrigin: "FOB" }), TODAY))).toEqual([]);
+    expect(weBookMainCarriage({ tradeDirection: "IMPORT", incotermOrigin: "exw", incotermDestination: undefined })).toBe(true);
+    expect(BUYER_BOOKS_INCOTERMS).toEqual(["EXW", "FCA", "FAS", "FOB"]);
   });
 
   it("a date that passed lately still counts; one longer ago than 7 days no more", () => {
@@ -825,7 +868,8 @@ describe("Booking Confirmation still Pending (U4)", () => {
     expect(pending({ ...soon, tradeDirection: "Domestic", freightMode: "" })).toEqual([]);
     expect(pending({ ...soon, department: "Road Department" })).toEqual([]);
     // An international Road Freight job is booked with a carrier like any other.
-    expect(pending({ ...soon, tradeDirection: "Import", freightMode: "Road Freight" })).toHaveLength(1);
+    expect(pending({ ...soon, tradeDirection: "Export", freightMode: "Road Freight" })).toHaveLength(1);
+    expect(pending({ ...soon, tradeDirection: "Import", freightMode: "Road Freight", incotermOrigin: "FCA" })).toHaveLength(1);
   });
 
   it("is not for a booking that came, in whatever case the Pending is written, nor for a job that has left", () => {
@@ -871,11 +915,25 @@ describe("cargo ready after the Closing (U5)", () => {
 describe("an air export with no MAWB number (U15)", () => {
   const air = (over: Partial<OpsCockpitJob>) => mawbSignals(job({ tradeDirection: "Export", freightMode: "Air Freight", estimatedDeparture: "2026-11-19", ...over }), TODAY);
 
-  it("is URGENT with the ETD within 1 day", () => {
+  it("is URGENT with the ETD within 1 working day", () => {
     expect(show(air({}))).toEqual(["URGENT 54 air details · No MAWB number · ETD 19.11."]);
     expect(air({ estimatedDeparture: TODAY })).toHaveLength(1);
     expect(air({ estimatedDeparture: "2026-11-20" })).toEqual([]);
     expect(air({ estimatedDeparture: null })).toEqual([]);
+  });
+
+  it("on a Friday a Monday flight is within 1 working day, and over Christmas 28.12. is from 23.12. (X7)", () => {
+    const flight = (estimatedDeparture: string, today: string, holidays: readonly string[] = []) =>
+      mawbSignals(job({ tradeDirection: "Export", freightMode: "Air Freight", estimatedDeparture }), today, holidays);
+    expect(texts(flight("2026-11-23", "2026-11-20"))).toEqual(["No MAWB number · ETD 23.11."]);
+    expect(flight("2026-11-22", "2026-11-20")).toHaveLength(1);
+    expect(flight("2026-11-24", "2026-11-20")).toEqual([]);
+    expect(flight("2026-11-24", "2026-11-20", ["2026-11-23"])).toHaveLength(1);
+    expect(texts(flight("2026-12-28", "2026-12-23"))).toEqual(["No MAWB number · ETD 28.12."]);
+    expect(flight("2026-12-29", "2026-12-23")).toEqual([]);
+    // A date that passed counts in calendar days, as before.
+    expect(flight("2026-11-13", "2026-11-20")).toHaveLength(1);
+    expect(flight("2026-11-12", "2026-11-20")).toEqual([]);
   });
 
   it("is not said once the number is there or the flight left, nor of an import or a sea job", () => {
@@ -960,11 +1018,13 @@ describe("the B/L signals", () => {
 describe("Credit Check not Green (A24)", () => {
   const credit = (over: Partial<OpsCockpitJob>) => creditSignals(job({ creditCheck: "Red", estimatedDeparture: "2026-11-21", ...over }), TODAY);
 
-  it("is ATTENTION with the ETD within 3 days, naming what the check says", () => {
+  it("is ATTENTION with the ETD within 3 working days, naming what the check says", () => {
     expect(show(credit({}))).toEqual(["attention 204 credit details · Credit Check Red · ETD 21.11."]);
     expect(texts(credit({ creditCheck: "Yellow" }))).toEqual(["Credit Check Yellow · ETD 21.11."]);
     expect(texts(credit({ creditCheck: "" }))).toEqual(["Credit Check not set · ETD 21.11."]);
-    expect(credit({ estimatedDeparture: "2026-11-22" })).toEqual([]);
+    // Wednesday the 18th: the third working day on is Monday the 23rd.
+    expect(credit({ estimatedDeparture: "2026-11-23" })).toHaveLength(1);
+    expect(credit({ estimatedDeparture: "2026-11-24" })).toEqual([]);
     expect(credit({ estimatedDeparture: null })).toEqual([]);
   });
 
@@ -989,9 +1049,11 @@ describe("an open Rolled exception (U6)", () => {
 describe("an import arriving with no arrival notice sent (A4)", () => {
   const arriving = (over: Partial<OpsCockpitJob>) => arrivalNoticeSignals(job({ arrivalNoticeSent: false, estimatedArrival: "2026-11-23", ...over }), TODAY);
 
-  it("is ATTENTION with the ETA within 5 days", () => {
+  it("is ATTENTION with the ETA within 5 working days", () => {
     expect(show(arriving({}))).toEqual(["attention 206 arrival_notice tracking · No arrival notice sent · ETA 23.11."]);
-    expect(arriving({ estimatedArrival: "2026-11-24" })).toEqual([]);
+    // Wednesday the 18th: the fifth working day on is Wednesday the 25th.
+    expect(arriving({ estimatedArrival: "2026-11-25" })).toHaveLength(1);
+    expect(arriving({ estimatedArrival: "2026-11-26" })).toEqual([]);
     expect(arriving({ estimatedArrival: null })).toEqual([]);
   });
 
@@ -1022,11 +1084,14 @@ describe("a Full Load import arriving with a container not ready (A5)", () => {
   const fcl = (over: Partial<OpsCockpitJob> = {}) => job({ loadType: "Full Load", estimatedArrival: "2026-11-25", ...over });
   const box = (containerNumber: string, over: Partial<CockpitBox> = {}): CockpitBox => ({ containerNumber, freeTimeDays: null, lastFreeDay: null, ...over });
 
-  it("looks at the boxes of a Full Load import by sea or rail arriving within 7 days", () => {
+  it("looks at the boxes of a Full Load import by sea or rail arriving within 7 working days", () => {
     expect(boxesWanted(fcl(), TODAY)).toBe(true);
     expect(boxesWanted(fcl({ loadType: " full load " }), TODAY)).toBe(true);
     expect(boxesWanted(fcl({ freightMode: "Rail Freight" }), TODAY)).toBe(true);
-    expect(boxesWanted(fcl({ estimatedArrival: "2026-11-26" }), TODAY)).toBe(false);
+    // Wednesday the 18th: the seventh working day on is Friday the 27th - and the weekend after it.
+    expect(boxesWanted(fcl({ estimatedArrival: "2026-11-27" }), TODAY)).toBe(true);
+    expect(boxesWanted(fcl({ estimatedArrival: "2026-11-30" }), TODAY)).toBe(false);
+    expect(boxesWanted(fcl({ estimatedArrival: "2026-11-30" }), TODAY, ["2026-11-20"])).toBe(true);
     expect(boxesWanted(fcl({ estimatedArrival: "2026-11-04" }), TODAY)).toBe(true);
     expect(boxesWanted(fcl({ estimatedArrival: "2026-11-03" }), TODAY)).toBe(false);
     expect(boxesWanted(fcl({ actualArrival: TODAY }), TODAY)).toBe(false);
@@ -1058,7 +1123,7 @@ describe("a Full Load import arriving with a container not ready (A5)", () => {
   it("says nothing when the containers could not be read, or of a job it does not look at", () => {
     expect(boxSignals(fcl({ actualDeparture: "2026-11-10" }), null, TODAY)).toEqual([]);
     expect(boxSignals(fcl({ loadType: "Consolidation" }), [box("MSKU1234567")], TODAY)).toEqual([]);
-    expect(boxSignals(fcl({ estimatedArrival: "2026-11-26" }), [box("MSKU1234567")], TODAY)).toEqual([]);
+    expect(boxSignals(fcl({ estimatedArrival: "2026-11-30" }), [box("MSKU1234567")], TODAY)).toEqual([]);
   });
 });
 
@@ -1214,17 +1279,17 @@ describe("the road signals, from the job's timeline", () => {
 
 describe("the Handled By signals", () => {
   it("nobody in Handled By is URGENT, last of all", () => {
-    expect(handledBySignals({ personInCharge: "  " }, USERS)).toEqual([{ rank: 100, text: "Nobody in Handled By", urgent: true, kind: "owner", area: "details" }]);
-    expect(handledBySignals({ personInCharge: "" }, null)).toMatchObject([{ text: "Nobody in Handled By" }]);
+    expect(handledBySignals({ holidayCover: "", personInCharge: "  " }, USERS)).toEqual([{ rank: 100, text: "Nobody in Handled By", urgent: true, kind: "owner", area: "details" }]);
+    expect(handledBySignals({ holidayCover: "", personInCharge: "" }, null)).toMatchObject([{ text: "Nobody in Handled By" }]);
   });
 
   it("somebody who is not a user of the company is URGENT, named by the e-mail - a family of its own (\"not_user\"), apart from nobody's \"owner\"", () => {
-    expect(handledBySignals({ personInCharge: " Left@Firma.cz — Old Name" }, USERS)).toEqual([{ rank: 110, text: "Handled By is not a user: left@firma.cz", urgent: true, kind: "not_user", area: "details" }]);
-    expect(handledBySignals({ personInCharge: "JAN@firma.cz" }, USERS)).toEqual([]);
+    expect(handledBySignals({ holidayCover: "", personInCharge: " Left@Firma.cz — Old Name" }, USERS)).toEqual([{ rank: 110, text: "Handled By is not a user: left@firma.cz", urgent: true, kind: "not_user", area: "details" }]);
+    expect(handledBySignals({ holidayCover: "", personInCharge: "JAN@firma.cz" }, USERS)).toEqual([]);
   });
 
   it("says nothing of who is a user when the users are not known", () => {
-    expect(handledBySignals({ personInCharge: "left@firma.cz" }, null)).toEqual([]);
+    expect(handledBySignals({ holidayCover: "", personInCharge: "left@firma.cz" }, null)).toEqual([]);
   });
 });
 
@@ -1363,11 +1428,11 @@ describe("the ranks", () => {
 
   it("every family a signal of this file names is one of the stable keys", () => {
     const all = [
-      ...handledBySignals({ personInCharge: "" }, null),
-      ...handledBySignals({ personInCharge: "left@firma.cz" }, USERS),
+      ...handledBySignals({ holidayCover: "", personInCharge: "" }, null),
+      ...handledBySignals({ holidayCover: "", personInCharge: "left@firma.cz" }, USERS),
       ...customsSignals(job({ customsPriority: "Urgent", customsDeadline: "2026-11-18 08:00" }), timeline({ holdSince: TODAY }), NOW, TODAY),
       ...cutoffSignals(cutoffsOf(job({ closingDate: TODAY }), WED, false), TODAY),
-      ...bookingSignals(job({ bookingConfirmation: "Pending", estimatedDeparture: TODAY }), TODAY),
+      ...bookingSignals(job({ tradeDirection: "Export", bookingConfirmation: "Pending", estimatedDeparture: TODAY }), TODAY),
       ...cargoReadySignals(job({ cargoReadinessDate: "2026-11-25", closingDate: "2026-11-24" }), false, TODAY),
       ...mawbSignals(job({ tradeDirection: "Export", freightMode: "Air Freight", estimatedDeparture: TODAY }), TODAY),
       ...rolledSignals(timeline({ rolledOn: TODAY })),
@@ -1548,7 +1613,7 @@ describe("the cockpit", () => {
       job({ jobNumber: "H-delivery", plannedDeliveryDate: "2026-11-17" }),
       job({ jobNumber: "G-arrival", estimatedArrival: "2026-11-10" }),
       job({ jobNumber: "F-departure", estimatedDeparture: "2026-11-10" }),
-      job({ jobNumber: "E-booking", bookingConfirmation: "Pending", estimatedDeparture: "2026-11-20" }),
+      job({ jobNumber: "E-booking", bookingConfirmation: "Pending", estimatedDeparture: "2026-11-20", incotermOrigin: "FOB" }),
       job({ jobNumber: "D-closing", closingDate: "2026-11-18" }),
       job({ jobNumber: "C-filing", vgmClosing: "2026-11-12" }),
       job({ jobNumber: "B-missed", closingDate: "2026-11-17" }),
@@ -1680,6 +1745,8 @@ describe("the cockpit", () => {
     it("an air import that arrived with no ATD typed: no cut-off, no \"ETD passed\", no booking, credit or MAWB tag", () => {
       const arrived = job({
         freightMode: "Air Freight",
+        // On FCA the flight is ours to book (K26).
+        incotermOrigin: "FCA",
         closingDate: "2026-11-14",
         vgmClosing: "2026-11-14",
         vgm: "Pending (Red)",
@@ -1937,8 +2004,10 @@ describe("the cockpit", () => {
         notUser: job({ personInCharge: "left@firma.cz" }),
         // Pending with nothing close is no risk yet: not counted, not listed.
         bookingFar: job({ bookingConfirmation: "Pending", estimatedDeparture: "2026-12-20" }),
-        bookingSoon: job({ bookingConfirmation: "Pending", estimatedDeparture: "2026-11-24" }),
-        bookingOdd: job({ bookingConfirmation: "PENDING (carrier)", cargoReadinessDate: "2026-11-19" }),
+        bookingSoon: job({ bookingConfirmation: "Pending", estimatedDeparture: "2026-11-24", incotermOrigin: "FOB" }),
+        bookingOdd: job({ bookingConfirmation: "PENDING (carrier)", cargoReadinessDate: "2026-11-19", incotermDestination: "EXW" }),
+        // An import the seller books (CIF) is no booking of ours (K26).
+        bookingSeller: job({ bookingConfirmation: "Pending", estimatedDeparture: "2026-11-19", incotermOrigin: "CIF" }),
         moved: job(),
         freeTime: job(),
         customs: job({ customsPriority: "Urgent", customsDeadline: "2026-11-18 08:00" }),
@@ -1948,7 +2017,7 @@ describe("the cockpit", () => {
       };
       const c = cockpit(Object.values(jobs), { movedIds: new Set([jobs.moved.id, "not-read"]), facts: new Map([[jobs.freeTime.id, over("AAAU1")]]) });
       expect(c.tiles).toEqual({
-        active: 16,
+        active: 17,
         cutoffsDue: 3,
         noHandledBy: 1,
         handledByNotUser: 1,
@@ -2271,7 +2340,8 @@ describe("the cockpit", () => {
     it("lists somebody who only covers, with no job of their own - and nobody twice", () => {
       const c = cockpit([job({ holidayCover: "Eva@firma.cz " }), job({ holidayCover: "gone@firma.cz" }), job({ personInCharge: "eva@firma.cz" })]);
       expect(c.people).toEqual([
-        person("jan@firma.cz", { active: 2 }),
+        // A cover who is no user covers nobody (S16): a warning on the job.
+        person("jan@firma.cz", { active: 2, attention: 1 }),
         person("eva@firma.cz", { covers: 1 }),
         person("gone@firma.cz", { isUser: false, active: 0, covers: 1 }),
       ]);
@@ -2621,5 +2691,118 @@ describe("the warehouse and Trucking", () => {
       expect(c.handover).toEqual({ warehouseUpdatesWaiting: null, warehouseUpdatesFailed: null, truckingUpdatesWaiting: 0, truckingUpdatesFailed: 0 });
       expect(c.notKnown).toEqual(["the warehouse's records"]);
     });
+  });
+});
+
+// ─── The mock test council's fixes (19 Nov 2026) ───────────────────────────
+
+describe("VGM set to Customer (K25)", () => {
+  it("is the shipper's own filing: no cut-off of ours, as Not Applicable", () => {
+    expect(due({ vgmClosing: "2026-11-19", vgm: "Customer" })).toEqual([]);
+    expect(due({ vgmClosing: "2026-11-12", vgm: " customer " })).toEqual([]);
+    expect(tagsOf({ vgmClosing: "2026-11-12", vgm: "Customer" })).toEqual([]);
+    // Still ours while Pending.
+    expect(tagsOf({ vgmClosing: "2026-11-12", vgm: "Pending (Red)" })).toEqual(["URGENT 41 VGM overdue 6 days"]);
+  });
+});
+
+describe("a Holiday Cover who is not a user (S16)", () => {
+  it("is ATTENTION of the not_user family, named by the e-mail, beside whatever the Handled By says", () => {
+    expect(handledBySignals({ personInCharge: "jan@firma.cz", holidayCover: " Gone@Firma.cz — Old Name" }, USERS)).toEqual([
+      { rank: OPS_RANK.coverNotUser, text: "Holiday Cover is not a user: gone@firma.cz", urgent: false, kind: "not_user", area: "details" },
+    ]);
+    expect(handledBySignals({ personInCharge: "left@firma.cz", holidayCover: "gone@firma.cz" }, USERS).map((s) => s.text)).toEqual([
+      "Handled By is not a user: left@firma.cz",
+      "Holiday Cover is not a user: gone@firma.cz",
+    ]);
+    expect(handledBySignals({ personInCharge: "", holidayCover: "gone@firma.cz" }, USERS).map((s) => s.kind)).toEqual(["owner", "not_user"]);
+    expect(handledBySignals({ personInCharge: "jan@firma.cz", holidayCover: "eva@firma.cz" }, USERS)).toEqual([]);
+    // Not known who is a user: nothing said.
+    expect(handledBySignals({ personInCharge: "jan@firma.cz", holidayCover: "gone@firma.cz" }, null)).toEqual([]);
+  });
+
+  it("is counted by the \"Handled By is not a user\" tile, which narrows the cards to the same rows", () => {
+    const covered = job({ jobNumber: "C-cover", holidayCover: "gone@firma.cz" });
+    const handled = job({ jobNumber: "H-handled", personInCharge: "left@firma.cz" });
+    const both = job({ jobNumber: "B-both", personInCharge: "left@firma.cz", holidayCover: "gone@firma.cz" });
+    const fine = job({ jobNumber: "F-fine", holidayCover: "eva@firma.cz" });
+    const c = cockpit([covered, handled, both, fine]);
+    expect(c.tiles).toMatchObject({ handledByNotUser: 3, families: { not_user: 3 } });
+    const narrowed = cockpit([covered, handled, both, fine], { signal: "not_user" });
+    expect(narrowed.urgent.total + narrowed.attention.total).toBe(3);
+    expect(narrowed.attention.rows.map((r) => r.jobNumber)).toEqual(["C-cover"]);
+    expect(namesNoUser(covered, USERS)).toBe(true);
+    expect(namesNoUser(fine, USERS)).toBe(false);
+    expect(namesNoUser(covered, null)).toBe(false);
+    expect(cockpit([covered], { userEmails: null }).tiles.handledByNotUser).toBeNull();
+  });
+});
+
+describe("\"Cut-offs due or missed\" and the cards it opens (m17)", () => {
+  it("the URGENT card narrowed to cut-offs holds exactly the rows the tile counts", () => {
+    const dueSoon = job({ jobNumber: "A-due", closingDate: "2026-11-19" });
+    // URGENT for customs, its SI closing only in the two working days after: no cut-off due.
+    const otherwise = job({ jobNumber: "B-customs", customsPriority: "Urgent", customsDeadline: "2026-11-18 08:00", siClosing: "2026-11-23" });
+    const ahead = job({ jobNumber: "C-ahead", siClosing: "2026-11-20" });
+    const jobs = [dueSoon, otherwise, ahead];
+    const whole = cockpit(jobs);
+    expect(whole.tiles.cutoffsDue).toBe(1);
+    expect(whole.urgent.rows.map((r) => r.jobNumber)).toEqual(["B-customs", "A-due"]);
+    const narrowed = cockpit(jobs, { signal: "cutoff" });
+    expect(narrowed.urgent.total).toBe(narrowed.tiles.cutoffsDue);
+    expect(narrowed.urgent.rows.map((r) => r.jobNumber)).toEqual(["A-due"]);
+    // The job URGENT for something else is listed with the cut-off ahead it was found by, its other tags still on it.
+    expect(narrowed.attention.rows.map((r) => r.jobNumber).sort()).toEqual(["B-customs", "C-ahead"]);
+    expect(narrowed.attention.rows.find((r) => r.jobNumber === "B-customs")!.tags.map((t) => t.kind)).toEqual(["customs", "cutoff"]);
+    // Every row of the family, as the families count says.
+    expect(narrowed.urgent.total + narrowed.attention.total).toBe(narrowed.tiles.families.cutoff);
+    // Another tile's narrowing keeps the rows where they are.
+    expect(cockpit(jobs, { signal: "customs" }).urgent.rows.map((r) => r.jobNumber)).toEqual(["B-customs"]);
+  });
+});
+
+describe("a job no longer active with an open claim (X8)", () => {
+  const claimed = (over: Partial<OpsCockpitJob> = {}) => job({ claim: "Yes", status: "Billed [IMP]", ...over });
+  const open = (id: string) => ({ id: `claim-${id}`, createdAt: new Date("2026-10-20T09:00:00Z"), status: "open" as const, noticeDate: null });
+
+  it("is a row for its claim's tags only, counted by Open claims, and nothing else of the page", () => {
+    const active = job({ jobNumber: "A-active", claim: "Yes" });
+    // Invoiced, with every other rule's reason to speak: a missed Closing, nobody in Handled By.
+    const invoiced = claimed({ jobNumber: "I-invoiced", closingDate: "2026-11-16", personInCharge: "" });
+    const cancelled = claimed({ jobNumber: "X-cancelled", status: "Cancelled Shipment" });
+    const claims = { byJob: new Map([[active.id, [open("a")]], [invoiced.id, [open("i")]], [cancelled.id, [open("x")]]]), limits: TIME_LIMITS_OFF };
+    const c = cockpit([active], { claimOnlyJobs: [invoiced, cancelled], claims });
+    expect(c.tiles).toMatchObject({ active: 1, openClaims: 3, noHandledBy: 0, cutoffsDue: 0, families: { claim: 3 } });
+    expect(c.attention.rows.map((r) => [r.jobNumber, r.tags.map((t) => t.text)])).toEqual([
+      ["A-active", ["Cargo claim open since 20.10."]],
+      ["I-invoiced", ["Cargo claim open since 20.10."]],
+      ["X-cancelled", ["Cargo claim open since 20.10."]],
+    ]);
+    expect(c.urgent.total).toBe(0);
+    // Nobody's load: the people line knows the active job only.
+    expect(c.people.map((p) => [p.handledBy, p.active])).toEqual([["jan@firma.cz", 1]]);
+    // Narrowed to the claims, the same three rows.
+    const narrowed = cockpit([active], { claimOnlyJobs: [invoiced, cancelled], claims, signal: "claim" });
+    expect(narrowed.attention.total).toBe(3);
+  });
+
+  it("obeys the page's filters as an active job does", () => {
+    const sea = claimed({ jobNumber: "S-sea" });
+    const air = claimed({ jobNumber: "A-air", freightMode: "Air Freight", personInCharge: "eva@firma.cz" });
+    const claims = { byJob: new Map([[sea.id, [open("s")]], [air.id, [open("a")]]]), limits: TIME_LIMITS_OFF };
+    const rows = (over: Partial<OpsCockpitInput>) => cockpit([], { claimOnlyJobs: [sea, air], claims, ...over }).attention.rows.map((r) => r.jobNumber);
+    expect(rows({})).toEqual(["A-air", "S-sea"]);
+    expect(rows({ mode: "air" })).toEqual(["A-air"]);
+    expect(rows({ handledBy: "jan@firma.cz" })).toEqual(["S-sea"]);
+    expect(rows({ direction: "export" })).toEqual([]);
+    expect(rows({ reports: "mine", reportEmails: new Set(["eva@firma.cz"]) })).toEqual(["A-air"]);
+    expect(cockpit([], { claimOnlyJobs: [sea, air], claims, mode: "air" }).tiles.openClaims).toBe(1);
+  });
+
+  it("is counted by Open claims while its claim is younger than the tag's 14 days, and gives no row then", () => {
+    const young = claimed();
+    const c = cockpit([], { claimOnlyJobs: [young], claims: { byJob: new Map([[young.id, [{ ...open("y"), createdAt: new Date("2026-11-16T09:00:00Z") }]]]), limits: TIME_LIMITS_OFF } });
+    expect(c.tiles.openClaims).toBe(1);
+    expect(c.urgent.total + c.attention.total).toBe(0);
   });
 });

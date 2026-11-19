@@ -18,6 +18,11 @@ export function scrollsVertically(overflowY: string, scrollHeight: number, clien
   return (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") && scrollHeight > clientHeight + 1;
 }
 
+/** An element kept in view at the top by CSS itself: sticky with a top set (sticky only to the left does not count). */
+export function stickyToTop(position: string, top: string): boolean {
+  return position === "sticky" && top !== "auto";
+}
+
 const PINNED = "table-head-pinned";
 
 /** The line, from the window's top, that the table's titles stop at: the top of the box its rows scroll in. */
@@ -36,12 +41,16 @@ function stopLine(table: HTMLTableElement): number {
 function headToPin(table: HTMLTableElement): HTMLTableSectionElement | null {
   const head = table.tHead;
   if (!head || table.closest(".ant-table")) return null;
-  // A head made sticky to the top on purpose (in a box with its own scrolling) already stays in view;
-  // one sticky only to the left (a first column kept in view sideways) still needs moving down.
+  // A head made sticky to the top on purpose (in a box with its own scrolling) already stays in view:
+  // moving it as well would slide it down over the rows. The stickiness may sit on the head itself,
+  // on its first row or on its cells. One sticky only to the left (a first column kept in view
+  // sideways) still needs moving down.
+  const row = head.rows[0];
   const cell = head.querySelector("th, td");
-  if (cell) {
-    const cs = getComputedStyle(cell);
-    if (cs.position === "sticky" && cs.top !== "auto") return null;
+  for (const el of [head, row, cell]) {
+    if (!el) continue;
+    const cs = getComputedStyle(el);
+    if (stickyToTop(cs.position, cs.top)) return null;
   }
   return head;
 }

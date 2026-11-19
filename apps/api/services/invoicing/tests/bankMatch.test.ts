@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { allocationProblem, decidableProblem, ignoreProblem, invoiceNumberIn, matchEntry, sameSymbol, storedCandidate, type OpenInvoice } from "../lib/bankMatch";
+import {
+  allocationProblem,
+  decidableProblem,
+  ignoreProblem,
+  invoiceNumberIn,
+  matchEntry,
+  sameSymbol,
+  storedCandidate,
+  waitingPaymentsOf,
+  waitingPaymentText,
+  type OpenBankEntry,
+  type OpenInvoice,
+  type WaitingInvoice,
+} from "../lib/bankMatch";
 
 // Which invoices a bank entry may pay (the bank statement import): a proposal only, never a payment.
 
@@ -147,5 +160,56 @@ describe("decidableProblem and ignoreProblem", () => {
   it("a reason of at least 3 characters", () => {
     expect(ignoreProblem(" ab ")).toBe("Say why this entry is set aside");
     expect(ignoreProblem("Loan from the owner")).toBeNull();
+  });
+});
+
+describe("waitingPaymentsOf (mock test council X5)", () => {
+  const open = (over: Partial<OpenBankEntry> = {}): OpenBankEntry => ({ ...entry({ variableSymbol: "31" }), statementId: "st-1", fileName: "vypis-1.xml", bookingDate: "2026-11-17", ...over });
+  const owed = (over: Partial<WaitingInvoice> = {}): WaitingInvoice => ({ ...inv(), issueDate: "2026-11-02", ...over });
+  const TODAY = "2026-11-19";
+
+  it("names each owed invoice an undecided incoming entry may pay, with the oldest booked entry first", () => {
+    const out = waitingPaymentsOf(
+      [open({ statementId: "st-2", fileName: "vypis-2.xml", bookingDate: "2026-11-18" }), open(), open({ variableSymbol: "99", bookingDate: "2026-11-01" })],
+      [owed(), owed({ invoiceId: "i-99", jobNumber: "CZ00000099", number: "INV2026CZ00000099-001", currency: "EUR" })],
+      TODAY,
+    );
+    expect([...out.entries()]).toEqual([["i-31a", { statementId: "st-1", fileName: "vypis-1.xml", bookingDate: "2026-11-17", amount: 1210, currency: "CZK" }]]);
+  });
+
+  it("never names an invoice for money out, another currency, or with nothing left to pay", () => {
+    expect(waitingPaymentsOf([open({ credit: false })], [owed()], TODAY).size).toBe(0);
+    expect(waitingPaymentsOf([open({ currency: "EUR" })], [owed()], TODAY).size).toBe(0);
+    expect(waitingPaymentsOf([open()], [owed({ leftToPay: 0 })], TODAY).size).toBe(0);
+    expect(waitingPaymentsOf([open()], [], TODAY).size).toBe(0);
+  });
+
+  it("never holds a job's later invoice with an entry booked before that invoice was issued (the symbol is the job's)", () => {
+    // Booked 17.11. for the job's first invoice; the second one, issued 18.11., is not what it paid.
+    const later = owed({ invoiceId: "i-31b", number: "INV2026CZ00000031-002", issueDate: "2026-11-18" });
+    expect([...waitingPaymentsOf([open()], [later], TODAY).keys()]).toEqual([]);
+    // Booked on the issue day, it may be.
+    expect([...waitingPaymentsOf([open({ bookingDate: "2026-11-18" })], [later], TODAY).keys()]).toEqual(["i-31b"]);
+    // An invoice of no known issue day is held as before.
+    expect([...waitingPaymentsOf([open()], [owed({ issueDate: null })], TODAY).keys()]).toEqual(["i-31a"]);
+  });
+
+  it("holds nothing with an entry booked more than 30 days ago - nor one with no booking day read that long ago", () => {
+    const old = owed({ issueDate: "2026-09-01" });
+    expect(waitingPaymentsOf([open({ bookingDate: "2026-10-20" })], [old], TODAY).size).toBe(1);
+    expect(waitingPaymentsOf([open({ bookingDate: "2026-10-19" })], [old], TODAY).size).toBe(0);
+    expect(waitingPaymentsOf([open({ bookingDate: null, readOn: "2026-10-01" })], [old], TODAY).size).toBe(0);
+    expect(waitingPaymentsOf([open({ bookingDate: null, readOn: "2026-11-10" })], [old], TODAY).size).toBe(1);
+    // A later, recent entry still holds it.
+    expect(waitingPaymentsOf([open({ bookingDate: "2026-10-01" }), open({ statementId: "st-2", bookingDate: "2026-11-17" })], [old], TODAY).get("i-31a")?.statementId).toBe("st-2");
+  });
+
+  it("says it in the drawer's words", () => {
+    expect(waitingPaymentText({ statementId: "st-1", fileName: "vypis-1.xml", bookingDate: "2026-11-17", amount: 1210, currency: "CZK" })).toBe(
+      "A payment that may be for this invoice is waiting on bank statement vypis-1.xml (booked 17.11.2026, 1210.00 CZK): a manager confirms it there",
+    );
+    expect(waitingPaymentText({ statementId: "st-1", fileName: "", bookingDate: null, amount: 5, currency: "EUR" })).toBe(
+      "A payment that may be for this invoice is waiting on bank statement (no name) (5.00 EUR): a manager confirms it there",
+    );
   });
 });

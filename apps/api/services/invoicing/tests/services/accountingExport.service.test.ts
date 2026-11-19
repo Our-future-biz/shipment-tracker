@@ -12,6 +12,7 @@ const repo = vi.hoisted(() => ({
   list: vi.fn(),
   exportById: vi.fn(),
   documentIdsOf: vi.fn(),
+  documentsByIds: vi.fn(),
 }));
 vi.mock("../../repositories/accountingExport.repository", () => ({ accountingExportRepository: repo }));
 const users = vi.hoisted(() => ({ userEmailOf: vi.fn() }));
@@ -166,7 +167,7 @@ describe("exportPohoda", () => {
     const again = await service.exportPohoda(manager, { from: "2026-11-01", to: "2026-11-30", includeExported: true });
     expect(again.numbers).toEqual(["INV-a", "INV-b"]);
     expect(again.skipped).toEqual([]);
-    expect(again.warnings).toEqual(["Exported before and in this file again: INV-a. Pohoda refuses a number it already has, so remove them there first"]);
+    expect(again.warnings).toEqual(["Exported before and in this file again: INV-a. Pohoda refuses a number it already has: if an earlier file was imported there, remove them in Pohoda first"]);
     expect(repo.record.mock.calls[1]![2]).toEqual(["a", "b"]);
   });
 
@@ -247,16 +248,84 @@ describe("exportPohoda", () => {
 });
 
 describe("list", () => {
-  it("shows everyone the exports, and says who may export", async () => {
+  it("shows the managers the exports (X6); anyone else is refused and nothing is read", async () => {
     repo.list.mockResolvedValue([
       { id: "e1", system: "pohoda", fromDate: "2026-11-01", toDate: "2026-11-30", documents: 4, fileName: "f.xml", fileSha256: "abc", createdBy: "boss@example.com", createdAt: new Date("2026-12-01T08:00:00Z") },
     ]);
-    const out = await service.list(clerk);
+    await expect(service.list(clerk)).rejects.toMatchObject({ code: "permission_denied" });
+    expect(repo.list).not.toHaveBeenCalled();
+    const out = await service.list(manager);
     expect(repo.list).toHaveBeenCalledWith(COMPANY, 200);
     expect(out).toEqual({
       exports: [{ id: "e1", system: "pohoda", from: "2026-11-01", to: "2026-11-30", documents: 4, fileName: "f.xml", fileSha256: "abc", createdBy: "boss@example.com", createdAt: "2026-12-01T08:00:00.000Z" }],
-      canExport: false,
+      canExport: true,
     });
-    expect((await service.list(manager)).canExport).toBe(true);
+  });
+});
+
+describe("an export whose answer was lost (m1)", () => {
+  /** One export made under key k-1, recorded as the repository would keep it; its documents count as exported since. */
+  async function made() {
+    given([doc("a"), doc("b", { issueDate: "2026-11-02" })]);
+    const first = await service.exportPohoda(manager, { from: "2026-11-01", to: "2026-11-30", idempotencyKey: "k-1" });
+    const [, values, ids] = repo.record.mock.calls[0]!;
+    const createdAt = new Date("2026-11-18T09:00:00Z");
+    const record = { ...values, createdAt, deletedAt: null };
+    repo.exportById.mockResolvedValue(record);
+    repo.documentIdsOf.mockResolvedValue(new Set(ids));
+    repo.exportedBefore.mockImplementation(async (_tx: unknown, _c: string, _s: string, _ids: string[], madeBefore?: Date) =>
+      madeBefore && madeBefore <= createdAt ? new Map() : new Map((ids as string[]).map((id) => [id, { exportId: first.exportId, fileName: first.fileName, at: createdAt }])),
+    );
+    return { first, record };
+  }
+
+  it("the same key again answers the recorded documents, even when the period holds another document now", async () => {
+    const { first } = await made();
+    // An invoice issued in the period since (or one the choice would add): the replay is not refused, and not changed.
+    given([doc("a"), doc("b", { issueDate: "2026-11-02" }), doc("c", { issueDate: "2026-11-20" })]);
+    repo.exportedBefore.mockResolvedValue(new Map());
+    const again = await service.exportPohoda(manager, { from: "2026-11-01", to: "2026-11-30", idempotencyKey: "k-1" });
+    expect(repo.record).toHaveBeenCalledTimes(1);
+    expect(again).toMatchObject({ exportId: first.exportId, fileSha256: first.fileSha256, contentBase64: first.contentBase64, numbers: first.numbers });
+    expect(again.skipped).toEqual([{ number: "INV-c", kind: "invoice", issueDate: "2026-11-20", reason: "Not in this export (it was made before this document could go in): it goes in the next export" }]);
+  });
+
+  it("never lists a recorded document as skipped when it is answered again - cancelled since, it is still in the file", async () => {
+    const { first } = await made();
+    given([doc("a", { status: "cancelled" }), doc("b", { issueDate: "2026-11-02" }), doc("c", { issueDate: "2026-11-20", status: "cancelled" })]);
+    repo.exportedBefore.mockResolvedValue(new Map());
+    const again = await service.exportPohoda(manager, { from: "2026-11-01", to: "2026-11-30", idempotencyKey: "k-1" });
+    expect(again.numbers).toEqual(first.numbers);
+    expect(again.numbers).toContain("INV-a");
+    // Only what is not in the file is listed: the one cancelled that the export never recorded.
+    expect(again.skipped.map((s) => s.number)).toEqual(["INV-c"]);
+  });
+
+  it("refuses to answer a file that does not match the recorded SHA-256, never a different file under the same export", async () => {
+    const { record } = await made();
+    repo.exportById.mockResolvedValue({ ...record, fileSha256: "0".repeat(64) });
+    await expect(service.exportPohoda(manager, { from: "2026-11-01", to: "2026-11-30", idempotencyKey: "k-1" })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(repo.record).toHaveBeenCalledTimes(1);
+  });
+
+  it("downloads an export again from its recorded documents, the same bytes; managers only, nothing recorded", async () => {
+    const { first, record } = await made();
+    repo.documentsByIds.mockResolvedValue([doc("a"), doc("b", { issueDate: "2026-11-02" })]);
+    const file = await service.exportFile(manager, first.exportId);
+    expect(file).toEqual({ exportId: first.exportId, fileName: first.fileName, contentBase64: first.contentBase64, contentType: first.contentType, encoding: "windows-1250", fileSha256: first.fileSha256, documents: 2 });
+    expect(repo.exportById).toHaveBeenLastCalledWith(TX, COMPANY, first.exportId);
+    expect(repo.record).toHaveBeenCalledTimes(1);
+
+    await expect(service.exportFile(clerk, first.exportId)).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(service.exportFile(manager, "nope")).rejects.toMatchObject({ code: "not_found" });
+    repo.exportById.mockResolvedValue(null);
+    await expect(service.exportFile(manager, first.exportId)).rejects.toMatchObject({ code: "not_found" });
+    // A recorded document gone, or the bytes no longer the recorded ones: refused, never another file.
+    repo.exportById.mockResolvedValue(record);
+    repo.documentsByIds.mockResolvedValue([doc("a")]);
+    await expect(service.exportFile(manager, first.exportId)).rejects.toMatchObject({ code: "failed_precondition" });
+    repo.documentsByIds.mockResolvedValue([doc("a"), doc("b", { issueDate: "2026-11-02" })]);
+    repo.exportById.mockResolvedValue({ ...record, fileSha256: "0".repeat(64) });
+    await expect(service.exportFile(manager, first.exportId)).rejects.toMatchObject({ code: "failed_precondition" });
   });
 });

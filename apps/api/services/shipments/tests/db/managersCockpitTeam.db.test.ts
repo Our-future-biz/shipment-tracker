@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { businessInstant } from "../../../../lib/businessDate";
 import { db } from "../../db/db";
+import { ABSENCE_COVER_FIELD } from "../../lib/absenceCover";
 import { CUTOFF_DISMISSED_FIELD } from "../../lib/cutoffDismissals";
 import { NUDGE_FIELD } from "../../lib/nudge";
 import { RELEASE_REQUEST_FIELD, answeredLine, askedLine } from "../../lib/releaseRequest";
@@ -144,6 +145,24 @@ describe("when each job was last touched", () => {
     // The people of the job answering the nudge do touch it: a chat line of their own, at another moment.
     await newLine(companyId, nudged.id, "2026-11-17 09:00");
     expect((await shipmentAuditRepository.lastTouchedSince(companyId, ids, SINCE, NOT_A_TOUCH)).get(nudged.id)).toEqual(at("2026-11-17 09:00"));
+  });
+
+  it("leaves out what the absence-cover job writes (m16): its line and the Holiday Cover of the same save - a cover typed by a person still counts", async () => {
+    const companyId = randomUUID();
+    const [set, cleared, byHand] = await Promise.all(Array.from({ length: 3 }, () => newJob(companyId)));
+    // The cover job's saves: the Holiday Cover change and its own line, at the very same moment (one write turn).
+    await newChange(companyId, set.id, "holidayCover", "2026-11-16 10:15", { newValue: "eva@firma.cz" });
+    await newChange(companyId, set.id, ABSENCE_COVER_FIELD, "2026-11-16 10:15", { newValue: "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11." });
+    await newChange(companyId, cleared.id, "holidayCover", "2026-11-17 08:00", { oldValue: "eva@firma.cz", newValue: "" });
+    await newChange(companyId, cleared.id, ABSENCE_COVER_FIELD, "2026-11-17 08:00", { newValue: "Holiday Cover eva@firma.cz cleared: Jan Novák is back" });
+    // The same field set by a person, at another moment than any cover-job line.
+    await newChange(companyId, byHand.id, "holidayCover", "2026-11-16 11:00", { newValue: "eva@firma.cz" });
+    await newChange(companyId, byHand.id, ABSENCE_COVER_FIELD, "2026-11-16 10:15", { newValue: "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11." });
+
+    const touched = await shipmentAuditRepository.lastTouchedSince(companyId, [set.id, cleared.id, byHand.id], SINCE, NOT_A_TOUCH);
+    expect(touched.has(set.id)).toBe(false);
+    expect(touched.has(cleared.id)).toBe(false);
+    expect(touched.get(byHand.id)).toEqual(at("2026-11-16 11:00"));
   });
 });
 

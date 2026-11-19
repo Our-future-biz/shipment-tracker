@@ -8,6 +8,7 @@ import { toDecimal } from "../lib/amounts";
 import { answerProblem } from "../lib/sellingAmount";
 import { sellingAmountRequestRepository as requests } from "../repositories/sellingAmountRequest.repository";
 import type { SellingAmountRequestRecord } from "../schemas/sellingAmountRequest.schema";
+import { statusesFollow } from "./sellingStatusFollow";
 import type { SellingAmountChangeResult, SellingAmountRequestItem } from "../interfaces/interfaces";
 
 // The number of a selling row a shipment sells on at cost (a master job's demurrage). The same as
@@ -57,7 +58,10 @@ class SellingAmountRequestService {
     const reason = (input.reason ?? "").trim();
     if (reason && reason.length < 3) throw APIError.invalidArgument("Say why the amount is lower");
     const [job, userEmail] = await Promise.all([assertShipmentExists(shipmentId), userEmailOf(actor.userID)]);
-    const result = await requests.change(actor.companyID, shipmentId, sellingId, { amount, reason, userId: actor.userID, userEmail, jobNumber: job.jobNumber });
+    // A number written at once on a billed job is a charge changed after invoicing: its statuses follow.
+    const follow = statusesFollow(actor.companyID, shipmentId);
+    const result = await requests.change(actor.companyID, shipmentId, sellingId, { amount, reason, userId: actor.userID, userEmail, jobNumber: job.jobNumber }, follow.after);
+    if (result.outcome === "saved") await follow.deliver();
     switch (result.outcome) {
       case "not_found":
         throw notFound();
@@ -104,7 +108,14 @@ class SellingAmountRequestService {
     const problem = answerProblem(input.decision, comment);
     if (problem) throw APIError.invalidArgument(problem);
     const userEmail = await userEmailOf(actor.userID);
-    const result = await requests.answer(actor.companyID, id, { approve: input.decision === "approve", comment, userId: actor.userID, userEmail });
+    // An approval writes the row (a new amount, or the row taken away): the job's statuses follow. The
+    // request's shipment is known only inside the answer's transaction, so the hook is made there.
+    const followed: { follow?: ReturnType<typeof statusesFollow> } = {};
+    const result = await requests.answer(actor.companyID, id, { approve: input.decision === "approve", comment, userId: actor.userID, userEmail }, (shipmentId) => {
+      followed.follow = statusesFollow(actor.companyID, shipmentId);
+      return followed.follow.after;
+    });
+    if (result.outcome === "done") await followed.follow?.deliver();
     switch (result.outcome) {
       case "not_found":
         throw APIError.notFound("This request is not there");

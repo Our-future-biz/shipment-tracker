@@ -139,7 +139,7 @@ describe("the Money tab's facts of many jobs", () => {
     expect(clients.jobRatesRead).toHaveBeenCalledWith({ jobs: [{ shipmentId: A, dates: null, invoiced: true }], currencies: ["EUR"] });
     expect(out.jobs[0]!.totals).toEqual({
       sellingCzk: null, estimateCzk: 0, realCzk: 1500, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, costCzk: null, profitCzk: null, marginPct: null,
-      missingCurrencies: ["EUR"], ratesNote: "not_fixed",
+      missingCurrencies: ["EUR"], ratesNote: "not_fixed", ratesStale: false,
     });
     // Not a failed read: nothing is named as not known.
     expect(out.notKnown).toEqual([]);
@@ -159,7 +159,16 @@ describe("the Money tab's facts of many jobs", () => {
 
     clients.jobRatesRead.mockResolvedValue({ jobs: [rates(A)], notFixed: [], unreadable: [] });
     const valued = await service.forJobs(COMPANY, [A], [dates(A)]);
-    expect(valued.jobs[0]!.totals).toMatchObject({ profitCzk: 1000, missingCurrencies: [], ratesNote: "" });
+    expect(valued.jobs[0]!.totals).toMatchObject({ profitCzk: 1000, missingCurrencies: [], ratesNote: "", ratesStale: false });
+  });
+
+  it("hands through that fx valued a job at an older fixing, its date's not imported (m20): the figures stand, marked stale", async () => {
+    clients.jobRatesRead.mockResolvedValue({ jobs: [{ ...rates(A), ratesMissing: true }], notFixed: [], unreadable: [] });
+    const out = await service.forJobs(COMPANY, [A, B], [dates(A), dates(B)]);
+    expect(out.jobs[0]!.totals).toMatchObject({ profitCzk: 1000, ratesStale: true });
+    // A job all in CZK asked fx nothing: nothing of it is stale.
+    expect(out.jobs[1]!.totals).toMatchObject({ profitCzk: 300, ratesStale: false });
+    expect(out.notKnown).toEqual([]);
   });
 
   it("names the rates when fx does not answer: only the jobs all in CZK are totalled", async () => {
@@ -264,7 +273,7 @@ describe("the Money tab's facts of many jobs", () => {
     expect(supplier.costLinesOf).not.toHaveBeenCalled();
     expect(clients.costClaims).not.toHaveBeenCalled();
     expect(clients.supplierFacts).not.toHaveBeenCalled();
-    expect(out.jobs[0]!.supplierInvoices).toEqual({ toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] });
+    expect(out.jobs[0]!.supplierInvoices).toEqual({ toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, refusedOn: [], claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] });
   });
 
   it("names what is no id of a job as unreadable, and reads nothing when no id is left", async () => {

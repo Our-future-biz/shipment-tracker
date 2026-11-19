@@ -48,14 +48,23 @@ export function tripArrivalToday(m: Partial<Pick<Movement, "transportLegs">>, to
 }
 
 /**
- * Expected at the gate today: not arrived yet (status Expected, no gate-in) and today is its ETA,
- * its shipment's ETA Warehouse/HUB, its dock slot (Dock & Yard; the older slot text when it has
- * none), the planned arrival of the Trucking trip that fills its IN leg, or the ETA warehouse (ETW)
- * of one of its sub-positions.
+ * The day the cargo is due at the warehouse by its dates: its shipment's ETA Warehouse/HUB when that
+ * is filled (the vessel's ETA is then only when it reaches port, not the gate), else the ETA.
+ * Kept the same as the server's copy (warehouseConcept services/managersCockpit).
+ */
+export function arrivalDay(m: Pick<Movement, "eta"> & Partial<Pick<Movement, "etaWarehouse">>): { day: string; by: "ETA warehouse" | "ETA" } {
+  return (m.etaWarehouse ?? "").trim() ? { day: dayOf(m.etaWarehouse), by: "ETA warehouse" } : { day: dayOf(m.eta), by: "ETA" };
+}
+
+/**
+ * Expected at the gate today: not arrived yet (status Expected, no gate-in) and today is its arrival
+ * day (its shipment's ETA Warehouse/HUB, else its ETA: arrivalDay), its dock slot (Dock & Yard; the
+ * older slot text when it has none), the planned arrival of the Trucking trip that fills its IN leg,
+ * or the ETA warehouse (ETW) of one of its sub-positions.
  */
 export function isExpectedToday(m: ExpectedFields, today: string): boolean {
   if (m.status !== "Expected" || m.gateIn) return false;
-  if (slotToday(m, today) || dayOf(m.eta) === today || dayOf(m.etaWarehouse) === today || dayOf(m.slot) === today || tripArrivalToday(m, today)) return true;
+  if (slotToday(m, today) || arrivalDay(m).day === today || dayOf(m.slot) === today || tripArrivalToday(m, today)) return true;
   return m.subPositions.some((s) => dayOf(s.etw) === today);
 }
 
@@ -67,8 +76,8 @@ export function expectedBecause(m: ExpectedFields, today: string): string {
   if (booked) parts.push(`Slot ${booked.time} · ${booked.dock}`);
   else if (dayOf(m.slot) === today) parts.push(`Slot ${m.slot.slice(11, 16) || m.slot}`.trim());
   else if (trip) parts.push(`${tripLabel(trip)} ${PRAGUE_TIME.format(new Date(trip.gateTime))}`);
-  if (dayOf(m.eta) === today) parts.push("ETA");
-  if (dayOf(m.etaWarehouse) === today) parts.push("ETA warehouse");
+  const arrival = arrivalDay(m);
+  if (arrival.day === today) parts.push(arrival.by);
   if (m.subPositions.some((s) => dayOf(s.etw) === today)) parts.push("ETW");
   return parts.join(" · ");
 }
@@ -83,8 +92,9 @@ export function expectedSortKey(m: ExpectedFields, today: string): string {
   if (dayOf(m.slot) === today && /\d{2}:\d{2}/.test(m.slot.slice(11))) return m.slot.slice(11, 16);
   const trip = tripArrivalToday(m, today);
   if (trip) return PRAGUE_TIME.format(new Date(trip.gateTime));
+  // The ETA's time counts only while the ETA is the arrival day (no ETA Warehouse/HUB, a day only).
   const eta = (m.eta ?? "").trim();
-  if (dayOf(eta) === today && /[ T]\d{2}:\d{2}/.test(eta)) {
+  if (arrivalDay(m).by === "ETA" && dayOf(eta) === today && /[ T]\d{2}:\d{2}/.test(eta)) {
     const zoned = /[zZ]|[+-]\d{2}:?\d{2}$/.test(eta);
     return zoned ? PRAGUE_TIME.format(new Date(eta)) : eta.slice(11, 16);
   }

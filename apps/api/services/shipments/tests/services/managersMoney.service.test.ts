@@ -215,7 +215,7 @@ describe("the Money tab's reads", () => {
       ],
     ]);
     // The one CZK total: 1,450 EUR at today's 25.
-    expect(m.tiles).toMatchObject({ notYetInvoiced: [{ currency: "EUR", amount: 1450 }], notYetInvoicedCzk: { amount: 36_250, label: "at today's ČNB rate (18.11.)" }, notYetInvoicedJobs: 1 });
+    expect(m.tiles).toMatchObject({ notYetInvoiced: [{ currency: "EUR", amount: 1450 }], notYetInvoicedCzk: { amount: 36_250, label: "at the latest ČNB rate (18.11.)" }, notYetInvoicedJobs: 1 });
     expect(fx.fxRatesOn).toHaveBeenCalledTimes(1);
     expect(m.people).toEqual([person("jan@firma.cz", { notYetInvoiced: [{ currency: "EUR", amount: 1450 }], jobsAtLoss: 1, costClaimsOpen: 1 })]);
   });
@@ -236,7 +236,7 @@ describe("the Money tab's reads", () => {
 describe("the one CZK total of the work not yet invoiced", () => {
   const unbilled = (amounts: { currency: string; amount: number }[]) => invoicingAnswers({ "id-1": { notYetInvoiced: amounts } });
 
-  it("is converted at today's ČNB sheet - read once, and only when something stands in another currency - and labelled with the day of its fixing", async () => {
+  it("is converted at the latest ČNB sheet - read once, and only when something stands in another currency - and labelled with the day of its fixing", async () => {
     givenJobs([row(1)]);
     unbilled([{ currency: "CZK", amount: 500 }]);
     const inCzk = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
@@ -249,9 +249,19 @@ describe("the one CZK total of the work not yet invoiced", () => {
     fx.fxRatesOn.mockResolvedValue({ date: "2026-11-18", fixingDate: "2026-11-16", rates: [{ currency: "EUR", rate: 25 }] });
     const mixed = await managersMoneyService.money(COMPANY, EVERYONE, later(10));
     expect(fx.fxRatesOn).toHaveBeenCalledTimes(1);
-    expect(mixed.tiles.notYetInvoicedCzk).toEqual({ amount: 3000, label: "at today's ČNB rate (16.11.)" });
+    expect(mixed.tiles.notYetInvoicedCzk).toEqual({ amount: 3000, label: "at the latest ČNB rate (16.11.)" });
     expect(mixed.tiles.notYetInvoiced).toEqual([{ currency: "CZK", amount: 500 }, { currency: "EUR", amount: 100 }]);
     expect(mixed.notKnown).toEqual([]);
+  });
+
+  it("says when the sheet's fixing is old - a newer one should be stored and is not (m20) - and converts an invoiced job's late charge too", async () => {
+    givenJobs([row(1), row(2, { invoicingStatus: "Invoiced" })]);
+    invoicingAnswers({ "id-1": { notYetInvoiced: [{ currency: "CZK", amount: 500 }] }, "id-2": { notYetInvoiced: [{ currency: "EUR", amount: 100 }] } });
+    fx.fxRatesOn.mockResolvedValue({ date: "2026-11-18", fixingDate: "2026-11-16", missing: true, rates: [{ currency: "EUR", rate: 25 }] });
+    const m = await managersMoneyService.money(COMPANY, EVERYONE, NOW);
+    // Only the invoiced job has another currency than CZK: the sheet is asked for all the same.
+    expect(fx.fxRatesOn).toHaveBeenCalledTimes(1);
+    expect(m.tiles.notYetInvoicedCzk).toEqual({ amount: 3000, label: "(ČNB rate of 16.11., newer not imported)" });
   });
 
   it("is none when a currency has no rate that day: the answer names the currency, the chips stand alone - and that answer is kept", async () => {
@@ -276,7 +286,7 @@ describe("the one CZK total of the work not yet invoiced", () => {
     expect(m.notKnown).toEqual([MONEY_NOT_KNOWN.rates]);
     expect(MONEY_NOT_KNOWN.rates).toBe("today's ČNB rates");
     const again = await managersMoneyService.money(COMPANY, EVERYONE, later(1));
-    expect(again.tiles.notYetInvoicedCzk).toEqual({ amount: 2500, label: "at today's ČNB rate (18.11.)" });
+    expect(again.tiles.notYetInvoicedCzk).toEqual({ amount: 2500, label: "at the latest ČNB rate (18.11.)" });
     expect(shipments.managersMoneyRows).toHaveBeenCalledTimes(2);
   });
 });
@@ -298,14 +308,14 @@ describe("the jobs that read Invoiced", () => {
     expect(claims.openCostClaimsByShipmentIds).toHaveBeenCalledWith(COMPANY, ["id-1", "id-2"]);
     expect(customers._internalCustomerCreditFacts).toHaveBeenCalledWith({ customerIds: ["c-1"] });
     expect(history.latestByShipmentIds).toHaveBeenCalledWith(COMPANY, [{ fields: ["status"], shipmentIds: ["id-1"] }]);
-    // The invoiced job: its loss, and nothing of credit or "In Billing". The active one: both.
-    expect(m.urgent.rows.map((r) => [r.jobNumber, r.invoiced, r.tags.map((t) => t.text)])).toEqual([["CZFCL00000002", true, ["Loss −4,210 CZK"]]]);
+    // The invoiced job: its loss and its charge added after invoicing, nothing of credit or "In Billing". The active one: both.
+    expect(m.urgent.rows.map((r) => [r.jobNumber, r.invoiced, r.tags.map((t) => t.text)])).toEqual([["CZFCL00000002", true, ["Loss −4,210 CZK", "Work not invoiced on a job that reads Invoiced · 999.00 CZK"]]]);
     expect(m.attention.rows.map((r) => [r.jobNumber, r.invoiced, r.tags.map((t) => t.text)])).toEqual([
       ["CZFCL00000001", false, ["In Billing since 01.11., 100.00 CZK not invoiced · with Invoicing", "Customer has overdue invoices · 2"]],
     ]);
-    // Work not yet invoiced is the active job's alone.
-    expect(m.tiles).toMatchObject({ notYetInvoiced: [{ currency: "CZK", amount: 100 }], notYetInvoicedCzk: { amount: 100, label: "" }, notYetInvoicedJobs: 1 });
-    expect(m.people).toEqual([person("jan@firma.cz", { notYetInvoiced: [{ currency: "CZK", amount: 100 }], jobsAtLoss: 1 })]);
+    // Work not yet invoiced: the active job's, and the invoiced job's late charge.
+    expect(m.tiles).toMatchObject({ notYetInvoiced: [{ currency: "CZK", amount: 1099 }], notYetInvoicedCzk: { amount: 1099, label: "" }, notYetInvoicedJobs: 2 });
+    expect(m.people).toEqual([person("jan@firma.cz", { notYetInvoiced: [{ currency: "CZK", amount: 1099 }], jobsAtLoss: 1 })]);
     expect(m).toMatchObject({ capped: false, notKnown: [] });
   });
 

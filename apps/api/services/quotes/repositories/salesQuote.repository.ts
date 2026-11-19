@@ -926,6 +926,31 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
+   * A variant of a live sales quote (Duplicate), inserted while the quote it is copied from is locked: a delete
+   * of that quote at the same moment either goes first - the quote is gone, and null is returned without
+   * inserting - or waits, and then finds the variant and is refused (liveFollowUps), so no copy is left without
+   * its original. The reference is chosen as createWithReference chooses it.
+   */
+  async createVariantOf(
+    companyId: string,
+    quoteNumber: string,
+    prefix: string,
+    pick: (existing: string[]) => string,
+    build: (reference: string) => NewSalesQuote,
+  ): Promise<SalesQuoteRecord | null> {
+    const adoptions = this.adoptions(companyId);
+    const result = await this.withReferences(companyId, prefix, async (tx, existing) => {
+      const source = await this.loadSales(companyId, quoteNumber, { lock: tx });
+      if (!source) return null;
+      const reference = pick(existing);
+      return this.insertQuote(tx, companyId, reference, build(reference));
+    });
+    // As in withLockedQuote: an adoption made inside the transaction counts once it is committed.
+    if (this.adoptions(companyId) !== adoptions) this.countAdoption(companyId);
+    return result;
+  }
+
+  /**
    * A quote and the revision that replaces it, in ONE transaction: the quote is locked, `plan`
    * gets it as stored and the references that start with `prefix` (withReferences), and returns
    * the revision's reference and row and the quote's lifecycle write. Both are written or

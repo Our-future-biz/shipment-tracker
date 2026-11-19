@@ -11,8 +11,8 @@ import type { interfaces } from "@/lib/api/client";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { PreviewButton } from "@/components/PreviewButton";
 import { useMasterJobDocuments, type MasterJobDocumentItem } from "@/hooks/useMasterJobDocuments";
-import { downloadDataUrl, fileDataUrl, fileToBase64 } from "@/lib/files";
-import { COMMERCIAL_PAPERWORK_WORDS, HOUSE_BOL_WORDS, docsDownloadNotice, type DocsDownloadWords } from "../_lib/shipmentDocsDownload";
+import { base64ToBlob, fileToBase64, saveBlob } from "@/lib/files";
+import { COMMERCIAL_PAPERWORK_WORDS, docsDownloadNotice, houseDocsDownload, type DocsDownloadWords } from "../_lib/shipmentDocsDownload";
 import { formatDate } from "@/lib/date";
 import { DOCUMENT_GROUPS, DOCUMENT_TYPES, documentGroupOf, documentTypeLabel, guessDocumentType } from "@/lib/documentTypes";
 import { ExtBadge, docPlural, formatFileSize } from "@/app/shipments/[jobNumber]/tabs/docsShared";
@@ -69,7 +69,8 @@ function ShipmentDocsDownloadButton({ label, hint, words, load }: ShipmentDocsDo
   const download = useMutation({
     mutationFn: load,
     onSuccess: (res) => {
-      if (res.file) downloadDataUrl(fileDataUrl(res.file, "application/zip"), res.file.fileName);
+      // Up to 100 MB: saved from a Blob, not followed as one long data: link.
+      if (res.file) saveBlob(base64ToBlob(res.file.fileBase64, res.file.contentType || "application/zip"), res.file.fileName);
       const notice = docsDownloadNotice(res, words);
       if (notice.kind === "success") toast.success(notice.text);
       else toast.warning(notice.text);
@@ -91,6 +92,7 @@ export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.Mas
   const filePreview = useFilePreview();
   const canManageDocuments = useCanManageDocuments();
   const { documents, isLoading, isError, refetch, refresh, previewSource } = useMasterJobDocuments(masterJob.id);
+  const houseDocs = houseDocsDownload(masterJob.freightMode);
   const [search, setSearch] = useState("");
 
   // Files get their type BEFORE they are uploaded, so nothing reaches the list unfiled.
@@ -353,12 +355,8 @@ export function MasterJobDocumentsTab({ masterJob }: { masterJob: interfaces.Mas
             Documents
           </h3>
           <div className="ml-auto flex items-center gap-3">
-            <ShipmentDocsDownloadButton
-              label="Download House BLs"
-              hint="The Bills of Lading of every linked shipment, in one ZIP"
-              words={HOUSE_BOL_WORDS}
-              load={() => api.shipments.masterJobHouseBols(masterJob.id)}
-            />
+            {/* Named by the master job's mode: House AWBs by air, CMRs by road (the server picks them the same way). */}
+            <ShipmentDocsDownloadButton {...houseDocs} load={() => api.shipments.masterJobHouseBols(masterJob.id)} />
             <ShipmentDocsDownloadButton
               label="Download all commercial paperwork"
               hint="The Commercial Invoices and packing lists of every linked shipment, in one ZIP with a folder per shipment"

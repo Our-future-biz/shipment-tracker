@@ -1,5 +1,6 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
+import { auth } from "~encore/clients";
 import type { ManagersAuditList, OpsCockpitAudit } from "../interfaces/interfaces";
 import { AUDIT_DAYS, AUDIT_LINE_KEPT_MINUTES, AUDIT_READ_LIMIT } from "../lib/cockpitThresholds";
 import {
@@ -81,12 +82,41 @@ const taken = <R>(rows: R[]): { rows: R[]; cut: boolean } => ({ rows: rows.slice
 
 type Users = ReadonlyMap<string, string> | null;
 
+/** The most ids one look-up of auth takes (its userLookup's own limit). */
+const LOOKUP_AT_ONCE = 200;
+/** The domain of the app's own service identities ("Trucking (system)"): named by their name, as they have no real e-mail. */
+const SYSTEM_EMAIL = "@system.invalid";
+
+/**
+ * The company's users (`emailOf`, from the company the request works in) with whoever else made a
+ * change of `ids`: a superadmin working as this company is a user of their own company, and would be
+ * "—" (m18), and the app's service identity is no listed user. They are looked up by id - auth's
+ * look-up of the company's users and of live superadmins, as the job's History tab names them. A
+ * look-up that fails leaves them unnamed, as before: a line that only shows who did it is not
+ * refused for that. Null stays null: without the company's users nobody is named.
+ */
+async function withOthers(emailOf: Users, ids: readonly string[]): Promise<Users> {
+  if (emailOf === null) return null;
+  const missing = [...new Set(ids)].filter((id) => !!id && !emailOf.has(id));
+  if (missing.length === 0) return emailOf;
+  const found = new Map(emailOf);
+  try {
+    for (let i = 0; i < missing.length; i += LOOKUP_AT_ONCE) {
+      const { users } = await auth.userLookup({ ids: missing.slice(i, i + LOOKUP_AT_ONCE), orSuperadmin: true });
+      for (const u of users) found.set(u.id, u.email.trim().toLowerCase().endsWith(SYSTEM_EMAIL) ? u.name : u.email.trim().toLowerCase());
+    }
+  } catch (err) {
+    log.warn(err, "the people of Shipments → Managers' audit line could not be looked up");
+  }
+  return found;
+}
+
 // ─── The parts ──────────────────────────────────────────────────
 // `run`: the limiter of the answer the read is part of (lib/readLimiter); every statement goes through it.
 
 async function readHistory(companyId: string, since: Date, emailOf: Users, run: Limit, keys: readonly (typeof HISTORY_KEYS)[number][] = HISTORY_KEYS): Promise<PartRead> {
   const { rows, cut } = taken(await run(() => shipmentAuditRepository.changesSince(companyId, since, historyAsk(keys), AUDIT_READ_LIMIT + 1)));
-  return { entries: historyEntries(rows, emailOf), cut };
+  return { entries: historyEntries(rows, await withOthers(emailOf, rows.map((r) => r.userId))), cut };
 }
 
 async function readOverrides(companyId: string, since: Date, run: Limit): Promise<PartRead> {
@@ -96,7 +126,7 @@ async function readOverrides(companyId: string, since: Date, run: Limit): Promis
 
 async function readOwnApprovals(companyId: string, since: Date, emailOf: Users, run: Limit): Promise<PartRead> {
   const { rows, cut } = taken(await run(() => shipmentAttachmentRepository.ownApprovalsSince(companyId, since, AUDIT_READ_LIMIT + 1)));
-  return { entries: ownApprovalEntries(rows, emailOf), cut };
+  return { entries: ownApprovalEntries(rows, await withOthers(emailOf, rows.map((r) => r.reviewedById))), cut };
 }
 
 async function readRequests(companyId: string, since: Date, run: Limit): Promise<PartRead> {

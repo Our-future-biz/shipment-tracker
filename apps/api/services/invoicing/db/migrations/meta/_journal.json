@@ -267,6 +267,13 @@
       "when": 1794980171566,
       "tag": "0037_receivables_step7",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795060800000,
+      "tag": "0038_receivable_reminders_since",
+      "breakpoints": true
     }
   ]
 }

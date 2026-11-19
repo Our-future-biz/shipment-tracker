@@ -624,6 +624,13 @@
       "when": 1795055287115,
       "tag": "0088_managers_new_data",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795083527762,
+      "tag": "0089_release_request_closure",
+      "breakpoints": true
     }
   ]
 }

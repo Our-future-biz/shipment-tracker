@@ -2,8 +2,8 @@ import { iso } from "../../../lib/db/serialize";
 import { userEmailOf } from "../../../lib/companyUsers";
 import type { CustomsVerdictNotice, RemeasureInformedItem, RemeasureSource } from "../interfaces/interfaces";
 import { companyUsers } from "../../../lib/companyUsers";
-import { REMEASURE_INFORMED, differenceText, remeasureVerdict } from "../lib/remeasureNotice";
-import { readFigures } from "../lib/remeasureAccept";
+import { REMEASURE_INFORMED, differenceText, informedSource, remeasureVerdict, shipmentFiguresFor } from "../lib/remeasureNotice";
+import { REMEASURE_ACCEPTED, readFigures } from "../lib/remeasureAccept";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { userEmails } from "../lib/userEmails";
 import { shipmentAlertReadRepository } from "../repositories/shipmentAlertRead.repository";
@@ -40,30 +40,45 @@ class AlertService {
     await shipmentService.requireLive(shipmentId, companyId);
     const rows = await shipmentAuditRepository.listByShipmentId(shipmentId, companyId, [REMEASURE_INFORMED], REMEASURE_INFORMED_LIMIT);
     if (rows.length === 0) return [];
-    const users = await companyUsers().catch(() => []);
+    const [users, accepted, current] = await Promise.all([
+      companyUsers().catch(() => []),
+      shipmentAuditRepository.listByShipmentId(shipmentId, companyId, [REMEASURE_ACCEPTED], REMEASURE_INFORMED_LIMIT),
+      shipmentService.get(shipmentId, companyId),
+    ]);
+    const nameOf = (userId: string) => {
+      const u = users.find((x) => x.id === userId);
+      return u ? u.displayName || u.email : "";
+    };
+    // Oldest first, so an alert finds the first acceptance after it.
+    const acceptances = [...accepted].sort((a, b) => a.changedAt.getTime() - b.changedAt.getTime());
     return rows.map((r) => {
       const shipment = readFigures(r.oldValue);
       const remeasured = readFigures(r.newValue);
       let comparedWith = "";
-      let source: RemeasureSource = "warehouse";
       try {
-        const v = JSON.parse(r.newValue ?? "") as { comparedWith?: unknown; source?: unknown };
+        const v = JSON.parse(r.newValue ?? "") as { comparedWith?: unknown };
         comparedWith = typeof v.comparedWith === "string" ? v.comparedWith : "";
-        if (v.source === "warehouseConcept") source = "warehouseConcept";
       } catch {
         comparedWith = "";
       }
-      const by = users.find((u) => u.id === r.userId);
+      const source: RemeasureSource = informedSource(r.newValue);
+      // Settled (council finding K3): these figures were accepted after the warehouse informed, or
+      // the shipment's figures match them now - compared as they were when it informed.
+      const settledBy = acceptances.find((a) => a.changedAt >= r.changedAt && remeasureVerdict(readFigures(a.newValue), remeasured) === "matches");
+      const now = shipmentFiguresFor(current, comparedWith === "declared" ? "declared" : "dimensions");
       return {
         id: r.id,
         informedAt: iso(r.changedAt)!,
-        informedBy: by ? by.displayName || by.email : "",
+        informedBy: nameOf(r.userId),
         shipment,
         remeasured,
         comparedWith,
         source,
-        verdict: remeasureVerdict(shipment, remeasured),
+        verdict: remeasureVerdict(shipment, remeasured, source),
         difference: differenceText(shipment, remeasured),
+        acceptedAt: settledBy ? iso(settledBy.changedAt)! : null,
+        acceptedBy: settledBy ? nameOf(settledBy.userId) : "",
+        nowMatches: remeasureVerdict(now, remeasured, source) === "matches",
       };
     });
   }

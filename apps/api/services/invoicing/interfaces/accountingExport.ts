@@ -1,6 +1,6 @@
 // Accounts Receivable step 7 (18 Nov 2026): issued invoices and credit notes handed to the accounting system, Pohoda
 // (Stormware), as its XML import file. One way only: payments come into the app from the bank statement, never back
-// from Pohoda (D26: one source of Paid). Managers export; everyone sees the list of exports.
+// from Pohoda (D26: one source of Paid). Managers export and see the list of exports (mock test council X6).
 
 /** A document of the period that is not in the file, and why. */
 export interface PohodaExportSkipped {
@@ -57,6 +57,19 @@ export interface AccountingExportSummary {
 export interface AccountingExportsResponse {
   /** The newest first (at most 200) */
   exports: AccountingExportSummary[];
-  /** A manager: may export */
+  /** A manager: may export (and only a manager reads this list) */
   canExport: boolean;
+}
+
+/** An export's file built again from its recorded documents, the same bytes as recorded ("Download again"). */
+export interface AccountingExportFileResponse {
+  exportId: string;
+  fileName: string;
+  /** Windows-1250 encoded XML, as base64 */
+  contentBase64: string;
+  contentType: string;
+  encoding: "windows-1250";
+  /** Equal to the recorded SHA-256 (the file is refused otherwise) */
+  fileSha256: string;
+  documents: number;
 }

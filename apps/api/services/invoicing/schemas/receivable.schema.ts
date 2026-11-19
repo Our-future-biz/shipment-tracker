@@ -200,6 +200,11 @@ export const receivableSettingsTable = pgTable(
     reminder2Days: smallint("reminder2_days").notNull().default(21),
     /** Where a customer's answer goes; "" = the sender's own address */
     replyTo: text("reply_to").notNull().default(""),
+    /**
+     * The day automatic reminders were last switched on (Prague; null while off). Only invoices due on or after it are
+     * reminded by the app: the older ones stay for a manager to chase by hand (mock test council L2, migration 0038).
+     */
+    autoRemindersSince: date("auto_reminders_since", { mode: "string" }),
     updatedByUserId: uuid("updated_by_user_id"),
     updatedBy: text("updated_by").notNull().default(""),
   },

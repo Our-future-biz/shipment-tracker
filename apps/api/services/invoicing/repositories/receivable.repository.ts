@@ -22,6 +22,7 @@ import { invoiceFollowupOutboxRepository } from "./invoiceFollowupOutbox.reposit
 import { invoiceRepository } from "./invoice.repository";
 import { invoiceSeriesPrefix } from "../lib/invoiceNumber";
 import { carriedOverAmount, leftToPayOf, statusOf } from "../lib/receivables";
+import type { ReceivableStatus } from "../interfaces/interfaces";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Reader = typeof db | Tx;
@@ -68,8 +69,8 @@ export type InvoiceScope =
   | { shipmentId: string }
   | { customerId: string }
   | { invoiceIds: string[] }
-  /** Owed and due before the day (overdue on it) */
-  | { overdueOn: string }
+  /** Owed and due before the day (overdue on it); with `dueFrom`, only those due on or after that day too */
+  | { overdueOn: string; dueFrom?: string }
   /** Issued on or before the day (the month-end list as at it) */
   | { issuedOnOrBefore: string };
 
@@ -117,6 +118,16 @@ const COUNTED = sql<string>`coalesce((select sum(rp.amount) from "receivable_pay
 const LAST_PAID = sql<string | null>`(select max(rp.paid_on)::text from "receivable_payment" rp where ${LIVE} and rp.kind in ('payment', 'carried_over'))`;
 // What is left to pay (lib/receivables leftToPayOf): a cancelled invoice is not owed.
 const LEFT = sql`((case when ${t.status} = 'cancelled' then 0 else ${t.gross} end) - ${CREDITED} - ${COUNTED})`;
+// The invoice's last dispute event (opened or closed) was the automatic close (closeSettledDisputes): its dispute closed
+// by itself, and no person has opened or closed one since.
+const AUTO_CLOSED = sql`(select de.action = 'dispute_closed' and coalesce(de.payload->>'automatic', '') = 'true' from "receivable_event" de
+  where de.invoice_id = ${t.id} and de.company_id = ${t.companyId} and de.action in ('disputed', 'dispute_closed') and de.deleted_at is null
+  order by de.created_at desc, de.id desc limit 1)`;
+// What the invoice's last dispute was opened for by a person (its reason), so a dispute opened again stands as it was.
+const LAST_DISPUTE_REASON = sql<string | null>`(select de.reason from "receivable_event" de
+  where de.invoice_id = ${t.id} and de.company_id = ${t.companyId} and de.action = 'disputed' and de.deleted_at is null
+    and coalesce(de.payload->>'reopened', '') <> 'true'
+  order by de.created_at desc, de.id desc limit 1)`;
 const FIGURES = { invoice: t, credited: CREDITED, paid: PAID, writtenOff: WRITTEN_OFF, bankCharges: BANK_CHARGED, waiting: WAITING, lastPaidOn: LAST_PAID, receivable: r };
 
 const INVOICES = (companyId: string) => and(eq(t.companyId, companyId), eq(t.kind, "invoice"), isNull(t.deletedAt));
@@ -128,7 +139,7 @@ function scopeWhere(scope: InvoiceScope): SQL | undefined {
   if ("customerId" in scope) return eq(t.customerId, scope.customerId);
   if ("invoiceIds" in scope) return scope.invoiceIds.length ? inArray(t.id, scope.invoiceIds) : sql`false`;
   if ("issuedOnOrBefore" in scope) return sql`${t.issueDate} <= ${scope.issuedOnOrBefore}::date`;
-  return and(eq(t.status, "issued"), sql`${LEFT} > 0`, lt(t.dueDate, scope.overdueOn));
+  return and(eq(t.status, "issued"), sql`${LEFT} > 0`, lt(t.dueDate, scope.overdueOn), scope.dueFrom ? gte(t.dueDate, scope.dueFrom) : undefined);
 }
 
 // The same scope as raw SQL on an invoice aliased "i" (the lazy creation's INSERT … SELECT).
@@ -162,7 +173,7 @@ const figuresOf = (row: FigureRow): InvoiceFigures => ({
 });
 
 /** The company's reminder settings when it never saved any (the table's defaults). */
-export const DEFAULT_RECEIVABLE_SETTINGS = { autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", updatedBy: "", updatedAt: null } as const;
+export const DEFAULT_RECEIVABLE_SETTINGS = { autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, updatedBy: "", updatedAt: null } as const;
 
 /** The reminder settings as everyone reads them (the row, or the defaults). */
 export interface ReceivableSettingsValues {
@@ -170,6 +181,8 @@ export interface ReceivableSettingsValues {
   reminder1Days: number;
   reminder2Days: number;
   replyTo: string;
+  /** The day automatic reminders were switched on (null while off, or not known) */
+  autoRemindersSince: string | null;
   updatedBy: string;
   updatedAt: Date | null;
 }
@@ -198,6 +211,9 @@ export interface AsAtCandidate {
   /** Whether the customer's list was asked if it says Paid (D15); false also when the receivable is not made yet */
   carriedChecked: boolean;
 }
+
+/** Disputes closed by itself in one read at most (the next read closes the rest). */
+const DISPUTES_CLOSED_AT_ONCE = 200;
 
 /** chase found no receivable to write: its transaction is rolled back. */
 class NoReceivable extends Error {}
@@ -362,6 +378,106 @@ class ReceivableRepository {
     // The rest only become checked (nothing is written for them, so no lock is needed).
     await this.markCarriedChecked(companyId, items.map((i) => i.invoiceId));
     return carried;
+  }
+
+  /**
+   * Closes the disputes in scope that nothing is owed on any more (mock test council n4, L5): a full credit note, a
+   * payment or a confirmed write-off settled the invoice, or it was cancelled. Each gets a "dispute closed" note and
+   * history line by `by`, under the company's lock (as a person's close is written), read again there so a dispute
+   * opened again meanwhile on money still owed is left as it is. Answers the invoices closed.
+   */
+  async closeSettledDisputes(companyId: string, scope: InvoiceScope, by: string, reasonOf: (s: { invoiceStatus: string; status: ReceivableStatus }) => string): Promise<string[]> {
+    const settled = sql`(${t.status} <> 'issued' or ${LEFT} <= 0)`;
+    const found = await db
+      .select({ id: t.id })
+      .from(r)
+      .innerJoin(t, eq(t.id, r.invoiceId))
+      .where(and(eq(r.companyId, companyId), eq(r.disputed, true), INVOICES(companyId), scopeWhere(scope), settled))
+      .limit(DISPUTES_CLOSED_AT_ONCE);
+    if (!found.length) return [];
+    return db.transaction(async (tx) => {
+      await lock(tx, companyId);
+      const rows = await tx
+        .select(FIGURES)
+        .from(t)
+        .leftJoin(r, eq(r.invoiceId, t.id))
+        .where(and(INVOICES(companyId), inArray(t.id, found.map((x) => x.id))));
+      const closed: string[] = [];
+      for (const f of rows.map(figuresOf)) {
+        if (!f.receivable?.disputed) continue;
+        const other = f.writtenOff + f.bankCharges;
+        const leftToPay = leftToPayOf({ invoiceStatus: f.invoice.status, gross: Number(f.invoice.gross), credited: f.credited, paid: f.paid, settledOther: other });
+        const status = statusOf({ invoiceStatus: f.invoice.status, leftToPay, paid: f.paid, settledOther: other });
+        if (f.invoice.status === "issued" && leftToPay > 0) continue;
+        const [row] = await tx
+          .update(r)
+          .set({ disputed: false, disputedReason: "", updatedAt: new Date() })
+          .where(and(eq(r.companyId, companyId), eq(r.invoiceId, f.invoice.id), eq(r.disputed, true)))
+          .returning({ id: r.id });
+        if (!row) continue;
+        const reason = reasonOf({ invoiceStatus: f.invoice.status, status });
+        const note = await this.addNote(tx, { companyId, invoiceId: f.invoice.id, kind: "dispute_closed", text: reason, promisedOn: null, reminderLevel: null, recipient: "", byUserId: null, by });
+        await this.addEvent(tx, companyId, f.invoice.id, { action: "dispute_closed", fromStatus: status, toStatus: status, by, reason, payload: { noteId: note.id, automatic: true } });
+        closed.push(f.invoice.id);
+      }
+      return closed;
+    });
+  }
+
+  /**
+   * Opens again the disputes in scope that closed by themselves (closeSettledDisputes) on an invoice owed again since -
+   * the payment, write-off or bank charge that settled it taken back. Only a dispute whose last open or close was that
+   * automatic close: one a person closed stays closed. Under the company's lock, read again there. Answers the invoices
+   * opened again.
+   */
+  async reopenAutoClosedDisputes(companyId: string, scope: InvoiceScope, by: string, reason: string): Promise<string[]> {
+    const found = await db
+      .select({ id: t.id })
+      .from(r)
+      .innerJoin(t, eq(t.id, r.invoiceId))
+      .where(and(eq(r.companyId, companyId), eq(r.disputed, false), INVOICES(companyId), scopeWhere(scope), eq(t.status, "issued"), sql`${LEFT} > 0`, AUTO_CLOSED))
+      .limit(DISPUTES_CLOSED_AT_ONCE);
+    if (!found.length) return [];
+    return db.transaction(async (tx) => {
+      await lock(tx, companyId);
+      return this.reopenAutoClosedDisputesIn(tx, companyId, found.map((x) => x.id), by, reason);
+    });
+  }
+
+  /**
+   * reopenAutoClosedDisputes in the caller's transaction, which holds the company's lock (a take-back): each of these
+   * invoices still owed whose dispute closed by itself is disputed again, with its own reason back, a "dispute" note
+   * and a history line by `by`.
+   */
+  async reopenAutoClosedDisputesIn(tx: Tx, companyId: string, invoiceIds: string[], by: string, reason: string): Promise<string[]> {
+    if (!invoiceIds.length) return [];
+    const rows = await tx
+      .select({ ...FIGURES, disputedFor: LAST_DISPUTE_REASON })
+      .from(t)
+      .leftJoin(r, eq(r.invoiceId, t.id))
+      .where(and(INVOICES(companyId), inArray(t.id, invoiceIds), AUTO_CLOSED));
+    const reopened: string[] = [];
+    for (const row of rows) {
+      const f = figuresOf(row);
+      if (!f.receivable || f.receivable.disputed) continue;
+      const other = f.writtenOff + f.bankCharges;
+      const leftToPay = leftToPayOf({ invoiceStatus: f.invoice.status, gross: Number(f.invoice.gross), credited: f.credited, paid: f.paid, settledOther: other });
+      if (f.invoice.status !== "issued" || leftToPay <= 0) continue;
+      const status = statusOf({ invoiceStatus: f.invoice.status, leftToPay, paid: f.paid, settledOther: other });
+      // The dispute it had stands again as it was: its own reason, not the reopening's.
+      const disputedFor = (row.disputedFor ?? "").trim() || reason;
+      const [done] = await tx
+        .update(r)
+        .set({ disputed: true, disputedReason: disputedFor, updatedAt: new Date() })
+        .where(and(eq(r.companyId, companyId), eq(r.invoiceId, f.invoice.id), eq(r.disputed, false)))
+        .returning({ id: r.id });
+      if (!done) continue;
+      const text = disputedFor === reason ? reason : `${reason} (${disputedFor})`;
+      const note = await this.addNote(tx, { companyId, invoiceId: f.invoice.id, kind: "dispute", text, promisedOn: null, reminderLevel: null, recipient: "", byUserId: null, by });
+      await this.addEvent(tx, companyId, f.invoice.id, { action: "disputed", fromStatus: status, toStatus: status, by, reason, payload: { noteId: note.id, automatic: true, reopened: true } });
+      reopened.push(f.invoice.id);
+    }
+    return reopened;
   }
 
   /** Marks these invoices as checked without asking (they are credited or cancelled: nothing to carry over). */
@@ -602,8 +718,10 @@ class ReceivableRepository {
    * The invoices the month-end list as at `day` may show - a superset the rules then decide on (lib/receivables asAtOf):
    * of kind invoice, issued on or before the day, not cancelled, and either owed now, or with something that did not
    * yet count on the day (a credit note issued after it, a payment paid after it, a write-off or bank charge confirmed
-   * after it). An invoice settled now with nothing after the day was settled on it too: a line taken back after the day
-   * only counted more then. Up to `limit` (the caller asks one more, to know when there are more).
+   * after it). An invoice settled now with nothing after the day was settled on it too. A line taken back never counts
+   * on any day (countsAt, mock test council N2): an invoice a payment was taken back from is owed now (so it is here)
+   * or settled now by other lines, each of which counted on the day or is "after it" above. Up to `limit` (the caller
+   * asks one more, to know when there are more).
    */
   async asAtCandidates(companyId: string, day: string, limit: number): Promise<AsAtCandidate[]> {
     const later = sql`(
@@ -643,13 +761,21 @@ class ReceivableRepository {
       .where(and(eq(settingsT.companyId, companyId), isNull(settingsT.deletedAt)))
       .limit(1);
     if (!row) return { ...DEFAULT_RECEIVABLE_SETTINGS };
-    return { autoReminders: row.autoReminders, reminder1Days: row.reminder1Days, reminder2Days: row.reminder2Days, replyTo: row.replyTo, updatedBy: row.updatedBy, updatedAt: row.updatedAt };
+    return {
+      autoReminders: row.autoReminders,
+      reminder1Days: row.reminder1Days,
+      reminder2Days: row.reminder2Days,
+      replyTo: row.replyTo,
+      autoRemindersSince: row.autoRemindersSince ?? null,
+      updatedBy: row.updatedBy,
+      updatedAt: row.updatedAt,
+    };
   }
 
   /** Saves the company's reminder settings (one row per company, written or replaced). */
   async saveSettings(
     companyId: string,
-    values: Pick<ReceivableSettingsRecord, "autoReminders" | "reminder1Days" | "reminder2Days" | "replyTo" | "updatedByUserId" | "updatedBy">,
+    values: Pick<ReceivableSettingsRecord, "autoReminders" | "reminder1Days" | "reminder2Days" | "replyTo" | "autoRemindersSince" | "updatedByUserId" | "updatedBy">,
   ): Promise<void> {
     const now = new Date();
     await db

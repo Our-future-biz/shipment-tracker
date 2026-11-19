@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   RELEASED_BEFORE_RECEIVED,
   approvedByLockRefusal,
+  blDateRefusal,
+  cancelInvoicedRefusal,
   creditCheckLockRefusal,
   followsPartyRenames,
+  isInvoicingDepartment,
   isDetailsManager,
   isOpenToPerson,
   touchesDetails,
@@ -188,5 +191,29 @@ describe("the shipment's Warehouse Released", () => {
   it("can always be cleared, and a release already stored is not asked about again", () => {
     expect(warehouseReleaseRefusal({ warehouseReceivedDate: null, warehouseReleasedDate: "2026-11-12" }, { warehouseReleasedDate: null })).toBeNull();
     expect(warehouseReleaseRefusal({ warehouseReceivedDate: null, warehouseReleasedDate: "2026-11-12" }, { warehouseReleasedDate: "2026-11-12" })).toBeNull();
+  });
+});
+
+describe("an Invoicing user (council finding K6)", () => {
+  it("sits in a department named Invoicing's", () => {
+    for (const name of ["Invoicing", " invoicing CZ ", "Invoices"]) expect(isInvoicingDepartment(name)).toBe(true);
+    for (const name of ["Customs", "Sea export", "", null, undefined]) expect(isInvoicingDepartment(name)).toBe(false);
+  });
+});
+
+describe("cancelling an invoiced job (council finding K22)", () => {
+  it("is a manager's, an admin's or a superadmin's", () => {
+    expect(cancelInvoicedRefusal("user", true)).toBe("This shipment is invoiced: only a manager can cancel it");
+    for (const role of ["manager", "admin", "superadmin"]) expect(cancelInvoicedRefusal(role, true)).toBeNull();
+    expect(cancelInvoicedRefusal("user", false)).toBeNull();
+  });
+});
+
+describe("the B/L dates (council finding m24)", () => {
+  it("are never a day after today, a day already stored aside", () => {
+    expect(blDateRefusal("Delivery Order", "2026-11-20", null, "2026-11-19")).toBe("Delivery Order can't be a day still to come: it says when it happened (today is 2026-11-19)");
+    expect(blDateRefusal("Delivery Order", "2026-11-19", null, "2026-11-19")).toBeNull();
+    expect(blDateRefusal("Delivery Order", "2026-11-20", "2026-11-20", "2026-11-19")).toBeNull();
+    expect(blDateRefusal("Delivery Order", "", "2026-11-20", "2026-11-19")).toBeNull();
   });
 });

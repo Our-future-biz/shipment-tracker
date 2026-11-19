@@ -1,4 +1,4 @@
-import { businessDay, isRealYmd } from "../../../lib/businessDate";
+import { addDays, businessDay, isRealYmd } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { qtyOrOne, round2 } from "./invoiceCalc";
 import { daysOverdue, sumByCurrency } from "./supplierInvoices";
@@ -168,7 +168,9 @@ export function receivableStateOf(input: ReceivableInput, today: string): Receiv
   if (leftToPay < 0) marks.push("to_refund");
   if (isPrepayment(input.paymentTerms)) marks.push("prepayment");
   if (input.promisedOn && leftToPay > 0) marks.push(input.promisedOn >= today ? "promised" : "promise_broken");
-  if (input.disputed) marks.push("disputed");
+  // A dispute is about money still owed (mock test council n4, L5): once nothing is, it is not shown (and the next
+  // read closes it, receivable.repository closeSettledDisputes).
+  if (input.disputed && isOwed({ status, leftToPay })) marks.push("disputed");
   if (input.reminderLevel > 0) marks.push("reminded");
   if (input.customerListFailed) marks.push("not_in_customer_list");
   if ((input.waiting ?? 0) > 0) marks.push("write_off_waiting");
@@ -362,10 +364,29 @@ export interface NoteProblem {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** How far ahead a user may note a promise to pay (mock test council K13); a manager may go further. */
+export const PROMISE_MAX_DAYS = 60;
+
+/** Why a dispute closed by itself (n4, L5): nothing is left to pay, and why not. */
+export function settledDisputeReason(input: { invoiceStatus: string; status: ReceivableStatus }): string {
+  if (input.invoiceStatus === "cancelled" || input.status === "cancelled") return "Closed by itself: the invoice was cancelled";
+  if (input.invoiceStatus === "credited" || input.status === "credited") return "Closed by itself: the invoice was credited in full";
+  if (input.status === "paid") return "Closed by itself: the invoice is paid";
+  if (input.status === "written_off") return "Closed by itself: what was left is written off";
+  return "Closed by itself: nothing is left to pay";
+}
+
+/**
+ * Why a dispute that closed by itself is open again: what settled the invoice was taken back, and something is owed
+ * again - the dispute it had is not settled, so it stands as it was (with its own reason).
+ */
+export const DISPUTE_REOPENED_REASON = "Opened again by itself: what settled the invoice was taken back, and something is owed again";
+
 /**
  * Why this note may not be added, or null (D16, D17). Everyone adds a note, a promise, a dispute and its end, and a
  * reminder of level 1 or 2; the final notice (level 3) is for managers. A reminder is a record that one was sent from the
- * user's own mail program. A disputed invoice leaves the reminders until the dispute is closed.
+ * user's own mail program. A disputed invoice leaves the reminders until the dispute is closed. A user's promise is at
+ * most 60 days ahead (K13); a manager's has no such limit.
  */
 export function noteProblem(input: {
   kind: string;
@@ -389,6 +410,9 @@ export function noteProblem(input: {
       if (!day) return { kind: "invalid", message: "Give the day the customer promised to pay by" };
       if (!isRealYmd(day)) return { kind: "invalid", message: "The promised day must be a date (yyyy-mm-dd)" };
       if (day < input.today) return { kind: "invalid", message: "The promised day cannot be before today" };
+      if (!input.manager && day > addDays(input.today, PROMISE_MAX_DAYS)) {
+        return { kind: "forbidden", message: `A promise is at most ${PROMISE_MAX_DAYS} days ahead: a manager notes a later one` };
+      }
       if (!owed) return { kind: "state", message: "Nothing is left to pay on this invoice: no promise is needed" };
       return null;
     }
@@ -548,6 +572,14 @@ export function agingByCustomer(rows: readonly AgingRowInput[]): AgingTotals[] {
 export const prepaymentUnpaidOf = (rows: readonly Pick<ReleaseRow, "status" | "leftToPay" | "paymentTerms">[]): boolean =>
   rows.some((r) => isOwed(r) && isPrepayment(r.paymentTerms));
 
+/**
+ * The prepayment stop before any invoice (mock test council L3): the job's customer is on prepayment and the job has
+ * selling with a value not yet invoiced (unbilledOf of the job's lines) - the amounts per currency that are above 0;
+ * none when the customer is not on prepayment. Then the release waits as for an unpaid prepayment invoice.
+ */
+export const prepaymentUninvoicedOf = (paymentTerms: string | null | undefined, unbilled: readonly { currency: string; amount: number }[]): { currency: string; amount: number }[] =>
+  isPrepayment(paymentTerms) ? unbilled.filter((a) => a.amount > 0).map((a) => ({ currency: a.currency, amount: money(a.amount) })) : [];
+
 /** The invoices the prepayment stop is about: the owed ones on prepayment (not the job's other owed invoices). */
 export const prepaymentInvoicesOf = (rows: readonly ReleaseRow[]): { invoiceId: string; number: string; leftToPay: number; currency: string }[] =>
   rows.filter((r) => isOwed(r) && isPrepayment(r.paymentTerms)).map((r) => ({ invoiceId: r.invoiceId, number: r.number, leftToPay: r.leftToPay, currency: r.currency }));
@@ -566,10 +598,12 @@ export interface AsAtLine {
 /**
  * Whether a line counted at the end of `day`: a payment paid on or before it; one carried over from the customer's list
  * (its day not known: it counts, flagged); a write-off or bank charge confirmed on or before it (the Prague day of the
- * confirmation). A line taken back after the day still counted on it; one taken back on or before it did not.
+ * confirmation). A line taken back never counts on any day (mock test council N2, decision L1): a payment taken back
+ * is one noted by mistake - most often on the wrong invoice, then noted on the right one with the same paid day - so
+ * counting it on the days before its take-back would count the one payment twice and understate the receivables.
  */
 export function countsAt(line: AsAtLine, day: string): boolean {
-  if (line.takenBackAt && businessDay(new Date(line.takenBackAt)) <= day) return false;
+  if (line.takenBackAt) return false;
   if (line.kind === "carried_over") return true;
   if (isWriteOffKind(line.kind)) return !!line.confirmedAt && businessDay(new Date(line.confirmedAt)) <= day;
   return !!line.paidOn && line.paidOn <= day;

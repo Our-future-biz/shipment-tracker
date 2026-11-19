@@ -119,6 +119,26 @@ describe("the warehouse's remeasurement notice", () => {
     });
   });
 
+  it("compares with the lines' figures, one they lack from the shipment's totals, both sides rounded alike (council findings N1, X10)", async () => {
+    repo.createWithHistory.mockImplementation(async (companyId, c) => ({ id: "n3", companyId, createdAt: new Date(), ...c }) as never);
+    // 7 pieces with sizes, no kg per piece: the weight is only in Total Weight (92.8 kg).
+    shipments.get.mockResolvedValue({
+      personInCharge: "",
+      holidayCover: "",
+      pcs: "7",
+      totalWeightTons: "0.0928",
+      totalVolumeCbm: "",
+      cargoDimensions: [{ pieces: "7", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "", volumePerPcM3: "" }],
+    } as never);
+    await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured: { colli: 7, weightKg: 92.75, volumeCbm: 7 }, comparedWith: "dimensions", source: "warehouse", note: "" });
+    const history = repo.createWithHistory.mock.calls.at(-1)![2];
+    expect(history("n3")).toMatchObject({ oldValue: JSON.stringify({ colli: 7, weightKg: 92.8, volumeCbm: 7 }), newValue: expect.stringContaining('"weightKg":92.8,') });
+    expect(repo.createWithHistory.mock.calls.at(-1)![1].message).toContain("The remeasured values match the shipment values.");
+    // The warehouse weighed more: a difference, no longer skipped as an empty figure.
+    await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured: { colli: 7, weightKg: 140, volumeCbm: 7 }, comparedWith: "dimensions", source: "warehouse", note: "" });
+    expect(repo.createWithHistory.mock.calls.at(-1)![1].message).toContain("Difference: weight +47.2 kg");
+  });
+
   it("posts it tagging nobody when nobody is set, and answers so", async () => {
     repo.createWithHistory.mockImplementation(async (companyId, c) => ({ id: "n2", companyId, createdAt: new Date(), ...c }) as never);
     shipments.get.mockResolvedValue(shipment({ personInCharge: "", holidayCover: "someone@else.com" }));

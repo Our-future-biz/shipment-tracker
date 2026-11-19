@@ -256,4 +256,22 @@ describe("the step 2 signals, read from the database", () => {
     ]);
     expect(out.masterJobRows.map((r) => [r.id, r.number, r.customer, r.signals.map((s) => s.text)])).toEqual([[empty.id, empty.mczNumber, "Globex Ltd", ["No shipment linked · ETD on Sat 21.11."]]]);
   });
+
+  it("reads a remeasurement from Warehouse Concept as a warning to check Cargo Details by hand, until they match it (X4)", async () => {
+    const companyId = randomUUID();
+    const differs = await newJob(companyId, { pcs: "10", totalWeightTons: "1.0000", totalVolumeCbm: "5.0000" });
+    const typed = await newJob(companyId, { pcs: "10", totalWeightTons: "1.2000", totalVolumeCbm: "5.0000" });
+    for (const job of [differs, typed]) {
+      await newFile(companyId, job.id, { documentType: "Invoice", customsStatus: "approved" });
+      await newFile(companyId, job.id, { documentType: "Packing list", customsStatus: "approved" });
+      await newChange(companyId, job.id, "remeasureInformed", "2026-11-16 09:00", {
+        oldValue: JSON.stringify({ colli: 10, weightKg: 1000, volumeCbm: 5 }),
+        newValue: JSON.stringify({ colli: 10, weightKg: 1200, volumeCbm: 5, comparedWith: "declared", source: "warehouseConcept" }),
+      });
+    }
+    // The rows as the cockpit reads them carry Cargo Details' totals.
+    const out = await extraSignals([differs, typed], { companyId, now: NOW, today: TODAY, holidays: [] });
+    expect(out.byJob.get(differs.id)!.map((s) => [s.text, s.urgent])).toEqual([["Remeasured in Warehouse Concept: check Cargo Details by hand · informed 16.11. 09:00", false]]);
+    expect(out.byJob.has(typed.id)).toBe(false);
+  });
 });

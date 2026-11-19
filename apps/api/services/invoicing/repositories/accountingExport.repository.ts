@@ -45,6 +45,15 @@ export const accountingExportRepository = {
       .limit(limit);
   },
 
+  /** The company's invoices and credit notes of these ids (an export's recorded documents read again), any status. */
+  async documentsByIds(tx: Tx, companyId: string, ids: string[]): Promise<InvoiceRecord[]> {
+    const out: InvoiceRecord[] = [];
+    for (const batch of chunks([...new Set(ids)], PER_QUERY)) {
+      out.push(...(await tx.select().from(t).where(and(eq(t.companyId, companyId), isNull(t.deletedAt), inArray(t.id, batch)))));
+    }
+    return out;
+  },
+
   /** Number of each invoice by id (the invoices credit notes correct, which may be outside the period). */
   async numbersOf(tx: Tx, companyId: string, ids: string[]): Promise<Map<string, string>> {
     const out = new Map<string, string>();

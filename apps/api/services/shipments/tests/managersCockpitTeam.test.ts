@@ -441,6 +441,19 @@ describe("D12: Handled By away", () => {
     expect(signalsOf(job(), [absence("2026-11-10", "2026-11-17")])).toEqual([]);
   });
 
+  it("counts a Holiday Cover who is not a user as no cover (S16): an absent Handled By is uncovered", () => {
+    const away = [absence("2026-11-16", "2026-11-20")];
+    const users = new Set(["jan@firma.cz", "eva@firma.cz"]);
+    const covered = (holidayCover: string, userEmails: ReadonlySet<string> | null) => awaySignals(job({ holidayCover }), away, awayToday(away, TODAY), TODAY, [], userEmails);
+    expect(covered("gone@firma.cz", users).map((s) => [s.urgent, s.text])).toEqual([[true, "Handled By away until 20.11., no Holiday Cover"]]);
+    expect(covered("eva@firma.cz", users)).toEqual([]);
+    // Who is a user not known: the cover is taken at its word, as before.
+    expect(covered("gone@firma.cz", null)).toEqual([]);
+    // teamFactsOf hands the users read on.
+    const facts = teamFactsOf([job({ id: "j1", holidayCover: "gone@firma.cz" })], { todos: null, mentions: null, touched: null, coverChanged: null, releaseRequests: null, emailOf: new Map([["u1", "jan@firma.cz"]]), absences: away }, { now: NOW, today: TODAY, holidays: [] });
+    expect(facts.byJob.get("j1")?.signals.map((s) => s.text)).toEqual(["Handled By away until 20.11., no Holiday Cover"]);
+  });
+
   it("tags a job whose Holiday Cover is away today too: URGENT with its Handled By away, ATTENTION with the cover alone", () => {
     const both = [absence("2026-11-16", "2026-11-25"), absence("2026-11-17", "2026-11-20", { email: "eva@firma.cz" })];
     // Until the first of the two is back.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APPROVAL_RATE_MIN_DECIDED, AUDIT_DAYS, AUDIT_LIST_LIMIT } from "../lib/cockpitThresholds";
 import { CUTOFF_DISMISSED_FIELD, dismissedLine, takenBackLine } from "../lib/cutoffDismissals";
+import { ABSENCE_COVER_FIELD } from "../lib/absenceCover";
 import { HAND_OVER_FIELD } from "../lib/handOver";
 import {
   AUDIT_KEYS,
@@ -75,7 +76,7 @@ describe("the keys", () => {
 describe("what the history is asked for", () => {
   it("is, for the whole line, each field once - and of the status only the change into Cancelled", () => {
     expect(historyAsk()).toEqual({
-      fields: ["creditCheck", "personInCharge", "deletedAt", "actualArrival", "actualDeparture", "warehouseReceivedDate", "holidayCover", "handOver", "cutoffDismissed"],
+      fields: ["creditCheck", "personInCharge", "deletedAt", "actualArrival", "actualDeparture", "warehouseReceivedDate", "holidayCover", "handOver", "absenceCover", "cutoffDismissed"],
       fieldPrefixes: ["task:"],
       turnedInto: [{ field: "status", value: "Cancelled Shipment" }],
     });
@@ -89,8 +90,9 @@ describe("what the history is asked for", () => {
     expect(historyAsk(["tick_taken_back"])).toEqual({ fields: [], fieldPrefixes: ["task:"], turnedInto: [] });
     // Whether a credit check was the approver's own job hangs on who handled it then: the changes of Handled By come with it.
     expect(historyAsk(["own_credit_check"]).fields).toEqual(["creditCheck", "personInCharge"]);
-    // A change made by a hand-over is the hand-over's to count: its lines come with the changes.
-    expect(historyAsk(["handled_by_changed"]).fields).toEqual(["personInCharge", "holidayCover", "handOver"]);
+    // A change made by a hand-over is the hand-over's to count, one made by the Holiday Cover's job nobody's: their lines come with the changes.
+    expect(historyAsk(["handled_by_changed"]).fields).toEqual(["personInCharge", "holidayCover", "handOver", "absenceCover"]);
+    expect(ABSENCE_COVER_FIELD).toBe("absenceCover");
   });
 });
 
@@ -152,6 +154,22 @@ describe("a change in a job's history", () => {
       ["handled_by_changed", "id-1", "Handled By eva@firma.cz → jan@firma.cz"],
       ["handled_by_changed", "id-2", "Handled By jan@firma.cz → petr@firma.cz"],
     ]);
+  });
+
+  it("leaves out the Holiday Cover's job setting and clearing a cover: no change of hands, one per job of an absence (m16)", () => {
+    const set = at("2026-11-16", "07:00");
+    const cleared = at("2026-11-21", "07:00");
+    const rows = [
+      change("holidayCover", "", "eva@firma.cz", { changedAt: set, userId: "u-system" }),
+      change(ABSENCE_COVER_FIELD, null, "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11.", { changedAt: set, userId: "u-system" }),
+      change("holidayCover", "eva@firma.cz", "", { changedAt: cleared, userId: "u-system" }),
+      change(ABSENCE_COVER_FIELD, null, "Holiday Cover eva@firma.cz cleared: absence over", { changedAt: cleared, userId: "u-system" }),
+      change("holidayCover", "eva@firma.cz", "", { shipmentId: "id-2", jobNumber: "CZ00000002", changedAt: cleared, userId: "u-system" }),
+      change(ABSENCE_COVER_FIELD, null, "Holiday Cover eva@firma.cz cleared: absence over", { shipmentId: "id-2", jobNumber: "CZ00000002", changedAt: cleared, userId: "u-system" }),
+      // Cleared by hand the day after on a third job: a change of its own.
+      change("holidayCover", "eva@firma.cz", "", { shipmentId: "id-3", jobNumber: "CZ00000003", changedAt: at("2026-11-22") }),
+    ];
+    expect(historyEntries(rows, USERS).map((e) => [e.key, e.shipmentId, e.what])).toEqual([["handled_by_changed", "id-3", "Holiday Cover eva@firma.cz → nobody"]]);
   });
 
   it("is a hand-over, by builder M's line", () => {

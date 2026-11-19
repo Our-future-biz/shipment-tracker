@@ -14,6 +14,7 @@ import { ColumnFilterRows } from "@/components/ColumnFilterRows";
 import { BTN, BTN_GHOST, BTN_SM, CARD, HEADING, PAGE_TITLE } from "@/styles/ui";
 import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridFilter } from "@/components/gridFilters";
 import { cellRender } from "@/components/gridColumns";
+import { columnsFromLayout, knownColumns, parseColumnLayout, parseKeyList } from "@/components/gridLayout";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
@@ -124,20 +125,31 @@ export function AppGrid<T extends object>({
   const columnMap = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
   const defaultVisible = useMemo(() => columns.filter((c) => c.defaultVisible !== false).map((c) => c.key), [columns]);
 
-  // Column order + visibility, remembered per browser.
+  // Column order + visibility, remembered per browser. Every column the grid had is stored with the
+  // layout (components/gridLayout.ts), so a column added later shows up once instead of staying
+  // hidden behind a layout saved before it existed.
   const [visible, setVisibleState] = useState<string[]>(defaultVisible);
+  const knownKey = `${storageKey}:columns-known`;
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(`${storageKey}:columns`) ?? "null");
-      if (Array.isArray(saved)) setVisibleState(saved.filter((k: string) => columnMap.has(k)));
+      const saved = parseColumnLayout(localStorage.getItem(`${storageKey}:columns`), localStorage.getItem(knownKey));
+      if (!saved) return;
+      const next = columnsFromLayout(saved, columns);
+      setVisibleState(next.filter((k) => columnMap.has(k)));
+      // The new columns are known from now on: one the user then hides stays hidden.
+      localStorage.setItem(`${storageKey}:columns`, JSON.stringify(next));
+      localStorage.setItem(knownKey, JSON.stringify(knownColumns(saved.known, columns)));
     } catch {
       // Storage unavailable — default columns.
     }
+    // columnMap is made from the columns: it changes exactly when they do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey, columnMap]);
   const setVisible = (next: string[]) => {
     setVisibleState(next);
     try {
       localStorage.setItem(`${storageKey}:columns`, JSON.stringify(next));
+      localStorage.setItem(knownKey, JSON.stringify(knownColumns(parseKeyList(localStorage.getItem(knownKey)), columns)));
     } catch {
       // Storage unavailable — the choice lasts until reload.
     }

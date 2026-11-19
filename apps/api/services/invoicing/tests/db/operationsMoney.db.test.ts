@@ -15,6 +15,9 @@ import { invoiceRepository } from "../../repositories/invoice.repository";
 import { invoiceCostRepository } from "../../repositories/invoiceCost.repository";
 import { sellingCostRepository } from "../../repositories/sellingCost.repository";
 import { supplierInvoiceRepository as repo } from "../../repositories/supplierInvoice.repository";
+import { invoiceFollowupOutboxRepository } from "../../repositories/invoiceFollowupOutbox.repository";
+import { followupsOfSellingChange } from "../../services/invoiceFollowups.service";
+import { invoiceFollowupOutboxTable as outbox } from "../../schemas/invoiceFollowupOutbox.schema";
 import { invoiceLineTable as il, invoiceTable as inv } from "../../schemas/invoice.schema";
 import { invoiceCostTable as c } from "../../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable as s } from "../../schemas/invoiceSellingCost.schema";
@@ -224,5 +227,72 @@ describe("what makes a job invoiced, and a line not yet invoiced", () => {
     });
     // The credited invoice bills nothing any more: its line is work not yet invoiced, and the job is not invoiced.
     expect(jobs[1]).toMatchObject({ notYetInvoiced: [{ currency: "EUR", amount: 100 }], invoicedOn: null });
+  });
+});
+
+// A charge added after invoicing (mock test council X1 / K14): the line's write and the follow-up that moves the
+// shipment's statuses commit together, under the job's newest open invoice.
+describe("a selling line written after invoicing", () => {
+  const ACTOR = { userId: randomUUID(), role: "user" };
+  const outboxOf = (companyId: string) => db.select().from(outbox).where(eq(outbox.companyId, companyId)).orderBy(outbox.createdAt);
+
+  it("is kept under the job's newest open invoice - not a credited, cancelled one or a credit note, not another job's", async () => {
+    const a = randomUUID();
+    const [job, none] = [randomUUID(), randomUUID()];
+    await customerInvoice(a, job, { createdAt: new Date("2026-11-05T09:00:00Z") });
+    const newest = await customerInvoice(a, job, { createdAt: new Date("2026-11-09T09:00:00Z") });
+    const credited = await customerInvoice(a, job, { status: "credited", createdAt: new Date("2026-11-12T09:00:00Z") });
+    await customerInvoice(a, job, { status: "cancelled", createdAt: new Date("2026-11-13T09:00:00Z") });
+    await customerInvoice(a, job, { kind: "credit_note", correctsInvoiceId: credited.id, createdAt: new Date("2026-11-14T09:00:00Z"), net: "-100.00", gross: "-100.00", netCzk: "-2500.00", grossCzk: "-2500.00" });
+    await customerInvoice(a, none, { status: "credited" });
+    expect(await invoiceRepository.latestOpenInvoiceId(job, a)).toBe(newest.id);
+    expect(await invoiceRepository.latestOpenInvoiceId(none, a)).toBeNull();
+    expect(await invoiceRepository.latestOpenInvoiceId(job, randomUUID())).toBeNull();
+  });
+
+  it("writes the line and its follow-up in one transaction: a follow-up that fails leaves no line, one that is written names the invoice", async () => {
+    const a = randomUUID();
+    const job = randomUUID();
+    const invoice = await customerInvoice(a, job);
+    const values = { shipmentId: job, category: "container_storage", amount: "150.00", qty: "2", currency: "EUR" };
+
+    await expect(
+      sellingCostRepository.createLine(a, values, async () => {
+        throw new Error("the outbox is not there");
+      }),
+    ).rejects.toThrow("the outbox is not there");
+    expect(await db.select().from(s).where(eq(s.companyId, a))).toEqual([]);
+
+    const seen: unknown[] = [];
+    const row = await sellingCostRepository.createLine(a, values, async (tx, before, after) => {
+      seen.push([before, after?.id]);
+      const invoiceId = (await invoiceRepository.latestOpenInvoiceId(job, a, tx))!;
+      await invoiceFollowupOutboxRepository.enqueue(tx, followupsOfSellingChange({ companyId: a, shipmentId: job, invoiceId, change: "added", charge: "Container Storage 300.00 EUR" }, ACTOR));
+    });
+    expect(seen).toEqual([[null, row.id]]);
+    expect((await outboxOf(a)).map((r) => [r.kind, r.invoiceId, r.shipmentId, r.payload, r.status])).toEqual([
+      ["status_after_credit", invoice.id, job, { shipmentId: job, charge: "Container Storage 300.00 EUR" }, "pending"],
+    ]);
+  });
+
+  it("hands its hook the line as it was and as it is - none once deleted - and none for a line on an issued invoice, which is refused", async () => {
+    const a = randomUUID();
+    const job = randomUUID();
+    const late = await sellLine(a, job, { amount: "0.00" });
+    const billed = await sellLine(a, job);
+    const invoice = await customerInvoice(a, job);
+    await invoiceLine(a, invoice.id, billed.id);
+    const seen: [string | null, string | null][] = [];
+    const after = async (_tx: unknown, before: { amount: string | null } | null, now: { amount: string | null } | null) => {
+      seen.push([before?.amount ?? null, now?.amount ?? null]);
+    };
+
+    await sellingCostRepository.writeUnlessInvoiced(late.id, a, job, { data: { amount: "320.00" } }, { after });
+    await sellingCostRepository.writeUnlessInvoiced(late.id, a, job, { delete: true }, { after });
+    expect(await sellingCostRepository.writeUnlessInvoiced(billed.id, a, job, { data: { amount: "1.00" } }, { after })).toBe("invoiced");
+    expect(seen).toEqual([
+      ["0.00", "320.00"],
+      ["320.00", null],
+    ]);
   });
 });

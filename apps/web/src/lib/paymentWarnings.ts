@@ -191,7 +191,8 @@ export interface ReleaseStop {
 }
 
 // The server's sentences (api shipments/lib/prepaymentStop.ts), told apart by these parts of them.
-const STOP_UNPAID = "the job is on prepayment and not paid";
+// "…and not paid", and since L3 "…and not invoiced and paid yet" for a job with nothing invoiced: both are this stop.
+const STOP_UNPAID = "the job is on prepayment and not ";
 const STOP_UNCHECKED = "Whether the job is paid could not be checked";
 
 /**
@@ -238,7 +239,8 @@ export const releaseElsewhereText = (stop: ReleaseStop): string => `${stop.messa
 // ── "Ask a manager to release" (Council Outlay 11, D16): a user the stop refused asks, a manager decides ──
 //
 // Approving releases nothing: the approved request is a pass for that job and that release, good for 7 days and
-// for one release. Whoever makes the release then makes it the usual way, and it goes through on the approval.
+// for one release. Whoever makes the release then makes it the usual way, and it goes through on the approval -
+// Warehouse Released at the Warehouse Concept gate's WH release too (api warehouseConcept services/releasePayment).
 // The server works out whether a pass can still be used (`usable`); the screens only word what it says.
 
 /** What a release request asks to be released. */
@@ -265,6 +267,14 @@ export interface ReleaseRequestFacts {
   validUntil: string | null;
   /** Approved, not used and not run out, as the server saw it when it answered. */
   usable: boolean;
+  /** Closed: "released" (released another way) or "withdrawn" (K20); null otherwise. Optional for the screens that never read it. */
+  closedWhy?: string | null;
+  /** Closed: when. */
+  closedAt?: string | null;
+  /** Withdrawn: by whom, as named then. */
+  closedByName?: string;
+  /** Withdrawn: why. */
+  closeReason?: string;
 }
 
 /** "18.11. 14:02" - a moment on the company's calendar and clock, the year left out; "" for none. */
@@ -400,30 +410,55 @@ export const RELEASE_ON_APPROVAL_NOTE = "A manager approved this release: it goe
 /** The release button when the release goes through on a manager's approval. */
 export const RELEASE_ON_APPROVAL_LABEL = "Release on the approval";
 
-type AnswerFacts = Pick<ReleaseRequestFacts, "what" | "status" | "comment" | "usable" | "usedAt" | "usedByName" | "validUntil">;
+type AnswerFacts = Pick<
+  ReleaseRequestFacts,
+  "what" | "status" | "comment" | "usable" | "usedAt" | "usedByName" | "validUntil" | "closedWhy" | "closedAt" | "closedByName" | "closeReason"
+>;
+
+/**
+ * An approval a manager took back after giving it (K20): the asker had been told it was approved, so the bell tells
+ * them it no longer is. The server lists only those (api shipments repositories answersFor), never a request the
+ * asker withdrew while it waited - it has no decision - nor one a release closed.
+ */
+export const isWithdrawnApproval = (a: Pick<ReleaseRequestFacts, "status" | "decidedAt" | "closedWhy">): boolean =>
+  a.status === "closed" && a.closedWhy === "withdrawn" && !!a.decidedAt;
 
 /**
  * The bell, for whoever asked: "Release approved · CZ00000053 — release it now (valid until 25.11. 15:10)" while
- * the approval can be used; a used or run-out approval and a rejection are plain answers.
+ * the approval can be used; a used or run-out approval and a rejection are plain answers; an approval a manager
+ * withdrew says so with their reason: "Approval withdrawn: CZ00000053 — the customer cancelled".
  */
-export function releaseAnswerTitle(a: AnswerFacts & { jobNumber: string }): string {
+export function releaseAnswerTitle(a: AnswerFacts & { jobNumber: string; decidedAt: string | null }): string {
+  if (isWithdrawnApproval(a)) {
+    const why = (a.closeReason ?? "").trim();
+    return `Approval withdrawn: ${a.jobNumber || "a job"}${why ? ` — ${why}` : ""}`;
+  }
   const head = `Release ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber || "a job"}`;
   return releasePassUsable(a) ? `${head} — release it now${validUntilText(a)}` : head;
 }
 
 /**
  * The bell's second line: what was asked for and the manager's words - "House BoL release — agreed with the owner";
- * of an approval that was used "… — released 19.11. 09:30 by jan@firma.cz", of one that ran out "… — ran out unused".
+ * of an approval that was used "… — released 19.11. 09:30 by jan@firma.cz", of one that ran out "… — ran out unused",
+ * of one withdrawn "… — no longer approved: ask again if it is still needed".
  */
-export function releaseAnswerText(a: AnswerFacts): string {
+export function releaseAnswerText(a: AnswerFacts & { decidedAt: string | null }): string {
   const what = RELEASE_WHAT_LABEL[a.what] ?? a.what;
+  if (isWithdrawnApproval(a)) return `${what} — no longer approved: ask again if it is still needed`;
   if (a.status === "approved" && a.usedAt) return `${what} — released ${shortDateTime(a.usedAt)}${a.usedByName.trim() ? ` by ${a.usedByName.trim()}` : ""}`;
   if (a.status === "approved" && !releasePassUsable(a)) return `${what} — ran out unused`;
   return `${what}${a.comment.trim() ? ` — ${a.comment.trim()}` : ""}`;
 }
 
-/** What the bell lists: a manager's answers. A request still waiting or closed by the app is no answer. */
-export const isReleaseAnswer = (a: Pick<ReleaseRequestFacts, "status">): boolean => a.status === "approved" || a.status === "rejected";
+/** Who gave the bell's word and when: the manager who answered - or, of an approval withdrawn, the one who withdrew it. */
+export function releaseAnswerBy(a: Pick<ReleaseRequestFacts, "status" | "decidedAt" | "decidedByName" | "closedWhy" | "closedAt" | "closedByName">): { name: string; at: string | null } {
+  if (isWithdrawnApproval(a)) return { name: (a.closedByName ?? "").trim() || "Manager", at: a.closedAt ?? null };
+  return { name: a.decidedByName.trim() || "Manager", at: a.decidedAt };
+}
+
+/** What the bell lists: a manager's answers, and an approval a manager withdrew. A request still waiting or closed by a release is no answer. */
+export const isReleaseAnswer = (a: Pick<ReleaseRequestFacts, "status"> & Partial<Pick<ReleaseRequestFacts, "decidedAt" | "closedWhy">>): boolean =>
+  a.status === "approved" || a.status === "rejected" || isWithdrawnApproval({ status: a.status, decidedAt: a.decidedAt ?? null, closedWhy: a.closedWhy });
 
 /**
  * What of the askers' answers the job's own request line is worded from: when it changes, a manager has answered

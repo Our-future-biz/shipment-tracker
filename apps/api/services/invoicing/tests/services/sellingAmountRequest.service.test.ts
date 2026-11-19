@@ -7,6 +7,14 @@ const repo = vi.hoisted(() => ({ change: vi.fn(), answer: vi.fn(), byId: vi.fn()
 vi.mock("../../repositories/sellingAmountRequest.repository", () => ({ sellingAmountRequestRepository: repo }));
 vi.mock("../../../../lib/companyUsers", () => ({ userEmailOf: async () => "rep@example.test" }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: async () => ({ jobNumber: "CZ00000024" }) }));
+// What a written number owes the job's statuses (services/sellingStatusFollow), recorded per shipment.
+const follow = vi.hoisted(() => ({ made: [] as string[], after: vi.fn(), deliver: vi.fn() }));
+vi.mock("../../services/sellingStatusFollow", () => ({
+  statusesFollow: (_companyId: string, shipmentId: string) => {
+    follow.made.push(shipmentId);
+    return { after: follow.after, afterSet: vi.fn(), deliver: follow.deliver };
+  },
+}));
 
 import { sellingAmountRequestService as service } from "../../services/sellingAmountRequest.service";
 
@@ -28,7 +36,7 @@ describe("changing the number", () => {
   it("passes the amount and reason on, with who asks and the job", async () => {
     repo.change.mockResolvedValue({ outcome: "asked", request: record() });
     const out = await service.change(rep, SHIPMENT, SELLING, { amount: "50.00", reason: "  Customer goodwill " });
-    expect(repo.change).toHaveBeenCalledWith("c1", SHIPMENT, SELLING, { amount: "50.00", reason: "Customer goodwill", userId: "u1", userEmail: "rep@example.test", jobNumber: "CZ00000024" });
+    expect(repo.change).toHaveBeenCalledWith("c1", SHIPMENT, SELLING, { amount: "50.00", reason: "Customer goodwill", userId: "u1", userEmail: "rep@example.test", jobNumber: "CZ00000024" }, follow.after);
     expect(out).toMatchObject({ outcome: "asked", request: { requestedAmount: "50.00", status: "pending" } });
   });
 
@@ -67,7 +75,7 @@ describe("a manager's answer", () => {
   it("approves, with who answered", async () => {
     repo.answer.mockResolvedValue({ outcome: "done", request: record({ status: "approved" }) });
     const out = await service.answer(manager, REQUEST, { decision: "approve" });
-    expect(repo.answer).toHaveBeenCalledWith("c1", REQUEST, { approve: true, comment: "", userId: "m1", userEmail: "rep@example.test" });
+    expect(repo.answer).toHaveBeenCalledWith("c1", REQUEST, { approve: true, comment: "", userId: "m1", userEmail: "rep@example.test" }, expect.any(Function));
     expect(out.status).toBe("approved");
   });
 
@@ -79,6 +87,45 @@ describe("a manager's answer", () => {
   it.each(["answered_already", "invoiced", "row_gone", "cost_changed"])("refuses when %s", async (outcome) => {
     repo.answer.mockResolvedValue({ outcome, cost: "95.00", request: record({ status: "rejected", decidedByName: "boss@example.test" }) });
     await expect(service.answer(manager, REQUEST, { decision: "approve" })).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+});
+
+describe("the job's statuses after a number is written", () => {
+  beforeEach(() => {
+    follow.made.length = 0;
+  });
+
+  it("hands the line's write the hook of its shipment, and sends what it owes once the number is saved", async () => {
+    repo.change.mockResolvedValue({ outcome: "saved", row: {} });
+    await service.change(rep, SHIPMENT, SELLING, { amount: "120.00" });
+    expect(follow.made).toEqual([SHIPMENT]);
+    expect(repo.change.mock.calls[0]![4]).toBe(follow.after);
+    expect(follow.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends nothing when only a request was asked: the row is as it was", async () => {
+    repo.change.mockResolvedValue({ outcome: "asked", request: record() });
+    await service.change(rep, SHIPMENT, SELLING, { amount: "50.00", reason: "Customer goodwill" });
+    expect(follow.deliver).not.toHaveBeenCalled();
+  });
+
+  it("makes an approval's hook for the request's own shipment, and sends what it owes once done", async () => {
+    repo.answer.mockImplementation(async (_c: string, _id: string, _a: unknown, followOf: (shipmentId: string) => unknown) => {
+      expect(followOf(SHIPMENT)).toBe(follow.after);
+      return { outcome: "done", request: record({ status: "approved" }) };
+    });
+    await service.answer(manager, REQUEST, { decision: "approve" });
+    expect(follow.made).toEqual([SHIPMENT]);
+    expect(follow.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends nothing when the approval was refused", async () => {
+    repo.answer.mockImplementation(async (_c: string, _id: string, _a: unknown, followOf: (shipmentId: string) => unknown) => {
+      followOf(SHIPMENT);
+      return { outcome: "cost_changed", cost: "95.00 EUR" };
+    });
+    await expect(service.answer(manager, REQUEST, { decision: "approve" })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(follow.deliver).not.toHaveBeenCalled();
   });
 });
 

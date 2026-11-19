@@ -1,11 +1,12 @@
 import { businessDay, businessInstant, businessTime, isRealYmd } from "../../../lib/businessDate";
 import { officeMinutesBetween } from "../../../lib/officeHours";
-import { addWorkingDays, isWorkingDay, weekday } from "../../../lib/workingDays";
+import { addWorkingDays, isWorkingDay, nextWorkingDay, weekday } from "../../../lib/workingDays";
 import {
   DANGEROUS_ATTENTION_DAYS,
   DANGEROUS_URGENT_DAYS,
   DECLINED_NOT_REPLACED_HOURS,
   DELIVERY_ORDER_ATTENTION_WORKING_DAYS,
+  DELIVERY_ORDER_RULE_FROM,
   DELIVERY_ORDER_URGENT_WORKING_DAYS,
   ETA_PASSED_KEPT_DAYS,
   IMPORT_INSTRUCTIONS_ANSWER_WORKING_DAYS,
@@ -21,6 +22,7 @@ import {
   REMEASURE_COSTS_WORKING_DAYS,
   REMEASURE_URGENT_AIR_DEPARTURE_DAYS,
   REMEASURE_URGENT_HOURS,
+  REMEASURE_WAREHOUSE_CONCEPT_DAYS,
   REQUEST_WAITING_WORKING_DAYS,
   REVIEW_WAITING_URGENT_OFFICE_HOURS,
   REVIEW_WAITING_WORKING_DAYS,
@@ -87,6 +89,14 @@ export interface ExtraJob {
   customsOffice: string | null;
   mrn: string | null;
   warehouseReceivedDate: string | null;
+  /**
+   * Cargo Details' Pcs, Total Weight (tons) and Total Volume, as stored: what the service checks a
+   * remeasurement from Warehouse Concept against (RemeasureFact matchesCargoDetails). Left out when
+   * the row read does not carry them: then Cargo Details is not known to match.
+   */
+  pcs?: string | null;
+  totalWeightTons?: string | null;
+  totalVolumeCbm?: string | null;
   createdAt: Date | string | null;
 }
 
@@ -114,8 +124,16 @@ export interface ImportInstructionFact {
 
 /** What a job's history says of the warehouse's remeasurement. */
 export interface RemeasureFact {
-  /** The latest Inform Operations and how its figures stood to the shipment's; null when there was none. */
-  informed: { at: Date; verdict: RemeasureVerdict } | null;
+  /**
+   * The latest Inform Operations and how its figures stood to the shipment's; null when there was
+   * none. `source`: which warehouse informed - "warehouse" (Shipments → Warehouse, whose lines
+   * "Accept remeasurement" takes) or "warehouseConcept" (Warehouse Concept, whose lines it does not
+   * read). Left out, the Warehouse's, as a line written before the source was kept.
+   * `matchesCargoDetails`: Cargo Details (Pcs, Total Weight, Total Volume) now say what it informed
+   * of, every figure known on both sides alike (lib/remeasureNotice remeasureVerdict); left out or
+   * false when that is not known.
+   */
+  informed: { at: Date; verdict: RemeasureVerdict; source?: "warehouse" | "warehouseConcept"; matchesCargoDetails?: boolean } | null;
   /** The latest "Accept remeasurement". */
   acceptedAt: Date | null;
   /** The latest "Quantities checked" on Costs Breakdown. */
@@ -254,15 +272,33 @@ export const hasLeft = (job: { actualDeparture: string | null; actualArrival?: s
   !!dayOf(job.actualDeparture) || !!dayOf(job.actualArrival) || !!dayOf(job.actualDeliveryDate);
 
 /**
- * Days from `today` to the ETA of a job that has not arrived: 0 today, negative once the ETA has
- * passed. Null when it has arrived (an ATA, or a delivery date with no ATA typed), has no ETA, or
- * its ETA passed more than ETA_PASSED_KEPT_DAYS ago - that job is not "arriving", it lacks its ATA.
+ * How many working days `day`, later than `today`, is away (D6): the fewest n for which
+ * addWorkingDays(today, n) reaches it. On a Friday the Monday after is 1 away, and so are Saturday
+ * and Sunday; on 23 Dec 28 Dec is 1 away, over the Christmas holidays. Past `cap` it stops
+ * counting and answers cap + 1: no window here is that wide.
  */
-export function arrivingIn(job: Pick<ExtraJob, "estimatedArrival" | "actualArrival" | "actualDeliveryDate">, today: string): number | null {
+export function workingDaysAhead(today: string, day: string, holidays: readonly string[], cap = 31): number {
+  let n = 0;
+  for (let reached = addWorkingDays(today, 0, holidays); reached < day; reached = nextWorkingDay(reached, holidays)) {
+    n += 1;
+    if (n > cap) return n;
+  }
+  return n;
+}
+
+/**
+ * How far the ETA of a job that has not arrived is: in WORKING days while it is ahead
+ * (workingDaysAhead - "within 1" on a Friday is Monday's arrival too), in calendar days once it has
+ * passed (negative). 0 today. Null when it has arrived (an ATA, or a delivery date with no ATA
+ * typed), has no ETA, or its ETA passed more than ETA_PASSED_KEPT_DAYS ago - that job is not
+ * "arriving", it lacks its ATA.
+ */
+export function arrivingIn(job: Pick<ExtraJob, "estimatedArrival" | "actualArrival" | "actualDeliveryDate">, today: string, holidays: readonly string[] = []): number | null {
   const eta = dayOf(job.estimatedArrival);
   if (!eta || dayOf(job.actualArrival) || dayOf(job.actualDeliveryDate)) return null;
   const days = daysBetween(today, eta);
-  return days < -ETA_PASSED_KEPT_DAYS ? null : days;
+  if (days < -ETA_PASSED_KEPT_DAYS) return null;
+  return days > 0 ? workingDaysAhead(today, eta, holidays) : days;
 }
 
 /** "arriving tomorrow", "arriving on Fri 20.11.", "ETA 17.11. passed": the ETA of a job arrivingIn counts. */
@@ -336,7 +372,7 @@ const isCommunityGoods = (procedure: string | null | undefined) => lower(procedu
 /**
  * An import that has arrived, or is about to, while its customs status still reads "Waiting For
  * Commercial Paperwork" (no Commercial Invoice or no packing list uploaded): URGENT from
- * PAPERWORK_URGENT_DAYS before the ETA; ATTENTION from 5 days out (air and road 2). Once it has
+ * PAPERWORK_URGENT_DAYS working days before the ETA; ATTENTION from 5 working days out (air and road 2). Once it has
  * arrived it stays URGENT until it is delivered - a delivered job got through customs, whatever
  * was uploaded. C-Goods need no clearance, so they are never tagged, before or after arrival:
  * without those two ends the tag would sit on such a job for as long as it is active. `shown`: the customs status the
@@ -346,18 +382,19 @@ export function paperworkSignals(
   job: Pick<ExtraJob, "tradeDirection" | "freightMode" | "department" | "mrn" | "customsDeadline" | "customsProcedure" | "estimatedArrival" | "actualArrival" | "actualDeliveryDate">,
   shown: string,
   today: string,
+  holidays: readonly string[] = [],
 ): ExtraSignal[] {
   if (!isImport(job) || shown !== PAPERWORK_WAITING || !goesThroughCustoms(job) || dayOf(job.actualDeliveryDate) || isCommunityGoods(job.customsProcedure)) return [];
   const arrived = dayOf(job.actualArrival);
   if (arrived) return [signal(true, EXTRA_RANK.paperworkUrgent, "paperwork", "customs", `${PAPERWORK_WAITING} · arrived ${dm(arrived)}`)];
-  const days = arrivingIn(job, today);
+  const days = arrivingIn(job, today, holidays);
   if (days === null || days > PAPERWORK_ATTENTION_DAYS[freightKindOf(job)]) return [];
   const words = `${PAPERWORK_WAITING} · ${arrivingWords(job, today)}`;
   return days <= PAPERWORK_URGENT_DAYS ? [signal(true, EXTRA_RANK.paperworkUrgent, "paperwork", "customs", words)] : [signal(false, EXTRA_RANK.paperworkAhead, "paperwork", "customs", words)];
 }
 
 /**
- * An import ORIGINAL_BL_URGENT_DAYS from its ETA whose Master BoL Type is still "OBL": an original
+ * An import ORIGINAL_BL_URGENT_DAYS working days from its ETA whose Master BoL Type is still "OBL": an original
  * that is not in hand ("OMBL ok" is one that is; a Telex release or a Sea Waybill needs none).
  * Without it the cargo is not released. A day typed in Originals Received or Telex Release
  * Received says it is in hand (step 6, D31), whatever the type still reads.
@@ -365,10 +402,11 @@ export function paperworkSignals(
 export function originalBlSignals(
   job: Pick<ExtraJob, "tradeDirection" | "masterBolType" | "estimatedArrival" | "actualArrival" | "actualDeliveryDate" | "originalsReceivedDate" | "telexReleaseReceivedDate">,
   today: string,
+  holidays: readonly string[] = [],
 ): ExtraSignal[] {
   if (!isImport(job) || text(job.masterBolType).toUpperCase() !== "OBL") return [];
   if (dayOf(job.originalsReceivedDate) || dayOf(job.telexReleaseReceivedDate)) return [];
-  const days = arrivingIn(job, today);
+  const days = arrivingIn(job, today, holidays);
   if (days === null || days > ORIGINAL_BL_URGENT_DAYS) return [];
   return [signal(true, EXTRA_RANK.originalBl, "bl", "details", `Master BoL is an OBL, not in hand · ${arrivingWords(job, today)}`)];
 }
@@ -377,21 +415,23 @@ export function originalBlSignals(
  * A sea or rail import that arrived (its ATA) and is not delivered, with no Delivery Order date
  * (step 6): the cargo can't be collected. ATTENTION once DELIVERY_ORDER_ATTENTION_WORKING_DAYS
  * working days have passed since the ATA, URGENT at DELIVERY_ORDER_URGENT_WORKING_DAYS. Only an
- * arrival within the last ETA_PASSED_KEPT_DAYS calendar days is judged: an older one gives no tag -
- * the Delivery Order date is new (step 6), no job had it before, and a job that arrived weeks ago
- * has been collected or is stuck for reasons this tag does not say. Nothing either when the row did
- * not carry the date (undefined): not known is no tag.
+ * arrival within the last ETA_PASSED_KEPT_DAYS calendar days is judged, and none before the day the
+ * rule went live (DELIVERY_ORDER_RULE_FROM, L9): an older one gives no tag - the Delivery Order date
+ * is new (step 6), no job had it before, and a job that arrived weeks ago has been collected or is
+ * stuck for reasons this tag does not say. Nor once the cargo is in our warehouse (a Warehouse
+ * Received date, m25): an LCL import is collected and devanned by us, its delivery order was
+ * handled. Nothing either when the row did not carry the date (undefined): not known is no tag.
  */
 export function deliveryOrderSignals(
-  job: Pick<ExtraJob, "tradeDirection" | "freightMode" | "department" | "actualArrival" | "actualDeliveryDate" | "deliveryOrderDate">,
+  job: Pick<ExtraJob, "tradeDirection" | "freightMode" | "department" | "actualArrival" | "actualDeliveryDate" | "deliveryOrderDate" | "warehouseReceivedDate">,
   today: string,
   holidays: readonly string[],
 ): ExtraSignal[] {
-  if (job.deliveryOrderDate === undefined || dayOf(job.deliveryOrderDate) || !isImport(job) || dayOf(job.actualDeliveryDate)) return [];
+  if (job.deliveryOrderDate === undefined || dayOf(job.deliveryOrderDate) || !isImport(job) || dayOf(job.actualDeliveryDate) || dayOf(job.warehouseReceivedDate)) return [];
   const kind = freightKindOf(job);
   if (kind !== "sea" && kind !== "rail") return [];
   const arrived = dayOf(job.actualArrival);
-  if (!arrived || arrived > today || daysBetween(arrived, today) > ETA_PASSED_KEPT_DAYS) return [];
+  if (!arrived || arrived > today || arrived < DELIVERY_ORDER_RULE_FROM || daysBetween(arrived, today) > ETA_PASSED_KEPT_DAYS) return [];
   const waited = workingDaysSince(arrived, today, holidays);
   if (waited < DELIVERY_ORDER_ATTENTION_WORKING_DAYS) return [];
   const words = `Arrived ${dm(arrived)}, no delivery order`;
@@ -505,7 +545,7 @@ const isT1 = (procedure: string | null | undefined) => text(procedure).toUpperCa
 /**
  * What the job's customs fields lack:
  *  - Urgent for customs with no deadline typed (with one it is step 1's "Customs urgent" tag);
- *  - a T1 with no Customs Office chosen, T1_OFFICE_DAYS from its ETA;
+ *  - a T1 with no Customs Office chosen, T1_OFFICE_DAYS working days from its ETA;
  *  - Customs Cleared/Released with no MRN. `shown`: the customs status the shipment shows, null
  *    when its documents could not be read - then this last one is not known and says nothing.
  */
@@ -513,11 +553,12 @@ export function customsFieldSignals(
   job: Pick<ExtraJob, "customsPriority" | "customsStatus" | "customsDeadline" | "customsProcedure" | "customsOffice" | "mrn" | "estimatedArrival" | "actualArrival" | "actualDeliveryDate">,
   shown: string | null,
   today: string,
+  holidays: readonly string[] = [],
 ): ExtraSignal[] {
   const out: ExtraSignal[] = [];
   if (isUrgentForCustoms(job) && !text(job.customsDeadline)) out.push(signal(false, EXTRA_RANK.customsNoDeadline, "customs", "customs", "Customs Urgent with no deadline typed"));
   if (isT1(job.customsProcedure) && !text(job.customsOffice)) {
-    const days = arrivingIn(job, today);
+    const days = arrivingIn(job, today, holidays);
     if (days !== null && days <= T1_OFFICE_DAYS) out.push(signal(false, EXTRA_RANK.t1NoOffice, "customs", "customs", `T1 with no Customs Office · ${arrivingWords(job, today)}`));
   }
   if (shown === CUSTOMS_CLEARED && !text(job.mrn)) out.push(signal(false, EXTRA_RANK.clearedNoMrn, "customs", "customs", `${CUSTOMS_CLEARED} with no MRN`));
@@ -578,7 +619,7 @@ export function statusStuckSignals(job: Pick<ExtraJob, "status" | "tradeDirectio
 /**
  * The job's live Import Instructions form:
  *  - the customer's answers waiting for approval for longer than a working day;
- *  - a link the customer has not filled in, IMPORT_INSTRUCTIONS_OPEN_DAYS from the ETA - said
+ *  - a link the customer has not filled in, IMPORT_INSTRUCTIONS_OPEN_DAYS working days from the ETA - said
  *    apart when the link has run out meanwhile, as the customer can no longer use it.
  */
 export function importInstructionSignals(job: Pick<ExtraJob, "estimatedArrival" | "actualArrival" | "actualDeliveryDate">, form: ImportInstructionFact | null, today: string, now: Date, holidays: readonly string[]): ExtraSignal[] {
@@ -587,7 +628,7 @@ export function importInstructionSignals(job: Pick<ExtraJob, "estimatedArrival" 
     if (!form.submittedAt || !waitedWorkingDays(form.submittedAt, IMPORT_INSTRUCTIONS_ANSWER_WORKING_DAYS, now, holidays)) return [];
     return [signal(false, EXTRA_RANK.importInstructions, "import_instructions", "details", `Import Instructions from the customer not answered since ${stamp(form.submittedAt)}`)];
   }
-  const days = arrivingIn(job, today);
+  const days = arrivingIn(job, today, holidays);
   if (days === null || days > IMPORT_INSTRUCTIONS_OPEN_DAYS) return [];
   const state = form.expiresAt.getTime() <= now.getTime() ? "Import Instructions link ran out, not filled in" : "Import Instructions not filled in by the customer";
   return [signal(false, EXTRA_RANK.importInstructions, "import_instructions", "details", `${state} · ${arrivingWords(job, today)}`)];
@@ -595,12 +636,19 @@ export function importInstructionSignals(job: Pick<ExtraJob, "estimatedArrival" 
 
 // ─── A19: the warehouse's remeasurement ────────────────────────────
 
+/** The text of a remeasurement from Warehouse Concept: its "Accept" is not on Cargo Details, so the figures are typed by hand. */
+export const REMEASURED_IN_WAREHOUSE_CONCEPT = "Remeasured in Warehouse Concept: check Cargo Details by hand";
+
 /**
  * The warehouse remeasured the cargo (lib/remeasureNotice, lib/remeasureAccept):
  *  - its last Inform Operations differs from the shipment and nobody has accepted it since:
  *    ATTENTION after 24 hours (by air after 4 office hours), URGENT after 48 hours - and by air
  *    as soon as the Closing (the ETD when no Closing) is a day away, whatever the wait - while
  *    the job has not left (hasLeft): a flight that landed is hurried by no Closing;
+ *  - the same from Warehouse Concept (X4): "Accept remeasurement" reads only the Warehouse's own
+ *    lines, so it cannot be cleared there - ATTENTION "Remeasured in Warehouse Concept: check Cargo
+ *    Details by hand" after the same wait, never URGENT, until Cargo Details match the informed
+ *    figures or REMEASURE_WAREHOUSE_CONCEPT_DAYS days have passed since it was informed;
  *  - it was accepted and Costs Breakdown's quantities were not marked checked for longer than a
  *    working day.
  */
@@ -613,16 +661,23 @@ export function remeasurementSignals(
 ): ExtraSignal[] {
   if (!fact) return [];
   const { informed, acceptedAt, costsCheckedAt } = fact;
-  if (informed && informed.verdict === "differs" && !(acceptedAt && acceptedAt.getTime() >= informed.at.getTime())) {
+  const differs = !!informed && informed.verdict === "differs" && !(acceptedAt && acceptedAt.getTime() >= informed.at.getTime());
+  if (informed && differs) {
     const waited = now.getTime() - informed.at.getTime();
     const air = freightKindOf(job) === "air";
-    const ahead = air ? departureAhead(job, today) : null;
-    const leaving = !!ahead && ahead.days >= 0 && ahead.days <= REMEASURE_URGENT_AIR_DEPARTURE_DAYS;
-    const words = `Remeasurement differs, not accepted since ${stamp(informed.at)}`;
-    if (ahead && leaving) return [signal(true, EXTRA_RANK.remeasureUrgent, "remeasurement", "details", `${words} · ${departureWords(ahead, today)}`)];
-    if (waited >= REMEASURE_URGENT_HOURS * HOUR) return [signal(true, EXTRA_RANK.remeasureUrgent, "remeasurement", "details", words)];
     const due = waited >= REMEASURE_ATTENTION_HOURS * HOUR || (air && officeMinutesBetween(informed.at, now, holidays) >= REMEASURE_ATTENTION_AIR_OFFICE_HOURS * 60);
-    return due ? [signal(false, EXTRA_RANK.remeasure, "remeasurement", "details", words)] : [];
+    if (informed.source === "warehouseConcept") {
+      // Done once Cargo Details say the same, or a week on: past that the figures were plainly looked at, or never will be.
+      const done = waited >= REMEASURE_WAREHOUSE_CONCEPT_DAYS * DAY || informed.matchesCargoDetails === true;
+      if (!done) return due ? [signal(false, EXTRA_RANK.remeasure, "remeasurement", "details", `${REMEASURED_IN_WAREHOUSE_CONCEPT} · informed ${stamp(informed.at)}`)] : [];
+    } else {
+      const ahead = air ? departureAhead(job, today) : null;
+      const leaving = !!ahead && ahead.days >= 0 && ahead.days <= REMEASURE_URGENT_AIR_DEPARTURE_DAYS;
+      const words = `Remeasurement differs, not accepted since ${stamp(informed.at)}`;
+      if (ahead && leaving) return [signal(true, EXTRA_RANK.remeasureUrgent, "remeasurement", "details", `${words} · ${departureWords(ahead, today)}`)];
+      if (waited >= REMEASURE_URGENT_HOURS * HOUR) return [signal(true, EXTRA_RANK.remeasureUrgent, "remeasurement", "details", words)];
+      return due ? [signal(false, EXTRA_RANK.remeasure, "remeasurement", "details", words)] : [];
+    }
   }
   // Checked counts only after the acceptance it checks (services/shipment.service remeasureAcceptance).
   if (acceptedAt && !(costsCheckedAt && costsCheckedAt.getTime() >= acceptedAt.getTime()) && waitedWorkingDays(acceptedAt, REMEASURE_COSTS_WORKING_DAYS, now, holidays)) {

@@ -13,7 +13,8 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnWidths } from "@/hooks/useColumnWidths";
 import { ResizableTh } from "@/components/ResizableTh";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
-import { loadTypesOf, shipmentFits } from "@/lib/masterJobKind";
+import { masterJobKindOf, shipmentFits } from "@/lib/masterJobKind";
+import { loadTypeLabel } from "@/lib/enums";
 import { LINK_REFUSED_HINT, linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { Badge } from "@/components/Badge";
@@ -291,7 +292,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
       <LinkShipmentsModal
         open={picking}
         masterJob={masterJob}
-        linkedIds={new Set(shipments.map((s) => s.id))}
+        linked={shipments}
         onClose={() => setPicking(false)}
         onLink={onLink}
       />
@@ -302,13 +303,14 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
 interface LinkShipmentsModalProps {
   open: boolean;
   masterJob: MasterJobItem;
-  linkedIds: Set<string>;
+  /** The shipments on it already: a plain master job (no Load Type) takes their filling. */
+  linked: MasterJobShipmentItem[];
   onClose: () => void;
   onLink: (shipmentIds: string[]) => Promise<unknown>;
 }
 
 // The shipments to link, in the Master Job dialog's table (Shipments › Link to Master Job).
-function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: LinkShipmentsModalProps) {
+function LinkShipmentsModal({ open, masterJob, linked, onClose, onLink }: LinkShipmentsModalProps) {
   const message = useMessages();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -324,13 +326,17 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
     queryFn: () => api.shipments.shipmentList({ search, limit: 50 }),
     enabled: open,
   });
+  const linkedIds = new Set(linked.map((s) => s.id));
   const candidates = (results.data?.data ?? []).filter((s) => !linkedIds.has(s.id) && !s.jobNumber.startsWith("CZQ"));
   // The server links all of them or none, and refuses a shipment whose details the user may not
   // change: such a one is shown, not offered.
   const { user } = useAuth();
-  // Only shipments of the master job's filling go on it (lib/masterJobKind): its Load Type, else the
-  // one of the shipments ticked. One of another is shown, not offered.
-  const kind = masterJob.loadType?.trim() || loadTypesOf(selected.map((id) => ({ loadType: pickedLoadTypes[id] })))[0] || null;
+  // Only shipments of the master job's filling go on it (lib/masterJobKind): its Load Type, else - a
+  // plain MCZ - the one of the shipments on it and of those ticked, as the server checks it. One of
+  // another is shown, not offered.
+  const kind = masterJobKindOf(masterJob.loadType, [...linked, ...selected.map((id) => ({ loadType: pickedLoadTypes[id] }))]);
+  // As the screen names it: an air Full Load is a Single Shipment (lib/enums).
+  const kindLabel = kind && kind !== "mixed" ? loadTypeLabel(kind, masterJob.freightMode) : "";
   const fits = (s: (typeof candidates)[number]) => selected.includes(s.id) || shipmentFits(kind, s);
   const mayLink = (s: (typeof candidates)[number]) => canChangeShipmentDetails(user, s) && fits(s);
 
@@ -384,7 +390,11 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
       <div className="flex flex-col gap-3 pt-1">
         <p className={`m-0 ${HINT}`}>
           Linked shipments take over the master job&apos;s synced MBL details.
-          {kind ? ` Only ${kind} shipments can go on it.` : ""}
+          {kind === "mixed"
+            ? " It already holds shipments of different Load Types: only shipments without a Load Type can go on it."
+            : kind
+              ? ` Only ${kindLabel} shipments can go on it.`
+              : ""}
         </p>
         <Input
           autoFocus
@@ -415,7 +425,11 @@ function LinkShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: Lin
               {candidates.map((s) => {
                 const locked = !mayLink(s);
                 const misfit = !fits(s);
-                const lockReason = misfit ? `${s.jobNumber} is ${s.loadType}: ${masterJob.mczNumber} takes ${kind} shipments only` : LINK_REFUSED_HINT;
+                const lockReason = !misfit
+                  ? LINK_REFUSED_HINT
+                  : kind === "mixed"
+                    ? `${masterJob.mczNumber} already holds shipments of different Load Types: it takes no more until those that don't belong are taken off`
+                    : `${s.jobNumber} is ${loadTypeLabel(s.loadType, s.freightMode)}: ${masterJob.mczNumber} takes ${kindLabel} shipments only`;
                 const isChecked = !locked && selected.includes(s.id);
                 // The ports by their codes ("CNSGH → DEHAM"), in full on hover.
                 const route = [s.pol, s.pod].filter(Boolean).map((p) => placeCodeOf(p) ?? p).join(" → ");

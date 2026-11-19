@@ -136,6 +136,19 @@ export interface OpsCockpitJob extends AttentionShipment {
   deliveryOrderDate: string | null;
   /** The customer was sent an arrival notice (a customer notice of that kind stands on the job). */
   arrivalNoticeSent: boolean;
+  /**
+   * The job's Incoterms (EXW, FOB…), as typed. Left out (undefined) when the row read does not carry
+   * them: then an import's terms are not known, and the booking rule asks nothing of it (bookingSignals).
+   */
+  incotermOrigin?: string;
+  incotermDestination?: string;
+  /**
+   * Cargo Details' Pcs, Total Weight (tons) and Total Volume, as stored: the warehouse's remeasurement
+   * is compared with them (lib/managersCockpitExtra remeasurementSignals). Left out when not read.
+   */
+  pcs?: string;
+  totalWeightTons?: string | null;
+  totalVolumeCbm?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -223,6 +236,14 @@ export interface OpsCockpitInput {
    * part that could not be read null. Left out, none were asked: no claim tag.
    */
   claims?: ClaimFacts;
+  /**
+   * The company's jobs that are no longer active - Invoiced or cancelled, not deleted - whose Claim
+   * field says Yes for an open cargo claim (X8; one on costs alone does not count). An open cargo
+   * claim does not end with the job's billing: such a job is counted by
+   * "Open claims" and is a row for its cargo claims' tags only (judgeClaimOnly) - no other rule, no
+   * active job, nobody's load on the people line. Left out, none.
+   */
+  claimOnlyJobs?: readonly OpsCockpitJob[];
   /** What could not be read, in the words the page shows; the cockpit adds nothing to it. */
   notKnown: readonly string[];
   /** The company has more active jobs than `jobs` holds. */
@@ -290,12 +311,16 @@ const dueWords = (day: string, today: string) => {
 };
 
 /**
- * Whether a planned date is coming within `days` days: up to that far ahead, and not longer ago
- * than PASSED_DATE_KEPT_DAYS - a date that passed with nothing recorded is still to come, until
- * it is so old that the job plainly went on without it being typed.
+ * Whether a planned date is coming within `workingDays` working days (D6): up to the day that many
+ * working days after today (lib/workingDays addWorkingDays, the company's holidays skipped too), so
+ * on a Friday "within 1" reaches Monday - and the weekend between - and on 23 Dec it reaches
+ * 28 Dec over the Christmas holidays. A date that passed is counted in calendar days: it still
+ * counts while no longer ago than `keptDays` (PASSED_DATE_KEPT_DAYS) - a date that passed with
+ * nothing recorded is still to come, until it is so old that the job plainly went on without it
+ * being typed.
  */
-const comingWithin = (date: string | null, today: string, days: number, keptDays = PASSED_DATE_KEPT_DAYS): date is string =>
-  !!date && date <= addDays(today, days) && date >= addDays(today, -keptDays);
+const comingWithin = (date: string | null, today: string, workingDays: number, holidays: readonly string[] = [], keptDays = PASSED_DATE_KEPT_DAYS): date is string =>
+  !!date && date <= addWorkingDays(today, workingDays, holidays) && date >= addDays(today, -keptDays);
 
 // ─── Filters ───────────────────────────────────────────────────
 
@@ -473,6 +498,9 @@ export const OPS_RANK = {
   warehouseIdle: 246,
   pod: 248,
   houseBol: 249,
+  // A Holiday Cover who is no user covers nobody: after everything the job itself says, right
+  // before what the people around it left undone (lib/managersCockpitTeam TEAM_RANK, 405 on).
+  coverNotUser: 404,
 } as const;
 /** What a rank of lib/managersCockpitExtra is multiplied by to sit on OPS_RANK's scale. */
 export const EXTRA_RANK_SCALE = 10;
@@ -518,12 +546,25 @@ const FLAG_KIND: Record<TrackingAttentionFlag["kind"], SignalKind> = {
 
 // ─── Who handles it ────────────────────────────────────────────────
 
-/** The signals of the job's Handled By: nobody ("owner"), or somebody who is not a user ("not_user", only when the users are known) - two families, each with its own tile. */
-export function handledBySignals(job: Pick<OpsCockpitJob, "personInCharge">, userEmails: ReadonlySet<string> | null): OpsSignal[] {
+/**
+ * The signals of the job's Handled By: nobody ("owner"), or somebody who is not a user ("not_user",
+ * only when the users are known) - two families, each with its own tile. And of its Holiday Cover:
+ * a cover who is not a user (deactivated while still named on the job, say) covers nobody - a
+ * warning of the "not_user" family, as nobody would answer for the job while its Handled By is away.
+ */
+export function handledBySignals(job: Pick<OpsCockpitJob, "personInCharge" | "holidayCover">, userEmails: ReadonlySet<string> | null): OpsSignal[] {
   const email = personEmail(job.personInCharge);
-  if (!email) return [urgent(OPS_RANK.nobody, "owner", "details", "Nobody in Handled By")];
-  return userEmails && !userEmails.has(email) ? [urgent(OPS_RANK.notUser, "not_user", "details", `Handled By is not a user: ${email}`)] : [];
+  const cover = personEmail(job.holidayCover);
+  const out: OpsSignal[] = [];
+  if (!email) out.push(urgent(OPS_RANK.nobody, "owner", "details", "Nobody in Handled By"));
+  else if (userEmails && !userEmails.has(email)) out.push(urgent(OPS_RANK.notUser, "not_user", "details", `Handled By is not a user: ${email}`));
+  if (cover && userEmails && !userEmails.has(cover)) out.push(attention(OPS_RANK.coverNotUser, "not_user", "details", `Holiday Cover is not a user: ${cover}`));
+  return out;
 }
+
+/** Whether the job names somebody in Handled By or Holiday Cover who is not a user: the jobs the "not_user" tile counts. Never when the users are not known. */
+export const namesNoUser = (job: Pick<OpsCockpitJob, "personInCharge" | "holidayCover">, userEmails: ReadonlySet<string> | null): boolean =>
+  !!userEmails && [personEmail(job.personInCharge), personEmail(job.holidayCover)].some((email) => !!email && !userEmails.has(email));
 
 // ─── The timeline's facts ─────────────────────────────────────────────
 
@@ -579,12 +620,15 @@ export function cargoIn(job: Pick<OpsCockpitJob, "warehouseReceivedDate">, timel
 // The five cut-offs and what is still open - the one rule, read by this page and by the Shipments
 // list's Needs Attention (lib/needsAttention). A status is free text with decoration ("Confirmed
 // (Green)"), so it is matched by a fragment, in any case:
-//   VGM / SI   by their closing date, unless Confirmed (VGM also: Not Applicable);
+//   VGM / SI   by their closing date, unless Confirmed (VGM also: Not Applicable, and Customer -
+//              the shipper files it with the carrier: no duty of ours);
 //   AMS / ISF  when Pending, by their deadline; without one, 4 days before the ETD;
 //   Closing    the cargo closing date, until the cargo is in.
 // Each has a time of day beside its date ("HH:mm" on Prague's clock, "" for the date only): due
 // today, it is missed or overdue once that time has passed. The 4 days before the ETD have none.
 const statusHas = (status: string, fragment: string) => status.toLowerCase().includes(fragment);
+/** A VGM that is not ours to file: done (Confirmed), not needed (Not Applicable) or the shipper's own (Customer). */
+const vgmNotOurs = (vgm: string) => statusHas(vgm, "confirmed") || statusHas(vgm, "not applicable") || vgm.trim().toLowerCase() === "customer";
 
 /** The columns a job's cut-offs are read from; how it travels says how long a missed one stays (stillBeforeDeparture). */
 export type CutoffJob = Pick<
@@ -628,7 +672,7 @@ interface CutoffDef {
 const dueAt = (date: string | null, time: string) => (date ? { date, time } : null);
 
 const CUTOFFS: readonly CutoffDef[] = [
-  { key: "vgmClosing", due: "VGM closing", name: "VGM", at: (j) => (statusHas(j.vgm, "confirmed") || statusHas(j.vgm, "not applicable") ? null : dueAt(j.vgmClosing, j.vgmClosingTime)) },
+  { key: "vgmClosing", due: "VGM closing", name: "VGM", at: (j) => (vgmNotOurs(j.vgm) ? null : dueAt(j.vgmClosing, j.vgmClosingTime)) },
   { key: "siClosing", due: "SI closing", name: "SI", at: (j) => (statusHas(j.shippingInstructions, "confirmed") ? null : dueAt(j.siClosing, j.siClosingTime)) },
   // A deadline typed carries its own time; the 4 days before the ETD are a day, with none.
   { key: "amsDeadline", due: "AMS deadline", name: "AMS", at: (j) => (statusHas(j.ams, "pending") ? (dueAt(j.amsDeadline, j.amsDeadlineTime) ?? dueAt(filedBeforeDeparture(j), "")) : null) },
@@ -785,19 +829,58 @@ export function unbilledTaxDate(job: Pick<OpsCockpitJob, "tradeDirection" | "dep
 // ─── Before departure: booking, cargo, MAWB, B/L, credit ───────────────────
 
 /**
+ * The Incoterms under which the buyer books the main carriage: the E and F groups. On an import
+ * under one of them the main carriage is ours to book (we act for the consignee); under a C or D
+ * term the seller's side books it and our Booking Confirmation stays at its first value.
+ */
+export const BUYER_BOOKS_INCOTERMS: readonly string[] = ["EXW", "FCA", "FAS", "FOB"];
+
+/** The code a typed Incoterm starts with ("FOB Hamburg" is FOB), upper case; "" for none. */
+const incotermCode = (typed: string | undefined) => (typed ?? "").trim().slice(0, 3).toUpperCase();
+
+/**
+ * Whether the job's main carriage is ours to book, so its Booking Confirmation is watched: every
+ * export, and an import whose Incoterms - Origin or Destination, whichever is typed - are one of
+ * BUYER_BOOKS_INCOTERMS. An import with no such term (none typed, or not read) is not: Booking
+ * Confirmation is Pending on every new job, and an import booked by the seller's side would be
+ * "at risk" all its life. Nor is a Domestic job or one with no Trade Direction.
+ */
+export function weBookMainCarriage(job: Pick<OpsCockpitJob, "tradeDirection" | "incotermOrigin" | "incotermDestination">): boolean {
+  const direction = directionOf(job);
+  if (direction === "export") return true;
+  if (direction !== "import") return false;
+  return [job.incotermOrigin, job.incotermDestination].some((term) => BUYER_BOOKS_INCOTERMS.includes(incotermCode(term)));
+}
+
+/**
  * U4: Booking Confirmation still Pending with the cargo ready or the ETD close - a flight closer
- * than a vessel. Not once the job has left, and not on a Trucking job (Domestic, Road Department):
- * it is born "Pending" like every job and has no carrier's booking to confirm.
+ * than a vessel, in working days (comingWithin). Only where the main carriage is ours to book
+ * (weBookMainCarriage). Not once the job has left, and not on a Trucking job (Domestic, Road
+ * Department): it is born "Pending" like every job and has no carrier's booking to confirm.
  */
 export function bookingSignals(
-  job: Pick<OpsCockpitJob, "bookingConfirmation" | "cargoReadinessDate" | "estimatedDeparture" | "actualDeparture" | "actualArrival" | "actualDeliveryDate" | "tradeDirection" | "freightMode" | "department">,
+  job: Pick<
+    OpsCockpitJob,
+    | "bookingConfirmation"
+    | "cargoReadinessDate"
+    | "estimatedDeparture"
+    | "actualDeparture"
+    | "actualArrival"
+    | "actualDeliveryDate"
+    | "tradeDirection"
+    | "freightMode"
+    | "department"
+    | "incotermOrigin"
+    | "incotermDestination"
+  >,
   today: string,
+  holidays: readonly string[] = [],
 ): OpsSignal[] {
-  if (!statusHas(job.bookingConfirmation, "pending") || hasLeft(job) || isTruckingJob(job)) return [];
+  if (!statusHas(job.bookingConfirmation, "pending") || hasLeft(job) || isTruckingJob(job) || !weBookMainCarriage(job)) return [];
   const within = BOOKING_PENDING_WITHIN_DAYS[freightKindOf(job)];
   const why = [
-    comingWithin(job.cargoReadinessDate, today, within.cargoReady) ? `cargo ready ${dm(job.cargoReadinessDate)}` : "",
-    comingWithin(job.estimatedDeparture, today, within.etd) ? `ETD ${dm(job.estimatedDeparture)}` : "",
+    comingWithin(job.cargoReadinessDate, today, within.cargoReady, holidays) ? `cargo ready ${dm(job.cargoReadinessDate)}` : "",
+    comingWithin(job.estimatedDeparture, today, within.etd, holidays) ? `ETD ${dm(job.estimatedDeparture)}` : "",
   ].filter(Boolean);
   return why.length ? [urgent(OPS_RANK.booking, "booking", "details", `Booking Confirmation Pending · ${why.join(" · ")}`)] : [];
 }
@@ -820,13 +903,14 @@ export function cargoReadySignals(
   return [urgent(OPS_RANK.cargoReady, "cargo_ready", "details", `Cargo ready ${dm(job.cargoReadinessDate)}, after Closing ${dm(job.closingDate)}`)];
 }
 
-/** U15: an air export with no MAWB number and the ETD within a day, while it has not left. */
+/** U15: an air export with no MAWB number and the ETD within a working day (on a Friday: Monday's flight too), while it has not left. */
 export function mawbSignals(
   job: Pick<OpsCockpitJob, "masterBolNumber" | "estimatedDeparture" | "actualDeparture" | "actualArrival" | "actualDeliveryDate" | "tradeDirection" | "freightMode" | "department">,
   today: string,
+  holidays: readonly string[] = [],
 ): OpsSignal[] {
   if (freightKindOf(job) !== "air" || directionOf(job) !== "export" || job.masterBolNumber.trim() || hasLeft(job)) return [];
-  return comingWithin(job.estimatedDeparture, today, MAWB_MISSING_ETD_WITHIN_DAYS) ? [urgent(OPS_RANK.mawbMissing, "air", "details", `No MAWB number · ETD ${dm(job.estimatedDeparture)}`)] : [];
+  return comingWithin(job.estimatedDeparture, today, MAWB_MISSING_ETD_WITHIN_DAYS, holidays) ? [urgent(OPS_RANK.mawbMissing, "air", "details", `No MAWB number · ETD ${dm(job.estimatedDeparture)}`)] : [];
 }
 
 /**
@@ -858,9 +942,13 @@ export function bolSignals(
   return out;
 }
 
-/** A24: Credit Check not Green with the ETD within 3 days, on a job that has not left. */
-export function creditSignals(job: Pick<OpsCockpitJob, "creditCheck" | "estimatedDeparture" | "actualDeparture" | "actualArrival" | "actualDeliveryDate">, today: string): OpsSignal[] {
-  if (isCreditApproved(job.creditCheck) || hasLeft(job) || !comingWithin(job.estimatedDeparture, today, CREDIT_CHECK_ETD_WITHIN_DAYS)) return [];
+/** A24: Credit Check not Green with the ETD within 3 working days, on a job that has not left. */
+export function creditSignals(
+  job: Pick<OpsCockpitJob, "creditCheck" | "estimatedDeparture" | "actualDeparture" | "actualArrival" | "actualDeliveryDate">,
+  today: string,
+  holidays: readonly string[] = [],
+): OpsSignal[] {
+  if (isCreditApproved(job.creditCheck) || hasLeft(job) || !comingWithin(job.estimatedDeparture, today, CREDIT_CHECK_ETD_WITHIN_DAYS, holidays)) return [];
   return [attention(OPS_RANK.credit, "credit", "details", `Credit Check ${job.creditCheck.trim() || "not set"} · ETD ${dm(job.estimatedDeparture)}`)];
 }
 
@@ -871,33 +959,34 @@ export function rolledSignals(timeline: TimelineFacts | null): OpsSignal[] {
   return timeline?.rolledOn ? [urgent(OPS_RANK.rolled, "departure", "tracking", `Rolled · ${dm(timeline.rolledOn)}`)] : [];
 }
 
-/** Whether an import is arriving within `days` days: no ATA yet, and an ETA up to that far ahead or passed no longer ago than ETA_PASSED_KEPT_DAYS. */
-const importArrivingWithin = (job: Pick<OpsCockpitJob, "tradeDirection" | "estimatedArrival" | "actualArrival">, today: string, days: number): boolean =>
-  directionOf(job) === "import" && !job.actualArrival && comingWithin(job.estimatedArrival, today, days, ETA_PASSED_KEPT_DAYS);
+/** Whether an import is arriving within `workingDays` working days: no ATA yet, and an ETA up to that far ahead or passed no longer ago than ETA_PASSED_KEPT_DAYS calendar days. */
+const importArrivingWithin = (job: Pick<OpsCockpitJob, "tradeDirection" | "estimatedArrival" | "actualArrival">, today: string, workingDays: number, holidays: readonly string[]): boolean =>
+  directionOf(job) === "import" && !job.actualArrival && comingWithin(job.estimatedArrival, today, workingDays, holidays, ETA_PASSED_KEPT_DAYS);
 
 /**
- * A4: an import by sea, air or rail arriving within 5 days and no arrival notice sent to the
+ * A4: an import by sea, air or rail arriving within 5 working days and no arrival notice sent to the
  * customer. Sent is a customer notice of that kind on the job - or the job's status saying so
  * ("Arrival Notice Sent - Waiting For Instructions"): a status set by hand is somebody's word too.
  */
 export function arrivalNoticeSignals(
   job: Pick<OpsCockpitJob, "tradeDirection" | "freightMode" | "department" | "status" | "estimatedArrival" | "actualArrival" | "arrivalNoticeSent">,
   today: string,
+  holidays: readonly string[] = [],
 ): OpsSignal[] {
   const sent = job.arrivalNoticeSent || statusHas(job.status, "arrival notice sent");
-  if (sent || freightKindOf(job) === "road" || !importArrivingWithin(job, today, ARRIVAL_NOTICE_ETA_WITHIN_DAYS)) return [];
+  if (sent || freightKindOf(job) === "road" || !importArrivingWithin(job, today, ARRIVAL_NOTICE_ETA_WITHIN_DAYS, holidays)) return [];
   return [attention(OPS_RANK.arrivalNotice, "arrival_notice", "tracking", `No arrival notice sent · ETA ${dm(job.estimatedArrival!)}`)];
 }
 
 /** Whether the job is a Full Load (FCL): the boxes are its own, with their own free time. */
 const isFullLoad = (job: Pick<OpsCockpitJob, "loadType">) => job.loadType.trim().toLowerCase() === "full load";
 
-/** Whether A5 looks at this job's containers: a Full Load import by sea or rail arriving within 7 days. The read asks for these jobs' boxes only. */
-export const boxesWanted = (job: Pick<OpsCockpitJob, "tradeDirection" | "freightMode" | "loadType" | "estimatedArrival" | "actualArrival">, today: string): boolean =>
-  isFullLoad(job) && clockApplies(job) && importArrivingWithin(job, today, FREE_TIME_MISSING_ETA_WITHIN_DAYS);
+/** Whether A5 looks at this job's containers: a Full Load import by sea or rail arriving within 7 working days. The read asks for these jobs' boxes only. */
+export const boxesWanted = (job: Pick<OpsCockpitJob, "tradeDirection" | "freightMode" | "loadType" | "estimatedArrival" | "actualArrival">, today: string, holidays: readonly string[] = []): boolean =>
+  isFullLoad(job) && clockApplies(job) && importArrivingWithin(job, today, FREE_TIME_MISSING_ETA_WITHIN_DAYS, holidays);
 
 /**
- * A5: a Full Load import arriving within 7 days with a container that has no free time typed, or -
+ * A5: a Full Load import arriving within 7 working days with a container that has no free time typed, or -
  * after departure - with no container number. `boxes` are the job's containers; null when they
  * could not be read, and then nothing is said.
  */
@@ -905,8 +994,9 @@ export function boxSignals(
   job: Pick<OpsCockpitJob, "tradeDirection" | "freightMode" | "loadType" | "estimatedArrival" | "actualArrival" | "actualDeparture">,
   boxes: readonly CockpitBox[] | null,
   today: string,
+  holidays: readonly string[] = [],
 ): OpsSignal[] {
-  if (!boxes || !boxesWanted(job, today)) return [];
+  if (!boxes || !boxesWanted(job, today, holidays)) return [];
   const out: OpsSignal[] = [];
   const untimed = boxes.filter((b) => b.freeTimeDays === null && b.lastFreeDay === null);
   if (untimed.length > 0) {
@@ -1061,9 +1151,9 @@ export function jobSignals(
     ...handledBySignals(job, input.userEmails),
     ...customsSignals(job, timeline, input.now, day.today),
     ...cutoffSignals(cutoffs, day.today),
-    ...bookingSignals(job, day.today),
+    ...bookingSignals(job, day.today, day.holidays),
     ...cargoReadySignals(job, cargoIsIn, day.today, input.closingsDismissed(job.id)),
-    ...mawbSignals(job, day.today),
+    ...mawbSignals(job, day.today, day.holidays),
     ...rolledSignals(timeline),
     ...deliverySignals(job, day),
     // Step 2's own, but not where the warehouse or Trucking says the same itself (lib/managersCockpitHandover).
@@ -1071,9 +1161,9 @@ export function jobSignals(
     ...(truckingSpeaksForRoad(job.id, handover) ? [] : roadSignals(job, timeline, day)),
     ...handoverSignals(job.id, handover, says),
     ...bolSignals(job, day),
-    ...arrivalNoticeSignals(job, day.today),
-    ...boxSignals(job, input.boxes ? (input.boxes.get(job.id) ?? []) : null, day.today),
-    ...creditSignals(job, day.today),
+    ...arrivalNoticeSignals(job, day.today, day.holidays),
+    ...boxSignals(job, input.boxes ? (input.boxes.get(job.id) ?? []) : null, day.today, day.holidays),
+    ...creditSignals(job, day.today, day.holidays),
     ...flagSignals(flags),
     ...claimSignals(job, input.claims ?? NO_CLAIM_FACTS, day.today),
     ...(input.extraByJob.get(job.id) ?? []).map(onScale),
@@ -1089,6 +1179,19 @@ export function jobSignals(
 
 function judge(job: OpsCockpitJob, input: OpsCockpitInput, day: OpsDay): Judged {
   const { signals, flags } = jobSignals(job, input, day);
+  return judged(job, signals, flags, input.now);
+}
+
+/**
+ * A job that is no longer active (Invoiced, or cancelled) with an open claim: judged by its cargo
+ * claims alone (X8). The claim outlives the job's billing - a notice deadline or a suit time bar
+ * runs on - but nothing else of the job asks anybody for anything any more.
+ */
+function judgeClaimOnly(job: OpsCockpitJob, input: OpsCockpitInput, day: OpsDay): Judged {
+  return judged(job, claimSignals(job, input.claims ?? NO_CLAIM_FACTS, day.today), [], input.now);
+}
+
+function judged(job: OpsCockpitJob, signals: OpsSignal[], flags: TrackingAttentionFlag[], now: Date): Judged {
   const row: Omit<OpsCockpitRow, "tags"> = {
     kind: "job",
     id: job.id,
@@ -1101,7 +1204,7 @@ function judge(job: OpsCockpitJob, input: OpsCockpitInput, day: OpsDay): Judged 
     holidayCover: job.holidayCover.trim(),
     area: firstArea(signals),
   };
-  return { job, email: personEmail(job.personInCharge), customsUrgent: customsUrgency(job, input.now) !== null, flags, ranked: rankRow<OpsCockpitRow>(row, signals) };
+  return { job, email: personEmail(job.personInCharge), customsUrgent: customsUrgency(job, now) !== null, flags, ranked: rankRow<OpsCockpitRow>(row, signals) };
 }
 
 /** A Master Job as the filters read a job: by its own Freight Mode, Trade Direction and Handled By. */
@@ -1196,6 +1299,9 @@ export function byActiveThenEmail(a: { handledBy: string; active: number }, b: {
   return b.active - a.active || Number(a.handledBy === "") - Number(b.handledBy === "") || a.handledBy.localeCompare(b.handledBy);
 }
 
+/** A cut-off due today or by the next working day, or missed: what "Cut-offs due or missed" counts. */
+const isUrgentCutoff = (tag: OpsCockpitRow["tags"][number]) => tag.kind === "cutoff" && tag.urgent;
+
 export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpit {
   const { now, mode, direction, reports } = input;
   const day = opsDay(now, input.holidays);
@@ -1218,7 +1324,12 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
       return inMode(asJob, mode) && inDirection(asJob, direction) && ofReports(asJob) && isHandledBy(asJob, handledBy);
     })
     .flatMap((m) => masterJobRow(m) ?? []);
-  const rows = [...shown.flatMap((j) => (j.ranked ? [j.ranked] : [])), ...masterJobs];
+  // A job no longer active with an open claim (X8) obeys every filter as an active job does, and
+  // is a row of its claim's tags only: "Open claims" counts it, nothing else of the page does.
+  const claimOnly = (input.claimOnlyJobs ?? [])
+    .filter((job) => inMode(job, mode) && inDirection(job, direction) && ofReports(job) && isHandledBy(job, handledBy))
+    .map((job) => judgeClaimOnly(job, input, day));
+  const rows = [...shown.flatMap((j) => (j.ranked ? [j.ranked] : [])), ...masterJobs, ...claimOnly.flatMap((j) => (j.ranked ? [j.ranked] : []))];
   const withTag = (test: (tag: OpsCockpitRow["tags"][number]) => boolean) => rows.filter((r) => r.row.tags.some(test)).length;
   // Every family is in the answer, 0 for none: the page reads a tile's count without asking whether it is there.
   const signals: Record<string, number> = Object.fromEntries(SIGNAL_KINDS.map((kind) => [kind, 0]));
@@ -1230,21 +1341,28 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
   // still lists its rows and each card's total is that family's; nothing else is narrowed by it.
   const signal = input.signal ?? null;
   const carded = signal ? rows.filter((r) => r.row.tags.some(ofFamily(SIGNAL_FAMILIES[signal]))) : rows;
+  // Narrowed to the cut-offs, a row is URGENT by its cut-off tags alone (m17): the tile counts the
+  // cut-offs due or missed (cutoffsDue), and the URGENT card it opens lists exactly those - a job
+  // URGENT for something else whose cut-off is only in the two working days after is listed in
+  // ATTENTION, with the cut-off ahead it was found by (its other tags still say the rest).
+  const urgentOnCard = signal === "cutoff" ? (r: RankedRow<OpsCockpitRow>) => r.row.tags.some(isUrgentCutoff) : (r: RankedRow<OpsCockpitRow>) => r.urgent;
 
   const users = input.userEmails;
   const tiles: OpsCockpitTiles = {
     active: shown.length,
-    cutoffsDue: withTag((t) => t.kind === "cutoff" && t.urgent),
+    cutoffsDue: withTag(isUrgentCutoff),
     noHandledBy: shown.filter((j) => !j.email).length,
-    // Not known is not zero: without the users nobody can be said to be none of them.
-    handledByNotUser: users ? shown.filter((j) => !!j.email && !users.has(j.email)).length : null,
+    // Not known is not zero: without the users nobody can be said to be none of them. The jobs whose
+    // Handled By or Holiday Cover is no user (S16): the rows the tile's family narrows the cards to.
+    handledByNotUser: users ? shown.filter((j) => namesNoUser(j.job, users)).length : null,
     bookingPending: withTag((t) => t.kind === "booking"),
     etdEtaMoved: shown.filter((j) => input.movedIds.has(j.job.id)).length,
     freeTime: flagged("free_time"),
     customsUrgent: shown.filter((j) => j.customsUrgent).length,
     // By the list's rule, not by the cards' flags (which wait some working days): the tile opens the list.
     notReleased: shown.filter((j) => isUnbilledArrival(j.job)).length,
-    openClaims: shown.filter((j) => j.job.claim === "Yes").length,
+    // The active jobs with a claim and those no longer active with an open cargo claim (a claim on costs alone keeps none of them): the rows the list's tile=claims opens.
+    openClaims: shown.filter((j) => j.job.claim === "Yes").length + claimOnly.filter((j) => j.job.claim === "Yes").length,
     signals,
     families,
   };
@@ -1259,8 +1377,8 @@ export function buildOpsCockpit(input: OpsCockpitInput): ShipmentsManagersCockpi
     reports,
     signal,
     tiles,
-    urgent: cockpitCard(carded.filter((r) => r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
-    attention: cockpitCard(carded.filter((r) => !r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
+    urgent: cockpitCard(carded.filter(urgentOnCard), COCKPIT_LIST_LIMIT, byJobNumber),
+    attention: cockpitCard(carded.filter((r) => !urgentOnCard(r)), COCKPIT_LIST_LIMIT, byJobNumber),
     people: peopleOf(scoped, pool, input, (email) => isReportOrNoUser(email, reports, input.reportEmails, input.userEmails)),
     audit: input.audit,
     // Over the jobs of the page, as the tiles: its mode, direction, "My reports" and Handled By.

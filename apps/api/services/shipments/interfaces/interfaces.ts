@@ -493,6 +493,8 @@ export interface MasterJobShipmentItem {
   consignee: string;
   tradeDirection: string;
   status: string;
+  /** As stored ("Full Load", "Consolidation", "Project Shipment"); "" when none. A plain master job takes the filling of its houses (lib/masterJobKind). */
+  loadType: string;
   /** The house's own container numbers, comma separated. */
   containerNumber: string;
   /** Who may take it off the master job besides a manager (lib/shipmentEditRule): its Person in Charge and Holiday Cover. */
@@ -686,13 +688,19 @@ export interface RemeasureAcceptance {
   acceptedBy: string;
   before: RemeasureFigures;
   after: RemeasureFigures;
+  /** The warehouse's remeasured lines it took over (their saved text): the same lines are not accepted again. */
+  lines: string;
   /** The shipment's Freight Mode now: air jobs are charged by chargeable weight, the others by W/M. */
   freightMode: string;
+  /** The shipment's Load Type now: a sea Full Load is charged per container, not by W/M. */
+  loadType: string;
   /** The job has an issued invoice not credited: a change of charges needs another invoice or a credit note. */
   invoiced: boolean;
   /** When Costs Breakdown's quantities were marked checked after this acceptance; null when not yet. */
   costsCheckedAt: string | null;
   costsCheckedBy: string | null;
+  /** Whether the one reading may mark the quantities checked: Handled By, Holiday Cover, a manager or Invoicing. */
+  mayCheckCosts: boolean;
 }
 
 /**
@@ -717,6 +725,15 @@ export interface RemeasureInformedItem {
   verdict: "differs" | "matches" | "unknown";
   /** "weight +200.0 kg · volume +5.332 CBM"; "" when nothing differs. */
   difference: string;
+  /**
+   * When these remeasured figures were accepted on Cargo Details after the warehouse informed (the
+   * first acceptance taking them over); null when not. An accepted one is no new alert.
+   */
+  acceptedAt: string | null;
+  /** The name of the user who accepted, "" when not accepted or not known. */
+  acceptedBy: string;
+  /** The shipment's figures match these remeasured ones now (compared as when it informed): no new alert either. */
+  nowMatches: boolean;
 }
 
 /** The warehouse a remeasurement comes from: the Warehouse, or the Warehouse Concept prototype. */
@@ -772,6 +789,11 @@ export interface MasterJobDocumentsZip {
   withoutFiles: string[];
   /** Files listed but no longer in storage, left out ("<job number> - <file name>"). */
   unreadable: string[];
+  /**
+   * Left out on purpose: a cancelled shipment ("CZ00000012 (cancelled)") and a commercial document
+   * customs declined ("CZ00000013 - Invoice.pdf (declined by customs)").
+   */
+  leftOut: string[];
 }
 
 /** A file on a master job's Documents tab (a store of its own, apart from the shipments' documents). */
@@ -1750,7 +1772,7 @@ export interface ReleaseRequestItem {
   decidedByName: string;
   /** null while pending, and on a request closed while it waited. One closed after it was approved keeps when. */
   decidedAt: string | null;
-  /** The manager's reason, required either way: to release all the same (approved), or why not (rejected). Closed: "Released without it". */
+  /** The manager's reason, required either way: to release all the same (approved), or why not (rejected). Kept when the request is closed afterwards. */
   comment: string;
   answerSeenAt: string | null;
   /** When the approval was used for the release; null while it was not. */
@@ -1761,8 +1783,33 @@ export interface ReleaseRequestItem {
   validUntil: string | null;
   /** Approved, not used and not run out: the release goes through now. Worked out when the answer was made. */
   usable: boolean;
-  /** Closed: when the job was released another way. null otherwise. */
+  /** Closed: when - the job was released another way, or the request was withdrawn. null otherwise. */
   closedAt: string | null;
+  /** Closed: "released" (the job was released another way) or "withdrawn" (by whoever asked while it waited, or by a manager before the approval was used). null otherwise. */
+  closedWhy: ReleaseRequestClosedWhy | null;
+  /** Withdrawn: who withdrew it, as named then. "" otherwise. */
+  closedByName: string;
+  /** Withdrawn: why. "" otherwise. */
+  closeReason: string;
+}
+
+/** Why a release request was closed. */
+export type ReleaseRequestClosedWhy = "released" | "withdrawn";
+
+/** The jobs a person handles, for handing them all over at once (X9, K18). */
+export interface HandOverJobsAnswer {
+  /** At most HAND_OVER_MAX_JOBS active jobs with this person in Handled By, the oldest first: those one hand-over takes. */
+  jobs: HandOverJobItem[];
+  /** How many active jobs name this person in Handled By (in the mode and direction asked): more than `jobs` holds when there are over 200. */
+  total: number;
+}
+
+/** A job of a hand-over, with its people as stored. */
+export interface HandOverJobItem {
+  id: string;
+  jobNumber: string;
+  handledBy: string;
+  holidayCover: string;
 }
 
 /** A job a hand-over left as it was, and why. */
@@ -1864,7 +1911,7 @@ export interface OpsMoneyPerson {
   isUser: boolean | null;
   /** Their active jobs (those that read Invoiced are none): what the people are ordered by. */
   active: number;
-  /** Work not yet invoiced on their active jobs, per currency ([] for none); null when Invoicing could not be read. */
+  /** Work not yet invoiced on their jobs - an invoiced job's charge added after invoicing too - per currency ([] for none); null when Invoicing could not be read. */
   notYetInvoiced: MoneyAmount[] | null;
   /** Their jobs whose profit is below zero, at any stage - still being worked on, in Billing or invoiced (a job whose margin is not known is none of them); null when the selling and cost lines could not be read. */
   jobsAtLoss: number | null;
@@ -1877,9 +1924,9 @@ export interface OpsMoneyPerson {
 }
 
 export interface OpsMoneyTiles {
-  /** Work not yet invoiced on the ACTIVE jobs counted, per currency ([] for none); null when Invoicing could not be read. */
+  /** Work not yet invoiced on the jobs counted - the active ones, and a charge added after invoicing on one that reads Invoiced - per currency ([] for none); null when Invoicing could not be read. */
   notYetInvoiced: MoneyAmount[] | null;
-  /** The same as one CZK figure at today's ČNB rates - the only place currencies are added - with `label` "at today's ČNB rate (dd.mm.)"; `label` is "" when every amount is in CZK already (no rate was used: the page shows no CZK line). Null when a currency has no rate that day (`notKnown` names it) - and when Invoicing could not be read. */
+  /** The same as one CZK figure at the latest ČNB sheet - the only place currencies are added - with `label` "at the latest ČNB rate (dd.mm.)", or "(ČNB rate of dd.mm., newer not imported)" when a newer fixing should be stored and is not; `label` is "" when every amount is in CZK already (no rate was used: the page shows no CZK line). Null when a currency has no rate that day (`notKnown` names it) - and when Invoicing could not be read. */
   notYetInvoicedCzk: { amount: number; label: string } | null;
   /** How many of the jobs counted have work not yet invoiced; null when Invoicing could not be read. */
   notYetInvoicedJobs: number | null;
@@ -2043,6 +2090,8 @@ export interface ShipmentClaimsAnswer {
   mayEdit: boolean;
   /** Whether the caller may add and change its claims on costs: always - every user of the company may (D15, Accounts Payable's "Raise claim"). */
   mayEditCost: boolean;
+  /** The claims on the shipment the caller may change though `mayEdit` is false: those they are the named owner of (K23). They add none and delete none. */
+  ownedClaimIds: string[];
   /** Whether the caller may delete one, of either kind: a manager only. */
   mayDelete: boolean;
 }

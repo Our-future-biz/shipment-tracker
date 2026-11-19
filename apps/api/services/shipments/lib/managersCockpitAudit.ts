@@ -1,4 +1,5 @@
 import type { ManagersAuditList, OpsCockpitAudit, OpsCockpitAuditItem } from "../interfaces/interfaces";
+import { ABSENCE_COVER_FIELD } from "./absenceCover";
 import { APPROVAL_RATE_MIN_DECIDED, AUDIT_DAYS, AUDIT_LIST_LIMIT } from "./cockpitThresholds";
 import { CUTOFF_DISMISSED_FIELD } from "./cutoffDismissals";
 import { CANCELLED_STATUS, isCreditApproval } from "./fieldDefaults";
@@ -95,8 +96,8 @@ const ASKS: Record<HistoryKey, Partial<HistoryAsk>> = {
   tick_taken_back: { fieldPrefixes: [TASK_FIELD_PREFIX] },
   ata_atd_changed: { fields: ["actualArrival", "actualDeparture"] },
   warehouse_received_moved: { fields: ["warehouseReceivedDate"] },
-  // With the hand-overs: a change they made is theirs to count, not this kind's (isOfHandOver).
-  handled_by_changed: { fields: ["personInCharge", "holidayCover", HAND_OVER_FIELD] },
+  // With the hand-overs and the cover job's lines: a change saved with one is not this kind's (savedWithOwnLine).
+  handled_by_changed: { fields: ["personInCharge", "holidayCover", HAND_OVER_FIELD, ABSENCE_COVER_FIELD] },
   handed_over: { fields: [HAND_OVER_FIELD] },
   cutoff_dismissed: { fields: [CUTOFF_DISMISSED_FIELD] },
 };
@@ -135,13 +136,18 @@ export function handledByAround(row: Pick<HistoryRow, "shipmentId" | "personInCh
   return [...new Set([handledByAt(row, rows), ...sameSave.map((r) => personEmail(r.oldValue))])].filter(Boolean);
 }
 
+/** The lines that say on their own why Handled By or Holiday Cover changed: a manager's hand-over, the cover job's set or clear. */
+const OWN_LINE_FIELDS: readonly string[] = [HAND_OVER_FIELD, ABSENCE_COVER_FIELD];
+
 /**
- * Whether a change of Handled By or Holiday Cover was made by a manager's hand-over: the
- * hand-over's own line stands in the job's history at the same moment (it is written in the
- * change's turn, lib/handOver). It is counted there, as "handed over" - not a second time here.
+ * Whether a change of Handled By or Holiday Cover was made by a manager's hand-over or by the
+ * dated Holiday Cover's job (lib/absenceCover): their own line stands in the job's history at the
+ * same moment (it is written in the change's turn). A hand-over is counted there, as "handed
+ * over"; the cover job's set and clear - one per job of an absence - are no change of hands a
+ * manager is to look into, and are not counted at all (m16).
  */
-const isOfHandOver = (row: Pick<HistoryRow, "shipmentId" | "changedAt">, rows: readonly HistoryRow[]): boolean =>
-  rows.some((r) => r.field === HAND_OVER_FIELD && r.shipmentId === row.shipmentId && r.changedAt.getTime() === row.changedAt.getTime());
+const savedWithOwnLine = (row: Pick<HistoryRow, "shipmentId" | "changedAt">, rows: readonly HistoryRow[]): boolean =>
+  rows.some((r) => OWN_LINE_FIELDS.includes(r.field) && r.shipmentId === row.shipmentId && r.changedAt.getTime() === row.changedAt.getTime());
 
 const PEOPLE_LABEL: Record<string, string> = { personInCharge: "Handled By", holidayCover: "Holiday Cover" };
 const ACTUAL_LABEL: Record<string, string> = { actualArrival: "ATA", actualDeparture: "ATD" };
@@ -175,7 +181,7 @@ function historyEntry(row: HistoryRow, rows: readonly HistoryRow[], emailOf: Rea
       // From one person to another (or to nobody), outside a hand-over. Naming somebody where
       // nobody was is no change of hands; nor is the same person written another way.
       const from = personEmail(row.oldValue);
-      if (!from || from === personEmail(row.newValue) || isOfHandOver(row, rows)) return null;
+      if (!from || from === personEmail(row.newValue) || savedWithOwnLine(row, rows)) return null;
       return { key: "handled_by_changed", what: `${PEOPLE_LABEL[row.field]} ${personOr(row.oldValue)} → ${personOr(row.newValue)}` };
     }
     case HAND_OVER_FIELD:

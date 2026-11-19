@@ -46,6 +46,7 @@ describe("when each job was last touched", () => {
     fields: ["nudge", "cutoffDismissed"],
     lines: { field: "releaseRequest", startsWith: ["House BoL release approved", "House BoL release rejected"] },
     writtenWith: "nudge",
+    savedWith: [] as string[],
   };
 
   it("is one statement over the five tables, every arm bounded by the time - the two no index knows the time of also by the jobs", async () => {
@@ -73,6 +74,19 @@ describe("when each job was last touched", () => {
       ...[COMPANY, ...IDS, since],
       ...[COMPANY, since],
     ]);
+  });
+
+  it("leaves out the history lines of a save a savedWith line marks (m16: the absence-cover job's Holiday Cover), by that line at the same moment", async () => {
+    await shipmentAuditRepository.lastTouchedSince(COMPANY, IDS, SINCE, { ...NOT_A_TOUCH, fields: [...NOT_A_TOUCH.fields, "absenceCover"], savedWith: ["absenceCover"] });
+    const { text, values } = sent();
+    const history = text.slice(0, text.indexOf(" union all "));
+    expect(history).toBe(
+      'select "shipment_id", max("at") from ((((((' +
+        'select "shipment_id", "changed_at" as "at" from "shipment_audit" where ("shipment_audit"."company_id" = $1 and "shipment_audit"."changed_at" >= $2 and ' +
+        '("shipment_audit"."field" not in ($3, $4, $5) and not ("shipment_audit"."field" = $6 and ("shipment_audit"."new_value" like $7 or "shipment_audit"."new_value" like $8)) and ' +
+        'not exists (select 1 from "shipment_audit" "saved_with" where ("saved_with"."company_id" = $9 and "saved_with"."changed_at" = "shipment_audit"."changed_at" and "saved_with"."shipment_id" = "shipment_audit"."shipment_id" and "saved_with"."field" in ($10))))))',
+    );
+    expect(values.slice(0, 10)).toEqual([COMPANY, SINCE.toISOString(), "nudge", "cutoffDismissed", "absenceCover", "releaseRequest", "House BoL release approved%", "House BoL release rejected%", COMPANY, "absenceCover"]);
   });
 
   it("answers each job's newest touch as a moment, and sends nothing for no jobs", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { QueryClient } from "@tanstack/react-query";
-import { alertReadKey, markReadOptions, shipmentAlerts } from "./useShipmentAlerts";
+import { alertReadKey, markReadOptions, newAlertCount, remeasureSettled, shipmentAlerts } from "./useShipmentAlerts";
 import type { AttachmentItem } from "@/hooks/useShipmentAttachments";
 
 vi.mock("@/lib/api", () => ({ api: { shipments: { alertMarkRead: vi.fn(async () => ({ ok: true })) } } }));
@@ -35,5 +35,28 @@ describe("shipmentAlerts", () => {
   it("leaves out an approved document, and one not reviewed", () => {
     const alerts = shipmentAlerts([doc("ok", "approved", "2026-11-06T08:00:00Z"), doc("new", "", null), doc("no", "declined", "2026-11-06T07:00:00Z")]);
     expect(alerts.map((d) => d.id)).toEqual(["no"]);
+  });
+});
+
+// Council finding K3: a remeasurement accepted since, or matched by Cargo Details now, is no new alert.
+describe("newAlertCount", () => {
+  const informed = (informedAt: string, over: { acceptedAt?: string | null; nowMatches?: boolean } = {}) => ({ informedAt, acceptedAt: null, nowMatches: false, ...over });
+
+  it("counts what came since the Alerts were last opened, a settled remeasurement not", () => {
+    const declined = [{ customsReviewedAt: "2026-11-18T08:00:00Z" }];
+    const remeasured = [
+      informed("2026-11-18T09:00:00Z"),
+      informed("2026-11-18T10:00:00Z", { acceptedAt: "2026-11-18T11:00:00Z" }),
+      informed("2026-11-18T10:30:00Z", { nowMatches: true }),
+      informed("2026-11-17T09:00:00Z"),
+    ];
+    expect(newAlertCount(declined, remeasured, null)).toBe(3);
+    expect(newAlertCount(declined, remeasured, "2026-11-18T08:30:00Z")).toBe(1);
+  });
+
+  it("says when one is settled", () => {
+    expect(remeasureSettled(informed("x", { acceptedAt: "2026-11-18T11:00:00Z" }))).toBe(true);
+    expect(remeasureSettled(informed("x", { nowMatches: true }))).toBe(true);
+    expect(remeasureSettled(informed("x"))).toBe(false);
   });
 });

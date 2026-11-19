@@ -16,12 +16,14 @@ import {
   absenceDays,
   absenceProblem,
   comingAbsences,
+  coverAwayWarning,
   coverHint,
   coverText,
   createRequest,
   draftOf,
   isAwayOn,
   updateRequest,
+  userIdOf,
   type AbsenceDraft,
   type UserAbsence,
 } from "../_lib/absences";
@@ -30,7 +32,8 @@ import {
 // deleted, and a form to record another - from, to, who covers, a note. Opened from the user menu
 // ("Away…", for oneself) and from Settings → Users (a manager or an admin, for anybody of the
 // company). The server checks every save again (an absence that overlaps another, who may change
-// whose) and its refusals are shown as they come.
+// whose) and its refusals are shown as they come. A cover who is away on some of the same days is
+// warned of under the picker, and the absence can be recorded all the same (K24).
 
 /** Whose absences the dialog shows. */
 export interface AwayPerson {
@@ -70,6 +73,13 @@ function Dialog({ person, self, onClose }: { person: AwayPerson; self: boolean; 
 
   const saving = create.isPending || update.isPending;
   const problem = absenceProblem(draft, person.id, users);
+  // K24: the cover's own absences on those days - a warning, never a refusal. Read once the cover and the first day
+  // are picked; a read that fails just says nothing (the server does not check it either).
+  const coverUserId = userIdOf(draft.coverEmail, users);
+  const asksCover = !!coverUserId && coverUserId !== person.id && /^\d{4}-\d{2}-\d{2}$/.test(draft.fromDate);
+  const coverAbsences = useAbsences({ userId: coverUserId ?? undefined, since: draft.fromDate }, asksCover);
+  const cover = users.find((u) => u.id === coverUserId);
+  const coverAway = asksCover ? coverAwayWarning(draft, cover?.displayName || cover?.email || "", coverAbsences.absences) : null;
   const coming = comingAbsences(absences, today);
   const set = (patch: Partial<AbsenceDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -220,6 +230,11 @@ function Dialog({ person, self, onClose }: { person: AwayPerson; self: boolean; 
             </label>
             <UserPicker id={coverId} className="w-full" value={draft.coverEmail} onChange={(coverEmail) => set({ coverEmail })} placeholder="Nobody" disabled={saving} />
             <div className={`${HINT} mt-1`}>{coverHint(self, person.name)}</div>
+            {coverAway && (
+              <div role="status" className="mt-1 text-[12px] font-medium text-amber-700">
+                {coverAway}.
+              </div>
+            )}
           </div>
           <div>
             <label htmlFor={noteId} className={`block mb-1 ${LABEL_TEXT}`}>

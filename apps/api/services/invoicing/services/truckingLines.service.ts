@@ -2,6 +2,7 @@ import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
+import { statusesFollow } from "./sellingStatusFollow";
 import { checkLines, checkSourceRef, DIFFERENCE_LABEL, truckingBuyingRow, truckingSellingRow } from "../utils/truckingLines.utils";
 import type { TruckingCostLine, TruckingLinesResult } from "../interfaces/interfaces";
 
@@ -32,7 +33,12 @@ class TruckingLinesService {
     const selling = checkLines(push.selling, "selling").map((l) => truckingSellingRow(l, l.description));
     const label = (push.differenceLabel ?? "").trim().slice(0, 500) || DIFFERENCE_LABEL;
     await assertShipmentExists(push.shipmentId);
-    return truckingLinesRepository.replace(companyId, push.shipmentId, sourceRef, buying, selling, label);
+    // A push after invoicing changes the job's charges as a hand-written line does (a difference
+    // line, new lines, lines taken away): the shipment's statuses follow in the push's transaction.
+    const follow = statusesFollow(companyId, push.shipmentId);
+    const result = await truckingLinesRepository.replace(companyId, push.shipmentId, sourceRef, buying, selling, label, follow.afterSet);
+    await follow.deliver();
+    return result;
   }
 }
 

@@ -67,7 +67,8 @@ export function ReleaseGatesPanel({
   // Customs line (display only — the stored gate keeps its own note).
   const customs = movementCustomsClock(m);
   // The payment warning beside the Charges line (Council Outlay 10, D20): the job's invoice is unpaid and the
-  // customer is on prepayment or has overdue invoices. Display only - the gate keeps its own state, set by the server.
+  // customer is on prepayment or has overdue invoices. Display only - the gate keeps its own state, set by the server,
+  // and the server stops the WH release of a job on prepayment that is not paid (a manager releases with a reason).
   const payment = useReleaseCheckState(m.shipmentId, !m.impRelease && m.releaseGates.some((x) => isCharges(x.g)));
   const toggle = (gate: string, ok: boolean) => {
     setBusyGate(gate);

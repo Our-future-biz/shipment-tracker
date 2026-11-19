@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { companyUsers, requireUserEmail, type CompanyUser } from "../../../lib/companyUsers";
 import type { Actor } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
-import type { HandOverResult, HandOverSkipped, HandledByCount } from "../interfaces/interfaces";
+import type { HandOverJobsAnswer, HandOverResult, HandOverSkipped, HandledByCount } from "../interfaces/interfaces";
 import {
   ALREADY_SO,
   CHANGED_MEANWHILE,
@@ -19,6 +19,7 @@ import {
   type HandOverTarget,
 } from "../lib/handOver";
 import { PERSON_FIELDS } from "../lib/people";
+import { handOverJobsRepository } from "../repositories/handOverJobs.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentService, type StillHolds } from "./shipment.service";
 
@@ -123,6 +124,20 @@ class HandOverService {
     // "nobody" is the list filter's word for the jobs nobody handles: no person to count.
     if (!asked || asked === "nobody") throw APIError.invalidArgument("email is required: the person's e-mail");
     return shipmentRepository.handledByCounts(companyId, asked);
+  }
+
+  /**
+   * A person's active jobs by Handled By, for handing them all over at once (X9, K18): every one,
+   * quiet ones too - not only those the cockpit's cards show - in the mode and direction asked, the
+   * oldest first and at most as many as one hand-over takes, with how many there are in all. The
+   * hand-over itself goes through handOver() as any other. `email` as sent, any case.
+   */
+  async jobsOf(companyId: string, email: string, filter: { mode?: string; direction?: string } = {}): Promise<HandOverJobsAnswer> {
+    const asked = (email ?? "").trim().toLowerCase();
+    // The jobs nobody handles have nobody to hand them over from: those are handed over one by one, or ticked.
+    if (!asked || asked === "nobody") throw APIError.invalidArgument("handledBy is required: the person's e-mail");
+    const { jobs, total } = await handOverJobsRepository.ofPerson(companyId, asked, filter, HAND_OVER_MAX_JOBS);
+    return { jobs: jobs.map((j) => ({ id: j.id, jobNumber: j.jobNumber, handledBy: j.personInCharge, holidayCover: j.holidayCover })), total };
   }
 
   private async users(): Promise<CompanyUser[]> {

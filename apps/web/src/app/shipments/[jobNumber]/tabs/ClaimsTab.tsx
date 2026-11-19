@@ -26,7 +26,7 @@ import { supplierInvoiceOptions } from "./supplierInvoiceLink";
 // supplier's costs. Each card holds as many claims as needed: "+" opens a dialog to fill one in,
 // and ⋯ > Edit opens it again; the rows themselves only show. Who may (Council Outlay 11, D20): a
 // claim on the shipment is added and changed by the job's Handled By, its Holiday Cover or a manager
-// (mayEdit); a claim on costs by every user (mayEditCost - Accounts Payable's "Raise claim", D15);
+// (mayEdit) - and one claim by its named owner, who need not be on the job (ownedClaimIds, K23); a claim on costs by every user (mayEditCost - Accounts Payable's "Raise claim", D15);
 // either is deleted by a manager only (mayDelete). The server says which and holds to it. With the company's claim time limits
 // on (D21), a cargo claim shows its deadlines.
 
@@ -51,6 +51,8 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   // Until the answer says so, nothing can be added, changed or deleted here.
   const mayEditOf = (kind: "cargo" | "cost") => (kind === "cargo" ? (data?.mayEdit ?? false) : (data?.mayEditCost ?? false));
   const mayDelete = data?.mayDelete ?? false;
+  // K23: a claim's named owner changes that claim, though not the job's other claims (an older answer has no list: none).
+  const mayEditClaim = (c: Claim) => mayEditOf(c.kind) || (c.kind === "cargo" && (data?.ownedClaimIds ?? []).includes(c.id));
   const timeLimitsOn = data?.timeLimitsOn ?? false;
   const today = businessToday();
   const invalidate = () => {
@@ -111,10 +113,10 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   const [toDelete, setToDelete] = useState<Claim | null>(null);
   const deleteCell = (c: Claim) => (
     <td className={CELL}>
-      {(mayEditOf(c.kind) || mayDelete) && (
+      {(mayEditClaim(c) || mayDelete) && (
         <RowActionsMenu
           label="Claim actions"
-          onEdit={mayEditOf(c.kind) ? () => setForm({ kind: c.kind, claim: c }) : undefined}
+          onEdit={mayEditClaim(c) ? () => setForm({ kind: c.kind, claim: c }) : undefined}
           onDelete={mayDelete ? () => setToDelete(c) : undefined}
         />
       )}

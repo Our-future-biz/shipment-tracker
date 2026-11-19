@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { chipMatch, containerScanMatch, dockSlotText, exceptionText, isOnHold, releasedOn, expectedBecause, expectedSortKey, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
+import { arrivalDay, chipMatch, containerScanMatch, dockSlotText, exceptionText, isOnHold, releasedOn, expectedBecause, expectedSortKey, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
 
 type M = interfaces.GateMovementItem;
 
@@ -71,8 +71,18 @@ describe("expected today", () => {
   it("matches the shipment's ETA Warehouse/HUB, and says so", () => {
     expect(isExpectedToday(mv({ eta: "2026-10-10", etaWarehouse: "2026-10-14" }), today)).toBe(true);
     expect(expectedBecause(mv({ eta: "2026-10-10", etaWarehouse: "2026-10-14" }), today)).toBe("ETA warehouse");
-    expect(isExpectedToday(mv({ eta: "2026-10-14", etaWarehouse: "2026-10-18" }), today)).toBe(true);
     expect(isExpectedToday(mv({ eta: "2026-10-10", etaWarehouse: "2026-10-18" }), today)).toBe(false);
+  });
+  it("goes by the ETA Warehouse/HUB once it is filled, not the vessel's ETA; by the ETA only without one", () => {
+    // The vessel arrives today, the cargo reaches the warehouse on the 18th: not expected today.
+    expect(isExpectedToday(mv({ eta: "2026-10-14", etaWarehouse: "2026-10-18" }), today)).toBe(false);
+    expect(expectedBecause(mv({ eta: "2026-10-14", etaWarehouse: "2026-10-14" }), today)).toBe("ETA warehouse");
+    expect(isExpectedToday(mv({ eta: "2026-10-14", etaWarehouse: "" }), today)).toBe(true);
+    expect(isExpectedToday(mv({ eta: "2026-10-14", etaWarehouse: "  " }), today)).toBe(true);
+    expect(arrivalDay({ eta: "2026-10-14", etaWarehouse: "2026-10-18" })).toEqual({ day: "2026-10-18", by: "ETA warehouse" });
+    expect(arrivalDay({ eta: "2026-10-14" })).toEqual({ day: "2026-10-14", by: "ETA" });
+    // The ETA's time no longer orders it once the ETA Warehouse/HUB is the day.
+    expect(expectedSortKey(mv({ eta: "2026-10-14T08:00:00Z", etaWarehouse: "2026-10-14" }), today)).toBe("99:99");
   });
   it("leaves out arrived movements", () => {
     expect(isExpectedToday(mv({ eta: today, gateIn: "2026-10-14T06:00:00Z" }), today)).toBe(false);

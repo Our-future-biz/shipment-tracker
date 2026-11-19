@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { addDays, businessInstant } from "../../../lib/businessDate";
 import { officeMinutesBetween } from "../../../lib/officeHours";
-import { ETA_PASSED_KEPT_DAYS, PASSED_DATE_KEPT_DAYS } from "../lib/cockpitThresholds";
+import { DELIVERY_ORDER_RULE_FROM, ETA_PASSED_KEPT_DAYS, PASSED_DATE_KEPT_DAYS, REMEASURE_WAREHOUSE_CONCEPT_DAYS } from "../lib/cockpitThresholds";
 import {
   EXTRA_RANK,
   PAPERWORK_PENDING,
@@ -34,6 +34,8 @@ import {
   underClearanceSignals,
   waitedWorkingDays,
   watchesStatus,
+  workingDaysAhead,
+  REMEASURED_IN_WAREHOUSE_CONCEPT,
   type DocumentFact,
   type ExtraJob,
   type ExtraSignal,
@@ -152,10 +154,28 @@ describe("hasLeft", () => {
 });
 
 describe("arrivingIn and departureAhead", () => {
-  it("counts the days to the ETA of a job that has not arrived", () => {
+  it("counts the working days to the ETA of a job that has not arrived, the calendar days since one that passed (X7)", () => {
+    expect(arrivingIn(job({ estimatedArrival: day(1) }), TODAY)).toBe(1);
+    expect(arrivingIn(job({ estimatedArrival: day(2) }), TODAY)).toBe(2);
+    // The weekend's days are the Monday's: Saturday, Sunday and Monday the 23rd are all 3 working days away.
     expect(arrivingIn(job({ estimatedArrival: day(3) }), TODAY)).toBe(3);
+    expect(arrivingIn(job({ estimatedArrival: day(5) }), TODAY)).toBe(3);
+    expect(arrivingIn(job({ estimatedArrival: day(6) }), TODAY)).toBe(4);
     expect(arrivingIn(job({ estimatedArrival: TODAY }), TODAY)).toBe(0);
     expect(arrivingIn(job({ estimatedArrival: day(-2) }), TODAY)).toBe(-2);
+    // On a Friday Monday is 1 away; on 23 Dec 28 Dec is, over the Christmas holidays; a company day off moves it on.
+    expect(arrivingIn(job({ estimatedArrival: "2026-11-23" }), "2026-11-20")).toBe(1);
+    expect(arrivingIn(job({ estimatedArrival: "2026-12-28" }), "2026-12-23")).toBe(1);
+    expect(arrivingIn(job({ estimatedArrival: "2026-11-24" }), "2026-11-20", ["2026-11-23"])).toBe(1);
+  });
+
+  it("counts working days ahead as addWorkingDays reaches them, and stops counting far out", () => {
+    expect(workingDaysAhead("2026-11-20", "2026-11-21", NONE)).toBe(1);
+    expect(workingDaysAhead("2026-11-20", "2026-11-23", NONE)).toBe(1);
+    expect(workingDaysAhead("2026-11-20", "2026-11-24", NONE)).toBe(2);
+    // From a Saturday the Monday is the first working day: none to go.
+    expect(workingDaysAhead("2026-11-21", "2026-11-23", NONE)).toBe(0);
+    expect(workingDaysAhead("2026-11-18", "2027-06-01", NONE)).toBe(32);
   });
 
   it("is null for a job that has arrived, has no ETA, or one that is no date", () => {
@@ -236,11 +256,23 @@ describe("U10 / A6: an import arriving while it waits for its commercial paperwo
     for (const customsProcedure of ["SCP", "JSD", "T1", ""]) expect(waiting({ customsProcedure, actualArrival: day(-1) })).toHaveLength(1);
   });
 
-  it("is ATTENTION from 2 to 5 days out by sea and rail", () => {
+  it("is ATTENTION from 2 to 5 working days out by sea and rail", () => {
     expect(waiting({ estimatedArrival: day(2) })).toEqual([{ rank: 28, text: "Waiting For Commercial Paperwork · arriving on Fri 20.11.", urgent: false, area: "customs", kind: "paperwork" }]);
     expect(tags(waiting({ estimatedArrival: day(5) }))).toEqual([["Waiting For Commercial Paperwork · arriving on Mon 23.11.", false]]);
-    expect(waiting({ estimatedArrival: day(6) })).toEqual([]);
+    // The fifth working day after Wednesday the 18th is Wednesday the 25th: the weekend counts no day.
+    expect(tags(waiting({ estimatedArrival: day(7) }))).toEqual([["Waiting For Commercial Paperwork · arriving on Wed 25.11.", false]]);
+    expect(waiting({ estimatedArrival: day(8) })).toEqual([]);
     expect(tags(waiting({ freightMode: "Rail Freight", estimatedArrival: day(5) }))).toEqual([["Waiting For Commercial Paperwork · arriving on Mon 23.11.", false]]);
+  });
+
+  it("on a Friday an arrival on Monday is a working day away: URGENT by air (X7), and over Christmas 28.12. from 23.12.", () => {
+    const air = (estimatedArrival: string, today: string, holidays: readonly string[] = NONE) => tags(paperworkSignals(job({ freightMode: "Air Freight", estimatedArrival }), PAPERWORK_WAITING, today, holidays));
+    expect(air("2026-11-23", "2026-11-20")).toEqual([["Waiting For Commercial Paperwork · arriving on Mon 23.11.", true]]);
+    expect(air("2026-11-24", "2026-11-20")).toEqual([["Waiting For Commercial Paperwork · arriving on Tue 24.11.", false]]);
+    expect(air("2026-11-25", "2026-11-20")).toEqual([]);
+    expect(air("2026-12-28", "2026-12-23")).toEqual([["Waiting For Commercial Paperwork · arriving on Mon 28.12.", true]]);
+    // A company day off on the Monday: Tuesday is the next working day.
+    expect(air("2026-11-24", "2026-11-20", ["2026-11-23"])).toEqual([["Waiting For Commercial Paperwork · arriving on Tue 24.11.", true]]);
   });
 
   it("is ATTENTION only 2 days out by air and by road", () => {
@@ -294,49 +326,62 @@ describe("U10: an original Master BoL not in hand", () => {
 });
 
 describe("step 6: an import that arrived with no delivery order", () => {
-  // Today is Wednesday the 18th; Tuesday the 17th is a public holiday.
-  const arrived = (actualArrival: string, over: Partial<ExtraJob> = {}, holidays: readonly string[] = NONE) =>
-    deliveryOrderSignals(job({ actualArrival, deliveryOrderDate: null, ...over }), TODAY, holidays);
+  // Wednesday the 25th, a week after the rule went live (DELIVERY_ORDER_RULE_FROM, Thursday the 19th): only arrivals since are judged (L9).
+  const LATER = "2026-11-25";
+  const arrived = (actualArrival: string, over: Partial<ExtraJob> = {}, holidays: readonly string[] = NONE, today = LATER) =>
+    deliveryOrderSignals(job({ actualArrival, deliveryOrderDate: null, ...over }), today, holidays);
 
   it("is ATTENTION a working day after the ATA, and URGENT at three", () => {
-    // Monday the 16th: the holiday is no working day, so one has passed.
-    expect(arrived("2026-11-16")).toEqual([{ rank: 28.5, text: "Arrived 16.11., no delivery order", urgent: false, area: "details", kind: "bl" }]);
-    // Friday the 13th: Monday and today, two.
-    expect(tags(arrived("2026-11-13"))).toEqual([["Arrived 13.11., no delivery order", false]]);
-    // Thursday the 12th: Friday, Monday and today, three.
-    expect(arrived("2026-11-12")).toEqual([{ rank: 4.5, text: "Arrived 12.11., no delivery order", urgent: true, area: "details", kind: "bl" }]);
+    expect(arrived("2026-11-24")).toEqual([{ rank: 28.5, text: "Arrived 24.11., no delivery order", urgent: false, area: "details", kind: "bl" }]);
+    // Monday the 23rd: Tuesday and today, two.
+    expect(tags(arrived("2026-11-23"))).toEqual([["Arrived 23.11., no delivery order", false]]);
+    // Friday the 20th: Monday, Tuesday and today, three.
+    expect(arrived("2026-11-20")).toEqual([{ rank: 4.5, text: "Arrived 20.11., no delivery order", urgent: true, area: "details", kind: "bl" }]);
+    // A company day off is no working day.
+    expect(tags(arrived("2026-11-20", {}, ["2026-11-23"]))).toEqual([["Arrived 20.11., no delivery order", false]]);
+  });
+
+  it("judges no arrival before the day the rule went live (L9): those were collected on paper nobody typed here", () => {
+    expect(DELIVERY_ORDER_RULE_FROM).toBe("2026-11-19");
+    expect(tags(arrived("2026-11-19"))).toEqual([["Arrived 19.11., no delivery order", true]]);
+    expect(arrived("2026-11-18")).toEqual([]);
+    expect(arrived("2026-11-12", {}, NONE, TODAY)).toEqual([]);
   });
 
   it("judges only an arrival of the last 14 calendar days: an older one gives no tag (no job had the date before step 6)", () => {
     expect(ETA_PASSED_KEPT_DAYS).toBe(14);
-    // Wednesday the 4th is 14 days ago: still judged, and URGENT by then.
-    expect(tags(arrived(day(-ETA_PASSED_KEPT_DAYS)))).toEqual([["Arrived 04.11., no delivery order", true]]);
-    expect(arrived(day(-ETA_PASSED_KEPT_DAYS - 1))).toEqual([]);
-    expect(arrived("2026-10-30")).toEqual([]);
+    // On Friday 4 Dec, Friday the 20th is 14 days ago: still judged, and URGENT by then.
+    expect(tags(arrived("2026-11-20", {}, NONE, "2026-12-04"))).toEqual([["Arrived 20.11., no delivery order", true]]);
+    expect(arrived("2026-11-19", {}, NONE, "2026-12-04")).toEqual([]);
   });
 
   it("waits a working day: not on the day of arrival, nor before a company day off has passed", () => {
-    expect(arrived(TODAY)).toEqual([]);
-    expect(arrived("2026-11-16", {}, [TODAY])).toEqual([]);
-    expect(arrived(day(1))).toEqual([]);
+    expect(arrived(LATER)).toEqual([]);
+    expect(arrived("2026-11-24", {}, [LATER])).toEqual([]);
+    expect(arrived("2026-11-26")).toEqual([]);
   });
 
   it("is for a sea or rail import only", () => {
-    expect(tags(arrived("2026-11-12", { freightMode: "Rail Freight" }))).toHaveLength(1);
-    expect(tags(arrived("2026-11-12", { freightMode: "" }))).toHaveLength(1);
-    expect(arrived("2026-11-12", { freightMode: "Air Freight" })).toEqual([]);
-    expect(arrived("2026-11-12", { freightMode: "Road Freight" })).toEqual([]);
-    expect(arrived("2026-11-12", { department: "Road Department" })).toEqual([]);
-    expect(arrived("2026-11-12", { tradeDirection: "Export" })).toEqual([]);
-    expect(tags(arrived("2026-11-12", { tradeDirection: " IMPORT " }))).toHaveLength(1);
+    expect(tags(arrived("2026-11-20", { freightMode: "Rail Freight" }))).toHaveLength(1);
+    expect(tags(arrived("2026-11-20", { freightMode: "" }))).toHaveLength(1);
+    expect(arrived("2026-11-20", { freightMode: "Air Freight" })).toEqual([]);
+    expect(arrived("2026-11-20", { freightMode: "Road Freight" })).toEqual([]);
+    expect(arrived("2026-11-20", { department: "Road Department" })).toEqual([]);
+    expect(arrived("2026-11-20", { tradeDirection: "Export" })).toEqual([]);
+    expect(tags(arrived("2026-11-20", { tradeDirection: " IMPORT " }))).toHaveLength(1);
+  });
+
+  it("says nothing once the cargo is in our warehouse (m25): an LCL import we collected had its delivery order handled", () => {
+    expect(arrived("2026-11-20", { warehouseReceivedDate: "2026-11-23" })).toEqual([]);
+    expect(arrived("2026-11-20", { warehouseReceivedDate: null })).toHaveLength(1);
   });
 
   it("says nothing once there is a delivery order or a delivery, without an ATA, or when the row does not carry the date", () => {
-    expect(arrived("2026-11-12", { deliveryOrderDate: "2026-11-13" })).toEqual([]);
-    expect(arrived("2026-11-12", { actualDeliveryDate: "2026-11-16" })).toEqual([]);
-    expect(deliveryOrderSignals(job({ estimatedArrival: "2026-11-12", deliveryOrderDate: null }), TODAY, NONE)).toEqual([]);
+    expect(arrived("2026-11-20", { deliveryOrderDate: "2026-11-23" })).toEqual([]);
+    expect(arrived("2026-11-20", { actualDeliveryDate: "2026-11-24" })).toEqual([]);
+    expect(deliveryOrderSignals(job({ estimatedArrival: "2026-11-20", deliveryOrderDate: null }), LATER, NONE)).toEqual([]);
     // Not known is no tag (D29).
-    expect(deliveryOrderSignals(job({ actualArrival: "2026-11-12" }), TODAY, NONE)).toEqual([]);
+    expect(deliveryOrderSignals(job({ actualArrival: "2026-11-20" }), LATER, NONE)).toEqual([]);
   });
 });
 
@@ -512,7 +557,10 @@ describe("A7: what the customs fields lack", () => {
   it("names a T1 with no Customs Office 3 days before the ETA", () => {
     expect(fields({ customsProcedure: "T1", estimatedArrival: day(3) })).toEqual([{ rank: 33, text: "T1 with no Customs Office · arriving on Sat 21.11.", urgent: false, area: "customs", kind: "customs" }]);
     expect(tags(fields({ customsProcedure: " t1 ", estimatedArrival: day(-1) }))).toEqual([["T1 with no Customs Office · ETA 17.11. passed", false]]);
-    expect(fields({ customsProcedure: "T1", estimatedArrival: day(4) })).toEqual([]);
+    expect(fields({ customsProcedure: "T1", estimatedArrival: day(4) })).toHaveLength(1);
+    // 3 working days: Monday the 23rd - and the weekend before it.
+    expect(tags(fields({ customsProcedure: "T1", estimatedArrival: day(5) }))).toEqual([["T1 with no Customs Office · arriving on Mon 23.11.", false]]);
+    expect(fields({ customsProcedure: "T1", estimatedArrival: day(6) })).toEqual([]);
     expect(fields({ customsProcedure: "T1", customsOffice: "CZ510201 Praha Ruzyně", estimatedArrival: TODAY })).toEqual([]);
     expect(fields({ customsProcedure: "SCP", estimatedArrival: TODAY })).toEqual([]);
     expect(fields({ customsProcedure: "T1", estimatedArrival: TODAY, actualArrival: TODAY })).toEqual([]);
@@ -643,7 +691,9 @@ describe("A18: the customer's Import Instructions", () => {
     expect(told(form({}), { estimatedArrival: day(3) })).toEqual([
       { rank: 37, text: "Import Instructions not filled in by the customer · arriving on Sat 21.11.", urgent: false, area: "details", kind: "import_instructions" },
     ]);
-    expect(told(form({}), { estimatedArrival: day(4) })).toEqual([]);
+    // 3 working days: Monday the 23rd, the weekend before it too.
+    expect(told(form({}), { estimatedArrival: day(5) }).map((s) => s.text)).toEqual(["Import Instructions not filled in by the customer · arriving on Mon 23.11."]);
+    expect(told(form({}), { estimatedArrival: day(6) })).toEqual([]);
     expect(told(form({}), {})).toEqual([]);
     expect(told(form({}), { estimatedArrival: TODAY, actualArrival: TODAY })).toEqual([]);
   });
@@ -724,6 +774,36 @@ describe("A19: the warehouse's remeasurement", () => {
     expect(told(fact({ informed: differs("2026-11-10 10:00"), acceptedAt: at("2026-11-18 09:00"), costsCheckedAt: null }))).toEqual([]);
     expect(told(null)).toEqual([]);
     expect(told(fact({}))).toEqual([]);
+  });
+
+  describe("from Warehouse Concept (X4), whose lines Accept does not read", () => {
+    const concept = (wall: string, matchesCargoDetails = false) => ({ at: at(wall), verdict: "differs" as const, source: "warehouseConcept" as const, matchesCargoDetails });
+
+    it("is ATTENTION to check Cargo Details by hand after the same wait - never URGENT, however long", () => {
+      expect(REMEASURED_IN_WAREHOUSE_CONCEPT).toBe("Remeasured in Warehouse Concept: check Cargo Details by hand");
+      expect(told(fact({ informed: concept("2026-11-17 10:00") }))).toEqual([
+        { rank: 38, text: "Remeasured in Warehouse Concept: check Cargo Details by hand · informed 17.11. 10:00", urgent: false, area: "details", kind: "remeasurement" },
+      ]);
+      expect(told(fact({ informed: concept("2026-11-17 10:00") }), {}, minutes(NOW, -1))).toEqual([]);
+      // 48 hours on: still a warning.
+      expect(tags(told(fact({ informed: concept("2026-11-14 10:00") })))).toEqual([["Remeasured in Warehouse Concept: check Cargo Details by hand · informed 14.11. 10:00", false]]);
+      // By air with the Closing tomorrow: still a warning - nothing on Cargo Details can clear it but the figures.
+      expect(tags(told(fact({ informed: concept("2026-11-16 09:00") }), { freightMode: "Air Freight", tradeDirection: "Export", closingDate: day(1) }))).toEqual([
+        ["Remeasured in Warehouse Concept: check Cargo Details by hand · informed 16.11. 09:00", false],
+      ]);
+    });
+
+    it("stops once Cargo Details match the informed figures, or 7 days after it was informed", () => {
+      expect(REMEASURE_WAREHOUSE_CONCEPT_DAYS).toBe(7);
+      expect(told(fact({ informed: concept("2026-11-16 10:00", true) }))).toEqual([]);
+      expect(told(fact({ informed: concept("2026-11-11 10:01") }))).toHaveLength(1);
+      expect(told(fact({ informed: concept("2026-11-11 10:00") }))).toEqual([]);
+    });
+
+    it("is the Warehouse's own rule for a line with no source - written before the source was kept", () => {
+      expect(tags(told(fact({ informed: { ...differs("2026-11-16 10:00"), source: "warehouse" } })))).toEqual([["Remeasurement differs, not accepted since 16.11. 10:00", true]]);
+      expect(tags(told(fact({ informed: differs("2026-11-16 10:00") })))).toEqual([["Remeasurement differs, not accepted since 16.11. 10:00", true]]);
+    });
   });
 
   it("counts an acceptance only for the remeasurement it accepted: a later one that differs waits again", () => {

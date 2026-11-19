@@ -12,6 +12,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
+    invoicing: (await import("./shipmentFakes")).invoicingFake,
     auth: (await import("./authFake")).authFake([]),
   };
 });

@@ -8,7 +8,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { BTN, BTN_PRIMARY, CARD, HINT, LABEL_TEXT, PAGE_TITLE } from "@/styles/ui";
-import { EMAIL_OFF_NOTE, formOf, isChanged, settingsInput, settingsProblem, type SettingsForm } from "../_lib/settings";
+import { EMAIL_OFF_NOTE, formOf, isChanged, settingsInput, settingsProblem, switchOnText, type SettingsForm } from "../_lib/settings";
 
 // Finance → Accounts Receivable → Reminder settings (step 7): whether the app sends reminders 1 and 2 by itself, how
 // many days after the due day, and where a customer's answer goes. Managers change them; everyone reads them. The app
@@ -63,11 +63,13 @@ function SettingsCard({ saved }: { saved: ReceivableSettings }) {
           <span>
             <span className="block text-[14px] font-semibold text-slate-900">Automatic reminders</span>
             <span className={`block ${HINT}`}>
-              Each day the app e-mails reminder 1 and reminder 2 for overdue invoices, to the customer&apos;s accounts contact, in the customer&apos;s language - not for an
-              invoice that is disputed, has a promise to pay still running, or is to be refunded. Each reminder goes once per invoice. The final notice is never sent by itself:
-              a manager sends it.
+              Each working day around 10:00 the app e-mails reminder 1 and reminder 2 for overdue invoices, to the customer&apos;s accounts contact, in the customer&apos;s
+              language - not for an invoice that is disputed, has a promise to pay still running, is to be refunded, has less than 100 CZK / 5 EUR left to pay, or may be
+              paid by a payment waiting on a bank statement. A due day on a weekend or a holiday counts as the next working day. Each reminder goes once per invoice. The
+              final notice is never sent by itself: a manager sends it.
               {!saved.emailOn && " It can be switched on now: it takes effect only once e-mail from the app is on."}
             </span>
+            <span className={`block ${HINT} mt-1`}>{switchOnText(saved.autoReminders, saved.autoRemindersSince)}</span>
           </span>
         </label>
 

@@ -10,8 +10,11 @@ import { Pill } from "@/components/Pill";
 import type { OpsCockpitAudit } from "@/hooks/useShipmentsManagersCockpit";
 import { useShipmentsManagersAudit } from "@/hooks/useShipmentsManagersAudit";
 import { businessDateTime } from "@/lib/date";
+import { useToast } from "@/lib/toast";
 import { EMPTY, HINT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
-import { auditFigures, auditLabel, auditLineLabel, auditListNote, auditListRows, type AuditListRow } from "../_lib/cockpitAudit";
+import { cutoffsToast } from "../_lib/cockpitActions";
+import { auditFigures, auditLabel, auditLineLabel, auditListNote, auditListRows, offersTakeBack, type AuditListRow } from "../_lib/cockpitAudit";
+import { DismissCutoffDialog } from "./DismissCutoffDialog";
 
 const dash = <span className={EMPTY}>—</span>;
 
@@ -35,10 +38,35 @@ const COLUMNS: ColumnsType<AuditListRow> = [
 ];
 
 // The rows behind one figure of the line. Read when it opens; a read that failed says so - it is
-// not "nothing happened".
+// not "nothing happened". A row of "Missed cut-offs dismissed" also offers "Take back…" (N3): a
+// cut-off dismissed when it was the job's only signal leaves the job off the cards, so no card row's
+// "⋯" reaches it. It opens the job's dismissals as they stand now - the same list a card row's
+// "Dismissed cut-offs…" opens, each taken back there - for this row may have been taken back already.
 function AuditDialog({ auditKey, days, onClose }: { auditKey: string | null; days: number; onClose: () => void }) {
   const { list, isLoading, isError } = useShipmentsManagersAudit(auditKey);
+  const toast = useToast();
   const rows = auditListRows(list?.rows ?? []);
+  const [takingBack, setTakingBack] = useState<{ id: string; jobNumber: string } | null>(null);
+  const columns: ColumnsType<AuditListRow> = offersTakeBack(auditKey)
+    ? [
+        ...COLUMNS,
+        {
+          title: <span className="sr-only">Actions</span>,
+          key: "takeBack",
+          width: 110,
+          render: (_: unknown, r) => (
+            <button
+              type="button"
+              onClick={() => setTakingBack({ id: r.shipmentId, jobNumber: r.jobNumber })}
+              className={`${LINK} whitespace-nowrap text-[12px] font-medium cursor-pointer bg-transparent border-none p-0`}
+              aria-label={`Take back a dismissed cut-off of ${r.jobNumber || "this job"}`}
+            >
+              Take back…
+            </button>
+          ),
+        },
+      ]
+    : COLUMNS;
   return (
     <Modal
       open={auditKey !== null}
@@ -63,7 +91,7 @@ function AuditDialog({ auditKey, days, onClose }: { auditKey: string | null; day
         scroll={{ x: "max-content" }}
         loading={isLoading}
         dataSource={rows}
-        columns={COLUMNS}
+        columns={columns}
         pagination={{ pageSize: 15, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
         locale={{
           emptyText: isError ? (
@@ -71,6 +99,19 @@ function AuditDialog({ auditKey, days, onClose }: { auditKey: string | null; day
           ) : (
             <span className="text-[13px] text-slate-400">{isLoading ? "" : `Nothing in the last ${days} days.`}</span>
           ),
+        }}
+      />
+      {/* The job's dismissals, each to be taken back - the dialog a card row's "Dismissed cut-offs…" opens. The
+          audit row itself stays: it is the record that the cut-off was dismissed. */}
+      <DismissCutoffDialog
+        open={takingBack !== null}
+        job={takingBack}
+        cutoffs={[]}
+        onClose={() => setTakingBack(null)}
+        onDone={(what) => {
+          const said = cutoffsToast(takingBack?.jobNumber ?? "", what);
+          if (said.tone === "success") toast.success(said.text);
+          else toast.info(said.text);
         }}
       />
     </Modal>

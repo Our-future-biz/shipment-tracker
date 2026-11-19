@@ -87,3 +87,10 @@ export type AuditListRow = ManagersAuditRow & { key: string };
  * key starts with the row's place in the list, which no two rows share.
  */
 export const auditListRows = (rows: readonly ManagersAuditRow[]): AuditListRow[] => rows.map((row, index) => ({ ...row, key: `${index}:${row.shipmentId}:${row.at}` }));
+
+/** The figure whose rows can be acted on from the list: a missed cut-off dismissed is taken back there (N3) - from the
+ * job's dismissals as they stand now, since one dismissed when it was the job's only signal leaves no card row to do it from. */
+export const TAKE_BACK_KEY = "cutoff_dismissed";
+
+/** Whether the rows of this figure offer "Take back…". */
+export const offersTakeBack = (auditKey: string | null | undefined): boolean => auditKey === TAKE_BACK_KEY;

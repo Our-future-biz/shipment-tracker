@@ -18,6 +18,14 @@ export interface ChargeBasis {
 
 export const isAirFreight = (freightMode: string | null | undefined): boolean => (freightMode ?? "").trim().toLowerCase().startsWith("air");
 
+/**
+ * Whether the freight is charged by its weight or measure at all (council finding K5): not a sea
+ * Full Load (FCL), charged per container - the remeasurement then shows only the figures that
+ * changed, without W/M.
+ */
+export const chargedByWeightOrMeasure = (freightMode: string | null | undefined, loadType: string | null | undefined): boolean =>
+  !((freightMode ?? "").trim().toLowerCase() === "sea freight" && (loadType ?? "").trim().toLowerCase() === "full load");
+
 export function chargeBasis(freightMode: string | null | undefined, weightKg: number, volumeCbm: number): ChargeBasis {
   const kg = weightKg > 0 ? weightKg : 0;
   const m3 = volumeCbm > 0 ? volumeCbm : 0;

@@ -4,7 +4,7 @@ import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteBlocked, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
-import { customers, invoicing, quotes, warehouse } from "~encore/clients";
+import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { Tx } from "../db/db";
 import { shipmentRepository, ATTENTION_TILE, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
@@ -20,7 +20,7 @@ import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf,
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { CANCELLED_STATUS, actionStamp, cancelReasonRefusal, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
+import { CANCELLED_STATUS, actionStamp, cancelReasonRefusal, isCancelling, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
 import { USER_ID_COLUMNS, USER_ID_FIELDS, linkedUser, mayNameUser } from "../lib/userLinks";
 import { quoteLinksService } from "./quoteLinks.service";
 import { needsAttentionService } from "./needsAttention.service";
@@ -65,9 +65,13 @@ import { houseLoadTypeProblem } from "../lib/masterJobKind";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
 import {
   approvedByLockRefusal,
+  blDateRefusal,
+  cancelInvoicedRefusal,
+  COSTS_CHECK_REFUSAL,
   creditCheckLockRefusal,
   customerRoleRefusal,
   DETAILS_REFUSAL,
+  isInvoicingDepartment,
   SALES_REFERENCE_INVOICED,
   invoicedRefusal,
   isDetailsManager,
@@ -95,16 +99,26 @@ import { RELEASE_REQUEST_FIELD, WHAT_OF_KIND, approvedReason, closedLine, passDe
 import { shipmentReleaseOverrideRepository } from "../repositories/shipmentReleaseOverride.repository";
 import { shipmentReleaseRequestRepository } from "../repositories/shipmentReleaseRequest.repository";
 import {
+  ALREADY_ACCEPTED,
+  CARGO_DETAILS_CHANGED,
   REMEASURE_ACCEPTED,
   REMEASURE_COSTS_CHECKED,
+  acceptByHandRefusal,
+  acceptRefusal,
+  alreadyAccepted,
+  acceptedContainerFigures,
   acceptedDimensionLines,
+  acceptedLinesOf,
   acceptedTotals,
-  figuresOf,
+  exactFiguresOf,
   parseRemeasuredLines,
   readFigures,
+  roundedFigures,
+  sameCargoDetails,
+  type CargoDetailsRead,
   type RemeasuredLine,
 } from "../lib/remeasureAccept";
-import { declaredFigures } from "../lib/remeasureNotice";
+import { dimensionFiguresFilled } from "../lib/remeasureNotice";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
@@ -208,6 +222,12 @@ export interface ReleaseExtras {
    * together or not at all (the cover job marking the Holiday Cover it sets). It throws to refuse the write.
    */
   alongside?: (tx: Tx) => Promise<void>;
+  /**
+   * What the caller decided on besides the shipment's row (its containers and cargo lines, an
+   * acceptance's history), checked again first in the write turn, before anything is written - the
+   * async, in-transaction kin of StillHolds. It throws to refuse the write.
+   */
+  stillHoldsInTurn?: (tx: Tx) => Promise<void>;
 }
 
 // The most open jobs of a customer one answer lists (Accounts Receivable's work not yet invoiced).
@@ -455,15 +475,19 @@ function sanitizeTypedFields<T extends BlankablePriority>(
 }
 
 // The import's B/L in hand (D31): each a real day, stored trimmed - Postgres would refuse anything
-// else with an error the user can't read.
+// else with an error the user can't read - and never a day still to come (lib/shipmentEditRule
+// blDateRefusal). `existing`: the job as it is, none for one being created.
 const BL_DATES = { originalsReceivedDate: "Originals Received", telexReleaseReceivedDate: "Telex Release Received", deliveryOrderDate: "Delivery Order" } as const;
 
-function assertBlDates(data: Record<string, unknown>): void {
+function assertBlDates(data: Record<string, unknown>, existing?: Partial<Record<keyof typeof BL_DATES, string | null>>): void {
+  const today = businessDay(new Date());
   for (const key of Object.keys(BL_DATES) as (keyof typeof BL_DATES)[]) {
     const value = data[key];
     if (typeof value !== "string") continue;
     const day = value.trim();
     if (day && !isRealYmd(day)) throw APIError.invalidArgument(`${BL_DATES[key]} must be a date as "YYYY-MM-DD"`);
+    const future = blDateRefusal(BL_DATES[key], day, existing?.[key], today);
+    if (future) throw APIError.invalidArgument(future);
     data[key] = day || null;
   }
 }
@@ -1395,7 +1419,12 @@ class ShipmentService {
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     assertCancelReason(shipmentData, existing);
-    assertBlDates(shipmentData);
+    // A person's cancel of an invoiced job is a manager's (lib/shipmentEditRule cancelInvoicedRefusal).
+    if (role !== undefined && !isDetailsManager(role) && isCancelling(existing.status, shipmentData.status)) {
+      const refusal = cancelInvoicedRefusal(role, isInvoicedStatus(existing.invoicingStatus) || (await this.isInvoiced(id)));
+      if (refusal) throw APIError.permissionDenied(refusal);
+    }
+    assertBlDates(shipmentData, existing);
     await this.assertLoadTypeFitsMasterJob(existing, shipmentData);
     if (role !== undefined) assertWarehouseDates(existing, shipmentData, role);
     if (shipmentData.shippingLine !== undefined) shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
@@ -1555,6 +1584,7 @@ class ShipmentService {
         setsRelease = watchesRelease && setsWarehouseRelease(current, shipmentData);
         if (setsRelease && !releaseChecked) throw APIError.failedPrecondition(RELEASE_CHANGED_MEANWHILE);
       }
+      if (extras.stillHoldsInTurn) await extras.stillHoldsInTurn(tx);
       const audit = (field: string, oldValue: string | null, newValue: string | null) =>
         shipmentAuditRepository.create({ companyId, shipmentId: id, userId, field, oldValue, newValue }, tx);
       for (const [key, newValue] of Object.entries(shipmentData)) {
@@ -1877,36 +1907,93 @@ class ShipmentService {
     } catch (e) {
       throw APIError.failedPrecondition(e instanceof Error ? e.message : "The remeasured lines cannot be read");
     }
-    const shipment = await this.getById(id, actor.companyID);
-    if (!shipment) throw APIError.notFound("Shipment not found");
-    const current = shipment.cargoDimensions ?? [];
+    // The same lines twice (a stale page, a second person) would record a second acceptance and
+    // bring back a Costs warning already checked (council finding m8); lines of dangerous goods or
+    // several containers can't take another number of lines (council finding X2). Asked here for a
+    // quick answer, and again in the write turn below on what is there then.
+    const lastAccepted = async () => (await shipmentAuditRepository.listByShipmentId(id, actor.companyID, [REMEASURE_ACCEPTED], 1))[0]?.newValue ?? null;
+    const read = await this.cargoDetailsOf(id, actor.companyID);
+    const refusal = acceptRefusal(saved, remeasured.length, await lastAccepted(), read.lines);
+    if (refusal) throw APIError.failedPrecondition(refusal);
+    const current = [...read.lines];
     // What the shipment held: its cargo lines' totals, a figure they lack from its typed totals.
-    const lines = figuresOf(current);
-    const declared = declaredFigures({ pcs: existing.pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm });
-    const before = {
-      colli: lines.colli || declared.colli,
-      weightKg: lines.weightKg || declared.weightKg,
-      volumeCbm: lines.volumeCbm || declared.volumeCbm,
+    const before = dimensionFiguresFilled({ pcs: existing.pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm, cargoDimensions: current });
+    const exact = exactFiguresOf(remeasured);
+    const after = roundedFigures(exact);
+    // The only container declares the cargo's figures too, and the screens read them from it first
+    // (council finding X3): it takes the accepted totals in the same write, its change in the history.
+    // Several containers are left alone - which container's figures changed is not known.
+    const [only, ...others] = read.containers;
+    const containers = only && others.length === 0 ? { containers: [{ ...only, ...acceptedContainerFigures(exact) }] } : {};
+    // Everything above was decided on Cargo Details as read before the write turn. A save of it in
+    // between - a second container, a changed seal, ADR lines, typed totals - would be undone by this
+    // write: the container list it sends is synced, so a container it doesn't name is deleted with
+    // its cargo. So the turn reads them again and refuses unless they are as read; then the one
+    // container sent is the only one there, and only its figures change.
+    const stillHoldsInTurn = async (tx: Tx) => {
+      // First: another Accept of these lines that had its turn before this one - it changed Cargo
+      // Details itself, and that they were accepted is what to say. Its history entry is read
+      // outside this transaction, which is fine: the turn is only had once the other has committed.
+      if (alreadyAccepted(saved, await lastAccepted())) throw APIError.failedPrecondition(ALREADY_ACCEPTED);
+      const row = await shipmentRepository.getInTurn(tx, id, actor.companyID);
+      if (!row) throw APIError.notFound("Shipment not found");
+      const totalsAsRead = row.pcs === existing.pcs && row.totalWeightTons === existing.totalWeightTons && row.totalVolumeCbm === existing.totalVolumeCbm;
+      const fresh = await this.cargoDetailsOf(id, actor.companyID, tx);
+      if (!totalsAsRead || !sameCargoDetails(read, fresh)) throw APIError.aborted(CARGO_DETAILS_CHANGED);
+      const byHand = acceptByHandRefusal(remeasured.length, fresh.lines);
+      if (byHand) throw APIError.failedPrecondition(byHand);
     };
-    const after = figuresOf(remeasured);
     return this.update(
       id,
       actor.companyID,
-      { cargoDimensions: acceptedDimensionLines(remeasured, current), ...acceptedTotals(after) },
+      { cargoDimensions: acceptedDimensionLines(remeasured, current), ...acceptedTotals(exact), ...containers },
       actor.userID,
       actor.role,
       undefined,
       undefined,
-      { history: [{ field: REMEASURE_ACCEPTED, oldValue: JSON.stringify(before), newValue: JSON.stringify({ ...after, lines: saved }) }] },
+      { history: [{ field: REMEASURE_ACCEPTED, oldValue: JSON.stringify(before), newValue: JSON.stringify({ ...after, lines: saved }) }], stillHoldsInTurn },
     );
+  }
+
+  // The shipment's containers and cargo dimension lines as Cargo Details shows them (getById), read
+  // in `tx` when given: what an acceptance is decided on, and checked again in its write turn.
+  private async cargoDetailsOf(id: string, companyId: string, tx?: Tx): Promise<CargoDetailsRead> {
+    const containers = (await containerRepository.listByShipmentId(id, companyId, tx)).map(toContainerLine);
+    const lines = (await cargoDimensionRepository.listByShipmentId(id, companyId, tx)).map(toCargoDimensionLine);
+    return { containers, lines: withOnlyContainer(lines, containers.map((c) => c.id)) };
+  }
+
+  /**
+   * Who may mark Costs Breakdown's quantities checked after an acceptance (council finding m9,
+   * K6): who may change the shipment's details - Handled By, Holiday Cover, a manager - and
+   * Invoicing, who bills the quantities. The app has no Invoicing role: an Invoicing user is one
+   * whose department (Settings → Users) is Invoicing's (lib/shipmentEditRule isInvoicingDepartment).
+   */
+  private async mayCheckRemeasureCosts(shipment: { personInCharge: string; holidayCover: string }, actor: { userID: string; role: string }): Promise<boolean> {
+    return (await this.mayChangeDetails(shipment, actor.userID, actor.role)) || (await this.inInvoicingDepartment(actor.userID));
+  }
+
+  // Whether the user sits in an Invoicing department; not, when auth can't be asked.
+  private async inInvoicingDepartment(userId: string): Promise<boolean> {
+    try {
+      const { users } = await auth.usersList();
+      const departmentId = users.find((u) => u.id === userId)?.departmentId;
+      if (!departmentId) return false;
+      const { departments } = await auth.departmentList();
+      return isInvoicingDepartment(departments.find((d) => d.id === departmentId)?.name);
+    } catch (err) {
+      log.warn(err, "the user's department could not be read");
+      return false;
+    }
   }
 
   /**
    * The shipment's last accepted remeasurement: when, by whom, the figures before and after, whether
    * the job has an open invoice, and when Costs Breakdown's quantities were last marked checked
-   * after it. Null when none was accepted.
+   * after it. Null when none was accepted. `viewer`: who reads it, told whether they may mark the
+   * quantities checked (none: not).
    */
-  async remeasureAcceptance(id: string, companyId: string): Promise<RemeasureAcceptance | null> {
+  async remeasureAcceptance(id: string, companyId: string, viewer?: { userID: string; role: string }): Promise<RemeasureAcceptance | null> {
     if (!isUuid(id)) throw APIError.notFound("Shipment not found");
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
@@ -1926,20 +2013,26 @@ class ShipmentService {
       acceptedBy: nameOf(accepted.userId),
       before: readFigures(accepted.oldValue),
       after: readFigures(accepted.newValue),
+      lines: acceptedLinesOf(accepted.newValue),
       freightMode: existing.freightMode,
+      loadType: existing.loadType,
       invoiced: await this.isInvoiced(id),
       costsCheckedAt: costsChecked ? iso(costsChecked.changedAt)! : null,
       costsCheckedBy: costsChecked ? nameOf(costsChecked.userId) : null,
+      mayCheckCosts: viewer ? await this.mayCheckRemeasureCosts(existing, viewer) : false,
     };
   }
 
   /** Costs Breakdown: the quantities were checked after the last accepted remeasurement. */
   async markRemeasureCostsChecked(id: string, actor: { companyID: string; userID: string; role: string }): Promise<RemeasureAcceptance | null> {
-    await this.requireDetailsEditor(id, actor);
+    if (!isUuid(id)) throw APIError.notFound("Shipment not found");
+    const existing = await shipmentRepository.getByIdForCompany(id, actor.companyID);
+    if (!existing) throw APIError.notFound("Shipment not found");
+    if (!(await this.mayCheckRemeasureCosts(existing, actor))) throw APIError.permissionDenied(COSTS_CHECK_REFUSAL);
     const [accepted] = await shipmentAuditRepository.listByShipmentId(id, actor.companyID, [REMEASURE_ACCEPTED], 1);
     if (!accepted) throw APIError.failedPrecondition("No remeasurement was accepted on this shipment");
     await shipmentAuditRepository.create({ companyId: actor.companyID, shipmentId: id, userId: actor.userID, field: REMEASURE_COSTS_CHECKED, oldValue: null, newValue: iso(accepted.changedAt) });
-    return this.remeasureAcceptance(id, actor.companyID);
+    return this.remeasureAcceptance(id, actor.companyID, actor);
   }
 
   // Invoicing's word on whether the job is paid, for the prepayment stop; null when it can't be asked.

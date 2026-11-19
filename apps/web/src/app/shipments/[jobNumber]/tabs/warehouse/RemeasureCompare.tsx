@@ -1,11 +1,12 @@
 "use client";
 
-import { chargeBasis } from "@/lib/chargeBasis";
+import { chargeBasis, chargedByWeightOrMeasure } from "@/lib/chargeBasis";
 import { TD_CELL, TH_CELL, rowLine } from "./warehouseUi";
 
 // The shipment's cargo figures against the warehouse's remeasured ones, figure by figure, with the
 // difference: the same table on the Warehouse tab and on Cargo Details. The last column is what the
-// freight is charged by (lib/chargeBasis): chargeable weight for air, W/M for the other modes.
+// freight is charged by (lib/chargeBasis): chargeable weight for air, W/M for the other modes - none
+// for a sea Full Load, charged per container. Both sides come rounded alike (remeasuredLines).
 
 export interface CargoFigures {
   colli: number;
@@ -42,12 +43,14 @@ export function RemeasureCompare({
   ship,
   re,
   freightMode,
+  loadType,
   shipLabel = "Shipment values",
   reLabel = "Remeasured values",
 }: {
   ship: CargoFigures;
   re: CargoFigures;
   freightMode: string | null | undefined;
+  loadType: string | null | undefined;
   shipLabel?: string;
   reLabel?: string;
 }) {
@@ -57,7 +60,7 @@ export function RemeasureCompare({
     { key: "colli", label: "Colli", ship: ship.colli, re: re.colli, digits: 0 },
     { key: "weight", label: "Weight (kg)", ship: ship.weightKg, re: re.weightKg, digits: 1 },
     { key: "volume", label: "Volume (CBM)", ship: ship.volumeCbm, re: re.volumeCbm, digits: 3 },
-    { key: "charge", label: shipCharge.label, ship: shipCharge.value, re: reCharge.value, digits: shipCharge.digits },
+    ...(chargedByWeightOrMeasure(freightMode, loadType) ? [{ key: "charge", label: shipCharge.label, ship: shipCharge.value, re: reCharge.value, digits: shipCharge.digits }] : []),
   ];
   const rows = [
     { key: "ship", label: shipLabel, pick: (c: (typeof columns)[number]) => fmt(c.digits)(c.ship) },

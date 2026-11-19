@@ -65,6 +65,8 @@ interface FieldCardProps {
   /** The rows, by column: two columns side by side, or one. */
   columns: MasterJobCardField[][];
   className?: string;
+  /** The card's anchor (jumpTo), e.g. for a jump to one of its rows that the field choice hides. */
+  id?: string;
 }
 
 /**
@@ -72,13 +74,14 @@ interface FieldCardProps {
  * (CardFieldTools): the user picks which rows the card shows, as on Shipment Details, and the
  * choice is kept the same way (useCardFields). With nothing chosen every row shows.
  */
-export function MasterJobFieldCard({ cardId, icon, title, columns, className }: FieldCardProps) {
+export function MasterJobFieldCard({ cardId, icon, title, columns, className, id }: FieldCardProps) {
   const { visibleKeys } = useCardFields();
   const fields = columns.flat();
   const shown = shownColumns(columns, visibleKeys(cardId, fields.map((f) => f.key)));
   const rows = (col: MasterJobCardField[]) => col.map((f) => <Fragment key={f.key}>{f.row}</Fragment>);
   return (
     <MasterJobCard
+      id={id}
       icon={icon}
       title={title}
       className={className}
@@ -207,11 +210,12 @@ const flashTimers = new WeakMap<HTMLElement, number>();
 /**
  * Scroll to a card or row of the detail and flash it, so the eye lands on it even
  * when it was already on screen. A card goes to the top of the view; a row to the
- * middle, so the fields around it stay visible.
+ * middle, so the fields around it stay visible. False when nothing shown on the page has that id
+ * (a row the user's field choice hides, or only its copy in a closed "Show all" window).
  */
-export function jumpTo(id: string) {
+export function jumpTo(id: string): boolean {
   const el = document.getElementById(id);
-  if (!el) return;
+  if (!el || el.getClientRects().length === 0) return false;
   const isRow = el.dataset.jump === "row";
   const flash = isRow ? FLASH_ROW : FLASH_CARD;
   el.scrollIntoView({ behavior: "smooth", block: isRow ? "center" : "start" });
@@ -219,4 +223,5 @@ export function jumpTo(id: string) {
   window.clearTimeout(flashTimers.get(el));
   el.classList.add(...flash);
   flashTimers.set(el, window.setTimeout(() => el.classList.remove(...flash), FLASH_MS));
+  return true;
 }

@@ -9,7 +9,9 @@ import { invoiceTable } from "./invoice.schema";
  * - customer_invoice: the document in the customer's invoice list (aging, credit facts);
  * - mark_credited: the invoice a credit note cancels marked Credited there too;
  * - status_after_issue / status_after_credit: the shipment's Shipment and Invoicing Status
- *   (lib/shipmentStatus), worked out from the shipment as it is when the row is sent;
+ *   (lib/shipmentStatus), worked out from the shipment as it is when the row is sent; also owed by a
+ *   selling line that became or stopped being a charge after invoicing, under the job's newest open
+ *   invoice (the row needs one: a job with none has nothing invoiced to move back from);
  * - receivable_state: what is left to pay on an invoice (Finance → Accounts Receivable), read fresh when the
  *   row is sent, on the invoice's row in the customer's list.
  */
@@ -20,7 +22,9 @@ export type InvoiceFollowupPayload =
   | { customerId: string; invoiceNumber: string; amount: number; currency: string; dueDate: string; status: "Open" | "Credited"; issuedAt: string; invoiceId?: string }
   // mark_credited: Cancelled for an invoice cancelled on its issue day; Credited when left out
   | { invoiceNumbers: string[]; status?: "Cancelled" }
-  | { shipmentId: string }
+  // status_after_issue / status_after_credit: `charge` names the selling line whose change made the row (a charge
+  // added or taken away after invoicing: services/invoiceFollowups followupsOfSellingChange); absent after a document
+  | { shipmentId: string; charge?: string }
   // receivable_state: the invoice (never a credit note)
   | { invoiceId: string };
 

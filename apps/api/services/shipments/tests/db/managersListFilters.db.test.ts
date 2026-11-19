@@ -12,6 +12,7 @@ import { COCKPIT_JOB_LIMIT } from "../../lib/cockpitThresholds";
 import { freightKindOf } from "../../lib/trackingEvents";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentAuditTable } from "../../schemas/shipmentAudit.schema";
+import { shipmentClaimTable } from "../../schemas/shipmentClaim.schema";
 import { shipmentCustomerNoticeTable } from "../../schemas/shipmentCustomerNotice.schema";
 import { shipmentTable, type NewShipmentRecord } from "../../schemas/shipment.schema";
 import { managersCockpitService } from "../../services/managersCockpit.service";
@@ -39,6 +40,10 @@ const listed = async (companyId: string, filters: { tile?: string; handledBy?: s
   return data.map((s) => s.id).sort();
 };
 const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort();
+// A claim of the job, of its kind and status; `deletedAt` for one deleted.
+const claimOn = async (job: { id: string; companyId: string }, kind: "cargo" | "cost", status: "open" | "notified" | "settled", deletedAt?: Date) => {
+  await db.insert(shipmentClaimTable).values({ companyId: job.companyId, shipmentId: job.id, kind, status, note: "Damaged on arrival", deletedAt });
+};
 const cockpit = (companyId: string) => managersCockpitService.cockpit(companyId, { mode: "all", direction: "all", handledBy: null, reports: "all", userId: randomUUID() });
 
 describe("the list's mode filter", () => {
@@ -97,21 +102,33 @@ describe("the list's Handled By filter", () => {
 });
 
 describe("the tiles the cockpit opens the list with", () => {
-  it("claims: the active jobs the cockpit counts as an open claim, and no other", async () => {
+  it("claims: every live job the cockpit counts as an open claim - Invoiced or cancelled too (X8) - and no other", async () => {
     const companyId = randomUUID();
     const claim = await newJob(companyId, { claim: "Yes" });
     const claimToo = await newJob(companyId, { claim: "Yes", bookingConfirmation: "Pending", closingDate: day(0) });
     await newJob(companyId, { claim: "No" });
     await newJob(companyId, {});
-    // Not active: an open claim on an invoiced, a cancelled or a deleted job is counted nowhere.
-    await newJob(companyId, { claim: "Yes", invoicingStatus: "Invoiced" });
-    await newJob(companyId, { claim: "Yes", status: CANCELLED_STATUS });
-    await newJob(companyId, { claim: "Yes", deletedAt: new Date() });
-    expect(await listed(companyId, { tile: "claims" })).toEqual(ids([claim, claimToo]));
+    // An open cargo claim outlives the job's billing and its cancelling; a deleted job's is counted nowhere.
+    const invoiced = await newJob(companyId, { claim: "Yes", invoicingStatus: "Invoiced" });
+    await claimOn(invoiced, "cargo", "notified");
+    const cancelled = await newJob(companyId, { claim: "Yes", status: CANCELLED_STATUS });
+    await claimOn(cancelled, "cargo", "open");
+    await claimOn(await newJob(companyId, { claim: "Yes", deletedAt: new Date() }), "cargo", "open");
+    await newJob(companyId, { claim: "No", invoicingStatus: "Invoiced" });
+    // Review: an invoiced job whose Claim says Yes for an open claim on costs (Accounts Payable's
+    // "Raise claim") is no row of the managers', nor one whose cargo claim is settled or deleted.
+    await claimOn(await newJob(companyId, { claim: "Yes", invoicingStatus: "Invoiced" }), "cost", "open");
+    const settled = await newJob(companyId, { claim: "Yes", invoicingStatus: "Invoiced" });
+    await claimOn(settled, "cargo", "settled");
+    await claimOn(settled, "cost", "open");
+    await claimOn(await newJob(companyId, { claim: "Yes", status: CANCELLED_STATUS }), "cargo", "open", new Date());
+    expect(await listed(companyId, { tile: "claims" })).toEqual(ids([claim, claimToo, invoiced, cancelled]));
     const c = await cockpit(companyId);
-    expect(c.tiles).toMatchObject({ active: 4, openClaims: 2 });
+    // Counted by Open claims, not as active jobs.
+    expect(c.tiles).toMatchObject({ active: 4, openClaims: 4 });
+    expect(ids(await shipmentRepository.managersCockpitClaimOnlyRows(companyId, 10))).toEqual(ids([invoiced, cancelled]));
     // With the mode and the person beside it, as the tile's link sends them.
-    expect(await listed(companyId, { tile: "claims", mode: "sea", handledBy: "jan@firma.cz" })).toEqual(ids([claim, claimToo]));
+    expect(await listed(companyId, { tile: "claims", mode: "sea", handledBy: "jan@firma.cz" })).toEqual(ids([claim, claimToo, invoiced, cancelled]));
     expect(await listed(companyId, { tile: "claims", mode: "air" })).toEqual([]);
   });
 

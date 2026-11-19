@@ -48,6 +48,24 @@ const lineOf = (id: string, companyId: string, shipmentId: string, splitRowToo =
     splitRowToo ? undefined : isNull(t.sourceMasterJobRef),
   );
 
+/**
+ * What a line write owes, in the write's own transaction: `before` is the line as it was (null for a
+ * new one), `after` as it is now (null once deleted). invoicing.service hands one in so that the
+ * shipment's statuses follow a charge added or taken away after invoicing (lib/shipmentStatus).
+ */
+export type AfterSellingWrite = (tx: Tx, before: InvoiceSellingCostRecord | null, after: InvoiceSellingCostRecord | null) => Promise<void>;
+
+/** One line of a write that changes several at once (a Trucking push): `before` null for a new line, `now` null once deleted. */
+export interface SellingLineWrite {
+  before: SellingLineValue | null;
+  now: SellingLineValue | null;
+}
+/** What a line's follow-up reads of it: its value, and its text for the shipment's history. */
+export type SellingLineValue = Pick<InvoiceSellingCostRecord, "description" | "category" | "qty" | "amount" | "currency">;
+
+/** What a write of several lines owes, in its own transaction, as AfterSellingWrite does for one. */
+export type AfterSellingSetWrite = (tx: Tx, writes: SellingLineWrite[]) => Promise<void>;
+
 class SellingCostRepository extends TenantRepository<typeof t> {
   constructor() {
     super(db, t, "invoice_selling_cost");
@@ -86,6 +104,23 @@ class SellingCostRepository extends TenantRepository<typeof t> {
       .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, ids), isNull(t.deletedAt)));
   }
 
+  /**
+   * Adds a line, and what it owes (`after`) with it in one transaction - under the shipment's
+   * trucking-lines lock, the one an invoice issue takes, so the line and an invoice being issued
+   * meanwhile are written one after the other, and their follow-ups are made in that order.
+   */
+  async createLine(companyId: string, values: Omit<NewInvoiceSellingCostRecord, "companyId">, after?: AfterSellingWrite): Promise<InvoiceSellingCostRecord> {
+    return this.db.transaction(async (tx) => {
+      await truckingLinesLock(tx, values.shipmentId);
+      const [row] = await tx
+        .insert(t)
+        .values({ ...values, companyId })
+        .returning();
+      await after?.(tx, null, row!);
+      return row!;
+    });
+  }
+
   async updateLine(
     id: string,
     companyId: string,
@@ -112,17 +147,20 @@ class SellingCostRepository extends TenantRepository<typeof t> {
     companyId: string,
     shipmentId: string,
     change: { delete: true } | { data: Partial<NewInvoiceSellingCostRecord> },
-    { mayUntickSplit = false } = {},
+    { mayUntickSplit = false, after }: { mayUntickSplit?: boolean; after?: AfterSellingWrite } = {},
   ): Promise<InvoiceSellingCostRecord | "invoiced" | null> {
     return this.db.transaction(async (tx) => {
       await truckingLinesLock(tx, shipmentId);
       if ((await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx)).has(id)) return "invoiced" as const;
+      // The line as it was, for what the write owes: read only when something is owed.
+      const [before] = after ? await tx.select().from(t).where(lineOf(id, companyId, shipmentId, true)).limit(1) : [];
       const now = new Date();
       const [row] = await tx
         .update(t)
         .set("delete" in change ? { deletedAt: now, updatedAt: now } : { ...change.data, updatedAt: now })
         .where(lineOf(id, companyId, shipmentId, "data" in change && billingOnly(change.data, mayUntickSplit)))
         .returning();
+      if (row && after) await after(tx, before ?? null, "delete" in change ? null : row);
       return row ?? null;
     });
   }

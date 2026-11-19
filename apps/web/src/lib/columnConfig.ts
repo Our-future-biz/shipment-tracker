@@ -434,13 +434,22 @@ export function getShipmentUrgency(rowData: Record<string, string>): { level: Sh
   };
 }
 
-export function getRowConditionalStyle(rowData: Record<string, string>): CellStyle | null {
-  const hblType = rowData["houseBolType"] || "";
-  const mblType = rowData["masterBolType"] || "";
+/**
+ * Whether a job waits for an original B/L: its House or Master BoL Type is "OBL" and neither
+ * Originals Received nor Telex Release Received has a day - the rule Shipments → Managers says
+ * "not in hand" by (apps/api …/lib/managersCockpitExtra originalBlSignals): a day in either is the
+ * B/L in hand, whatever the type still reads.
+ */
+export function waitsForOriginalBl(rowData: Record<string, string>): boolean {
+  const isObl = (rowData["houseBolType"] || "").trim().toUpperCase() === "OBL" || (rowData["masterBolType"] || "").trim().toUpperCase() === "OBL";
+  const inHand = !!(rowData["originalsReceivedDate"] || "").trim() || !!(rowData["telexReleaseReceivedDate"] || "").trim();
+  return isObl && !inHand;
+}
 
-  // OBL only recolors the whole row's TEXT red — it does NOT override cell backgrounds,
-  // so the per-column conditional coloring keeps working underneath.
-  if (hblType === "OBL" || mblType === "OBL") {
+export function getRowConditionalStyle(rowData: Record<string, string>): CellStyle | null {
+  // An OBL not in hand only recolors the whole row's TEXT red — it does NOT override cell
+  // backgrounds, so the per-column conditional coloring keeps working underneath.
+  if (waitsForOriginalBl(rowData)) {
     return { color: "#b91c1c" };
   }
   return null;

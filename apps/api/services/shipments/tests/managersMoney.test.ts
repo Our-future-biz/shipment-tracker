@@ -8,6 +8,7 @@ import {
   MONEY_SIGNAL_KINDS,
   accrualSignals,
   amountsText,
+  chargeAfterInvoicingSignals,
   billingSince,
   buildOpsMoney,
   costAfterBillingSignals,
@@ -127,7 +128,7 @@ const job = (over: Partial<OpsCockpitJob> = {}): OpsCockpitJob => {
   };
 };
 
-const QUIET_TOTALS: JobMoney["totals"] = { profitCzk: 10_000, marginPct: 20, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, ratesNote: "", missingCurrencies: [] };
+const QUIET_TOTALS: JobMoney["totals"] = { profitCzk: 10_000, marginPct: 20, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, ratesNote: "", missingCurrencies: [], ratesStale: false };
 const QUIET_INVOICES: InvoicingSupplierInvoices = { toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] };
 type TestMoney = JobMoney & { shipmentId: string };
 // What is known of the money of a job nothing is wrong with: a healthy margin, nothing left to bill, everything else empty.
@@ -161,9 +162,11 @@ const answered = (shipmentId: string, over: Partial<InvoicingMoneyJob> = {}): In
 const eur = (amount: number) => ({ currency: "EUR", amount });
 const czk = (amount: number) => ({ currency: "CZK", amount });
 const words = (signals: readonly MoneySignal[]) => signals.map((s) => [s.urgent ? "URGENT" : "ATTENTION", s.text]);
-const BILLING = { status: "Billing [IMP]" };
-const BOOKED = { status: "Booked [IMP]" };
-const LABEL = "at today's ČNB rate (18.11.)";
+/** A job with no tax date yet (no ATA): the rules that count from it say nothing of it. */
+const NO_TAX_DATE = { tradeDirection: "Import", department: "", actualArrival: null, actualDeparture: null, actualDeliveryDate: null };
+const BILLING = { status: "Billing [IMP]", ...NO_TAX_DATE };
+const BOOKED = { status: "Booked [IMP]", ...NO_TAX_DATE };
+const LABEL = "at the latest ČNB rate (18.11.)";
 /** A change of status as the history tells it. */
 const changed = (day: string, status = "Billing [IMP]", time = "11:00") => ({ status, at: at(day, time) });
 
@@ -232,7 +235,9 @@ describe("how money is written in a tag", () => {
   });
 
   it("adds currencies in one place only - the CZK figure - at the rates handed in, labelled, and only when every currency has one", () => {
-    expect(czkLabel("2026-11-18")).toBe("at today's ČNB rate (18.11.)");
+    expect(czkLabel("2026-11-18")).toBe("at the latest ČNB rate (18.11.)");
+    // A newer fixing should be stored and is not: the rate is old, and says so.
+    expect(czkLabel("2026-11-17", true)).toBe("(ČNB rate of 17.11., newer not imported)");
     const rates = { rates: { EUR: 25 }, label: LABEL };
     expect(czkTotalOf([eur(100), czk(500), eur(0.5)], rates)).toEqual({ amount: 3012.5, label: LABEL });
     // A currency with no rate: no figure at all, never the rest alone - and the currency is named.
@@ -380,8 +385,38 @@ describe("not invoiced", () => {
 
   it("words a Billed status as that", () => {
     const m = money("a", { notYetInvoiced: [eur(5000)] });
-    expect(words(inBillingSignals({ status: "Billed [IMP]" }, m, at("2026-10-25"), NOW, []))).toEqual([["ATTENTION", "Billed since 25.10., 5,000.00 EUR not invoiced · with Invoicing"]]);
-    expect(words(inBillingSignals({ status: "Billing [EXP]" }, m, at("2026-10-25"), NOW, []))).toEqual([["ATTENTION", "In Billing since 25.10., 5,000.00 EUR not invoiced · with Invoicing"]]);
+    expect(words(inBillingSignals({ ...BILLING, status: "Billed [IMP]" }, m, at("2026-10-25"), NOW, []))).toEqual([["ATTENTION", "Billed since 25.10., 5,000.00 EUR not invoiced · with Invoicing"]]);
+    expect(words(inBillingSignals({ ...BILLING, status: "Billing [EXP]" }, m, at("2026-10-25"), NOW, []))).toEqual([["ATTENTION", "In Billing since 25.10., 5,000.00 EUR not invoiced · with Invoicing"]]);
+  });
+
+  it("is URGENT from the 15th day after the tax date, whoever's desk it is on (L7) - without waiting for the working days", () => {
+    const m = money("a", { notYetInvoiced: [eur(5000)] });
+    // Arrived 3 Nov: 15 days before 18 Nov. In Billing since the 13th.
+    expect(words(inBillingSignals({ ...BILLING, actualArrival: "2026-11-03" }, m, at("2026-11-13"), NOW, []))).toEqual([
+      ["URGENT", "In Billing since 13.11., 5,000.00 EUR not invoiced · tax date 03.11. · with Invoicing"],
+    ]);
+    expect(inBillingSignals({ ...BILLING, actualArrival: "2026-11-03" }, m, at("2026-11-13"), NOW, [])[0]).toMatchObject({ rank: MONEY_RANK.notInvoicedLate, kind: "not_invoiced" });
+    // 14 days: still ATTENTION, once the two working days are over.
+    expect(words(inBillingSignals({ ...BILLING, actualArrival: "2026-11-04" }, m, at("2026-11-13", "10:00"), NOW, []))).toEqual([["ATTENTION", "In Billing since 13.11., 5,000.00 EUR not invoiced · with Invoicing"]]);
+    // So late, it is said the day the job came to Billing - and with since when left out when that is not known.
+    expect(words(inBillingSignals({ ...BILLING, actualArrival: "2026-10-20" }, m, at("2026-11-18", "09:00"), NOW, []))).toEqual([
+      ["URGENT", "In Billing since 18.11., 5,000.00 EUR not invoiced · tax date 20.10. · with Invoicing"],
+    ]);
+    expect(words(inBillingSignals({ ...BILLING, status: "Billed [IMP]", actualArrival: "2026-10-20" }, m, null, NOW, []))).toEqual([["URGENT", "Billed, 5,000.00 EUR not invoiced · tax date 20.10. · with Invoicing"]]);
+    // An export goes by its ATD.
+    const exp = { ...BILLING, status: "Billing [EXP]", tradeDirection: "Export", actualArrival: "2026-11-17", actualDeparture: "2026-11-01" };
+    expect(inBillingSignals(exp, m, at("2026-11-17"), NOW, [])[0]).toMatchObject({ urgent: true });
+    // Nothing left to bill: nothing, however late.
+    expect(inBillingSignals({ ...BILLING, actualArrival: "2026-10-01" }, money("a"), at("2026-10-25"), NOW, [])).toEqual([]);
+  });
+
+  it("says a charge added after invoicing on a job that reads Invoiced, URGENT, with its amount (X1 / K14)", () => {
+    expect(words(chargeAfterInvoicingSignals(money("a", { notYetInvoiced: [eur(300), czk(1200)] })))).toEqual([["URGENT", "Work not invoiced on a job that reads Invoiced · 1,200.00 CZK, 300.00 EUR"]]);
+    expect(chargeAfterInvoicingSignals(money("a", { notYetInvoiced: [eur(300)] }))[0]).toMatchObject({ rank: MONEY_RANK.chargeAfterInvoicing, kind: "not_invoiced" });
+    expect(chargeAfterInvoicingSignals(money("a"))).toEqual([]);
+    expect(chargeAfterInvoicingSignals(money("a", { notYetInvoiced: [eur(0)] }))).toEqual([]);
+    // Not known: not said.
+    expect(chargeAfterInvoicingSignals(money("a", { notYetInvoiced: null }))).toEqual([]);
   });
 
   it("does not say it of a job that is not in Billing, whose day is not known, or whose work not yet invoiced is not known", () => {
@@ -512,13 +547,29 @@ describe("estimates with no supplier invoice", () => {
     expect(accrualSignals(arrived("2026-09-19"), open(), TODAY, false)[0]).toMatchObject({ rank: MONEY_RANK.accrualLate, kind: "accrual" });
   });
 
-  it("is URGENT once the job is billed, whatever its tax date - and an invoice that merely exists does not make it so", () => {
+  it("is URGENT once the job reads Invoiced, whatever its tax date - a Billing status or an invoice that merely exists does not make it so (K15 / m23)", () => {
     expect(words(accrualSignals(arrived("2026-11-17"), open(), TODAY, true))).toEqual([["URGENT", "3 estimates with no supplier invoice · since 14.10."]]);
     expect(words(accrualSignals(arrived(null), open(), TODAY, true))).toEqual([["URGENT", "3 estimates with no supplier invoice · since 14.10."]]);
     // Invoiced in advance, not departed, not in Billing: its estimates are no matter yet.
     const advance = jobMoneyOf(answered("a", { invoicedOn: "2026-11-10", estimatesOpen: { lines: 3, oldestSince: "2026-10-14", amounts: [] } }), true);
-    expect(accrualSignals(arrived(null), advance, TODAY, isBilled(BOOKED, false))).toEqual([]);
-    expect(accrualSignals(arrived(null), advance, TODAY, isBilled(BILLING, false))).toHaveLength(1);
+    expect(accrualSignals(arrived(null), advance, TODAY, false)).toEqual([]);
+    // An active job in Billing: by its tax date alone - nothing before 30 days, ATTENTION at 30, URGENT at 60.
+    const billing = job({ status: "Billing [IMP]", actualArrival: "2026-11-10" });
+    const signals = (invoiced: boolean) =>
+      moneySignals(billing, {
+        invoicing: new Map([[billing.id, open()]]),
+        invoicedIds: new Set(invoiced ? [billing.id] : []),
+        customerOf: new Map(),
+        credit: new Map(),
+        creditRates: null,
+        claims: new Map(),
+        statusChangedAt: null,
+        holidays: [],
+        now: NOW,
+      });
+    expect(signals(false)).toEqual([]);
+    expect(words(signals(true))).toEqual([["URGENT", "3 estimates with no supplier invoice · since 14.10."]]);
+    expect(words(accrualSignals(arrived("2026-10-19"), open(), TODAY, false))).toEqual([["ATTENTION", "3 estimates with no supplier invoice · since 14.10."]]);
   });
 
   it("says nothing before the tax date, or with no estimate open - and one estimate is one", () => {
@@ -573,6 +624,15 @@ describe("supplier invoices", () => {
       [MONEY_RANK.supplierInvoiceRefused, "supplier_invoice"],
       [MONEY_RANK.supplierInvoiceClaimed, "supplier_invoice"],
     ]);
+  });
+
+  it("counts only the invoices refused within the last 14 days, by the day each was refused (m21)", () => {
+    // Five refused ever; two of them within the days (4 Nov is the 14th day back).
+    expect(of({ refused: 5, lastRefusedOn: "2026-11-17", refusedOn: ["2026-09-01", "2026-10-01", "2026-11-03", "2026-11-04", "2026-11-17"] })).toEqual([["ATTENTION", "2 supplier invoices refused"]]);
+    expect(of({ refused: 3, lastRefusedOn: "2026-11-17", refusedOn: ["2026-10-01", "2026-10-02", "2026-11-17"] })).toEqual([["ATTENTION", "Supplier invoice refused"]]);
+    expect(of({ refused: 2, lastRefusedOn: "2026-11-03", refusedOn: ["2026-10-01", "2026-11-03"] })).toEqual([]);
+    // A refusal with no day is in no list: not counted, whatever the total.
+    expect(of({ refused: 2, lastRefusedOn: null, refusedOn: [] })).toEqual([]);
   });
 });
 
@@ -756,7 +816,7 @@ describe("not recharged", () => {
 
 describe("the ranks", () => {
   it("keeps the URGENT money signals within 20-29 and the ATTENTION ones within 300-399", () => {
-    const urgentKeys = ["creditReleaseDue", "loss", "costAfterBillingAbove", "supplierInvoiceOverdue", "notInvoicedLate", "accrualLate", "costClaimOld"];
+    const urgentKeys = ["creditReleaseDue", "loss", "costAfterBillingAbove", "supplierInvoiceOverdue", "notInvoicedLate", "accrualLate", "costClaimOld", "chargeAfterInvoicing"];
     for (const [key, rank] of Object.entries(MONEY_RANK)) {
       if (urgentKeys.includes(key)) expect(rank >= 20 && rank <= 29, key).toBe(true);
       else expect(rank >= 300 && rank <= 399, key).toBe(true);
@@ -809,16 +869,14 @@ describe("one job's money signals", () => {
     expect(moneySignals(j, input({ invoicing, statusChangedAt: new Map([[j.id, changed("2026-11-10", "Arrived [IMP]")]]) }))).toEqual([]);
   });
 
-  it("reads 'billed' off the job for an active one: an open invoice alone makes neither a loss URGENT nor the estimates", () => {
+  it("reads 'billed' off the job for an active one: an open invoice alone makes no loss URGENT - and a Billing status no estimates (K15)", () => {
     // Invoiced in advance: an open invoice, not departed, not in Billing.
     const advance = jobMoneyOf(answered("x", { invoicedOn: "2026-11-10", estimatesOpen: { lines: 2, oldestSince: "2026-11-01", amounts: [] }, totals: { ...answered("x").totals, profitCzk: -640, marginPct: -3.2 } }), true);
     const booked = job({ status: "Booked [IMP]" });
     expect(words(moneySignals(booked, input({ invoicing: new Map([[booked.id, advance]]) })))).toEqual([["ATTENTION", "Margin −3.2 % · profit −640 CZK"]]);
     const billing = job({ status: "Billing [IMP]", createdAt: at("2026-11-18", "09:00") });
-    expect(words(moneySignals(billing, input({ invoicing: new Map([[billing.id, advance]]) })))).toEqual([
-      ["URGENT", "Loss −640 CZK"],
-      ["URGENT", "2 estimates with no supplier invoice · since 01.11."],
-    ]);
+    // In Billing with no tax date yet: the loss is URGENT; the estimates wait for their 30 days, or the job reading Invoiced.
+    expect(words(moneySignals(billing, input({ invoicing: new Map([[billing.id, advance]]) })))).toEqual([["URGENT", "Loss −640 CZK"]]);
   });
 });
 
@@ -960,12 +1018,28 @@ describe("the Money tab", () => {
     expect(eva.notKnown).toEqual(["margin of 1 job: a ČNB rate is missing"]);
   });
 
-  it("says of a job that reads Invoiced only what is about invoiced jobs: a loss, costs after billing, estimates, supplier invoices, cost claims, what was not recharged", () => {
+  it("names the jobs whose margin is worked out at an old ČNB rate, their date's not imported - still judged (m20)", () => {
+    const [a1, a2, a3, a4] = [job(), job(), job(), job()];
+    const stale = { totals: { profitCzk: 500, marginPct: 1, ratesStale: true } };
+    const invoicing = facts(money(a1.id, stale), money(a2.id, stale), money(a3.id, { totals: { profitCzk: null, marginPct: null, ratesStale: true, ratesNote: "missing", missingCurrencies: ["EUR"] } }), money(a4.id));
+    const a = answer([a1, a2, a3, a4], { invoicing });
+    expect(a.notKnown).toEqual(["margin of 1 job: a ČNB rate is missing", "margin of 2 jobs: ČNB rates for their date not imported"]);
+    // Still judged at the old rate: a thin margin is still said.
+    expect(a.tiles.signals).toMatchObject({ margin: 2 });
+    // Invoicing's word is carried as it is; an answer without it is no stale rate.
+    expect(jobMoneyOf(answered("x", { totals: { ...answered("x").totals, ratesStale: true } }), true).totals.ratesStale).toBe(true);
+    expect(jobMoneyOf(answered("x", { totals: { ...answered("x").totals, ratesStale: undefined } }), true).totals.ratesStale).toBe(false);
+    // Without the lines nothing is said of their margins at all.
+    expect(answer([a1], { invoicing: facts(money(a1.id, { ...stale, sellingLines: null, costLines: null })) }).notKnown).toEqual([]);
+  });
+
+  it("says of a job that reads Invoiced only what is about invoiced jobs: a loss, a charge added after invoicing, costs after billing, estimates, supplier invoices, cost claims, what was not recharged", () => {
     const closed = job({ status: "Arrived [IMP]", actualArrival: "2026-11-01", personInCharge: "eva@firma.cz" });
     const everything = money(closed.id, {
       totals: { profitCzk: -4210, marginPct: -8, estimateOfRealCzk: 10_000, realOfEstimatedCzk: 20_000 },
-      // What Invoicing would say of it were it active: none of this is said of an invoiced job.
+      // A charge added after invoicing: said, and counted as work not yet invoiced (X1 / K14).
       notYetInvoiced: [eur(999)],
+      // What Invoicing would say of it were it active: not said of an invoiced job.
       untickedSelling: [eur(320)],
       sellingLines: 0,
       costLines: 3,
@@ -987,18 +1061,19 @@ describe("the Money tab", () => {
       [true, "margin", "Loss −4,210 CZK"],
       [true, "cost_after_billing", "Supplier invoice after billing, above estimate · Maersk 12,400.00 CZK · booked 14.11."],
       [true, "accrual", "2 estimates with no supplier invoice · since 02.11."],
+      [true, "not_invoiced", "Work not invoiced on a job that reads Invoiced · 999.00 EUR"],
       [false, "supplier_invoice", "1 supplier invoice to approve since 02.11."],
       [false, "supplier_invoice", "Supplier invoice refused"],
       [false, "cost_claim", "Cost claim open since 01.10. · 240.00 EUR"],
       [false, "not_recharged", "Detention bought, not sold on · 240.00 EUR"],
     ]);
-    // No credit, no "not invoiced", no line not ticked, no other margin tag - and no work not yet invoiced.
-    expect(a.tiles.signals).toMatchObject({ credit: 0, not_invoiced: 0, unticked: 0, margin: 1 });
-    expect(a.tiles).toMatchObject({ notYetInvoiced: [], notYetInvoicedCzk: { amount: 0, label: "" }, notYetInvoicedJobs: 0 });
+    // No credit, no other "not invoiced", no line not ticked, no other margin tag - but the late charge is work not yet invoiced, in the tile too.
+    expect(a.tiles.signals).toMatchObject({ credit: 0, not_invoiced: 1, unticked: 0, margin: 1 });
+    expect(a.tiles).toMatchObject({ notYetInvoiced: [eur(999)], notYetInvoicedCzk: { amount: 24_975, label: LABEL }, notYetInvoicedJobs: 1 });
     // Its customer is asked of nobody, so it is not "not found" either.
     expect(a.notKnown).toEqual([]);
-    // The people count what the rows show - but no work not yet invoiced of an invoiced job, and no active job.
-    expect(a.people).toEqual([person("eva@firma.cz", { active: 0, jobsAtLoss: 1, estimatesOpen: 2, supplierInvoicesWaiting: 1, costClaimsOpen: 1 })]);
+    // The people count what the rows show - the late charge too - and no active job.
+    expect(a.people).toEqual([person("eva@firma.cz", { active: 0, notYetInvoiced: [eur(999)], jobsAtLoss: 1, estimatesOpen: 2, supplierInvoicesWaiting: 1, costClaimsOpen: 1 })]);
   });
 
   it("says nothing of a job that reads Invoiced and is in order: a thin margin on it is past acting on", () => {

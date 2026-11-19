@@ -1578,6 +1578,37 @@ export interface ReceivableDetailResponse {
   today: string;
   /** A hand-over to the customer's list failed: a manager may send it again */
   sendAgain: boolean;
+  /**
+   * A payment that may be for this invoice waits on a bank statement for a manager to confirm it (mock test council X5);
+   * null when none, or when the statements could not be read just now
+   */
+  paymentWaiting: ReceivablePaymentWaiting | null;
+  /**
+   * The reminder as the app's own e-mail writes it (lib/reminderTexts: the customer's language, the bank account and
+   * the variable symbol), for each level the user may record, for the user's own mail program (mock test council m3);
+   * empty when the invoice is not owed
+   */
+  reminderDrafts: ReceivableReminderDraft[];
+}
+
+/** A payment read from a bank statement, not confirmed yet, that may be for the invoice. */
+export interface ReceivablePaymentWaiting {
+  statementId: string;
+  fileName: string;
+  bookingDate: string | null;
+  amount: number;
+  currency: string;
+  /** "A payment that may be for this invoice is waiting on bank statement …" */
+  text: string;
+}
+
+/** A reminder's subject and text as the user's mail program opens them. */
+export interface ReceivableReminderDraft {
+  level: 1 | 2 | 3;
+  /** cs | en: the customer's language */
+  language: string;
+  subject: string;
+  body: string;
 }
 
 export type ReceivableMilestone = "overdue_1" | "overdue_14" | "overdue_30" | "paid";
@@ -1595,6 +1626,8 @@ export interface ReceivableNoticeItem {
   currency: string;
   daysOverdue: number;
   why: "sales_owner" | "person_in_charge";
+  /** An overdue notice: a payment that may be for it waits on a bank statement (mock test council X5) */
+  paymentWaiting: boolean;
 }
 
 export interface ReceivablesForMeResponse {
@@ -1629,6 +1662,28 @@ export interface ReleaseCheckInternalResponse extends ReleaseCheckResponse {
   prepaymentUnpaid: boolean;
   /** The owed invoices on prepayment: those the stop names and a manager's override records */
   prepaymentInvoices: { invoiceId: string; number: string; leftToPay: number; currency: string }[];
+  /**
+   * The job's customer is on prepayment and the job has selling with a value not yet invoiced (mock test council L3):
+   * the amounts per currency, net as priced; empty when not. Then prepaymentUnpaid is true too: a release waits until
+   * it is invoiced and paid, or a manager releases it with a reason. Always sent; optional for older callers.
+   */
+  prepaymentUninvoiced?: ReceivableAmount[];
+  /**
+   * True when the job has selling not yet invoiced but its customer's terms could not be read (Shipments or Customers
+   * did not answer): the stop before any invoice (L3) was left out of this answer, and prepaymentUnpaid is as the
+   * invoices say. Absent when it was checked.
+   */
+  prepaymentUninvoicedUnchecked?: boolean;
+}
+
+/** What a customer owes per Invoicing's own figures (the credit warning, mock test council m5). */
+export interface ReceivableCustomerOwedResponse {
+  /** Left to pay on the invoices still owed, per currency, never converted */
+  unpaid: ReceivableAmount[];
+  /** How many of them are overdue */
+  overdueCount: number;
+  /** The oldest due day among the overdue ones */
+  oldestOverdueDue: string | null;
 }
 
 /** One line of the month-end list: an invoice as it stood at the end of the day asked. */
@@ -1704,6 +1759,8 @@ export interface ReceivableSettingsResponse {
   reminder2Days: number;
   /** Where a customer's answer goes; "" = the sender's own address */
   replyTo: string;
+  /** The day automatic reminders were switched on (yyyy-mm-dd), null while off: only invoices due on or after it are reminded by the app */
+  autoRemindersSince: string | null;
   /** Whether e-mail from the app is switched on (else nothing is sent: "E-mail from the app is switched off") */
   emailOn: boolean;
   /** A manager: may change the settings */
@@ -1789,6 +1846,11 @@ export interface OperationsMoneyTotals {
   missingCurrencies: string[];
   /** Why they have none; "" exactly when `missingCurrencies` is empty */
   ratesNote: OperationsMoneyRatesNote;
+  /**
+   * The job's rates are of an older ČNB fixing: the one of its date should be stored and is not (the import
+   * failed - fx's ratesMissing), so its figures use the last old rate and are stale. Absent from an older answer
+   */
+  ratesStale?: boolean;
 }
 
 /** A supplier invoice not yet paid, booked after the day the job was first invoiced: what it bills on this job, per currency. */
@@ -1813,9 +1875,15 @@ export interface OperationsMoneySupplierInvoices {
    * a count over several jobs counts these ids, each once - adding up the jobs' `toApprove` would count it per job
    */
   waitingIds: string[];
+  /** Every refused invoice the job ever had: see `refusedOn` for when each was refused */
   refused: number;
   /** The day of the newest refusal among the job's refused invoices; null when none is refused (a refusal always stamps its moment) */
   lastRefusedOn: string | null;
+  /**
+   * The day each refused invoice was refused, oldest first (one with no moment stamped is left out), so a reader
+   * counts those of its own window. Absent from an older answer
+   */
+  refusedOn?: string[];
   /** With an open cost claim that holds the payment; null when the cost claims could not be read */
   claimed: number | null;
   /**

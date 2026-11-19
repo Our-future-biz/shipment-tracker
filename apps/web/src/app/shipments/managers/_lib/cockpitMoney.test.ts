@@ -91,12 +91,18 @@ describe("Shipments → Managers, Money: the signal tiles", () => {
     for (const f of MONEY_FAMILIES) expect(f.hint).not.toBe("");
   });
 
-  it("words the Not invoiced tile as the server's rule: work left to bill, whether or not an invoice was issued already", () => {
+  it("words the Not invoiced tile as the server's rule: work left to bill, whether or not an invoice was issued already - a charge added after invoicing too", () => {
     const hint = moneySignalOf("not_invoiced")!.hint;
     expect(hint).toBe(
-      "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced",
+      "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced; urgent from 15 days after the tax date. Also a charge added after invoicing on a job that reads Invoiced (urgent)",
     );
     expect(hint).not.toContain("with no invoice");
+  });
+
+  it("words the Estimates tile as the server's rule: urgent at 60 days or once the job reads Invoiced, not for a Billing status", () => {
+    const hint = moneySignalOf("accrual")!.hint;
+    expect(hint).toBe("Estimates with no supplier invoice 30 days after the job's tax date; urgent from 60 days, or as soon as the job reads Invoiced");
+    expect(hint).not.toContain("Billing");
   });
 
   it("reads the family the address names (?msignal=), and nothing for anything else", () => {
@@ -273,21 +279,21 @@ describe("Shipments → Managers, Money: work not yet invoiced", () => {
         { currency: "EUR", amount: 12400 },
         { currency: "CZK", amount: 310000 },
       ],
-      notYetInvoicedCzk: { amount: 623456.78, label: "at today's ČNB rate (18.11.)" },
+      notYetInvoicedCzk: { amount: 623456.78, label: "at the latest ČNB rate (18.11.)" },
       notYetInvoicedJobs: 14,
     });
-    expect(view.czk).toEqual({ amount: "623,456.78 CZK", label: "at today's ČNB rate (18.11.)" });
+    expect(view.czk).toEqual({ amount: "623,456.78 CZK", label: "at the latest ČNB rate (18.11.)" });
     expect(view.jobs).toBe("in 14 jobs");
   });
 
   it("shows the CZK total only when some amount is in another currency: beside CZK alone it would say the same figure twice", () => {
-    const czkOnly = { notYetInvoiced: [{ currency: "CZK", amount: 310000 }], notYetInvoicedCzk: { amount: 310000, label: "at today's ČNB rate (18.11.)" }, notYetInvoicedJobs: 3 };
+    const czkOnly = { notYetInvoiced: [{ currency: "CZK", amount: 310000 }], notYetInvoicedCzk: { amount: 310000, label: "at the latest ČNB rate (18.11.)" }, notYetInvoicedJobs: 3 };
     expect(notYetInvoicedView(czkOnly)).toEqual({ chips: ["310,000 CZK"], jobs: "in 3 jobs", czk: null });
     expect(notYetInvoicedView({ ...czkOnly, notYetInvoiced: [{ currency: " czk ", amount: 310000 }] }).czk).toBeNull();
     // One other currency is enough - also when it is the only one.
-    expect(notYetInvoicedView({ notYetInvoiced: [{ currency: "EUR", amount: 100 }], notYetInvoicedCzk: { amount: 2430, label: "at today's ČNB rate (18.11.)" }, notYetInvoicedJobs: 1 }).czk).toEqual({
+    expect(notYetInvoicedView({ notYetInvoiced: [{ currency: "EUR", amount: 100 }], notYetInvoicedCzk: { amount: 2430, label: "at the latest ČNB rate (18.11.)" }, notYetInvoicedJobs: 1 }).czk).toEqual({
       amount: "2,430 CZK",
-      label: "at today's ČNB rate (18.11.)",
+      label: "at the latest ČNB rate (18.11.)",
     });
   });
 
@@ -296,7 +302,7 @@ describe("Shipments → Managers, Money: work not yet invoiced", () => {
   });
 
   it("with nothing waiting, has no chips, no jobs and no total to show", () => {
-    expect(notYetInvoicedView({ notYetInvoiced: [], notYetInvoicedCzk: { amount: 0, label: "at today's ČNB rate (18.11.)" }, notYetInvoicedJobs: 0 })).toEqual({ chips: [], jobs: null, czk: null });
+    expect(notYetInvoicedView({ notYetInvoiced: [], notYetInvoicedCzk: { amount: 0, label: "at the latest ČNB rate (18.11.)" }, notYetInvoicedJobs: 0 })).toEqual({ chips: [], jobs: null, czk: null });
   });
 
   it("with Invoicing not read, knows none of it - never 0 and never an empty list", () => {
@@ -474,6 +480,10 @@ describe("Shipments → Managers, Money: the notes", () => {
       moneyNotes(answer({ notKnown: ["margin of 1 job: a ČNB rate is missing", "margin of 2 jobs: their rates are not fixed yet and could not be read"], tiles: tiles({ marginNotKnown: 3 }) })),
     ).toEqual(["Not known right now: margin of 1 job: a ČNB rate is missing, margin of 2 jobs: their rates are not fixed yet and could not be read"]);
     expect(moneyNotes(answer({ notKnown: ["margin of 2 jobs: their rates are not fixed yet and could not be read"], tiles: tiles({ marginNotKnown: 2 }) }))).toHaveLength(1);
+    // A margin worked out at an old rate is the server's to say, beside the margins it could not work out.
+    expect(
+      moneyNotes(answer({ notKnown: ["margin of 1 job: a ČNB rate is missing", "margin of 2 jobs: ČNB rates for their date not imported"], tiles: tiles({ marginNotKnown: 1 }) })),
+    ).toEqual(["Not known right now: margin of 1 job: a ČNB rate is missing, margin of 2 jobs: ČNB rates for their date not imported"]);
     // Another part not known says nothing of the margins: the page's own line stays.
     expect(moneyNotes(answer({ notKnown: ["customers' credit"], tiles: tiles({ marginNotKnown: 2 }) }))).toEqual([
       "Not known right now: customers' credit",

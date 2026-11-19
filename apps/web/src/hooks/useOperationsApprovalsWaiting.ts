@@ -3,7 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { RELEASE_REQUESTS_KEY } from "@/hooks/useReleaseRequests";
+import { useAuth } from "@/lib/auth/AuthContext";
 import type { ApprovalQueueCount } from "@/lib/operationsApprovals";
+import { releaseRequestsWaitingFor } from "@/lib/releaseRequestQueue";
 
 // The bell's count for managers: what waits in the three queues of Shipments → Managers → Approvals. The same
 // three answers the Approvals tab reads, under the same keys (useCustomsOfficeApprovals, useDocumentChangeApprovals,
@@ -20,6 +22,7 @@ const EVERY_MINUTE = 60_000;
  * that failed and loads later brings its backlog, which is not news).
  */
 export const useOperationsApprovalsWaiting = (enabled: boolean): { queues: ApprovalQueueCount[]; allRead: boolean } => {
+  const { user } = useAuth();
   const documents = useQuery({
     queryKey: ["document-change-requests"],
     queryFn: async () => (await api.shipments.documentChangeRequestList()).requests,
@@ -41,8 +44,13 @@ export const useOperationsApprovalsWaiting = (enabled: boolean): { queues: Appro
   if (!enabled) return { queues: [], allRead: false };
   const all = [documents, offices, releases];
   return {
-    // A failed read must not read as "nothing waits": the line then says "at least".
-    queues: all.map((q) => ({ waiting: pending(q.data), isError: q.isError && !q.data })),
+    // A failed read must not read as "nothing waits": the line then says "at least". A release the manager asked
+    // for themself waits for another manager: it is not counted under their own bell (K21).
+    queues: [
+      { waiting: pending(documents.data), isError: documents.isError && !documents.data },
+      { waiting: pending(offices.data), isError: offices.isError && !offices.data },
+      { waiting: releaseRequestsWaitingFor(releases.data, user?.id), isError: releases.isError && !releases.data },
+    ],
     allRead: all.every((q) => q.data !== undefined),
   };
 };

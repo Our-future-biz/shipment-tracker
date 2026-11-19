@@ -171,15 +171,39 @@ const jobsNaming = (n: number) => `${n} active job${n === 1 ? " names" : "s name
 /**
  * The warning before a user is deactivated, or null when no active job names them. The deactivation is never
  * held up by it. A job the person handles stays with them, URGENT on Shipments → Managers ("Handled By is not a
- * user"), until a manager hands it over. A job they only cover is flagged by no rule there: it is said apart, as a
- * job that keeps a Holiday Cover who can no longer sign in.
+ * user"), until a manager hands it over. A job they only cover says it on Shipments → Managers too ("Holiday Cover
+ * is not a user") until its cover is changed: said apart, in so many words (S16).
  */
 export function handledByWarning(count: { handledBy: number; covers: number }): string | null {
   const { handledBy: n, covers: m } = count;
   if (n <= 0 && m <= 0) return null;
   const handled = n > 0 ? `${jobsNaming(n)} in Handled By: ${n === 1 ? "it stays" : "they stay"} URGENT on Shipments → Managers until handed over` : "";
-  const covered = m > 0 ? `${jobsNaming(m)} as Holiday Cover: ${m === 1 ? "it" : "they"} will have a Holiday Cover who can no longer sign in` : "";
+  const covered =
+    m > 0
+      ? `${m} active job${m === 1 ? " has" : "s have"} this person as Holiday Cover: ${m === 1 ? "it" : "they"} will show "Holiday Cover is not a user" on Shipments → Managers until changed`
+      : "";
   return [handled, covered].filter(Boolean).join(". ");
+}
+
+// ── Handing over all of a person's jobs (X9, K18) ──
+
+/** The Team row's action: "Hand over all 12 active jobs…" ("…the 1 active job…" for one). */
+export const handOverAllLabel = (active: number): string => (active === 1 ? "Hand over the 1 active job…" : `Hand over all ${active} active jobs…`);
+
+/** Whether a Team row offers to hand over all its jobs: a person (never the jobs nobody handles) with an active job here. */
+export const canHandOverAll = (row: { nobody: boolean; active: number }): boolean => !row.nobody && row.active > 0;
+
+/**
+ * What the dialog says of the jobs the server listed for the person: all of them, or the first 200 when there are
+ * more (one hand-over takes 200: the rest are handed over by doing it again). `scope`: the mode and direction they
+ * were listed in, "" for all.
+ */
+export function handOverAllNote(listed: { jobs: readonly unknown[]; total: number }, person: string, scope: string): string {
+  const of = `active job${listed.total === 1 ? "" : "s"} with ${person} in Handled By${scope ? ` (${scope})` : ""}`;
+  if (listed.total > listed.jobs.length) {
+    return `${listed.jobs.length} of ${listed.total} ${of}: at most ${HAND_OVER_MAX_JOBS} go in one hand-over. Hand over the rest the same way once these are done.`;
+  }
+  return `All ${listed.total} ${of}, quiet ones too - not only those with a signal on the cards.`;
 }
 
 /**

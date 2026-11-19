@@ -8,6 +8,8 @@ vi.mock("../repositories/supplierInvoice.repository", () => ({
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({ APIError: { invalidArgument: (msg: string) => new Error(msg) } }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
+// A selling line's status follow-up (the signed-in user, the outbox) is not what these tests are about.
+vi.mock("../services/sellingStatusFollow", () => ({ statusesFollow: () => ({ after: async () => undefined, deliver: async () => undefined }) }));
 vi.mock("../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: {} }));
 vi.mock("../repositories/truckingLines.repository", () => ({ truckingLinesRepository: {} }));
 vi.mock("../repositories/additionalCharge.repository", () => ({ additionalChargeRepository: {} }));

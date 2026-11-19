@@ -8,6 +8,7 @@ import { failingShipments, shipmentData } from "./shipmentFakes";
 const { shipmentGet } = vi.hoisted(() => ({ shipmentGet: vi.fn() }));
 vi.mock("~encore/clients", async () => ({
   shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet },
+  invoicing: (await import("./shipmentFakes")).invoicingFake,
   auth: (await import("./authFake")).authFake([]),
 }));
 
@@ -49,6 +50,21 @@ describe("customs status follows the shipment", () => {
     const m = (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
     expect(m.etaWarehouse).toBe("2026-11-18");
     expect(m.events.at(-1)).toMatchObject({ kind: "etaWarehouseFromShipment", label: "ETA warehouse from shipment: 2026-11-18", by: "Shipments" });
+  });
+
+  it("does not write an older ETA Warehouse/HUB over one Shipments pushed while the shipment was read", async () => {
+    const { c, s, id } = await linked();
+    shipmentData.set(s, { customsStatus: "Paperwork Verified", etaWarehouse: "2026-11-18" });
+    // The shipment is read with the 18th; meanwhile a person's change to the 25th reaches the record.
+    shipmentGet.mockImplementationOnce(async (req: { shipmentId: string }) => {
+      const { getShipment } = await import("./shipmentFakes");
+      const answer = await getShipment(req);
+      await gateMovementRepository.conditionalUpdate(id, c, { etaWarehouse: "2026-11-25" });
+      return answer;
+    });
+    const m = (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
+    expect(m.etaWarehouse).toBe("2026-11-25");
+    expect(m.events.some((e) => e.kind === "etaWarehouseFromShipment")).toBe(false);
   });
 
   it("reads a shipment again only after a while, unless asked to refresh", async () => {

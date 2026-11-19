@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { headOffset, scrollsVertically } from "./pinnedTableHeads";
+import { headOffset, scrollsVertically, stickyToTop } from "./pinnedTableHeads";
 
 describe("headOffset", () => {
   it("leaves the titles where they are while the table's top is in view", () => {
@@ -27,5 +27,18 @@ describe("scrollsVertically", () => {
     expect(scrollsVertically("auto", 400, 400)).toBe(false);
     expect(scrollsVertically("visible", 900, 400)).toBe(false);
     expect(scrollsVertically("hidden", 900, 400)).toBe(false);
+  });
+});
+
+describe("stickyToTop", () => {
+  it("is a head, row or cell that CSS already keeps at the top (the tariff sheet preview's head)", () => {
+    expect(stickyToTop("sticky", "0px")).toBe(true);
+    expect(stickyToTop("sticky", "48px")).toBe(true);
+  });
+
+  it("is not one sticky only to the left, nor one that is not sticky", () => {
+    expect(stickyToTop("sticky", "auto")).toBe(false);
+    expect(stickyToTop("static", "0px")).toBe(false);
+    expect(stickyToTop("relative", "auto")).toBe(false);
   });
 });

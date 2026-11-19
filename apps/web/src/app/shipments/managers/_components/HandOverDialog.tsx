@@ -33,21 +33,25 @@ export interface HandOverDialogProps {
   jobs: HandOverJob[];
   /** The people the cockpit knows in Handled By: one who is not a user (`isUser` false) is marked so. */
   people: { handledBy: string; isUser: boolean | null }[];
+  /** A line over the preview about which jobs these are (a person's all: "200 of 240 active jobs…"). */
+  note?: string;
+  /** The title, when the jobs are named otherwise than by how many ("Hand over the jobs of jan@firma.cz"). */
+  title?: string;
   /** Closed without a hand-over. Also called after `onDone`, when the result is closed. */
   onClose(): void;
   /** The hand-over was made and its result has been read (the dialog is closing). */
   onDone(result: HandOverResult): void;
 }
 
-export function HandOverDialog({ open, jobs, people, onClose, onDone }: HandOverDialogProps) {
+export function HandOverDialog({ open, ...props }: HandOverDialogProps) {
   // Mounted anew each time it opens: nothing of the last hand-over is left in it.
-  return open ? <Dialog jobs={jobs} people={people} onClose={onClose} onDone={onDone} /> : null;
+  return open ? <Dialog {...props} /> : null;
 }
 
 const HEAD = `${TH} !px-3 sticky top-0 bg-white`;
 const CELL = `${TD} !px-3 !align-top`;
 
-function Dialog({ jobs, people, onClose, onDone }: Omit<HandOverDialogProps, "open">) {
+function Dialog({ jobs, people, note, title: named, onClose, onDone }: Omit<HandOverDialogProps, "open">) {
   const handOver = useHandOver();
   const [handledBy, setHandledBy] = useState("");
   const [cover, setCover] = useState<CoverChoice>("leave");
@@ -98,7 +102,7 @@ function Dialog({ jobs, people, onClose, onDone }: Omit<HandOverDialogProps, "op
       <span className="text-slate-400">{person(now.trim())}</span>
     );
 
-  const title = `Hand over ${jobs.length === 1 ? (jobs[0]!.jobNumber || "1 job") : `${jobs.length} jobs`}`;
+  const title = named ?? `Hand over ${jobs.length === 1 ? (jobs[0]!.jobNumber || "1 job") : `${jobs.length} jobs`}`;
 
   if (result) {
     return (
@@ -208,6 +212,7 @@ function Dialog({ jobs, people, onClose, onDone }: Omit<HandOverDialogProps, "op
 
         <div>
           <div className={`mb-1 ${LABEL_TEXT}`}>What will change</div>
+          {note && <div className={`${HINT} mb-2`}>{note}</div>}
           {problem ? (
             <div className={HINT}>{problem}.</div>
           ) : (

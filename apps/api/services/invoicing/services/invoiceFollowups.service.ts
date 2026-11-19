@@ -105,6 +105,41 @@ export function followupsOfPartialCreditNote(creditNote: InvoiceRecord, original
   ]);
 }
 
+/** A selling line written by hand on a job that has an open invoice, as its follow-up names it. */
+export interface SellingChange {
+  companyId: string;
+  shipmentId: string;
+  /** The job's newest open invoice: the row is kept under it (repositories/invoice.repository latestOpenInvoiceId). */
+  invoiceId: string;
+  /** lib/shipmentStatus chargeChangeOf: the line became a charge (or its value changed), or stopped being one. */
+  change: "added" | "removed";
+  /** The line in words, for the shipment's history: "Demurrage 300.00 EUR". */
+  charge: string;
+}
+
+/**
+ * A charge added after invoicing - a valued selling line, or one given a value (allowed: it goes on
+ * the next invoice) - leaves the job with a charge not invoiced: its statuses are looked at as after
+ * a credit note, so a job that read Invoiced goes back to Not Invoiced (and Billed back to Billing).
+ * A charge taken away again (deleted, or its value set to nothing) is looked at as after an issue:
+ * Invoiced again once the rest is all invoiced. Either is worked out when the row is sent, from the
+ * job as it is then (sendFollowup), so a status someone moved meanwhile is left alone.
+ */
+export function followupsOfSellingChange(sale: SellingChange, actor: FollowupActor): NewInvoiceFollowupOutboxRecord[] {
+  const kind = sale.change === "added" ? ("status_after_credit" as const) : ("status_after_issue" as const);
+  return [
+    {
+      companyId: sale.companyId,
+      invoiceId: sale.invoiceId,
+      shipmentId: sale.shipmentId,
+      actingUserId: actor.userId,
+      actingRole: actor.role,
+      kind,
+      payload: { shipmentId: sale.shipmentId, charge: sale.charge },
+    },
+  ];
+}
+
 /**
  * The job's charges: its selling lines with a value, ticked for Invoice or not, and how many of
  * them are on an issued, not credited invoice (the queue's Lines Invoiced). All of them must be
@@ -190,6 +225,8 @@ export async function sendFollowup(row: InvoiceFollowupOutboxRecord): Promise<vo
       const charges = await chargeCountOf(shipmentId, row.companyId);
       const patch = row.kind === "status_after_issue" ? statusesAfterIssue(shipment, charges) : statusesAfterCredit(shipment, charges);
       // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
+      // A selling line's row carries the line in words (`charge`); the shipment's history records the
+      // status change as this user's, and does not name the line yet - shipmentUpdate takes no line of its own.
       if (changes(patch)) await shipments.shipmentUpdate({ shipmentId, ...patch }, { authData: { ...authData, appWrite: true } });
       return;
     }
@@ -212,15 +249,22 @@ const WHAT: Record<string, string> = {
   receivable_state: "What is left to pay could not be updated in the customer's invoice list",
 };
 
+/** What the outbox says of a row that was not sent: a selling line's own row names the line, not a document. */
+const whatOf = (row: InvoiceFollowupOutboxRecord, error: string): string => {
+  const charge = (row.payload as { charge?: unknown }).charge;
+  if (typeof charge === "string" && charge) return `The shipment's statuses could not be moved after a charge changed (${charge})`;
+  return WHAT[row.kind] ?? error;
+};
+
 const handlers: OutboxHandlers<InvoiceFollowupOutboxRecord> = {
   send: sendFollowup,
   errorText: () => "A service did not take the update",
   async onFailed(row, error, err) {
-    await invoiceFollowupOutboxRepository.markFailed(row.id, row.attempts, WHAT[row.kind] ?? error);
+    await invoiceFollowupOutboxRepository.markFailed(row.id, row.attempts, whatOf(row, error));
     log.error(err, "invoicing: a follow-up of an issued document was not sent for good", { outboxId: row.id, invoiceId: row.invoiceId, kind: row.kind });
   },
   async onRetry(row, error, nextAttemptAt, err) {
-    await invoiceFollowupOutboxRepository.markRetry(row.id, row.attempts, WHAT[row.kind] ?? error, nextAttemptAt);
+    await invoiceFollowupOutboxRepository.markRetry(row.id, row.attempts, whatOf(row, error), nextAttemptAt);
     log.warn("invoicing: a follow-up of an issued document will be sent again", { outboxId: row.id, invoiceId: row.invoiceId, kind: row.kind, error: err instanceof Error ? err.message : String(err) });
   },
   async onSent(row) {

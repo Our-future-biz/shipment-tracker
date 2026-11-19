@@ -429,6 +429,9 @@ export const CreateShipmentWizard = ({
               <label className={`block ${LABEL_TEXT} mb-1`}>Copy from Job Number</label>
               {/* Searched on the server, so an old shipment can be copied too. */}
               <ShipmentPicker value={source} onChange={setSource} />
+              {/* The copied shipment's customer's credit warning and prepayment terms, as for a quote (mock test
+                  council n5): for the operator to read before creating, never a stop. */}
+              {source?.customerId && <CreditWarning customerId={source.customerId} showPrepayment className="mt-3" />}
             </>
           ) : (
             <>

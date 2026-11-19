@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
-  auth: { usersList: vi.fn(), userLookup: vi.fn() },
+  auth: { usersList: vi.fn(), userLookup: vi.fn(), departmentList: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn(), _internalReleaseCheck: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
@@ -3019,6 +3019,47 @@ describe("step 6: the B/L dates, the cancel reason and the users' ids", () => {
     expect(repository.createWithJobNumber).not.toHaveBeenCalled();
   });
 
+  it("refuses a B/L date after today (Prague's day) - a manager's too, on create as well - and keeps one already stored", async () => {
+    const today = businessDay(new Date());
+    const tomorrow = addDays(today, 1);
+    stored.set(SHIPMENT, row({ originalsReceivedDate: null, telexReleaseReceivedDate: null, deliveryOrderDate: tomorrow }));
+    for (const [field, label] of [
+      ["originalsReceivedDate", "Originals Received"],
+      ["telexReleaseReceivedDate", "Telex Release Received"],
+    ]) {
+      await expect(update({ [field!]: tomorrow }, "manager")).rejects.toMatchObject({
+        code: "invalid_argument",
+        message: `${label} can't be a day still to come: it says when it happened (today is ${today})`,
+      });
+    }
+    await expect(create({ deliveryOrderDate: tomorrow })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("Delivery Order can't be a day still to come") });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    // Today is fine; a date stored before the rule, sent back as it is, is not asked again.
+    await update({ originalsReceivedDate: today, deliveryOrderDate: tomorrow }, "manager");
+    expect(written()).toMatchObject({ originalsReceivedDate: today });
+  });
+
+  it("lets only a manager cancel an invoiced job - marked Invoiced, or with an issued invoice not credited", async () => {
+    const open = (invoicingStatus: string) => stored.set(SHIPMENT, row({ status: "Booking Confirmation Pending [IMP]", invoicingStatus, personInCharge: "", holidayCover: "" }));
+    const cancel = { status: "Cancelled Shipment", cancelReason: "Customer cancelled" };
+    open("Invoiced");
+    await expect(update(cancel, "user")).rejects.toMatchObject({ code: "permission_denied", message: "This shipment is invoiced: only a manager can cancel it" });
+    open("");
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 1 });
+    await expect(update(cancel, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    for (const role of ["manager", "admin", "superadmin"]) {
+      open("Invoiced");
+      await update(cancel, role);
+      expect(stored.get(SHIPMENT)).toMatchObject({ status: "Cancelled Shipment" });
+    }
+    // Not invoiced: a user cancels as before.
+    open("");
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
+    await update(cancel, "user");
+    expect(stored.get(SHIPMENT)).toMatchObject({ status: "Cancelled Shipment" });
+  });
+
   it("refuses to cancel a job without a reason in the same write - a person's or the app's - and writes nothing", async () => {
     stored.set(SHIPMENT, row({ status: "Booking Confirmation Pending [IMP]", cancelReason: "an old one" }));
     for (const reason of [undefined, "", "   "]) {
@@ -3166,6 +3207,151 @@ describe("accepting the warehouse's remeasurement", () => {
     expect(repository.writeTurn).not.toHaveBeenCalled();
     expect(stored.get(SHIPMENT)).toMatchObject({ totalWeightTons: "0.1700", totalVolumeCbm: "7.2000" });
   });
+
+  const A = "0b8e1d2c-0000-4000-8000-00000000000a";
+  const B = "0b8e1d2c-0000-4000-8000-00000000000b";
+  const container = (id: string) => ({ id, containerNumber: "MSKU1234567", sealNumber: "", type: "40' HC", teu: "2", packages: "5", packageType: "Pallet(s)", grossWeight: "170", volume: "7.2" });
+  const dimRow = (over: Record<string, unknown> = {}) => ({
+    containerId: A,
+    pieces: "4",
+    lengthCm: "120",
+    widthCm: "80",
+    heightCm: "150",
+    dimensionUnit: "cm",
+    weightPerPcKg: "34",
+    volumePerPcM3: "",
+    packageType: "Pallet(s)",
+    stackable: "",
+    palletType: null,
+    adrUn: null,
+    adrClass: null,
+    adrPackingGroup: null,
+    adrLimitedQuantity: false,
+    ...over,
+  });
+
+  it("is refused when dangerous goods or several containers are on the lines and the warehouse saved another number of lines", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    // 4 pallets of general cargo and 1 pallet of UN 1993; the warehouse saved 1 line of 5.
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ pieces: "1", adrUn: "1993", adrClass: "3" })] as never);
+    const one = job([full]);
+    const byHand = "Dangerous goods or several containers are on these lines and the warehouse saved a different number of lines: update Cargo Details by hand";
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, one)).rejects.toMatchObject({ code: "failed_precondition", message: byHand });
+    // An FCL job's lines in two containers.
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A), container(B)] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ containerId: B })] as never);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, one)).rejects.toMatchObject({ message: byHand });
+    expect(repository.writeTurn).not.toHaveBeenCalled();
+  });
+
+  it("gives the only container the accepted pieces, weight and volume in the same write, the description lines untouched", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A)] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow({ pieces: "5" })] as never);
+    // 7 × 13.25 kg = 92.75 kg: the container keeps the exact total, Total Weight its 0.1 kg.
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, pieces: "7", weightPerPcKg: "13.25" }]));
+    expect(vi.mocked(containerRepository.syncForShipment).mock.calls[0]![2]).toEqual([expect.objectContaining({ id: A, packages: "7", grossWeight: "92.75", volume: "48.51" })]);
+    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ pcs: "7", totalWeightTons: "0.0928", totalVolumeCbm: "48.5100" });
+    expect(cargoItemRepository.replaceForShipment).not.toHaveBeenCalled();
+  });
+
+  it("leaves several containers alone when the number of lines stays", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A), container(B)] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ containerId: B })] as never);
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full, full]));
+    expect(containerRepository.syncForShipment).not.toHaveBeenCalled();
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ containerId: A }, { containerId: B }]);
+  });
+
+  it("refuses the lines the last acceptance took over, so a stale page records no second acceptance", async () => {
+    const saved = job([full]);
+    // Saved again with other spacing: still the same lines.
+    const last = { id: "a1", userId: USER, field: "remeasurementAccepted", oldValue: "{}", newValue: JSON.stringify({ colli: 5, lines: JSON.stringify([{ ...full, pieces: " 5 " }]) }), changedAt: new Date() };
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([last] as never);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, saved)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "These remeasured lines were already accepted: the warehouse has saved nothing new since",
+    });
+    expect(repository.writeTurn).not.toHaveBeenCalled();
+  });
+
+  // Review: Cargo Details saved between the acceptance's read and its write turn. The read outside
+  // the turn has no transaction; the turn's own reads pass it.
+  const inTurn = <T,>(before: T, during: T) => async (_id: string, _companyId: string, tx?: unknown) => (tx ? during : before) as never;
+  const CHANGED = "Cargo Details changed meanwhile: look again and accept";
+  const nothingWritten = () => {
+    expect(containerRepository.syncForShipment).not.toHaveBeenCalled();
+    expect(cargoDimensionRepository.replaceForShipment).not.toHaveBeenCalled();
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(vi.mocked(shipmentAuditRepository.create).mock.calls.map(([entry]) => entry.field)).not.toContain("remeasurementAccepted");
+  };
+
+  it("is refused when a second container was saved meanwhile, and the write deletes neither", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockImplementation(inTurn([container(A)], [container(A), container(B)]));
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow({ pieces: "5" })] as never);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full]))).rejects.toMatchObject({ code: "aborted", message: CHANGED });
+    nothingWritten();
+  });
+
+  it("is refused when the only container's seal changed meanwhile, so the old seal is not written back", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockImplementation(inTurn([container(A)], [{ ...container(A), sealNumber: "SEAL99" }]));
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow({ pieces: "5" })] as never);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full]))).rejects.toMatchObject({ code: "aborted", message: CHANGED });
+    nothingWritten();
+  });
+
+  it("is refused when ADR lines were added meanwhile: the by-hand rule is not decided on lines that are gone", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A)] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockImplementation(inTurn([dimRow({ pieces: "5" })], [dimRow(), dimRow({ pieces: "1", adrUn: "1993", adrClass: "3" })]));
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full]))).rejects.toMatchObject({ code: "aborted", message: CHANGED });
+    nothingWritten();
+  });
+
+  it("is refused when the typed totals were saved meanwhile, so the history's figures before are the ones replaced", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    repository.getInTurn.mockResolvedValueOnce(row({ pcs: "6", totalWeightTons: "0.1700", totalVolumeCbm: "7.2000", personInCharge: "", holidayCover: "" }));
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full]))).rejects.toMatchObject({ code: "aborted", message: CHANGED });
+    nothingWritten();
+  });
+
+  it("is refused in the write turn when another Accept of the same lines got there first", async () => {
+    const saved = job([full]);
+    const last = { id: "a1", userId: USER, field: "remeasurementAccepted", oldValue: "{}", newValue: JSON.stringify({ colli: 5, lines: saved }), changedAt: new Date() };
+    // Nothing accepted when this Accept looked; the other's entry is there once its turn comes, and
+    // the lines and totals it wrote - which is not "changed meanwhile", but these lines accepted.
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValueOnce([]).mockResolvedValue([last] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockImplementation(inTurn([dimRow()], [dimRow({ pieces: "5", lengthCm: "140" })]));
+    repository.getInTurn.mockResolvedValueOnce(row({ pcs: "5", totalWeightTons: "0.2500", totalVolumeCbm: "34.6500", personInCharge: "", holidayCover: "" }));
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, saved)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "These remeasured lines were already accepted: the warehouse has saved nothing new since",
+    });
+    expect(repository.writeTurn).toHaveBeenCalledTimes(1);
+    nothingWritten();
+  });
+
+  it("reads the containers and lines again in the write turn, and sends only the one container there", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A)] as never);
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow({ pieces: "5" })] as never);
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([full]));
+    expect(containerRepository.listByShipmentId).toHaveBeenCalledWith(SHIPMENT, COMPANY, TX);
+    expect(cargoDimensionRepository.listByShipmentId).toHaveBeenCalledWith(SHIPMENT, COMPANY, TX);
+    // The turn's check came before any write.
+    const checked = vi.mocked(containerRepository.listByShipmentId).mock.calls.findIndex((call) => (call[2] as unknown) === TX);
+    expect(vi.mocked(containerRepository.listByShipmentId).mock.invocationCallOrder[checked]!).toBeLessThan(vi.mocked(containerRepository.syncForShipment).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(containerRepository.syncForShipment).mock.calls[0]![2]).toEqual([expect.objectContaining({ id: A, sealNumber: "", packages: "5" })]);
+  });
+
+  it("takes a figure typed with a point at its end or start, stored tidy", async () => {
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockResolvedValue([]);
+    await shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, job([{ ...full, lengthCm: "140.", weightPerPcKg: ".5" }]));
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([{ lengthCm: "140", weightPerPcKg: "0.5" }]);
+  });
 });
 
 // Costs Breakdown's "Quantities checked" after an accepted remeasurement.
@@ -3197,5 +3383,42 @@ describe("the last accepted remeasurement and its Quantities checked", () => {
     expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY)).toMatchObject({ costsCheckedAt: null, costsCheckedBy: null });
     history(null);
     expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY)).toMatchObject({ costsCheckedAt: null });
+  });
+
+  describe("who may mark the quantities checked", () => {
+    const INVOICING = "d0000000-0000-4000-8000-000000000001";
+    const placed = (departmentId: string | null, name = "Invoicing") => {
+      vi.mocked(auth.usersList).mockResolvedValue({ users: [{ ...JANA, companyId: COMPANY, role: "user", departmentId, branchId: null, reportsToUserId: null }] } as never);
+      vi.mocked(auth.departmentList).mockResolvedValue({ departments: [{ id: INVOICING, name }] } as never);
+    };
+    const jana = { companyID: COMPANY, userID: JANA.id, role: "user" };
+
+    beforeEach(() => {
+      history(null);
+      // Handled By is Martin: Jana is no person of the shipment.
+      stored.set(SHIPMENT, row({ freightMode: "Sea Freight", loadType: "Full Load", personInCharge: MARTIN.email, holidayCover: "" }));
+      vi.mocked(auth.userLookup).mockResolvedValue({ users: [JANA] } as never);
+    });
+
+    it("refuses a user who is neither the shipment's person, a manager nor in Invoicing, and says so on what they read", async () => {
+      placed(null);
+      await expect(shipmentService.markRemeasureCostsChecked(SHIPMENT, jana)).rejects.toMatchObject({
+        code: "permission_denied",
+        message: "Only the user in Handled By or Holiday Cover, a manager or Invoicing can mark the quantities checked",
+      });
+      expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+      expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY, jana)).toMatchObject({ mayCheckCosts: false, loadType: "Full Load" });
+      placed(INVOICING, "Customs");
+      expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY, jana)).toMatchObject({ mayCheckCosts: false });
+    });
+
+    it("lets a user of the Invoicing department, and a manager, mark them", async () => {
+      placed(INVOICING, " invoicing CZ ");
+      expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY, jana)).toMatchObject({ mayCheckCosts: true });
+      await shipmentService.markRemeasureCostsChecked(SHIPMENT, jana);
+      expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "remeasurementCostsChecked", userId: JANA.id, newValue: "2026-11-18T10:00:00.000Z" }));
+      placed(null);
+      expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY, { ...jana, role: "manager" })).toMatchObject({ mayCheckCosts: true });
+    });
   });
 });

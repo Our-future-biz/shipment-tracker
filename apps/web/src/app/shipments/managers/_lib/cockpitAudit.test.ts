@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUDIT_LABELS, RUBBER_STAMP_ABOVE, auditFigures, auditLabel, auditLineLabel, auditListNote, auditListRows, rubberStamp } from "./cockpitAudit";
+import { AUDIT_LABELS, RUBBER_STAMP_ABOVE, auditFigures, auditLabel, auditLineLabel, auditListNote, auditListRows, offersTakeBack, rubberStamp } from "./cockpitAudit";
 
 // Every key the server counts (apps/api services/shipments/lib/managersCockpitAudit AUDIT_KEYS).
 const SERVER_KEYS = [
@@ -183,5 +183,13 @@ describe("Shipments → Managers: the audit rows' keys", () => {
 
   it("has no rows for none", () => {
     expect(auditListRows([])).toEqual([]);
+  });
+});
+
+describe("Shipments → Managers: what the audit rows offer", () => {
+  it("is a take-back on the rows of missed cut-offs dismissed only (N3): the other figures are a record", () => {
+    expect(offersTakeBack("cutoff_dismissed")).toBe(true);
+    for (const key of Object.keys(AUDIT_LABELS).filter((k) => k !== "cutoff_dismissed")) expect(offersTakeBack(key)).toBe(false);
+    expect(offersTakeBack(null)).toBe(false);
   });
 });

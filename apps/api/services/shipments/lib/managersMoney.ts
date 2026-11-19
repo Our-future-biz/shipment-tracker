@@ -51,16 +51,21 @@ import { TAX_DATE_LATE_DAYS } from "./trackingThresholds";
 //              that read Invoiced since lately (cockpitThresholds MONEY_INVOICED_LOOKBACK_DAYS),
 //              which only the rules ABOUT invoiced jobs speak of: a loss, a supplier invoice
 //              after billing, estimates nobody invoiced, supplier invoices, cost claims, what was
-//              not recharged - never credit, "not invoiced" or a line not ticked
+//              not recharged, and a charge added after invoicing - never credit, the other "not
+//              invoiced" rules or a line not ticked
 //   cards      a job appears once, with all its money tags: in URGENT when any is urgent
-//   tiles      work not yet invoiced per currency, and how many rows carry each signal family
+//   tiles      work not yet invoiced per currency (an invoiced job's late charge too), and how many
+//              rows carry each signal family
 //   people     per Handled By, over the same jobs before the Handled By filter; no ranking (D27)
 //
 // D24: an amount is never added to one of another currency. Sums are per currency; a tag that
 // has amounts in several lists them side by side. The ONE place currencies are added is the CZK
-// total of "work not yet invoiced" (czkTotalOf), at today's ČNB rates and labelled so. Profit and margin are Costs Breakdown's own
-// figures, in CZK at the job's rates, as Invoicing hands them over: with a rate missing the
-// margin is not known - no margin tag, and the job is counted in `marginNotKnown`.
+// total of "work not yet invoiced" (czkTotalOf), at the latest ČNB sheet and labelled so - with the
+// day of its fixing, and that it is old when a newer one was not imported (czkLabel). Profit and
+// margin are Costs Breakdown's own figures, in CZK at the job's rates, as Invoicing hands them
+// over: with a rate missing the margin is not known - no margin tag, and the job is counted in
+// `marginNotKnown`; with the fixing of the job's date not imported, it is worked out at an older
+// one, and the notes say of how many jobs (m20).
 //
 // D29: a fact that could not be read gives no signal and no figure - null, never 0 - and is
 // named in `notKnown`.
@@ -79,9 +84,10 @@ export type InvoicingJobDates = OperationsMoneyJobDates;
 /**
  * Costs Breakdown's totals in CZK, as the rules read them: profit and margin; the estimates and
  * the real costs of the buy lines that have BOTH (like for like: what the real costs came to
- * against what was estimated for the same lines); and why a figure is missing (`ratesNote`).
+ * against what was estimated for the same lines); why a figure is missing (`ratesNote`); and whether
+ * the job's rates are of an older fixing, the one of its date not imported (`ratesStale`).
  */
-export type InvoicingMoneyTotals = Pick<OperationsMoneyTotals, "profitCzk" | "marginPct" | "estimateOfRealCzk" | "realOfEstimatedCzk" | "ratesNote" | "missingCurrencies">;
+export type InvoicingMoneyTotals = Pick<OperationsMoneyTotals, "profitCzk" | "marginPct" | "estimateOfRealCzk" | "realOfEstimatedCzk" | "ratesNote" | "missingCurrencies"> & { ratesStale: boolean };
 /** A supplier invoice booked after the day the job was first invoiced: what it bills on the job in one currency (an invoice in two has two entries). */
 export type InvoicingAfterBilling = OperationsMoneyLateInvoice;
 /** The job's supplier invoices, counted as Accounts Payable counts them; `claimed` and `approvedOverdue` are null when not known. */
@@ -128,6 +134,7 @@ export function jobMoneyOf(job: InvoicingMoneyJob, invoicesRead: boolean): JobMo
       realOfEstimatedCzk: job.totals?.realOfEstimatedCzk ?? null,
       ratesNote: job.totals?.ratesNote ?? "",
       missingCurrencies: job.totals?.missingCurrencies ?? [],
+      ratesStale: job.totals?.ratesStale === true,
     },
     invoicesRead,
     notRecharged: linesRead ? (job.notRecharged ?? []) : null,
@@ -192,7 +199,7 @@ export function moneyClaimsOf(rows: readonly OpenCostClaimRow[]): Map<string, Mo
 export interface CzkRates {
   /** CZK per 1 unit of a currency. */
   rates: Readonly<Record<string, number>>;
-  /** What the page writes beside a figure converted with them: "at today's ČNB rate (18.11.)" (czkLabel). */
+  /** What the page writes beside a figure converted with them: "at the latest ČNB rate (18.11.)" (czkLabel). */
   label: string;
 }
 
@@ -318,8 +325,12 @@ const rateOf = (currency: string, rates: Readonly<Record<string, number>> | null
   return typeof rate === "number" && Number.isFinite(rate) && rate > 0 ? rate : null;
 };
 
-/** The label of a figure converted at the ČNB rates of `day` (YYYY-MM-DD): "at today's ČNB rate (18.11.)". */
-export const czkLabel = (day: string): string => `at today's ČNB rate (${dm(day)})`;
+/**
+ * The label of a figure converted at the ČNB sheet whose fixing is of `day` (YYYY-MM-DD): "at the latest ČNB rate
+ * (18.11.)" - not "today's": before ČNB publishes (14:30 Prague) the latest is the day before's. `stale`: a newer
+ * fixing should be stored and is not (the import failed), so the rate is older than it should be, and says so.
+ */
+export const czkLabel = (day: string, stale = false): string => (stale ? `(ČNB rate of ${dm(day)}, newer not imported)` : `at the latest ČNB rate (${dm(day)})`);
 
 /** The currencies among `amounts` that `czk` has no rate for. CZK needs none. */
 export function currenciesWithoutRate(amounts: readonly MoneyAmount[], czk: CzkRates | null): string[] {
@@ -367,6 +378,7 @@ export const MONEY_RANK = {
   notInvoicedLate: 24,
   accrualLate: 25,
   costClaimOld: 26,
+  chargeAfterInvoicing: 27,
   // ATTENTION
   notInvoiced: 300,
   inBilling: 302,
@@ -397,10 +409,10 @@ type RuleJob = Pick<
 export const isInBilling = (job: Pick<OpsCockpitJob, "status">): boolean => job.status.toLowerCase().startsWith("bill");
 
 /**
- * Whether the job is "billed" for the rules that turn on it (a loss, estimates nobody invoiced):
- * it reads Invoiced (`readsInvoiced`: it is no active job), or it is an active job in a Billing
- * status. Not "it has some open invoice": a job invoiced in advance that has not left yet is
- * still being worked on.
+ * Whether the job is "billed" for the rule that turns on it (a loss; estimates nobody invoiced go
+ * by reading Invoiced alone): it reads Invoiced (`readsInvoiced`: it is no active job), or it is
+ * an active job in a Billing status. Not "it has some open invoice": a job invoiced in advance
+ * that has not left yet is still being worked on.
  */
 export const isBilled = (job: Pick<OpsCockpitJob, "status">, readsInvoiced: boolean): boolean => readsInvoiced || isInBilling(job);
 
@@ -450,12 +462,42 @@ const isBilledStatus = (status: string): boolean => /^billed\b/i.test(status.tri
  * on the operator, and says so. A "Billed […]" status is worded as that. `since`: when the job
  * got its status; null when that is not known - then there is no tag. Nor is there one while the
  * work not yet invoiced is not known (null), or there is none.
+ * URGENT from TAX_DATE_LATE_DAYS days after the job's tax date (L7) - whoever's desk it is on: the
+ * invoice is late by law then, as notInvoicedSignals says of a job not yet in Billing. So late, it
+ * is said without waiting for the working days, and with since when it is in Billing left out when
+ * that is not known.
  */
-export function inBillingSignals(job: Pick<OpsCockpitJob, "status">, money: Pick<JobMoney, "notYetInvoiced">, since: Date | null, now: Date, holidays: readonly string[]): MoneySignal[] {
+export function inBillingSignals(
+  job: Pick<OpsCockpitJob, "status" | "tradeDirection" | "department" | "actualArrival" | "actualDeparture" | "actualDeliveryDate">,
+  money: Pick<JobMoney, "notYetInvoiced">,
+  since: Date | null,
+  now: Date,
+  holidays: readonly string[],
+): MoneySignal[] {
   const amounts = amountsText(money.notYetInvoiced ?? []);
-  if (!isInBilling(job) || !amounts || !since) return [];
-  if (!waitedWorkingDays(since, MONEY_IN_BILLING_WORKING_DAYS, now, holidays)) return [];
-  return [attention(MONEY_RANK.inBilling, "not_invoiced", `${isBilledStatus(job.status) ? "Billed" : "In Billing"} since ${dm(businessDay(since))}, ${amounts} not invoiced · with Invoicing`)];
+  if (!isInBilling(job) || !amounts) return [];
+  const where = isBilledStatus(job.status) ? "Billed" : "In Billing";
+  const taxDay = dayOfStamp(unbilledTaxDate(job));
+  if (taxDay && daysBetween(taxDay, businessDay(now)) >= TAX_DATE_LATE_DAYS) {
+    const sinceText = since ? ` since ${dm(businessDay(since))}` : "";
+    return [urgent(MONEY_RANK.notInvoicedLate, "not_invoiced", `${where}${sinceText}, ${amounts} not invoiced · tax date ${dm(taxDay)} · with Invoicing`)];
+  }
+  if (!since || !waitedWorkingDays(since, MONEY_IN_BILLING_WORKING_DAYS, now, holidays)) return [];
+  return [attention(MONEY_RANK.inBilling, "not_invoiced", `${where} since ${dm(businessDay(since))}, ${amounts} not invoiced · with Invoicing`)];
+}
+
+/**
+ * `not_invoiced`, URGENT: a job that reads Invoiced and has work not yet invoiced - a charge added
+ * after invoicing (X1 / K14). Adding one sends the job back to Not Invoiced (invoicing's
+ * followupsOfSellingChange); this is the safety net for a job that still reads Invoiced all the same
+ * (the follow-up not sent yet, a job marked Invoiced before every charge had to be, one with no open
+ * invoice to move back from). Not said while the work not yet invoiced is not known, or is nothing.
+ * Worded as what is seen, not why: a credit note whose status follow-up is still waiting (or failed)
+ * leaves a job reading Invoiced with work not invoiced too, and no charge was added there.
+ */
+export function chargeAfterInvoicingSignals(money: Pick<JobMoney, "notYetInvoiced">): MoneySignal[] {
+  const amounts = amountsText(money.notYetInvoiced ?? []);
+  return amounts ? [urgent(MONEY_RANK.chargeAfterInvoicing, "not_invoiced", `Work not invoiced on a job that reads Invoiced · ${amounts}`)] : [];
 }
 
 /** The newest change of a job's status, as its history tells it: what it set, and when. */
@@ -544,22 +586,23 @@ export function costAfterBillingSignals(money: Pick<JobMoney, "supplierInvoices"
 }
 
 /**
- * `accrual`: estimates with no supplier invoice MONEY_ACCRUAL_DAYS days after the job's tax date;
- * URGENT from MONEY_ACCRUAL_URGENT_DAYS days, or once the job is billed (isBilled: it reads
- * Invoiced, or stands in a Billing status) - the cost is then missing from a job whose revenue is
- * booked. An open invoice alone does not make it so: a job invoiced in advance is not through.
+ * `accrual` (the outlay's rule, K15 / m23): estimates with no supplier invoice MONEY_ACCRUAL_DAYS
+ * days after the job's tax date; URGENT from MONEY_ACCRUAL_URGENT_DAYS days, or once the job reads
+ * Invoiced (`readsInvoiced`) - the cost is then missing from a job whose revenue is all booked. A
+ * Billing status alone does not make it URGENT (it did before: a job turned URGENT the day it went
+ * to Billing), nor does an open invoice: a job invoiced in advance is not through.
  */
 export function accrualSignals(
   job: Pick<OpsCockpitJob, "tradeDirection" | "department" | "actualArrival" | "actualDeparture" | "actualDeliveryDate">,
   money: Pick<JobMoney, "estimatesOpen">,
   today: string,
-  billed: boolean,
+  readsInvoiced: boolean,
 ): MoneySignal[] {
   if (!money.estimatesOpen || !(money.estimatesOpen.lines > 0)) return [];
   const { lines, oldestSince } = money.estimatesOpen;
   const taxDay = dayOfStamp(unbilledTaxDate(job));
   const age = taxDay ? daysBetween(taxDay, today) : null;
-  const late = billed || (age !== null && age >= MONEY_ACCRUAL_URGENT_DAYS);
+  const late = readsInvoiced || (age !== null && age >= MONEY_ACCRUAL_URGENT_DAYS);
   if (!late && !(age !== null && age >= MONEY_ACCRUAL_DAYS)) return [];
   const since = dayOfStamp(oldestSince);
   const text = `${plural(lines, "estimate")} with no supplier invoice${since ? ` · since ${dm(since)}` : ""}`;
@@ -577,13 +620,20 @@ function waitedOver(since: string, n: number, now: Date, holidays: readonly stri
 /**
  * `supplier_invoice`: URGENT one approved and overdue; ATTENTION those waiting for approval for
  * more than MONEY_SUPPLIER_INVOICE_WAITING_WORKING_DAYS working days (with no day to count from:
- * no tag), one claimed, and one refused within the last MONEY_REFUSED_DAYS days - Invoicing counts
- * every refused invoice the job ever had, so the tag goes by the day the last one was refused and
- * clears by itself; with no such day there is no tag. A count that is not known (null) gives none.
+ * no tag), one claimed, and those refused within the last MONEY_REFUSED_DAYS days - counted by the
+ * day each was refused (Invoicing's `refusedOn`, m21), so the tag says how many were refused lately,
+ * not how many ever, and clears by itself; a refusal with no day is not counted. (An answer without
+ * the days says the total once the last refusal is within the days.) A count that is not known
+ * (null) gives none.
  */
 export function supplierInvoiceSignals(money: Pick<JobMoney, "supplierInvoices">, now: Date, holidays: readonly string[]): MoneySignal[] {
   if (!money.supplierInvoices) return [];
-  const { toApprove, refused, claimed, approvedOverdue, oldestWaitingSince, lastRefusedOn } = money.supplierInvoices;
+  const { toApprove, claimed, approvedOverdue, oldestWaitingSince, lastRefusedOn, refusedOn } = money.supplierInvoices;
+  const recently = (day: string | null) => {
+    const refusedDay = dayOfStamp(day);
+    return refusedDay !== null && daysBetween(refusedDay, businessDay(now)) <= MONEY_REFUSED_DAYS;
+  };
+  const refused = refusedOn ? refusedOn.filter(recently).length : recently(lastRefusedOn) ? money.supplierInvoices.refused : 0;
   const words = (n: number, what: string) => (n === 1 ? `Supplier invoice ${what}` : `${n} supplier invoices ${what}`);
   const out: MoneySignal[] = [];
   if (approvedOverdue !== null && approvedOverdue > 0) out.push(urgent(MONEY_RANK.supplierInvoiceOverdue, "supplier_invoice", words(approvedOverdue, "approved, overdue")));
@@ -591,9 +641,7 @@ export function supplierInvoiceSignals(money: Pick<JobMoney, "supplierInvoices">
   if (toApprove > 0 && since && waitedOver(oldestWaitingSince!, MONEY_SUPPLIER_INVOICE_WAITING_WORKING_DAYS, now, holidays)) {
     out.push(attention(MONEY_RANK.supplierInvoiceToApprove, "supplier_invoice", `${plural(toApprove, "supplier invoice")} to approve since ${dm(since)}`));
   }
-  const refusedOn = dayOfStamp(lastRefusedOn);
-  const refusedAgo = refusedOn ? daysBetween(refusedOn, businessDay(now)) : null;
-  if (refused > 0 && refusedAgo !== null && refusedAgo <= MONEY_REFUSED_DAYS) out.push(attention(MONEY_RANK.supplierInvoiceRefused, "supplier_invoice", words(refused, "refused")));
+  if (refused > 0) out.push(attention(MONEY_RANK.supplierInvoiceRefused, "supplier_invoice", words(refused, "refused")));
   if (claimed !== null && claimed > 0) out.push(attention(MONEY_RANK.supplierInvoiceClaimed, "supplier_invoice", words(claimed, "claimed")));
   return out;
 }
@@ -705,6 +753,8 @@ export const MONEY_GAPS = {
   limitNotCompared: (n: number) => `customers' credit: the limit of ${plural(n, "customer")} could not be compared (no ČNB rate today)`,
   marginRateMissing: (n: number) => `margin of ${plural(n, "job")}: a ČNB rate is missing`,
   marginRatesNotRead: (n: number) => `margin of ${plural(n, "job")}: their rates are not fixed yet and could not be read`,
+  // m20: worked out all the same, at the last fixing there is - an old rate, said so rather than shown as today's.
+  marginRatesStale: (n: number) => `margin of ${plural(n, "job")}: ČNB rates for their date not imported`,
   czkTotal: (currencies: readonly string[]) => `the CZK total of work not yet invoiced: no ČNB rate for ${currencies.join(", ")}`,
 } as const;
 
@@ -729,8 +779,9 @@ function jobCredit(jobId: string, input: Pick<OpsMoneyInput, "customerOf" | "cre
 /**
  * Every money signal of one job. A fact that is not known gives none. Of a job that reads
  * Invoiced (`input.invoicedIds`) only the rules about invoiced jobs speak: a loss, supplier
- * invoices after billing, estimates nobody invoiced, supplier invoices, cost claims and what was
- * not recharged - never credit, "not invoiced" or a selling line not ticked.
+ * invoices after billing, estimates nobody invoiced, supplier invoices, cost claims, what was
+ * not recharged, and a charge added after invoicing - never credit, the other "not invoiced"
+ * rules or a selling line not ticked.
  */
 export function moneySignals(
   job: RuleJob & { id: string },
@@ -745,11 +796,11 @@ export function moneySignals(
     ...(money
       ? [
           ...(closed ? lossSignals(money, billed) : marginSignals(money, billed)),
-          ...(closed ? [] : inBillingSignals(job, money, billingSince(job, input.statusChangedAt?.get(job.id), input.statusChangedAt !== null), input.now, input.holidays)),
+          ...(closed ? chargeAfterInvoicingSignals(money) : inBillingSignals(job, money, billingSince(job, input.statusChangedAt?.get(job.id), input.statusChangedAt !== null), input.now, input.holidays)),
           ...(closed ? [] : notInvoicedSignals(job, money, today)),
           ...(closed ? [] : untickedSignals(job, money)),
           ...costAfterBillingSignals(money, today),
-          ...accrualSignals(job, money, today, billed),
+          ...accrualSignals(job, money, today, closed),
           ...supplierInvoiceSignals(money, input.now, input.holidays),
           ...notRechargedSignals(money),
         ]
@@ -837,8 +888,8 @@ export function signalsNotKnownOf(known: Known, input: Pick<OpsMoneyInput, "cust
 /**
  * The people line: everybody named in Handled By on one of `jobs` (nobody is ""), in the
  * cockpit's order - by their ACTIVE jobs, so somebody with only invoiced ones comes after. The
- * figures count what the rows show, the jobs that read Invoiced too; the work not yet invoiced is
- * the active jobs'. A supplier invoice waiting for approval is counted once per person, however
+ * figures count what the rows show, the jobs that read Invoiced too - the work not yet invoiced as
+ * well: on a job that reads Invoiced it is a charge added after invoicing, money still to bill. A supplier invoice waiting for approval is counted once per person, however
  * many of their jobs it has lines on. A figure whose part was not read is null.
  */
 function peopleOf(jobs: readonly Judged[], known: Known, input: Pick<OpsMoneyInput, "claims" | "userEmails">): OpsMoneyPerson[] {
@@ -860,10 +911,8 @@ function peopleOf(jobs: readonly Judged[], known: Known, input: Pick<OpsMoneyInp
       waiting: new Set<string>(),
     };
     const { person } = mine;
-    if (!j.invoiced) {
-      person.active += 1;
-      mine.unbilled.push(...(j.money?.notYetInvoiced ?? []));
-    }
+    if (!j.invoiced) person.active += 1;
+    mine.unbilled.push(...(j.money?.notYetInvoiced ?? []));
     if (person.estimatesOpen !== null) person.estimatesOpen += Math.max(0, j.money?.estimatesOpen?.lines ?? 0);
     // Invoicing puts an invoice on every job it has a live line on: by its id, a carrier's invoice over three jobs is one to approve, not three.
     for (const id of j.money?.supplierInvoices?.waitingIds ?? []) mine.waiting.add(id);
@@ -898,19 +947,21 @@ export function buildOpsMoney(input: OpsMoneyInput): ShipmentsManagersMoney {
 
   const read = input.invoicing !== null;
   const known = knownOf(scoped, read);
-  // Work not yet invoiced is the active jobs': a job that reads Invoiced has none to count.
-  const active = shown.filter((j) => !j.invoiced);
-  const unbilled = active.flatMap((j) => j.money?.notYetInvoiced ?? []);
+  // Work not yet invoiced of every job shown: on one that reads Invoiced it is a charge added after
+  // invoicing (chargeAfterInvoicingSignals) - money still to bill, which the tile must not leave out.
+  const unbilled = shown.flatMap((j) => j.money?.notYetInvoiced ?? []);
   // A currency is said to have no rate only on a sheet that was read: one that could not be read is no "ČNB has none".
   const noRate = known.unbilled && input.czk ? currenciesWithoutRate(unbilled, input.czk) : [];
   // Why a margin is not known, as Invoicing says it of the job: its rates are there and one is
   // missing - or they are not fixed yet and could not be had. Both are counted in the one figure.
   const noMargin = known.lines ? shown.flatMap((j) => (j.money && isMarginNotKnown(j.money) ? [j.money.totals.ratesNote] : [])) : [];
   const ratesNotRead = noMargin.filter((note) => note === "not_fixed" || note === "unreadable").length;
+  // A margin worked out at an older fixing, the job's own not imported: known, but stale - and said so (m20).
+  const ratesStale = known.lines ? shown.filter((j) => j.money?.totals.ratesStale && j.money.totals.profitCzk !== null).length : 0;
   const tiles: OpsMoneyTiles = {
     notYetInvoiced: known.unbilled ? perCurrency(unbilled) : null,
     notYetInvoicedCzk: known.unbilled ? czkTotalOf(unbilled, input.czk) : null,
-    notYetInvoicedJobs: known.unbilled ? active.filter((j) => valued(j.money?.notYetInvoiced ?? []).length > 0).length : null,
+    notYetInvoicedJobs: known.unbilled ? shown.filter((j) => valued(j.money?.notYetInvoiced ?? []).length > 0).length : null,
     signals,
     signalsNotKnown: signalsNotKnownOf(known, input),
     marginNotKnown: known.lines ? noMargin.length : null,
@@ -946,6 +997,7 @@ export function buildOpsMoney(input: OpsMoneyInput): ShipmentsManagersMoney {
         ...(notCompared ? [MONEY_GAPS.limitNotCompared(notCompared)] : []),
         ...(noMargin.length - ratesNotRead ? [MONEY_GAPS.marginRateMissing(noMargin.length - ratesNotRead)] : []),
         ...(ratesNotRead ? [MONEY_GAPS.marginRatesNotRead(ratesNotRead)] : []),
+        ...(ratesStale ? [MONEY_GAPS.marginRatesStale(ratesStale)] : []),
         ...(noRate.length ? [MONEY_GAPS.czkTotal(noRate)] : []),
       ]),
     ],

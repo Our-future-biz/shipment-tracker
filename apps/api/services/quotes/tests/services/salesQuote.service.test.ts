@@ -34,6 +34,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     writeLifecycle: vi.fn(),
     saveDocument: vi.fn(),
     createWithReference: vi.fn(),
+    createVariantOf: vi.fn(),
     revise: vi.fn(),
     unexaminedOwnerLabels: vi.fn(),
     recordOwnerMatch: vi.fn(),
@@ -471,6 +472,10 @@ describe("create and duplicate", () => {
       const quoteNumber = pick([`${REF}-2`]);
       return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
     });
+    repository.createVariantOf.mockImplementation(async (companyId, _source, _prefix, pick, build) => {
+      const quoteNumber = pick([`${REF}-2`]);
+      return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
+    });
   });
 
   it("creates a Draft of whoever creates it - recorded by their e-mail - under today's prefix, already examined", async () => {
@@ -506,14 +511,22 @@ describe("create and duplicate", () => {
   it("duplicates into the next variant of the base reference - also when a variant is duplicated", async () => {
     stored = quote({ quoteNumber: `${REF}-2`, ownerUserId: U_JANA });
     const item = await salesQuoteService.duplicate(martin, `${REF}-2`, {});
-    expect(repository.createWithReference.mock.calls[0]!.slice(0, 2)).toEqual([martin.companyID, `${REF}-`]);
+    // Made with the quote copied from locked (createVariantOf), under the base's next variant.
+    expect(repository.createVariantOf.mock.calls[0]!.slice(0, 3)).toEqual([martin.companyID, `${REF}-2`, `${REF}-`]);
+    expect(repository.createWithReference).not.toHaveBeenCalled();
     expect(item).toMatchObject({ quoteNumber: `${REF}-3`, status: "draft", ownerUserId: U_MARTIN });
   });
 
   it("is not found when the quote to duplicate does not exist", async () => {
     stored = null;
     await expect(salesQuoteService.duplicate(martin, REF, {})).rejects.toMatchObject({ code: "not_found" });
-    expect(repository.createWithReference).not.toHaveBeenCalled();
+    expect(repository.createVariantOf).not.toHaveBeenCalled();
+  });
+
+  it("is not found, and makes no copy, when the quote was deleted between the read and the lock", async () => {
+    // A colleague's delete went first: under the lock the quote is gone, and nothing was inserted.
+    repository.createVariantOf.mockResolvedValue(null);
+    await expect(salesQuoteService.duplicate(martin, REF, {})).rejects.toMatchObject({ code: "not_found" });
   });
 });
 
@@ -561,6 +574,10 @@ describe("the reference takes the letters of the Freight Mode", () => {
 
   it("from the start, for a new quote or a variant that comes with a Freight Mode", async () => {
     repository.createWithReference.mockImplementation(async (companyId, _prefix, pick, build) => {
+      const quoteNumber = pick([`${REF}-2`]);
+      return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
+    });
+    repository.createVariantOf.mockImplementation(async (companyId, _source, _prefix, pick, build) => {
       const quoteNumber = pick([`${REF}-2`]);
       return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
     });
@@ -2377,6 +2394,10 @@ describe("who a quote is for (the Customer Database)", () => {
     });
     repository.saveDocument.mockImplementation(async () => quote({ dataVersion: 4 }));
     repository.createWithReference.mockImplementation(async (companyId, _prefix, pick, build) => {
+      const quoteNumber = pick([]);
+      return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
+    });
+    repository.createVariantOf.mockImplementation(async (companyId, _source, _prefix, pick, build) => {
       const quoteNumber = pick([]);
       return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
     });

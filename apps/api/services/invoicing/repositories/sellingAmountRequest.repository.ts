@@ -5,6 +5,7 @@ import { invoiceCostTable } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable as s, type InvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import { sellingAmountRequestTable as t, type SellingAmountRequestRecord } from "../schemas/sellingAmountRequest.schema";
 import { invoiceRepository } from "./invoice.repository";
+import type { AfterSellingWrite } from "./sellingCost.repository";
 import { truckingLinesLock } from "./truckingLines.repository";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -53,13 +54,15 @@ class SellingAmountRequestRepository {
    * The number of a selling row the split keeps: at or above its cost it is written at once (and any
    * request waiting is taken back, this says otherwise); below it a request goes to a manager and the
    * row stays as it is. Under the shipment's invoice lock, so a row can't change while an invoice with
-   * it is being issued.
+   * it is being issued. A number written runs `after` in the same transaction (the shipment's statuses
+   * follow a charge changed on a billed job: services/sellingStatusFollow).
    */
   async change(
     companyId: string,
     shipmentId: string,
     sellingId: string,
     input: { amount: string; reason: string; userId: string; userEmail: string; jobNumber: string },
+    after?: AfterSellingWrite,
   ): Promise<AmountChange> {
     return db.transaction(async (tx): Promise<AmountChange> => {
       await truckingLinesLock(tx, shipmentId);
@@ -77,6 +80,7 @@ class SellingAmountRequestRepository {
           .where(and(eq(s.id, row.id), eq(s.companyId, companyId)))
           .returning();
         await this.withdrawFor(tx, companyId, [row.id], { id: input.userId, name: input.userEmail });
+        await after?.(tx, row, saved!);
         return { outcome: "saved", row: saved! };
       }
       if (!input.reason) return { outcome: "reason_needed", cost };
@@ -141,11 +145,16 @@ class SellingAmountRequestRepository {
     });
   }
 
-  /** A manager's answer. An approval writes the row, unless it is on an invoice, gone, or its cost moved since it was asked. */
+  /**
+   * A manager's answer. An approval writes the row, unless it is on an invoice, gone, or its cost moved
+   * since it was asked - and runs what the write owes (`followOf`, given the request's shipment) in the
+   * same transaction: an amount changed or a row taken away on a billed job moves its statuses.
+   */
   async answer(
     companyId: string,
     id: string,
     answer: { approve: boolean; comment: string; userId: string; userEmail: string },
+    followOf?: (shipmentId: string) => AfterSellingWrite,
   ): Promise<AnswerResult> {
     const [found] = await db.select({ shipmentId: t.shipmentId }).from(t).where(and(eq(t.id, id), eq(t.companyId, companyId), isNull(t.deletedAt))).limit(1);
     if (!found) return { outcome: "not_found" };
@@ -163,7 +172,7 @@ class SellingAmountRequestRepository {
         if (cost == null) return { outcome: "row_gone" };
         // What was approved is this amount at this cost, in this currency: a cost that moved is another question.
         if (centsOf(cost) !== centsOf(request.costAmount) || row.currency !== request.currency) return { outcome: "cost_changed", cost: `${cost} ${row.currency}` };
-        await tx
+        const [written] = await tx
           .update(s)
           .set(
             request.kind === "remove"
@@ -171,7 +180,10 @@ class SellingAmountRequestRepository {
                 { deletedAt: now, waivedAt: now, amountOverrideCost: cost, updatedAt: now }
               : { amount: request.requestedAmount, amountOverrideCost: cost, updatedAt: now },
           )
-          .where(and(eq(s.id, row.id), eq(s.companyId, companyId), isNull(s.deletedAt)));
+          .where(and(eq(s.id, row.id), eq(s.companyId, companyId), isNull(s.deletedAt)))
+          .returning();
+        const after = written ? followOf?.(request.shipmentId) : undefined;
+        if (after) await after(tx, row, request.kind === "remove" ? null : written!);
       }
       const [done] = await tx
         .update(t)

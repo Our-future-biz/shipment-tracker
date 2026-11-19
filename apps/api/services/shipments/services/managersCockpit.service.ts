@@ -2,7 +2,7 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { businessDay } from "../../../lib/businessDate";
 import type { OpsCockpitDirection, OpsCockpitMode, OpsCockpitReports, OpsCockpitSignal, ShipmentsManagersCockpit } from "../interfaces/interfaces";
-import { COCKPIT_JOB_LIMIT, COCKPIT_READS_AT_ONCE } from "../lib/cockpitThresholds";
+import { COCKPIT_CLAIM_ONLY_JOB_LIMIT, COCKPIT_JOB_LIMIT, COCKPIT_READS_AT_ONCE } from "../lib/cockpitThresholds";
 import { closingDatesDismissed, jobsWithMissedCutoffOrLateCargo, withoutDismissed } from "../lib/cutoffDismissals";
 import {
   COCKPIT_EVENT_KINDS,
@@ -59,6 +59,9 @@ export const NOT_KNOWN = {
   extra: "documents, customs, requests, Import Instructions, remeasurements and Master Jobs",
   // Everything services/managersCockpitTeam.service reads, when it fails as a whole (each of its parts is named by itself otherwise).
   team: "to-dos, @mentions, release requests, jobs nobody touched, Holiday Covers and who is away",
+  // More invoiced or cancelled jobs with an open cargo claim than are read: the older ones are left
+  // out, and Open claims counts fewer than the list it opens.
+  claimOnlyCapped: `cargo claims of invoiced or cancelled jobs older than the newest ${COCKPIT_CLAIM_ONLY_JOB_LIMIT}`,
 } as const;
 
 /** The jobs' tracking events both the boxes' free time clocks and the timeline rules go by: one read for the two. */
@@ -92,8 +95,8 @@ function timelineOf(events: readonly (TimelineEvent & { shipmentId: string })[])
 }
 
 /** The containers of the jobs whose free time the cockpit looks at (boxesWanted): few, so their boxes are read whole. */
-async function boxesOf(jobs: readonly OpsCockpitJob[], companyId: string, today: string): Promise<Map<string, CockpitBox[]>> {
-  const ids = jobs.filter((job) => boxesWanted(job, today)).map((job) => job.id);
+async function boxesOf(jobs: readonly OpsCockpitJob[], companyId: string, today: string, holidays: readonly string[]): Promise<Map<string, CockpitBox[]>> {
+  const ids = jobs.filter((job) => boxesWanted(job, today, holidays)).map((job) => job.id);
   return byShipment<CockpitBox & { shipmentId: string }>(await containerRepository.listByShipmentIds(ids, companyId));
 }
 
@@ -123,7 +126,10 @@ export const reportEmailsOf = (users: readonly CockpitUser[] | null, userId: str
 //
 // Step 6 adds the cargo claims (lib/managersCockpitClaims): the open ones of the jobs whose Claim
 // field says Yes (one statement, none when no job has a claim), and - only when there is one - the
-// company's claim time limits (one more). Each fails on its own and is named.
+// company's claim time limits (one more). Each fails on its own and is named. An open claim
+// outlives its job's billing (X8): the jobs no longer active - Invoiced or cancelled - with an open
+// cargo claim are read too (one statement, at most COCKPIT_CLAIM_ONLY_JOB_LIMIT of them, the newest
+// first; that more were left out is named), and are rows for their claims alone.
 //
 // The page asks every minute and the pool has ten connections (lib/db/pool), so every statement
 // of every answer - this file's own and those of the readers it calls, which are handed the
@@ -158,16 +164,22 @@ class ManagersCockpitService {
     // failed they are asked for again, by themselves, and the answer fails only if that fails too.
     const events = part(NOT_KNOWN.timeline, () => run(() => shipmentTrackingEventRepository.ofKinds(ids, companyId, EVENT_KINDS)));
     const clockEvents = events.then((rows) => (rows ? rows.filter(isOfKinds(CLOCK_EVENT_KINDS)) : run(() => shipmentTrackingEventRepository.ofKinds(ids, companyId, CLOCK_EVENT_KINDS))));
+    // The jobs no longer active that still have an open cargo claim: not read, none of them is shown,
+    // and they are named. One more than kept, so that more of them is known and said.
+    const claimOnlyRead = part(CLAIM_PARTS.claimOnlyJobs, () => run(() => shipmentRepository.managersCockpitClaimOnlyRows(companyId, COCKPIT_CLAIM_ONLY_JOB_LIMIT + 1)));
+    const claimOnlyKept = claimOnlyRead.then((closed) => closed && closed.slice(0, COCKPIT_CLAIM_ONLY_JOB_LIMIT));
     // The job's Claim field is Yes while an open claim stands (repositories/shipmentClaim syncShipmentFlag): only those jobs are asked about.
-    const claimed = jobs.filter((j) => j.claim === "Yes").map((j) => j.id);
-    const claimRows = part(CLAIM_PARTS.claims, () => (claimed.length ? run(() => shipmentClaimRepository.openCargoClaimsByShipmentIds(companyId, claimed)) : Promise.resolve([])));
+    const claimRows = claimOnlyKept.then((closed) => {
+      const claimed = [...jobs, ...(closed ?? [])].filter((j) => j.claim === "Yes").map((j) => j.id);
+      return part(CLAIM_PARTS.claims, () => (claimed.length ? run(() => shipmentClaimRepository.openCargoClaimsByShipmentIds(companyId, claimed)) : Promise.resolve([])));
+    });
     // The limits only matter for a job with an open cargo claim.
     const claimLimits = claimRows.then((rows) => (rows?.length ? part(CLAIM_PARTS.limits, () => run(() => claimTimeLimitsService.of(companyId))) : TIME_LIMITS_OFF));
-    const [facts, moved, timeline, boxes, extra, team, dismissed, audit, handover, cargoClaims, limits] = await Promise.all([
+    const [facts, moved, timeline, boxes, extra, team, dismissed, audit, handover, cargoClaims, limits, claimOnlyJobs] = await Promise.all([
       attentionFactsOf(jobs, companyId, today, clockEvents, run),
       run(() => shipmentRepository.dateMovedLately(companyId, ids)),
       events.then((rows) => rows && timelineOf(rows)),
-      part(NOT_KNOWN.boxes, () => run(() => boxesOf(jobs, companyId, today))),
+      part(NOT_KNOWN.boxes, () => run(() => boxesOf(jobs, companyId, today, extraHolidays))),
       // It answers for its own parts; this catches what it could not: then none of it is known.
       part(NOT_KNOWN.extra, () => extraSignals(jobs, { companyId, now, today, holidays: extraHolidays, run })),
       // The same: each of its parts fails by itself, this catches the rest.
@@ -183,7 +195,9 @@ class ManagersCockpitService {
       handoverRead,
       claimRows,
       claimLimits,
+      claimOnlyKept,
     ]);
+    const claimOnlyCapped = ((await claimOnlyRead)?.length ?? 0) > COCKPIT_CLAIM_ONLY_JOB_LIMIT;
     const extraByJob: ReadonlyMap<string, readonly OpsSignal[]> = extra?.byJob ?? new Map();
     const masterJobRows: readonly OpsMasterJobRow[] = extra?.masterJobRows ?? [];
     return buildOpsCockpit({
@@ -205,6 +219,7 @@ class ManagersCockpitService {
       audit: audit.audit,
       handover,
       claims: { byJob: cargoClaims && claimFactsByJob(cargoClaims), limits },
+      claimOnlyJobs: claimOnlyJobs ?? [],
       notKnown: [
         ...(timeline ? [] : [NOT_KNOWN.timeline]),
         ...(boxes ? [] : [NOT_KNOWN.boxes]),
@@ -214,6 +229,8 @@ class ManagersCockpitService {
         ...audit.notKnown,
         ...handover.notKnown,
         ...(cargoClaims ? [] : [CLAIM_PARTS.claims]),
+        ...(claimOnlyJobs ? [] : [CLAIM_PARTS.claimOnlyJobs]),
+        ...(claimOnlyCapped ? [NOT_KNOWN.claimOnlyCapped] : []),
         ...(limits ? [] : [CLAIM_PARTS.limits]),
       ],
       capped: rows.length > COCKPIT_JOB_LIMIT,

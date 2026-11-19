@@ -6,6 +6,7 @@ import { DEFAULT_DOCKS } from "../services/settingsRules";
 // Warehouse settings (supplier e-mail recipients, docks). Needs migration 0018.
 vi.mock("~encore/clients", async () => ({
   shipments: {},
+  invoicing: (await import("./shipmentFakes")).invoicingFake,
   auth: (await import("./authFake")).authFake([]),
 }));
 

@@ -136,6 +136,7 @@ class OperationsMoneyService {
       estimates,
       rates: rates?.rates ?? new Map(),
       noRates: rates?.noRates ?? new Map(),
+      staleRates: rates?.staleRates ?? new Set(),
     });
     return { jobs, invoicesRead: invoices !== null, unreadable, notKnown: Object.values(MONEY_PARTS).filter((name) => failed.has(name)) };
   }
@@ -147,7 +148,7 @@ class OperationsMoneyService {
    * rates are not fixed and its dates were not handed in ("not_fixed"), or it could not be read ("unreadable").
    * Its totals then name the currencies with no rate, and say which of the two it is.
    */
-  private async rates(ids: string[], lines: Lines, invoices: Invoices | null, jobDates: OperationsMoneyJobDates[]): Promise<Pick<OperationsMoneyFacts, "rates" | "noRates">> {
+  private async rates(ids: string[], lines: Lines, invoices: Invoices | null, jobDates: OperationsMoneyJobDates[]): Promise<Pick<OperationsMoneyFacts, "rates" | "noRates" | "staleRates">> {
     const foreign = new Map<string, Set<string>>();
     const add = (shipmentId: string, currency: string | null | undefined) => {
       if (!currency || currency === "CZK") return;
@@ -180,7 +181,9 @@ class OperationsMoneyService {
     if (unreadable.length) log.warn("the Money tab: job rates not readable", { count: unreadable.length });
     const rates = new Map<string, CzkRates>(jobs.map((j) => [j.shipmentId, Object.fromEntries(j.rates.map((r) => [r.currency, r.rate]))]));
     const noRates = new Map<string, "not_fixed" | "unreadable">([...notFixed.map((id) => [id, "not_fixed"] as const), ...unreadable.map((id) => [id, "unreadable"] as const)]);
-    return { rates, noRates };
+    // A job valued at the last old fixing because its date's fixing was not imported: its margin is stale, and says so (m20).
+    const staleRates = new Set(jobs.filter((j) => j.ratesMissing).map((j) => j.shipmentId));
+    return { rates, noRates, staleRates };
   }
 }
 

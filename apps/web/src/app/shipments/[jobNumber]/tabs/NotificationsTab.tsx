@@ -7,7 +7,7 @@ import { MessageOutlined, PaperClipOutlined, RightOutlined } from "@ant-design/i
 import { apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentAlerts, type RemeasureInformed } from "@/hooks/useShipmentAlerts";
+import { remeasureSettled, useShipmentAlerts, type RemeasureInformed } from "@/hooks/useShipmentAlerts";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { remeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { CountChip, SectionCard } from "@/components/SectionCard";
@@ -105,17 +105,31 @@ function RemeasuredAlert({ informed, shipmentId, onOpen }: { informed: Remeasure
   const canSeeConcepts = useCanSeeConcepts();
   const fromConcept = informed.source === "warehouseConcept";
   const against = informed.comparedWith === "declared" ? "declared" : "Cargo Details";
+  // Settled since (council finding K3): accepted, or the shipment matches it now - said, in grey, and no new alert.
+  const settled = remeasureSettled(informed);
+  const settledText = informed.acceptedAt
+    ? `Accepted${informed.acceptedBy ? ` by ${informed.acceptedBy}` : ""} on ${formatDateTime(informed.acceptedAt)}`
+    : informed.nowMatches
+      ? `${against === "declared" ? "The shipment" : "Cargo Details"} matches it now`
+      : "";
   const content = (
     <>
-      <span className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset bg-red-50 text-red-700 ring-red-200">Remeasured</span>
+      <span
+        className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${
+          settled ? "bg-slate-50 text-slate-500 ring-slate-200" : "bg-red-50 text-red-700 ring-red-200"
+        }`}
+      >
+        Remeasured
+      </span>
       <span className="min-w-0 flex-1">
         {/* Wrapped, not cut: the difference is the alert. */}
-        <span className="block text-[14px] text-slate-900">
+        <span className={`block text-[14px] ${settled ? "text-slate-500" : "text-slate-900"}`}>
           {fromConcept ? "Warehouse Concept" : "Warehouse"} measured <span className="font-semibold">{informed.difference}</span>
         </span>
         <span className={`block ${HINT}`} title={`${against}: ${figures(informed.shipment)} → remeasured: ${figures(informed.remeasured)}`}>
           {[`${against} ${figures(informed.shipment)} → ${figures(informed.remeasured)}`, informed.informedBy, formatDateTime(informed.informedAt)].filter(Boolean).join(" · ")}
         </span>
+        {settledText && <span className="block text-[12px] font-medium text-emerald-700">{settledText}</span>}
       </span>
     </>
   );

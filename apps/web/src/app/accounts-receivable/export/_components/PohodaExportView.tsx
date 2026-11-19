@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import dayjs from "dayjs";
 import { Alert, DatePicker, Switch, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -8,13 +8,27 @@ import { DownloadOutlined, ExportOutlined } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { DataTable } from "@/components/DataTable";
 import { Section } from "@/components/finance/DrawerParts";
-import { useAccountingExports, usePohodaExport, type AccountingExports, type PohodaExport } from "@/hooks/useReceivableTools";
+import { useAccountingExportFile, useAccountingExports, usePohodaExport, type AccountingExports, type PohodaExport } from "@/hooks/useReceivableTools";
 import { apiErrorMessage, isAPIError } from "@/lib/api";
 import { businessDateTime, businessToday, formatDate } from "@/lib/date";
 import { saveBlob } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { BTN, BTN_PRIMARY, CARD, EMPTY, HINT, LABEL_TEXT, PAGE_TITLE, REF, TD, TH } from "@/styles/ui";
-import { base64ToBytes, kindLabel, periodProblem, previousMonth, skippedOfDetails, type SkippedDocument } from "../_lib/export";
+import { isForbidden, isServerRefusal } from "../../_lib/receivables";
+import {
+  base64ToBytes,
+  exportChoices,
+  exportFailureText,
+  exportKeyFor,
+  forgetExportKey,
+  INCLUDE_EXPORTED_WARNING,
+  kindLabel,
+  periodProblem,
+  previousMonth,
+  skippedOfDetails,
+  type KeyStore,
+  type SkippedDocument,
+} from "../_lib/export";
 
 // Finance → Accounts Receivable → Export to Pohoda (step 7): the invoices and credit notes issued in a period, as a
 // Pohoda XML import file. A manager exports; the server builds the file (Windows-1250) and records the export and its
@@ -75,8 +89,17 @@ function SkippedTable({ list }: { list: readonly SkippedDocument[] }) {
   );
 }
 
+/** The tab's sessionStorage, or none when the browser keeps it switched off. */
+function sessionStore(): KeyStore | null {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Hands the file to the browser: the server's bytes as they are (Windows-1250), never turned into text. */
-function saveExportFile(result: PohodaExport): void {
+function saveExportFile(result: Pick<PohodaExport, "contentBase64" | "contentType" | "fileName">): void {
   const bytes = base64ToBytes(result.contentBase64);
   saveBlob(new Blob([bytes], { type: result.contentType || "application/xml; charset=windows-1250" }), result.fileName);
 }
@@ -105,31 +128,52 @@ export function PohodaExportView() {
     }
   };
 
-  // One key per export started: trying the same export again after a lost answer gets the same export back, never a
-  // second one (the server records an export as it builds the file). A finished export, or other choices, start anew.
-  const attempt = useRef<{ choices: string; key: string } | null>(null);
-  const keyFor = (choices: string): string => {
-    if (attempt.current?.choices !== choices) attempt.current = { choices, key: `pohoda:${crypto.randomUUID()}` };
-    return attempt.current.key;
-  };
-
+  // One key per export started, kept in the tab's sessionStorage per choice of period (mock test council m1): trying
+  // the same export again after a lost answer - even after the page was opened again - gets the same export back,
+  // never a second one (the server records an export as it builds the file). Answered or refused, the key goes.
   const run = () => {
     if (problem || exportFile.isPending) return;
     setFailure(null);
     setSaveFailed("");
-    const choices = JSON.stringify([period.from, period.to, includeExported]);
+    const choices = exportChoices(period.from, period.to, includeExported);
     exportFile
-      .mutateAsync({ from: period.from, to: period.to, includeExported, idempotencyKey: keyFor(choices) })
+      .mutateAsync({ from: period.from, to: period.to, includeExported, idempotencyKey: exportKeyFor(sessionStore(), choices, () => `pohoda:${crypto.randomUUID()}`) })
       .then((r) => {
-        attempt.current = null;
+        forgetExportKey(sessionStore(), choices);
         setResult(r);
         if (save(r)) toast.success(`Exported ${r.documents} ${r.documents === 1 ? "document" : "documents"} to ${r.fileName}`);
       })
       .catch((e) => {
         setResult(null);
-        setFailure({ message: apiErrorMessage(e), skipped: isAPIError(e) ? skippedOfDetails(e.details) : [] });
+        const { text, keepKey } = exportFailureText(isServerRefusal(e), apiErrorMessage(e));
+        if (!keepKey) forgetExportKey(sessionStore(), choices);
+        setFailure({ message: text, skipped: isAPIError(e) ? skippedOfDetails(e.details) : [] });
       });
   };
+
+  // "Download again" (m1): the server builds the recorded export's file again, the same bytes; nothing is recorded.
+  const again = useAccountingExportFile();
+  const downloadAgain = (x: ExportSummary) =>
+    again
+      .mutateAsync(x.id)
+      .then((f) => {
+        saveExportFile(f);
+        toast.success(`Saved ${f.fileName} again`);
+      })
+      .catch((e) => toast.error(e instanceof Error && !isAPIError(e) ? e.message : `The file was not downloaded: ${apiErrorMessage(e)}`));
+  const columns: ColumnsType<ExportSummary> = [
+    ...historyColumns,
+    {
+      title: "",
+      key: "download",
+      render: (_, x) => (
+        <button type="button" disabled={again.isPending} onClick={() => void downloadAgain(x)} className={`${BTN} whitespace-nowrap`}>
+          <DownloadOutlined />
+          Download again
+        </button>
+      ),
+    },
+  ];
 
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
@@ -186,13 +230,11 @@ export function PohodaExportView() {
         </div>
         <Alert type="info" showIcon message="Import the file in Pohoda: Soubor → Datová komunikace → XML import. Check the first import with your accountant." />
         {problem && <div className="text-[13px] text-amber-700">{problem}</div>}
-        {includeExported && (
-          <Alert type="warning" showIcon message="Documents exported before go into the file again. Pohoda refuses a number it already has: remove them there first, or leave this off." />
-        )}
+        {includeExported && <Alert type="warning" showIcon message={INCLUDE_EXPORTED_WARNING} />}
 
         {failure && (
           <div className={`${CARD} px-4 py-3 flex flex-col gap-3`}>
-            <Alert type="error" showIcon message={`Not exported: ${failure.message}`} />
+            <Alert type="error" showIcon message={failure.message} />
             {failure.skipped.length > 0 && <SkippedTable list={failure.skipped} />}
           </div>
         )}
@@ -260,10 +302,10 @@ export function PohodaExportView() {
         )}
 
         <Section title="Exports made">
-          {history.isError && !history.data && <Alert type="error" showIcon message={`Could not load the exports: ${apiErrorMessage(history.error)}`} />}
+          {history.isError && !history.data && (isForbidden(history.error) ? <Alert type="info" showIcon message="Only a manager exports to Pohoda and sees the exports made." /> : <Alert type="error" showIcon message={`Could not load the exports: ${apiErrorMessage(history.error)}`} />)}
           <DataTable<ExportSummary>
             dataSource={history.data?.exports}
-            columns={historyColumns}
+            columns={columns}
             rowKey="id"
             loading={history.isLoading}
             scroll={{ x: "max-content" }}

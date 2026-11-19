@@ -66,6 +66,7 @@ const claim = {
   settledAmount: null,
   settledCurrency: "",
 };
+const ownedByJan = { ...claim, id: "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c07", ownerUserId: JAN, ownerName: "jan@firma.cz" };
 const costClaim = { ...claim, kind: "cost", cargoState: "", supplier: "Rail Cargo", invoiceNumber: "F-77", reason: "Double charge", amount: "120,50 EUR", ownerUserId: null, ownerName: "" };
 
 const written = () => claims.updateClaim.mock.calls.at(-1)![3];
@@ -93,6 +94,8 @@ beforeEach(() => {
 describe("who may", () => {
   it("add and change a claim: the job's people or a manager, as its details; nothing is written otherwise", async () => {
     shipments.mayChangeDetails.mockResolvedValue(false);
+    // Somebody else's claim: its owner's door (below) is not this user's.
+    claims.findClaim.mockResolvedValue(ownedByJan);
     await expect(claimService.create(operator, SHIPMENT, "cargo", { cargoState: "Damaged" })).rejects.toMatchObject({ code: "permission_denied", message: CLAIM_EDIT_REFUSAL });
     await expect(claimService.update(operator, SHIPMENT, CLAIM, { note: "Wet" })).rejects.toMatchObject({ code: "permission_denied", message: CLAIM_EDIT_REFUSAL });
     expect(shipments.mayChangeDetails).toHaveBeenCalledWith(job, USER, "user");
@@ -107,9 +110,34 @@ describe("who may", () => {
     await expect(claimService.create(operator, SHIPMENT, "cost", { supplier: "Rail Cargo", claimAmount: "80" })).resolves.toMatchObject({ kind: "cost" });
     await expect(claimService.update(operator, SHIPMENT, CLAIM, { reason: "Double charge", status: "withdrawn" })).resolves.toMatchObject({ status: "withdrawn" });
     expect(shipments.mayChangeDetails).not.toHaveBeenCalled();
-    // A cargo claim on the same job stays the job's people's.
-    claims.findClaim.mockResolvedValue(claim);
+    // A cargo claim on the same job stays the job's people's (and its owner's).
+    claims.findClaim.mockResolvedValue(ownedByJan);
     await expect(claimService.update(operator, SHIPMENT, CLAIM, { note: "Wet" })).rejects.toMatchObject({ code: "permission_denied", message: CLAIM_EDIT_REFUSAL });
+  });
+
+  it("change a cargo claim: also its named owner, who need not be on the job - that one claim only; adding and deleting stay closed (K23)", async () => {
+    shipments.mayChangeDetails.mockResolvedValue(false);
+    // The claim is the operator's own (the fixture's owner is USER).
+    await expect(claimService.update(operator, SHIPMENT, CLAIM, { note: "Wet", status: "notified", noticeDate: "2026-11-11" })).resolves.toMatchObject({ status: "notified" });
+    expect(written()).toMatchObject({ note: "Wet", status: "notified" });
+    // Its owner as stored decides: named in any case.
+    claims.findClaim.mockResolvedValue({ ...claim, ownerUserId: USER.toUpperCase() });
+    await expect(claimService.update(operator, SHIPMENT, CLAIM, { note: "Dry" })).resolves.toBeTruthy();
+    // Not a new claim, and not a delete.
+    await expect(claimService.create(operator, SHIPMENT, "cargo", { cargoState: "Damaged" })).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(claimService.delete(operator, SHIPMENT, CLAIM)).rejects.toMatchObject({ code: "permission_denied", message: CLAIM_DELETE_REFUSAL });
+    // A claim nobody owns is nobody's door.
+    claims.findClaim.mockResolvedValue({ ...claim, ownerUserId: null, ownerName: "" });
+    await expect(claimService.update(operator, SHIPMENT, CLAIM, { note: "Wet" })).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("are told on the list: the claims the user owns, where they are not on the job", async () => {
+    shipments.mayChangeDetails.mockResolvedValue(false);
+    claims.listByShipmentId.mockResolvedValue([claim, ownedByJan, costClaim]);
+    await expect(claimService.list(operator, SHIPMENT)).resolves.toMatchObject({ mayEdit: false, ownedClaimIds: [CLAIM] });
+    // Whoever may change all of them is given none apart.
+    shipments.mayChangeDetails.mockResolvedValue(true);
+    await expect(claimService.list(operator, SHIPMENT)).resolves.toMatchObject({ mayEdit: true, ownedClaimIds: [] });
   });
 
   it("delete a claim on costs too: a manager only", async () => {

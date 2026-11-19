@@ -1,6 +1,6 @@
 import type { ShipmentHistoryEntry } from "../interfaces/interfaces";
 import { CLAIM_HISTORY } from "./cargoClaim";
-import { ABSENCE_COVER_FIELD } from "./absenceCover";
+import { ABSENCE_COVER_ACTOR, ABSENCE_COVER_FIELD } from "./absenceCover";
 import { CUTOFF_DISMISSED_FIELD } from "./cutoffDismissals";
 import { HAND_OVER_FIELD } from "./handOver";
 import { NUDGE_FIELD } from "./nudge";
@@ -66,17 +66,28 @@ export function historyLimit(asked: number | undefined): number {
 /** How a user is named who is no longer found: auth's look-up leaves out removed users, and auth has no read that keeps them. */
 export const FORMER_USER = "former user";
 
+type HistoryRowRead = { id: string; userId: string; field: string; oldValue: string | null; newValue: string | null; changedAt: Date };
+
+/** A save, as rows of the same save share it: who wrote it and when, to the millisecond. */
+const saveOf = (row: Pick<HistoryRowRead, "userId" | "changedAt">) => `${row.userId}|${row.changedAt.getTime()}`;
+
+/**
+ * The saves of `rows` the dated Holiday Cover's job made (lib/absenceCover): those with one of its own
+ * lines. It writes as the company's service identity, which Trucking writes as too - named
+ * "Trucking (system)" - so its rows are named apart (m26). A save cut by the page's end is named so
+ * only on the page that holds the job's line.
+ */
+export const absenceCoverSaves = (rows: readonly HistoryRowRead[]): ReadonlySet<string> => new Set(rows.filter((r) => r.field === ABSENCE_COVER_FIELD).map(saveOf));
+
 /**
  * A row read, as the page shows it, with who by name and e-mail. `who`: the users the look-up found,
  * by id; one it did not find has left ("former user"). Null when the look-up failed: then nobody is named.
+ * A row of a save of the Holiday Cover's job (`coverSaves`, absenceCoverSaves) is named as that job.
  */
-export function historyEntry(
-  row: { id: string; userId: string; field: string; oldValue: string | null; newValue: string | null; changedAt: Date },
-  who: ReadonlyMap<string, { name: string; email: string }> | null,
-): ShipmentHistoryEntry {
+export function historyEntry(row: HistoryRowRead, who: ReadonlyMap<string, { name: string; email: string }> | null, coverSaves: ReadonlySet<string> = new Set()): ShipmentHistoryEntry {
   const oldValue = historyValue(row.oldValue);
   const newValue = historyValue(row.newValue);
-  const person = who ? (who.get(row.userId) ?? { name: FORMER_USER, email: "" }) : undefined;
+  const person = coverSaves.has(saveOf(row)) ? { name: ABSENCE_COVER_ACTOR, email: "" } : who ? (who.get(row.userId) ?? { name: FORMER_USER, email: "" }) : undefined;
   return {
     id: row.id,
     field: row.field,

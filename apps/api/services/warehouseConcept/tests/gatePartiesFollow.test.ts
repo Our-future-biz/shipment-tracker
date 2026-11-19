@@ -23,6 +23,7 @@ const { shipmentGet, internalServiceUser } = vi.hoisted(() => ({
 }));
 vi.mock("~encore/clients", async () => ({
   shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet },
+  invoicing: (await import("./shipmentFakes")).invoicingFake,
   auth: { ...(await import("./authFake")).authFake([]), _internalServiceUser: internalServiceUser },
 }));
 

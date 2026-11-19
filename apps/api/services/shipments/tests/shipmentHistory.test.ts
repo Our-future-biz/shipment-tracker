@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The labelled keys come from libs that reach lib/personPick, which loads encore.dev/api.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { HISTORY_VALUE_MAX, historyEntry, historyLabel, historyLimit, historyValue } from "../lib/shipmentHistory";
+import { HISTORY_VALUE_MAX, absenceCoverSaves, historyEntry, historyLabel, historyLimit, historyValue } from "../lib/shipmentHistory";
 
 // A job's history as a manager reads it: the app's own entries labelled, a field of the job by its key.
 
@@ -44,6 +44,25 @@ describe("a history entry", () => {
     expect(historyEntry({ ...row, oldValue: "a" }, new Map())).toMatchObject({ cut: false, userName: "former user", userEmail: "" });
     // The look-up failed: nobody is named.
     expect(historyEntry(row, null)).toMatchObject({ userName: "", userEmail: "" });
+  });
+
+  it("names the Holiday Cover's job for its own saves, not the service identity it writes as - Trucking's saves stay its own (m26)", () => {
+    const system = new Map([["svc", { name: "Trucking (system)", email: "trucking-system+c1@system.invalid" }]]);
+    const set = new Date("2026-11-16T06:00:00Z");
+    const rows = [
+      { id: "a1", userId: "svc", field: "holidayCover", oldValue: "", newValue: "eva@firma.cz", changedAt: set },
+      { id: "a2", userId: "svc", field: "absenceCover", oldValue: null, newValue: "Holiday Cover eva@firma.cz while Jan Novák is away 16.11.–20.11.", changedAt: set },
+      // Trucking's write as the same identity, at another moment.
+      { id: "a3", userId: "svc", field: "deliveryDate", oldValue: null, newValue: "2026-11-20", changedAt: new Date("2026-11-16T06:00:01Z") },
+    ];
+    const saves = absenceCoverSaves(rows);
+    expect(rows.map((r) => historyEntry(r, system, saves)).map((e) => [e.id, e.userName, e.userEmail])).toEqual([
+      ["a1", "Holiday Cover (automatic)", ""],
+      ["a2", "Holiday Cover (automatic)", ""],
+      ["a3", "Trucking (system)", "trucking-system+c1@system.invalid"],
+    ]);
+    // Named so even when the people could not be looked up.
+    expect(historyEntry(rows[0]!, null, saves).userName).toBe("Holiday Cover (automatic)");
   });
 
   it("keeps a value up to the limit whole", () => {

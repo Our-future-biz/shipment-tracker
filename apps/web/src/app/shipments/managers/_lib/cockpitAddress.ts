@@ -114,13 +114,15 @@ export const LIST_TILES: readonly ListTile[] = [
   { key: "etdEtaMoved", label: "ETA Moved", hint: "An ETD or ETA moved in the last 7 days", danger: true },
   // Counted by the list's own rule (unbilled-arrivals), so the tile is the rows it opens.
   { key: "notReleased", label: "Arrived, not released for billing", hint: "Tax date reached (ATA, ATD or delivery) and the job is not in Billing yet" },
-  { key: "openClaims", label: "Open claims", hint: "Active jobs with a claim" },
+  // X8: an open claim outlives the job's billing - the list's tile=claims lists these same jobs.
+  { key: "openClaims", label: "Open claims", hint: "Jobs with an open claim, invoiced or cancelled ones too" },
 ];
 
 // The Shipments list's own filters that list what a tile counted (apps/api shipment.repository:
-// TILE_PREDICATES, handledByMatch, the invoicing filter). The tiles count active jobs only; a
-// filter that is not narrowed to them by itself (Handled By, unbilled arrivals) is joined by
-// tile=active.
+// TILE_PREDICATES, handledByMatch, the invoicing filter). The tiles count active jobs - but "Open
+// claims", which counts every job with an open claim, Invoiced or cancelled too, as tile=claims
+// lists them; a filter that is not narrowed to active jobs by itself (Handled By, unbilled
+// arrivals) is joined by tile=active.
 const TILE_FILTERS: Record<OpsListTileKey, Record<string, string>> = {
   active: { tile: "active" },
   noHandledBy: { tile: "active", handledBy: NOBODY },

@@ -91,6 +91,27 @@ describe("a statement read (importStatement)", () => {
   });
 });
 
+describe("the open incoming entries (openIncoming, mock test council X5)", () => {
+  it("reads the undecided money in with its file's name, the newest booked first, never money out, a decided one or another company's", async () => {
+    const [a, b] = [randomUUID(), randomUUID()];
+    const file = statement(a, { fromDate: "2026-11-10", toDate: "2026-11-16" });
+    const made = (await repo.importStatement(file, [
+      entry(a, `${IBAN}|open-1`, { bookingDate: "2026-11-12" }),
+      entry(a, `${IBAN}|open-2`, { bookingDate: "2026-11-16", status: "no_match" }),
+      entry(a, `${IBAN}|out`, { credit: false, status: "not_incoming" }),
+      entry(a, `${IBAN}|decided`, { bookingDate: "2026-11-15" }),
+    ]))!.statement;
+    await repo.importStatement(statement(b), [entry(b, `${IBAN}|theirs`)]);
+    const decided = (await repo.entriesOf(made)).find((x) => x.entryKey === `${IBAN}|decided`)!;
+    await repo.ignore(a, decided.id, decided.version, { ...decision, reason: "not ours" });
+
+    const open = await repo.openIncoming(a);
+    expect(open.map((x) => x.entryKey)).toEqual([`${IBAN}|open-2`, `${IBAN}|open-1`]);
+    expect(open[0]).toMatchObject({ fileName: file.fileName, statementId: made.id, credit: true, amount: "1210.00", variableSymbol: "31" });
+    expect(await repo.openIncoming(a, 1)).toHaveLength(1);
+  });
+});
+
 describe("deciding an entry (confirm, ignore)", () => {
   const stored = async () => {
     const company = randomUUID();
@@ -213,6 +234,20 @@ describe("an export to the accounting system (accountingExportRepository)", () =
       expect((await exportsRepo.exportedBefore(tx, a, "pohoda", [inside.id], made.createdAt)).size).toBe(0);
       expect((await exportsRepo.exportedBefore(tx, b, "pohoda", [inside.id])).size).toBe(0);
       expect(await exportsRepo.exportById(tx, b, made.id)).toBeNull();
+    });
+  });
+
+  it("reads an export's recorded documents back by their ids, whatever their day, for its own company only (m1)", async () => {
+    const [a, b] = [randomUUID(), randomUUID()];
+    const one = await issue(a, "2026-11-10");
+    const two = await issue(a, "2026-10-02");
+    const theirs = await issue(b, "2026-11-10");
+    const made = await exportsRepo.inExport(a, "pohoda", (tx) => record(tx, a, [one.id, two.id]));
+    await exportsRepo.inExport(a, "pohoda", async (tx) => {
+      const ids = await exportsRepo.documentIdsOf(tx, a, made.id);
+      expect([...ids].sort()).toEqual([one.id, two.id].sort());
+      expect((await exportsRepo.documentsByIds(tx, a, [...ids, theirs.id])).map((d) => d.id).sort()).toEqual([one.id, two.id].sort());
+      expect(await exportsRepo.documentsByIds(tx, b, [one.id])).toEqual([]);
     });
   });
 });

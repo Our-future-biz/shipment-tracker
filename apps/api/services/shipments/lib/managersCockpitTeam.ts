@@ -285,10 +285,21 @@ export function awayToday(absences: readonly AbsenceFact[], today: string): Map<
  * AWAY_SOON_WORKING_DAYS working days. A job with a Holiday Cover is covered - unless the cover is
  * away today too: URGENT "Handled By and Holiday Cover away until dd.mm." when both are (the day the
  * first of them is back), ATTENTION "Holiday Cover away until dd.mm." when only the cover is.
+ * A Holiday Cover who is not a user (`userEmails`, when known: deactivated, say) covers nobody: the
+ * job is judged as one with no cover (S16), and lib/managersCockpit handledBySignals says
+ * "Holiday Cover is not a user" beside it.
  */
-export function awaySignals(job: Pick<TeamJob, "personInCharge" | "holidayCover">, absences: readonly AbsenceFact[], away: ReadonlyMap<string, string>, today: string, holidays: readonly string[]): TeamSignal[] {
+export function awaySignals(
+  job: Pick<TeamJob, "personInCharge" | "holidayCover">,
+  absences: readonly AbsenceFact[],
+  away: ReadonlyMap<string, string>,
+  today: string,
+  holidays: readonly string[],
+  userEmails: ReadonlySet<string> | null = null,
+): TeamSignal[] {
   const email = personEmail(job.personInCharge);
-  const cover = personEmail(job.holidayCover);
+  const named = personEmail(job.holidayCover);
+  const cover = named && (!userEmails || userEmails.has(named)) ? named : "";
   const until = email ? away.get(email) : undefined;
   if (cover) {
     const coverUntil = away.get(cover);
@@ -398,6 +409,8 @@ export interface TeamReads {
 export function teamFactsOf(jobs: readonly TeamJob[], reads: TeamReads, ctx: { now: Date; today: string; holidays: readonly string[] }): TeamFacts {
   const { now, today, holidays } = ctx;
   const mentionsKnown = reads.mentions !== null && reads.emailOf !== null;
+  // The company's users, by e-mail: a Holiday Cover who is none of them covers nobody (awaySignals).
+  const userEmails = reads.emailOf && new Set(reads.emailOf.values());
   const away = reads.absences && awayToday(reads.absences, today);
   const byJob = new Map<string, TeamJobFacts>();
   for (const job of jobs) {
@@ -406,7 +419,7 @@ export function teamFactsOf(jobs: readonly TeamJob[], reads: TeamReads, ctx: { n
     const facts: TeamJobFacts = {
       signals: [
         ...releaseRequestSignals(reads.releaseRequests?.get(job.id) ?? [], now, holidays),
-        ...(reads.absences && away ? awaySignals(job, reads.absences, away, today, holidays) : []),
+        ...(reads.absences && away ? awaySignals(job, reads.absences, away, today, holidays, userEmails) : []),
         ...todoSignals(todos, today, holidays),
         ...mentionSignals(unread),
       ],

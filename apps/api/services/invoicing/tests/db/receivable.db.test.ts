@@ -10,6 +10,7 @@ import { and, eq, inArray } from "drizzle-orm";
 // (INVOICING_DB_TESTS=1 encore test services/invoicing/tests/db).
 
 import { db } from "../../db/db";
+import { asAtOf } from "../../lib/receivables";
 import { receivableRepository as repo, CARRIED_OVER_NOTE } from "../../repositories/receivable.repository";
 import { invoiceTable as t, type InvoiceRecord } from "../../schemas/invoice.schema";
 import { invoiceFollowupOutboxTable as o } from "../../schemas/invoiceFollowupOutbox.schema";
@@ -477,17 +478,141 @@ describe("month-end candidates (asAtCandidates)", () => {
     expect(found.map((x) => x.id)).not.toContain(issuedAfter.id);
     expect(await repo.asAtCandidates(a, day, 1)).toHaveLength(1);
   });
+
+  it("a payment moved to another invoice counts once at month-end: never on the invoice it was taken back from (N2, L1)", async () => {
+    const a = randomUUID();
+    const day = "2026-10-31";
+    const at = () => issue(a, { issueDate: "2026-10-10", duzp: "2026-10-10", dueDate: "2026-10-24" });
+    const wrong = await at();
+    const right = await at();
+    // Paid on 20.10. and noted on the wrong invoice; taken back after the month-end day and noted on the right one with
+    // the bank's day 20.10.
+    const noted = (await pay(a, wrong.id, "1210.00", { paidOn: "2026-10-20" }))!;
+    await db.transaction((tx) => repo.takeBack(tx, a, wrong.id, noted.id, { userId: randomUUID(), email: "boss@test.cz", reason: "noted on the wrong invoice" }));
+    await db.update(p).set({ takenBackAt: new Date("2026-11-04T09:00:00Z") }).where(eq(p.id, noted.id));
+    await pay(a, right.id, "1210.00", { paidOn: "2026-10-20" });
+
+    const found = await repo.asAtCandidates(a, day, 100);
+    // The wrong one is owed now, so it is a candidate; the right one is settled by a payment that counted on the day.
+    expect(found.map((x) => x.id)).toEqual([wrong.id]);
+    const [wrongLines, rightLines] = await Promise.all([repo.paymentsOf(a, [wrong.id]), repo.paymentsOf(a, [right.id])]);
+    const asAt = (inv: InvoiceRecord, lines: typeof wrongLines) =>
+      asAtOf({ invoiceStatus: inv.status, issueDate: inv.issueDate, dueDate: inv.dueDate, gross: Number(inv.gross), fxRate: 1, creditNotes: [], lines }, day);
+    // Listed as owed in full on the day; the right one not listed: the receivables are 1,210.00, not 0.
+    expect(asAt(wrong, wrongLines)).toMatchObject({ listed: true, paid: 0, leftToPay: 1210, daysOverdue: 7 });
+    expect(asAt(right, rightLines)).toMatchObject({ listed: false, paid: 1210, leftToPay: 0 });
+  });
+});
+
+describe("disputes that close by themselves (closeSettledDisputes, n4)", () => {
+  const dispute = (companyId: string, invoiceId: string) =>
+    db.update(r).set({ disputed: true, disputedReason: "the customer disputes the rate" }).where(and(eq(r.companyId, companyId), eq(r.invoiceId, invoiceId)));
+  const reason = ({ status }: { invoiceStatus: string; status: string }) => `closed: ${status}`;
+
+  it("closes a dispute once nothing is owed - paid, credited in full - with a note and a history line, and leaves one still owed", async () => {
+    const a = randomUUID();
+    const paid = await issue(a);
+    const credited = await issue(a);
+    const owed = await issue(a);
+    const partPaid = await issue(a);
+    await repo.ensureRows(a, { all: true });
+    for (const inv of [paid, credited, owed, partPaid]) await dispute(a, inv.id);
+    await pay(a, paid.id, "1210.00");
+    await creditNote(a, credited, "-1210.00");
+    await pay(a, partPaid.id, "200.00");
+
+    const closed = await repo.closeSettledDisputes(a, { all: true }, "Accounts Receivable (automatic)", reason);
+    expect(closed.sort()).toEqual([paid.id, credited.id].sort());
+    expect(await receivableOf(paid.id)).toMatchObject({ disputed: false, disputedReason: "" });
+    expect(await receivableOf(credited.id)).toMatchObject({ disputed: false });
+    expect(await receivableOf(owed.id)).toMatchObject({ disputed: true });
+    expect(await receivableOf(partPaid.id)).toMatchObject({ disputed: true });
+    expect(await eventsOf(paid.id)).toContain("dispute_closed");
+    const [event] = await db.select().from(ev).where(and(eq(ev.invoiceId, paid.id), eq(ev.action, "dispute_closed")));
+    expect(event).toMatchObject({ by: "Accounts Receivable (automatic)", reason: "closed: paid", byUserId: null });
+    const notes = await repo.notes(a, paid.id);
+    expect(notes).toEqual([expect.objectContaining({ kind: "dispute_closed", text: "closed: paid", by: "Accounts Receivable (automatic)" })]);
+
+    // Once: a second read closes nothing more, and another company's are never touched.
+    expect(await repo.closeSettledDisputes(a, { all: true }, "x", reason)).toEqual([]);
+    expect(await repo.closeSettledDisputes(randomUUID(), { all: true }, "x", reason)).toEqual([]);
+    // The scope holds: one invoice's read closes only that one.
+    const later = await issue(a);
+    await repo.ensureRows(a, { invoiceIds: [later.id] });
+    await dispute(a, later.id);
+    await pay(a, later.id, "1210.00");
+    expect(await repo.closeSettledDisputes(a, { invoiceIds: [owed.id] }, "x", reason)).toEqual([]);
+    expect(await repo.closeSettledDisputes(a, { invoiceIds: [later.id] }, "x", reason)).toEqual([later.id]);
+  });
+
+  it("opens one that closed by itself again once what settled it is taken back, with its own reason and a history line - never one a person closed", async () => {
+    const a = randomUUID();
+    const byItself = await issue(a);
+    const byPerson = await issue(a);
+    await repo.ensureRows(a, { all: true });
+    for (const inv of [byItself, byPerson]) {
+      await dispute(a, inv.id);
+      await repo.addEvent(db, a, inv.id, { action: "disputed", by: "eva@test.cz", reason: "the customer disputes the rate" });
+      await pay(a, inv.id, "1210.00");
+    }
+    await repo.closeSettledDisputes(a, { invoiceIds: [byItself.id] }, "Accounts Receivable (automatic)", reason);
+    // A person closes the other one (no "automatic" on the event).
+    await db.update(r).set({ disputed: false, disputedReason: "" }).where(eq(r.invoiceId, byPerson.id));
+    await repo.addEvent(db, a, byPerson.id, { action: "dispute_closed", by: "eva@test.cz", reason: "agreed by phone" });
+
+    // Still paid: nothing opens again.
+    expect(await repo.reopenAutoClosedDisputes(a, { all: true }, "Accounts Receivable (automatic)", "opened again")).toEqual([]);
+
+    for (const inv of [byItself, byPerson]) {
+      const [payment] = await paymentsOf(inv.id);
+      await db.transaction((tx) => repo.takeBack(tx, a, inv.id, payment!.id, { userId: randomUUID(), email: "boss@test.cz", reason: "noted by mistake" }));
+    }
+    expect(await repo.reopenAutoClosedDisputes(a, { all: true }, "Accounts Receivable (automatic)", "opened again")).toEqual([byItself.id]);
+    expect(await receivableOf(byItself.id)).toMatchObject({ disputed: true, disputedReason: "the customer disputes the rate" });
+    expect(await receivableOf(byPerson.id)).toMatchObject({ disputed: false });
+    const [reopened] = await db.select().from(ev).where(and(eq(ev.invoiceId, byItself.id), eq(ev.action, "disputed"), eq(ev.by, "Accounts Receivable (automatic)")));
+    expect(reopened).toMatchObject({ reason: "opened again", byUserId: null, payload: expect.objectContaining({ automatic: true, reopened: true }) });
+    expect((await repo.notes(a, byItself.id)).map((x) => [x.kind, x.text])).toContainEqual(["dispute", "opened again (the customer disputes the rate)"]);
+
+    // Once: open again, it is not opened twice; another company's are never touched.
+    expect(await repo.reopenAutoClosedDisputes(a, { all: true }, "x", "opened again")).toEqual([]);
+    expect(await repo.reopenAutoClosedDisputes(randomUUID(), { all: true }, "x", "opened again")).toEqual([]);
+    // Paid again, it closes by itself again - and a later take-back opens it again with the person's reason, not the reopening's.
+    await pay(a, byItself.id, "1210.00", { idempotencyKey: randomUUID() });
+    expect(await repo.closeSettledDisputes(a, { invoiceIds: [byItself.id] }, "Accounts Receivable (automatic)", reason)).toEqual([byItself.id]);
+    const live = (await paymentsOf(byItself.id)).find((x) => !x.takenBackAt)!;
+    await db.transaction((tx) => repo.takeBack(tx, a, byItself.id, live.id, { userId: randomUUID(), email: "boss@test.cz", reason: "bounced" }));
+    expect(await repo.reopenAutoClosedDisputes(a, { invoiceIds: [byItself.id] }, "x", "opened again")).toEqual([byItself.id]);
+    expect(await receivableOf(byItself.id)).toMatchObject({ disputedReason: "the customer disputes the rate" });
+  });
 });
 
 describe("reminder settings (step 7)", () => {
   it("reads the defaults until saved, then the saved ones; one row per company; the days checked", async () => {
     const a = randomUUID();
-    expect(await repo.settingsOf(a)).toEqual({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", updatedBy: "", updatedAt: null });
+    expect(await repo.settingsOf(a)).toEqual({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, updatedBy: "", updatedAt: null });
     const by = { updatedByUserId: randomUUID(), updatedBy: "boss@test.cz" };
-    await repo.saveSettings(a, { autoReminders: true, reminder1Days: 5, reminder2Days: 15, replyTo: "ucetni@cto.cz", ...by });
-    await repo.saveSettings(a, { autoReminders: false, reminder1Days: 10, reminder2Days: 30, replyTo: "", ...by });
-    expect(await repo.settingsOf(a)).toMatchObject({ autoReminders: false, reminder1Days: 10, reminder2Days: 30, replyTo: "", updatedBy: "boss@test.cz" });
+    await repo.saveSettings(a, { autoReminders: true, reminder1Days: 5, reminder2Days: 15, replyTo: "ucetni@cto.cz", autoRemindersSince: "2026-11-19", ...by });
+    expect(await repo.settingsOf(a)).toMatchObject({ autoReminders: true, autoRemindersSince: "2026-11-19" });
+    await repo.saveSettings(a, { autoReminders: false, reminder1Days: 10, reminder2Days: 30, replyTo: "", autoRemindersSince: null, ...by });
+    expect(await repo.settingsOf(a)).toMatchObject({ autoReminders: false, reminder1Days: 10, reminder2Days: 30, replyTo: "", autoRemindersSince: null, updatedBy: "boss@test.cz" });
     expect(await db.select().from(settingsT).where(eq(settingsT.companyId, a))).toHaveLength(1);
-    await expect(repo.saveSettings(a, { autoReminders: false, reminder1Days: 10, reminder2Days: 10, replyTo: "", ...by })).rejects.toThrow();
+    await expect(repo.saveSettings(a, { autoReminders: false, reminder1Days: 10, reminder2Days: 10, replyTo: "", autoRemindersSince: null, ...by })).rejects.toThrow();
+  });
+});
+
+describe("the reminder run's read (overdueOn with dueFrom, L2)", () => {
+  it("reads only the owed invoices due on or after the day, before the day they are overdue on, the oldest due first", async () => {
+    const a = randomUUID();
+    const old = await issue(a, { dueDate: "2026-09-01" });
+    const fromDay = await issue(a, { dueDate: "2026-10-19" });
+    const later = await issue(a, { dueDate: "2026-11-10" });
+    const notYet = await issue(a, { dueDate: "2026-11-30" });
+    await repo.ensureRows(a, { all: true });
+    const ids = (await repo.figures(a, { overdueOn: "2026-11-19", dueFrom: "2026-10-19" }, 10)).map((f) => f.invoice.id);
+    expect(ids).toEqual([fromDay.id, later.id]);
+    expect(ids).not.toContain(notYet.id);
+    // Without the day: every overdue one, as the bell reads them.
+    expect((await repo.figures(a, { overdueOn: "2026-11-19" }, 10)).map((f) => f.invoice.id)).toEqual([old.id, fromDay.id, later.id]);
   });
 });

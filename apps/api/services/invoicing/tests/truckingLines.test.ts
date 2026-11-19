@@ -7,6 +7,14 @@ vi.mock("../repositories/truckingLines.repository", () => ({ truckingLinesReposi
 // The shipment a push is for, as Shipments answers it (company-scoped, live only).
 const shipments = vi.hoisted(() => ({ shipmentGet: vi.fn(async (_req: { shipmentId: string }) => ({ shipment: { jobNumber: "CZ00000028" } })) }));
 vi.mock("~encore/clients", () => ({ shipments }));
+// What a push owes the job's statuses (services/sellingStatusFollow): its hook, and the send after the commit.
+const follow = vi.hoisted(() => ({ steps: [] as string[], afterSet: async () => undefined, after: async () => undefined, deliver: async () => undefined }));
+vi.mock("../services/sellingStatusFollow", () => ({
+  statusesFollow: (_companyId: string, shipmentId: string) => {
+    follow.steps.push(`hook for ${shipmentId}`);
+    return { after: follow.after, afterSet: follow.afterSet, deliver: async () => void follow.steps.push("deliver") };
+  },
+}));
 
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { truckingLinesService } from "../services/truckingLines.service";
@@ -85,9 +93,19 @@ describe("Trucking lines in Costs Breakdown", () => {
 
   it("hands the whole set to the repository; empty lists remove it (a cancel)", async () => {
     await truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:trip:${TRIP}`, buying: [line()], selling: [] });
-    expect(truckingLinesRepository.replace).toHaveBeenCalledWith(C, S, `trucking:trip:${TRIP}`, [expect.objectContaining({ estCurrency: "CZK", vendor: "Bravo Trans" })], [], "Price change after invoice");
+    expect(truckingLinesRepository.replace).toHaveBeenCalledWith(C, S, `trucking:trip:${TRIP}`, [expect.objectContaining({ estCurrency: "CZK", vendor: "Bravo Trans" })], [], "Price change after invoice", follow.afterSet);
     await truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:trip:${TRIP}`, buying: [], selling: [], differenceLabel: "TCZ2026000001 · Price change after invoice" });
-    expect(truckingLinesRepository.replace).toHaveBeenLastCalledWith(C, S, `trucking:trip:${TRIP}`, [], [], "TCZ2026000001 · Price change after invoice");
+    expect(truckingLinesRepository.replace).toHaveBeenLastCalledWith(C, S, `trucking:trip:${TRIP}`, [], [], "TCZ2026000001 · Price change after invoice", follow.afterSet);
+  });
+
+  it("hands the push the shipment's status hook, and sends what it owes once the push has committed", async () => {
+    follow.steps.length = 0;
+    vi.mocked(truckingLinesRepository.replace).mockImplementationOnce(async () => {
+      follow.steps.push("push");
+      return { buying: 0, selling: 1, sellingKept: 0, differences: [] };
+    });
+    await truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:consignment:${TRIP}`, buying: [], selling: [line()] });
+    expect(follow.steps).toEqual([`hook for ${S}`, "push", "deliver"]);
   });
 
   describe("a price change after the invoice is billed as its own difference line (decision 9)", () => {

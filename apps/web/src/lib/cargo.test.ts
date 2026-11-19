@@ -10,6 +10,7 @@ import {
   checkConsistency,
   compareFigure,
   dimensionLineIsEmpty,
+  hasAdr,
   isDangerousShipment,
   adrUnText,
   dimensionLineVolume,
@@ -138,14 +139,23 @@ describe("compareFigure / checkConsistency", () => {
 
 describe("shipmentDeclaredFigures", () => {
   it("reads Pcs with thousands separators as the server does, and tons as kg", () => {
-    expect(shipmentDeclaredFigures({ pcs: "1,200", totalWeightTons: "2.345", totalVolumeCbm: "14.5" })).toEqual({ packages: "1200", grossWeight: "2345", volume: "14.5" });
+    expect(shipmentDeclaredFigures({ pcs: "1,200", totalWeightTons: "2.345", totalVolumeCbm: "14.5" })).toEqual({ packages: "1200", grossWeight: "2345", volume: "14.5", kgDecimals: 1 });
   });
   it("leaves what the shipment doesn't declare empty", () => {
-    expect(shipmentDeclaredFigures({ pcs: null, totalWeightTons: "", totalVolumeCbm: null })).toEqual({ packages: "", grossWeight: "", volume: "" });
+    expect(shipmentDeclaredFigures({ pcs: null, totalWeightTons: "", totalVolumeCbm: null })).toEqual({ packages: "", grossWeight: "", volume: "", kgDecimals: 1 });
   });
   it("checks a container-less shipment's lines as a container's", () => {
     const line = { pieces: "1200", lengthCm: "10", widthCm: "10", heightCm: "10", weightPerPcKg: "2", packageType: "", stackable: "" };
     expect(checkConsistency(shipmentDeclaredFigures({ pcs: "1,200", totalWeightTons: "2.4", totalVolumeCbm: "1.2" }), [line]).matched).toBe(true);
+  });
+  it("checks the weight to the 0.1 kg Total Weight is stored to: 7 × 13.25 kg agrees with 0.0928 t (council finding X10)", () => {
+    const line = { pieces: "7", lengthCm: "10", widthCm: "10", heightCm: "10", weightPerPcKg: "13.25", packageType: "", stackable: "" };
+    const check = checkConsistency(shipmentDeclaredFigures({ pcs: "7", totalWeightTons: "0.0928", totalVolumeCbm: "0.007" }), [line]);
+    expect(check.kg).toMatchObject({ ok: true, decimals: 1 });
+    expect(check.matched).toBe(true);
+    // A container's own Gross Weight is still checked to 2 decimals.
+    const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "7", packageType: "", grossWeight: "92.8", volume: "0.007" };
+    expect(checkConsistency(c, [line]).kg).toMatchObject({ ok: false, decimals: 2 });
   });
 });
 
@@ -337,5 +347,26 @@ describe("cargoContainers", () => {
   it("are none on an air job, whatever container rows it carries", () => {
     expect(cargoContainers({ freightMode: "Air Freight", containers: [box] })).toEqual([]);
     expect(cargoContainers({ freightMode: " air freight", containers: [box] })).toEqual([]);
+  });
+});
+
+// Review: a UN number or class typed as blanks is no ADR detail - read as the server reads it
+// (apps/api …/lib/remeasureAccept carriesAdr), so Accept remeasurement asks for a by-hand update
+// on the page only when the server would.
+describe("hasAdr", () => {
+  const line = (over: Partial<CargoDimensionLine> = {}): CargoDimensionLine =>
+    ({ containerId: null, pieces: "1", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "", ...over }) as CargoDimensionLine;
+
+  it("is none for blanks in the UN number or class", () => {
+    expect(hasAdr(line())).toBe(false);
+    expect(hasAdr(line({ adrUn: "  ", adrClass: " \t" }))).toBe(false);
+    expect(isDangerousShipment({ dangerous: "No", cargoDimensions: [line({ adrUn: " " })] })).toBe(false);
+  });
+
+  it("is any UN number, class, packing group or limited quantity", () => {
+    expect(hasAdr(line({ adrUn: " 1203 " }))).toBe(true);
+    expect(hasAdr(line({ adrClass: "3" }))).toBe(true);
+    expect(hasAdr(line({ adrPackingGroup: "II" }))).toBe(true);
+    expect(hasAdr(line({ adrLimitedQuantity: true }))).toBe(true);
   });
 });

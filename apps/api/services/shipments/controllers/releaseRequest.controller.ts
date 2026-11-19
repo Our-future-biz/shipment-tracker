@@ -61,6 +61,21 @@ export const releaseRequestDecide = api(
   },
 );
 
+interface ReleaseWithdrawRequest {
+  id: string;
+  /** Why it is withdrawn (at least 3 characters): kept with the request and in the job's history. */
+  reason: string & MaxLen<500>;
+}
+
+// K20. Whoever asked withdraws their request while it waits; a manager withdraws an approval nobody has used
+// yet, which then lets nothing through. Each with a reason and a line in the job's history.
+export const releaseRequestWithdraw = api(
+  { expose: true, auth: true, method: "POST", path: "/release-requests/:id/withdraw" },
+  async ({ id, ...input }: ReleaseWithdrawRequest): Promise<{ request: ReleaseRequestItem }> => {
+    return { request: await service.withdraw(getAuthData()!, id, input) };
+  },
+);
+
 // The bell: the managers' answers to the signed-in user's own requests - approved (with `usable`) and rejected.
 export const releaseRequestAnswers = api(
   { expose: true, auth: true, method: "GET", path: "/release-request-answers" },

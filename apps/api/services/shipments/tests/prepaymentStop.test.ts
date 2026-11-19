@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { overrideLine, PAYMENT_UNCHECKED, prepaymentStop, setsWarehouseRelease } from "../lib/prepaymentStop";
+import { NOT_INVOICED, overrideLine, PAYMENT_UNCHECKED, prepaymentStop, setsWarehouseRelease, type ReleaseOverride } from "../lib/prepaymentStop";
 
 // The prepayment stop (Accounts Receivable step 7): who may release a job on prepayment that is not paid.
 const UNPAID = {
@@ -59,6 +59,23 @@ describe("prepaymentStop", () => {
     expect(prepaymentStop("house_bol", null, "user", "whatever")).toEqual({ refusal: `${PAYMENT_UNCHECKED}. A manager can release it with a reason` });
     expect(prepaymentStop("house_bol", null, "manager", undefined)).toEqual({ refusal: expect.stringContaining(PAYMENT_UNCHECKED) });
     expect(prepaymentStop("house_bol", null, "admin", "Cash at the counter")).toEqual({ override: { reason: "Cash at the counter", invoices: [], checked: false } });
+  });
+
+  it("stops a job on prepayment before any invoice, naming the work not yet invoiced, and records it with a manager's reason (L3)", () => {
+    const uninvoiced = { prepaymentUnpaid: true, unpaid: [], prepaymentInvoices: [], prepaymentUninvoiced: [{ currency: "EUR", amount: 825 }] };
+    expect(prepaymentStop("house_bol", uninvoiced, "user", undefined)).toEqual({
+      refusal: "The House BoL can't be released: the job is on prepayment and not invoiced and paid yet - 825.00 EUR not invoiced yet. A manager can release it with a reason",
+    });
+    const verdict = prepaymentStop("warehouse_released", uninvoiced, "manager", "Paid in advance by card");
+    expect(verdict).toEqual({ override: { reason: "Paid in advance by card", invoices: [{ number: NOT_INVOICED, leftToPay: 825, currency: "EUR" }], checked: true } });
+    expect(overrideLine("warehouse_released", (verdict as { override: ReleaseOverride }).override)).toBe(
+      "Warehouse Released set on prepayment (not invoiced: 825.00 EUR not invoiced yet) - reason: Paid in advance by card",
+    );
+    // An unpaid prepayment invoice and more work not invoiced: both named.
+    const both = { ...uninvoiced, prepaymentInvoices: [UNPAID.unpaid[0]!] };
+    expect(prepaymentStop("house_bol", both, "user", undefined)).toEqual({
+      refusal: "The House BoL can't be released: the job is on prepayment and not paid - FV2026-0012 (1,200.00 EUR left to pay), 825.00 EUR not invoiced yet. A manager can release it with a reason",
+    });
   });
 });
 

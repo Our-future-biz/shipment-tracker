@@ -14,6 +14,7 @@ import {
   mayConfirm,
   paidOf,
   prepaymentInvoicesOf,
+  prepaymentUninvoicedOf,
   prepaymentUnpaidOf,
   receivableStateOf,
   settingsProblem,
@@ -251,6 +252,20 @@ describe("the prepayment stop (D20, step 7)", () => {
       ]),
     ).toEqual([{ invoiceId: "i1", number: "INV-1", leftToPay: 1210, currency: "CZK" }]);
   });
+
+  it("stops a job on prepayment before any invoice while it has selling not yet invoiced (L3)", () => {
+    const unbilled = [
+      { currency: "EUR", amount: 825 },
+      { currency: "CZK", amount: 0 },
+      { currency: "USD", amount: -10 },
+    ];
+    expect(prepaymentUninvoicedOf("PREPAYMENT", unbilled)).toEqual([{ currency: "EUR", amount: 825 }]);
+    expect(prepaymentUninvoicedOf("Prepayment 100 %", [{ currency: "CZK", amount: 1000.5 }])).toEqual([{ currency: "CZK", amount: 1000.5 }]);
+    // Not on prepayment, or nothing left to invoice: no stop.
+    expect(prepaymentUninvoicedOf("14 days", unbilled)).toEqual([]);
+    expect(prepaymentUninvoicedOf(null, unbilled)).toEqual([]);
+    expect(prepaymentUninvoicedOf("PREPAYMENT", [])).toEqual([]);
+  });
 });
 
 describe("month-end as at a day (step 7)", () => {
@@ -287,10 +302,15 @@ describe("month-end as at a day (step 7)", () => {
     expect(countsAt(line({ kind: "write_off", confirmedAt: null }), DAY)).toBe(false);
   });
 
-  it("still counts a line taken back after the day, not one taken back on or before it", () => {
-    expect(countsAt(line({ takenBackAt: new Date("2026-11-02T10:00:00Z") }), DAY)).toBe(true);
+  it("never counts a line taken back, on any day (N2, L1: a payment moved to another invoice counts once)", () => {
+    expect(countsAt(line({ takenBackAt: new Date("2026-11-02T10:00:00Z") }), DAY)).toBe(false);
     expect(countsAt(line({ takenBackAt: new Date("2026-10-31T20:00:00Z") }), DAY)).toBe(false);
-    expect(countsAt(line({ kind: "write_off", takenBackAt: new Date("2026-11-02T10:00:00Z") }), DAY)).toBe(true);
+    expect(countsAt(line({ kind: "write_off", confirmedAt: new Date("2026-10-20T10:00:00Z"), takenBackAt: new Date("2026-11-02T10:00:00Z") }), DAY)).toBe(false);
+    // Paid on 20.10., noted on invoice A, taken back on 4.11. and noted on invoice B with the same day: at 31.10. A is
+    // owed in full and B is paid - the one payment counts once, not on both.
+    const moved = { paidOn: "2026-10-20", amount: "1000.00" };
+    expect(asAtOf(base({ lines: [line({ ...moved, takenBackAt: new Date("2026-11-04T09:00:00Z") })] }), DAY)).toMatchObject({ paid: 0, leftToPay: 1000, listed: true });
+    expect(asAtOf(base({ lines: [line(moved)] }), DAY)).toMatchObject({ paid: 1000, leftToPay: 0, listed: false });
   });
 
   it("credits only the credit notes issued on or before the day", () => {

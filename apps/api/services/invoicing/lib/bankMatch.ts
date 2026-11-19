@@ -1,3 +1,4 @@
+import { addDays } from "../../../lib/businessDate";
 import { round2 } from "./invoiceCalc";
 import { variableSymbol } from "./invoicePdf";
 import { MIN_REASON } from "./receivables";
@@ -122,6 +123,70 @@ export function matchEntry(
   out.sort((a, b) => b.score - a.score || a.dueDate.localeCompare(b.dueDate) || a.number.localeCompare(b.number));
   const candidates = out.slice(0, CANDIDATE_LIMIT);
   return { status: candidates.length ? "proposed" : "no_match", candidates };
+}
+
+/** An incoming bank entry no manager has decided yet (proposed or no match), as the "payment waiting" check reads it. */
+export interface OpenBankEntry extends MatchableEntry {
+  statementId: string;
+  /** The statement file it was read from */
+  fileName: string;
+  bookingDate: string | null;
+  /** The day the statement was read: the entry's day when it has no booking date */
+  readOn?: string | null;
+}
+
+/** An owed invoice as the "payment waiting" check reads it: with its issue day. */
+export interface WaitingInvoice extends OpenInvoice {
+  issueDate: string | null;
+}
+
+/** An open entry booked longer ago than this no longer holds an invoice's reminders. */
+export const WAITING_ENTRY_DAYS = 30;
+
+/** A payment that may be for the invoice, waiting on a bank statement for a manager to confirm it. */
+export interface WaitingPayment {
+  statementId: string;
+  fileName: string;
+  bookingDate: string | null;
+  amount: number;
+  currency: string;
+}
+
+/**
+ * Mock test council X5 (19 Nov 2026): the invoices an open bank entry may pay, each with the entry - the oldest booked
+ * first. "May pay" is the statement's own proposal (matchEntry), worked out again against the invoices as they are
+ * now, so an invoice issued after the file was read is found too. The automatic reminders leave such an invoice alone;
+ * the drawer and the reminder form say so.
+ *
+ * The variable symbol is the job number, shared by all the job's invoices, so an entry nobody decides would otherwise
+ * hold every later invoice of the job for good: an entry booked before the invoice was issued is not its payment, and
+ * one booked more than WAITING_ENTRY_DAYS before `today` holds nothing any more (it waits on its statement all the same).
+ */
+export function waitingPaymentsOf(entries: readonly OpenBankEntry[], invoices: readonly WaitingInvoice[], today: string): Map<string, WaitingPayment> {
+  const out = new Map<string, WaitingPayment>();
+  if (!invoices.length) return out;
+  const oldest = addDays(today, -WAITING_ENTRY_DAYS);
+  const dayOf = (e: OpenBankEntry) => e.bookingDate ?? e.readOn ?? null;
+  const ordered = [...entries]
+    .filter((e) => e.credit && !((dayOf(e) ?? today) < oldest))
+    .sort((a, b) => (a.bookingDate ?? "9999").localeCompare(b.bookingDate ?? "9999"));
+  for (const e of ordered) {
+    const day = dayOf(e);
+    // An entry of no known day is held against every invoice, as before.
+    const payable = day ? invoices.filter((inv) => !inv.issueDate || inv.issueDate <= day) : invoices;
+    if (!payable.length) continue;
+    for (const c of matchEntry(e, payable).candidates) {
+      if (out.has(c.invoiceId)) continue;
+      out.set(c.invoiceId, { statementId: e.statementId, fileName: e.fileName, bookingDate: e.bookingDate, amount: round2(e.amount), currency: e.currency });
+    }
+  }
+  return out;
+}
+
+/** "A payment that may be for this invoice is waiting on bank statement x.xml (booked 12.11.2026, 1,210.00 EUR): …" */
+export function waitingPaymentText(w: WaitingPayment): string {
+  const booked = w.bookingDate ? `booked ${w.bookingDate.slice(8, 10)}.${w.bookingDate.slice(5, 7)}.${w.bookingDate.slice(0, 4)}, ` : "";
+  return `A payment that may be for this invoice is waiting on bank statement ${w.fileName || "(no name)"} (${booked}${round2(w.amount).toFixed(2)} ${w.currency}): a manager confirms it there`;
 }
 
 /** A candidate as it is stored (the version and due day are read fresh whenever the statement is opened). */

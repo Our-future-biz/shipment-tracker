@@ -7,6 +7,9 @@ import { parseMoney, round2 } from "@/lib/money";
 // (api lib/bankMatch allocationProblem) and these rules only say it sooner, in the same words. Nothing is ever
 // confirmed without that click.
 
+/** What a user who is not a manager is told on the page (mock test council X6: the server refuses them the statements). */
+export const MANAGERS_ONLY_TEXT = "Only a manager sees the bank statements: they show every payment in and out of the company's account.";
+
 /** At most this many invoices in one payment (the server's MAX_ALLOCATIONS). */
 export const MAX_ALLOCATIONS = 100;
 /** A reason to set an entry aside: at least this many characters (the server's MIN_REASON). */

@@ -40,7 +40,8 @@ import { cockpitUsers } from "./managersCockpitTeam.service";
 // sync of supplier invoices, no locking of a job's rates - that endpoint's own promise),
 // Customers' `_internalCustomerCreditFacts`, and fx's rates of today (GET /fx/rates) - the sheet
 // the Sales managers' cockpit compares a credit limit with, and the one the CZK total of the
-// work not yet invoiced is converted at.
+// work not yet invoiced is converted at (labelled with its fixing's day, and as old when fx says
+// a newer fixing was not imported).
 //
 // Per answer that is read: the jobs (one statement, with each job's customer: the active ones and
 // the invoiced ones each up to a limit of its own), the users and the holidays (a call each), and
@@ -178,10 +179,17 @@ async function customersCredit(customerIds: readonly string[], run: Limit): Prom
   return new Map<string, CustomerCredit>(answers.flatMap((a) => a.customers).map((c) => [c.customerId, c]));
 }
 
-/** Today's ČNB sheet: CZK per unit of each currency, and the day of the fixing it holds (null: not said). */
-async function todaysRates(run: Limit): Promise<{ rates: Record<string, number>; day: string | null }> {
+/**
+ * Today's ČNB sheet: CZK per unit of each currency, the day of the fixing it holds (null: not said), and whether
+ * that fixing is old - a newer one should be stored and is not (fx's `missing`: the import failed), m20.
+ */
+async function todaysRates(run: Limit): Promise<{ rates: Record<string, number>; day: string | null; stale: boolean }> {
   const sheet = await run(() => fx.fxRatesOn({}));
-  return { rates: Object.fromEntries(sheet.rates.filter((r) => r.rate > 0).map((r) => [r.currency, r.rate])), day: sheet.fixingDate ?? sheet.date ?? null };
+  return {
+    rates: Object.fromEntries(sheet.rates.filter((r) => r.rate > 0).map((r) => [r.currency, r.rate])),
+    day: sheet.fixingDate ?? sheet.date ?? null,
+    stale: sheet.missing === true,
+  };
 }
 
 // ─── The answer ──────────────────────────────────────────────────
@@ -220,14 +228,16 @@ async function readMoney(companyId: string, filters: MoneyScope, now: Date): Pro
   ]);
 
   // Today's sheet is asked for once, and only when something stands in another currency: work not
-  // yet invoiced (for its one CZK total), or what a customer owes against a limit in another one.
-  const unbilled = active.flatMap((j) => money?.byJob.get(j.id)?.notYetInvoiced ?? []);
+  // yet invoiced (for its one CZK total - an invoiced job's late charge too), or what a customer
+  // owes against a limit in another one.
+  const unbilled = asked.flatMap((j) => money?.byJob.get(j.id)?.notYetInvoiced ?? []);
   const ratesNeeded = currenciesWithoutRate(unbilled, null).length > 0 || (!!credit && [...credit.values()].some(needsRates));
   const sheet = ratesNeeded ? await part(MONEY_NOT_KNOWN.rates, () => todaysRates(run)) : null;
   // Without the sheet (not needed, or not read) there are no rates: a figure only for what is all in
   // CZK - which names no rate (lib czkTotalOf) - and no currency is said to have none. When it was
   // needed and could not be read, the sheet itself is named: fx being down is no "ČNB has no rate".
-  const czk: CzkRates | null = sheet && { rates: sheet.rates, label: czkLabel(sheet.day ?? today) };
+  // The label names the fixing's day - "the latest", as before 14:30 it is the day before's - and that it is old when a newer one was not imported.
+  const czk: CzkRates | null = sheet && { rates: sheet.rates, label: czkLabel(sheet.day ?? today, sheet.stale) };
   const ratesUnread = ratesNeeded && !sheet;
 
   const facts: MoneyRead["facts"] = {

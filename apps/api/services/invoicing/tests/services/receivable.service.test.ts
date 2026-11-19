@@ -40,8 +40,15 @@ const repo = vi.hoisted(() => ({
   asAtCandidates: vi.fn(),
   settingsOf: vi.fn(),
   saveSettings: vi.fn(),
+  closeSettledDisputes: vi.fn(),
+  reopenAutoClosedDisputes: vi.fn(),
 }));
 vi.mock("../../repositories/receivable.repository", () => ({ receivableRepository: repo }));
+// The open bank entries (the "payment waiting" check, X5) and the invoice profile (the reminder's issuer, m3).
+const bank = vi.hoisted(() => ({ openIncoming: vi.fn() }));
+vi.mock("../../repositories/bankStatement.repository", () => ({ bankStatementRepository: bank }));
+const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
+vi.mock("../../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
 const outbox = vi.hoisted(() => ({ enqueue: vi.fn() }));
 vi.mock("../../repositories/invoiceFollowupOutbox.repository", () => ({ invoiceFollowupOutboxRepository: outbox }));
 const followups = vi.hoisted(() => ({
@@ -71,6 +78,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), inf
 
 import log from "encore.dev/log";
 import { receivableService as service } from "../../services/receivable.service";
+import { DISPUTE_REOPENED_REASON } from "../../lib/receivables";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const INV = "5d0c7a1e-3b2f-4e6d-9a8c-1f2e3d4c5b6a";
@@ -179,6 +187,22 @@ const facts = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+/** An incoming bank entry no manager has decided yet, whose variable symbol is the job's (31). */
+const bankEntry = (over: Record<string, unknown> = {}) => ({
+  id: "e-1",
+  statementId: "st-1",
+  fileName: "vypis-2026-11-17.xml",
+  bookingDate: "2026-11-17",
+  credit: true,
+  amount: "1210.00",
+  currency: "CZK",
+  variableSymbol: "31",
+  endToEndId: "",
+  message: "",
+  status: "proposed",
+  ...over,
+});
+
 const lastDecision = () => {
   const call = repo.decide.mock.calls.at(-1)!;
   return { current: call[1], values: call[2], event: call[3], options: call[5] };
@@ -237,7 +261,14 @@ beforeEach(() => {
   repo.paymentsByKeys.mockResolvedValue([]);
   repo.waitingLines.mockResolvedValue([]);
   repo.asAtCandidates.mockResolvedValue([]);
-  repo.settingsOf.mockResolvedValue({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", updatedBy: "", updatedAt: null });
+  repo.settingsOf.mockResolvedValue({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, updatedBy: "", updatedAt: null });
+  repo.closeSettledDisputes.mockResolvedValue([]);
+  repo.reopenAutoClosedDisputes.mockResolvedValue([]);
+  bank.openIncoming.mockResolvedValue([]);
+  profiles.getByCompany.mockResolvedValue(null);
+  // The job's selling, all invoiced unless a test says otherwise (the prepayment stop before any invoice, L3).
+  selling.listLiveByShipments.mockResolvedValue([]);
+  invoices.listOpenInvoicesWithSources.mockResolvedValue([]);
   users.companyUsersWithRoles.mockResolvedValue([
     { id: "u-boss", email: "boss@test.cz", displayName: "Boss", role: "manager" },
     { id: "u-eva", email: "eva@test.cz", displayName: "Eva", role: "admin" },
@@ -685,6 +716,83 @@ describe("the detail", () => {
     expect(answer.customerFacts).toBeNull();
     expect(answer.sendAgain).toBe(true);
   });
+
+  it("says when a payment that may be for it waits on a bank statement (X5); nothing when none, or not owed, or not readable", async () => {
+    bank.openIncoming.mockResolvedValue([bankEntry()]);
+    expect((await service.detail(clerk, INV)).paymentWaiting).toEqual({
+      statementId: "st-1",
+      fileName: "vypis-2026-11-17.xml",
+      bookingDate: "2026-11-17",
+      amount: 1210,
+      currency: "CZK",
+      text: "A payment that may be for this invoice is waiting on bank statement vypis-2026-11-17.xml (booked 17.11.2026, 1210.00 CZK): a manager confirms it there",
+    });
+    // Another job's symbol, or money in another currency: not this invoice's.
+    bank.openIncoming.mockResolvedValue([bankEntry({ variableSymbol: "99" }), bankEntry({ currency: "EUR" })]);
+    expect((await service.detail(clerk, INV)).paymentWaiting).toBeNull();
+    bank.openIncoming.mockResolvedValue([bankEntry()]);
+    repo.figuresOne.mockResolvedValue(figures({ paid: 1210 }));
+    expect((await service.detail(clerk, INV)).paymentWaiting).toBeNull();
+    repo.figuresOne.mockResolvedValue(figures());
+    bank.openIncoming.mockRejectedValue(new Error("db down"));
+    expect((await service.detail(clerk, INV)).paymentWaiting).toBeNull();
+  });
+
+  it("writes the reminder as the app's own e-mail does: the customer's language, the account, the variable symbol (m3)", async () => {
+    repo.figuresOne.mockResolvedValue(
+      figures({
+        invoice: {
+          dueDate: "2026-11-10",
+          supplier: { companyName: "CTO s.r.o.", bankAccount: { currency: "CZK", bankName: "ČSOB", accountNumber: "123456789/0300", iban: "CZ6503000000000123456789", swift: "CEKOCZPP" } },
+        },
+      }),
+    );
+    clients.receivableFacts.mockResolvedValue({ customers: [facts({ language: "cs" })] });
+    const clerkDrafts = (await service.detail(clerk, INV)).reminderDrafts;
+    // A user records reminders 1 and 2; the final notice is a manager's.
+    expect(clerkDrafts.map((d) => [d.level, d.language])).toEqual([
+      [1, "cs"],
+      [2, "cs"],
+    ]);
+    expect(clerkDrafts[0]!.subject).toBe("Upomínka: faktura INV2026CZ00000031-001 (zakázka CZ00000031)");
+    expect(clerkDrafts[0]!.body).toContain("účet 123456789/0300 (ČSOB)");
+    expect(clerkDrafts[0]!.body).toContain("s variabilním symbolem 00000031");
+    expect(clerkDrafts[0]!.body).toContain("8 dní po splatnosti");
+    expect(clerkDrafts[0]!.body).not.toContain("přikládáme");
+    expect((await service.detail(manager, INV)).reminderDrafts.map((d) => d.level)).toEqual([1, 2, 3]);
+    // English when the customer's language is not known; none when nothing is owed.
+    clients.receivableFacts.mockResolvedValue({ customers: [facts()] });
+    expect((await service.detail(clerk, INV)).reminderDrafts[0]!.subject).toBe("Payment reminder: invoice INV2026CZ00000031-001 (job CZ00000031)");
+    repo.figuresOne.mockResolvedValue(figures({ paid: 1210 }));
+    expect((await service.detail(clerk, INV)).reminderDrafts).toEqual([]);
+  });
+});
+
+describe("disputes that close by themselves (n4, L5)", () => {
+  it("closes the settled disputes of what a read prepares, by the automatic run, and a failure never stops the read", async () => {
+    await service.list(manager);
+    expect(repo.closeSettledDisputes).toHaveBeenCalledWith(COMPANY, { all: true }, "Accounts Receivable (automatic)", expect.any(Function));
+    await service.detail(clerk, INV);
+    expect(repo.closeSettledDisputes).toHaveBeenLastCalledWith(COMPANY, { invoiceIds: [INV] }, "Accounts Receivable (automatic)", expect.any(Function));
+    repo.closeSettledDisputes.mockRejectedValue(new Error("db blip"));
+    await expect(service.detail(clerk, INV)).resolves.toMatchObject({ row: expect.objectContaining({ id: INV }) });
+  });
+
+  it("opens one that closed by itself again once the invoice is owed again, before closing what is settled - a failure never stops the read", async () => {
+    await service.detail(clerk, INV);
+    expect(repo.reopenAutoClosedDisputes).toHaveBeenCalledWith(COMPANY, { invoiceIds: [INV] }, "Accounts Receivable (automatic)", DISPUTE_REOPENED_REASON);
+    expect(repo.reopenAutoClosedDisputes.mock.invocationCallOrder[0]!).toBeLessThan(repo.closeSettledDisputes.mock.invocationCallOrder[0]!);
+    repo.reopenAutoClosedDisputes.mockRejectedValue(new Error("db blip"));
+    await expect(service.detail(clerk, INV)).resolves.toMatchObject({ row: expect.objectContaining({ id: INV }) });
+    expect(repo.closeSettledDisputes).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not show a dispute on an invoice nothing is owed on any more", async () => {
+    repo.figures.mockResolvedValue([figures({ receivable: { disputed: true }, paid: 1210 }), figures({ invoice: { id: INV_B }, receivable: { disputed: true } })]);
+    const answer = await service.list(manager);
+    expect(answer.counts.disputed).toBe(1);
+    expect(answer.rows.find((r) => r.id === INV)!.marks).not.toContain("disputed");
+  });
 });
 
 describe("send again (D24)", () => {
@@ -740,10 +848,25 @@ describe("the bell (D18)", () => {
     expect(repo.notCarriedChecked).not.toHaveBeenCalled();
     expect(clients.invoiceStatuses).not.toHaveBeenCalled();
     expect(answer.notices).toEqual([
-      { key: `${INV}:overdue_14`, invoiceId: INV, milestone: "overdue_14", number: "INV2026CZ00000031-001", customer: "Gama Elektro a.s.", jobNumber: "CZ00000031", leftToPay: 1210, currency: "CZK", daysOverdue: 15, why: "person_in_charge" },
+      { key: `${INV}:overdue_14`, invoiceId: INV, milestone: "overdue_14", number: "INV2026CZ00000031-001", customer: "Gama Elektro a.s.", jobNumber: "CZ00000031", leftToPay: 1210, currency: "CZK", daysOverdue: 15, why: "person_in_charge", paymentWaiting: false },
     ]);
     repo.seenKeys.mockResolvedValue(new Set([`${INV}:overdue_14`]));
     expect((await service.forMe(clerk)).notices).toEqual([]);
+  });
+
+  it("says nothing of an invoice whose old Paid in the customer's list was not carried over yet (m4)", async () => {
+    users.userEmailOf.mockResolvedValue("jana@test.cz");
+    repo.figures.mockResolvedValue([figures({ invoice: { dueDate: "2026-11-03" }, receivable: { carriedChecked: false } }), figures({ invoice: { id: INV_B, dueDate: "2026-11-03" }, receivable: null })]);
+    expect((await service.forMe(clerk)).notices).toEqual([]);
+  });
+
+  it("marks an overdue notice whose payment may be waiting on a bank statement (X5); a failed read says nothing", async () => {
+    users.userEmailOf.mockResolvedValue("jana@test.cz");
+    repo.figures.mockResolvedValue([figures({ invoice: { dueDate: "2026-11-03" } })]);
+    bank.openIncoming.mockResolvedValue([bankEntry()]);
+    expect((await service.forMe(clerk)).notices).toEqual([expect.objectContaining({ milestone: "overdue_14", paymentWaiting: true })]);
+    bank.openIncoming.mockRejectedValue(new Error("db down"));
+    expect((await service.forMe(clerk)).notices).toEqual([expect.objectContaining({ milestone: "overdue_14", paymentWaiting: false })]);
   });
 
   it("tells the Sales Owner an invoice paid this week that was overdue when it was paid", async () => {
@@ -1194,17 +1317,98 @@ describe("work not yet invoiced", () => {
 
 describe("reminder settings", () => {
   it("reads the defaults, whether e-mail is on, and who may change them", async () => {
-    expect(await service.settings(clerk)).toEqual({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", emailOn: false, canEdit: false, updatedBy: "", updatedAt: null });
+    expect(await service.settings(clerk)).toEqual({ autoReminders: false, reminder1Days: 7, reminder2Days: 21, replyTo: "", autoRemindersSince: null, emailOn: false, canEdit: false, updatedBy: "", updatedAt: null });
     mail.emailConfigured.mockReturnValue(true);
     expect(await service.settings(manager)).toMatchObject({ emailOn: true, canEdit: true });
   });
 
-  it("is saved by a manager, within the rules", async () => {
+  it("is saved by a manager, within the rules; switched on, today is the day only newer overdue invoices are reminded from (L2)", async () => {
     const input = { autoReminders: true, reminder1Days: 5, reminder2Days: 20, replyTo: " ucetni@cto.cz " };
     await expect(service.saveSettings(clerk, input)).rejects.toMatchObject({ code: "permission_denied" });
     await expect(service.saveSettings(manager, { ...input, reminder2Days: 5 })).rejects.toMatchObject({ code: "invalid_argument" });
     await service.saveSettings(manager, input);
-    expect(repo.saveSettings).toHaveBeenCalledWith(COMPANY, { autoReminders: true, reminder1Days: 5, reminder2Days: 20, replyTo: "ucetni@cto.cz", updatedByUserId: "u-boss", updatedBy: "u-boss@test.cz" });
+    expect(repo.saveSettings).toHaveBeenCalledWith(COMPANY, {
+      autoReminders: true,
+      reminder1Days: 5,
+      reminder2Days: 20,
+      replyTo: "ucetni@cto.cz",
+      autoRemindersSince: "2026-11-18",
+      updatedByUserId: "u-boss",
+      updatedBy: "u-boss@test.cz",
+    });
+    // Saved again while on: the day stays. Switched off: none; on again later: that day.
+    repo.settingsOf.mockResolvedValue({ autoReminders: true, reminder1Days: 5, reminder2Days: 20, replyTo: "", autoRemindersSince: "2026-11-02", updatedBy: "", updatedAt: null });
+    await service.saveSettings(manager, { ...input, reminder1Days: 6 });
+    expect(repo.saveSettings).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ autoRemindersSince: "2026-11-02" }));
+    await service.saveSettings(manager, { ...input, autoReminders: false });
+    expect(repo.saveSettings).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ autoReminders: false, autoRemindersSince: null }));
+    expect(await service.settings(manager)).toMatchObject({ autoRemindersSince: "2026-11-02" });
+  });
+});
+
+describe("the prepayment stop before any invoice (L3)", () => {
+  const prepaymentCustomer = () => clients.receivableFacts.mockResolvedValue({ customers: [facts({ paymentTerms: "PREPAYMENT" })] });
+  beforeEach(() => {
+    repo.figures.mockResolvedValue([]);
+    clients.shipmentBasics.mockResolvedValue({ shipments: [{ id: SHIP, jobNumber: "CZ00000031", customerId: CUSTOMER, personInCharge: "", holidayCover: "" }] });
+    selling.listLiveByShipments.mockResolvedValue([
+      { id: "s1", shipmentId: SHIP, qty: "1", amount: "825.00", currency: "EUR", invoice: true },
+      { id: "s2", shipmentId: SHIP, qty: "2", amount: "100.00", currency: "CZK", invoice: true },
+    ]);
+    invoices.listOpenInvoicesWithSources.mockResolvedValue([{ sourceSellingCostIds: ["s2"] }]);
+  });
+
+  it("stops the release of a job on prepayment with selling not yet invoiced, naming what is not invoiced", async () => {
+    prepaymentCustomer();
+    expect(await service.releaseCheckInternal(clerk, SHIP)).toMatchObject({ prepaymentUnpaid: true, prepaymentInvoices: [], prepaymentUninvoiced: [{ currency: "EUR", amount: 825 }] });
+    expect(clients.shipmentBasics).toHaveBeenCalledWith({ ids: [SHIP] });
+  });
+
+  it("does not stop a customer not on prepayment, nor a job whose selling is all invoiced (its terms then not asked)", async () => {
+    expect(await service.releaseCheckInternal(clerk, SHIP)).toMatchObject({ prepaymentUnpaid: false, prepaymentUninvoiced: [] });
+    prepaymentCustomer();
+    invoices.listOpenInvoicesWithSources.mockResolvedValue([{ sourceSellingCostIds: ["s1", "s2"] }]);
+    clients.shipmentBasics.mockClear();
+    expect(await service.releaseCheckInternal(clerk, SHIP)).toMatchObject({ prepaymentUnpaid: false, prepaymentUninvoiced: [] });
+    expect(clients.shipmentBasics).not.toHaveBeenCalled();
+  });
+
+  it("leaves L3 out, logs it and says so when the job's customer or its terms can't be read - never refuses every release for it", async () => {
+    clients.shipmentBasics.mockRejectedValue(new Error("shipments down"));
+    expect(await service.releaseCheckInternal(clerk, SHIP)).toMatchObject({ prepaymentUnpaid: false, prepaymentUninvoiced: [], prepaymentUninvoicedUnchecked: true });
+    expect(log.warn).toHaveBeenCalled();
+    clients.shipmentBasics.mockResolvedValue({ shipments: [{ id: SHIP, jobNumber: "CZ00000031", customerId: CUSTOMER, personInCharge: "", holidayCover: "" }] });
+    clients.receivableFacts.mockRejectedValue(new Error("customers down"));
+    expect(await service.releaseCheckInternal(clerk, SHIP)).toMatchObject({ prepaymentUnpaid: false, prepaymentUninvoiced: [], prepaymentUninvoicedUnchecked: true });
+  });
+
+  it("still stops on an owed prepayment invoice when the terms for the uninvoiced part can't be read, as before L3", async () => {
+    clients.shipmentBasics.mockRejectedValue(new Error("shipments down"));
+    repo.figures.mockResolvedValue([figures({ invoice: { customer: { companyName: "Delta Import s.r.o.", paymentTerms: "PREPAYMENT" } } })]);
+    expect(await service.releaseCheckInternal(clerk, SHIP)).toMatchObject({ prepaymentUnpaid: true, prepaymentUninvoicedUnchecked: true });
+  });
+
+  it("says nothing of the uninvoiced part when it was checked", async () => {
+    prepaymentCustomer();
+    expect(await service.releaseCheckInternal(clerk, SHIP)).not.toHaveProperty("prepaymentUninvoicedUnchecked");
+  });
+});
+
+describe("what a customer owes, for the credit warning (m5)", () => {
+  it("answers Invoicing's own figures: left to pay per currency, the overdue ones and the oldest due", async () => {
+    repo.figures.mockResolvedValue([
+      figures({ invoice: { dueDate: "2026-11-03" } }),
+      figures({ invoice: { id: INV_B, currency: "EUR", gross: "500.00", dueDate: "2026-11-25" }, paid: 100 }),
+      figures({ invoice: { id: INV_C, dueDate: "2026-10-01" }, paid: 1210 }),
+    ]);
+    expect(await service.customerOwed(clerk, CUSTOMER)).toEqual({
+      unpaid: [{ currency: "CZK", amount: 1210 }, { currency: "EUR", amount: 400 }],
+      overdueCount: 1,
+      oldestOverdueDue: "2026-11-03",
+    });
+    expect(repo.ensureRows).toHaveBeenCalledWith(COMPANY, { customerId: CUSTOMER });
+    expect(repo.figures).toHaveBeenCalledWith(COMPANY, { customerId: CUSTOMER }, 2000);
+    expect(await service.customerOwed(clerk, "nope")).toEqual({ unpaid: [], overdueCount: 0, oldestOverdueDue: null });
   });
 });
 

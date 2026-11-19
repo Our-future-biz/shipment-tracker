@@ -80,8 +80,14 @@ vi.mock("../../services/receivable.service", async () => {
       ),
   };
 });
-const clients = vi.hoisted(() => ({ receivableFacts: vi.fn() }));
-vi.mock("~encore/clients", () => ({ customers: { _internalCustomerReceivableFacts: clients.receivableFacts } }));
+const clients = vi.hoisted(() => ({ receivableFacts: vi.fn(), czHolidays: vi.fn() }));
+vi.mock("~encore/clients", () => ({
+  customers: { _internalCustomerReceivableFacts: clients.receivableFacts },
+  holidays: { _internalHolidaysCzNational: clients.czHolidays },
+}));
+// The open bank entries: a payment that may be for an overdue invoice holds its reminder (X5).
+const bank = vi.hoisted(() => ({ openIncoming: vi.fn() }));
+vi.mock("../../repositories/bankStatement.repository", () => ({ bankStatementRepository: bank }));
 const users = vi.hoisted(() => ({ userEmailOf: vi.fn() }));
 vi.mock("../../../../lib/companyUsers", () => users);
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
@@ -98,7 +104,7 @@ const TODAY = "2026-11-18";
 const manager = { userID: "u-boss", companyID: COMPANY, role: "manager" };
 const clerk = { userID: "u-clerk", companyID: COMPANY, role: "user" };
 
-const SETTINGS = { autoReminders: true, reminder1Days: 7, reminder2Days: 21, replyTo: "pohledavky@kun.cz", updatedBy: "", updatedAt: null };
+const SETTINGS = { autoReminders: true, reminder1Days: 7, reminder2Days: 21, replyTo: "pohledavky@kun.cz", autoRemindersSince: "2026-01-01", updatedBy: "", updatedAt: null };
 
 const supplier = {
   companyName: "Kůň s.r.o.",
@@ -187,6 +193,8 @@ beforeEach(() => {
   profiles.getByCompany.mockResolvedValue(null);
   documents.pdf.mockResolvedValue({ fileName: "INV2026CZ00000028-001.pdf", contentBase64: "JVBERi0=", sha256: "" });
   clients.receivableFacts.mockResolvedValue(facts());
+  clients.czHolidays.mockResolvedValue({ dates: [] });
+  bank.openIncoming.mockResolvedValue([]);
   users.userEmailOf.mockResolvedValue("boss@kun.cz");
 });
 
@@ -214,7 +222,8 @@ describe("automatic reminders", () => {
   it("sends reminder 1 at reminder1Days overdue and records it as a person's reminder, by the automatic run", async () => {
     overdue(figures());
     expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 1, failed: 0, skipped: 0 });
-    expect(repo.figures).toHaveBeenCalledWith(COMPANY, { overdueOn: TODAY }, 2000);
+    // Only what is due around or after the switch-on day (1 Jan) is read: 14 days earlier, for a due day moved past a weekend or holiday.
+    expect(repo.figures).toHaveBeenCalledWith(COMPANY, { overdueOn: TODAY, dueFrom: "2025-12-18" }, 2000);
     // The customers service is asked as the company (the run has no login).
     expect(clients.receivableFacts).toHaveBeenCalledWith({ ids: [CUSTOMER] }, { authData: expect.objectContaining({ companyID: COMPANY }) });
     expect(mail.calls).toHaveLength(1);
@@ -252,11 +261,12 @@ describe("automatic reminders", () => {
 
   it("sends reminder 2 at reminder2Days, in the customer's language", async () => {
     clients.receivableFacts.mockResolvedValue(facts({ language: "cs" }));
-    overdue(figures({ dueDate: "2026-10-28" }, { reminderLevel: 1, lastRemindedOn: "2026-11-04" }));
+    // Due 27 Oct (the 28th is a holiday: due on it, the reminders would count from the 29th).
+    overdue(figures({ dueDate: "2026-10-27" }, { reminderLevel: 1, lastRemindedOn: "2026-11-04" }));
     expect(await service.runReminders(NOW)).toMatchObject({ sent: 1 });
     expect(mail.calls[0]!.idempotencyKey).toBe(`reminder:${INV}:2`);
     expect(mail.calls[0]!.subject).toBe("Druhá upomínka: faktura INV2026CZ00000028-001 (zakázka CZ00000028)");
-    expect(mail.calls[0]!.text).toContain("21 dní po splatnosti");
+    expect(mail.calls[0]!.text).toContain("22 dní po splatnosti");
     expect(mail.calls[0]!.text).toContain("úrok z prodlení");
     expect(store.rows[0]).toMatchObject({ reminderLevel: 2, language: "cs", status: "sent" });
     expect(repo.chase).toHaveBeenCalledWith(COMPANY, INV, { reminderLevel: 2, lastRemindedOn: TODAY }, expect.anything(), expect.any(Function));
@@ -366,6 +376,69 @@ describe("automatic reminders", () => {
     overdue(figures());
     expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
     expect(mail.calls).toHaveLength(0);
+  });
+
+  it("sends nothing on a weekend, a Czech holiday or a holiday the company uploaded (K8)", async () => {
+    overdue(figures({ dueDate: "2026-11-02" }));
+    // Saturday 21 November, and the 17 November holiday.
+    for (const day of ["2026-11-21T09:00:00Z", "2026-11-17T09:00:00Z"]) {
+      expect(await service.runReminders(new Date(day))).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0 });
+    }
+    expect(mails.companiesWithAutoReminders).not.toHaveBeenCalled();
+    clients.czHolidays.mockResolvedValue({ dates: [TODAY] });
+    expect(await service.runReminders(NOW)).toEqual({ companies: 0, sent: 0, failed: 0, skipped: 0 });
+    expect(clients.czHolidays).toHaveBeenCalledWith({ from: "2026-09-19", to: "2027-01-17" }, { authData: expect.objectContaining({ companyID: COMPANY }) });
+    expect(mail.calls).toHaveLength(0);
+    // The company's holidays can't be read: the statutory ones and weekends only, so it goes.
+    clients.czHolidays.mockRejectedValue(new Error("down"));
+    expect(await service.runReminders(NOW)).toMatchObject({ companies: 1, sent: 1 });
+  });
+
+  it("leaves alone an invoice a bank entry not confirmed yet may pay (X5); none at all when the statements can't be read", async () => {
+    overdue(figures());
+    bank.openIncoming.mockResolvedValue([
+      { statementId: "st-1", fileName: "vypis.xml", bookingDate: "2026-11-17", credit: true, amount: "1210.00", currency: "EUR", variableSymbol: "00000028", endToEndId: "", message: "" },
+    ]);
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
+    bank.openIncoming.mockRejectedValue(new Error("db down"));
+    expect(await service.runReminders(NOW)).toEqual({ companies: 1, sent: 0, failed: 0, skipped: 1 });
+    expect(mail.calls).toHaveLength(0);
+    // An entry for another job's symbol holds nothing.
+    bank.openIncoming.mockResolvedValue([
+      { statementId: "st-1", fileName: "vypis.xml", bookingDate: "2026-11-17", credit: true, amount: "1210.00", currency: "EUR", variableSymbol: "99", endToEndId: "", message: "" },
+    ]);
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 1 });
+  });
+
+  it("reminds of no rest under 5 EUR, and no invoice due before the reminders were switched on (K13, L2)", async () => {
+    overdue(figures({}, {}, { paid: 1206 }));
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 0 });
+    repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoRemindersSince: "2026-11-12" });
+    overdue(figures());
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 0 });
+    expect(mail.calls).toHaveLength(0);
+    repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoRemindersSince: "2026-11-11" });
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 1 });
+  });
+
+  it("reads only the invoices due around or after the switch-on day, so the old ones never fill the run's limit (L2) - and none with no day", async () => {
+    repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoRemindersSince: "2026-11-02" });
+    overdue(figures());
+    await service.runReminders(NOW);
+    expect(repo.figures).toHaveBeenLastCalledWith(COMPANY, { overdueOn: TODAY, dueFrom: "2026-10-19" }, 2000);
+    repo.figures.mockClear();
+    repo.settingsOf.mockResolvedValue({ ...SETTINGS, autoRemindersSince: null });
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 0 });
+    expect(repo.figures).not.toHaveBeenCalled();
+  });
+
+  it("counts a due day on a weekend as due the next working day", async () => {
+    // Due Saturday 7 Nov: 9 days overdue for the reminders on the 18th (from Monday the 9th), so reminder 1 goes; due
+    // Saturday 14 Nov counts from Monday the 16th: 2 days, not yet.
+    overdue(figures({ dueDate: "2026-11-14" }));
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 0 });
+    overdue(figures({ dueDate: "2026-11-07" }));
+    expect(await service.runReminders(NOW)).toMatchObject({ sent: 1 });
   });
 });
 

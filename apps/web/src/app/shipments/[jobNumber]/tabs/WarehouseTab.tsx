@@ -23,6 +23,7 @@ import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 import { RemeasureCompare, figuresCompared, figuresDiffer } from "./warehouse/RemeasureCompare";
+import { roundedFigures, shipmentCargoFigures, tidyNumber } from "./warehouse/remeasuredLines";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -203,9 +204,10 @@ function parseRemeasure(json: string | undefined): DimensionRow[] {
   }
 }
 
-// The lines as stored: only the filled ones, each field as typed.
+// The lines as stored: only the filled ones, each figure tidied - "120." as 120, ".5" as 0.5
+// (council finding m7), as Cargo Details and the server read them.
 const serializeRows = (rows: DimensionRow[]) =>
-  JSON.stringify(rows.filter((r) => DIM_FIELDS.some((f) => r[f].trim())).map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim()]))));
+  JSON.stringify(rows.filter((r) => DIM_FIELDS.some((f) => r[f].trim())).map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, tidyNumber(r[f])]))));
 
 // A copy of a line: its figures only, so it gets a row key of its own.
 const copyOf = (r: DimensionRow): DimensionRow => ({ pieces: r.pieces, lengthCm: r.lengthCm, widthCm: r.widthCm, heightCm: r.heightCm, weightPerPcKg: r.weightPerPcKg });
@@ -377,13 +379,12 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const rowCbms = lines.map(dimensionLineVolume);
   const { pcs: totalColli, kg: totalWeightKg, m3: totalVolumeCbm } = dimensionTotals(lines);
 
-  // What the server compares with when Operations are told (the shipment's cargo dimension lines).
-  const shipmentDims = useMemo(() => {
-    const t = dimensionTotals(shipment.cargoDimensions ?? []);
-    return { colli: t.pcs, weightKg: t.kg, volumeCbm: t.m3 };
-  }, [shipment.cargoDimensions]);
+  // What the server compares with when Operations are told, rounded as it rounds both sides
+  // (council finding m10): the shipment's cargo dimension lines, a figure they lack from its Pcs,
+  // Total Weight and Total Volume - so this tab says what the shipment's Alerts will say.
+  const shipmentDims = useMemo(() => shipmentCargoFigures(shipment), [shipment]);
 
-  const remeasured = { colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm };
+  const remeasured = roundedFigures({ colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm });
   const hasMismatch = figuresDiffer(shipmentDims, remeasured);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
@@ -555,7 +556,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
 
       {/* Shipment against remeasured, figure by figure (each centred under its title); a figure that differs is marked */}
       <div className="mt-5">
-        <RemeasureCompare ship={shipmentDims} re={remeasured} freightMode={shipment.freightMode} />
+        <RemeasureCompare ship={shipmentDims} re={remeasured} freightMode={shipment.freightMode} loadType={shipment.loadType} />
       </div>
 
       {hasData && hasMismatch && (

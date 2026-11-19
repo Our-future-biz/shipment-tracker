@@ -2,12 +2,12 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import dayjs from "dayjs";
-import { DatePicker, Input, Segmented, Tooltip } from "antd";
+import { Alert, DatePicker, Input, Segmented, Tooltip } from "antd";
 import { BankOutlined, CalendarOutlined, CheckCircleOutlined, DollarOutlined, EditOutlined, ExclamationCircleOutlined, MailOutlined, MinusCircleOutlined, SendOutlined } from "@ant-design/icons";
 import type { useReceivableActions, ReceivableDetail } from "@/hooks/useReceivables";
 import { REMINDER_LEVEL_LABEL } from "@/lib/accountsReceivable";
 import { apiErrorMessage, type interfaces } from "@/lib/api";
-import { formatDate } from "@/lib/date";
+import { addDays, formatDate } from "@/lib/date";
 import { MAILTO_LINK_TARGET, mailtoLink } from "@/lib/mailto";
 import { parseMoney, round2 } from "@/lib/money";
 import { useToast } from "@/lib/toast";
@@ -28,7 +28,10 @@ import {
   paymentProblem,
   reasonOk,
   reminderLevels,
-  reminderMail,
+  promiseProblem,
+  PROMISE_MAX_DAYS,
+  reminderMailOf,
+  type ReminderDraft,
   waitingTotal,
   writeOffPrefill,
   writeOffProblem,
@@ -209,8 +212,8 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
   return (
     <FormBox>
       <div className={HINT}>
-        Notes what the customer paid, as the bank statement or the accounting system shows it (D11). Nothing is read from the bank: the app mirrors what was paid. It
-        starts with the whole of what is left to pay; a part payment leaves the rest unpaid (D12).
+        Notes what the customer paid, as the bank statement or the accounting system shows it (D11). If you read the bank statement, confirm the payment there instead.
+        It starts with the whole of what is left to pay; a part payment leaves the rest unpaid (D12).
       </div>
       <div className="flex flex-wrap gap-3">
         <label className="flex flex-col">
@@ -335,17 +338,30 @@ function WriteOffForm({ kind, row, waiting, today, saving, onSave, onCancel }: {
   );
 }
 
-function PromiseForm({ today, saving, onSave, onCancel }: { today: string; saving: boolean; onSave: (input: { promisedOn: string; text: string }) => void; onCancel: () => void }) {
+function PromiseForm({ today, canAct, saving, onSave, onCancel }: { today: string; canAct: boolean; saving: boolean; onSave: (input: { promisedOn: string; text: string }) => void; onCancel: () => void }) {
   const [promisedOn, setPromisedOn] = useState("");
   const [text, setText] = useState("");
-  const problem = !promisedOn ? "Pick the day the customer promised to pay by" : promisedOn < today ? "The promised day cannot be before today" : "";
+  const problem = promiseProblem(promisedOn, today, canAct);
+  const problemId = useId();
   return (
     <FormBox>
-      <div className={HINT}>The due day stays as invoiced: the promised day stands beside it, and the row says when it has passed (D16).</div>
+      <div className={HINT}>
+        The due day stays as invoiced: the promised day stands beside it, and the row says when it has passed (D16).
+        {!canAct && ` At most ${PROMISE_MAX_DAYS} days ahead: a manager notes a later one.`}
+      </div>
       <label className="flex flex-col">
         <span className={`${LABEL_TEXT} mb-1`}>Promised to pay by</span>
-        <DatePicker format="D.M.YYYY" value={promisedOn ? dayjs(promisedOn) : null} onChange={(d) => setPromisedOn(d ? d.format("YYYY-MM-DD") : "")} minDate={dayjs(today)} className="w-[160px]" aria-label="Promised to pay by" />
+        <DatePicker
+          format="D.M.YYYY"
+          value={promisedOn ? dayjs(promisedOn) : null}
+          onChange={(d) => setPromisedOn(d ? d.format("YYYY-MM-DD") : "")}
+          minDate={dayjs(today)}
+          maxDate={canAct ? undefined : dayjs(addDays(today, PROMISE_MAX_DAYS))}
+          className="w-[160px]"
+          aria-label="Promised to pay by"
+        />
       </label>
+      {promisedOn && problem && <FieldProblem id={problemId} text={problem} />}
       <TextField label="What was said" value={text} onChange={setText} maxLength={MAX_NOTE} optional />
       <SaveCancel saveLabel={promisedOn && !problem ? `Note the promise to pay by ${formatDate(promisedOn)}` : "Note the promise"} disabled={saving || !!problem} onSave={() => onSave({ promisedOn, text: text.trim() })} onCancel={onCancel} />
     </FormBox>
@@ -362,10 +378,14 @@ function NoteForm({ saving, onSave, onCancel }: { saving: boolean; onSave: (text
   );
 }
 
-function ReminderForm({ row, canAct, reminderTo, saving, onSave, onCancel }: {
+function ReminderForm({ row, canAct, reminderTo, drafts, paymentWaiting, saving, onSave, onCancel }: {
   row: ReceivableRow;
   canAct: boolean;
   reminderTo: interfaces.ReceivableCustomerFacts["reminderTo"];
+  /** The server's text of each level (the customer's language, the account, the variable symbol) */
+  drafts: readonly ReminderDraft[] | undefined;
+  /** A payment that may be for it waits on a bank statement: said before anyone reminds the customer */
+  paymentWaiting: interfaces.ReceivablePaymentWaiting | null | undefined;
   saving: boolean;
   onSave: (input: { level: 1 | 2 | 3; recipient: string; text: string }) => void;
   onCancel: () => void;
@@ -374,7 +394,7 @@ function ReminderForm({ row, canAct, reminderTo, saving, onSave, onCancel }: {
   const [level, setLevel] = useState<1 | 2 | 3>(nextReminderLevel(row.reminderLevel, canAct));
   const [recipient, setRecipient] = useState(reminderTo?.email ?? "");
   const [text, setText] = useState("");
-  const mail = reminderMail(row, level);
+  const mail = reminderMailOf(drafts, row, level);
   const href = mailtoLink({ to: recipient, subject: mail.subject, message: mail.message });
   const recipientOk = emailOk(recipient);
   const recipientBad = !!recipient.trim() && !recipientOk;
@@ -392,6 +412,7 @@ function ReminderForm({ row, canAct, reminderTo, saving, onSave, onCancel }: {
         Write and send the reminder from your own mail program, then record it here: the app sends nothing (D17).
         {!canAct && " The final notice (reminder 3) is sent by a manager."}
       </div>
+      {paymentWaiting && <Alert type="warning" showIcon message={`${paymentWaiting.text}. The customer may have paid: check it before you send a reminder.`} />}
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col">
           <span id={levelId} className={`${LABEL_TEXT} mb-1`}>
@@ -538,6 +559,8 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
           row={row}
           canAct={canAct}
           reminderTo={detail.customerFacts?.reminderTo ?? null}
+          drafts={detail.reminderDrafts}
+          paymentWaiting={detail.paymentWaiting}
           saving={saving}
           onSave={(r) =>
             void run(
@@ -550,6 +573,7 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
       )}
       {form === "promise" && (
         <PromiseForm
+          canAct={canAct}
           today={today}
           saving={saving}
           onSave={(p) => void run(actions.addNote.mutateAsync({ ...target, note: { kind: "promise", text: p.text, promisedOn: p.promisedOn } }), `Promise to pay by ${formatDate(p.promisedOn)} noted`)}

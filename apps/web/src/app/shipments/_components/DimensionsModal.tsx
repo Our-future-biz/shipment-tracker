@@ -436,7 +436,7 @@ export function DimensionsModal({
             {activeCheck ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <CheckPill against={against} label="Pcs" m={activeCheck.pcs} decimals={0} />
-                <CheckPill against={against} label="Weight" m={activeCheck.kg} decimals={2} unit="kg" />
+                <CheckPill against={against} label="Weight" m={activeCheck.kg} decimals={activeCheck.kg.decimals} unit="kg" />
                 <CheckPill against={against} label="Volume" m={activeCheck.m3} decimals={3} unit="m³" />
               </div>
             ) : (

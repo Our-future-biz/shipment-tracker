@@ -18,6 +18,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
+    invoicing: (await import("./shipmentFakes")).invoicingFake,
     auth: {
       usersList: vi.fn(async () => ({ users: [{ id: user, displayName: "Eva Clerk", email: "eva@example.test" }] })),
       userLookup: vi.fn(async ({ ids }: { ids: string[] }) => ({

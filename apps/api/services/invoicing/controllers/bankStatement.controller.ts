@@ -6,7 +6,7 @@ import type { BankStatementDetailResponse, BankStatementListResponse } from "../
 
 // Finance → Accounts Receivable → Bank statements (step 7): a manager reads a CAMT.053 file; each incoming entry waits
 // with the invoices it may pay until a manager confirms it as payments or sets it aside (services/bankStatement).
-// Everyone reads.
+// Managers only, reading too (mock test council X6): a statement shows every line of the account.
 
 interface ImportRequest {
   fileName: string & MaxLen<300>;

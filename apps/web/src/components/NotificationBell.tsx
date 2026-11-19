@@ -41,7 +41,7 @@ import { arInvoiceHref } from "@/lib/accountsReceivable";
 import { rememberNew } from "@/lib/bellMemory";
 import { invalidateJobReleaseRequests, useReleaseRequestAnswers, type ReleaseRequestItem } from "@/hooks/useReleaseRequests";
 import { useOperationsApprovalsWaiting } from "@/hooks/useOperationsApprovalsWaiting";
-import { isReleaseAnswer, releaseAnswersMark, releaseAnswerText, releaseAnswerTitle, releaseRequestHref } from "@/lib/paymentWarnings";
+import { isReleaseAnswer, isWithdrawnApproval, releaseAnswerBy, releaseAnswersMark, releaseAnswerText, releaseAnswerTitle, releaseRequestHref } from "@/lib/paymentWarnings";
 import { OPERATIONS_APPROVALS_HREF, operationsApprovalsLine } from "@/lib/operationsApprovals";
 
 // On the company's calendar and clock (Prague), wherever the browser is.
@@ -239,7 +239,8 @@ export function NotificationBell() {
   const { answers: documentAnswers, hasLoaded: documentAnswersLoaded, seen: documentAnswerSeen } = useDocumentChangeAnswers();
   // A manager answered this user's request to release a job held for payment (Council Outlay 11, D16): approved,
   // the user releases it themselves while the approval can be used, and the bell says so. A request the app
-  // closed because the job was released another way is no answer, and is never listed.
+  // closed because the job was released another way is no answer, and is never listed; an approval a manager withdrew
+  // after giving it is told too, as the asker had read it as approved.
   const { answers: releaseAnswersRead, hasLoaded: releaseAnswersLoaded, seen: releaseAnswerSeen } = useReleaseRequestAnswers();
   const releaseAnswers = useMemo(() => releaseAnswersRead.filter(isReleaseAnswer), [releaseAnswersRead]);
   // A page that is open shows where its job's request stands (the House BoL Release row, a release dialog): when
@@ -308,7 +309,7 @@ export function NotificationBell() {
   const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
   const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
   const unreadReleaseAnswers = releaseAnswers.filter((a) => !a.answerSeenAt);
-  const releaseAnswersShown = (view === "unread" ? unreadReleaseAnswers : releaseAnswers).filter((a) => matchesAll(query, releaseAnswerTitle(a), releaseAnswerText(a), a.decidedByName));
+  const releaseAnswersShown = (view === "unread" ? unreadReleaseAnswers : releaseAnswers).filter((a) => matchesAll(query, releaseAnswerTitle(a), releaseAnswerText(a), releaseAnswerBy(a).name));
   // Stays until the queues are answered, whatever the view - as the supplier invoices' line does.
   const approvalsLineShown = approvalsLine && matchesAll(query, approvalsLine.title, OPERATIONS_APPROVALS_TEXT) ? 1 : 0;
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
@@ -429,13 +430,15 @@ export function NotificationBell() {
     for (const a of fresh) toast.notify({ title: officeAnswerTitle(a), description: officeAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
   }, [officeAnswers, officeAnswersLoaded, toast]);
 
-  // The same for answers about a release.
+  // The same for answers about a release. Told apart by their status too: an approval already listed that a
+  // manager then withdraws is news of its own.
   const seenReleaseAnswers = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!releaseAnswersLoaded) return;
     const before = seenReleaseAnswers.current;
-    const fresh = before ? releaseAnswers.filter((a) => !a.answerSeenAt && !before.has(a.id)) : [];
-    seenReleaseAnswers.current = new Set(releaseAnswers.map((a) => a.id));
+    const key = (a: { id: string; status: string }) => `${a.id}:${a.status}`;
+    const fresh = before ? releaseAnswers.filter((a) => !a.answerSeenAt && !before.has(key(a))) : [];
+    seenReleaseAnswers.current = new Set(releaseAnswers.map(key));
     for (const a of fresh) toast.notify({ title: releaseAnswerTitle(a), description: releaseAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
   }, [releaseAnswers, releaseAnswersLoaded, toast]);
 
@@ -1023,14 +1026,19 @@ export function NotificationBell() {
         <button key={`rr:${a.id}`} type="button" onClick={() => openReleaseAnswer(a)} className={rowClass}>
           <span className="flex items-center gap-2">
             {!a.answerSeenAt && (
-              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+              <span
+                role="img"
+                aria-label="Unread"
+                className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : isWithdrawnApproval(a) ? "bg-amber-500" : "bg-red-500"}`}
+              />
             )}
             {/* Two lines: an approval that can be used says what to do next ("release it now (valid until …)"). */}
             <span className={`min-w-0 flex-1 text-[13px] line-clamp-2 ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{releaseAnswerTitle(a)}</span>
           </span>
           <span className="text-[12px] text-slate-700 line-clamp-2">{releaseAnswerText(a)}</span>
+          {/* An approval withdrawn: by whom and when it was withdrawn, not who approved it. */}
           <span className="block text-[11px] text-slate-400 mt-0.5">
-            {a.decidedByName || "Manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+            {(({ name, at }) => `${name} · ${at ? formatTime(at) : ""}`)(releaseAnswerBy(a))}
           </span>
         </button>
       ))}

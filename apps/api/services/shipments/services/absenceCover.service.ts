@@ -2,12 +2,14 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { auth, shipments } from "~encore/clients";
 import { businessDay } from "../../../lib/businessDate";
+import { companyUsers } from "../../../lib/companyUsers";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import type { AbsenceCoverAbsence, AbsenceCoverResult } from "../interfaces/interfaces";
 import {
   ABSENCE_COVER_FIELD,
   ABSENCE_COVER_JOBS_PER_RUN,
+  clearWhy,
   coverClearedLine,
   coverSetLine,
   emailKey,
@@ -66,6 +68,16 @@ const toOpen = (r: ShipmentAbsenceCoverRecord): OpenCover => ({
   setAt: r.setAt,
 });
 
+/** The ids of the company's users now (the request's company: the cover job runs as its service identity); null when they could not be read. */
+async function liveUserIds(): Promise<Set<string> | null> {
+  try {
+    return new Set((await companyUsers()).map((u) => u.id));
+  } catch (err) {
+    log.warn(err, "absence cover: the company's users could not be read; a cleared cover just says the absence is over");
+    return null;
+  }
+}
+
 const changedMeanwhile = (err: unknown) => err instanceof APIError && err.message === CHANGED_MEANWHILE;
 const jobGone = (err: unknown) => err instanceof APIError && err.code === "not_found";
 
@@ -81,7 +93,10 @@ class AbsenceCoverService {
     const result: AbsenceCoverResult = { set: 0, cleared: 0, left: 0, moved: 0, failed: 0 };
     let budget = ABSENCE_COVER_JOBS_PER_RUN;
 
-    for (const plan of planOpenCovers((await covers.openOfCompany(companyId)).map(toOpen), absences)) {
+    const plans = planOpenCovers((await covers.openOfCompany(companyId)).map(toOpen), absences);
+    // Whether a user whose absence is over has left the company is said in the job's line: asked only when a cover is to be cleared so.
+    const live = plans.some((p) => p.action === "clear" && p.why === "over") ? await liveUserIds() : null;
+    for (const plan of plans) {
       if (plan.action === "keep") continue;
       if (plan.action === "move") {
         try {
@@ -100,7 +115,7 @@ class AbsenceCoverService {
       }
       if (budget <= 0) break;
       budget--;
-      const outcome = await this.#clear(actor, plan.row, plan.why, now);
+      const outcome = await this.#clear(actor, plan.row, clearWhy(plan.why, plan.row.absentUserId, live), now);
       if (outcome === "cleared") result.cleared++;
       else if (outcome === "left") result.left++;
       else result.failed++;

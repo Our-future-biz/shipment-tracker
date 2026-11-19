@@ -9,7 +9,8 @@ import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl } from "../lib/contentToken";
 import { customsOfficeRequestNotice, documentChangeNotice } from "../lib/customsOfficeNotice";
 import { canManageDocuments } from "../lib/documentRules";
-import { COMPARED_WITH, REMEASURE_INFORMED, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
+import { COMPARED_WITH, REMEASURE_INFORMED, remeasureNotice, shipmentFiguresFor, type CargoFigures, type ComparedWith } from "../lib/remeasureNotice";
+import { roundedFigures } from "../lib/remeasureAccept";
 import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
 import { iso } from "../../../lib/db/serialize";
 import { companyUsers, companyUsersWithRoles } from "../../../lib/companyUsers";
@@ -152,16 +153,19 @@ class CommentService {
    * tagged (e-mails), so the warehouse can say so - or that nobody is set to notify.
    */
   async postRemeasureNotice(shipmentId: string, companyId: string, authorId: string, input: RemeasureNoticeInput): Promise<RemeasureNoticeResult> {
-    const { remeasured, comparedWith, source, note } = input;
+    const { comparedWith, source, note } = input;
     if (!COMPARED_WITH.some((c) => c === comparedWith)) throw APIError.invalidArgument(`comparedWith must be one of: ${COMPARED_WITH.join(", ")}`);
-    if (![remeasured?.colli, remeasured?.weightKg, remeasured?.volumeCbm].every(isFigure)) {
+    if (![input.remeasured?.colli, input.remeasured?.weightKg, input.remeasured?.volumeCbm].every(isFigure)) {
       throw APIError.invalidArgument("The remeasured colli, kg and CBM must be numbers of 0 or more");
     }
     if (note.length > MAX_NOTICE_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_NOTICE_NOTE} characters)`);
+    // Rounded as the shipment's side is (kg 0.1, m³ 0.001), so 92.75 kg told is the 92.8 kg stored.
+    const remeasured = roundedFigures(input.remeasured);
     const shipment = await shipmentService.get(shipmentId, companyId);
     const users = await companyUsers();
-    const ours = comparedWith === "declared" ? declaredFigures(shipment) : dimensionFigures(shipment.cargoDimensions ?? []);
-    const notice = remeasureNotice(shipment, users, ours, remeasured, note);
+    // The shipment's figures, a figure its lines lack from its own totals (lib/remeasureNotice).
+    const ours = shipmentFiguresFor(shipment, comparedWith as ComparedWith);
+    const notice = remeasureNotice(shipment, users, ours, remeasured, note, source === "warehouseConcept" ? "warehouseConcept" : "warehouse");
     // The message and its record (the Alerts tab lists those whose figures differ), together.
     const comment = await shipmentCommentRepository.createWithHistory(
       companyId,

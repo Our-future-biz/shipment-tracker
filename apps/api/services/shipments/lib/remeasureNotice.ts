@@ -61,6 +61,24 @@ export function declaredFigures(s: { pcs?: string | null; totalWeightTons?: stri
   };
 }
 
+type ShipmentCargo = { pcs?: string | null; totalWeightTons?: string | null; totalVolumeCbm?: string | null; cargoDimensions?: readonly DimensionLine[] | null };
+
+/**
+ * The shipment's figures as Shipments → Warehouse and Cargo Details compare the remeasurement with
+ * them: the totals of its cargo dimension lines, a figure the lines lack (no kg per piece typed,
+ * the weight only in Total Weight) from its Pcs, Total Weight and Total Volume (council finding
+ * N1) - else a figure 0 on one side would be skipped and a heavier remeasurement "match".
+ */
+export function dimensionFiguresFilled(s: ShipmentCargo): CargoFigures {
+  const dims = dimensionFigures(s.cargoDimensions ?? []);
+  const typed = declaredFigures({ pcs: s.pcs, totalWeightTons: s.totalWeightTons, totalVolumeCbm: s.totalVolumeCbm });
+  return { colli: dims.colli || typed.colli, weightKg: dims.weightKg || typed.weightKg, volumeCbm: dims.volumeCbm || typed.volumeCbm };
+}
+
+/** The shipment's figures a remeasurement is compared with, by what the warehouse's screen compared it with. */
+export const shipmentFiguresFor = (s: ShipmentCargo, comparedWith: ComparedWith): CargoFigures =>
+  comparedWith === "declared" ? declaredFigures(s) : dimensionFiguresFilled(s);
+
 const figures = (f: CargoFigures) =>
   [
     `${f.colli > 0 ? f.colli : "—"} colli`,
@@ -76,15 +94,48 @@ export const REMEASURE_INFORMED = "remeasureInformed";
  * the pieces, weight or volume is more or less (both known, apart by more than 0.001) - an Alert on
  * the shipment's Alerts tab; "matches" when every figure known on both sides is the same - only the
  * chat message, in Notifications; "unknown" when no figure is known on both sides.
+ *
+ * Warehouse Concept marks a remeasurement within its tolerance as no variance (council finding
+ * L6): any difference in pieces, or more than 5 % on weight, volume or W/M (its _lib/cargoCompare).
+ * One of its remeasurements within that tolerance "matches" here too - only its chat message.
  */
 export type RemeasureVerdict = "differs" | "matches" | "unknown";
+
+/** The warehouse a remeasurement comes from (interfaces RemeasureSource). */
+export type RemeasureFrom = "warehouse" | "warehouseConcept";
+
+/** Warehouse Concept's tolerance on weight, volume and W/M; pieces must match exactly. */
+export const CONCEPT_TOLERANCE = 0.05;
 
 const both = (a: number, b: number) => a > 0 && b > 0;
 const KEYS = ["colli", "weightKg", "volumeCbm"] as const;
 
-export function remeasureVerdict(shipment: CargoFigures, remeasured: CargoFigures): RemeasureVerdict {
-  if (KEYS.some((k) => both(shipment[k], remeasured[k]) && Math.abs(shipment[k] - remeasured[k]) > 0.001)) return "differs";
+// W/M as Warehouse Concept compares it: the larger of m³ and tonnes, to 2 decimals.
+const wm = (f: CargoFigures) => Math.round(Math.max(f.volumeCbm, f.weightKg / 1000) * 100) / 100;
+
+/** Whether the remeasurement is within Warehouse Concept's tolerance of the shipment's figures (a figure 0 on one side is not compared). */
+export function withinConceptTolerance(shipment: CargoFigures, remeasured: CargoFigures): boolean {
+  if (both(shipment.colli, remeasured.colli) && shipment.colli !== remeasured.colli) return false;
+  const over = (a: number, b: number) => both(a, b) && Math.abs((b - a) / a) > CONCEPT_TOLERANCE + 1e-9;
+  return !over(shipment.weightKg, remeasured.weightKg) && !over(shipment.volumeCbm, remeasured.volumeCbm) && !over(wm(shipment), wm(remeasured));
+}
+
+const apart = (shipment: CargoFigures, remeasured: CargoFigures) =>
+  KEYS.some((k) => both(shipment[k], remeasured[k]) && Math.abs(shipment[k] - remeasured[k]) > 0.001);
+
+export function remeasureVerdict(shipment: CargoFigures, remeasured: CargoFigures, source: RemeasureFrom = "warehouse"): RemeasureVerdict {
+  if (apart(shipment, remeasured) && !(source === "warehouseConcept" && withinConceptTolerance(shipment, remeasured))) return "differs";
   return KEYS.some((k) => both(shipment[k], remeasured[k])) ? "matches" : "unknown";
+}
+
+/** Which warehouse an Inform Operations' history entry (its new value) came from; the Warehouse's for one written before it was kept. */
+export function informedSource(newValue: string | null | undefined): RemeasureFrom {
+  try {
+    const v = JSON.parse(newValue ?? "") as { source?: unknown } | null;
+    return v?.source === "warehouseConcept" ? "warehouseConcept" : "warehouse";
+  } catch {
+    return "warehouse";
+  }
 }
 
 const signed = (d: number, digits: number) =>
@@ -117,6 +168,7 @@ export function remeasureNotice(
   shipment: CargoFigures,
   remeasured: CargoFigures,
   note = "",
+  source: RemeasureFrom = "warehouse",
 ): RemeasureNotice {
   const tagged: CompanyUser[] = [];
   for (const value of [people.personInCharge, people.holidayCover]) {
@@ -124,9 +176,11 @@ export function remeasureNotice(
     if (user && !tagged.includes(user)) tagged.push(user);
   }
   const lines = ["Cargo has been remeasured by the warehouse.", `Shipment values: ${figures(shipment)}`, `Remeasured values: ${figures(remeasured)}`];
-  const verdict = remeasureVerdict(shipment, remeasured);
+  const verdict = remeasureVerdict(shipment, remeasured, source);
   if (verdict === "differs") lines.push(`Difference: ${differenceText(shipment, remeasured)}`);
-  if (verdict === "matches") lines.push("The remeasured values match the shipment values.");
+  else if (verdict === "matches" && apart(shipment, remeasured)) {
+    lines.push(`Difference: ${differenceText(shipment, remeasured)} - within the ${CONCEPT_TOLERANCE * 100} % tolerance.`);
+  } else if (verdict === "matches") lines.push("The remeasured values match the shipment values.");
   if (note.trim()) lines.push(`Note: ${note.trim()}`);
   // Written as the chat writes a tag: "@" and the name the @ list shows.
   if (tagged.length) lines.push(tagged.map((u) => `@${u.displayName || u.email}`).join(" "));

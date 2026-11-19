@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bankText, daysText, reminderText, statementMailText, type ReminderFacts, type ReminderLevel } from "../lib/reminderTexts";
-import { reminderDue, reminderKey, type ReminderCandidate } from "../lib/reminderRules";
+import { addDays } from "../../../lib/businessDate";
+import { isReminderDay, reminderDue, reminderDueDay, reminderKey, reminderOverdueDays, type ReminderCandidate } from "../lib/reminderRules";
 
 // The reminder e-mails and the rules of the automatic run (Accounts Receivable step 7).
 
@@ -95,12 +96,14 @@ describe("statementMailText", () => {
 
 // ── Which reminder is due ──
 
-const SETTINGS = { reminder1Days: 7, reminder2Days: 21 };
-const TODAY = "2026-11-18";
-const cand = (over: Partial<ReminderCandidate> = {}): ReminderCandidate => ({
+const SETTINGS = { reminder1Days: 7, reminder2Days: 21, autoRemindersSince: "2026-01-01" };
+const TODAY = "2026-11-18"; // a Wednesday, the day after the 17 November holiday
+/** A candidate `daysOverdue` days past its due day (each chosen on a working day, so the count is the plain one). */
+const cand = ({ daysOverdue = 7, ...over }: Partial<ReminderCandidate> & { daysOverdue?: number } = {}): ReminderCandidate => ({
   status: "unpaid",
   leftToPay: 100,
-  daysOverdue: 7,
+  dueDate: addDays(TODAY, -daysOverdue),
+  currency: "EUR",
   disputed: false,
   promisedOn: null,
   reminderLevel: 0,
@@ -117,7 +120,7 @@ describe("reminderDue", () => {
 
   it("sends reminder 2 from reminder2Days overdue once reminder 1 is recorded", () => {
     expect(reminderDue(cand({ daysOverdue: 20, reminderLevel: 1, lastRemindedOn: "2026-11-01" }), SETTINGS, TODAY)).toEqual({ level: null, why: "not_due" });
-    expect(reminderDue(cand({ daysOverdue: 21, reminderLevel: 1, lastRemindedOn: "2026-11-04" }), SETTINGS, TODAY)).toEqual({ level: 2 });
+    expect(reminderDue(cand({ daysOverdue: 22, reminderLevel: 1, lastRemindedOn: "2026-11-04" }), SETTINGS, TODAY)).toEqual({ level: 2 });
     // Long overdue with no reminder yet: reminder 1 first, then reminder 2 not a day later but the settings' gap later.
     expect(reminderDue(cand({ daysOverdue: 40 }), SETTINGS, TODAY)).toEqual({ level: 1 });
     expect(reminderDue(cand({ daysOverdue: 41, reminderLevel: 1, lastRemindedOn: "2026-11-17" }), SETTINGS, TODAY)).toEqual({ level: null, why: "too_soon" });
@@ -143,6 +146,51 @@ describe("reminderDue", () => {
     expect(reminderDue(cand({ status: "paid", leftToPay: 0 }), SETTINGS, TODAY).level).toBeNull();
     expect(reminderDue(cand({ status: "paid", leftToPay: -5 }), SETTINGS, TODAY).level).toBeNull();
     expect(reminderDue(cand({ status: "credited", leftToPay: 0 }), SETTINGS, TODAY).level).toBeNull();
+  });
+
+  it("leaves out an invoice a bank entry not yet confirmed may pay (X5)", () => {
+    expect(reminderDue(cand({ paymentWaiting: true }), SETTINGS, TODAY)).toEqual({ level: null, why: "payment_waiting" });
+    expect(reminderDue(cand({ paymentWaiting: false }), SETTINGS, TODAY)).toEqual({ level: 1 });
+  });
+
+  it("reminds of nothing under 100 CZK or 5 EUR; another currency weighed in CZK at the invoice's rate (K13)", () => {
+    expect(reminderDue(cand({ currency: "EUR", leftToPay: 4.99 }), SETTINGS, TODAY)).toEqual({ level: null, why: "small" });
+    expect(reminderDue(cand({ currency: "EUR", leftToPay: 5 }), SETTINGS, TODAY)).toEqual({ level: 1 });
+    expect(reminderDue(cand({ currency: "CZK", leftToPay: 99.99 }), SETTINGS, TODAY)).toEqual({ level: null, why: "small" });
+    expect(reminderDue(cand({ currency: "CZK", leftToPay: 100 }), SETTINGS, TODAY)).toEqual({ level: 1 });
+    // 4 USD at 23.10 CZK = 92.40 CZK: under; 5 USD = 115.50 CZK: reminded. No rate known: no floor.
+    expect(reminderDue(cand({ currency: "USD", leftToPay: 4, fxRate: 23.1 }), SETTINGS, TODAY)).toEqual({ level: null, why: "small" });
+    expect(reminderDue(cand({ currency: "USD", leftToPay: 5, fxRate: 23.1 }), SETTINGS, TODAY)).toEqual({ level: 1 });
+    expect(reminderDue(cand({ currency: "USD", leftToPay: 1 }), SETTINGS, TODAY)).toEqual({ level: 1 });
+  });
+
+  it("counts a due day on a weekend or a holiday as due on the next working day (K13)", () => {
+    // Due Saturday 7 Nov: due Monday 9 Nov for the reminders, so 9 days overdue on the 18th, not 11.
+    expect(reminderOverdueDays("2026-11-07", TODAY)).toBe(9);
+    expect(reminderDueDay("2026-11-07")).toBe("2026-11-09");
+    // Due on the 17 November holiday: due Wednesday the 18th, so not overdue yet today.
+    expect(reminderOverdueDays("2026-11-17", TODAY)).toBe(0);
+    // Due Wednesday 28 October (a holiday): counted from Thursday the 29th, 20 days: reminder 2 not yet.
+    expect(reminderDue(cand({ dueDate: "2026-10-28", reminderLevel: 1, lastRemindedOn: "2026-11-04" }), SETTINGS, TODAY)).toEqual({ level: null, why: "not_due" });
+    // Due Friday 13 Nov, the company's own extra holiday: due Monday the 16th, 2 days overdue.
+    expect(reminderOverdueDays("2026-11-13", TODAY, ["2026-11-13"])).toBe(2);
+  });
+
+  it("reminds only invoices that became overdue after automatic reminders were switched on (L2)", () => {
+    const since = { ...SETTINGS, autoRemindersSince: "2026-11-11" };
+    // Due on the switch-on day: overdue only after it.
+    expect(reminderDue(cand({ dueDate: "2026-11-11" }), since, TODAY)).toEqual({ level: 1 });
+    // Due the day before: overdue already when they were switched on - a manager chases it by hand.
+    expect(reminderDue(cand({ dueDate: "2026-11-10" }), since, TODAY)).toEqual({ level: null, why: "before_switch_on" });
+    // The day not known: none.
+    expect(reminderDue(cand(), { ...SETTINGS, autoRemindersSince: null }, TODAY)).toEqual({ level: null, why: "before_switch_on" });
+  });
+
+  it("goes only on a Czech working day (K8)", () => {
+    expect(isReminderDay(TODAY)).toBe(true);
+    expect(isReminderDay("2026-11-17")).toBe(false); // a holiday
+    expect(isReminderDay("2026-11-21")).toBe(false); // a Saturday
+    expect(isReminderDay("2026-11-19", ["2026-11-19"])).toBe(false); // the company's own holiday
   });
 
   it("keys one mail per invoice and level", () => {

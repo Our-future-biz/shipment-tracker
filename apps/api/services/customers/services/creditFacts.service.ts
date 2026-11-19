@@ -4,7 +4,7 @@ import { invoicing } from "~encore/clients";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import type { CustomerCreditFacts, CustomerCreditWarning } from "../interfaces/interfaces";
-import { isPrepayment, owedByCustomer } from "../lib/receivable";
+import { isPrepayment, owedByCustomer, type OwedEntry } from "../lib/receivable";
 import { customerInvoiceRepository } from "../repositories/customerInvoice.repository";
 import { customerRepository } from "../repositories/customer.repository";
 
@@ -13,6 +13,8 @@ import { customerRepository } from "../repositories/customer.repository";
 // owing something) - for the Sales managers' cockpit (Council Outlay 6 D17) and the credit warning on a new quote or
 // shipment (Council Outlay 10 D21). The rule is lib/receivable owedByCustomer. The readers convert and compare with
 // the credit limit. The warning also shows the work not yet invoiced (step 7), beside the limit, never added to it.
+// Since the mock test council (m5, 19 Nov 2026) the warning counts the issued invoices from Invoicing's own figures,
+// as the Finance tab does, and only the rows typed by hand from this list; the cockpit's factsOf still reads the list.
 class CreditFactsService {
   async factsOf(companyId: string, customerIds: string[]): Promise<CustomerCreditFacts[]> {
     const ids = [...new Set(customerIds.filter(isUuid).map((id) => id.toLowerCase()))];
@@ -43,7 +45,7 @@ class CreditFactsService {
   async warningOf(companyId: string, customerId: string): Promise<CustomerCreditWarning> {
     const customer = isUuid(customerId) ? await customerRepository.getByIdForCompany(customerId, companyId) : null;
     if (!customer) throw APIError.notFound("Customer not found");
-    const [[facts], unbilled] = await Promise.all([this.factsOf(companyId, [customer.id]), unbilledOf(customer.id)]);
+    const [owed, unbilled] = await Promise.all([this.owedOf(companyId, customer.id), unbilledOf(customer.id)]);
     return {
       customerId: customer.id,
       companyName: customer.companyName,
@@ -51,12 +53,67 @@ class CreditFactsService {
       currency: customer.currency,
       paymentTerms: customer.paymentTerms,
       prepayment: isPrepayment(customer.paymentTerms),
-      unpaid: facts?.unpaid ?? [],
-      overdueCount: facts?.overdueCount ?? 0,
-      oldestOverdueDue: facts?.oldestOverdueDue ?? null,
+      unpaid: owed.unpaid,
+      overdueCount: owed.overdueCount,
+      oldestOverdueDue: owed.oldestOverdueDue,
       ...unbilled,
     };
   }
+
+  /**
+   * What the customer owes for the credit warning, as its Finance tab shows it (mock test council m5): Invoicing's own
+   * figures for the issued invoices (Accounts Receivable's, so one whose hand-over to this list failed counts too),
+   * plus the rows typed by hand here, which Invoicing does not know. When Invoicing can't be asked, this list's copy
+   * of every row is counted instead (as before), so the warning still answers.
+   */
+  private async owedOf(companyId: string, customerId: string): Promise<Pick<CustomerCreditFacts, "unpaid" | "overdueCount" | "oldestOverdueDue">> {
+    let issued: InvoicingOwed;
+    try {
+      issued = readOwed(await invoicing._internalCustomerOwed({ customerId }));
+    } catch (err) {
+      log.warn(err, "what the customer owes could not be read from Invoicing for a credit warning: the customer's list is counted", { customerId });
+      const [facts] = await this.factsOf(companyId, [customerId]);
+      return { unpaid: facts?.unpaid ?? [], overdueCount: facts?.overdueCount ?? 0, oldestOverdueDue: facts?.oldestOverdueDue ?? null };
+    }
+    const rows = await customerInvoiceRepository.findByCustomer(customerId, companyId);
+    const typed: OwedEntry[] = rows
+      .filter((r) => r.source === "typed")
+      .map((r) => ({
+        customerId,
+        currency: r.currency,
+        amount: Number(r.amount),
+        leftToPay: r.leftToPay === null || r.leftToPay === undefined ? null : Number(r.leftToPay),
+        status: r.status,
+        dueDate: r.dueDate ? String(r.dueDate).slice(0, 10) : null,
+      }));
+    const byHand = owedByCustomer(typed, businessDay(new Date()));
+    const cents = new Map<string, number>();
+    for (const a of [...issued.unpaid, ...byHand.map((u) => ({ currency: u.currency, amount: u.amount }))]) {
+      cents.set(a.currency, (cents.get(a.currency) ?? 0) + Math.round(a.amount * 100));
+    }
+    const overdueDays = [issued.oldestOverdueDue, ...byHand.filter((u) => u.overdue > 0).map((u) => u.oldestDue)].filter((d): d is string => !!d).sort();
+    return {
+      unpaid: [...cents.entries()].filter(([, c]) => c !== 0).map(([currency, c]) => ({ currency, amount: c / 100 })).sort((a, b) => a.currency.localeCompare(b.currency)),
+      overdueCount: issued.overdueCount + byHand.reduce((n, u) => n + u.overdue, 0),
+      oldestOverdueDue: overdueDays[0] ?? null,
+    };
+  }
+}
+
+/** What invoicing `_internalCustomerOwed` answers. */
+interface InvoicingOwed {
+  unpaid: { currency: string; amount: number }[];
+  overdueCount: number;
+  oldestOverdueDue: string | null;
+}
+
+/** Invoicing's answer read strictly: anything unreadable throws (the warning then counts the customer's list). */
+function readOwed(answer: InvoicingOwed | null | undefined): InvoicingOwed {
+  const unpaid = Array.isArray(answer?.unpaid) ? answer.unpaid : null;
+  if (!answer || !unpaid || !unpaid.every((a) => typeof a?.currency === "string" && Number.isFinite(a?.amount)) || !Number.isFinite(answer.overdueCount)) {
+    throw new Error("an unreadable answer");
+  }
+  return { unpaid, overdueCount: answer.overdueCount, oldestOverdueDue: typeof answer.oldestOverdueDue === "string" ? answer.oldestOverdueDue : null };
 }
 
 // What invoicing `_internalUnbilledOfCustomer` answers (`capped`: it stopped counting at its limit of jobs).

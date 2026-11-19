@@ -44,6 +44,67 @@ export function skippedOfDetails(details: unknown): SkippedDocument[] {
 
 export const kindLabel = (kind: "invoice" | "credit_note"): string => (kind === "credit_note" ? "Credit note" : "Invoice");
 
+// ── An export whose answer was lost (mock test council m1) ──
+
+/** Where the key of an export started and not yet answered is kept, per choice of period and "include exported". */
+export const EXPORT_KEY_PREFIX = "ar-pohoda-export-key:";
+
+/** The choices an export key belongs to: the same period and choice again is the same export. */
+export const exportChoices = (from: string, to: string, includeExported: boolean): string => JSON.stringify([from, to, includeExported]);
+
+/** The storage the key lives in (the tab's sessionStorage); a stand-in in tests. Never throws: storage may be off. */
+export interface KeyStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/**
+ * The idempotency key of an export of these choices: the one kept from an earlier try whose answer never came (also
+ * after the page was opened again in the tab), else a new one, kept until its answer arrives. The server answers the
+ * same key with the same export, so clicking Export again after a lost answer never makes a second one.
+ */
+export function exportKeyFor(store: KeyStore | null, choices: string, make: () => string): string {
+  const name = `${EXPORT_KEY_PREFIX}${choices}`;
+  try {
+    const kept = store?.getItem(name);
+    if (kept) return kept;
+  } catch {
+    // Storage switched off: a key for this page's life only.
+  }
+  const key = make();
+  try {
+    store?.setItem(name, key);
+  } catch {
+    // As above.
+  }
+  return key;
+}
+
+/** The export of these choices was answered (or plainly refused): its key is done with, the next one is a new export. */
+export function forgetExportKey(store: KeyStore | null, choices: string): void {
+  try {
+    store?.removeItem(`${EXPORT_KEY_PREFIX}${choices}`);
+  } catch {
+    // Storage switched off: nothing was kept.
+  }
+}
+
+/** What the page says when the answer was lost: the export may be recorded already. */
+export const ANSWER_LOST = "The answer was lost: the export may already be recorded. Click Export again, or download it from the list.";
+
+/**
+ * What a failed export says, and whether its key is done with: a refusal the server decided ("Not exported: …", the
+ * key may go) or a lost answer (the export may be recorded: the key stays, so Export again answers that export).
+ */
+export function exportFailureText(refused: boolean, message: string): { text: string; keepKey: boolean } {
+  return refused ? { text: `Not exported: ${message}`, keepKey: false } : { text: ANSWER_LOST, keepKey: true };
+}
+
+/** The warning while documents exported before are put in again: whether they need removing depends on the earlier import. */
+export const INCLUDE_EXPORTED_WARNING =
+  "Documents exported before go into the file again. If an earlier file was imported in Pohoda, it refuses a number it already has: remove those there first. If the earlier file never reached Pohoda (it was not imported, or never got to you), there is nothing to remove.";
+
 /**
  * The file's bytes from the server's base64, as they are: the XML is Windows-1250, and turning it into text and back
  * would write it as UTF-8, which Pohoda would read with broken diacritics. Throws on text that is not base64.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const clients = vi.hoisted(() => ({ auth: { _internalAbsencesInForce: vi.fn() }, shipments: { _internalAbsenceCover: vi.fn() } }));
+const clients = vi.hoisted(() => ({ auth: { _internalAbsencesInForce: vi.fn(), usersList: vi.fn() }, shipments: { _internalAbsenceCover: vi.fn() } }));
 const covers = vi.hoisted(() => ({
   companiesWithOpen: vi.fn(),
   openOfCompany: vi.fn(),
@@ -74,6 +74,8 @@ beforeEach(() => {
   covers.close.mockResolvedValue(true);
   covers.markSet.mockResolvedValue(true);
   shipmentService.update.mockImplementation(inTurn);
+  // Jan is a user of the company still.
+  clients.auth.usersList.mockResolvedValue({ users: [{ id: "u-jan", email: "jan@firma.cz", displayName: "Jan Novák" }] });
 });
 
 describe("setting the cover of an absence in force", () => {
@@ -147,7 +149,8 @@ describe("clearing a cover set", () => {
     expect(shipmentService.update).toHaveBeenCalledTimes(1);
     const [id, , data, userId, role, , stillHolds, extras] = shipmentService.update.mock.calls[0]!;
     expect([id, data, userId, role]).toEqual(["s-1", { holidayCover: "" }, "svc-c-1", undefined]);
-    expect(extras).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz cleared: Jan Novák is back" }] });
+    // Neutral: the absence is over - not "Jan is back", who may be away again (m26).
+    expect(extras).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz cleared: absence over" }] });
     expect(() => stillHolds(job({ holidayCover: "eva@firma.cz" }))).not.toThrow();
     expect(() => stillHolds(job({ holidayCover: "" }))).toThrow(CHANGED_MEANWHILE);
     expect(covers.close.mock.calls).toEqual([
@@ -155,6 +158,24 @@ describe("clearing a cover set", () => {
       [COMPANY, "r-2", "changed", NOW],
       [COMPANY, "r-3", "gone", NOW],
     ]);
+  });
+
+  it("says the user left the company when they are no user of it any more - and just that the absence is over when the users can't be read", async () => {
+    covers.openOfCompany.mockResolvedValue([row()]);
+    shipmentRepo.getByIdForCompany.mockResolvedValue(job({ holidayCover: "eva@firma.cz" }));
+    clients.auth.usersList.mockResolvedValue({ users: [{ id: "u-eva", email: "eva@firma.cz", displayName: "Eva" }] });
+    await absenceCoverService.applyForCompany(SVC, [], NOW);
+    expect(shipmentService.update.mock.calls[0]![7]).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz cleared: Jan Novák left the company" }] });
+    shipmentService.update.mockClear();
+    clients.auth.usersList.mockRejectedValue(new Error("auth is down"));
+    await absenceCoverService.applyForCompany(SVC, [], NOW);
+    expect(shipmentService.update.mock.calls[0]![7]).toEqual({ history: [{ field: ABSENCE_COVER_FIELD, oldValue: null, newValue: "Holiday Cover eva@firma.cz cleared: absence over" }] });
+  });
+
+  it("does not ask who is a user when no cover is to be cleared for an absence over", async () => {
+    covers.openOfCompany.mockResolvedValue([row()]);
+    await absenceCoverService.applyForCompany(SVC, [absence()], NOW);
+    expect(clients.auth.usersList).not.toHaveBeenCalled();
   });
 
   it("keeps the cover of an absence still in force, and hands a row to the user's next absence naming the same cover", async () => {

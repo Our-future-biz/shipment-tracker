@@ -26,6 +26,7 @@ vi.mock("~encore/clients", async () => {
         return { commentId: randomUUID(), tagged: ["pic@firma.cz"] };
       }),
     },
+    invoicing: (await import("./shipmentFakes")).invoicingFake,
     auth: (await import("./authFake")).authFake([]),
   };
 });

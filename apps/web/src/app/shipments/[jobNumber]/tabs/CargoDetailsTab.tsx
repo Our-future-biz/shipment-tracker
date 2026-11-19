@@ -47,6 +47,7 @@ import {
   type CargoItemLine,
   type CargoDimensionLine,
   type ContainerLine,
+  type DeclaredFigures,
 } from "@/lib/cargo";
 
 // The "—" of an empty cell.
@@ -467,7 +468,7 @@ export function CargoDetailsTab({
   // What a shipment with no container at all declares for its cargo (Pcs, Total Weight in tons,
   // Total Volume in Shipment Details): its lines are checked against that, as a container's are.
   // With containers, lines left outside them are only a part of the cargo: no figure to check against.
-  const shipmentDeclared = useMemo<ContainerLine | null>(
+  const shipmentDeclared = useMemo<DeclaredFigures | null>(
     () => (containers.length > 0 ? null : shipmentDeclaredFigures(shipment)),
     [containers.length, shipment],
   );
@@ -479,7 +480,7 @@ export function CargoDetailsTab({
     // The figures the lines are checked against: their container's, or a container-less shipment's
     // own. Lines outside the containers of a shipment that has some have none ("/ —"): the pills
     // still show, as every table shows them.
-    const declared = container ?? shipmentDeclared ?? NOTHING_DECLARED;
+    const declared: DeclaredFigures = container ?? shipmentDeclared ?? NOTHING_DECLARED;
     const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
@@ -487,7 +488,7 @@ export function CargoDetailsTab({
     const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
-    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), 2) };
+    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2) };
     const hasDesc = filledItems > 0;
     const hasLines = filledDims > 0 || hasDesc;
     const matched = check.matched && (!hasDesc || (descCheck.pcs.ok && descCheck.kg.ok));
@@ -833,7 +834,7 @@ export function CargoDetailsTab({
             {checkStrip(
                 <>
                   <CheckPill against={against} label="Pcs" m={check.pcs} decimals={0} />
-                  <CheckPill against={against} label="Weight" m={check.kg} decimals={2} unit="kg" />
+                  <CheckPill against={against} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
                   <CheckPill against={against} label="Volume" m={check.m3} decimals={3} unit="m³" />
                 </>,
               )}
@@ -948,7 +949,7 @@ export function CargoDetailsTab({
             {checkStrip(
                 <>
                   <CheckPill against={against} label="Pcs" m={descCheck.pcs} decimals={0} />
-                  <CheckPill against={against} label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
+                  <CheckPill against={against} label="Weight" m={descCheck.kg} decimals={descCheck.kg.decimals} unit="kg" />
                   {/* The invoice value total, which nothing declares: a plain pill. */}
                   {descCiv && (
                     <Tooltip title={`Lines: ${descCiv} · no invoice value is declared to check against`}>

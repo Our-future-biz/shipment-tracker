@@ -1,3 +1,5 @@
+import { formatDate } from "@/lib/date";
+
 // Finance → Accounts Receivable → Reminder settings (step 7): the pure rules of the form, in the server's words
 // (api lib/receivables settingsProblem). The server checks them again.
 
@@ -8,6 +10,16 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** The words shown while e-mail from the app is switched off. */
 export const EMAIL_OFF_NOTE =
   "E-mail from the app is switched off: automatic reminders and statements by e-mail start once it is set up. Until then reminders are recorded by hand on the invoice.";
+
+/**
+ * Which overdue invoices the automatic reminders take (mock test council L2): only those due on or after the day they
+ * were switched on; the older ones stay for a manager to chase by hand.
+ */
+export function switchOnText(autoReminders: boolean, since: string | null | undefined): string {
+  if (!autoReminders) return "Switched on, they remind only invoices that become overdue from then on: the older ones stay for a manager to chase by hand.";
+  if (!since) return "On, but the day they were switched on is not known: no invoice is reminded until they are switched on again.";
+  return `On since ${formatDate(since)}: only invoices due on or after that day are reminded; the older ones stay for a manager to chase by hand.`;
+}
 
 export interface SettingsForm {
   autoReminders: boolean;

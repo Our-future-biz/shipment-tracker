@@ -27,6 +27,24 @@ export type RemeasureInformed = interfaces.RemeasureInformedItem;
 export const remeasureAlerts = (informed: readonly RemeasureInformed[]): RemeasureInformed[] =>
   informed.filter((i) => i.verdict === "differs").sort((a, b) => b.informedAt.localeCompare(a.informedAt));
 
+/**
+ * Whether a remeasurement alert is settled (council finding K3): its figures were accepted on Cargo
+ * Details since, or the shipment's figures match them now. It stays listed, saying so, but is no
+ * new alert.
+ */
+export const remeasureSettled = (i: Pick<RemeasureInformed, "acceptedAt" | "nowMatches">): boolean => !!i.acceptedAt || i.nowMatches;
+
+/**
+ * How many alerts are new to the one signed in: given since they last opened the Alerts tab (every
+ * one when they never did), a settled remeasurement not counted.
+ */
+export const newAlertCount = (
+  alerts: readonly Pick<ShipmentAlert, "customsReviewedAt">[],
+  remeasured: readonly Pick<RemeasureInformed, "informedAt" | "acceptedAt" | "nowMatches">[],
+  readAt: string | null,
+): number =>
+  alerts.filter((a) => !readAt || a.customsReviewedAt > readAt).length + remeasured.filter((r) => !remeasureSettled(r) && (!readAt || r.informedAt > readAt)).length;
+
 export const alertReadKey = (shipmentId: string) => ["shipment-alerts-read", shipmentId] as const;
 
 /** Customs' verdict as the bell of the shipment's people shows it. */
@@ -96,9 +114,7 @@ export const useShipmentAlerts = (shipmentId: string) => {
 
   // Nothing is counted as new before it is known when the user last looked.
   const readAt = read.data?.readAt ?? null;
-  const newCount = read.isSuccess
-    ? alerts.filter((a) => !readAt || a.customsReviewedAt > readAt).length + remeasured.filter((r) => !readAt || r.informedAt > readAt).length
-    : 0;
+  const newCount = read.isSuccess ? newAlertCount(alerts, remeasured, readAt) : 0;
 
   const mark = useMutation(markReadOptions(queryClient, shipmentId));
   const { mutate } = mark;

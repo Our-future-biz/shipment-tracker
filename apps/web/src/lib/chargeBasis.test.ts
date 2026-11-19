@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chargeBasis, fmtChargeBasis, isAirFreight } from "./chargeBasis";
+import { chargeBasis, chargedByWeightOrMeasure, fmtChargeBasis, isAirFreight } from "./chargeBasis";
 
 describe("chargeBasis", () => {
   it("air: the greater of gross and volumetric weight (÷ 6000)", () => {
@@ -27,5 +27,17 @@ describe("fmtChargeBasis", () => {
     expect(fmtChargeBasis(chargeBasis("Air Freight", 250, 34.65))).toBe("5,775.0 kg");
     expect(fmtChargeBasis(chargeBasis("Sea Freight", 170, 7.2))).toBe("7.200");
     expect(fmtChargeBasis(chargeBasis("Sea Freight", 0, 0))).toBe("—");
+  });
+});
+
+// Council finding K5: a sea Full Load is charged per container - no W/M beside its remeasurement.
+describe("chargedByWeightOrMeasure", () => {
+  it("is not a sea Full Load, however written", () => {
+    expect(chargedByWeightOrMeasure("Sea Freight", "Full Load")).toBe(false);
+    expect(chargedByWeightOrMeasure(" sea freight ", "FULL LOAD")).toBe(false);
+    expect(chargedByWeightOrMeasure("Sea Freight", "Consolidation")).toBe(true);
+    expect(chargedByWeightOrMeasure("Air Freight", "Full Load")).toBe(true);
+    expect(chargedByWeightOrMeasure("Road Freight", "Full Load")).toBe(true);
+    expect(chargedByWeightOrMeasure(null, null)).toBe(true);
   });
 });

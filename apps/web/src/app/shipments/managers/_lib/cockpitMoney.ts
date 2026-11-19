@@ -28,8 +28,9 @@ export const MONEY_FAMILIES: readonly SignalFamily[] = [
     key: "not_invoiced",
     kinds: ["not_invoiced"],
     label: "Not invoiced",
-    // The server's rule (lib/managersMoney inBillingSignals) goes by the work left to bill, whether or not some invoice exists already.
-    hint: "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced",
+    // The server's rules (lib/managersMoney inBillingSignals, notInvoicedSignals, chargeAfterInvoicingSignals) go by the
+    // work left to bill, whether or not some invoice exists already - on a job that reads Invoiced too.
+    hint: "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced; urgent from 15 days after the tax date. Also a charge added after invoicing on a job that reads Invoiced (urgent)",
   },
   { key: "unticked", kinds: ["unticked"], label: "Selling not ticked", hint: "A job in Billing with a valued selling line that is not ticked: it holds the job open" },
   {
@@ -42,7 +43,7 @@ export const MONEY_FAMILIES: readonly SignalFamily[] = [
     key: "accrual",
     kinds: ["accrual"],
     label: "Estimates with no invoice",
-    hint: "Estimates with no supplier invoice 30 days after the job's tax date; urgent from 60 days, or as soon as the job is in Billing or invoiced",
+    hint: "Estimates with no supplier invoice 30 days after the job's tax date; urgent from 60 days, or as soon as the job reads Invoiced",
   },
   {
     key: "supplier_invoice",
@@ -154,7 +155,8 @@ export interface NotYetInvoicedView {
 
 /**
  * Work not yet invoiced: per currency, in how many jobs, and the server's one CZK total with its
- * label exactly as sent ("at today's ČNB rate (18.11.)"). Nothing is added here: a currency with
+ * label exactly as sent ("at the latest ČNB rate (18.11.)", or "(ČNB rate of 17.11., newer not
+ * imported)" when a newer fixing was not imported). Nothing is added here: a currency with
  * no rate leaves no total rather than a total that lacks it. The total is shown only when some
  * amount is in another currency than CZK: beside CZK alone it would say the same figure twice.
  */
@@ -246,8 +248,10 @@ export const MONEY_CAPPED = "More jobs than were read: the figures cover the 2,0
 /** What the Money tab's cards and table say when the answer could not be loaded. */
 export const MONEY_LOAD_FAILED = "Could not load the money.";
 
-// The server's own lines for the margins it could not work out ("margin of 3 jobs: a ČNB rate is
-// missing", "margin of 2 jobs: their rates are not fixed yet and could not be read").
+// The server's own lines for the margins it could not work out, or worked out at an old rate ("margin
+// of 3 jobs: a ČNB rate is missing", "margin of 2 jobs: their rates are not fixed yet and could not be
+// read", "margin of 1 job: ČNB rates for their date not imported"). A server that sends them sends its
+// line for every margin it could not work out, so the page's own line would only say it twice.
 const SERVER_SAYS_MARGIN = /^margin of \d+ jobs?\b/i;
 
 /**

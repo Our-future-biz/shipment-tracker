@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { APIError, ErrCode, type controllers, type interfaces } from "@/lib/api/client";
 import { SectionChangedError } from "@/hooks/useWarehouseSection";
+import { remeasureInformedKey } from "@/lib/informOperations";
 
 export type RemeasureAcceptance = interfaces.RemeasureAcceptance;
 
@@ -42,8 +43,12 @@ export function useRemeasureAcceptance(shipmentId: string) {
     },
     onSuccess: async (res) => {
       settle(res);
-      // The cargo lines and totals changed: the shipment, the grids and W/M follow.
-      await queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      // The cargo lines and totals changed: the shipment, the grids and W/M follow - and the
+      // Alerts, whose remeasurement now reads "Accepted by …".
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+        queryClient.invalidateQueries({ queryKey: remeasureInformedKey(shipmentId) }),
+      ]);
     },
   });
 

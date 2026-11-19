@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Button, Dropdown } from "antd";
+import { EllipsisOutlined } from "@ant-design/icons";
+import { canHandOverAll, handOverAllLabel } from "@/lib/managerActions";
 import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
@@ -21,7 +24,26 @@ interface TeamTableProps {
   isError: boolean;
   /** What the table says when the answer could not be loaded. */
   loadFailed: string;
+  /** "Hand over all N active jobs…" on a person's row (X9): opens the hand-over of every active job they handle. Left out, no row offers it. */
+  onHandOverAll?: (row: TeamRow) => void;
 }
+
+// A person's row's actions, behind "⋯" as a card row's are (RowMenu): hand over every active job they handle -
+// the quiet ones too, which no card shows. Not on the jobs nobody handles: there is nobody to hand them over from.
+// The row around it opens the Cockpit tab on a click: nothing clicked in here may reach it.
+function TeamRowMenu({ row, onHandOverAll }: { row: TeamRow; onHandOverAll: (row: TeamRow) => void }) {
+  if (!canHandOverAll(row)) return null;
+  return (
+    <span className="inline-flex" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+      <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: [{ key: "handOverAll", label: handOverAllLabel(row.active) }], onClick: () => onHandOverAll(row) }}>
+        <Button type="text" size="small" icon={<EllipsisOutlined className="!text-[20px]" />} aria-label={`Actions for ${row.name}`} />
+      </Dropdown>
+    </span>
+  );
+}
+
+// The "⋯" column's header: nothing to see, "Actions" for a screen reader.
+const MENU_TITLE = <span className="sr-only">Actions</span>;
 
 const COLUMNS: ColumnsType<TeamRow> = [
   {
@@ -89,9 +111,12 @@ const COLUMNS: ColumnsType<TeamRow> = [
 // Cover - in the order the server sends them. No sorting and no ranking: the table is for seeing
 // a load that needs sharing out, not for a league table. A row opens the Cockpit tab narrowed to
 // the person; the name is a link, so the keyboard reaches it too.
-export function TeamTable({ people, filter, scope, isLoading, isError, loadFailed }: TeamTableProps) {
+export function TeamTable({ people, filter, scope, isLoading, isError, loadFailed, onHandOverAll }: TeamTableProps) {
   const router = useRouter();
   const rows = people ? teamRows(people, filter) : [];
+  const columns: ColumnsType<TeamRow> = onHandOverAll
+    ? [...COLUMNS, { title: MENU_TITLE, key: "menu", width: 48, align: "right", render: (_: unknown, r) => <TeamRowMenu row={r} onHandOverAll={onHandOverAll} /> }]
+    : COLUMNS;
   return (
     <section aria-label="Team" className={`${CARD} overflow-clip`}>
       <div className={CARD_BAR}>
@@ -103,7 +128,7 @@ export function TeamTable({ people, filter, scope, isLoading, isError, loadFaile
         rowKey={(r) => r.key}
         loading={isLoading}
         dataSource={rows}
-        columns={COLUMNS}
+        columns={columns}
         pagination={false}
         scroll={{ x: "max-content" }}
         locale={{
@@ -114,7 +139,8 @@ export function TeamTable({ people, filter, scope, isLoading, isError, loadFaile
         onRow={(r) => ({
           onClick: (e) => {
             const href = r.href;
-            if (!href || (e.target as HTMLElement).closest("a")) return;
+            // A link leads there itself; the "⋯" menu (drawn elsewhere in the document) keeps its clicks.
+            if (!href || (e.target as HTMLElement).closest("a, button, .ant-dropdown")) return;
             router.push(href);
           },
         })}

@@ -48,8 +48,12 @@ export const emailKey = (value: string | null | undefined) => (value ?? "").trim
 export const standingCovers = (absences: readonly CoverAbsence[]): CoverAbsence[] =>
   absences.filter((a) => a.inForce && emailKey(a.coverEmail) !== "" && emailKey(a.coverEmail) !== emailKey(a.userEmail));
 
-/** Why a cover is cleared: the absent user is back (the absence ended, was shortened or deleted), or the absence names another cover now (or none). */
-export type ClearWhy = "back" | "changed";
+/**
+ * Why a cover is cleared: the absence is over (it ended, was shortened or deleted - which says nothing
+ * of whether the user is back: they may have started another absence), the user it was for is no
+ * longer a user of the company, or an absence of theirs in force names another cover now (or none).
+ */
+export type ClearWhy = "over" | "left" | "changed";
 
 /** What the run does with an open row. */
 export type OpenCoverPlan =
@@ -72,8 +76,19 @@ export function planOpenCovers(open: readonly OpenCover[], absences: readonly Co
     if (own && standing.includes(own) && emailKey(own.coverEmail) === cover) return { row, action: "keep" };
     const next = standing.find((a) => a.id !== row.absenceId && a.userId === row.absentUserId && emailKey(a.coverEmail) === cover);
     if (next) return { row, action: "move", to: next };
-    return { row, action: "clear", why: own?.inForce ? "changed" : "back" };
+    // Away still - on this absence or another one that names another cover, or none: the cover changed.
+    const awayStill = absences.some((a) => a.inForce && a.userId === row.absentUserId);
+    return { row, action: "clear", why: awayStill ? "changed" : "over" };
   });
+}
+
+/**
+ * Why a cover is cleared, with whether its user is still a user of the company (`liveUserIds`: the
+ * company's users now; null when they could not be read). An absence that is over because its user
+ * left - auth tells no absences of a user who is gone - is said so; not known, it is just over.
+ */
+export function clearWhy(why: ClearWhy, absentUserId: string, liveUserIds: ReadonlySet<string> | null): ClearWhy {
+  return why === "over" && liveUserIds !== null && !liveUserIds.has(absentUserId) ? "left" : why;
 }
 
 /** What the run does with a job of an absent user that has no Holiday Cover. */
@@ -100,7 +115,21 @@ export const absentWho = (a: { name: string; email: string }) => a.name.trim() |
 export const coverSetLine = (cover: string, absent: { name: string; email: string }, fromDate: string, toDate: string) =>
   `Holiday Cover ${cover} while ${absentWho(absent)} is away ${dm(fromDate)}–${dm(toDate)}`;
 
-/** The job's history line of a cover cleared. */
+/**
+ * The job's history line of a cover cleared, in words that claim nothing the job cannot know (m26):
+ * "Holiday Cover eva@firma.cz cleared: absence over" - not "Jan is back", as he may have started
+ * another absence -, "…: Jan Novák left the company", "…: the cover while Jan Novák is away changed".
+ */
 export function coverClearedLine(cover: string, absent: { name: string; email: string }, why: ClearWhy): string {
-  return why === "back" ? `Holiday Cover ${cover} cleared: ${absentWho(absent)} is back` : `Holiday Cover ${cover} cleared: the cover while ${absentWho(absent)} is away changed`;
+  const head = `Holiday Cover ${cover} cleared`;
+  if (why === "left") return `${head}: ${absentWho(absent)} left the company`;
+  if (why === "changed") return `${head}: the cover while ${absentWho(absent)} is away changed`;
+  return `${head}: absence over`;
 }
+
+/**
+ * Who the History tab and the audit name for the cover job's writes (m26). They are written as the
+ * company's service identity - the same one Trucking's writes are made as, named "Trucking (system)" -
+ * so a change saved with one of the job's lines (ABSENCE_COVER_FIELD) is named this instead.
+ */
+export const ABSENCE_COVER_ACTOR = "Holiday Cover (automatic)";

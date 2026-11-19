@@ -219,7 +219,7 @@ describe("downloading the linked shipments' documents in one ZIP", () => {
     attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a1", S1, "HBL.pdf"), bl("a2", S2, "old.pdf", null)]);
     attachmentBucket.download.mockRejectedValueOnce(new Error("missing"));
     const res = await masterJobDocumentService.houseBols(MJ, "c1");
-    expect(res).toEqual({ file: null, fileCount: 0, withoutFiles: ["CZFCL00000062"], unreadable: ["CZFCL00000060 - HBL.pdf", "CZFCL00000061 - old.pdf"] });
+    expect(res).toEqual({ file: null, fileCount: 0, withoutFiles: ["CZFCL00000062"], unreadable: ["CZFCL00000060 - HBL.pdf", "CZFCL00000061 - old.pdf"], leftOut: [] });
   });
 
   it("gives the commercial paperwork (Commercial Invoices and packing lists) in a folder per shipment", async () => {
@@ -233,11 +233,50 @@ describe("downloading the linked shipments' documents in one ZIP", () => {
     expect(Object.keys(files)).toEqual(["CZFCL00000060/Invoice 12.pdf", "CZFCL00000060/PL.xlsx", "CZFCL00000061/Invoice 77.pdf"]);
   });
 
+  it("leaves out a cancelled shipment and the commercial paperwork customs declined, naming them", async () => {
+    shipments.findByMasterJobId.mockResolvedValue([
+      { id: S2, jobNumber: "CZFCL00000061" },
+      { id: S1, jobNumber: "CZFCL00000060" },
+      { id: S3, jobNumber: "CZFCL00000062", status: "Cancelled Shipment" },
+    ]);
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([
+      { ...bl("a1", S1, "Invoice 12.pdf"), customsStatus: "approved" },
+      { ...bl("a2", S1, "Invoice 12 old.pdf"), customsStatus: "declined" },
+      { ...bl("a3", S2, "PL.xlsx"), customsStatus: "declined" },
+    ]);
+    const res = await masterJobDocumentService.commercialPaperwork(MJ, "c1");
+    // The cancelled house's files are not even read.
+    expect(attachments.listByShipmentIdsOfTypes).toHaveBeenCalledWith([S1, S2], "c1", ["Invoice", "Packing list"]);
+    expect(res).toMatchObject({
+      fileCount: 1,
+      withoutFiles: ["CZFCL00000061"],
+      leftOut: ["CZFCL00000062 (cancelled)", "CZFCL00000060 - Invoice 12 old.pdf (declined by customs)", "CZFCL00000061 - PL.xlsx (declined by customs)"],
+    });
+    expect(attachmentBucket.download).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a Bill of Lading customs declined: only the commercial paperwork is left out for that", async () => {
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([{ ...bl("a1", S1, "HBL.pdf"), customsStatus: "declined" }]);
+    const res = await masterJobDocumentService.houseBols(MJ, "c1");
+    expect(res).toMatchObject({ fileCount: 1, leftOut: [] });
+  });
+
+  it("names the download by the master job's mode: House AWBs by air (filed as Bills of Lading), CMRs by road", async () => {
+    masterJobs.getByIdForCompany.mockResolvedValue({ id: MJ, mczNumber: "MCZ00000007", freightMode: "Air Freight" });
+    const air = await masterJobDocumentService.houseBols(MJ, "c1");
+    expect(attachments.listByShipmentIdsOfTypes).toHaveBeenLastCalledWith([S1, S2, S3], "c1", ["Bill of Lading"]);
+    expect(air.file!.fileName).toBe("MCZ00000007 House AWBs.zip");
+    masterJobs.getByIdForCompany.mockResolvedValue({ id: MJ, mczNumber: "MCZ00000008", freightMode: "Road Freight" });
+    const road = await masterJobDocumentService.houseBols(MJ, "c1");
+    expect(attachments.listByShipmentIdsOfTypes).toHaveBeenLastCalledWith([S1, S2, S3], "c1", ["CMR / POD"]);
+    expect(road.file!.fileName).toBe("MCZ00000008 CMRs.zip");
+  });
+
   it("is refused before anything is downloaded when the stored files come to more than 100 MB", async () => {
     attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a1", S1, "Invoice.pdf", undefined, 60 * MB), bl("a2", S2, "Scan.pdf", undefined, 50 * MB)]);
     await expect(masterJobDocumentService.commercialPaperwork(MJ, "c1")).rejects.toMatchObject({
       code: "failed_precondition",
-      message: "These documents come to 110 MB, more than 100 MB in one download: download them per shipment",
+      message: "These documents come to 110 MB, more than 100 MB in one download: download the files from each shipment's Documents tab",
     });
     expect(attachmentBucket.download).not.toHaveBeenCalled();
   });
@@ -248,7 +287,7 @@ describe("downloading the linked shipments' documents in one ZIP", () => {
     attachmentBucket.download.mockImplementation(async () => ({ length: 60 * MB }));
     await expect(masterJobDocumentService.commercialPaperwork(MJ, "c1")).rejects.toMatchObject({
       code: "failed_precondition",
-      message: "These documents come to more than 100 MB in one download: download them per shipment",
+      message: "These documents come to more than 100 MB in one download: download the files from each shipment's Documents tab",
     });
     expect(attachmentBucket.download).toHaveBeenCalledTimes(2);
   });

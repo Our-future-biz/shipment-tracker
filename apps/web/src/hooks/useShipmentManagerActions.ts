@@ -9,6 +9,7 @@ export type HandOverResult = interfaces.HandOverResult;
 export type NudgeResult = interfaces.NudgeResult;
 export type CutoffDismissalItem = interfaces.CutoffDismissalItem;
 export type HandledByCount = interfaces.HandledByCount;
+export type HandOverJobsAnswer = interfaces.HandOverJobsAnswer;
 
 // What a manager does from Shipments → Managers (Council Outlay 11, step 3): hands jobs over, nudges a job's
 // people, dismisses a missed cut-off. Each of them changes what the cockpit, the Shipments list and its Needs
@@ -36,6 +37,31 @@ export const useHandOver = () => {
       queryClient.invalidateQueries({ queryKey: ["cover-notes-bell"] });
     },
   });
+};
+
+/**
+ * X9 (K18): a person's active jobs by Handled By - quiet ones too, not only those on the cards - for "Hand over all
+ * N active jobs…" on a Team row: at most 200 (one hand-over), with how many there are in all. `mode` / `direction`
+ * as the Team tab shows them. Read each time the dialog opens: the jobs change all day.
+ */
+export const useHandOverJobs = (handledBy: string | null, filter: { mode: string; direction: string }) => {
+  const asked = (handledBy ?? "").trim().toLowerCase();
+  const query = useQuery({
+    // Not under the cockpit's key: the hand-over reads the cockpit again, and the open dialog keeps the list it showed.
+    queryKey: ["shipments-hand-over-jobs", asked, filter.mode, filter.direction],
+    queryFn: () =>
+      api.shipments.shipmentHandOverJobs({
+        handledBy: asked,
+        ...(filter.mode !== "all" ? { mode: filter.mode } : {}),
+        ...(filter.direction !== "all" ? { direction: filter.direction } : {}),
+      }),
+    enabled: !!asked,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+  return { listed: query.data ?? null, isLoading: !!asked && query.isLoading, isError: query.isError && !query.data };
 };
 
 /** D17: a to-do on the job and a chat line that tags its Handled By and Holiday Cover. */

@@ -18,6 +18,8 @@ export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 // entry once per company (entry_key): an entry read again from an overlapping file is not stored twice.
 
 const LIST_LIMIT = 200;
+/** Open incoming entries read for the "payment waiting" check: far more than a month's statements leave undecided. */
+const OPEN_INCOMING_LIMIT = 2000;
 const INSERT_CHUNK = 500;
 
 const chunks = <T>(items: readonly T[], size: number): T[][] => {
@@ -178,6 +180,21 @@ class BankStatementRepository {
       .where(and(eq(e.companyId, companyId), eq(e.id, entryId), eq(e.version, version), isNull(e.deletedAt), DECIDABLE_NOW(reopened)))
       .returning();
     return row ?? null;
+  }
+
+  /**
+   * The company's incoming entries no manager has decided yet (proposed or no match), with the file each was read
+   * from - the newest booked first, at most `limit` (the "payment waiting" check, mock test council X5).
+   */
+  async openIncoming(companyId: string, limit = OPEN_INCOMING_LIMIT): Promise<(BankStatementEntryRecord & { fileName: string })[]> {
+    const rows = await db
+      .select({ entry: e, fileName: s.fileName })
+      .from(e)
+      .innerJoin(s, eq(s.id, e.statementId))
+      .where(and(eq(e.companyId, companyId), isNull(e.deletedAt), isNull(s.deletedAt), eq(e.credit, true), OPEN))
+      .orderBy(desc(e.bookingDate), desc(e.createdAt))
+      .limit(limit);
+    return rows.map((r) => ({ ...r.entry, fileName: r.fileName }));
   }
 
   /** Of these payments (lines an entry's confirm noted), the ids of those taken back since. */

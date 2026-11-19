@@ -1,19 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { customers } from "~encore/clients";
-import { businessDay } from "../../../lib/businessDate";
+import { customers, holidays } from "~encore/clients";
+import { addDays, businessDay } from "../../../lib/businessDate";
 import { userEmailOf } from "../../../lib/companyUsers";
 import { emailConfigured, sendMail, type MailAttachment } from "../../../lib/email";
 import type { Actor } from "../../../lib/rbac";
 import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
 import { isUuid } from "../../../lib/uuid";
 import { variableSymbol } from "../lib/invoicePdf";
-import { normaliseProfile } from "../lib/invoiceProfile";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { isOwed, type ReceivableState } from "../lib/receivables";
-import { reminderDue, reminderKey, type ReminderDecision, type ReminderSettings } from "../lib/reminderRules";
-import { reminderText, statementMailText, type MailBank } from "../lib/reminderTexts";
+import { isReminderDay, reminderDue, reminderKey, type ReminderDecision, type ReminderSettings } from "../lib/reminderRules";
+import { mailIssuerOf as issuerOf, reminderText, statementMailText, type MailBank } from "../lib/reminderTexts";
 import { csvText, fileNamePart, languageOf, statementCsv, statementCurrencies, statementOf, type Statement, type StatementLanguage } from "../lib/statement";
 import { renderStatementPdf, STATEMENT_TEXTS, type StatementIssuer } from "../lib/statementPdf";
 import { invoiceRepository } from "../repositories/invoice.repository";
@@ -24,6 +23,7 @@ import type { InvoiceRecord } from "../schemas/invoice.schema";
 import type { InvoiceProfileRecord } from "../schemas/invoiceProfile.schema";
 import type { ReceivableMailRecord } from "../schemas/receivable.schema";
 import { invoiceDocumentService } from "./invoiceDocument.service";
+import { waitingPaymentsFor } from "./paymentWaiting";
 import { receivableService, receivableStateOfFigures } from "./receivable.service";
 import type {
   ReceivableMailItem,
@@ -55,6 +55,14 @@ const NO_RECIPIENT =
 /** The user id the daily run's calls to the customers service go as: it reads only the company's customers. */
 const AUTO_USER_ID = "00000000-0000-0000-0000-000000000000";
 const RUN_LIMIT = 2000;
+/**
+ * How much earlier than the switch-on day the run still reads a due day (L2): a due day on a weekend or holiday is
+ * reminded from the next working day (lib/reminderRules reminderDueDay), which may fall on or after the switch-on day.
+ * The rule itself decides; this only keeps the read from filling its limit with the invoices due long before.
+ */
+const SWITCH_ON_MARGIN_DAYS = 14;
+/** The company's uploaded holidays read this many days around today (a due day moved past a holiday is near it). */
+const HOLIDAY_WINDOW_DAYS = 60;
 const MAIL_LIST_LIMIT = 200;
 const PER_CALL = 500;
 /** An invoice PDF bigger than this is not attached (the reminder says nothing about an attachment then). */
@@ -105,55 +113,47 @@ async function customerFactsOf(ids: string[], authData?: AuthData): Promise<Map<
   );
 }
 
+/** What a day's run knows besides the invoice: the company's extra holidays and the invoices a bank payment may pay. */
+interface RunFacts {
+  holidays: readonly string[];
+  paymentWaiting: ReadonlySet<string>;
+}
+
 /** The automatic reminder an invoice is due today (lib/reminderRules), with its state. */
-function decisionOf(f: InvoiceFigures, settings: ReminderSettings, today: string): { state: ReceivableState; decision: ReminderDecision } {
+function decisionOf(f: InvoiceFigures, settings: ReminderSettings, today: string, run: RunFacts): { state: ReceivableState; decision: ReminderDecision } {
   // The same figures and rules as the page (write-offs and bank charges counted once confirmed).
   const state = receivableStateOfFigures(f, today);
   const decision = reminderDue(
     {
       status: state.status,
       leftToPay: state.leftToPay,
-      daysOverdue: state.daysOverdue,
+      dueDate: f.invoice.dueDate,
+      currency: f.invoice.currency,
+      fxRate: Number(f.invoice.fxRate) || undefined,
       disputed: f.receivable?.disputed ?? false,
       promisedOn: f.receivable?.promisedOn ?? null,
       reminderLevel: f.receivable?.reminderLevel ?? 0,
       lastRemindedOn: f.receivable?.lastRemindedOn ?? null,
       waiting: f.waiting ?? 0,
+      paymentWaiting: run.paymentWaiting.has(f.invoice.id),
     },
     settings,
     today,
+    run.holidays,
   );
   return { state, decision };
 }
 
-/**
- * The issuer as the statement and the mails sign it: the invoice profile (Settings → Organization), else the snapshot
- * on the customer's newest invoice; and the issuer's account in the currency, from the profile, else that invoice's.
- */
-function issuerOf(profileRow: InvoiceProfileRecord | null, currency: string, invoice: InvoiceRecord | null): { issuer: StatementIssuer; bank: MailBank | null } {
-  const p = profileRow ? normaliseProfile(profileRow) : null;
-  const sup = invoice?.supplier;
-  const issuer: StatementIssuer = p?.companyName
-    ? { companyName: p.companyName, street: p.street, city: p.city, postalCode: p.postalCode, country: p.country, ico: p.ico, dic: p.dic, registerEntry: p.registerEntry, email: p.email, phone: p.phone, web: p.web, logoData: p.logoData, footerNote: p.footerNote }
-    : {
-        companyName: sup?.companyName ?? "",
-        street: sup?.street ?? "",
-        city: sup?.city ?? "",
-        postalCode: sup?.postalCode ?? "",
-        country: sup?.country ?? "",
-        ico: sup?.ico ?? "",
-        dic: sup?.dic ?? "",
-        registerEntry: sup?.registerEntry ?? "",
-        email: sup?.email ?? "",
-        phone: sup?.phone ?? "",
-        web: sup?.web ?? "",
-        logoData: sup?.logoData ?? "",
-        footerNote: sup?.footerNote ?? "",
-      };
-  const own = p?.bankAccounts.find((a) => a.currency === currency);
-  const fromInvoice = sup?.bankAccount && sup.bankAccount.currency === currency ? sup.bankAccount : null;
-  const account = own ?? fromInvoice;
-  return { issuer, bank: account ? { bankName: account.bankName, accountNumber: account.accountNumber, iban: account.iban, swift: account.swift } : null };
+/** The national holidays the company uploaded around today (lib/workingDays knows the statutory ones); none when they can't be read. */
+async function companyHolidaysOf(companyId: string, today: string): Promise<string[]> {
+  try {
+    const authData = { userID: AUTO_USER_ID, companyID: companyId, role: "user" };
+    const { dates } = await holidays._internalHolidaysCzNational({ from: addDays(today, -HOLIDAY_WINDOW_DAYS), to: addDays(today, HOLIDAY_WINDOW_DAYS) }, { authData });
+    return dates;
+  } catch (err) {
+    log.warn(err, "the company's holidays could not be read for the automatic reminders: weekends and the statutory holidays only", { companyId });
+    return [];
+  }
 }
 
 /** The customer's address lines as the invoice names it: its Billing address, else its seat. */
@@ -382,12 +382,16 @@ class ReceivableMailService {
     const result: ReceivableReminderRunResult = { companies: 0, sent: 0, failed: 0, skipped: 0 };
     if (!emailConfigured()) return result;
     const today = businessDay(now);
+    // Only on a Czech working day (K8): a weekend or a statutory holiday sends nothing; a company's own holiday below.
+    if (!isReminderDay(today)) return result;
     for (const companyId of await mails.companiesWithAutoReminders()) {
       try {
         const settings = await repo.settingsOf(companyId);
         if (!settings.autoReminders) continue;
+        const extra = await companyHolidaysOf(companyId, today);
+        if (!isReminderDay(today, extra)) continue;
         result.companies += 1;
-        const counts = await this.runCompany(companyId, settings, today);
+        const counts = await this.runCompany(companyId, settings, today, extra);
         result.sent += counts.sent;
         result.failed += counts.failed;
         result.skipped += counts.skipped;
@@ -402,13 +406,40 @@ class ReceivableMailService {
     companyId: string,
     settings: ReminderSettings & { replyTo: string },
     today: string,
+    holidayDays: readonly string[] = [],
   ): Promise<Omit<ReceivableReminderRunResult, "companies">> {
     const counts = { sent: 0, failed: 0, skipped: 0 };
-    // Read only (as the bell reads): the overdue invoices, the oldest due first.
-    const figures = await repo.figures(companyId, { overdueOn: today }, RUN_LIMIT);
+    // Read only (as the bell reads): the overdue invoices, the oldest due first - only those due around or after the
+    // day the reminders were switched on (L2): the older ones are never reminded by the app, and read first they would
+    // take the whole limit.
+    if (!settings.autoRemindersSince) return counts;
+    const dueFrom = addDays(settings.autoRemindersSince, -SWITCH_ON_MARGIN_DAYS);
+    const figures = await repo.figures(companyId, { overdueOn: today, dueFrom }, RUN_LIMIT);
+    if (!figures.length) return counts;
+    // A payment read from a bank statement and not confirmed yet may be for one of them (X5): that one waits. When the
+    // statements can't be read, none is sent today (the customer may have paid).
+    let waitingIds: Set<string>;
+    try {
+      const waiting = await waitingPaymentsFor(
+        companyId,
+        figures.map((f) => ({ f, s: receivableStateOfFigures(f, today) })),
+        today,
+      );
+      waitingIds = new Set(waiting.keys());
+    } catch (err) {
+      log.warn(err, "automatic reminders wait: the bank statements could not be read (a payment may be waiting)", { companyId });
+      counts.skipped += figures.length;
+      return counts;
+    }
+    const run: RunFacts = { holidays: holidayDays, paymentWaiting: waitingIds };
     const due: { f: InvoiceFigures; level: 1 | 2 }[] = [];
     for (const f of figures) {
-      const { decision } = decisionOf(f, settings, today);
+      const { decision } = decisionOf(f, settings, today, run);
+      if (!decision.level && decision.why === "payment_waiting") {
+        log.info("automatic reminder waits: a payment that may be for it is on a bank statement", { companyId, invoice: f.invoice.number });
+        counts.skipped += 1;
+        continue;
+      }
       if (!decision.level) continue;
       // Not read by Accounts Receivable yet: whether the customer's list said Paid before is not known, so it waits
       // until the page has read it (the old "Paid" carried over first).
@@ -437,7 +468,7 @@ class ReceivableMailService {
     for (const { f, level } of due) {
       let outcome: Outcome;
       try {
-        outcome = await this.remindOne(companyId, f, level, facts.get(f.invoice.customerId) ?? null, settings, today, profile);
+        outcome = await this.remindOne(companyId, f, level, facts.get(f.invoice.customerId) ?? null, settings, today, profile, run);
       } catch (err) {
         log.error(err, "an automatic reminder could not be sent", { companyId, invoice: f.invoice.number, level });
         outcome = "failed";
@@ -456,6 +487,7 @@ class ReceivableMailService {
     settings: ReminderSettings & { replyTo: string },
     today: string,
     profile: InvoiceProfileRecord | null,
+    run: RunFacts,
   ): Promise<Outcome> {
     const invoiceId = f.invoice.id;
     const key = reminderKey(invoiceId, level);
@@ -468,7 +500,7 @@ class ReceivableMailService {
     // Read again just before sending: a payment, a promise or a dispute noted since counts.
     const now = await repo.figuresOne(companyId, invoiceId);
     if (!now?.receivable) return "skipped";
-    const { state, decision } = decisionOf(now, settings, today);
+    const { state, decision } = decisionOf(now, settings, today, run);
     if (decision.level !== level) return "skipped";
 
     const inv = now.invoice;

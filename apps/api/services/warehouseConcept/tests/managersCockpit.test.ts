@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAudit, buildCockpit, containerSignals, dayText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
+import { arrivalDay, buildAudit, buildCockpit, containerSignals, dayText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
 import type { GateMovementItem, GateStorageInfo } from "../interfaces/gate.interfaces";
 import type { WarehouseContainerItem } from "../interfaces/records.interfaces";
 
@@ -229,6 +229,15 @@ describe("expected today", () => {
     expect(isExpectedToday(exp({ dockSlots: [{ ...slot, status: "Cancelled" }] }), TODAY)).toBe(false);
     expect(isExpectedToday(exp({ subPositions: [{ etw: "2026-10-23" }] as GateMovementItem["subPositions"] }), TODAY)).toBe(true);
     expect(isExpectedToday(exp({ eta: "2026-10-23", gateIn: hoursAgo(1) }), TODAY)).toBe(false);
+  });
+
+  it("goes by the ETA Warehouse/HUB once it is filled, not the vessel's ETA; by the ETA only without one (as the worklist does)", () => {
+    const exp = (over: Partial<GateMovementItem>) => item({ status: "Expected", ...over });
+    // The vessel arrives today, the cargo reaches the warehouse on the 25th: not expected today.
+    expect(isExpectedToday(exp({ eta: "2026-10-23", etaWarehouse: "2026-10-25" }), TODAY)).toBe(false);
+    expect(isExpectedToday(exp({ eta: "2026-10-23", etaWarehouse: "" }), TODAY)).toBe(true);
+    expect(arrivalDay({ eta: "2026-10-23", etaWarehouse: "2026-10-25" })).toBe("2026-10-25");
+    expect(arrivalDay({ eta: "2026-10-23", etaWarehouse: " " })).toBe("2026-10-23");
   });
 });
 

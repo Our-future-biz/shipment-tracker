@@ -103,7 +103,15 @@ export const MJ_ANCHORS = {
   containers: "mj-containers",
   etd: "mj-estimated-departure",
   eta: "mj-estimated-arrival",
+  /** The Key Dates card: where a date's jump lands when the user's field choice hides its row. */
+  dates: "mj-key-dates",
 } as const;
+
+/** The rows a date in the summary jumps to, by their names in Key Dates. */
+export const MJ_DATE_ROWS: Record<string, string> = {
+  [MJ_ANCHORS.etd]: "ETD Estimated",
+  [MJ_ANCHORS.eta]: "ETA Estimated",
+};
 
 export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   const message = useMessages();
@@ -230,6 +238,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
           voyage on the left, each date with its week under it; the warehouse and the closings on
           the right. */}
       <MasterJobFieldCard
+        id={MJ_ANCHORS.dates}
         cardId="masterJob.dates"
         icon={<CalendarOutlined />}
         title="Key Dates"

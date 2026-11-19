@@ -2,10 +2,11 @@ import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { requireRole } from "../../../lib/rbac";
 import { accountingExportService } from "../services/accountingExport.service";
-import type { AccountingExportsResponse, PohodaExportResponse } from "../interfaces/accountingExport";
+import type { AccountingExportFileResponse, AccountingExportsResponse, PohodaExportResponse } from "../interfaces/accountingExport";
 
 // Accounts Receivable step 7: the issued invoices and credit notes of a period as a Pohoda XML import file
-// (services/accountingExport). Managers export, and each export is recorded; everyone sees the list of exports.
+// (services/accountingExport). Managers export, and each export is recorded; managers see the list of exports and
+// download an export's file again (mock test council X6, m1).
 
 interface PohodaExportRequest {
   /** The first and the last issue day (yyyy-mm-dd), both in */
@@ -29,4 +30,10 @@ export const receivablePohodaExport = api(
 export const receivableAccountingExports = api(
   { expose: true, auth: true, method: "GET", path: "/receivables/exports" },
   async (): Promise<AccountingExportsResponse> => accountingExportService.list(requireRole()),
+);
+
+/** An export's file again, built from the documents it recorded and checked against its SHA-256: records nothing. */
+export const receivableAccountingExportFile = api(
+  { expose: true, auth: true, method: "GET", path: "/receivables/exports/:id/file" },
+  async ({ id }: { id: string }): Promise<AccountingExportFileResponse> => accountingExportService.exportFile(requireRole(), id),
 );

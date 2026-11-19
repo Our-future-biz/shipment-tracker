@@ -509,8 +509,34 @@ describe("the list's Trade Direction filter", () => {
 describe("the list's tile filters", () => {
   const ACTIVE = `"shipment"."invoicing_status" IS DISTINCT FROM 'Invoiced' AND "shipment"."status" IS DISTINCT FROM $1`;
 
-  it("claims: an active job with an open claim", () => {
-    expect(sent(tilePredicate("claims"))).toEqual({ sql: `${ACTIVE} AND "shipment"."claim" = 'Yes'`, params: ["Cancelled Shipment"] });
+  // Review: an open claim on costs sets the Claim field too, and Accounts Payable raises those on
+  // invoiced jobs - a job no longer active is the managers' for an open cargo claim only.
+  const OPEN_CARGO_CLAIM = `EXISTS (
+  SELECT 1 FROM "shipment_claim" cargo_claim
+  WHERE cargo_claim.shipment_id = "shipment"."id"
+    AND cargo_claim.company_id = "shipment"."company_id"
+    AND cargo_claim.deleted_at IS NULL
+    AND cargo_claim.kind = 'cargo'
+    AND cargo_claim.status IN ('open', 'notified', 'with_insurer')
+)`;
+
+  it("claims: an active job with a claim, and an Invoiced or cancelled one with an open cargo claim (X8) - the jobs Shipments → Managers counts under Open claims", () => {
+    expect(sent(tilePredicate("claims"))).toEqual({ sql: `"shipment"."claim" = 'Yes' AND ((${ACTIVE}) OR ${OPEN_CARGO_CLAIM})`, params: ["Cancelled Shipment"] });
+  });
+
+  it("the cockpit's read of the jobs no longer active that have an open cargo claim: the company's live ones, Invoiced or cancelled, the newest first, cut", async () => {
+    await shipmentRepository.managersCockpitClaimOnlyRows(COMPANY, 500);
+    const [read] = fake.state.reads;
+    expect(sent(read!.where)).toEqual({
+      sql: `(${LIVE} and NOT (${ACTIVE.replace("$1", "$2")}) and "shipment"."claim" = $3 and ${OPEN_CARGO_CLAIM})`,
+      params: [COMPANY, "Cancelled Shipment", "Yes"],
+    });
+    expect(read!.orderBy.map((o) => sent(o).sql)).toEqual(['"shipment"."created_at" desc', '"shipment"."id" desc']);
+    expect(fake.state.limits).toEqual([500]);
+    // The same columns as the active jobs' read: one rule set judges both.
+    await shipmentRepository.managersCockpitRows(COMPANY, 10);
+    expect(Object.keys(fake.state.reads[1]!.fields)).toEqual(Object.keys(read!.fields));
+    expect(Object.keys(read!.fields)).toEqual(expect.arrayContaining(["incotermOrigin", "incotermDestination", "pcs", "totalWeightTons", "totalVolumeCbm", "claim"]));
   });
 
   it("keeps the tiles the list had, and asks nothing for all or a word that is no tile", () => {

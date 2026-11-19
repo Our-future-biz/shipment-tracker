@@ -10,6 +10,8 @@ import {
   RELEASE_KIND,
   RELEASE_REQUEST_FIELD,
   RELEASE_WHATS,
+  WITHDRAW_NOT_YOURS,
+  WITHDRAW_ONLY_MANAGERS,
   alreadyApproved,
   answeredLine,
   askedLine,
@@ -20,6 +22,8 @@ import {
   nothingToRelease,
   passDecidedSince,
   validUntil,
+  withdrawOf,
+  withdrawnLine,
 } from "../lib/releaseRequest";
 import { DETAILS_REFUSAL } from "../lib/shipmentEditRule";
 import { userNameOf } from "../lib/userName";
@@ -53,8 +57,12 @@ const toItem = (r: ReleaseRequestRow, now: Date): ReleaseRequestItem => {
     usedByName: r.usedByName,
     validUntil: until ? iso(until) : null,
     usable: isUsable(r, now),
-    // Closed by a release made another way: dated by the write that closed it.
-    closedAt: r.status === "closed" ? iso(r.updatedAt) : null,
+    // Closed by a release made another way, or withdrawn: dated by its closing (an old row by the write that closed it).
+    closedAt: r.status === "closed" ? iso(r.closedAt ?? r.updatedAt) : null,
+    // A row closed before its closing had fields of its own (migration 0089 gave them "released") was closed by a release.
+    closedWhy: r.status === "closed" ? (r.closedWhy ?? "released") : null,
+    closedByName: r.status === "closed" ? r.closedByName : "",
+    closeReason: r.status === "closed" ? r.closeReason : "",
   };
 };
 
@@ -147,6 +155,32 @@ class ReleaseRequestService {
     );
     if (!answered) throw APIError.failedPrecondition("This request has already been answered");
     return toItem({ ...answered, jobNumber: request.jobNumber, customer: request.customer }, now);
+  }
+
+  /**
+   * Withdraws a request (K20; lib/releaseRequest withdrawOf), with a reason and a line in the job's history:
+   * whoever asked their request still waiting, a manager an approval nobody has used yet - it then lets nothing
+   * through any more. Closed as withdrawn, with who and why. Written once: withdrawn, answered or used meanwhile,
+   * it is refused and nothing is written.
+   */
+  async withdraw(actor: Actor, id: string, input: { reason: string }, now = new Date()): Promise<ReleaseRequestItem> {
+    const reason = (input.reason ?? "").trim();
+    if (reason.length < MIN_RELEASE_REASON) throw APIError.invalidArgument("Say why it is withdrawn");
+    if (reason.length > MAX_RELEASE_TEXT) throw APIError.invalidArgument(`The reason is too long (at most ${MAX_RELEASE_TEXT} characters)`);
+    const request = isUuid(id) ? await requests.get(id, actor.companyID) : null;
+    if (!request) throw APIError.notFound("Request not found");
+    const what = withdrawOf(request, actor);
+    // Not theirs to withdraw is a refusal of the person; used or done already, of the request.
+    if ("refusal" in what) throw what.refusal === WITHDRAW_NOT_YOURS || what.refusal === WITHDRAW_ONLY_MANAGERS ? APIError.permissionDenied(what.refusal) : APIError.failedPrecondition(what.refusal);
+    const withdrawn = await requests.withdraw(
+      id,
+      actor.companyID,
+      what.kind,
+      { id: actor.userID, name: await userNameOf(actor.userID), reason, at: now },
+      { userId: actor.userID, field: RELEASE_REQUEST_FIELD, oldValue: null, newValue: withdrawnLine(request, what.kind, reason) },
+    );
+    if (!withdrawn) throw APIError.failedPrecondition("This request was answered, used or closed meanwhile: nothing was withdrawn");
+    return toItem({ ...withdrawn, jobNumber: request.jobNumber, customer: request.customer }, now);
   }
 
   /**

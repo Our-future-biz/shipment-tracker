@@ -140,6 +140,11 @@ export interface OperationsMoneyFacts {
    * read. A job in neither was not valued at all (fx did not answer): "unreadable".
    */
   noRates: ReadonlyMap<string, "not_fixed" | "unreadable">;
+  /**
+   * The jobs in `rates` whose rates are of an older fixing: the one of their date should be stored and is not (fx's
+   * ratesMissing - the import failed). Their figures are worked out all the same, and say so (`totals.ratesStale`).
+   */
+  staleRates?: ReadonlySet<string>;
 }
 
 const byJob = <T extends { shipmentId: string }>(rows: readonly T[]): Map<string, T[]> => {
@@ -289,6 +294,8 @@ export function supplierInvoicesOf(
     waitingIds: waiting.map((h) => h.id),
     refused: refusals.length,
     lastRefusedOn: refusedDays.at(-1) ?? null,
+    // Each day apart: a reader that speaks only of recent refusals counts those of its own window (m21).
+    refusedOn: refusedDays,
     claimed: claims === null ? null : invoices.filter((h) => holdsPayment(claimsOf({ id: h.id, numberKey: h.numberKey, shipmentIds: jobsOf.get(h.id) ?? [] }, claims))).length,
     approvedOverdue: termsUnknown ? null : overdue.length,
     oldestWaitingSince: waiting.length ? waiting.map(bookedOn).sort()[0]! : null,
@@ -346,13 +353,16 @@ export function operationsMoneyJobs(facts: OperationsMoneyFacts): OperationsMone
       costLines: buys ? buys.filter((r) => realOf(r) !== 0 || estimateOf(r) !== 0).length : null,
       totals:
         sells && buys
-          ? moneyTotals(
-              buys,
-              sells,
-              facts.lines!.billingCurrency.get(shipmentId) || "CZK",
-              facts.rates.get(shipmentId) ?? {},
-              facts.rates.has(shipmentId) ? "missing" : (facts.noRates.get(shipmentId) ?? "unreadable"),
-            )
+          ? {
+              ...moneyTotals(
+                buys,
+                sells,
+                facts.lines!.billingCurrency.get(shipmentId) || "CZK",
+                facts.rates.get(shipmentId) ?? {},
+                facts.rates.has(shipmentId) ? "missing" : (facts.noRates.get(shipmentId) ?? "unreadable"),
+              ),
+              ratesStale: facts.rates.has(shipmentId) && (facts.staleRates?.has(shipmentId) ?? false),
+            }
           : NO_TOTALS,
       invoicedOn: facts.invoices ? (facts.invoices.billedOn.get(shipmentId) ?? null) : null,
       notRecharged: sells && buys ? notRechargedOf(buys, sells) : [],

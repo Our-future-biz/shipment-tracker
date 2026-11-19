@@ -103,6 +103,11 @@ interface GateStampRequest {
   recordedAt?: string;
   /** Floor mode: id of this request (UUID). A stamp already there is then an answer, not an error. */
   clientRequestId?: string;
+  /**
+   * A manager's reason (at least 3 characters) to WH-release a job on prepayment that is not paid: the release is
+   * refused without it (services/releasePayment), and recorded with it on the record's history.
+   */
+  paymentOverrideReason?: string & MaxLen<500>;
 }
 
 interface GateStampResponse {
@@ -118,9 +123,9 @@ interface GateStampResponse {
 
 export const gateMovementStamp = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-concept/gate/:id/stamp" },
-  async ({ id, kind, recordedAt, clientRequestId }: GateStampRequest): Promise<GateStampResponse> => {
+  async ({ id, kind, recordedAt, clientRequestId, paymentOverrideReason }: GateStampRequest): Promise<GateStampResponse> => {
     const { companyID, userID, role } = getAuthData()!;
-    return gateMovementService.stampWithOutcome(id, companyID, userID, kind, role, { recordedAt, clientRequestId });
+    return gateMovementService.stampWithOutcome(id, companyID, userID, kind, role, { recordedAt, clientRequestId, paymentOverrideReason });
   },
 );
 

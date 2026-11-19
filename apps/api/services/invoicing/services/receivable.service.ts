@@ -32,9 +32,12 @@ import {
   isPrepayment,
   paymentProblem,
   prepaymentInvoicesOf,
+  prepaymentUninvoicedOf,
   prepaymentUnpaidOf,
   receivableStateOf,
   releaseWarning,
+  settledDisputeReason,
+  DISPUTE_REOPENED_REASON,
   settingsProblem,
   sumByCurrency,
   takeBackProblem,
@@ -47,7 +50,13 @@ import {
   type ReceivableState,
   type ReleaseRow,
 } from "../lib/receivables";
+import { waitingPaymentText, type WaitingPayment } from "../lib/bankMatch";
+import { variableSymbol } from "../lib/invoicePdf";
+import { mailIssuerOf, reminderText } from "../lib/reminderTexts";
+import { languageOf } from "../lib/statement";
+import { invoiceProfileRepository } from "../repositories/invoiceProfile.repository";
 import { receivableRepository as repo, type EventInput, type InvoiceFigures, type InvoiceScope } from "../repositories/receivable.repository";
+import { waitingPaymentsFor } from "./paymentWaiting";
 import { invoiceFollowupOutboxRepository } from "../repositories/invoiceFollowupOutbox.repository";
 import { invoiceRepository } from "../repositories/invoice.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
@@ -59,6 +68,9 @@ import { CARRY_OVER_CHUNK, carryOverAll, carryOverChunk, NOT_CHECKED } from "./r
 import type {
   ReceivableAsAtRow,
   ReceivableCustomerFacts,
+  ReceivableCustomerOwedResponse,
+  ReceivablePaymentWaiting,
+  ReceivableReminderDraft,
   ReceivableCustomerRow,
   ReceivableCustomerRowsResponse,
   ReceivableDetailResponse,
@@ -99,6 +111,8 @@ const changedMeanwhile = () => APIError.aborted("This invoice changed meanwhile:
 const managersOnly = () => APIError.permissionDenied("Only a manager notes a payment, takes one back or sends an invoice again to the customer's list");
 const lineNotThere = () => APIError.notFound("This line is not there");
 const MANAGERS_UNREADABLE = "Whether the company has another manager could not be read just now: try again in a moment";
+/** Who a dispute closed by itself is written by (as the automatic reminders are). */
+const AUTOMATIC_BY = "Accounts Receivable (automatic)";
 const OPEN_JOBS_UNREADABLE = "The customer's open jobs could not be read just now: try again in a moment";
 
 /** The follow-ups that keep the customer's list in step: a failed one is shown and a manager may send it again (D24). */
@@ -163,6 +177,8 @@ interface CustomerFacts {
   currency: string;
   reminderTo: { name: string; email: string; role: string } | null;
   deleted: boolean;
+  /** cs | en (step 7, A2); anything else, or none, reads as English */
+  language?: unknown;
 }
 
 /** What the rows need from the other services and the outbox, read for a set of invoices at once. */
@@ -248,6 +264,30 @@ class ReceivableService {
   private async prepare(actor: Actor, scope: InvoiceScope): Promise<void> {
     await repo.ensureRows(actor.companyID, scope);
     await carryOverChunk(actor.companyID, scope, (invoice) => followupsOfReceivable(invoice, actorOf(actor)));
+    await this.closeSettledDisputes(actor, scope);
+  }
+
+  /**
+   * A dispute that nothing is owed on any more - ended by a full credit note, a payment or a confirmed write-off that
+   * settled the invoice, or a cancellation - closes itself, with a line in the invoice's history (mock test council n4,
+   * L5). Done on the next read of the invoice, so it covers a credit note issued in Invoicing too. Housekeeping: a
+   * failure is logged and the read or write goes on (the Disputed tab shows only disputes with something owed anyway).
+   *
+   * The other way too: a dispute that closed by itself opens again once the invoice is owed again - the payment,
+   * write-off or bank charge that settled it taken back (a take-back answers with the invoice read again, so straight
+   * away). Its own reason stands again, with a line in the history. One a person closed stays closed.
+   */
+  private async closeSettledDisputes(actor: Actor, scope: InvoiceScope): Promise<void> {
+    try {
+      await repo.reopenAutoClosedDisputes(actor.companyID, scope, AUTOMATIC_BY, DISPUTE_REOPENED_REASON);
+    } catch (err) {
+      log.warn(err, "disputes closed by themselves could not be opened again now: the next read tries again");
+    }
+    try {
+      await repo.closeSettledDisputes(actor.companyID, scope, AUTOMATIC_BY, settledDisputeReason);
+    } catch (err) {
+      log.warn(err, "settled disputes could not be closed now: the next read tries again");
+    }
   }
 
   /** prepare for a read: a failure is logged, the read still answers (from what is stored). */
@@ -446,9 +486,11 @@ class ReceivableService {
       repo.events(actor.companyID, invoiceId),
     ]);
     const creditNotes = ctx.creditNotes.get(invoiceId) ?? [];
-    const [failed, customerFacts] = await Promise.all([
+    const [failed, customerFacts, paymentWaiting, reminderDrafts] = await Promise.all([
       repo.failedFollowups(actor.companyID, [invoiceId, ...creditNotes.map((c) => c.id)], CUSTOMER_LIST_KINDS),
       this.customerFacts(actor, f.invoice.customerId, ctx, today),
+      this.paymentWaitingOf(actor, f, today),
+      this.reminderDrafts(actor, f, rows[0]!, ctx),
     ]);
     const credited = f.invoice.status === "credited";
     return {
@@ -495,7 +537,59 @@ class ReceivableService {
       canAct: this.canAct(actor),
       today,
       sendAgain: failed.length > 0,
+      paymentWaiting,
+      reminderDrafts,
     };
+  }
+
+  /**
+   * A payment on a bank statement, not confirmed yet, that may be for this invoice (X5): the drawer and the reminder
+   * form say so. null when none - or when the statements can't be read just now (nothing is claimed then).
+   */
+  private async paymentWaitingOf(actor: Actor, f: InvoiceFigures, today: string): Promise<ReceivablePaymentWaiting | null> {
+    const s = stateOf(f, today);
+    if (!isOwed(s)) return null;
+    let w: WaitingPayment | undefined;
+    try {
+      w = (await waitingPaymentsFor(actor.companyID, [{ f, s }], today)).get(f.invoice.id);
+    } catch (err) {
+      log.warn(err, "the bank statements could not be read for an invoice's waiting payment");
+      return null;
+    }
+    return w ? { ...w, text: waitingPaymentText(w) } : null;
+  }
+
+  /**
+   * The reminder of each level the user may record, as the app's own e-mail writes it (lib/reminderTexts): in the
+   * customer's language, with the issuer's account in the invoice's currency and the variable symbol (m3). The user
+   * attaches the invoice themselves, so the text says nothing of an attachment. None for an invoice not owed.
+   */
+  private async reminderDrafts(actor: Actor, f: InvoiceFigures, row: ReceivableItem, ctx: Context): Promise<ReceivableReminderDraft[]> {
+    if (!isOwed(row)) return [];
+    const profile = await invoiceProfileRepository.getByCompany(actor.companyID).catch((err: unknown) => {
+      log.warn(err, "the invoice profile could not be read for a reminder's text: the invoice's own issuer is used");
+      return null;
+    });
+    const { issuer, bank } = mailIssuerOf(profile, f.invoice.currency, f.invoice);
+    const language = languageOf(ctx.facts.get(f.invoice.customerId)?.language);
+    const levels: (1 | 2 | 3)[] = this.canAct(actor) ? [1, 2, 3] : [1, 2];
+    return levels.map((level) => ({
+      level,
+      language,
+      ...reminderText(level, language, {
+        invoiceNumber: row.number,
+        jobNumber: row.jobNumber,
+        issueDate: row.issueDate,
+        dueDate: row.dueDate,
+        daysOverdue: row.daysOverdue,
+        leftToPay: row.leftToPay,
+        currency: row.currency,
+        paymentReference: variableSymbol(row.jobNumber),
+        issuer: issuer.companyName,
+        bank,
+        invoiceAttached: false,
+      }),
+    }));
   }
 
   /** The customer's terms, limit and what it owes in all (from Invoicing's own records); null when the Customer Database can't be read. */
@@ -703,6 +797,7 @@ class ReceivableService {
     );
     if (!row) throw changedMeanwhile();
     await deliverInvoiceFollowups(invoiceId);
+    // Read again through prepare: a dispute that closed by itself on what was taken back opens again there.
     return this.detail(actor, invoiceId);
   }
 
@@ -1239,6 +1334,7 @@ class ReceivableService {
       reminder1Days: s.reminder1Days,
       reminder2Days: s.reminder2Days,
       replyTo: s.replyTo,
+      autoRemindersSince: s.autoReminders ? s.autoRemindersSince : null,
       emailOn: emailConfigured(),
       canEdit: this.canAct(actor),
       updatedBy: s.updatedBy,
@@ -1254,15 +1350,20 @@ class ReceivableService {
     const problem = settingsProblem({ reminder1Days: input.reminder1Days, reminder2Days: input.reminder2Days, replyTo });
     if (problem) throw APIError.invalidArgument(problem);
     const by = await userEmailOf(actor.userID);
+    // L2: the day they were switched on stays while they stay on; switched on (again) it is today, so only invoices
+    // overdue from now on are reminded by the app - the older ones stay for a manager to chase by hand.
+    const before = await repo.settingsOf(actor.companyID);
+    const autoRemindersSince = !input.autoReminders ? null : before.autoReminders && before.autoRemindersSince ? before.autoRemindersSince : businessDay(new Date());
     await repo.saveSettings(actor.companyID, {
       autoReminders: input.autoReminders,
       reminder1Days: input.reminder1Days,
       reminder2Days: input.reminder2Days,
       replyTo,
+      autoRemindersSince,
       updatedByUserId: actor.userID,
       updatedBy: by,
     });
-    log.info("receivable reminder settings changed", { companyId: actor.companyID, by, autoReminders: input.autoReminders, reminder1Days: input.reminder1Days, reminder2Days: input.reminder2Days });
+    log.info("receivable reminder settings changed", { companyId: actor.companyID, by, autoReminders: input.autoReminders, autoRemindersSince, reminder1Days: input.reminder1Days, reminder2Days: input.reminder2Days });
     return this.settings(actor);
   }
 
@@ -1287,15 +1388,73 @@ class ReceivableService {
    * "paid": it throws, and the shipments service refuses the release ("could not be checked").
    */
   async releaseCheckInternal(actor: Actor, shipmentId: string): Promise<ReleaseCheckInternalResponse> {
-    if (!isUuid(shipmentId)) return { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUnpaid: false, prepaymentInvoices: [] };
+    if (!isUuid(shipmentId)) {
+      return { warn: false, customer: "", prepayment: false, customerOverdueCount: 0, unpaid: [], prepaymentUnpaid: false, prepaymentInvoices: [], prepaymentUninvoiced: [] };
+    }
     // Strict: a prepayment invoice whose old Paid could not be checked is not answered as owed or paid - it throws
     // (unavailable), so the shipments service refuses the release ("could not be checked") and a manager's override is
     // recorded unchecked.
-    const rows = await this.releaseRows(actor, shipmentId, true);
+    const [rows, uninvoiced] = await Promise.all([this.releaseRows(actor, shipmentId, true), this.prepaymentUninvoiced(actor, shipmentId)]);
     const today = businessDay(new Date());
     const owedCustomers = unique(rows.filter(isOwed).map((r) => r.customerId));
     const overdueBy = await repo.overdueCountByCustomer(actor.companyID, owedCustomers, today);
-    return { ...releaseWarning(rows, overdueBy), prepaymentUnpaid: prepaymentUnpaidOf(rows), prepaymentInvoices: prepaymentInvoicesOf(rows) };
+    return {
+      ...releaseWarning(rows, overdueBy),
+      // L3: a job on prepayment is stopped before any invoice too, while it has selling not yet invoiced.
+      prepaymentUnpaid: prepaymentUnpaidOf(rows) || uninvoiced.amounts.length > 0,
+      prepaymentInvoices: prepaymentInvoicesOf(rows),
+      prepaymentUninvoiced: uninvoiced.amounts,
+      ...(uninvoiced.unchecked ? { prepaymentUninvoicedUnchecked: true } : {}),
+    };
+  }
+
+  /**
+   * The prepayment stop before any invoice (mock test council L3): when the job has selling with a value not yet
+   * invoiced (lib/receivables unbilledOf, the same count as the credit warning's) and its customer's terms are
+   * prepayment, the amounts not invoiced; else none. The customer's terms are asked only when something is not invoiced.
+   * When they (or the job's customer) can't be read, L3 is left out of this answer (`unchecked`), never thrown: else a
+   * Shipments or Customers outage would refuse every user's release of every job not invoiced yet, prepayment or not.
+   * Before L3 only a prepayment invoice could stop a release, and it still does (releaseRows, strict).
+   */
+  private async prepaymentUninvoiced(actor: Actor, shipmentId: string): Promise<{ amounts: { currency: string; amount: number }[]; unchecked: boolean }> {
+    const [lines, openInvoices] = await Promise.all([
+      sellingCostRepository.listLiveByShipments([shipmentId], actor.companyID),
+      invoiceRepository.listOpenInvoicesWithSources([shipmentId], actor.companyID),
+    ]);
+    const { amounts } = unbilledOf(lines, openInvoices);
+    if (!amounts.some((a) => a.amount > 0)) return { amounts: [], unchecked: false };
+    let terms = "";
+    try {
+      const { shipments: [job] = [] } = await shipments._internalShipmentBasics({ ids: [shipmentId] });
+      if (!job?.customerId) return { amounts: [], unchecked: false };
+      terms = (await customerFactsOf([job.customerId])).get(job.customerId)?.paymentTerms ?? "";
+    } catch (err) {
+      log.warn(err, "the job's customer terms could not be read: the prepayment stop before any invoice was left out of this release check", { shipmentId });
+      return { amounts: [], unchecked: true };
+    }
+    return { amounts: prepaymentUninvoicedOf(terms, amounts), unchecked: false };
+  }
+
+  // ── The credit warning (mock test council m5) ──
+
+  /**
+   * What the customer owes by Invoicing's own figures - the same as its Finance tab and Accounts Receivable show, so an
+   * invoice whose hand-over to the customer's list failed counts too: left to pay per currency, how many are overdue and
+   * the oldest due day among them. The old "Paid" marks are carried over first (quietly: an invoice not checked yet
+   * counts as owed, as the Finance tab shows it).
+   */
+  async customerOwed(actor: Actor, customerId: string): Promise<ReceivableCustomerOwedResponse> {
+    if (!isUuid(customerId)) return { unpaid: [], overdueCount: 0, oldestOverdueDue: null };
+    await this.prepareQuietly(actor, { customerId });
+    const today = businessDay(new Date());
+    const figures = await repo.figures(actor.companyID, { customerId }, LIST_LIMIT);
+    const owed = figures.map((f) => ({ f, s: stateOf(f, today) })).filter(({ s }) => isOwed(s));
+    const overdue = owed.filter(({ s }) => s.marks.includes("overdue"));
+    return {
+      unpaid: sumByCurrency(owed.map(({ f, s }) => ({ amount: s.leftToPay, currency: f.invoice.currency }))),
+      overdueCount: overdue.length,
+      oldestOverdueDue: overdue.map(({ f }) => f.invoice.dueDate).sort()[0] ?? null,
+    };
   }
 
   /**
@@ -1339,10 +1498,13 @@ class ReceivableService {
     const today = businessDay(new Date());
     const now = new Date();
     // Both capped: the overdue the oldest due first, the paid the latest noted first (repository), so the cap drops the least urgent.
-    const [overdue, paidIds] = await Promise.all([
+    const [overdueRead, paidIds] = await Promise.all([
       repo.figures(actor.companyID, { overdueOn: today }, LIST_LIMIT),
       repo.paidSince(actor.companyID, new Date(now.getTime() - BELL_PAID_DAYS * DAY)),
     ]);
+    // An invoice whose old "Paid" in the customer's list was not carried over yet may be paid (m4): it waits, as the
+    // automatic reminders do, until the page has read it.
+    const overdue = overdueRead.filter((f) => f.receivable?.carriedChecked);
     const overdueIds = new Set(overdue.map((f) => f.invoice.id));
     const paidOnly = paidIds.filter((id) => !overdueIds.has(id));
     const paid = paidOnly.length ? await repo.figures(actor.companyID, { invoiceIds: paidOnly }, paidOnly.length) : [];
@@ -1381,7 +1543,23 @@ class ReceivableService {
         currency: row.currency,
         daysOverdue: row.daysOverdue,
         why,
+        paymentWaiting: false,
       });
+    }
+    // A payment on a bank statement may be for an overdue one (X5): its notice says so. Asked only for the overdue
+    // notices shown (the bell is polled); when the statements can't be read, nothing is said.
+    const overdueNotices = notices.filter((n) => n.milestone !== "paid");
+    if (overdueNotices.length) {
+      const ids = new Set(overdueNotices.map((n) => n.invoiceId));
+      const waiting = await waitingPaymentsFor(
+        actor.companyID,
+        overdue.filter((f) => ids.has(f.invoice.id)).map((f) => ({ f, s: stateOf(f, today) })),
+        today,
+      ).catch((err: unknown) => {
+        log.warn(err, "the bank statements could not be read for the bell");
+        return new Map<string, WaitingPayment>();
+      });
+      for (const n of overdueNotices) n.paymentWaiting = waiting.has(n.invoiceId);
     }
     return { notices };
   }

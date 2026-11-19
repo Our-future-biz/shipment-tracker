@@ -5,6 +5,7 @@ import {
   absenceProblem,
   awaySummary,
   comingAbsences,
+  coverAwayWarning,
   coverHint,
   coverText,
   createRequest,
@@ -137,5 +138,23 @@ describe("absences: the form", () => {
     );
     expect(coverHint(false, "Jana")).toContain("While Jana is away, each active job they handle");
     expect(coverHint(false, " ")).toContain("While this user is away");
+  });
+});
+
+describe("absences: a cover who is away too (K24)", () => {
+  const draft = { fromDate: "2026-11-23", toDate: "2026-11-27" };
+  it("warns of the days both are away - the cover's absence cut to the one recorded", () => {
+    expect(coverAwayWarning(draft, "Jana Nováková", [{ fromDate: "2026-11-20", toDate: "2026-11-24" }])).toBe(
+      "Jana Nováková is away 23.11.2026–24.11.2026 too: on those days nobody stands in. Pick another cover, or record it as it is",
+    );
+    expect(coverAwayWarning(draft, "Jana", [{ fromDate: "2026-11-25", toDate: "2026-11-25" }, { fromDate: "2026-11-27", toDate: "2026-12-02" }])).toBe(
+      "Jana is away 25.11.2026, 27.11.2026 too: on those days nobody stands in. Pick another cover, or record it as it is",
+    );
+    expect(coverAwayWarning(draft, " ", [{ fromDate: "2026-11-26", toDate: "2026-11-26" }])).toBe("The cover is away 26.11.2026 too: on that day nobody stands in. Pick another cover, or record it as it is");
+  });
+  it("says nothing when the cover is away on other days only, or the days are not picked yet", () => {
+    expect(coverAwayWarning(draft, "Jana", [{ fromDate: "2026-11-16", toDate: "2026-11-22" }, { fromDate: "2026-11-28", toDate: "2026-11-30" }])).toBeNull();
+    expect(coverAwayWarning(draft, "Jana", [])).toBeNull();
+    expect(coverAwayWarning({ fromDate: "2026-11-23", toDate: "" }, "Jana", [{ fromDate: "2026-11-20", toDate: "2026-11-24" }])).toBeNull();
   });
 });

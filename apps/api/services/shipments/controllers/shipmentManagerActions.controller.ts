@@ -1,13 +1,13 @@
 import { api, type Query } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { requireRole } from "../../../lib/rbac";
-import type { HandOverResult, HandledByCount, NudgeResult } from "../interfaces/interfaces";
+import type { HandOverJobsAnswer, HandOverResult, HandledByCount, NudgeResult } from "../interfaces/interfaces";
 import { handOverService } from "../services/handOver.service";
 import { nudgeService } from "../services/nudge.service";
 
 // What a manager does from Shipments → Managers (Council Outlay 11, step 3): hands jobs over, nudges the
-// people of a job, and - before a user is deactivated - sees how many active jobs still name them.
-// All three for superadmins, admins and managers.
+// people of a job, and - before a user is deactivated - sees how many active jobs still name them; it
+// also lists a person's active jobs to hand them all over at once (X9). All for superadmins, admins and managers.
 
 const managers = () => requireRole("superadmin", "admin", "manager");
 
@@ -28,6 +28,25 @@ export const shipmentHandOver = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/hand-over" },
   async (req: ShipmentHandOverRequest): Promise<HandOverResult> => {
     return handOverService.handOver(managers(), req);
+  },
+);
+
+interface HandOverJobsRequest {
+  /** Whose jobs: the e-mail Handled By names (any case). */
+  handledBy: Query<string> & MaxLen<320>;
+  /** sea | air | rail | road; left out or "all" for every mode - as the Shipments list's filter. */
+  mode?: Query<string> & MaxLen<10>;
+  /** import | export | domestic; left out or "all" for every direction. */
+  direction?: Query<string> & MaxLen<10>;
+}
+
+// X9 (K18). A person's active jobs by Handled By - quiet ones too, not only the jobs with a signal on
+// the cards - for "Hand over all N active jobs…" on a Team row: at most 200 (as many as one hand-over
+// takes), the oldest first, and how many there are in all. The hand-over itself is POST /shipments/hand-over.
+export const shipmentHandOverJobs = api(
+  { expose: true, auth: true, method: "GET", path: "/shipments/hand-over/jobs" },
+  async ({ handledBy, mode, direction }: HandOverJobsRequest): Promise<HandOverJobsAnswer> => {
+    return handOverService.jobsOf(managers().companyID, handledBy, { mode, direction });
   },
 );
 

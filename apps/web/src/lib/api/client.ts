@@ -1588,6 +1588,7 @@ export namespace invoicing {
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
             this.jobProfitReportGet = this.jobProfitReportGet.bind(this)
+            this.receivableAccountingExportFile = this.receivableAccountingExportFile.bind(this)
             this.receivableAccountingExports = this.receivableAccountingExports.bind(this)
             this.receivableAsAt = this.receivableAsAt.bind(this)
             this.receivableBatchPayment = this.receivableBatchPayment.bind(this)
@@ -2177,6 +2178,15 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/reports/job-profit`, undefined, {query})
             return await resp.json() as interfaces.JobProfitReport
+        }
+
+        /**
+         * An export's file again, built from the documents it recorded and checked against its SHA-256: records nothing.
+         */
+        public async receivableAccountingExportFile(id: string): Promise<interfaces.AccountingExportFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/receivables/exports/${encodeURIComponent(id)}/file`)
+            return await resp.json() as interfaces.AccountingExportFileResponse
         }
 
         public async receivableAccountingExports(): Promise<interfaces.AccountingExportsResponse> {
@@ -3339,6 +3349,7 @@ export namespace shipments {
             this.releaseRequestLatest = this.releaseRequestLatest.bind(this)
             this.releaseRequestList = this.releaseRequestList.bind(this)
             this.releaseRequestSeen = this.releaseRequestSeen.bind(this)
+            this.releaseRequestWithdraw = this.releaseRequestWithdraw.bind(this)
             this.searchContainers = this.searchContainers.bind(this)
             this.searchMasterJobs = this.searchMasterJobs.bind(this)
             this.searchShipments = this.searchShipments.bind(this)
@@ -3347,6 +3358,7 @@ export namespace shipments {
             this.shipmentDelete = this.shipmentDelete.bind(this)
             this.shipmentGet = this.shipmentGet.bind(this)
             this.shipmentHandOver = this.shipmentHandOver.bind(this)
+            this.shipmentHandOverJobs = this.shipmentHandOverJobs.bind(this)
             this.shipmentHandledByCount = this.shipmentHandledByCount.bind(this)
             this.shipmentHistory = this.shipmentHistory.bind(this)
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
@@ -4154,6 +4166,20 @@ export namespace shipments {
         }
 
         /**
+         * K20. Whoever asked withdraws their request while it waits; a manager withdraws an approval nobody has used
+         * yet, which then lets nothing through. Each with a reason and a line in the job's history.
+         */
+        public async releaseRequestWithdraw(id: string, params: controllers.ReleaseWithdrawRequest): Promise<{
+    request: interfaces.ReleaseRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/release-requests/${encodeURIComponent(id)}/withdraw`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.ReleaseRequestItem
+}
+        }
+
+        /**
          * The main search (the top bar) in containers: the containers of the company's live shipments
          * whose number holds what was typed - spaces left out, in any case, from 4 characters - each with
          * its job and master job, the newest jobs first, and how many match in all.
@@ -4243,6 +4269,24 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/hand-over`, JSON.stringify(params))
             return await resp.json() as interfaces.HandOverResult
+        }
+
+        /**
+         * X9 (K18). A person's active jobs by Handled By - quiet ones too, not only the jobs with a signal on
+         * the cards - for "Hand over all N active jobs…" on a Team row: at most 200 (as many as one hand-over
+         * takes), the oldest first, and how many there are in all. The hand-over itself is POST /shipments/hand-over.
+         */
+        public async shipmentHandOverJobs(params: controllers.HandOverJobsRequest): Promise<interfaces.HandOverJobsAnswer> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                direction: params.direction,
+                handledBy: params.handledBy,
+                mode:      params.mode,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/hand-over/jobs`, undefined, {query})
+            return await resp.json() as interfaces.HandOverJobsAnswer
         }
 
         /**
@@ -9811,6 +9855,12 @@ export namespace controllers {
          * Floor mode: id of this request (UUID). A stamp already there is then an answer, not an error.
          */
         clientRequestId?: string
+
+        /**
+         * A manager's reason (at least 3 characters) to WH-release a job on prepayment that is not paid: the release is
+         * refused without it (services/releasePayment), and recorded with it on the record's history.
+         */
+        paymentOverrideReason?: string
     }
 
     export interface GateStampResponse {
@@ -9900,6 +9950,23 @@ export namespace controllers {
             percent: number
             minAmountCzk: number
         }[]
+    }
+
+    export interface HandOverJobsRequest {
+        /**
+         * Whose jobs: the e-mail Handled By names (any case).
+         */
+        handledBy: string
+
+        /**
+         * sea | air | rail | road; left out or "all" for every mode - as the Shipments list's filter.
+         */
+        mode?: string
+
+        /**
+         * import | export | domestic; left out or "all" for every direction.
+         */
+        direction?: string
     }
 
     export interface HandledByCountRequest {
@@ -11168,6 +11235,13 @@ export namespace controllers {
 
     export interface ReleaseHouseBolResponse {
         shipment: interfaces.ShipmentItem
+    }
+
+    export interface ReleaseWithdrawRequest {
+        /**
+         * Why it is withdrawn (at least 3 characters): kept with the request and in the job's history.
+         */
+        reason: string
     }
 
     export interface RemeasureAcceptanceResponse {
@@ -14320,6 +14394,27 @@ export namespace geo {
 }
 
 export namespace interfaces {
+    /**
+     * An export's file built again from its recorded documents, the same bytes as recorded ("Download again").
+     */
+    export interface AccountingExportFileResponse {
+        exportId: string
+        fileName: string
+        /**
+         * Windows-1250 encoded XML, as base64
+         */
+        contentBase64: string
+
+        contentType: string
+        encoding: "windows-1250"
+        /**
+         * Equal to the recorded SHA-256 (the file is refused otherwise)
+         */
+        fileSha256: string
+
+        documents: number
+    }
+
     export interface AccountingExportSummary {
         id: string
         system: "pohoda"
@@ -14339,7 +14434,7 @@ export namespace interfaces {
         exports: AccountingExportSummary[]
 
         /**
-         * A manager: may export
+         * A manager: may export (and only a manager reads this list)
          */
         canExport: boolean
     }
@@ -17967,6 +18062,31 @@ export namespace interfaces {
     }
 
     /**
+     * A job of a hand-over, with its people as stored.
+     */
+    export interface HandOverJobItem {
+        id: string
+        jobNumber: string
+        handledBy: string
+        holidayCover: string
+    }
+
+    /**
+     * The jobs a person handles, for handing them all over at once (X9, K18).
+     */
+    export interface HandOverJobsAnswer {
+        /**
+         * At most HAND_OVER_MAX_JOBS active jobs with this person in Handled By, the oldest first: those one hand-over takes.
+         */
+        jobs: HandOverJobItem[]
+
+        /**
+         * How many active jobs name this person in Handled By (in the mode and direction asked): more than `jobs` holds when there are over 200.
+         */
+        total: number
+    }
+
+    /**
      * What a hand-over of many jobs did.
      */
     export interface HandOverResult {
@@ -19632,6 +19752,12 @@ export namespace interfaces {
          * Files listed but no longer in storage, left out ("<job number> - <file name>").
          */
         unreadable: string[]
+
+        /**
+         * Left out on purpose: a cancelled shipment ("CZ00000012 (cancelled)") and a commercial document
+         * customs declined ("CZ00000013 - Invoice.pdf (declined by customs)").
+         */
+        leftOut: string[]
     }
 
     /**
@@ -19764,6 +19890,11 @@ export namespace interfaces {
         consignee: string
         tradeDirection: string
         status: string
+        /**
+         * As stored ("Full Load", "Consolidation", "Project Shipment"); "" when none. A plain master job takes the filling of its houses (lib/masterJobKind).
+         */
+        loadType: string
+
         /**
          * The house's own container numbers, comma separated.
          */
@@ -20261,24 +20392,6 @@ export namespace interfaces {
     export type OpsCockpitDirection = "all" | "import" | "export" | "domestic"
 
     /**
-     * A signal tile of the page, which the two cards can be narrowed to (?signal=): the kinds of tag each holds are lib/managersCockpit SIGNAL_FAMILIES.
-     */
-    export type OpsCockpitSignal =
-        | "cutoff"
-        | "booking"
-        | "customs"
-        | "paperwork"
-        | "free_time"
-        | "delivery"
-        | "departure"
-        | "claim"
-        | "request"
-        | "not_user"
-        | "away"
-        | "todo"
-        | "not_touched"
-
-    /**
      * The hand-over line (step 5, D30): over the jobs of the page - its mode, direction, Handled By
      * and "My reports" - the updates the warehouse and Trucking have for them that wait longer than
      * that module's own stale limit, and those that failed for good. A figure is null - not 0 - when
@@ -20424,6 +20537,11 @@ export namespace interfaces {
     }
 
     /**
+     * A signal tile of the page, which the two cards can be narrowed to (?signal=): the kinds of tag each holds are lib/managersCockpit SIGNAL_FAMILIES.
+     */
+    export type OpsCockpitSignal = "cutoff" | "booking" | "customs" | "paperwork" | "free_time" | "delivery" | "departure" | "claim" | "request" | "not_user" | "away" | "todo" | "not_touched"
+
+    /**
      * Counts over the active jobs read, of the chosen mode, direction and Handled By.
      */
     export interface OpsCockpitTiles {
@@ -20515,7 +20633,7 @@ export namespace interfaces {
         active: number
 
         /**
-         * Work not yet invoiced on their active jobs, per currency ([] for none); null when Invoicing could not be read.
+         * Work not yet invoiced on their jobs - an invoiced job's charge added after invoicing too - per currency ([] for none); null when Invoicing could not be read.
          */
         notYetInvoiced: MoneyAmount[] | null
 
@@ -20585,12 +20703,12 @@ export namespace interfaces {
 
     export interface OpsMoneyTiles {
         /**
-         * Work not yet invoiced on the ACTIVE jobs counted, per currency ([] for none); null when Invoicing could not be read.
+         * Work not yet invoiced on the jobs counted - the active ones, and a charge added after invoicing on one that reads Invoiced - per currency ([] for none); null when Invoicing could not be read.
          */
         notYetInvoiced: MoneyAmount[] | null
 
         /**
-         * The same as one CZK figure at today's ČNB rates - the only place currencies are added - with `label` "at today's ČNB rate (dd.mm.)"; `label` is "" when every amount is in CZK already (no rate was used: the page shows no CZK line). Null when a currency has no rate that day (`notKnown` names it) - and when Invoicing could not be read.
+         * The same as one CZK figure at the latest ČNB sheet - the only place currencies are added - with `label` "at the latest ČNB rate (dd.mm.)", or "(ČNB rate of dd.mm., newer not imported)" when a newer fixing should be stored and is not; `label` is "" when every amount is in CZK already (no rate was used: the page shows no CZK line). Null when a currency has no rate that day (`notKnown` names it) - and when Invoicing could not be read.
          */
         notYetInvoicedCzk: {
             amount: number
@@ -22814,6 +22932,19 @@ export namespace interfaces {
          * A hand-over to the customer's list failed: a manager may send it again
          */
         sendAgain: boolean
+
+        /**
+         * A payment that may be for this invoice waits on a bank statement for a manager to confirm it (mock test council X5);
+         * null when none, or when the statements could not be read just now
+         */
+        paymentWaiting: ReceivablePaymentWaiting | null
+
+        /**
+         * The reminder as the app's own e-mail writes it (lib/reminderTexts: the customer's language, the bank account and
+         * the variable symbol), for each level the user may record, for the user's own mail program (mock test council m3);
+         * empty when the invoice is not owed
+         */
+        reminderDrafts: ReceivableReminderDraft[]
     }
 
     export interface ReceivableEventItem {
@@ -23028,6 +23159,10 @@ export namespace interfaces {
         currency: string
         daysOverdue: number
         why: "sales_owner" | "person_in_charge"
+        /**
+         * An overdue notice: a payment that may be for it waits on a bank statement (mock test council X5)
+         */
+        paymentWaiting: boolean
     }
 
     export interface ReceivablePaymentItem {
@@ -23078,7 +23213,36 @@ export namespace interfaces {
         } | null
     }
 
+    /**
+     * A payment read from a bank statement, not confirmed yet, that may be for the invoice.
+     */
+    export interface ReceivablePaymentWaiting {
+        statementId: string
+        fileName: string
+        bookingDate: string | null
+        amount: number
+        currency: string
+        /**
+         * "A payment that may be for this invoice is waiting on bank statement …"
+         */
+        text: string
+    }
+
     export type ReceivablePeriod = "90d" | "12m" | "all"
+
+    /**
+     * A reminder's subject and text as the user's mail program opens them.
+     */
+    export interface ReceivableReminderDraft {
+        level: 1 | 2 | 3
+        /**
+         * cs | en: the customer's language
+         */
+        language: string
+
+        subject: string
+        body: string
+    }
 
     /**
      * A credit note as the list row carries it: its number, day and amount (with VAT, negative, the invoice's currency), and who issued it.
@@ -23122,6 +23286,11 @@ export namespace interfaces {
          * Where a customer's answer goes; "" = the sender's own address
          */
         replyTo: string
+
+        /**
+         * The day automatic reminders were switched on (yyyy-mm-dd), null while off: only invoices due on or after it are reminded by the app
+         */
+        autoRemindersSince: string | null
 
         /**
          * Whether e-mail from the app is switched on (else nothing is sent: "E-mail from the app is switched off")
@@ -23374,6 +23543,11 @@ export namespace interfaces {
     }
 
     /**
+     * Why a release request was closed.
+     */
+    export type ReleaseRequestClosedWhy = "released" | "withdrawn"
+
+    /**
      * A request to release a job the prepayment stop holds, as the screens show it. Approving releases nothing: an
      * approved request is a pass for that job and that release - the release then goes through for whoever on the
      * job makes it, once, while the pass is good (`usable`, `validUntil`).
@@ -23408,7 +23582,7 @@ export namespace interfaces {
         decidedAt: string | null
 
         /**
-         * The manager's reason, required either way: to release all the same (approved), or why not (rejected). Closed: "Released without it".
+         * The manager's reason, required either way: to release all the same (approved), or why not (rejected). Kept when the request is closed afterwards.
          */
         comment: string
 
@@ -23434,9 +23608,24 @@ export namespace interfaces {
         usable: boolean
 
         /**
-         * Closed: when the job was released another way. null otherwise.
+         * Closed: when - the job was released another way, or the request was withdrawn. null otherwise.
          */
         closedAt: string | null
+
+        /**
+         * Closed: "released" (the job was released another way) or "withdrawn" (by whoever asked while it waited, or by a manager before the approval was used). null otherwise.
+         */
+        closedWhy: ReleaseRequestClosedWhy | null
+
+        /**
+         * Withdrawn: who withdrew it, as named then. "" otherwise.
+         */
+        closedByName: string
+
+        /**
+         * Withdrawn: why. "" otherwise.
+         */
+        closeReason: string
     }
 
     /**
@@ -23458,9 +23647,19 @@ export namespace interfaces {
         before: RemeasureFigures
         after: RemeasureFigures
         /**
+         * The warehouse's remeasured lines it took over (their saved text): the same lines are not accepted again.
+         */
+        lines: string
+
+        /**
          * The shipment's Freight Mode now: air jobs are charged by chargeable weight, the others by W/M.
          */
         freightMode: string
+
+        /**
+         * The shipment's Load Type now: a sea Full Load is charged per container, not by W/M.
+         */
+        loadType: string
 
         /**
          * The job has an issued invoice not credited: a change of charges needs another invoice or a credit note.
@@ -23473,6 +23672,10 @@ export namespace interfaces {
         costsCheckedAt: string | null
 
         costsCheckedBy: string | null
+        /**
+         * Whether the one reading may mark the quantities checked: Handled By, Holiday Cover, a manager or Invoicing.
+         */
+        mayCheckCosts: boolean
     }
 
     /**
@@ -23515,6 +23718,22 @@ export namespace interfaces {
          * "weight +200.0 kg · volume +5.332 CBM"; "" when nothing differs.
          */
         difference: string
+
+        /**
+         * When these remeasured figures were accepted on Cargo Details after the warehouse informed (the
+         * first acceptance taking them over); null when not. An accepted one is no new alert.
+         */
+        acceptedAt: string | null
+
+        /**
+         * The name of the user who accepted, "" when not accepted or not known.
+         */
+        acceptedBy: string
+
+        /**
+         * The shipment's figures match these remeasured ones now (compared as when it informed): no new alert either.
+         */
+        nowMatches: boolean
     }
 
     /**
@@ -24687,6 +24906,11 @@ export namespace interfaces {
          * Whether the caller may add and change its claims on costs: always - every user of the company may (D15, Accounts Payable's "Raise claim").
          */
         mayEditCost: boolean
+
+        /**
+         * The claims on the shipment the caller may change though `mayEdit` is false: those they are the named owner of (K23). They add none and delete none.
+         */
+        ownedClaimIds: string[]
 
         /**
          * Whether the caller may delete one, of either kind: a manager only.

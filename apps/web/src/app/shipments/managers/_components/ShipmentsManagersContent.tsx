@@ -65,6 +65,7 @@ import { HandOverDialog } from "./HandOverDialog";
 import { JobsDialog } from "./JobsDialog";
 import { MoneyTab } from "./MoneyTab";
 import { NudgeDialog } from "./NudgeDialog";
+import { PersonHandOverDialog } from "./PersonHandOverDialog";
 import { ReleaseRequestApprovals, useReleaseRequestApprovals } from "./ReleaseRequestApprovals";
 import { RowMenu } from "./RowMenu";
 import { TeamTable } from "./TeamTable";
@@ -360,6 +361,8 @@ export function ShipmentsManagersContent() {
 /** What a manager is doing about a row, or about the rows ticked in the dialog: one dialog at a time. */
 type RowAction =
   | { kind: "handOver"; rows: OpsCockpitRow[]; ticked: boolean }
+  // Every active job of one person (a Team row's "Hand over all N active jobs…"): the server lists them.
+  | { kind: "handOverPerson"; handledBy: string }
   | { kind: "nudge"; row: OpsCockpitRow }
   // `cutoffs` empty: the dialog lists the dismissals that stand, each to be taken back.
   | { kind: "dismiss"; row: OpsCockpitRow; cutoffs: { key: CutoffKey; label: string }[] };
@@ -549,7 +552,15 @@ function ShipmentsManagersCockpit() {
           </div>
 
           {tab === "team" ? (
-            <TeamTable people={cockpit?.people} filter={{ ...filter, msignal: moneySignal?.key ?? null }} scope={scope} isLoading={isLoading} isError={isError} loadFailed={loadFailed} />
+            <TeamTable
+              people={cockpit?.people}
+              filter={{ ...filter, msignal: moneySignal?.key ?? null }}
+              scope={scope}
+              isLoading={isLoading}
+              isError={isError}
+              loadFailed={loadFailed}
+              onHandOverAll={(row) => setAction({ kind: "handOverPerson", handledBy: row.key })}
+            />
           ) : tab === "money" ? (
             <MoneyTab
               money={money.money}
@@ -630,6 +641,19 @@ function ShipmentsManagersCockpit() {
           people={cockpit?.people ?? people}
           onClose={() => setAction(null)}
           onDone={(result) => done(handOverToast(result), action.ticked)}
+        />
+      )}
+      {action?.kind === "handOverPerson" && (
+        <PersonHandOverDialog
+          handledBy={action.handledBy}
+          // As the Team row counted them: in the mode and direction on screen ("My reports" narrows people, not a person's jobs).
+          filter={{ mode: filter.mode, direction: filter.direction }}
+          scope={scopeOf({ ...filter, reports: "all" })
+            .filter((part) => part !== "all modes")
+            .join(" · ")}
+          people={cockpit?.people ?? people}
+          onClose={() => setAction(null)}
+          onDone={(result) => done(handOverToast(result))}
         />
       )}
       {action?.kind === "nudge" && (

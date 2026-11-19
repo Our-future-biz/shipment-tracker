@@ -186,11 +186,24 @@ describe("opening a statement", () => {
     ]);
     repo.fileNames.mockResolvedValue(new Map([[ST_OLD, "vypis-older.xml"]]));
     owed(row({ id: INV_B, jobNumber: "CZ00000099", number: "INV2026CZ00000099-001" })); // INV_A is paid now
-    const d = await service.detail(clerk, ST);
+    const d = await service.detail(manager, ST);
     expect(d.entries[0]).toMatchObject({ status: "no_match", candidates: [], firstReadIn: null });
     expect(d.entries[1]).toMatchObject({ status: "confirmed", firstReadIn: { statementId: ST_OLD, fileName: "vypis-older.xml" }, unallocated: 500, decidedBy: "petr@cto.cz" });
     expect(d.statement.counts).toMatchObject({ toDecide: 1, noMatch: 1, seenBefore: 1 });
-    expect(d).toMatchObject({ canAct: false, fileKept: false, candidatesCapped: false });
+    expect(d).toMatchObject({ canAct: true, fileKept: false, candidatesCapped: false });
+  });
+
+  it("is for managers only, the list too: a statement shows money out with names, accounts and messages (X6)", async () => {
+    repo.entriesOf.mockResolvedValue([entry()]);
+    expect((await code(service.detail(clerk, ST))).code).toBe("permission_denied");
+    expect((await code(service.list(clerk))).code).toBe("permission_denied");
+    expect(repo.byId).not.toHaveBeenCalled();
+    expect(repo.list).not.toHaveBeenCalled();
+    for (const role of ["superadmin", "admin", "manager"]) {
+      repo.list.mockResolvedValue([]);
+      repo.statusCounts.mockResolvedValue([]);
+      await expect(service.list({ ...manager, role })).resolves.toMatchObject({ statements: [], canAct: true });
+    }
   });
 });
 
@@ -318,7 +331,7 @@ describe("an entry whose payment was taken back", () => {
   });
 
   it("shows that allocation as taken back and the entry as to decide again, for what is free on it", async () => {
-    const d = await service.detail(clerk, ST);
+    const d = await service.detail(manager, ST);
     expect(d.entries[0]).toMatchObject({ status: "proposed", reopened: true, unallocated: 790 });
     expect(d.entries[0]!.allocations.map((a) => [a.paymentId, a.takenBack])).toEqual([
       ["pay-a", false],

@@ -11,6 +11,7 @@ import { gateExceptionRepository } from "../repositories/gateException.repositor
 
 vi.mock("~encore/clients", async () => ({
   shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(async () => ({ shipment: { jobNumber: "SEA-1" } })) },
+  invoicing: (await import("./shipmentFakes")).invoicingFake,
   auth: (await import("./authFake")).authFake([]),
 }));
 

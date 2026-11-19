@@ -38,8 +38,8 @@ export interface ClaimFacts {
 /** Nothing asked: no tag. */
 export const NO_CLAIM_FACTS: ClaimFacts = { byJob: new Map(), limits: TIME_LIMITS_OFF };
 
-/** What the page shows after "Not known right now:" for the two parts. */
-export const CLAIM_PARTS = { claims: "cargo claims", limits: "claim time limits" } as const;
+/** What the page shows after "Not known right now:" for the parts: the claims, the limits, and the jobs no longer active that have one (X8). */
+export const CLAIM_PARTS = { claims: "cargo claims", limits: "claim time limits", claimOnlyJobs: "claims of invoiced or cancelled jobs" } as const;
 
 // On lib/managersCockpit OPS_RANK's own scale (lower = higher in its card). URGENT after the
 // warehouse's and Trucking's own (61-62) and before free time (80): a deadline in days that, once

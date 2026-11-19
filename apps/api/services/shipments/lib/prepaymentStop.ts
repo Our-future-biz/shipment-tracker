@@ -1,6 +1,7 @@
 // The prepayment stop (Accounts Receivable step 7, D20's later yes, 18 Nov 2026): a job on prepayment is not
 // released before it is paid. When the job has an invoice with something left to pay and that invoice is on
-// prepayment (Invoicing's _internalReleaseCheck says prepaymentUnpaid), a person's House BoL release and a person's
+// prepayment - or, since the mock test council (L3, 19 Nov 2026), its customer is on prepayment and it has selling
+// not yet invoiced (Invoicing's _internalReleaseCheck says prepaymentUnpaid either way), a person's House BoL release and a person's
 // Warehouse Released set from empty are refused for a user; a manager may release it all the same with a reason
 // (at least 3 characters), which is recorded. When Invoicing can't be asked, the release is refused too - and a
 // manager may still release it with a reason, recorded as unchecked. The overdue-debt warning stays a warning
@@ -26,11 +27,24 @@ export interface PaymentCheck {
   unpaid: readonly { number: string; leftToPay: number; currency: string }[];
   /** The owed invoices on prepayment, the ones the stop is about (else every owed invoice is named). */
   prepaymentInvoices?: readonly { number: string; leftToPay: number; currency: string }[];
+  /**
+   * The customer is on prepayment and the job has selling not yet invoiced (mock test council L3, 19 Nov 2026): the
+   * amounts per currency. The stop holds the release before any invoice too (prepaymentUnpaid is then true).
+   */
+  prepaymentUninvoiced?: readonly { currency: string; amount: number }[];
 }
 
-/** The invoices a stop names and an override records: the prepayment ones, not the job's other owed invoices. */
-const stopInvoices = (check: PaymentCheck | null): OverrideInvoice[] =>
-  (check?.prepaymentInvoices ?? check?.unpaid ?? []).map((i) => ({ number: i.number, leftToPay: i.leftToPay, currency: i.currency }));
+/** How the work not yet invoiced is named in the stop's words and recorded with an override, as one invoice line is. */
+export const NOT_INVOICED = "Not invoiced yet";
+
+/**
+ * The invoices a stop names and an override records: the prepayment ones, not the job's other owed invoices; and the
+ * work not yet invoiced, one line per currency (recorded as an invoice line is, its number "Not invoiced yet").
+ */
+const stopInvoices = (check: PaymentCheck | null): OverrideInvoice[] => [
+  ...(check?.prepaymentInvoices ?? check?.unpaid ?? []).map((i) => ({ number: i.number, leftToPay: i.leftToPay, currency: i.currency })),
+  ...(check?.prepaymentUninvoiced ?? []).map((a) => ({ number: NOT_INVOICED, leftToPay: a.amount, currency: a.currency })),
+];
 
 /** A manager's release of an unpaid prepayment job, to be recorded with the release. */
 export interface ReleaseOverride {
@@ -61,7 +75,9 @@ const WHAT: Record<ReleaseKind, string> = {
 
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const invoiceWords = (invoices: readonly OverrideInvoice[]) =>
-  invoices.map((i) => `${i.number} (${money(i.leftToPay)} ${i.currency} left to pay)`).join(", ");
+  invoices
+    .map((i) => (i.number === NOT_INVOICED ? `${money(i.leftToPay)} ${i.currency} not invoiced yet` : `${i.number} (${money(i.leftToPay)} ${i.currency} left to pay)`))
+    .join(", ");
 
 /** Whether this write sets Warehouse Released from empty: the dates as they are and as the write leaves them. */
 export function setsWarehouseRelease(
@@ -84,8 +100,10 @@ export function prepaymentStop(kind: ReleaseKind, check: PaymentCheck | null, ro
   const manager = canDecideQuoteInquiry(role);
   const given = (reason ?? "").trim();
   const invoices = stopInvoices(check);
+  // Nothing invoiced on prepayment yet (L3): the job is not invoiced, rather than not paid.
+  const onlyUninvoiced = invoices.length > 0 && invoices.every((i) => i.number === NOT_INVOICED);
   const why = check
-    ? `${WHAT[kind]}: the job is on prepayment and not paid - ${invoices.length ? invoiceWords(invoices) : "an invoice is left to pay"}.`
+    ? `${WHAT[kind]}: the job is on prepayment and ${onlyUninvoiced ? "not invoiced and paid yet" : "not paid"} - ${invoices.length ? invoiceWords(invoices) : "an invoice is left to pay"}.`
     : `${PAYMENT_UNCHECKED}.`;
   if (!manager) return { refusal: `${why} A manager can release it with a reason` };
   if (given.length < MIN_OVERRIDE_REASON) {
@@ -106,6 +124,7 @@ export function passOverride(check: PaymentCheck | null, pass: { requestId: stri
 /** The line the release leaves in the shipment's history and on its Tracking tab. */
 export function overrideLine(kind: ReleaseKind, override: ReleaseOverride): string {
   const what = kind === "house_bol" ? "House BoL released" : "Warehouse Released set";
-  const state = override.checked ? (override.invoices.length ? `unpaid: ${invoiceWords(override.invoices)}` : "unpaid") : "payment not checked";
+  const notInvoiced = override.invoices.length > 0 && override.invoices.every((i) => i.number === NOT_INVOICED);
+  const state = override.checked ? (override.invoices.length ? `${notInvoiced ? "not invoiced" : "unpaid"}: ${invoiceWords(override.invoices)}` : "unpaid") : "payment not checked";
   return `${what} on prepayment (${state}) - reason: ${override.reason}`;
 }

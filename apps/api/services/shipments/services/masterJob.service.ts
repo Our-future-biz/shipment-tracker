@@ -231,6 +231,7 @@ class MasterJobService {
         consignee: h.consignee,
         tradeDirection: h.tradeDirection,
         status: h.status,
+        loadType: h.loadType,
         containerNumber: houseContainers
           .filter((c) => c.shipmentId === h.id && c.containerNumber)
           .map((c) => c.containerNumber)
@@ -300,7 +301,10 @@ class MasterJobService {
     // The Load Type is written onto the houses: one of another filling would be turned into this one
     // (lib/masterJobKind). Checked for a first Load Type only - it locks once set, and the same one
     // sent back (a document reading's MBL save sends it again) is no change to check.
-    const kindProblem = !existing.loadType.trim() && data.loadType ? loadTypeKindProblem(existing.mczNumber, data.loadType, houses) : null;
+    const kindProblem =
+      !existing.loadType.trim() && data.loadType
+        ? loadTypeKindProblem(existing.mczNumber, data.loadType, houses, data.freightMode ?? existing.freightMode)
+        : null;
     if (kindProblem) throw APIError.failedPrecondition(kindProblem);
     const locked = await this.invoicedTaxDateChanges(houses, synced);
     if (locked.length > 0) {
@@ -503,7 +507,10 @@ class MasterJobService {
     // On a Full Load the house is where containers come from, so its own list stays as it is.
     const containers =
       row.loadType === FULL_LOAD ? [] : (await masterJobContainerRepository.listByMasterJobId(row.id, companyId)).map(toMasterContainerLine);
-    await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers);
+    // A person links it (the Master Jobs page, the Shipments grid's Master Job dialog), so the values it
+    // takes are theirs, as a master job's save is: the gate and Trucking get the fields they keep - an
+    // ETA Warehouse/HUB copied from the new master job reaches the gate record (shipmentService.update's pushes).
+    await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers, "master_job");
   }
 
   /** The job numbers of the shipments that are invoiced and whose tax date (ATA / ATD) `synced` would change. */
@@ -582,6 +589,7 @@ class MasterJobService {
     userId: string,
     fields: Record<string, unknown>,
     masterContainers: MasterContainer[],
+    origin?: "master_job",
   ): Promise<void> {
     const house = (await containerRepository.listByShipmentId(shipmentId, companyId)).map(toContainerLine);
     const containers = houseContainerLines(shipmentId, house, masterContainers);
@@ -591,7 +599,7 @@ class MasterJobService {
       Object.assign(data, legacyContainerGroups(containers.map((c) => c.type)));
     }
     if (Object.keys(data).length === 0) return;
-    await shipmentService.update(shipmentId, companyId, data as ShipmentUpdateData, userId);
+    await shipmentService.update(shipmentId, companyId, data as ShipmentUpdateData, userId, undefined, origin);
   }
 
   private async unassignFromContainers(id: string, companyId: string, shipmentId: string): Promise<void> {

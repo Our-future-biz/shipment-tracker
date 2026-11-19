@@ -238,6 +238,23 @@ export const useReleaseRequestQueue = () => {
   };
 };
 
+/**
+ * K20: withdraw a request - whoever asked their request still waiting, a manager an approval nobody has used yet (it
+ * then lets nothing through) - with a reason. The job's requests, the queue, the bell's answers and the cockpit are
+ * read again, whether the server took it or not (answered or used meanwhile).
+ */
+export const useWithdrawReleaseRequest = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; shipmentId: string; reason: string }) => (await api.shipments.releaseRequestWithdraw(id, { reason })).request,
+    onSettled: (_data, _err, { shipmentId }) => {
+      invalidateReleaseRequests(queryClient);
+      queryClient.invalidateQueries({ queryKey: keys.shipment(shipmentId) });
+      invalidateAfterManagerAction(queryClient);
+    },
+  });
+};
+
 // The same empty list from render to render, so what is worked out from the answers is not worked out again each time.
 const NO_ANSWERS: ReleaseRequestItem[] = [];
 

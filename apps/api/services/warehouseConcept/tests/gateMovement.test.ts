@@ -6,12 +6,14 @@ import { gateMovementRepository } from "../repositories/gateMovement.repository"
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateAdminService } from "../services/gateAdmin.service";
 import { reweighService } from "../services/reweigh.service";
+import { passesGivenBack, releaseChecks, releasePasses, shipmentOverrides } from "./shipmentFakes";
 
 // Shipments answer from the fakes (the real service needs an authenticated caller).
 vi.mock("~encore/clients", async () => {
-  const { getShipment } = await import("./shipmentFakes");
+  const { getShipment, releasePassFakes } = await import("./shipmentFakes");
   return {
-    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
+    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment), ...releasePassFakes },
+    invoicing: (await import("./shipmentFakes")).invoicingFake,
     auth: (await import("./authFake")).authFake([]),
   };
 });
@@ -19,6 +21,14 @@ vi.mock("~encore/clients", async () => {
 const company = () => randomUUID();
 const user = randomUUID();
 const allOk = (gates: ReturnType<typeof defaultReleaseGates>) => gates.map((g) => ({ ...g, s: "OK" as const }));
+
+// A shipment's outbound record (imported with its position), every release gate OK: ready for its WH release.
+async function linkedOutbound(c: string, shipmentId: string) {
+  const [r] = await warehouseImportService.importShipments(c, user, [shipmentId]);
+  const m = await gateMovementService.get(r!.movementId!, c);
+  await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
+  return m;
+}
 
 describe("release gates", () => {
   it("uses the LCL set for consolidation and the FCL set for full boxes", () => {
@@ -71,6 +81,99 @@ describe("gate movement flow", () => {
     expect(released.impRelease).not.toBeNull();
     expect(released.gateOut).not.toBeNull();
     await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/already/);
+  });
+
+  it("stops the WH release of a job on prepayment that is not paid: a user is refused, a manager lets it out with a reason, recorded", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    try {
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(
+        "The WH release can't be stamped: the job is on prepayment and not paid - FV2026001 (1,200.00 EUR left to pay). A manager can release it with a reason",
+      );
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease", "manager", { paymentOverrideReason: "ok" })).rejects.toThrow(/give a reason \(at least 3 characters\)/);
+      expect((await gateMovementService.get(m.id, c)).impRelease).toBeNull();
+
+      const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "manager", { paymentOverrideReason: "Paid in cash at the gate" });
+      expect(released.impRelease).not.toBeNull();
+      expect(released.events.find((e) => e.kind === "paymentOverride")).toMatchObject({
+        label: "WH release on prepayment (unpaid: FV2026001 (1,200.00 EUR left to pay)) - reason: Paid in cash at the gate",
+      });
+      // Recorded on the shipment too, as Shipments records any override.
+      expect(shipmentOverrides.filter((o) => o.shipmentId === shipmentId)).toEqual([
+        { shipmentId, kind: "warehouse_released", reason: "Paid in cash at the gate", invoices: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }], checked: true },
+      ]);
+    } finally {
+      releaseChecks.delete(shipmentId);
+    }
+  });
+
+  it("lets a user's WH release through on a release a manager approved on request, used once and recorded with who asked and who approved", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [], prepaymentUninvoiced: [{ currency: "EUR", amount: 800 }] });
+    const reason = "Asked by Jan Novák: customer pays on Friday — approved by Eva Malá: agreed with the owner";
+    releasePasses.set(shipmentId, { requestId: randomUUID(), reason });
+    try {
+      const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "user");
+      expect(released.impRelease).not.toBeNull();
+      expect(released.events.find((e) => e.kind === "paymentOverride")?.label).toBe(`WH release on prepayment (not invoiced: 800.00 EUR not invoiced yet) - reason: ${reason}`);
+      expect(shipmentOverrides.filter((o) => o.shipmentId === shipmentId)).toEqual([
+        { shipmentId, kind: "warehouse_released", reason, invoices: [{ number: "Not invoiced yet", leftToPay: 800, currency: "EUR" }], checked: true },
+      ]);
+    } finally {
+      releaseChecks.delete(shipmentId);
+      releasePasses.delete(shipmentId);
+    }
+  });
+
+  it("refuses as before when no approval is there, or Shipments can't be asked for one; and gives a used approval back when nothing was stamped", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, { prepaymentUnpaid: true, unpaid: [{ number: "FV2026001", leftToPay: 1200, currency: "EUR" }] });
+    try {
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/A manager can release it with a reason$/);
+      releasePasses.set(shipmentId, new Error("shipments down"));
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/A manager can release it with a reason$/);
+      // The stamp's own update stamps nothing (somebody else was first): the approval it used is given back.
+      const requestId = randomUUID();
+      releasePasses.set(shipmentId, { requestId, reason: "Asked by Jan Novák: x — approved by Eva Malá: y" });
+      const lost = vi.spyOn(gateMovementRepository, "conditionalUpdate").mockResolvedValueOnce(null);
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow();
+      lost.mockRestore();
+      expect(passesGivenBack.filter((p) => p.requestId === requestId)).toHaveLength(1);
+      expect(shipmentOverrides.some((o) => o.shipmentId === shipmentId)).toBe(false);
+      expect((await gateMovementService.get(m.id, c)).impRelease).toBeNull();
+    } finally {
+      releaseChecks.delete(shipmentId);
+      releasePasses.delete(shipmentId);
+    }
+  });
+
+  it("refuses the WH release when Invoicing can't be asked, and lets a manager out with a reason, recorded as unchecked", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    releaseChecks.set(shipmentId, new Error("invoicing down"));
+    try {
+      await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/Whether the job is paid could not be checked/);
+      const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "admin", { paymentOverrideReason: "Customer paid, bank slow" });
+      expect(released.events.find((e) => e.kind === "paymentOverride")?.label).toBe("WH release on prepayment (payment not checked) - reason: Customer paid, bank slow");
+    } finally {
+      releaseChecks.delete(shipmentId);
+    }
+  });
+
+  it("does not stop a paid job, nor record a reason sent with it", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const m = await linkedOutbound(c, shipmentId);
+    const released = await gateMovementService.stamp(m.id, c, user, "impRelease", "user", { paymentOverrideReason: "not needed" });
+    expect(released.impRelease).not.toBeNull();
+    expect(released.events.some((e) => e.kind === "paymentOverride")).toBe(false);
   });
 
   it("clears the customs line of the release gate only when customs is released", async () => {

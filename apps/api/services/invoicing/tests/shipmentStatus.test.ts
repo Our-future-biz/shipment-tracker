@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chargesInvoiced, isBillingStatus, statusesAfterCredit, statusesAfterIssue } from "../lib/shipmentStatus";
+import { chargeChangeOf, chargesInvoiced, isBillingStatus, statusesAfterCredit, statusesAfterIssue } from "../lib/shipmentStatus";
 
 const ALL = { invoiced: 3, total: 3 };
 const SOME = { invoiced: 2, total: 3 };
@@ -71,5 +71,34 @@ describe("a domestic road job", () => {
   it("moves Billing [DOM] to Billed [DOM] on issue and back on a credit note", () => {
     expect(statusesAfterIssue({ status: "Billing [DOM]", invoicingStatus: "Not Invoiced" }, ALL).status).toBe("Billed [DOM]");
     expect(statusesAfterCredit({ status: "Billed [DOM]", invoicingStatus: "Invoiced" }, NONE).status).toBe("Billing [DOM]");
+  });
+});
+
+describe("chargeChangeOf (a selling line written after invoicing)", () => {
+  const v = (amount: string | null, qty: string | null = "1") => ({ amount, qty });
+
+  it("is 'added' when the line becomes a charge or a charge's value changes: the job has a charge not invoiced", () => {
+    expect(chargeChangeOf(null, v("300"))).toBe("added");
+    expect(chargeChangeOf(v("0"), v("300"))).toBe("added");
+    expect(chargeChangeOf(v(null), v("300"))).toBe("added");
+    expect(chargeChangeOf(v("300"), v("320"))).toBe("added");
+    expect(chargeChangeOf(v("150", "2"), v("150", "3"))).toBe("added");
+    // A negative line counts as one too, as countInvoicedLines counts it.
+    expect(chargeChangeOf(null, v("-50"))).toBe("added");
+  });
+
+  it("is 'removed' when a charge is deleted or set to nothing: the rest may now all be invoiced", () => {
+    expect(chargeChangeOf(v("300"), null)).toBe("removed");
+    expect(chargeChangeOf(v("300"), v("0"))).toBe("removed");
+    expect(chargeChangeOf(v("300", "2"), v("300", "0"))).toBe("removed");
+  });
+
+  it("is null when the job's charges are as they were", () => {
+    expect(chargeChangeOf(v("300"), v("300"))).toBeNull();
+    // A blank quantity is one, as on the invoice.
+    expect(chargeChangeOf(v("300", null), v("300", "1"))).toBeNull();
+    expect(chargeChangeOf(null, v("0"))).toBeNull();
+    expect(chargeChangeOf(v(null), null)).toBeNull();
+    expect(chargeChangeOf(null, null)).toBeNull();
   });
 });

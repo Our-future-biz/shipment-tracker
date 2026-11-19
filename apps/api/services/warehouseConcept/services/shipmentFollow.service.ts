@@ -120,13 +120,15 @@ export async function followCustoms(
     }
     // The shipment's ETA Warehouse/HUB comes with it too ("Expected today" goes by it): a record
     // imported before it was kept, or whose change from Shipments went missing, catches up here.
+    // Only while the record still holds the date read: a change Shipments pushed meanwhile is newer
+    // than this read of the shipment and is not written over with the older one.
     if (f.ok && f.etaWarehouse !== m.etaWarehouse) {
       const row = await gateMovementRepository.conditionalUpdate(
         m.id,
         companyId,
         { etaWarehouse: f.etaWarehouse, shipmentCheckedAt: at },
         [{ kind: "etaWarehouseFromShipment", label: `ETA warehouse from shipment: ${f.etaWarehouse || "none"}`, at: at.toISOString(), by: "Shipments", detail: `was ${m.etaWarehouse || "none"}` }],
-        sql`${t.impRelease} IS NULL`,
+        sql`${t.etaWarehouse} = ${m.etaWarehouse} AND ${t.impRelease} IS NULL`,
       );
       if (row) {
         changed.set(m.id, row);

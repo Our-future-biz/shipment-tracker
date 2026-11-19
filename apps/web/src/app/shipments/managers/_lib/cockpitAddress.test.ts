@@ -134,6 +134,8 @@ describe("Shipments → Managers: where a list tile leads", () => {
     expect(LIST_TILES.map((t) => t.key)).toEqual(["active", "noHandledBy", "etdEtaMoved", "notReleased", "openClaims"]);
     expect(LIST_TILES.map((t) => t.label)).toEqual(["Active jobs", "Nobody in Handled By", "ETA Moved", "Arrived, not released for billing", "Open claims"]);
     for (const t of LIST_TILES) expect(t.hint, t.key).not.toBe("");
+    // X8: an open claim outlives the job's billing - the tile counts those jobs too, as tile=claims lists them.
+    expect(LIST_TILES.find((t) => t.key === "openClaims")!.hint).toBe("Jobs with an open claim, invoiced or cancelled ones too");
   });
 
   it("opens the Shipments list with the filter that lists what the tile counted", () => {

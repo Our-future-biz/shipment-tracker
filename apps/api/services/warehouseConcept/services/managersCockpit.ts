@@ -87,13 +87,22 @@ function dayOf(v: string | null | undefined): string {
 const liveSlot = (s: Item["dockSlots"][number]) => s.status !== "Cancelled" && s.status !== "Completed";
 
 /**
- * Expected at the gate today: not arrived, and today is its dock slot, ETA, its shipment's ETA
- * Warehouse/HUB, slot text, trip arrival or an ETW.
+ * The day the cargo is due at the warehouse by its dates: its shipment's ETA Warehouse/HUB when that
+ * is filled (the vessel's ETA is then only when it reaches port, not the gate), else the ETA. The same
+ * as the worklist's (web warehouse-concept _lib/worklist arrivalDay).
+ */
+export function arrivalDay(m: Pick<Item, "eta"> & Partial<Pick<Item, "etaWarehouse">>): string {
+  return (m.etaWarehouse ?? "").trim() ? dayOf(m.etaWarehouse) : dayOf(m.eta);
+}
+
+/**
+ * Expected at the gate today: not arrived, and today is its dock slot, its arrival day (the
+ * shipment's ETA Warehouse/HUB, else the ETA: arrivalDay), slot text, trip arrival or an ETW.
  */
 export function isExpectedToday(m: Item, today: string): boolean {
   if (m.status !== "Expected" || m.gateIn) return false;
   if (m.dockSlots.some((s) => liveSlot(s) && s.date === today)) return true;
-  if (dayOf(m.eta) === today || dayOf(m.etaWarehouse) === today || dayOf(m.slot) === today) return true;
+  if (arrivalDay(m) === today || dayOf(m.slot) === today) return true;
   const inLeg = (m.transportLegs ?? []).find((l) => l.leg === "IN");
   if (inLeg && isTripSource(inLeg.source) && dayOf(inLeg.gateTime) === today) return true;
   return m.subPositions.some((s) => dayOf(s.etw) === today);

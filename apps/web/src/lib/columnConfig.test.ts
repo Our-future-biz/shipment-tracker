@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COLUMN_MAP, computeDimensionTotals, dateTimeUpdate, joinDateTime, splitDateTime, summarizeDimensions } from "./columnConfig";
+import { COLUMN_MAP, computeDimensionTotals, dateTimeUpdate, getRowConditionalStyle, joinDateTime, splitDateTime, summarizeDimensions, waitsForOriginalBl } from "./columnConfig";
 
 describe("summarizeDimensions", () => {
   it("writes each line in the unit it was typed in", () => {
@@ -58,5 +58,22 @@ describe("date + time columns", () => {
     expect(COLUMN_MAP.has("plannedDeliveryTime")).toBe(false);
     // a column without a time is saved as it was
     expect(dateTimeUpdate(COLUMN_MAP.get("estimatedDeparture")!, "2026-11-22")).toEqual({ estimatedDeparture: "2026-11-22" });
+  });
+});
+
+describe("an OBL row in red (K28)", () => {
+  const row = (over: Record<string, string>) => ({ houseBolType: "", masterBolType: "", originalsReceivedDate: "", telexReleaseReceivedDate: "", ...over });
+
+  it("is red while an OBL is not in hand, by the rule Shipments → Managers says it", () => {
+    expect(getRowConditionalStyle(row({ masterBolType: "OBL" }))).toEqual({ color: "#b91c1c" });
+    expect(getRowConditionalStyle(row({ houseBolType: "OBL" }))).toEqual({ color: "#b91c1c" });
+    expect(waitsForOriginalBl(row({ masterBolType: " obl " }))).toBe(true);
+  });
+
+  it("is no longer red once Originals Received or Telex Release Received has a day", () => {
+    expect(getRowConditionalStyle(row({ masterBolType: "OBL", originalsReceivedDate: "2026-11-16" }))).toBeNull();
+    expect(getRowConditionalStyle(row({ houseBolType: "OBL", telexReleaseReceivedDate: "2026-11-17" }))).toBeNull();
+    expect(getRowConditionalStyle(row({ masterBolType: "SWB" }))).toBeNull();
+    expect(getRowConditionalStyle({})).toBeNull();
   });
 });

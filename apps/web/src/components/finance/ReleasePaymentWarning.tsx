@@ -30,6 +30,8 @@ import {
   type ReleaseWhat,
 } from "@/lib/paymentWarnings";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { canWithdrawOwnRequest } from "@/lib/releaseRequestQueue";
+import { WithdrawReleaseRequest } from "./WithdrawReleaseRequest";
 import { HINT, LABEL_TEXT, LINK, MODAL_TITLE } from "@/styles/ui";
 
 // The payment warning at a release (Council Outlay 10, D20): the House B/L release, Warehouse Released and the
@@ -316,6 +318,8 @@ export function AskManagerToRelease({
           )}
         </span>
       )}
+      {/* Whoever asked takes their request back while it still waits (council K20). */}
+      {latest && canWithdrawOwnRequest(latest, user?.id) && <WithdrawReleaseRequest request={latest} kind="request" />}
       {canAsk && (
         <Button size="small" onClick={start}>
           {label && !state && !notRead ? <>Ask a manager to release {label}</> : state && askedBefore(latest) ? "Ask a manager again" : "Ask a manager to release"}

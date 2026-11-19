@@ -10,6 +10,7 @@ const repo = vi.hoisted(() => ({
   answer: vi.fn(),
   usablePass: vi.fn(),
   markSeen: vi.fn(),
+  withdraw: vi.fn(),
 }));
 const shipments = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
 const service = vi.hoisted(() => ({ update: vi.fn(), releaseHouseBol: vi.fn(), mayChangeDetails: vi.fn(), prepaymentRefusal: vi.fn() }));
@@ -69,6 +70,11 @@ const request = (over = {}) => ({
   usedAt: null,
   usedById: null,
   usedByName: "",
+  closedAt: null,
+  closedWhy: null,
+  closedById: null,
+  closedByName: "",
+  closeReason: "",
   updatedAt: new Date("2026-11-18T10:00:00Z"),
   ...over,
 });
@@ -225,23 +231,32 @@ describe("what a request says about itself", () => {
   });
 
   it("closed: nobody answered it - released without it, and when", async () => {
-    repo.listForManagers.mockResolvedValue([request({ status: "closed", comment: "Released without it", updatedAt: new Date("2026-11-18T12:00:00Z") })]);
+    const closedAt = new Date("2026-11-18T12:00:00Z");
+    repo.listForManagers.mockResolvedValue([request({ status: "closed", closedAt, closedWhy: "released", updatedAt: new Date("2026-11-18T12:30:00Z") })]);
     expect((await requests.list(manager, NOW))[0]).toMatchObject({
       status: "closed",
-      comment: "Released without it",
+      closedWhy: "released",
+      comment: "",
       decidedByName: "",
       decidedAt: null,
       closedAt: "2026-11-18T12:00:00.000Z",
+      closedByName: "",
+      closeReason: "",
       usable: false,
       validUntil: null,
     });
+    // A row closed before the closing had its own fields: by a release, dated by its last write.
+    repo.listForManagers.mockResolvedValue([request({ status: "closed", updatedAt: closedAt })]);
+    expect((await requests.list(manager, NOW))[0]).toMatchObject({ closedWhy: "released", closedAt: "2026-11-18T12:00:00.000Z" });
   });
 
-  it("closed after it was approved, unused: not usable any more, still naming who approved it and when", async () => {
-    repo.latestForShipment.mockResolvedValue([approved({ status: "closed", comment: "Released without it", updatedAt: new Date("2026-11-18T12:00:00Z") })]);
+  it("closed after it was approved, unused: not usable any more, still naming who approved it, when and why (m19)", async () => {
+    repo.latestForShipment.mockResolvedValue([approved({ status: "closed", closedAt: new Date("2026-11-18T12:00:00Z"), closedWhy: "released" })]);
     expect((await requests.latest(user, SHIPMENT, NOW))[0]).toMatchObject({
       status: "closed",
-      comment: "Released without it",
+      closedWhy: "released",
+      // The manager's reason, not words of the app written over it.
+      comment: "Fine",
       decidedByName: "Eva Malá",
       decidedAt: "2026-11-17T09:00:00.000Z",
       closedAt: "2026-11-18T12:00:00.000Z",
@@ -249,6 +264,13 @@ describe("what a request says about itself", () => {
       validUntil: null,
       usedAt: null,
     });
+  });
+
+  it("withdrawn: by whom and why, the manager's own answer kept", async () => {
+    repo.latestForShipment.mockResolvedValue([
+      approved({ status: "closed", closedAt: new Date("2026-11-18T12:00:00Z"), closedWhy: "withdrawn", closedById: manager.userID, closedByName: "Eva Malá", closeReason: "Customer cancelled" }),
+    ]);
+    expect((await requests.latest(user, SHIPMENT, NOW))[0]).toMatchObject({ status: "closed", closedWhy: "withdrawn", closedByName: "Eva Malá", closeReason: "Customer cancelled", comment: "Fine", usable: false });
   });
 
   it("pending and rejected: nothing to use", async () => {
@@ -370,6 +392,54 @@ describe("answering a request", () => {
     repo.get.mockClear();
     await expect(requests.decide(manager, "r1", { approve: true, comment: "It is fine" })).rejects.toMatchObject({ code: "not_found" });
     expect(repo.get).not.toHaveBeenCalled();
+  });
+});
+
+describe("withdrawing (K20)", () => {
+  const approved = (over = {}) => request({ status: "approved", decidedById: manager.userID, decidedByName: "Eva Malá", decidedAt: new Date("2026-11-17T09:00:00Z"), comment: "Fine", ...over });
+  beforeEach(() => {
+    repo.withdraw.mockImplementation(async (_id, _company, _kind, by) => request({ status: "closed", closedAt: by.at, closedWhy: "withdrawn", closedById: by.id, closedByName: by.name, closeReason: by.reason }));
+  });
+
+  it("lets whoever asked take back their request while it waits, with a reason and a line in the job's history", async () => {
+    const item = await requests.withdraw(user, ID, { reason: " Paid meanwhile " }, NOW);
+    expect(repo.withdraw).toHaveBeenCalledExactlyOnceWith(
+      ID,
+      "c1",
+      "request",
+      { id: user.userID, name: "Jan Novák", reason: "Paid meanwhile", at: NOW },
+      { userId: user.userID, field: "releaseRequest", oldValue: null, newValue: "House BoL release request withdrawn: Paid meanwhile" },
+    );
+    expect(item).toMatchObject({ status: "closed", closedWhy: "withdrawn", closedByName: "Jan Novák", closeReason: "Paid meanwhile", usable: false });
+  });
+
+  it("lets a manager take back an approval nobody used - it lets nothing through any more", async () => {
+    repo.get.mockResolvedValue(approved());
+    await requests.withdraw(manager, ID, { reason: "Customer cancelled" }, NOW);
+    expect(repo.withdraw).toHaveBeenCalledWith(ID, "c1", "approval", expect.objectContaining({ id: manager.userID, name: "Eva Malá" }), expect.objectContaining({ newValue: "House BoL release approval withdrawn (asked by Jan Novák): Customer cancelled" }));
+  });
+
+  it("refuses somebody else's waiting request, a user's take on an approval, and a used approval - nothing is written", async () => {
+    await expect(requests.withdraw(manager, ID, { reason: "Not needed" }, NOW)).rejects.toMatchObject({ code: "permission_denied" });
+    repo.get.mockResolvedValue(approved());
+    await expect(requests.withdraw(user, ID, { reason: "Not needed" }, NOW)).rejects.toMatchObject({ code: "permission_denied", message: "Only a manager can withdraw an approval" });
+    repo.get.mockResolvedValue(approved({ usedAt: NOW, usedByName: "jan@firma.cz" }));
+    await expect(requests.withdraw(manager, ID, { reason: "Not needed" }, NOW)).rejects.toMatchObject({ code: "failed_precondition" });
+    for (const status of ["rejected", "closed"]) {
+      repo.get.mockResolvedValue(request({ status }));
+      await expect(requests.withdraw(user, ID, { reason: "Not needed" }, NOW)).rejects.toMatchObject({ code: "failed_precondition" });
+    }
+    expect(repo.withdraw).not.toHaveBeenCalled();
+  });
+
+  it("wants a reason, finds no request of another company, and says so when it was answered or used meanwhile", async () => {
+    await expect(requests.withdraw(user, ID, { reason: " x " }, NOW)).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(requests.withdraw(user, ID, { reason: "y".repeat(501) }, NOW)).rejects.toMatchObject({ code: "invalid_argument" });
+    repo.get.mockResolvedValue(null);
+    await expect(requests.withdraw(user, ID, { reason: "Paid meanwhile" }, NOW)).rejects.toMatchObject({ code: "not_found" });
+    repo.get.mockResolvedValue(request());
+    repo.withdraw.mockResolvedValue(null);
+    await expect(requests.withdraw(user, ID, { reason: "Paid meanwhile" }, NOW)).rejects.toMatchObject({ code: "failed_precondition" });
   });
 });
 

@@ -18,6 +18,7 @@ vi.mock("../../../../lib/outbox/serviceIdentity", () => ({ serviceActor: async (
 import { db } from "../../db/db";
 import { CANCELLED_STATUS } from "../../lib/fieldDefaults";
 import { passDecidedSince } from "../../lib/releaseRequest";
+import { handOverJobsRepository as handOverJobs } from "../../repositories/handOverJobs.repository";
 import { shipmentCutoffDismissalRepository as dismissals } from "../../repositories/shipmentCutoffDismissal.repository";
 import { shipmentNudgeRepository as nudges } from "../../repositories/shipmentNudge.repository";
 import { shipmentReleaseRequestRepository as requests } from "../../repositories/shipmentReleaseRequest.repository";
@@ -177,7 +178,8 @@ describe("a request to release a job the prepayment stop holds", () => {
     await expect(close("house_bol")).resolves.toEqual({ waiting: 1, approved: 0 });
     // Once: nothing waits any more. And only the release that was made: the warehouse's request waits on.
     await expect(close("house_bol")).resolves.toEqual({ waiting: 0, approved: 0 });
-    await expect(requests.get(bol.id, companyId)).resolves.toMatchObject({ status: "closed", comment: "Released without it", decidedById: null, decidedByName: "", decidedAt: null });
+    await expect(requests.get(bol.id, companyId)).resolves.toMatchObject({ status: "closed", closedWhy: "released", closedByName: "", closeReason: "", comment: "", decidedById: null, decidedByName: "", decidedAt: null });
+    expect((await requests.get(bol.id, companyId))!.closedAt).toBeInstanceOf(Date);
     await expect(requests.get(warehouse.id, companyId)).resolves.toMatchObject({ status: "pending" });
     expect((await requests.waitingByShipmentIds([job.id], companyId)).map((r) => r.what)).toEqual(["warehouse"]);
 
@@ -209,7 +211,8 @@ describe("a request to release a job the prepayment stop holds", () => {
 
     await expect(close(job.id, "warehouse")).resolves.toEqual({ waiting: 0, approved: 1 });
     const row = (await requests.get(unused.id, companyId))!;
-    expect(row).toMatchObject({ status: "closed", comment: "Released without it", decidedById: MANAGER, decidedByName: "Eva Malá", usedAt: null });
+    // m19: the manager's reason stays; the closing says why on its own.
+    expect(row).toMatchObject({ status: "closed", closedWhy: "released", comment: "Agreed with the owner", decidedById: MANAGER, decidedByName: "Eva Malá", usedAt: null });
     expect(row.decidedAt).toBeInstanceOf(Date);
     // Warehouse Released cleared and set again: the old approval is no pass any more.
     await expect(requests.usablePass(companyId, job.id, "warehouse", good())).resolves.toBeNull();
@@ -221,7 +224,12 @@ describe("a request to release a job the prepayment stop holds", () => {
     const seenSince = new Date(Date.now() - 7 * 86_400_000);
     expect((await requests.answersFor(companyId, USER, seenSince, 200)).map((r) => r.id)).toEqual([bol.id]);
     const decided = await requests.decidedSince(companyId, new Date(Date.now() - 86_400_000));
-    expect(decided.map((r) => [r.id, r.status]).sort()).toEqual([[bol.id, "approved"], [unused.id, "approved"]].sort());
+    expect(decided.map((r) => [r.id, r.status, r.comment]).sort()).toEqual(
+      [
+        [bol.id, "approved", "Agreed with the owner"],
+        [unused.id, "approved", "Agreed with the owner"],
+      ].sort(),
+    );
     // A new request may be asked for it.
     await expect(ask(companyId, job.id, "warehouse")).resolves.toMatchObject({ status: "pending" });
 
@@ -235,6 +243,55 @@ describe("a request to release a job the prepayment stop holds", () => {
       }),
     ).resolves.toEqual({ waiting: 0, approved: 0 });
     await expect(requests.get(used.id, companyId)).resolves.toMatchObject({ status: "approved", usedById: USER });
+  });
+
+  it("withdrawn by whoever asked while it waits (K20): closed with who and why, a line in the job's history - and no other user's to withdraw", async () => {
+    const companyId = randomUUID();
+    const job = await newJob(companyId);
+    const waiting = (await ask(companyId, job.id))!;
+    const at = new Date();
+    const by = (id: string) => ({ id, name: "Jan Novák", reason: "Paid meanwhile", at });
+    const line = { userId: USER, field: "releaseRequest", oldValue: null, newValue: "House BoL release request withdrawn: Paid meanwhile" };
+    // Not the asker: nothing is written.
+    await expect(requests.withdraw(waiting.id, companyId, "request", by(MANAGER), line)).resolves.toBeNull();
+    await expect(requests.withdraw(waiting.id, randomUUID(), "request", by(USER), line)).resolves.toBeNull();
+    // Not an approval.
+    await expect(requests.withdraw(waiting.id, companyId, "approval", by(USER), line)).resolves.toBeNull();
+    const withdrawn = await requests.withdraw(waiting.id, companyId, "request", by(USER), line);
+    expect(withdrawn).toMatchObject({ status: "closed", closedWhy: "withdrawn", closedById: USER, closedByName: "Jan Novák", closeReason: "Paid meanwhile", decidedAt: null });
+    expect(withdrawn!.closedAt!.getTime()).toBe(at.getTime());
+    expect((await historyOf(job.id, "releaseRequest")).map((h) => h.newValue)).toEqual(["house_bol asked", "House BoL release request withdrawn: Paid meanwhile"]);
+    // Once; it waits no more, is answered by nobody, and a new request may be asked.
+    await expect(requests.withdraw(waiting.id, companyId, "request", by(USER), line)).resolves.toBeNull();
+    await expect(approve(waiting.id, companyId)).resolves.toBeNull();
+    expect(await requests.waitingByShipmentIds([job.id], companyId)).toEqual([]);
+    expect(await requests.decidedSince(companyId, new Date(0))).toEqual([]);
+    expect((await requests.listForUser(companyId, USER, new Date(Date.now() - 86_400_000), 200)).map((r) => r.status)).toEqual(["closed"]);
+    await expect(ask(companyId, job.id)).resolves.toMatchObject({ status: "pending" });
+    expect((await historyOf(job.id, "releaseRequest")).length).toBe(3);
+  });
+
+  it("an approval withdrawn by a manager before anybody used it (K20) lets nothing through; a used one can't be withdrawn", async () => {
+    const companyId = randomUUID();
+    const [job, usedJob] = [await newJob(companyId), await newJob(companyId)];
+    const approval = (await ask(companyId, job.id))!;
+    await approve(approval.id, companyId);
+    const by = { id: MANAGER, name: "Eva Malá", reason: "Customer cancelled", at: new Date() };
+    const line = { userId: MANAGER, field: "releaseRequest", oldValue: null, newValue: "House BoL release approval withdrawn (asked by Jan Novák): Customer cancelled" };
+    const withdrawn = await requests.withdraw(approval.id, companyId, "approval", by, line);
+    expect(withdrawn).toMatchObject({ status: "closed", closedWhy: "withdrawn", closedByName: "Eva Malá", closeReason: "Customer cancelled", comment: "Agreed with the owner", decidedById: MANAGER });
+    await expect(requests.usablePass(companyId, job.id, "house_bol", good())).resolves.toBeNull();
+    await expect(use(approval.id, companyId)).resolves.toBe(false);
+    expect((await historyOf(job.id, "releaseRequest")).map((h) => h.newValue)).toContain(line.newValue);
+    // Still the manager's approval it was, for the audit line - with their own reason.
+    expect((await requests.decidedSince(companyId, new Date(0))).map((r) => [r.id, r.status, r.comment])).toEqual([[approval.id, "approved", "Agreed with the owner"]]);
+
+    const used = (await ask(companyId, usedJob.id))!;
+    await approve(used.id, companyId);
+    await expect(use(used.id, companyId)).resolves.toBe(true);
+    await expect(requests.withdraw(used.id, companyId, "approval", by, line)).resolves.toBeNull();
+    await expect(requests.get(used.id, companyId)).resolves.toMatchObject({ status: "approved", closedWhy: null });
+    expect((await historyOf(usedJob.id, "releaseRequest")).map((h) => h.newValue)).not.toContain(line.newValue);
   });
 
   it("lists for a manager what waits and what was answered lately, for a user their own, and the newest of each thing for a shipment", async () => {
@@ -309,6 +366,12 @@ describe("a request to release a job the prepayment stop holds", () => {
     await expect(db.insert(shipmentReleaseRequestTable).values({ ...row, shipmentId: job.id, what: "mbl" as "house_bol" })).rejects.toThrow();
     await expect(db.insert(shipmentReleaseRequestTable).values({ ...row, shipmentId: job.id, what: "house_bol", status: "maybe" as "pending" })).rejects.toThrow();
     await expect(db.insert(shipmentReleaseRequestTable).values({ ...row, what: "house_bol", shipmentId: randomUUID() })).rejects.toThrow();
+    // Migration 0089: why a request was closed is one of two.
+    for (const closedWhy of ["released", "withdrawn"] as const) {
+      const closed = await newJob(companyId);
+      await expect(db.insert(shipmentReleaseRequestTable).values({ ...row, shipmentId: closed.id, what: "house_bol", status: "closed", closedWhy, closedAt: new Date() })).resolves.toBeDefined();
+    }
+    await expect(db.insert(shipmentReleaseRequestTable).values({ ...row, shipmentId: job.id, what: "house_bol", status: "closed", closedWhy: "lost" as "released" })).rejects.toThrow();
   });
 });
 
@@ -383,7 +446,8 @@ describe("a release let through by an approved request (the shipment service's o
       shipmentService.update(job.id, companyId, { warehouseReleasedDate: day }, USER, role, undefined, undefined, { paymentOverrideReason });
     // A manager releases it with a reason of their own: the approval is not used - and is closed.
     await expect(setReleased("manager", "2026-11-17", "Customer sent the payment proof")).resolves.toBeTruthy();
-    expect(await requestNow(requestId)).toMatchObject({ status: "closed", comment: "Released without it", usedAt: null, decidedById: MANAGER, decidedByName: "Eva Malá" });
+    // The manager's own reason for the approval stays (m19); the closing says why.
+    expect(await requestNow(requestId)).toMatchObject({ status: "closed", closedWhy: "released", comment: "Agreed with the owner", usedAt: null, decidedById: MANAGER, decidedByName: "Eva Malá" });
     expect((await historyOf(job.id, "releaseRequest")).map((h) => h.newValue)).toContain("Warehouse Released approval closed unused: released without it");
     // Cleared, and set again by a user: the stop holds, the old approval lets nothing through.
     await expect(setReleased("manager", "")).resolves.toBeTruthy();
@@ -398,7 +462,7 @@ describe("a release let through by an approved request (the shipment service's o
     const job = await newJob(companyId);
     const waiting = (await requests.create({ companyId, shipmentId: job.id, what: "house_bol", reason: "Customer pays on Friday", requestedById: USER, requestedByName: "Jan Novák" }, asked(USER, "house_bol")))!;
     await expect(releaseBol(companyId, job.id, "manager", "Original B/L held by the bank")).resolves.toBeTruthy();
-    expect(await requestNow(waiting.id)).toMatchObject({ status: "closed", comment: "Released without it", decidedById: null, decidedAt: null });
+    expect(await requestNow(waiting.id)).toMatchObject({ status: "closed", closedWhy: "released", comment: "", decidedById: null, decidedAt: null });
     expect((await historyOf(job.id, "releaseRequest")).map((h) => h.newValue)).toEqual(["house_bol asked", "House BoL release request closed: released without it"]);
   });
 });
@@ -530,5 +594,32 @@ describe("how many active jobs name a person (the Users page's warning)", () => 
     // The same jobs the list's Handled By filter finds among the active ones.
     const { total } = await shipmentRepository.listFiltered(companyId, { tile: "active", handledBy: "jan@firma.cz", limit: 50, offset: 0, sortDirection: "asc" });
     expect(total).toBe(2);
+  });
+});
+
+describe("a person's jobs to hand over all at once (X9)", () => {
+  it("are their active jobs by Handled By, as the list's filter matches it, the oldest first, cut at the limit with the whole count - in the mode and direction asked", async () => {
+    const companyId = randomUUID();
+    const first = await newJob(companyId, { personInCharge: "jan@firma.cz" });
+    const second = await newJob(companyId, { personInCharge: " Jan@Firma.cz — Jan Novák", holidayCover: "eva@firma.cz", tradeDirection: "Import" });
+    const air = await newJob(companyId, { personInCharge: "jan@firma.cz", freightMode: "Air Freight" });
+    // Not theirs, or not active, or another company's.
+    await newJob(companyId, { personInCharge: "eva@firma.cz", holidayCover: "jan@firma.cz" });
+    await newJob(companyId, { personInCharge: "jan@firma.cz", invoicingStatus: "Invoiced" });
+    await newJob(companyId, { personInCharge: "jan@firma.cz", status: CANCELLED_STATUS });
+    await newJob(companyId, { personInCharge: "jan@firma.cz", deletedAt: new Date() });
+    await newJob(randomUUID(), { personInCharge: "jan@firma.cz" });
+
+    const all = await handOverJobs.ofPerson(companyId, "jan@firma.cz", {}, 200);
+    expect(all.total).toBe(3);
+    expect(all.jobs.map((j) => j.id)).toEqual([first.id, second.id, air.id]);
+    expect(all.jobs[1]).toMatchObject({ jobNumber: second.jobNumber, personInCharge: " Jan@Firma.cz — Jan Novák", holidayCover: "eva@firma.cz" });
+    // Cut at the limit, the count whole.
+    await expect(handOverJobs.ofPerson(companyId, "jan@firma.cz", { mode: "all", direction: "all" }, 2)).resolves.toMatchObject({ total: 3, jobs: [{ id: first.id }, { id: second.id }] });
+    // The Team tab's mode and direction.
+    expect((await handOverJobs.ofPerson(companyId, "jan@firma.cz", { mode: "air" }, 200)).jobs.map((j) => j.id)).toEqual([air.id]);
+    expect((await handOverJobs.ofPerson(companyId, "jan@firma.cz", { mode: "sea", direction: "import" }, 200)).jobs.map((j) => j.id)).toEqual([second.id]);
+    // Nobody is no person here.
+    await expect(handOverJobs.ofPerson(companyId, "", {}, 200)).resolves.toEqual({ jobs: [], total: 0 });
   });
 });

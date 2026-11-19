@@ -56,6 +56,17 @@ describe("linkKindProblem", () => {
     expect(masterJobKind(plain, [lcl, fcl])).toBeNull();
   });
 
+  it("names an air Full Load a Single Shipment, as the screen does", () => {
+    const airFull = { mczNumber: "MCZFULL00000007", loadType: "Full Load", freightMode: "Air Freight" };
+    expect(linkKindProblem(airFull, [], [airConsol])).toBe(
+      "CZAIR00000018 is Consolidation and can't go on MCZFULL00000007: MCZFULL00000007 is a Single Shipment master job - a shipment goes only on a master job of its own Load Type",
+    );
+    const airSingle = { jobNumber: "CZAIR00000019", loadType: "Full Load", freightMode: "Air Freight" };
+    expect(linkKindProblem({ ...consol, freightMode: "Air Freight" }, [], [airSingle])).toMatch(/^CZAIR00000019 is Single Shipment and can't go on/);
+    // A sea Full Load stays a Full Load.
+    expect(linkKindProblem({ ...consol, freightMode: "Sea Freight" }, [], [{ ...fcl, freightMode: "Sea Freight" }])).toMatch(/^CZFCL00000019 is Full Load/);
+  });
+
   it("compares Load Types without regard to case or spaces", () => {
     expect(linkKindProblem({ ...consol, loadType: " consolidation" }, [], [lcl])).toBeNull();
   });
@@ -64,8 +75,23 @@ describe("linkKindProblem", () => {
 describe("loadTypeKindProblem", () => {
   it("refuses a Load Type a shipment on the master job does not have, listing them", () => {
     expect(loadTypeKindProblem("MCZ00000008", "Consolidation", [lcl, fcl, blank])).toBe(
-      "MCZ00000008 can't be Consolidation: CZFCL00000019 (Full Load) on it is not - take it off the master job first",
+      "MCZ00000008 can't become Consolidation: CZFCL00000019 on it is Full Load - take it off the master job first.",
     );
+    const fcl2 = { jobNumber: "CZFCL00000020", loadType: "Full Load" };
+    expect(loadTypeKindProblem("MCZ00000008", "Consolidation", [fcl, fcl2])).toBe(
+      "MCZ00000008 can't become Consolidation: CZFCL00000019, CZFCL00000020 on it are Full Load - take them off the master job first.",
+    );
+    const project = { jobNumber: "CZ00000021", loadType: "Project Shipment" };
+    expect(loadTypeKindProblem("MCZ00000008", "Consolidation", [fcl, project])).toBe(
+      "MCZ00000008 can't become Consolidation: on it, CZFCL00000019 is Full Load and CZ00000021 is Project Shipment - take them off the master job first.",
+    );
+  });
+
+  it("names an air Full Load a Single Shipment, as the screen does", () => {
+    expect(loadTypeKindProblem("MCZ00000008", "Consolidation", [{ ...fcl, freightMode: "Air Freight" }], "Air Freight")).toBe(
+      "MCZ00000008 can't become Consolidation: CZFCL00000019 on it is Single Shipment - take it off the master job first.",
+    );
+    expect(loadTypeKindProblem("MCZ00000008", "Full Load", [lcl], "Air Freight")).toMatch(/^MCZ00000008 can't become Single Shipment:/);
   });
 
   it("allows one all its filled shipments share, and a blank one", () => {
@@ -86,5 +112,12 @@ describe("houseLoadTypeProblem", () => {
   it("on a plain master job, to the filling of the others", () => {
     expect(houseLoadTypeProblem({ ...lcl, loadType: "Full Load" }, plain, [airConsol])).toMatch(/which holds Consolidation shipments \(CZAIR00000018\)/);
     expect(houseLoadTypeProblem({ ...lcl, loadType: "Full Load" }, plain, [blank])).toBeNull();
+  });
+
+  it("names an air Full Load master job's filling a Single Shipment", () => {
+    const airFull = { mczNumber: "MCZFULL00000007", loadType: "Full Load", freightMode: "Air Freight" };
+    expect(houseLoadTypeProblem({ ...airConsol }, airFull, [])).toBe(
+      "CZAIR00000018 is on MCZFULL00000007, a Single Shipment master job, so its Load Type stays Single Shipment - take it off the master job first",
+    );
   });
 });

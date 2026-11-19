@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  CLOSED_COMMENT,
+  ANSWERED_LINE_STARTS,
+  APPROVAL_WITHDRAWN_LINE_STARTS,
   ONLY_MANAGERS_DECIDE,
   OWN_REQUEST,
   RELEASE_KIND,
@@ -20,6 +21,12 @@ import {
   passDecidedSince,
   unusedLine,
   validUntil,
+  WITHDRAW_DONE,
+  WITHDRAW_NOT_YOURS,
+  WITHDRAW_ONLY_MANAGERS,
+  WITHDRAW_USED,
+  withdrawOf,
+  withdrawnLine,
 } from "../lib/releaseRequest";
 import { MIN_OVERRIDE_REASON, overrideLine, passOverride, prepaymentStop } from "../lib/prepaymentStop";
 
@@ -169,6 +176,57 @@ describe("the history lines", () => {
     // An approval nobody used, closed the same way, says so in its own words.
     expect(unusedLine("house_bol")).toBe("House BoL release approval closed unused: released without it");
     expect(unusedLine("warehouse")).toBe("Warehouse Released approval closed unused: released without it");
-    expect(CLOSED_COMMENT).toBe("Released without it");
+  });
+
+  it("say what was withdrawn and why - never as an answer starts", () => {
+    expect(withdrawnLine({ what: "house_bol", requestedByName: "Jan Novák" }, "request", " paid meanwhile ")).toBe("House BoL release request withdrawn: paid meanwhile");
+    expect(withdrawnLine({ what: "warehouse", requestedByName: "Jan Novák" }, "approval", "customer cancelled")).toBe("Warehouse Released approval withdrawn (asked by Jan Novák): customer cancelled");
+    expect(withdrawnLine({ what: "warehouse", requestedByName: "" }, "approval", "customer cancelled")).toBe("Warehouse Released approval withdrawn: customer cancelled");
+    for (const kind of ["request", "approval"] as const) {
+      const line = withdrawnLine({ what: "house_bol", requestedByName: "Jan Novák" }, kind, "x y z");
+      expect(ANSWERED_LINE_STARTS.some((start) => line.startsWith(start))).toBe(false);
+    }
+  });
+
+  it("tell a manager's withdrawal of an approval by how its line starts, and the asker's own withdrawal not", () => {
+    expect(APPROVAL_WITHDRAWN_LINE_STARTS).toEqual(["House BoL release approval withdrawn", "Warehouse Released approval withdrawn"]);
+    const starts = (line: string) => APPROVAL_WITHDRAWN_LINE_STARTS.some((start) => line.startsWith(start));
+    expect(starts(withdrawnLine({ what: "warehouse", requestedByName: "Jan Novák" }, "approval", "customer cancelled"))).toBe(true);
+    expect(starts(withdrawnLine({ what: "warehouse", requestedByName: "Jan Novák" }, "request", "paid meanwhile"))).toBe(false);
+    // Nor is an approval closed unused by a release one of them: that line comes with the release.
+    expect(starts(unusedLine("warehouse"))).toBe(false);
+  });
+});
+
+describe("withdrawing (K20)", () => {
+  const asker = { userID: "u-jan", role: "user" };
+  const manager = { userID: "u-eva", role: "manager" };
+  const request = (over = {}) => ({ status: "pending", usedAt: null as Date | null, requestedById: "u-jan", ...over });
+
+  it("takes back a request still waiting - by whoever asked, nobody else (a manager rejects it instead)", () => {
+    expect(withdrawOf(request(), asker)).toEqual({ kind: "request" });
+    expect(withdrawOf(request(), manager)).toEqual({ refusal: WITHDRAW_NOT_YOURS });
+    expect(withdrawOf(request(), { userID: "u-petr", role: "user" })).toEqual({ refusal: WITHDRAW_NOT_YOURS });
+    // A manager who asked withdraws their own request as its asker.
+    expect(withdrawOf(request({ requestedById: "u-eva" }), manager)).toEqual({ kind: "request" });
+  });
+
+  it("takes back an approval nobody used - by a manager only, also one who asked", () => {
+    expect(withdrawOf(request({ status: "approved" }), manager)).toEqual({ kind: "approval" });
+    expect(withdrawOf(request({ status: "approved", requestedById: "u-eva" }), manager)).toEqual({ kind: "approval" });
+    expect(withdrawOf(request({ status: "approved" }), { userID: "u-x", role: "admin" })).toEqual({ kind: "approval" });
+    expect(withdrawOf(request({ status: "approved" }), asker)).toEqual({ refusal: WITHDRAW_ONLY_MANAGERS });
+  });
+
+  it("refuses an approval that was used, and anything answered or closed", () => {
+    expect(withdrawOf(request({ status: "approved", usedAt: new Date() }), manager)).toEqual({ refusal: WITHDRAW_USED });
+    for (const status of ["rejected", "closed"]) {
+      expect(withdrawOf(request({ status }), manager)).toEqual({ refusal: WITHDRAW_DONE });
+      expect(withdrawOf(request({ status }), asker)).toEqual({ refusal: WITHDRAW_DONE });
+    }
+  });
+
+  it("leaves a withdrawn approval nothing to let through: it is closed, and only an approved one is usable", () => {
+    expect(isUsable({ status: "closed", decidedAt: new Date(), usedAt: null }, new Date())).toBe(false);
   });
 });

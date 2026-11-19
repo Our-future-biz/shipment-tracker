@@ -13,9 +13,10 @@ vi.mock("../../repositories/shipmentComment.repository", () => ({ shipmentCommen
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: history }));
 vi.mock("../../repositories/shipmentReleaseRequest.repository", () => ({ shipmentReleaseRequestRepository: releaseRequests }));
 
+import { ABSENCE_COVER_FIELD } from "../../lib/absenceCover";
 import { TEAM_PARTS, type TeamJob } from "../../lib/managersCockpitTeam";
 import { readLimiter } from "../../lib/readLimiter";
-import { answeredLine, askedLine, closedLine, unusedLine } from "../../lib/releaseRequest";
+import { answeredLine, askedLine, closedLine, unusedLine, withdrawnLine } from "../../lib/releaseRequest";
 import { NOT_A_TOUCH, cockpitUsers, teamFacts, type CockpitUser } from "../../services/managersCockpitTeam.service";
 
 // The reads of Shipments → Managers' step 3 signals and Team facts, against stand-ins for the
@@ -81,8 +82,13 @@ describe("what is no touch of a job (A15)", () => {
   const startsAnAnswer = (line: string) => NOT_A_TOUCH.lines.startsWith.some((start) => line.startsWith(start));
 
   it("is what a manager does from Shipments → Managers: a nudge with its to-do and chat line, a cut-off dismissed or taken back", () => {
-    expect(NOT_A_TOUCH.fields).toEqual(["nudge", "cutoffDismissed"]);
+    expect(NOT_A_TOUCH.fields).toEqual(["nudge", "cutoffDismissed", "absenceCover"]);
     expect(NOT_A_TOUCH.writtenWith).toBe("nudge");
+  });
+
+  it("is what the absence-cover job writes (m16): its own line, and the Holiday Cover set or cleared in the same save", () => {
+    expect(NOT_A_TOUCH.fields).toContain(ABSENCE_COVER_FIELD);
+    expect(NOT_A_TOUCH.savedWith).toEqual([ABSENCE_COVER_FIELD]);
   });
 
   it("is a manager's answer to a release request - not the request asked, nor one a release closed: those are the job's people at work", () => {
@@ -94,6 +100,14 @@ describe("what is no touch of a job (A15)", () => {
     expect(startsAnAnswer(askedLine("warehouse", "approved by the owner"))).toBe(false);
     expect(startsAnAnswer(closedLine("house_bol"))).toBe(false);
     expect(startsAnAnswer(unusedLine("warehouse"))).toBe(false);
+  });
+
+  it("is a manager withdrawing an approval they gave - not the asker withdrawing their own request still waiting, which is the job's people at work", () => {
+    const asked = { what: "warehouse" as const, requestedByName: "Jan Novák" };
+    expect(startsAnAnswer(withdrawnLine(asked, "approval", "the customer cancelled"))).toBe(true);
+    expect(startsAnAnswer(withdrawnLine({ what: "house_bol", requestedByName: "" }, "approval", "paid meanwhile"))).toBe(true);
+    expect(startsAnAnswer(withdrawnLine(asked, "request", "paid meanwhile"))).toBe(false);
+    expect(startsAnAnswer(withdrawnLine({ what: "house_bol", requestedByName: "Jan Novák" }, "request", "paid meanwhile"))).toBe(false);
   });
 });
 

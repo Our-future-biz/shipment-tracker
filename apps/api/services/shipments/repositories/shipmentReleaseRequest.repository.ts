@@ -1,7 +1,7 @@
-import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import { AUDIT_READ_LIMIT } from "../lib/cockpitThresholds";
-import { CLOSED_COMMENT } from "../lib/releaseRequest";
+import type { WithdrawKind } from "../lib/releaseRequest";
 import {
   shipmentReleaseRequestTable as requests,
   type NewShipmentReleaseRequestRecord,
@@ -33,6 +33,21 @@ export interface DecidedReleaseRequest {
 /** The two answers a manager gives. A closed request was answered by nobody. */
 const ANSWERED = ["approved", "rejected"] as const;
 
+// What the one who asked hears of under the bell: a manager's answer, and an approval taken back after it was
+// given - a manager withdrawing it (K20) - which the asker would otherwise go on reading as approved. An approval
+// the asker withdrew themselves (a manager asking for their own job) is nothing to tell them. A request closed by a
+// release made another way says nothing about the answer, and is left out.
+const toldTheAsker = () =>
+  or(
+    inArray(requests.status, [...ANSWERED]),
+    and(
+      eq(requests.status, "closed"),
+      eq(requests.closedWhy, "withdrawn"),
+      isNotNull(requests.decidedAt),
+      sql`${requests.closedById} IS DISTINCT FROM ${requests.requestedById}`,
+    ),
+  );
+
 // Only requests of live shipments are listed: a deleted shipment's request has nothing left to answer.
 const live = (companyId: string) => and(eq(requests.companyId, companyId), isNull(requests.deletedAt), isNull(shipmentTable.deletedAt));
 
@@ -42,8 +57,10 @@ const withShipment = () =>
     .from(requests)
     .innerJoin(shipmentTable, and(eq(shipmentTable.id, requests.shipmentId), eq(shipmentTable.companyId, requests.companyId)));
 
-// Closed by a release made another way since `since`: dated by the write that closed it (one closed while it waited has no decision).
-const closedSince = (since: Date) => and(eq(requests.status, "closed"), gte(requests.updatedAt, since));
+// Closed since `since` - by a release made another way, or withdrawn: dated by its closing (a row closed before
+// the closing had a date of its own was given its last write's by migration 0089; COALESCE for one written by an
+// older API meanwhile).
+const closedSince = (since: Date) => and(eq(requests.status, "closed"), gte(sql`COALESCE(${requests.closedAt}, ${requests.updatedAt})`, since));
 
 // An approved request that can still be used: not used yet, decided no longer ago than a pass is good for.
 const usable = (decidedSince: Date) => and(eq(requests.status, "approved"), isNull(requests.usedAt), gte(requests.decidedAt, decidedSince), isNull(requests.deletedAt));
@@ -104,18 +121,22 @@ class ShipmentReleaseRequestRepository {
     return rows.map(flat);
   }
 
-  /** The bell: a manager's answers to this user's own requests, not opened yet or opened since `seenSince`. A closed request is no answer. */
+  /**
+   * The bell: a manager's answers to this user's own requests, and approvals a manager withdrew after giving them -
+   * not opened yet or opened since `seenSince`, the newest word first (a withdrawal by when it was withdrawn). A
+   * request closed by a release is no answer.
+   */
   async answersFor(companyId: string, userId: string, seenSince: Date, limit: number): Promise<ReleaseRequestRow[]> {
     const rows = await withShipment()
       .where(
         and(
           live(companyId),
           eq(requests.requestedById, userId),
-          inArray(requests.status, [...ANSWERED]),
+          toldTheAsker(),
           or(isNull(requests.answerSeenAt), gte(requests.answerSeenAt, seenSince)),
         ),
       )
-      .orderBy(desc(requests.decidedAt))
+      .orderBy(desc(sql`COALESCE(${requests.closedAt}, ${requests.decidedAt})`))
       .limit(limit);
     return rows.map(flat);
   }
@@ -160,7 +181,7 @@ class ShipmentReleaseRequestRepository {
    * when it is used already, no longer approved, or older than `decidedSince` - the caller then
    * refuses the release, and its turn writes nothing.
    */
-  async use(tx: Tx, id: string, companyId: string, by: { usedAt: Date; usedById: string; usedByName: string }, decidedSince: Date): Promise<boolean> {
+  async use(tx: Tx | typeof db, id: string, companyId: string, by: { usedAt: Date; usedById: string; usedByName: string }, decidedSince: Date): Promise<boolean> {
     const rows = await tx
       .update(requests)
       .set({ ...by, updatedAt: by.usedAt })
@@ -170,17 +191,42 @@ class ShipmentReleaseRequestRepository {
   }
 
   /**
+   * Undoes a use() whose release was not made after all: the Warehouse Concept gate marks the pass used before
+   * its own release is written (its database is not this one), and gives it back when that write stamps nothing.
+   * Only that very use - the same person at the same moment, on an approval still approved: a pass withdrawn
+   * meanwhile is left as it is. Whether it was given back.
+   */
+  async giveBack(id: string, companyId: string, used: { usedAt: Date; usedById: string }, at: Date): Promise<boolean> {
+    const rows = await db
+      .update(requests)
+      .set({ usedAt: null, usedById: null, usedByName: "", updatedAt: at })
+      .where(
+        and(
+          eq(requests.id, id),
+          eq(requests.companyId, companyId),
+          eq(requests.status, "approved"),
+          eq(requests.usedAt, used.usedAt),
+          eq(requests.usedById, used.usedById),
+          isNull(requests.deletedAt),
+        ),
+      )
+      .returning({ id: requests.id });
+    return rows.length > 0;
+  }
+
+  /**
    * Closes what a release that has just been made another way leaves with nothing to do, in that
    * release's write turn: the request still waiting (nobody decided it: its decided fields stay
-   * empty), and an approved one nobody used - it keeps who approved it and when, but lets nothing
-   * through any more, so a Warehouse Released cleared and set again can't ride on an old approval.
-   * The comment says why. An approval the release itself used is used, not closed: it is left as
+   * empty), and an approved one nobody used - it keeps who approved it, when and why (the manager's
+   * comment is never written over), but lets nothing through any more, so a Warehouse Released
+   * cleared and set again can't ride on an old approval. The closing says why on its own
+   * (closed_why "released"). An approval the release itself used is used, not closed: it is left as
    * it is. How many of each were closed.
    */
   async closeUnused(tx: Tx, companyId: string, shipmentId: string, what: ShipmentReleaseRequestWhat, at: Date): Promise<{ waiting: number; approved: number }> {
     const rows = await tx
       .update(requests)
-      .set({ status: "closed", comment: CLOSED_COMMENT, updatedAt: at })
+      .set({ status: "closed", closedAt: at, closedWhy: "released", updatedAt: at })
       .where(
         and(
           eq(requests.companyId, companyId),
@@ -196,20 +242,41 @@ class ShipmentReleaseRequestRepository {
     return { waiting: rows.length - approved, approved };
   }
 
-  /** The one who asked opened the answer. Only theirs, only once. */
+  /**
+   * Withdraws a request (K20) with its line in the job's history - together or not at all: the
+   * asker's request still waiting (`request`, only by its asker, `by.id`), or an approval nobody used
+   * (`approval`). Closed as withdrawn, with who and why; an approval keeps the manager's decision and
+   * comment. Null when it is no longer so - answered, used or closed meanwhile: then nothing is
+   * written. Withdrawn while a release uses it: the row goes to one of the two writes only (use()
+   * also asks for an approval nobody used).
+   */
+  async withdraw(
+    id: string,
+    companyId: string,
+    kind: WithdrawKind,
+    by: { id: string; name: string; reason: string; at: Date },
+    history: History,
+  ): Promise<ShipmentReleaseRequestRecord | null> {
+    const still = kind === "request" ? and(eq(requests.status, "pending"), eq(requests.requestedById, by.id)) : and(eq(requests.status, "approved"), isNull(requests.usedAt));
+    // A manager taking back an approval is news to whoever asked (answersFor): unread again under their bell.
+    const unread = kind === "approval" ? { answerSeenAt: null } : {};
+    return db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(requests)
+        .set({ status: "closed", closedAt: by.at, closedWhy: "withdrawn", closedById: by.id, closedByName: by.name, closeReason: by.reason, updatedAt: by.at, ...unread })
+        .where(and(eq(requests.id, id), eq(requests.companyId, companyId), still, isNull(requests.deletedAt)))
+        .returning();
+      if (row) await shipmentAuditRepository.create({ companyId, shipmentId: row.shipmentId, ...history }, tx);
+      return row ?? null;
+    });
+  }
+
+  /** The one who asked opened the answer - or the withdrawal of an approval. Only theirs, only once. */
   async markSeen(id: string, companyId: string, userId: string, at: Date): Promise<void> {
     await db
       .update(requests)
       .set({ answerSeenAt: at, updatedAt: at })
-      .where(
-        and(
-          eq(requests.id, id),
-          eq(requests.companyId, companyId),
-          eq(requests.requestedById, userId),
-          inArray(requests.status, [...ANSWERED]),
-          isNull(requests.answerSeenAt),
-        ),
-      );
+      .where(and(eq(requests.id, id), eq(requests.companyId, companyId), eq(requests.requestedById, userId), toldTheAsker(), isNull(requests.answerSeenAt)));
   }
 
   /** The requests still waiting on these shipments and since when: one query for Shipments → Managers' cards. */
@@ -224,9 +291,9 @@ class ShipmentReleaseRequestRepository {
   /**
    * The requests a manager answered since `since`, the newest first, at most `limit`: Shipments →
    * Managers' audit line. Of deleted jobs too - it is a record. A request closed while it waited
-   * was answered by nobody and is left out; an approval closed unused was still a manager's
-   * approval, and is given as one (its comment then reads "Released without it" - the manager's
-   * reason is in the job's history).
+   * (or withdrawn by its asker) was answered by nobody and is left out; an approval closed unused -
+   * released another way, or withdrawn - was still a manager's approval, and is given as one, with
+   * the manager's own comment.
    */
   async decidedSince(companyId: string, since: Date, limit: number = AUDIT_READ_LIMIT): Promise<DecidedReleaseRequest[]> {
     return db

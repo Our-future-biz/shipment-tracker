@@ -15,12 +15,14 @@ import { fileToBase64 } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { replaceSearchParams } from "@/lib/urlParams";
 import { BTN_PRIMARY, CARD, EMPTY, HINT, PAGE_TITLE, REF } from "@/styles/ui";
-import { countsText, fileProblem, periodText } from "../_lib/bank";
+import { isForbidden } from "../../_lib/receivables";
+import { countsText, fileProblem, MANAGERS_ONLY_TEXT, periodText } from "../_lib/bank";
 import { StatementView } from "./StatementView";
 
 // Finance → Accounts Receivable → Bank statements (step 7; the bank gives CAMT.053 XML). A manager reads a statement
 // file; each incoming entry is matched to the invoices it may pay and waits for a manager to confirm it as payments or
-// set it aside. Nothing is noted as paid without that click (D11). Everyone reads. The open statement is kept in the
+// set it aside. Nothing is noted as paid without that click (D11). Managers only, reading too (mock test council X6: a
+// statement shows every payment in and out of the account). The open statement is kept in the
 // URL (?statement=…).
 
 const none = <span className={EMPTY}>—</span>;
@@ -159,7 +161,7 @@ export function BankStatementsView() {
       </div>
 
       {refusal && <Alert type="error" showIcon closable onClose={() => setRefusal("")} message={refusal} />}
-      {list.isError && !list.data && <Alert type="error" showIcon message={`Could not load the bank statements: ${apiErrorMessage(list.error)}`} />}
+      {list.isError && !list.data && (isForbidden(list.error) ? <Alert type="info" showIcon message={MANAGERS_ONLY_TEXT} /> : <Alert type="error" showIcon message={`Could not load the bank statements: ${apiErrorMessage(list.error)}`} />)}
 
       <DataTable<BankStatementSummary>
         dataSource={list.data?.statements}

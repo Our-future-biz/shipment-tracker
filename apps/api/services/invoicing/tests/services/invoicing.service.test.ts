@@ -10,6 +10,10 @@ vi.mock("../../repositories/supplierInvoice.repository", () => ({
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() }, shipments: { shipmentGet: vi.fn() }, customers: { customerGet: vi.fn(), _internalCompaniesWithRole: vi.fn() } }));
+// What a selling line's write owes the shipment's statuses (services/sellingStatusFollow, tested by itself): the
+// hook handed to the write and the send after it, stood in for so that the wiring is seen.
+const follow = vi.hoisted(() => ({ after: vi.fn(), deliver: vi.fn() }));
+vi.mock("../../services/sellingStatusFollow", () => ({ statusesFollow: () => follow }));
 vi.mock("../../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn(async () => ({ jobNumber: "CZ00000001" })) }));
 vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: {} }));
@@ -282,9 +286,11 @@ describe("selling rows on an issued invoice", () => {
     writeUnlessInvoiced.mockResolvedValue("invoiced");
     await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "100" })).rejects.toThrow(/issued invoice/);
     await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).rejects.toThrow(/issued invoice/);
-    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(1, ROW, COMPANY, SHIPMENT, { data: expect.objectContaining({ amount: "100" }) }, { mayUntickSplit: true });
-    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(2, ROW, COMPANY, SHIPMENT, { delete: true });
+    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(1, ROW, COMPANY, SHIPMENT, { data: expect.objectContaining({ amount: "100" }) }, { mayUntickSplit: true, after: follow.after });
+    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(2, ROW, COMPANY, SHIPMENT, { delete: true }, { after: follow.after });
     expect(updateLine).not.toHaveBeenCalled();
+    // Nothing was written: nothing is sent.
+    expect(follow.deliver).not.toHaveBeenCalled();
   });
 
   it("may still move in the list (Duplicate / Undo renumber the rows below)", async () => {
@@ -306,9 +312,9 @@ describe("selling rows on an issued invoice", () => {
     expect(writeUnlessInvoiced).not.toHaveBeenCalled();
     // putting it on the invoice, or a manager taking it off, goes through
     await invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { invoice: true }, "user");
-    expect(writeUnlessInvoiced).toHaveBeenLastCalledWith(ROW, COMPANY, SHIPMENT, { data: { invoice: true } }, { mayUntickSplit: false });
+    expect(writeUnlessInvoiced).toHaveBeenLastCalledWith(ROW, COMPANY, SHIPMENT, { data: { invoice: true } }, { mayUntickSplit: false, after: follow.after });
     await invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { invoice: false }, "manager");
-    expect(writeUnlessInvoiced).toHaveBeenLastCalledWith(ROW, COMPANY, SHIPMENT, { data: { invoice: false } }, { mayUntickSplit: true });
+    expect(writeUnlessInvoiced).toHaveBeenLastCalledWith(ROW, COMPANY, SHIPMENT, { data: { invoice: false } }, { mayUntickSplit: true, after: follow.after });
   });
 
   it("answers a row that is not there as before", async () => {
@@ -322,13 +328,13 @@ describe("a billed shipment", () => {
   const billed = () => vi.mocked(invoiceRepository.countOpenInvoices).mockResolvedValue(1);
   const ROW = "0f5c1c3e-6a0e-4d7f-9a59-2d1b6f0c7a12";
   const RECORD = { id: ROW, shipmentId: SHIPMENT, category: "storage", description: "", customer: "", qty: "1", amount: "250.00", currency: "EUR", invoice: true, vatCode: null, sortOrder: 4, createdAt: new Date("2026-11-20T08:00:00Z") };
-  const createForCompany = vi.fn();
+  const createLine = vi.fn();
   const writeUnlessInvoiced = vi.fn();
   const isSplitRow = vi.fn();
 
   beforeEach(() => {
-    Object.assign(sellingCostRepository, { createForCompany, writeUnlessInvoiced, isSplitRow });
-    createForCompany.mockResolvedValue(RECORD);
+    Object.assign(sellingCostRepository, { createLine, writeUnlessInvoiced, isSplitRow });
+    createLine.mockResolvedValue(RECORD);
     writeUnlessInvoiced.mockResolvedValue(RECORD);
     isSplitRow.mockResolvedValue(false);
   });
@@ -336,7 +342,10 @@ describe("a billed shipment", () => {
   it("takes a new selling row (a late storage), which goes on its next invoice", async () => {
     billed();
     await expect(invoicingService.addSellingCost(SHIPMENT, COMPANY, { category: "storage", amount: "250", currency: "EUR" })).resolves.toMatchObject({ id: ROW, invoice: true, createdAt: "2026-11-20T08:00:00.000Z" });
-    expect(createForCompany).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ shipmentId: SHIPMENT, category: "storage", amount: "250", currency: "EUR" }));
+    // Written with what it owes the shipment's statuses (X1 / K14), which are sent once it is.
+    expect(createLine).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ shipmentId: SHIPMENT, category: "storage", amount: "250", currency: "EUR" }), follow.after);
+    expect(follow.deliver).toHaveBeenCalledTimes(1);
+    expect(follow.deliver.mock.invocationCallOrder[0]!).toBeGreaterThan(createLine.mock.invocationCallOrder[0]!);
     vi.mocked(invoiceRepository.countOpenInvoices).mockReset().mockResolvedValue(0);
   });
 
@@ -344,6 +353,8 @@ describe("a billed shipment", () => {
     billed();
     await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "300" })).resolves.toMatchObject({ id: ROW });
     await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).resolves.toBeUndefined();
+    // Each write is followed by the send of what it owed.
+    expect(follow.deliver).toHaveBeenCalledTimes(2);
     writeUnlessInvoiced.mockResolvedValue("invoiced");
     await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "300" })).rejects.toThrow(/issued invoice/);
     await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).rejects.toThrow(/issued invoice/);

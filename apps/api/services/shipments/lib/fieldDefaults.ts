@@ -102,10 +102,13 @@ export const CANCELLED_STATUS = "Cancelled Shipment";
 // (the reason stays on record).
 export const CANCEL_REASON_REFUSAL = "Say why the shipment is cancelled";
 
+/** Whether a write setting this status cancels a job that was not cancelled. */
+export const isCancelling = (statusBefore: string | null | undefined, statusAfter: string | null | undefined): boolean =>
+  (statusAfter ?? "").trim() === CANCELLED_STATUS && (statusBefore ?? "").trim() !== CANCELLED_STATUS;
+
 /** Why this write may not set the status, or null when it may: one that cancels a job that was not cancelled needs a reason in the same write. */
 export function cancelReasonRefusal(statusBefore: string | null | undefined, statusAfter: string | null | undefined, reasonSent: unknown): string | null {
-  const cancels = (statusAfter ?? "").trim() === CANCELLED_STATUS && (statusBefore ?? "").trim() !== CANCELLED_STATUS;
-  return cancels && !(typeof reasonSent === "string" && reasonSent.trim()) ? CANCEL_REASON_REFUSAL : null;
+  return isCancelling(statusBefore, statusAfter) && !(typeof reasonSent === "string" && reasonSent.trim()) ? CANCEL_REASON_REFUSAL : null;
 }
 
 // Shipment statuses carry their direction as a suffix ("Billing [IMP]"). When a shipment's

@@ -19,7 +19,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 
 import { businessInstant } from "../../../../lib/businessDate";
 import type { ExtraJob } from "../../lib/managersCockpitExtra";
-import { EXTRA_PARTS, extraSignals } from "../../services/managersCockpitExtra.service";
+import { EXTRA_PARTS, cargoDetailsMatch, extraSignals, remeasureSource } from "../../services/managersCockpitExtra.service";
 
 // The reads behind Shipments → Managers' step 2 signals, against stand-ins for the repositories:
 // that each part is asked once for all the jobs, that every job gets its own facts, and that a
@@ -208,6 +208,44 @@ describe("the reads of the cockpit's step 2 signals", () => {
     expect(out.byJob.get("b")).toEqual([{ rank: 39, text: "Remeasurement accepted 16.11., costs not checked", urgent: false, area: "finance", kind: "remeasurement" }]);
   });
 
+  it("reads which warehouse informed (X4): Warehouse Concept's line is a warning until Cargo Details say the same", async () => {
+    const concept = (weightKg: number) => JSON.stringify({ colli: 10, weightKg, volumeCbm: 5, comparedWith: "declared", source: "warehouseConcept" });
+    const old = JSON.stringify({ colli: 10, weightKg: 1000, volumeCbm: 5 });
+    attachments.reviewFactsByShipmentIds.mockResolvedValue([...verified("a"), ...verified("b"), ...verified("c")]);
+    audit.latestByShipmentIds.mockImplementation(
+      history([
+        change("a", "remeasureInformed", "2026-11-16 10:00", { oldValue: old, newValue: concept(1200) }),
+        change("b", "remeasureInformed", "2026-11-16 10:00", { oldValue: old, newValue: concept(1200) }),
+        change("c", "remeasureInformed", "2026-11-16 10:00", { oldValue: old, newValue: concept(1200) }),
+      ]),
+    );
+    const cargo = { pcs: "10", totalWeightTons: "1.0000", totalVolumeCbm: "5.0000" };
+    const out = await extraSignals([job("a", cargo), job("b", { ...cargo, totalWeightTons: "1.2000" }), job("c")], CTX);
+    expect(out.byJob.get("a")).toEqual([
+      { rank: 38, text: "Remeasured in Warehouse Concept: check Cargo Details by hand · informed 16.11. 10:00", urgent: false, area: "details", kind: "remeasurement" },
+    ]);
+    // Cargo Details typed to the remeasured weight: nothing left to check.
+    expect(out.byJob.get("b")).toBeUndefined();
+    // The row read without the figures: not known to match, the warning stands.
+    expect(out.byJob.get("c")).toHaveLength(1);
+    expect(remeasureSource(concept(1))).toBe("warehouseConcept");
+    expect(remeasureSource(old)).toBe("warehouse");
+    expect(remeasureSource("{")).toBe("warehouse");
+    expect(cargoDetailsMatch({ pcs: "1,200", totalWeightTons: null, totalVolumeCbm: null }, { colli: 1200, weightKg: 0, volumeCbm: 0 })).toBe(true);
+  });
+
+  // Review: the stored Total Weight holds 0.1 kg and the Total Volume is compared to 0.001 m³; the
+  // informed figures are rounded the same before the two are compared.
+  it("ends the warning once Cargo Details hold the remeasured figures as stored, rounded to 0.1 kg and 0.001 m³", () => {
+    // 7 × 13.25 kg = 92.75 kg and 48.5104 m³ informed; Cargo Details took over 92.8 kg and 48.510 m³.
+    const informed = { colli: 7, weightKg: 92.75, volumeCbm: 48.5104 };
+    expect(cargoDetailsMatch({ pcs: "7", totalWeightTons: "0.0928", totalVolumeCbm: "48.5100" }, informed)).toBe(true);
+    // Another tenth of a kilo, or another litre, is another figure.
+    expect(cargoDetailsMatch({ pcs: "7", totalWeightTons: "0.0927", totalVolumeCbm: "48.5100" }, informed)).toBe(false);
+    expect(cargoDetailsMatch({ pcs: "7", totalWeightTons: "0.0928", totalVolumeCbm: "48.5120" }, informed)).toBe(false);
+    expect(cargoDetailsMatch({ pcs: "8", totalWeightTons: "0.0928", totalVolumeCbm: "48.5100" }, informed)).toBe(false);
+  });
+
   it("counts Quantities checked only for the acceptance it names, not by when it was written", async () => {
     const accepted = at("2026-11-16 09:00");
     attachments.reviewFactsByShipmentIds.mockResolvedValue([...verified("a"), ...verified("b")]);
@@ -297,10 +335,17 @@ describe("the reads of the cockpit's step 2 signals", () => {
     ];
     const out = await extraSignals(jobs, CTX);
     expect(out.byJob.get("a")).toBeUndefined();
-    expect(out.byJob.get("b")).toEqual([{ rank: 4.5, text: "Arrived 12.11., no delivery order", urgent: true, area: "details", kind: "bl" }]);
+    // Arrived before the delivery order rule went live (DELIVERY_ORDER_RULE_FROM, L9): no tag.
+    expect(out.byJob.get("b")).toBeUndefined();
     expect(out.byJob.get("c")).toBeUndefined();
-    // With the 13th and the 16th off, only today has passed since the ATA: ATTENTION.
-    expect((await extraSignals([jobs[1]!], { ...CTX, holidays: ["2026-11-13", "2026-11-16"] })).byJob.get("b")?.map((s) => s.urgent)).toEqual([false]);
+    // A week on (Wed 25 Nov), an arrival of Thu 19 Nov - the rule's first day - is one.
+    const later = { ...CTX, now: at("2026-11-25 10:00"), today: "2026-11-25" };
+    const arrived = (over = {}) => job("b", { actualArrival: "2026-11-19", originalsReceivedDate: null, telexReleaseReceivedDate: null, deliveryOrderDate: null, ...over });
+    expect((await extraSignals([arrived()], later)).byJob.get("b")).toEqual([{ rank: 4.5, text: "Arrived 19.11., no delivery order", urgent: true, area: "details", kind: "bl" }]);
+    // With the 20th, 23rd and 24th off, only today has passed since the ATA: ATTENTION.
+    expect((await extraSignals([arrived()], { ...later, holidays: ["2026-11-20", "2026-11-23", "2026-11-24"] })).byJob.get("b")?.map((s) => s.urgent)).toEqual([false]);
+    // In our warehouse (m25): an LCL import we collected and devanned had its delivery order handled.
+    expect((await extraSignals([arrived({ warehouseReceivedDate: "2026-11-20" })], later)).byJob.get("b")).toBeUndefined();
   });
 
   it("hands the company's own days off to the rules", async () => {

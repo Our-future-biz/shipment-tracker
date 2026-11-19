@@ -13,6 +13,8 @@ type PerMode<T> = Readonly<Record<FreightKind, T>>;
 export const COCKPIT_LIST_LIMIT = 200;
 /** Active jobs the cockpit reads at most, the newest first; the answer says when the company has more. */
 export const COCKPIT_JOB_LIMIT = 2000;
+/** Jobs no longer active (Invoiced, cancelled) with an open claim the cockpit reads at most, the newest first: their claims' tags (X8). */
+export const COCKPIT_CLAIM_ONLY_JOB_LIMIT = 500;
 /** Days before and after today the company's own holidays are read for: far more than any working-day count here reaches. */
 export const HOLIDAY_WINDOW_DAYS = 45;
 
@@ -38,8 +40,16 @@ export const PASSED_DATE_KEPT_DAYS = 7;
 export const ETA_PASSED_KEPT_DAYS = 14;
 
 // ─── URGENT ────────────────────────────────────────────────────
+// A "within N days" ahead (a cargo ready, an ETD, an ETA coming) counts WORKING days (D6), as the
+// two windows do: on a Friday a Monday flight is a working day away. A date that passed counts
+// calendar days (PASSED_DATE_KEPT_DAYS, ETA_PASSED_KEPT_DAYS). lib/managersCockpit comingWithin,
+// lib/managersCockpitExtra arrivingIn.
 
-/** U4: Booking Confirmation still Pending with the cargo ready within, or the ETD within, this many days. A flight is booked later than a vessel. */
+/**
+ * U4: Booking Confirmation still Pending with the cargo ready within, or the ETD within, this many
+ * working days. A flight is booked later than a vessel. Only where the main carriage is ours to
+ * book: an export, an import on EXW / FCA / FAS / FOB (lib/managersCockpit weBookMainCarriage).
+ */
 export const BOOKING_PENDING_WITHIN_DAYS: PerMode<{ cargoReady: number; etd: number }> = {
   sea: { cargoReady: 3, etd: 7 },
   rail: { cargoReady: 3, etd: 7 },
@@ -54,7 +64,7 @@ export const BOOKING_PENDING_WITHIN_DAYS: PerMode<{ cargoReady: number; etd: num
 export const ETD_PASSED_AFTER_DAYS: PerMode<number> = { sea: 2, rail: 2, air: 1, road: 2 };
 /** U7: days after the ETA with no ATA. A train is late more often than a truck. */
 export const ETA_PASSED_AFTER_DAYS: PerMode<number> = { sea: 2, air: 1, rail: 4, road: 1 };
-/** U15: an air export with no MAWB number and the ETD within this many days. */
+/** U15: an air export with no MAWB number and the ETD within this many working days. */
 export const MAWB_MISSING_ETD_WITHIN_DAYS = 1;
 /** A22: working days after the delivery with no POD at which it turns URGENT: it holds Billing. */
 export const POD_MISSING_URGENT_WORKING_DAYS = 5;
@@ -65,9 +75,9 @@ export const POD_MISSING_URGENT_WORKING_DAYS = 5;
 export const BL_DRAFT_BEFORE_SI_DAYS = 3;
 /** A3: working days after an export's ATD with the House BoL not released. */
 export const HOUSE_BOL_NOT_RELEASED_AFTER_WORKING_DAYS = 5;
-/** A4: an import arriving within this many days with no arrival notice sent. */
+/** A4: an import arriving within this many working days with no arrival notice sent. */
 export const ARRIVAL_NOTICE_ETA_WITHIN_DAYS = 5;
-/** A5: an import arriving within this many days with a container that has no free time typed, or no number. */
+/** A5: an import arriving within this many working days with a container that has no free time typed, or no number. */
 export const FREE_TIME_MISSING_ETA_WITHIN_DAYS = 7;
 /** A10: working days after the ATA with no gate-in, hub arrival or delivery. Road keeps the Tracking tab's 3. */
 export const ARRIVED_NOTHING_SINCE_WORKING_DAYS: PerMode<number> = { sea: 3, rail: 2, air: 1, road: 3 };
@@ -79,7 +89,7 @@ export const WAREHOUSE_IDLE_AFTER_WORKING_DAYS = 2;
 export const HAULIER_TOMORROW_FROM = "14:00";
 /** A22: working days after the delivery with no POD. */
 export const POD_MISSING_AFTER_WORKING_DAYS = 2;
-/** A24: Credit Check not Green with the ETD within this many days. */
+/** A24: Credit Check not Green with the ETD within this many working days. */
 export const CREDIT_CHECK_ETD_WITHIN_DAYS = 3;
 
 // ─── The signals read from other tables (lib/managersCockpitExtra) ──────────────
@@ -87,11 +97,11 @@ export const CREDIT_CHECK_ETD_WITHIN_DAYS = 3;
 // Instructions, the warehouse's remeasurement, how long a status has stood, Master Jobs. A date
 // that passed is kept by the two numbers above (PASSED_DATE_KEPT_DAYS, ETA_PASSED_KEPT_DAYS).
 
-/** U10: an import this many days from its ETA (or arrived, until it is delivered) still waiting for its commercial paperwork is URGENT. */
+/** U10: an import this many working days from its ETA (or arrived, until it is delivered) still waiting for its commercial paperwork is URGENT. */
 export const PAPERWORK_URGENT_DAYS = 1;
-/** A6: …and from this many days out it is ATTENTION. Air and road travel in days, not weeks. */
+/** A6: …and from this many working days out it is ATTENTION. Air and road travel in days, not weeks. */
 export const PAPERWORK_ATTENTION_DAYS: PerMode<number> = { sea: 5, rail: 5, air: 2, road: 2 };
-/** U10: an import this many days from its ETA whose Master BoL is an original not in hand yet. */
+/** U10: an import this many working days from its ETA whose Master BoL is an original not in hand yet. */
 export const ORIGINAL_BL_URGENT_DAYS = 2;
 /** U11: dangerous goods without their safety paperwork, this many days before the Closing (the ETD when no Closing): URGENT. */
 export const DANGEROUS_URGENT_DAYS = 3;
@@ -105,7 +115,7 @@ export const REVIEW_WAITING_WORKING_DAYS = 1;
 export const REVIEW_WAITING_URGENT_OFFICE_HOURS = 4;
 /** A6: a declined document with no replacement after this many hours. */
 export const DECLINED_NOT_REPLACED_HOURS = 24;
-/** A7: a T1 with no Customs Office this many days from its ETA. */
+/** A7: a T1 with no Customs Office this many working days from its ETA. */
 export const T1_OFFICE_DAYS = 3;
 /** A8: "Under Customs Clearance" for longer than this many working days. */
 export const UNDER_CLEARANCE_WORKING_DAYS = 3;
@@ -113,7 +123,7 @@ export const UNDER_CLEARANCE_WORKING_DAYS = 3;
 export const STATUS_STUCK_WORKING_DAYS = 3;
 /** A18: the customer's Import Instructions not answered for longer than this many working days. */
 export const IMPORT_INSTRUCTIONS_ANSWER_WORKING_DAYS = 1;
-/** A18: a link the customer has not filled in, this many days from the ETA. */
+/** A18: a link the customer has not filled in, this many working days from the ETA. */
 export const IMPORT_INSTRUCTIONS_OPEN_DAYS = 3;
 /** A19: a remeasurement that differs and is not accepted after this many hours… */
 export const REMEASURE_ATTENTION_HOURS = 24;
@@ -123,6 +133,12 @@ export const REMEASURE_ATTENTION_AIR_OFFICE_HOURS = 4;
 export const REMEASURE_URGENT_HOURS = 48;
 /** …or, by air, when the Closing (the ETD when no Closing) is this many days away. */
 export const REMEASURE_URGENT_AIR_DEPARTURE_DAYS = 1;
+/**
+ * A19 (X4): a remeasurement Warehouse Concept informed about that differs from the shipment is a
+ * warning to check Cargo Details by hand - its "Accept" reads only the Warehouse's own lines - for
+ * this many days after it was informed, unless Cargo Details comes to match it first.
+ */
+export const REMEASURE_WAREHOUSE_CONCEPT_DAYS = 7;
 /** A19: an accepted remeasurement whose costs nobody checked for longer than this many working days. */
 export const REMEASURE_COSTS_WORKING_DAYS = 1;
 /** A25: an export house of a Master Job this many days from its Closing, out of step. */
@@ -247,6 +263,13 @@ export const HANDOVER_CALL_TIMEOUT_MS = 6_000;
  */
 export const DELIVERY_ORDER_ATTENTION_WORKING_DAYS = 1;
 export const DELIVERY_ORDER_URGENT_WORKING_DAYS = 3;
+/**
+ * The day the delivery order rule went live (L9; the release of 19 Nov 2026): only an arrival on
+ * or after it is judged. The Delivery Order date is new, no job had it before, and a job that
+ * arrived earlier was collected on paper nobody typed here - it would read "no delivery order"
+ * for weeks.
+ */
+export const DELIVERY_ORDER_RULE_FROM = "2026-11-19";
 // ─── end of builder B's step 6 block ───
 
 // ─── Step 6: who is away (builder A's block; lib/managersCockpitTeam) ──────────

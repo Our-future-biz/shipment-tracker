@@ -128,6 +128,25 @@ export function updateRequest(draft: AbsenceDraft, users: readonly Person[]): co
 }
 
 /**
+ * A warning - never a refusal - when the cover picked is away on some of the same days (K24): "Jana Nováková is away
+ * 24.11.2026–26.11.2026 too: on those days nobody stands in." `coverAbsences`: the cover's own absences; the one
+ * being changed is never among them (it is the absent person's). Null when the days are not picked yet, or the cover
+ * is not away then.
+ */
+export function coverAwayWarning(draft: Pick<AbsenceDraft, "fromDate" | "toDate">, coverName: string, coverAbsences: readonly Pick<UserAbsence, "fromDate" | "toDate">[]): string | null {
+  if (!isDay(draft.fromDate) || !isDay(draft.toDate) || draft.toDate < draft.fromDate) return null;
+  const clash = comingAbsences(
+    coverAbsences.filter((a) => a.fromDate <= draft.toDate && a.toDate >= draft.fromDate),
+    draft.fromDate,
+  );
+  if (clash.length === 0) return null;
+  // Only the days both are away: the cover's absence cut to the one being recorded.
+  const days = clash.map((a) => absenceDays({ fromDate: a.fromDate < draft.fromDate ? draft.fromDate : a.fromDate, toDate: a.toDate > draft.toDate ? draft.toDate : a.toDate }));
+  const oneDay = days.length === 1 && !days[0]!.includes("–");
+  return `${coverName.trim() || "The cover"} is away ${days.join(", ")} too: on ${oneDay ? "that day" : "those days"} nobody stands in. Pick another cover, or record it as it is`;
+}
+
+/**
  * The line beside the cover picker: what the cover does (the cover job, every 15 minutes, sets it as
  * the Holiday Cover of the jobs the absent person handles that have none, and takes it off when the
  * absence is over - where it is still the one it set).

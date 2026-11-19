@@ -2,11 +2,12 @@ import log from "encore.dev/log";
 import { auth } from "~encore/clients";
 import { businessInstant } from "../../../lib/businessDate";
 import { companyUsersWithReportsTo } from "../../../lib/companyUsers";
+import { ABSENCE_COVER_FIELD } from "../lib/absenceCover";
 import { CUTOFF_DISMISSED_FIELD } from "../lib/cutoffDismissals";
 import { teamFactsOf, touchCandidates, touchReadFrom, type AbsenceFact, type MentionFact, type ReleaseRequestFact, type TeamFacts, type TeamJob, type TodoFact } from "../lib/managersCockpitTeam";
 import { NUDGE_FIELD } from "../lib/nudge";
 import { unlimited, type Limit } from "../lib/readLimiter";
-import { ANSWERED_LINE_STARTS, RELEASE_REQUEST_FIELD } from "../lib/releaseRequest";
+import { ANSWERED_LINE_STARTS, APPROVAL_WITHDRAWN_LINE_STARTS, RELEASE_REQUEST_FIELD } from "../lib/releaseRequest";
 import { personEmail } from "../lib/shipmentEditRule";
 import { shipmentAuditRepository, type NotATouch } from "../repositories/shipmentAudit.repository";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
@@ -35,13 +36,18 @@ export type { TeamFacts, TeamJob } from "../lib/managersCockpitTeam";
  * What a manager does to a job from Shipments → Managers is no touch of it (A15, "Not touched"):
  * the job's own people did nothing. Their nudge - its history line, and the to-do and chat line
  * written with it in one write turn (repositories/shipmentNudge) - a missed cut-off dismissed or
- * taken back, and their answer to a release request. The request asked is the job's people at
- * work, and a request closed by a release comes with the release's own line: both still count.
+ * taken back, their answer to a release request and their withdrawal of an approval they gave. The
+ * request asked is the job's people at work, and so is its asker withdrawing it while it waits; a
+ * request closed by a release comes with the release's own line: all of these still count.
+ * Nor is what the absence-cover job writes (m16): it sets a Holiday Cover while somebody is away
+ * and clears it when they are back - its own line and the Holiday Cover change of the same save
+ * (services/absenceCover.service), or a job nobody touched would read as touched on both days.
  */
 export const NOT_A_TOUCH: NotATouch = {
-  fields: [NUDGE_FIELD, CUTOFF_DISMISSED_FIELD],
-  lines: { field: RELEASE_REQUEST_FIELD, startsWith: ANSWERED_LINE_STARTS },
+  fields: [NUDGE_FIELD, CUTOFF_DISMISSED_FIELD, ABSENCE_COVER_FIELD],
+  lines: { field: RELEASE_REQUEST_FIELD, startsWith: [...ANSWERED_LINE_STARTS, ...APPROVAL_WITHDRAWN_LINE_STARTS] },
   writtenWith: NUDGE_FIELD,
+  savedWith: [ABSENCE_COVER_FIELD],
 };
 
 /** A user of the company as the cockpit reads one: who they are and whom they report to. */

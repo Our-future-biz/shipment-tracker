@@ -15,6 +15,7 @@ import { jobNumberFor } from "../lib/jobNumber";
 import { masterJobNumberForms } from "../lib/masterJobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { containerTable } from "../schemas/container.schema";
+import { shipmentClaimTable } from "../schemas/shipmentClaim.schema";
 import { shipmentEventOutboxTable } from "../schemas/shipmentEventOutbox.schema";
 import { containsAllWords, escapeLike, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
 import { JOB_NUMBER_PATTERN, referenceSearchDigits } from "../../../lib/jobNumber";
@@ -176,15 +177,35 @@ const DATE_MOVED_LATELY = sql`EXISTS (
     AND moved.old_value <> moved.new_value
 )`;
 
+// A job no longer active is the managers' for its claims only while a cargo claim on it is open
+// (X8): its notice deadline and suit time bar run on after the job is billed or cancelled. The
+// Claim field alone would not do - an open claim on costs says Yes too, and Accounts Payable raises
+// those on invoiced jobs - so it is asked of the claims themselves, by the statuses
+// shipmentClaimRepository.openCargoClaimsByShipmentIds reads (lib/cargoClaim isOpenClaim).
+const HAS_OPEN_CARGO_CLAIM = sql`EXISTS (
+  SELECT 1 FROM ${shipmentClaimTable} cargo_claim
+  WHERE cargo_claim.shipment_id = ${shipmentTable.id}
+    AND cargo_claim.company_id = ${shipmentTable.companyId}
+    AND cargo_claim.deleted_at IS NULL
+    AND cargo_claim.kind = 'cargo'
+    AND cargo_claim.status IN ('open', 'notified', 'with_insurer')
+)`;
+
+// The jobs Shipments → Managers shows for a claim: an active one whose Claim field says Yes, and one
+// no longer active - Invoiced or cancelled - that says Yes for an open cargo claim (HAS_OPEN_CARGO_CLAIM).
+const MANAGERS_CLAIM = sql`${shipmentTable.claim} = 'Yes' AND ((${ACTIVE}) OR ${HAS_OPEN_CARGO_CLAIM})`;
+
 // The Overview tile "Needs Attention" is not among these: what is due is judged in TypeScript
 // (lib/needsAttention), and its list is asked for by ids (attentionMatch).
 const TILE_PREDICATES = {
   active: ACTIVE,
   etamoved: sql`${ACTIVE} AND ${DATE_MOVED_LATELY}`,
   // Opened from Shipments → Managers, whose tile counts the same in TypeScript (lib/managersCockpit),
-  // on the rows of managersCockpitRows. Its cut-off and booking tiles have no list filter: they
-  // are judged by rules no statement here repeats, and narrow the cockpit's own cards instead.
-  claims: sql`${ACTIVE} AND ${shipmentTable.claim} = 'Yes'`,
+  // on the rows of managersCockpitRows and managersCockpitClaimOnlyRows. Its cut-off and booking
+  // tiles have no list filter: they are judged by rules no statement here repeats, and narrow the
+  // cockpit's own cards instead. An open cargo claim outlives the job's billing and its cancelling
+  // (X8): an Invoiced or cancelled job with one is listed too, not one with a claim on costs only.
+  claims: MANAGERS_CLAIM,
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import' AND ${NOT_CANCELLED}`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export' AND ${NOT_CANCELLED}`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
@@ -1140,75 +1161,104 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    */
   async managersCockpitRows(companyId: string, limit: number) {
     return this.db
-      .select({
-        id: shipmentTable.id,
-        jobNumber: shipmentTable.jobNumber,
-        customer: shipmentTable.customer,
-        tradeDirection: shipmentTable.tradeDirection,
-        freightMode: shipmentTable.freightMode,
-        department: shipmentTable.department,
-        status: shipmentTable.status,
-        estimatedDeparture: shipmentTable.estimatedDeparture,
-        actualDeparture: shipmentTable.actualDeparture,
-        estimatedArrival: shipmentTable.estimatedArrival,
-        actualArrival: shipmentTable.actualArrival,
-        etaWarehouse: shipmentTable.etaWarehouse,
-        warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
-        plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
-        actualDeliveryDate: shipmentTable.actualDeliveryDate,
-        personInCharge: shipmentTable.personInCharge,
-        holidayCover: shipmentTable.holidayCover,
-        closingDate: shipmentTable.closingDate,
-        vgmClosing: shipmentTable.vgmClosing,
-        vgmClosingTime: shipmentTable.vgmClosingTime,
-        vgm: shipmentTable.vgm,
-        siClosing: shipmentTable.siClosing,
-        siClosingTime: shipmentTable.siClosingTime,
-        shippingInstructions: shipmentTable.shippingInstructions,
-        ams: shipmentTable.ams,
-        amsDeadline: shipmentTable.amsDeadline,
-        amsDeadlineTime: shipmentTable.amsDeadlineTime,
-        isf: shipmentTable.isf,
-        isfDeadline: shipmentTable.isfDeadline,
-        isfDeadlineTime: shipmentTable.isfDeadlineTime,
-        customsPriority: shipmentTable.customsPriority,
-        customsStatus: shipmentTable.customsStatus,
-        customsDeadline: shipmentTable.customsDeadline,
-        bookingConfirmation: shipmentTable.bookingConfirmation,
-        claim: shipmentTable.claim,
-        cargoReadinessDate: shipmentTable.cargoReadinessDate,
-        pickupDate: shipmentTable.pickupDate,
-        closingTime: shipmentTable.closingTime,
-        masterBolNumber: shipmentTable.masterBolNumber,
-        masterBolType: shipmentTable.masterBolType,
-        originalsReceivedDate: shipmentTable.originalsReceivedDate,
-        telexReleaseReceivedDate: shipmentTable.telexReleaseReceivedDate,
-        deliveryOrderDate: shipmentTable.deliveryOrderDate,
-        houseBolType: shipmentTable.houseBolType,
-        houseBolRelease: shipmentTable.houseBolRelease,
-        bolDraft: shipmentTable.bolDraft,
-        plateNumber: shipmentTable.plateNumber,
-        creditCheck: shipmentTable.creditCheck,
-        dangerous: shipmentTable.dangerous,
-        loadType: shipmentTable.loadType,
-        masterJobId: shipmentTable.masterJobId,
-        customsProcedure: shipmentTable.customsProcedure,
-        customsOffice: shipmentTable.customsOffice,
-        mrn: shipmentTable.mrn,
-        warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
-        createdAt: shipmentTable.createdAt,
-        updatedAt: shipmentTable.updatedAt,
-        // The job's id named with its table: in a select of one table Drizzle writes the column bare ("id"), and inside
-        // the subquery that is the notice's own id, so no notice would ever be found.
-        arrivalNoticeSent: sql<boolean>`EXISTS (
-          SELECT 1 FROM ${shipmentCustomerNoticeTable} told
-          WHERE told.shipment_id = "shipment"."id" AND told.kind = 'arrival_notice' AND told.deleted_at IS NULL
-        )`,
-      })
+      .select(this.cockpitColumns())
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), ACTIVE))
       .orderBy(desc(shipmentTable.createdAt), desc(shipmentTable.id))
       .limit(limit);
+  }
+
+  /**
+   * The company's live jobs that are no longer active - Invoiced, or cancelled - whose Claim field
+   * says Yes for an open cargo claim (HAS_OPEN_CARGO_CLAIM), the newest first, with
+   * managersCockpitRows' columns: an open cargo claim's notice deadline and suit time bar run on
+   * after the job is billed or cancelled (X8), so Shipments → Managers reads them for their claims.
+   * Together with managersCockpitRows' jobs that have a claim, the rows the list's tile=claims opens
+   * (TILE_PREDICATES.claims). It judges nothing.
+   */
+  async managersCockpitClaimOnlyRows(companyId: string, limit: number) {
+    return this.db
+      .select(this.cockpitColumns())
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`NOT (${ACTIVE})`, eq(shipmentTable.claim, "Yes"), HAS_OPEN_CARGO_CLAIM))
+      .orderBy(desc(shipmentTable.createdAt), desc(shipmentTable.id))
+      .limit(limit);
+  }
+
+  /** The columns Shipments → Managers reads of a job (lib/managersCockpit OpsCockpitJob). */
+  private cockpitColumns() {
+    return {
+      id: shipmentTable.id,
+      jobNumber: shipmentTable.jobNumber,
+      customer: shipmentTable.customer,
+      tradeDirection: shipmentTable.tradeDirection,
+      freightMode: shipmentTable.freightMode,
+      department: shipmentTable.department,
+      status: shipmentTable.status,
+      // Whose the main carriage is to book (lib/managersCockpit weBookMainCarriage).
+      incotermOrigin: shipmentTable.incotermOrigin,
+      incotermDestination: shipmentTable.incotermDestination,
+      // What a remeasurement from Warehouse Concept is checked against (lib/managersCockpitExtra remeasurementSignals).
+      pcs: shipmentTable.pcs,
+      totalWeightTons: shipmentTable.totalWeightTons,
+      totalVolumeCbm: shipmentTable.totalVolumeCbm,
+      estimatedDeparture: shipmentTable.estimatedDeparture,
+      actualDeparture: shipmentTable.actualDeparture,
+      estimatedArrival: shipmentTable.estimatedArrival,
+      actualArrival: shipmentTable.actualArrival,
+      etaWarehouse: shipmentTable.etaWarehouse,
+      warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+      plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+      actualDeliveryDate: shipmentTable.actualDeliveryDate,
+      personInCharge: shipmentTable.personInCharge,
+      holidayCover: shipmentTable.holidayCover,
+      closingDate: shipmentTable.closingDate,
+      vgmClosing: shipmentTable.vgmClosing,
+      vgmClosingTime: shipmentTable.vgmClosingTime,
+      vgm: shipmentTable.vgm,
+      siClosing: shipmentTable.siClosing,
+      siClosingTime: shipmentTable.siClosingTime,
+      shippingInstructions: shipmentTable.shippingInstructions,
+      ams: shipmentTable.ams,
+      amsDeadline: shipmentTable.amsDeadline,
+      amsDeadlineTime: shipmentTable.amsDeadlineTime,
+      isf: shipmentTable.isf,
+      isfDeadline: shipmentTable.isfDeadline,
+      isfDeadlineTime: shipmentTable.isfDeadlineTime,
+      customsPriority: shipmentTable.customsPriority,
+      customsStatus: shipmentTable.customsStatus,
+      customsDeadline: shipmentTable.customsDeadline,
+      bookingConfirmation: shipmentTable.bookingConfirmation,
+      claim: shipmentTable.claim,
+      cargoReadinessDate: shipmentTable.cargoReadinessDate,
+      pickupDate: shipmentTable.pickupDate,
+      closingTime: shipmentTable.closingTime,
+      masterBolNumber: shipmentTable.masterBolNumber,
+      masterBolType: shipmentTable.masterBolType,
+      originalsReceivedDate: shipmentTable.originalsReceivedDate,
+      telexReleaseReceivedDate: shipmentTable.telexReleaseReceivedDate,
+      deliveryOrderDate: shipmentTable.deliveryOrderDate,
+      houseBolType: shipmentTable.houseBolType,
+      houseBolRelease: shipmentTable.houseBolRelease,
+      bolDraft: shipmentTable.bolDraft,
+      plateNumber: shipmentTable.plateNumber,
+      creditCheck: shipmentTable.creditCheck,
+      dangerous: shipmentTable.dangerous,
+      loadType: shipmentTable.loadType,
+      masterJobId: shipmentTable.masterJobId,
+      customsProcedure: shipmentTable.customsProcedure,
+      customsOffice: shipmentTable.customsOffice,
+      mrn: shipmentTable.mrn,
+      warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
+      createdAt: shipmentTable.createdAt,
+      updatedAt: shipmentTable.updatedAt,
+      // The job's id named with its table: in a select of one table Drizzle writes the column bare ("id"), and inside
+      // the subquery that is the notice's own id, so no notice would ever be found.
+      arrivalNoticeSent: sql<boolean>`EXISTS (
+        SELECT 1 FROM ${shipmentCustomerNoticeTable} told
+        WHERE told.shipment_id = "shipment"."id" AND told.kind = 'arrival_notice' AND told.deleted_at IS NULL
+      )`,
+    };
   }
 
   /**
@@ -1244,6 +1294,11 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       freightMode: shipmentTable.freightMode,
       department: shipmentTable.department,
       status: shipmentTable.status,
+      incotermOrigin: shipmentTable.incotermOrigin,
+      incotermDestination: shipmentTable.incotermDestination,
+      pcs: shipmentTable.pcs,
+      totalWeightTons: shipmentTable.totalWeightTons,
+      totalVolumeCbm: shipmentTable.totalVolumeCbm,
       estimatedDeparture: shipmentTable.estimatedDeparture,
       actualDeparture: shipmentTable.actualDeparture,
       estimatedArrival: shipmentTable.estimatedArrival,

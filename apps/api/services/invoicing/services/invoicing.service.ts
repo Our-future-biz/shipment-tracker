@@ -5,6 +5,7 @@ import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { BILLED, assertNotBilled, isBilled, leavesBuyingCostAlone } from "../lib/billedLock";
 import { toChargeCode } from "../../../lib/chargeCodes";
+import { statusesFollow } from "./sellingStatusFollow";
 import { canDecideQuoteInquiry, quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
@@ -703,11 +704,15 @@ class InvoicingService {
 
   // ── Selling costs ──
   // A billed shipment still takes selling rows (a late demurrage, storage): they go on its next
-  // invoice. Only a row on an issued invoice is refused a change (lib/billedLock).
+  // invoice. Only a row on an issued invoice is refused a change (lib/billedLock). Such a row
+  // leaves the job with a charge not invoiced, so its statuses follow (services/sellingStatusFollow).
   async addSellingCost(shipmentId: string, companyId: string, input: SellingCostInput): Promise<SellingCostItem> {
     const values = { shipmentId, ...sellingChanges(input) };
     await assertShipmentExists(shipmentId);
-    return toSellingItem(await sellingCostRepository.createForCompany(companyId, values));
+    const follow = statusesFollow(companyId, shipmentId);
+    const row = await sellingCostRepository.createLine(companyId, values, follow.after);
+    await follow.deliver();
+    return toSellingItem(row);
   }
 
   async updateSellingCost(id: string, companyId: string, shipmentId: string, input: SellingCostInput, role?: string): Promise<SellingCostItem> {
@@ -719,18 +724,22 @@ class InvoicingService {
     }
     // A selling row on an issued invoice (not credited) is part of a tax document: it stays as it
     // was invoiced until the invoice is credited. Only its place in the list may move.
+    const follow = statusesFollow(companyId, shipmentId);
     const row = onlyReorders(input)
       ? await sellingCostRepository.updateLine(id, companyId, shipmentId, sellingChanges(input), { mayUntickSplit })
-      : await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { data: sellingChanges(input) }, { mayUntickSplit });
+      : await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { data: sellingChanges(input) }, { mayUntickSplit, after: follow.after });
     if (row === "invoiced") throw APIError.failedPrecondition(INVOICED_ROW);
     if (!row) throw APIError.notFound("Selling cost not found");
+    await follow.deliver();
     return toSellingItem(row);
   }
 
   async deleteSellingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
-    const row = await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { delete: true });
+    const follow = statusesFollow(companyId, shipmentId);
+    const row = await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { delete: true }, { after: follow.after });
     if (row === "invoiced") throw APIError.failedPrecondition(INVOICED_ROW);
     if (!row) throw APIError.notFound("Selling cost not found");
+    await follow.deliver();
   }
 
   // ── Copy from a sales quote ──

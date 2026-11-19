@@ -138,6 +138,8 @@ const EVERY_ANSWER = [
   // The service's own.
   "event.ofKinds",
   "shipment.dateMovedLately",
+  // The jobs no longer active that still have a claim (X8).
+  "shipment.managersCockpitClaimOnlyRows",
   "container.listByShipmentIds",
   "dismissal.liveByShipmentIds",
   // Needs Attention's facts (services/trackingAttention.service).
@@ -199,13 +201,13 @@ describe("one answer of Shipments → Managers, every statement of it", () => {
     // The peak counts Shipments' statements only: the calls hold none of its connections.
     expect(db.state.peak).toBe(5);
     expect([...db.state.sent].sort()).toEqual([...EVERY_ANSWER, ...AUDIT_LINE].sort());
-    expect(db.state.sent).toHaveLength(28);
+    expect(db.state.sent).toHaveLength(29);
     // And 2 calls, started first - right after the jobs were read - and outside the limiter: the
     // statements all ran while the two slow calls were out.
     expect(callsMade()).toEqual(HANDOVER_CALLS);
     for (const c of db.state.calls) {
       expect(c.statementsBefore).toBe(1);
-      expect(c.statementsDoneAtEnd).toBe(28);
+      expect(c.statementsDoneAtEnd).toBe(29);
     }
     // Each module is asked once, about every job read.
     expect(clients.warehouseConcept._internalWarehouseOperationsFacts).toHaveBeenCalledWith({ shipmentIds: ["id-1", "id-2", "id-3"] });
@@ -229,18 +231,18 @@ describe("one answer of Shipments → Managers, every statement of it", () => {
     const OTHER = "0d6f5a1e-2b8c-4c3d-9e7f-1a2b3c4d5e6f";
     await Promise.all([managersCockpitService.cockpit(COMPANY, EVERYONE, NOW), managersCockpitService.cockpit(OTHER, EVERYONE, NOW)]);
     // Each answer whole - nothing of one company's is kept for the other's.
-    expect(db.state.sent).toHaveLength(56);
+    expect(db.state.sent).toHaveLength(58);
     expect(db.state.peak).toBe(5);
   });
 
-  it("sends six statements fewer and no call while the company's audit line and the modules' answers are kept: 22, and still five at once", async () => {
+  it("sends six statements fewer and no call while the company's audit line and the modules' answers are kept: 23, and still five at once", async () => {
     await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
     db.state.sent.length = 0;
     db.state.calls.length = 0;
     db.state.peak = 0;
     const c = await managersCockpitService.cockpit(COMPANY, { ...EVERYONE, mode: "sea" }, new Date(NOW.getTime() + 60_000));
     expect([...db.state.sent].sort()).toEqual([...EVERY_ANSWER].sort());
-    expect(db.state.sent).toHaveLength(22);
+    expect(db.state.sent).toHaveLength(23);
     expect(callsMade()).toEqual([]);
     expect(db.state.peak).toBe(5);
     expect(c.audit).toEqual({ days: 7, items: expect.any(Array) });

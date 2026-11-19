@@ -233,7 +233,7 @@ export function AccountsReceivableView() {
               </button>
             </Tooltip>
             {/* Bank statements, month-end, the Pohoda export and the settings (step 7). */}
-            <ReceivableTools />
+            <ReceivableTools canAct={!!data?.canAct} />
             {canBatch && (
               <Tooltip title={selectedIds.length ? `Note one bank payment over the ${selectedIds.length} ticked ${selectedIds.length === 1 ? "invoice" : "invoices"}` : "Tick the invoices one bank payment pays, then note it once"}>
                 <span className="inline-flex">

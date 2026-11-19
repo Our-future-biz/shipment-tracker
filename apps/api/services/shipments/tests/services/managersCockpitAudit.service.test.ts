@@ -7,8 +7,10 @@ const documentRequests = vi.hoisted(() => ({ decidedSince: vi.fn() }));
 const officeRequests = vi.hoisted(() => ({ decidedSince: vi.fn() }));
 const releaseRequests = vi.hoisted(() => ({ decidedSince: vi.fn() }));
 const shipments = vi.hoisted(() => ({ jobNumbersByIds: vi.fn() }));
+const clients = vi.hoisted(() => ({ auth: { userLookup: vi.fn() } }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
+vi.mock("~encore/clients", () => clients);
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: history }));
 vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipmentReleaseOverrideRepository: overrides }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: attachments }));
@@ -63,6 +65,7 @@ beforeEach(() => {
   officeRequests.decidedSince.mockResolvedValue([]);
   releaseRequests.decidedSince.mockResolvedValue([]);
   shipments.jobNumbersByIds.mockResolvedValue(new Map());
+  clients.auth.userLookup.mockResolvedValue({ users: [] });
 });
 
 describe("the audit line", () => {
@@ -320,6 +323,43 @@ describe("the rows behind a count", () => {
     history.changesSince.mockResolvedValue([change("deletedAt", null, "2026-11-16T10:00:00.000Z")]);
     expect((await managersAuditRows(COMPANY, "deleted", NOW, null)).rows.map((r) => r.who)).toEqual([""]);
     await expect(managersAuditRows(COMPANY, "own_credit_check", NOW, null)).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("names who is not among the company's users - a superadmin working as the company, the app's own identity - by looking them up (m18)", async () => {
+    history.changesSince.mockResolvedValue([
+      change("deletedAt", null, "x", { userId: "u-super" }),
+      change("deletedAt", null, "x", { shipmentId: "id-2", userId: "u-system", changedAt: at("2026-11-15") }),
+      change("deletedAt", null, "x", { shipmentId: "id-3", userId: "u-gone", changedAt: at("2026-11-14") }),
+      change("deletedAt", null, "x", { shipmentId: "id-4", changedAt: at("2026-11-13") }),
+    ]);
+    clients.auth.userLookup.mockResolvedValue({
+      users: [
+        { id: "u-super", name: "Super Admin", email: "Super@Home.cz", role: "superadmin", homeCompanyId: "home" },
+        { id: "u-system", name: "Trucking (system)", email: "trucking-system+c1@system.invalid", role: "user" },
+      ],
+    });
+    const list = await managersAuditRows(COMPANY, "deleted", NOW, USERS);
+    // Only the ids the company's users did not name are looked up - among the superadmins too, as the job's History tab does.
+    expect(clients.auth.userLookup).toHaveBeenCalledExactlyOnceWith({ ids: ["u-super", "u-system", "u-gone"], orSuperadmin: true });
+    expect(list.rows.map((r) => [r.shipmentId, r.who])).toEqual([
+      ["id-1", "super@home.cz"],
+      ["id-2", "Trucking (system)"],
+      ["id-3", ""],
+      ["id-4", "boss@firma.cz"],
+    ]);
+  });
+
+  it("lists the rows all the same when that look-up fails, the others unnamed - and asks nothing when everybody is known", async () => {
+    history.changesSince.mockResolvedValue([change("deletedAt", null, "x", { userId: "u-super" }), change("deletedAt", null, "x", { shipmentId: "id-2", changedAt: at("2026-11-15") })]);
+    clients.auth.userLookup.mockRejectedValue(new Error("auth is down"));
+    expect((await managersAuditRows(COMPANY, "deleted", NOW, USERS)).rows.map((r) => r.who)).toEqual(["", "boss@firma.cz"]);
+    clients.auth.userLookup.mockClear();
+    history.changesSince.mockResolvedValue([change("deletedAt", null, "x")]);
+    await managersAuditRows(COMPANY, "deleted", NOW, USERS);
+    expect(clients.auth.userLookup).not.toHaveBeenCalled();
+    // Without the company's users nobody is looked up: nobody is named.
+    await managersAuditRows(COMPANY, "deleted", NOW, null);
+    expect(clients.auth.userLookup).not.toHaveBeenCalled();
   });
 
   it("says when there were more than it lists, and when its read was cut", async () => {

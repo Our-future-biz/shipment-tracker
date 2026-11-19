@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const shipments = vi.hoisted(() => ({ managersCockpitRows: vi.fn(), dateMovedLately: vi.fn(), trackingAttentionCandidates: vi.fn() }));
+const shipments = vi.hoisted(() => ({ managersCockpitRows: vi.fn(), managersCockpitClaimOnlyRows: vi.fn(), dateMovedLately: vi.fn(), trackingAttentionCandidates: vi.fn() }));
 const events = vi.hoisted(() => ({ proposedOn: vi.fn(), latestPerShipment: vi.fn(), arrivedAtHub: vi.fn(), ofKinds: vi.fn() }));
 const notices = vi.hoisted(() => ({ latestPerShipment: vi.fn() }));
 const containers = vi.hoisted(() => ({ withFreeTime: vi.fn(), listByShipmentIds: vi.fn() }));
@@ -31,7 +31,7 @@ vi.mock("../../repositories/shipmentClaim.repository", () => ({ shipmentClaimRep
 vi.mock("../../services/claimTimeLimits.service", () => ({ claimTimeLimitsService: claimLimits }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: containers }));
 
-import { COCKPIT_JOB_LIMIT } from "../../lib/cockpitThresholds";
+import { COCKPIT_CLAIM_ONLY_JOB_LIMIT, COCKPIT_JOB_LIMIT } from "../../lib/cockpitThresholds";
 import { handoverFactsOf } from "../../lib/managersCockpitHandover";
 import { NO_TEAM_FACTS, type TeamFacts } from "../../lib/managersCockpitTeam";
 import { NOT_KNOWN, REPORTS_NOT_KNOWN, managersCockpitService } from "../../services/managersCockpit.service";
@@ -142,6 +142,7 @@ const event = (shipmentId: string, kind: string, occurredOn: string, over = {}) 
 beforeEach(() => {
   vi.clearAllMocks();
   shipments.managersCockpitRows.mockResolvedValue([]);
+  shipments.managersCockpitClaimOnlyRows.mockResolvedValue([]);
   shipments.dateMovedLately.mockResolvedValue([]);
   events.proposedOn.mockResolvedValue([]);
   events.latestPerShipment.mockResolvedValue(new Map());
@@ -705,5 +706,33 @@ describe("Shipments → Managers' cargo claims (step 6, D21)", () => {
     // No time-limit tag; how long the claim has stood is no time limit.
     expect(claimTags(noLimits)).toEqual(["attention Cargo claim open since 01.11."]);
     expect(noLimits.notKnown).toEqual(["claim time limits"]);
+  });
+
+  // Review: the invoiced or cancelled jobs with an open cargo claim are read one more than kept, so
+  // that more of them than the limit is said, and the one left out is asked about nowhere.
+  it("reads one invoiced or cancelled job with a claim more than it keeps, and names the cap only when there was one", async () => {
+    const closed = (n: number) => Array.from({ length: n }, (_, i) => row(5000 + i, { claim: "Yes", invoicingStatus: "Invoiced" }));
+    claims.openCargoClaimsByShipmentIds.mockResolvedValue([]);
+    shipments.managersCockpitClaimOnlyRows.mockResolvedValue(closed(COCKPIT_CLAIM_ONLY_JOB_LIMIT));
+    const all = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(shipments.managersCockpitClaimOnlyRows).toHaveBeenCalledWith(COMPANY, COCKPIT_CLAIM_ONLY_JOB_LIMIT + 1);
+    expect(all.notKnown).toEqual([]);
+    expect(all.tiles.openClaims).toBe(COCKPIT_CLAIM_ONLY_JOB_LIMIT);
+
+    shipments.managersCockpitClaimOnlyRows.mockResolvedValue(closed(COCKPIT_CLAIM_ONLY_JOB_LIMIT + 1));
+    const cut = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(cut.notKnown).toEqual([NOT_KNOWN.claimOnlyCapped]);
+    expect(NOT_KNOWN.claimOnlyCapped).toBe("cargo claims of invoiced or cancelled jobs older than the newest 500");
+    expect(cut.tiles.openClaims).toBe(COCKPIT_CLAIM_ONLY_JOB_LIMIT);
+    expect(cut.capped).toBe(false);
+    const asked = claims.openCargoClaimsByShipmentIds.mock.lastCall![1] as string[];
+    expect(asked).toHaveLength(COCKPIT_CLAIM_ONLY_JOB_LIMIT);
+    expect(asked).not.toContain(`id-${5000 + COCKPIT_CLAIM_ONLY_JOB_LIMIT}`);
+  });
+
+  it("names the invoiced or cancelled jobs' claims, not a cap, when their read failed", async () => {
+    shipments.managersCockpitClaimOnlyRows.mockRejectedValue(new Error("down"));
+    const lost = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(lost.notKnown).toEqual(["claims of invoiced or cancelled jobs"]);
   });
 });

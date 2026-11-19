@@ -182,9 +182,14 @@ describe("Shipments → Managers: the signal tiles", () => {
     expect(notUser.note).toBeUndefined();
   });
 
-  it("says plainly that Cut-offs' cards hold more than its figure counts", () => {
+  it("says plainly that Cut-offs' URGENT card is its figure, and ATTENTION the cut-offs after (m17)", () => {
     expect(family("cutoff").figure).toBe("cutoffsDue");
-    expect(family("cutoff").note).toBe("The cards then show every job with a cut-off tag, also the ones in the two working days after.");
+    expect(family("cutoff").note).toBe("URGENT then lists the jobs this counts; ATTENTION the jobs with a cut-off in the two working days after.");
+  });
+
+  it("counts a Holiday Cover who is no user under \"Handled By is not a user\" (S16)", () => {
+    expect(family("not_user").label).toBe("Handled By is not a user");
+    expect(family("not_user").hint).toBe("Handled By or Holiday Cover names somebody who is not an active user of the company");
   });
 
   it("says in one line what each counts", () => {

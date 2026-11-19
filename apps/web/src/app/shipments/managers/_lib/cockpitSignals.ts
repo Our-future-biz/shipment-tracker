@@ -39,8 +39,9 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     label: "Cut-offs due or missed",
     showing: "Cut-offs",
     hint: "A cut-off (Closing, VGM, SI, AMS, ISF) due today or the next working day, or missed before the job departed",
-    // The figure is the urgent ones; the filter goes by the kind of tag, urgent or not.
-    note: "The cards then show every job with a cut-off tag, also the ones in the two working days after.",
+    // The figure is the urgent ones, and the URGENT card it opens lists exactly those (the server
+    // puts a row there by its cut-off tags alone); the filter goes by the kind of tag, urgent or not.
+    note: "URGENT then lists the jobs this counts; ATTENTION the jobs with a cut-off in the two working days after.",
     figure: "cutoffsDue",
   },
   { key: "booking", kinds: ["booking"], label: "Booking at risk", hint: "Booking Confirmation still Pending with the cargo ready or the ETD close" },
@@ -94,7 +95,8 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     key: "not_user",
     kinds: ["not_user"],
     label: "Handled By is not a user",
-    hint: "Handled By names somebody who is not an active user of the company",
+    // S16: a Holiday Cover who is no user covers nobody - the same want, so the same tile.
+    hint: "Handled By or Holiday Cover names somebody who is not an active user of the company",
     figure: "handledByNotUser",
   },
   // Step 6 (D12): beside "is not a user" - both say nobody is at work on the job.

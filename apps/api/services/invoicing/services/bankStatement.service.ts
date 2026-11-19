@@ -41,7 +41,7 @@ import type { ReceivableItem } from "../interfaces/interfaces";
 // who confirms it as payments (receivableService.noteAllocations, in the same transaction as the entry's change, with
 // the entry's version checked) or sets it aside with a reason. Nothing is ever noted without that confirm (D11). The
 // same file twice is refused; an entry read again from an overlapping file is kept once. The file is not kept: only
-// what was read from it. Everyone reads.
+// what was read from it. Managers only, reading too (mock test council X6): a statement shows money out as well.
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_ENTRIES = 10_000;
@@ -50,6 +50,7 @@ const notThere = () => APIError.notFound("This bank statement is not there");
 const entryNotThere = () => APIError.notFound("This entry is not on the statement");
 const changedMeanwhile = () => APIError.aborted("This entry changed meanwhile: open the statement again to see how it is now");
 const managersOnly = () => APIError.permissionDenied("Only a manager reads a bank statement, confirms its payments or sets an entry aside");
+const readersOnly = () => APIError.permissionDenied("Only a manager sees the bank statements: they show every payment in and out of the account");
 
 /** dd.mm.yyyy of a yyyy-mm-dd day. */
 const czDay = (ymd: string) => `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}.${ymd.slice(0, 4)}`;
@@ -123,6 +124,15 @@ class BankStatementService {
 
   private requireManager(actor: Actor) {
     if (!this.canAct(actor)) throw managersOnly();
+  }
+
+  /**
+   * Reading a statement is for managers too (mock test council X6, K7): it shows every line of the company's account -
+   * money out with its names, accounts and messages - not only the customers' payments. The same roles as the import
+   * and the confirm (superadmin, admin, manager).
+   */
+  private requireReader(actor: Actor) {
+    if (!this.canAct(actor)) throw readersOnly();
   }
 
   /** The invoices owed now, as Accounts Receivable shows them (the one place their figures are worked out). */
@@ -230,7 +240,9 @@ class BankStatementService {
 
   // ── Reading ──
 
+  /** The statements read (managers only: they hold every line of the account, money out too). */
   async list(actor: Actor): Promise<BankStatementListResponse> {
+    this.requireReader(actor);
     const statements = await repo.list(actor.companyID);
     const counts = await repo.statusCounts(
       actor.companyID,
@@ -249,6 +261,7 @@ class BankStatementService {
    * still to decide gets its candidates worked out again from the invoices owed now (one paid meanwhile drops out).
    */
   async detail(actor: Actor, statementId: string): Promise<BankStatementDetailResponse> {
+    this.requireReader(actor);
     if (!isUuid(statementId)) throw notThere();
     const statement = await repo.byId(actor.companyID, statementId);
     if (!statement) throw notThere();

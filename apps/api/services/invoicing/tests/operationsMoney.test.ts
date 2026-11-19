@@ -168,12 +168,21 @@ describe("Costs Breakdown's totals", () => {
     expect(only(facts({ lines: czk, rates: new Map(), noRates: new Map([[JOB, "not_fixed"]]) })).totals).toMatchObject({ profitCzk: 100, missingCurrencies: [], ratesNote: "" });
   });
 
+  it("say so when the job's rates are of an older fixing - its date's not imported - and are worked out all the same (m20)", () => {
+    const lines = { selling: [sell({ amount: "100", currency: "EUR" })], buying: [buy({ estAmount: "50" })], billingCurrency: new Map<string, string>() };
+    const stale = only(facts({ lines, rates: new Map([[JOB, { EUR: 25 }]]), staleRates: new Set([JOB]) }));
+    expect(stale.totals).toMatchObject({ sellingCzk: 2500, profitCzk: 2450, ratesStale: true });
+    expect(only(facts({ lines, rates: new Map([[JOB, { EUR: 25 }]]) })).totals.ratesStale).toBe(false);
+    // A job with no rates at all has nothing stale to say.
+    expect(only(facts({ lines, rates: new Map(), staleRates: new Set([JOB]) })).totals.ratesStale).toBe(false);
+  });
+
   it("are not known for a job with no rates at all unless everything is in CZK", () => {
     const foreign = only(facts({ lines: { selling: [sell({ amount: "100", currency: "EUR" })], buying: [buy({ estAmount: "50" })], billingCurrency: new Map() }, rates: new Map() }));
     expect(foreign.totals).toMatchObject({ sellingCzk: null, profitCzk: null, marginPct: null, missingCurrencies: ["EUR"], ratesNote: "unreadable" });
     const czk = only(facts({ lines: { selling: [sell({ amount: "100" })], buying: [buy({ estAmount: "60" })], billingCurrency: new Map() }, rates: new Map() }));
     expect(czk.totals).toEqual({
-      sellingCzk: 100, estimateCzk: 60, realCzk: 0, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, costCzk: 60, profitCzk: 40, marginPct: 40, missingCurrencies: [], ratesNote: "",
+      sellingCzk: 100, estimateCzk: 60, realCzk: 0, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, costCzk: 60, profitCzk: 40, marginPct: 40, missingCurrencies: [], ratesNote: "", ratesStale: false,
     });
   });
 
@@ -285,7 +294,20 @@ describe("supplier invoices of a job", () => {
       null,
       TODAY,
     );
-    expect(out).toEqual({ toApprove: 2, waitingIds: [later.id, older.id], refused: 1, lastRefusedOn: "2026-11-12", claimed: 0, approvedOverdue: 1, oldestWaitingSince: "2026-11-04", afterBilling: [] });
+    expect(out).toEqual({ toApprove: 2, waitingIds: [later.id, older.id], refused: 1, lastRefusedOn: "2026-11-12", refusedOn: ["2026-11-12"], claimed: 0, approvedOverdue: 1, oldestWaitingSince: "2026-11-04", afterBilling: [] });
+  });
+
+  it("hands over the day each invoice was refused, oldest first, so a reader counts those of its own window (m21)", () => {
+    const days = (...invoices: MoneySupplierInvoice[]) => supplierInvoicesOf(invoices, [], none, [], new Map(), null, TODAY).refusedOn;
+    expect(
+      days(
+        supplierInvoice({ status: "refused", decidedAt: new Date("2026-11-14T10:00:00Z") }),
+        supplierInvoice({ status: "refused", decidedAt: new Date("2026-09-03T10:00:00Z") }),
+        supplierInvoice({ status: "refused", decidedAt: null }), // no moment stored: in no list
+        supplierInvoice({ status: "approved", decidedAt: new Date("2026-11-17T10:00:00Z") }), // an approval is no refusal
+      ),
+    ).toEqual(["2026-09-03", "2026-11-14"]);
+    expect(days()).toEqual([]);
   });
 
   it("says the day of the newest refusal - none when no invoice is refused, or the refusal has no moment stored", () => {
@@ -469,10 +491,10 @@ describe("a part that could not be read", () => {
       untickedSelling: [],
       sellingLines: 0,
       costLines: 0,
-      totals: { sellingCzk: 0, estimateCzk: 0, realCzk: 0, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, costCzk: 0, profitCzk: 0, marginPct: null, missingCurrencies: [], ratesNote: "" },
+      totals: { sellingCzk: 0, estimateCzk: 0, realCzk: 0, estimateOfRealCzk: 0, realOfEstimatedCzk: 0, costCzk: 0, profitCzk: 0, marginPct: null, missingCurrencies: [], ratesNote: "", ratesStale: false },
       invoicedOn: null,
       notRecharged: [],
-      supplierInvoices: { toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] },
+      supplierInvoices: { toApprove: 0, waitingIds: [], refused: 0, lastRefusedOn: null, refusedOn: [], claimed: 0, approvedOverdue: 0, oldestWaitingSince: null, afterBilling: [] },
       estimatesOpen: { lines: 0, oldestSince: null, amounts: [] },
     });
   });

@@ -29,8 +29,8 @@ import {
   type RequestFact,
 } from "../lib/managersCockpitExtra";
 import { unlimited, type Limit } from "../lib/readLimiter";
-import { REMEASURE_ACCEPTED, REMEASURE_COSTS_CHECKED, readFigures } from "../lib/remeasureAccept";
-import { REMEASURE_INFORMED, remeasureVerdict } from "../lib/remeasureNotice";
+import { REMEASURE_ACCEPTED, REMEASURE_COSTS_CHECKED, readFigures, roundedFigures } from "../lib/remeasureAccept";
+import { REMEASURE_INFORMED, declaredFigures, informedSource, remeasureVerdict, type CargoFigures, type RemeasureFrom } from "../lib/remeasureNotice";
 import { customsOfficeRequestRepository } from "../repositories/customsOfficeRequest.repository";
 import { documentChangeRequestRepository } from "../repositories/documentChangeRequest.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
@@ -80,6 +80,28 @@ async function part<T>(name: string, read: () => Promise<T>): Promise<T | null> 
     log.warn(err, "a part of Shipments → Managers could not be read", { part: name });
     return null;
   }
+}
+
+/**
+ * Which warehouse an Inform Operations line came from, as services/alert.service reads it: the
+ * `source` its new value names, the Warehouse's for a line written before the source was kept.
+ */
+export function remeasureSource(newValue: string | null): RemeasureFrom {
+  // The one reader of the line's source (lib/remeasureNotice), so the cockpit, the Alerts tab and the verdict agree.
+  return informedSource(newValue);
+}
+
+/**
+ * Whether Cargo Details (the job's Pcs, Total Weight and Total Volume) now say what the warehouse
+ * remeasured, every figure known on both sides alike (lib/remeasureNotice remeasureVerdict): what
+ * ends the Warehouse Concept remeasurement's warning (X4). False when the row did not carry them.
+ * The warehouse's figures are rounded as the job stores and compares them (kg to 0.1, m³ to
+ * 0.001, lib/remeasureAccept roundedFigures): 7 × 13.25 kg informed is 92.75 kg, and the Total
+ * Weight that takes it over holds 92.8 kg - unrounded, the warning would never clear.
+ */
+export function cargoDetailsMatch(job: Pick<ExtraJob, "pcs" | "totalWeightTons" | "totalVolumeCbm">, remeasured: CargoFigures): boolean {
+  if (job.pcs === undefined || job.totalWeightTons === undefined || job.totalVolumeCbm === undefined) return false;
+  return remeasureVerdict(declaredFigures({ pcs: job.pcs, totalWeightTons: job.totalWeightTons, totalVolumeCbm: job.totalVolumeCbm }), roundedFigures(remeasured)) === "matches";
 }
 
 /** Each shipment's rows, in the order they were read. */
@@ -134,16 +156,16 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
 
   const byJob = new Map<string, OpsSignal[]>();
   for (const job of jobs) {
-    const signals: OpsSignal[] = [...originalBlSignals(job, today), ...deliveryOrderSignals(job, today, holidays)];
+    const signals: OpsSignal[] = [...originalBlSignals(job, today, holidays), ...deliveryOrderSignals(job, today, holidays)];
 
     // The customs status the shipment shows follows its documents: without them it is not known,
     // and neither is anything that is read off it.
     const files: DocumentFact[] | null = documentsOf ? (documentsOf.get(job.id) ?? []) : null;
     const shown = files ? shownCustomsStatus(job.customsStatus, files) : null;
     if (files && shown !== null) {
-      signals.push(...paperworkSignals(job, shown, today), ...documentReviewSignals(job, shown, files, now, holidays), ...dangerousSignals(job, files, today));
+      signals.push(...paperworkSignals(job, shown, today, holidays), ...documentReviewSignals(job, shown, files, now, holidays), ...dangerousSignals(job, files, today));
     }
-    signals.push(...customsFieldSignals(job, shown, today));
+    signals.push(...customsFieldSignals(job, shown, today, holidays));
 
     if (requestsOf) signals.push(...requestSignals(job, requestsOf.get(job.id) ?? [], now, holidays));
 
@@ -161,8 +183,17 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
       const accepted = latest(REMEASURE_ACCEPTED);
       const checked = latest(REMEASURE_COSTS_CHECKED);
       const fact: RemeasureFact = {
-        // How the figures stood when the warehouse informed: old = the shipment's, new = the remeasured (services/alert.service).
-        informed: informed ? { at: informed.changedAt, verdict: remeasureVerdict(readFigures(informed.oldValue), readFigures(informed.newValue)) } : null,
+        // How the figures stood when the warehouse informed: old = the shipment's, new = the remeasured - and
+        // which warehouse it was (services/alert.service reads the line the same way).
+        informed: informed
+          ? {
+              at: informed.changedAt,
+              // Warehouse Concept's tolerance counts as a match, as in its chat message (lib/remeasureNotice remeasureVerdict).
+              verdict: remeasureVerdict(readFigures(informed.oldValue), readFigures(informed.newValue), remeasureSource(informed.newValue)),
+              source: remeasureSource(informed.newValue),
+              matchesCargoDetails: cargoDetailsMatch(job, readFigures(informed.newValue)),
+            }
+          : null,
         acceptedAt: accepted?.changedAt ?? null,
         // A check names the acceptance it was made for (services/shipment.service markRemeasureCostsChecked): only a
         // check of the latest acceptance counts, as on Cargo Details and Costs Breakdown.

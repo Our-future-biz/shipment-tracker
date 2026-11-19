@@ -9,7 +9,7 @@ import { CARD } from "@/styles/ui";
 import { BackLink } from "@/components/BackLink";
 import { useCreateMasterJob, useMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
 import { MasterJobsList } from "./MasterJobsList";
-import { MJ_ANCHORS, MblDetailsTab } from "./MblDetailsTab";
+import { MJ_ANCHORS, MJ_DATE_ROWS, MblDetailsTab } from "./MblDetailsTab";
 import { MasterJobShipments } from "./MasterJobShipments";
 import { MasterJobContainers } from "./MasterJobContainers";
 import { FULL_LOAD } from "@/lib/enums";
@@ -29,6 +29,17 @@ const DETAIL_TABS = [
   { key: "tracking", label: "Tracking" },
 ] as const;
 type DetailTab = (typeof DETAIL_TABS)[number]["key"];
+
+/**
+ * Jumps to a date's row on MBL Details. A row the user's field choice hides is not on the page: the
+ * jump lands on its card, Key Dates, and the answer says why the row is not there (null when it is).
+ */
+function jumpToDateRow(target: string): string | null {
+  if (jumpTo(target)) return null;
+  jumpTo(MJ_ANCHORS.dates);
+  const name = MJ_DATE_ROWS[target] ?? "The date";
+  return `${name} is hidden in Key Dates: choose it in the card's fields, or use Show all, to see it`;
+}
 const isDetailTab = (key: string | null): key is DetailTab => DETAIL_TABS.some((t) => t.key === key);
 
 // Master Jobs in the same shape as Customs: a list, and a master job opened
@@ -84,9 +95,10 @@ export function MasterJobsView() {
   const pendingJump = useRef<string | null>(null);
   useEffect(() => {
     if (detailTab !== "mbl" || !pendingJump.current) return;
-    jumpTo(pendingJump.current);
+    const hidden = jumpToDateRow(pendingJump.current);
+    if (hidden) message.info(hidden);
     pendingJump.current = null;
-  }, [detailTab]);
+  }, [detailTab, message]);
 
   // A count in the summary opens its tab (Container Details, Linked Shipments); a date jumps to its
   // row on MBL Details, opening that tab first when another is open.
@@ -96,7 +108,8 @@ export function MasterJobsView() {
       return;
     }
     if (detailTab === "mbl") {
-      jumpTo(target);
+      const hidden = jumpToDateRow(target);
+      if (hidden) message.info(hidden);
       return;
     }
     pendingJump.current = target;
