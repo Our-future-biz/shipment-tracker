@@ -42,9 +42,9 @@ const messagesOf = (shipmentId: string) => db.select().from(shipmentCommentTable
 describe("the warehouse's Inform Operations", () => {
   it("saves the chat message and its record, and lists a difference first-newest with by how much", async () => {
     const s = await newShipment();
-    await commentService.postRemeasureNotice(s.id, s.companyId, USER, { remeasured: { colli: 1, weightKg: 300, volumeCbm: 0.96 }, comparedWith: "dimensions", note: "" });
+    await commentService.postRemeasureNotice(s.id, s.companyId, USER, { remeasured: { colli: 1, weightKg: 300, volumeCbm: 0.96 }, comparedWith: "dimensions", source: "warehouse", note: "" });
     await new Promise((r) => setTimeout(r, 5));
-    await commentService.postRemeasureNotice(s.id, s.companyId, USER, { remeasured: { colli: 1, weightKg: 500, volumeCbm: 6.292 }, comparedWith: "dimensions", note: "" });
+    await commentService.postRemeasureNotice(s.id, s.companyId, USER, { remeasured: { colli: 1, weightKg: 500, volumeCbm: 6.292 }, comparedWith: "dimensions", source: "warehouse", note: "" });
 
     const messages = await messagesOf(s.id);
     expect(messages).toHaveLength(2);

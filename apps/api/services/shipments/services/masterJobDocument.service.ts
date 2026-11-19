@@ -6,7 +6,16 @@ import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { attachmentBucket } from "../storage/attachmentBucket";
-import { COMMERCIAL_PAPERWORK, HOUSE_BOLS, shipmentDocsZip, shipmentDocsZipName, type ShipmentDocFile, type ShipmentDocsDownload } from "../lib/shipmentDocsZip";
+import {
+  COMMERCIAL_PAPERWORK,
+  HOUSE_BOLS,
+  SHIPMENT_DOCS_ZIP_MAX_BYTES,
+  shipmentDocsTooLarge,
+  shipmentDocsZip,
+  shipmentDocsZipName,
+  type ShipmentDocFile,
+  type ShipmentDocsDownload,
+} from "../lib/shipmentDocsZip";
 import type { MasterJobDocumentRecord } from "../schemas/masterJobDocument.schema";
 import { masterJobDocumentBucket } from "../storage/masterJobDocumentBucket";
 import { canManageDocuments } from "../lib/documentRules";
@@ -135,7 +144,8 @@ class MasterJobDocumentService {
   /**
    * The linked shipments' files of the download's types in one ZIP, by job number and each one's
    * files oldest first, with the shipments that have none. A deleted shipment is no longer linked,
-   * so its files are not in it.
+   * so its files are not in it. Refused when the files come to more than one download holds
+   * (lib/shipmentDocsZip SHIPMENT_DOCS_ZIP_MAX_BYTES).
    */
   private async shipmentDocs(masterJobId: string, companyId: string, download: ShipmentDocsDownload): Promise<MasterJobDocumentsZip> {
     const masterJob = isUuid(masterJobId) ? await masterJobRepository.getByIdForCompany(masterJobId, companyId) : null;
@@ -147,17 +157,30 @@ class MasterJobDocumentService {
     const order = new Map(shipments.map((s, i) => [s.id, i]));
     rows.sort((a, b) => (order.get(a.shipmentId) ?? 0) - (order.get(b.shipmentId) ?? 0));
 
+    // Refused before anything is downloaded when the stored sizes already come to more than one
+    // download holds; a file stored with no size is counted as it comes down, stopping there.
+    const tooLarge = shipmentDocsTooLarge(rows.reduce((sum, r) => sum + (r.fileSize || 0), 0));
+    if (tooLarge) throw APIError.failedPrecondition(tooLarge);
+
     const files: ShipmentDocFile[] = [];
     const unreadable: string[] = [];
+    let downloaded = 0;
     for (const row of rows) {
       const jobNumber = jobNumberOf.get(row.shipmentId) ?? "";
+      let bytes: Buffer;
       try {
         if (!row.storageKey) throw new Error("no storage key");
-        files.push({ jobNumber, fileName: row.fileName, bytes: await attachmentBucket.download(row.storageKey) });
+        bytes = await attachmentBucket.download(row.storageKey);
       } catch (err) {
         log.warn(err, "shipment document missing from storage", { attachmentId: row.id });
         unreadable.push(`${jobNumber} - ${row.fileName}`);
+        continue;
       }
+      downloaded += bytes.length;
+      if (downloaded > SHIPMENT_DOCS_ZIP_MAX_BYTES) {
+        throw APIError.failedPrecondition(`These documents come to more than ${SHIPMENT_DOCS_ZIP_MAX_BYTES / (1024 * 1024)} MB in one download: download them per shipment`);
+      }
+      files.push({ jobNumber, fileName: row.fileName, bytes });
     }
 
     const withFiles = new Set(rows.map((r) => r.shipmentId));

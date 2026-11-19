@@ -121,7 +121,7 @@ async function tellAboutLines(shipmentId: string, data: unknown, comparedWith: C
   } catch (err) {
     throw APIError.failedPrecondition(`The remeasured lines cannot be read: ${inputMessage(err, "they cannot be read")} — correct them first`);
   }
-  return tellOperations(shipmentId, { colli: t.pieces, weightKg: t.weightKg, volumeCbm: t.cbm }, comparedWith, note);
+  return tellOperations(shipmentId, { colli: t.pieces, weightKg: t.weightKg, volumeCbm: t.cbm }, comparedWith, "warehouseConcept", note);
 }
 
 function checkChanges(section: string, changes: SectionKeyChange[]) {

@@ -277,7 +277,7 @@ class WarehouseService {
           throw APIError.failedPrecondition("No remeasured lines are saved — save the lines first");
         }
         // Compared, as the screen does, with the totals of the shipment's cargo dimension lines.
-        tagged = await tellOperations(shipmentId, remeasured, "dimensions");
+        tagged = await tellOperations(shipmentId, remeasured, "dimensions", "warehouse");
       },
     );
     return { section: toSectionItem(settled(res)), tagged };

@@ -86,11 +86,14 @@ function dayOf(v: string | null | undefined): string {
 
 const liveSlot = (s: Item["dockSlots"][number]) => s.status !== "Cancelled" && s.status !== "Completed";
 
-/** Expected at the gate today: not arrived, and today is its dock slot, ETA, slot text, trip arrival or an ETW. */
+/**
+ * Expected at the gate today: not arrived, and today is its dock slot, ETA, its shipment's ETA
+ * Warehouse/HUB, slot text, trip arrival or an ETW.
+ */
 export function isExpectedToday(m: Item, today: string): boolean {
   if (m.status !== "Expected" || m.gateIn) return false;
   if (m.dockSlots.some((s) => liveSlot(s) && s.date === today)) return true;
-  if (dayOf(m.eta) === today || dayOf(m.slot) === today) return true;
+  if (dayOf(m.eta) === today || dayOf(m.etaWarehouse) === today || dayOf(m.slot) === today) return true;
   const inLeg = (m.transportLegs ?? []).find((l) => l.leg === "IN");
   if (inLeg && isTripSource(inLeg.source) && dayOf(inLeg.gateTime) === today) return true;
   return m.subPositions.some((s) => dayOf(s.etw) === today);

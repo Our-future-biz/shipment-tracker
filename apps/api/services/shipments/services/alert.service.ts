@@ -1,6 +1,6 @@
 import { iso } from "../../../lib/db/serialize";
 import { userEmailOf } from "../../../lib/companyUsers";
-import type { CustomsVerdictNotice, RemeasureInformedItem } from "../interfaces/interfaces";
+import type { CustomsVerdictNotice, RemeasureInformedItem, RemeasureSource } from "../interfaces/interfaces";
 import { companyUsers } from "../../../lib/companyUsers";
 import { REMEASURE_INFORMED, differenceText, remeasureVerdict } from "../lib/remeasureNotice";
 import { readFigures } from "../lib/remeasureAccept";
@@ -32,7 +32,10 @@ class AlertService {
     await shipmentAlertReadRepository.markRead(companyId, userId, shipmentId);
   }
 
-  /** Every Inform Operations of the shipment, newest first, with how its figures stand. */
+  /**
+   * Every Inform Operations of the shipment, newest first, with how its figures stand and which
+   * warehouse informed (a record written before the warehouse was kept with it counts as the Warehouse's).
+   */
   async remeasureInformed(shipmentId: string, companyId: string): Promise<RemeasureInformedItem[]> {
     await shipmentService.requireLive(shipmentId, companyId);
     const rows = await shipmentAuditRepository.listByShipmentId(shipmentId, companyId, [REMEASURE_INFORMED], REMEASURE_INFORMED_LIMIT);
@@ -42,9 +45,11 @@ class AlertService {
       const shipment = readFigures(r.oldValue);
       const remeasured = readFigures(r.newValue);
       let comparedWith = "";
+      let source: RemeasureSource = "warehouse";
       try {
-        const v = (JSON.parse(r.newValue ?? "") as { comparedWith?: unknown }).comparedWith;
-        comparedWith = typeof v === "string" ? v : "";
+        const v = JSON.parse(r.newValue ?? "") as { comparedWith?: unknown; source?: unknown };
+        comparedWith = typeof v.comparedWith === "string" ? v.comparedWith : "";
+        if (v.source === "warehouseConcept") source = "warehouseConcept";
       } catch {
         comparedWith = "";
       }
@@ -56,6 +61,7 @@ class AlertService {
         shipment,
         remeasured,
         comparedWith,
+        source,
         verdict: remeasureVerdict(shipment, remeasured),
         difference: differenceText(shipment, remeasured),
       };

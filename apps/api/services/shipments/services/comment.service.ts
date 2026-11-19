@@ -13,7 +13,7 @@ import { COMPARED_WITH, REMEASURE_INFORMED, declaredFigures, dimensionFigures, r
 import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
 import { iso } from "../../../lib/db/serialize";
 import { companyUsers, companyUsersWithRoles } from "../../../lib/companyUsers";
-import type { CommentItem, CommentMentionItem, CommentUnreadItem, RemeasureNoticeResult } from "../interfaces/interfaces";
+import type { CommentItem, CommentMentionItem, CommentUnreadItem, RemeasureNoticeResult, RemeasureSource } from "../interfaces/interfaces";
 import { attachmentService } from "./attachment.service";
 import { shipmentService } from "./shipment.service";
 
@@ -31,6 +31,8 @@ export interface RemeasureNoticeInput {
   remeasured: CargoFigures;
   /** What the warehouse's screen compared them with (lib/remeasureNotice COMPARED_WITH). */
   comparedWith: string;
+  /** Which warehouse informed: kept with the record, so the Alert says where the lines are. */
+  source: RemeasureSource;
   /** Typed with Inform Operations; "" for none. */
   note: string;
 }
@@ -150,7 +152,7 @@ class CommentService {
    * tagged (e-mails), so the warehouse can say so - or that nobody is set to notify.
    */
   async postRemeasureNotice(shipmentId: string, companyId: string, authorId: string, input: RemeasureNoticeInput): Promise<RemeasureNoticeResult> {
-    const { remeasured, comparedWith, note } = input;
+    const { remeasured, comparedWith, source, note } = input;
     if (!COMPARED_WITH.some((c) => c === comparedWith)) throw APIError.invalidArgument(`comparedWith must be one of: ${COMPARED_WITH.join(", ")}`);
     if (![remeasured?.colli, remeasured?.weightKg, remeasured?.volumeCbm].every(isFigure)) {
       throw APIError.invalidArgument("The remeasured colli, kg and CBM must be numbers of 0 or more");
@@ -167,7 +169,7 @@ class CommentService {
       (commentId) => ({
         field: REMEASURE_INFORMED,
         oldValue: JSON.stringify(ours),
-        newValue: JSON.stringify({ colli: remeasured.colli, weightKg: remeasured.weightKg, volumeCbm: remeasured.volumeCbm, comparedWith, commentId }),
+        newValue: JSON.stringify({ colli: remeasured.colli, weightKg: remeasured.weightKg, volumeCbm: remeasured.volumeCbm, comparedWith, source, commentId }),
       }),
     );
     return { commentId: comment.id, tagged: notice.tagged.map((u) => u.email) };

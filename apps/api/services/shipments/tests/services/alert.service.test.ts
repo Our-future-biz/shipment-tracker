@@ -79,19 +79,19 @@ describe("customs' verdicts under the bell", () => {
 
 describe("the warehouse's Inform Operations on the Alerts tab", () => {
   const at = new Date("2026-11-18T09:05:00Z");
-  const informed = (id: string, ours: object, found: object, comparedWith = "dimensions") => ({
+  const informed = (id: string, ours: object, found: object, comparedWith = "dimensions", source?: string) => ({
     id,
     userId: "u1",
     changedAt: at,
     oldValue: JSON.stringify(ours),
-    newValue: JSON.stringify({ ...found, comparedWith, commentId: "m1" }),
+    newValue: JSON.stringify({ ...found, comparedWith, ...(source ? { source } : {}), commentId: "m1" }),
   });
 
   it("lists each with how its figures stand, by whom, the newest first as stored", async () => {
     lookup.companyUsers.mockResolvedValue([{ id: "u1", email: "petr@firma.cz", displayName: "Petr" }]);
     audit.listByShipmentId.mockResolvedValue([
       informed("a2", { colli: 1, weightKg: 300, volumeCbm: 0.96 }, { colli: 1, weightKg: 500, volumeCbm: 6.292 }),
-      informed("a1", { colli: 1, weightKg: 300, volumeCbm: 0.96 }, { colli: 1, weightKg: 300, volumeCbm: 0.96 }, "declared"),
+      informed("a1", { colli: 1, weightKg: 300, volumeCbm: 0.96 }, { colli: 1, weightKg: 300, volumeCbm: 0.96 }, "declared", "warehouseConcept"),
     ]);
     const list = await alertService.remeasureInformed("s1", "c1");
     expect(shipments.requireLive).toHaveBeenCalledWith("s1", "c1");
@@ -104,10 +104,12 @@ describe("the warehouse's Inform Operations on the Alerts tab", () => {
         shipment: { colli: 1, weightKg: 300, volumeCbm: 0.96 },
         remeasured: { colli: 1, weightKg: 500, volumeCbm: 6.292 },
         comparedWith: "dimensions",
+        // A record that names no warehouse is the Warehouse's.
+        source: "warehouse",
         verdict: "differs",
         difference: "weight +200.0 kg · volume +5.332 CBM",
       },
-      expect.objectContaining({ id: "a1", comparedWith: "declared", verdict: "matches", difference: "" }),
+      expect.objectContaining({ id: "a1", comparedWith: "declared", source: "warehouseConcept", verdict: "matches", difference: "" }),
     ]);
   });
 

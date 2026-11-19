@@ -13,14 +13,14 @@ import { warehouseSectionRepository } from "../repositories/warehouseSection.rep
 import { readPickup } from "../services/pickupPin";
 
 // The shipments service as the tests see it; its chat records each remeasurement notice posted.
-const notices = vi.hoisted(() => ({ posted: [] as { shipmentId: string; remeasured: unknown; comparedWith: string; note?: string }[], fail: null as Error | null }));
+const notices = vi.hoisted(() => ({ posted: [] as { shipmentId: string; remeasured: unknown; comparedWith: string; source: string; note?: string }[], fail: null as Error | null }));
 vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: {
       shipmentUpdate: vi.fn(async () => ({})),
       shipmentGet: vi.fn(getShipment),
-      _internalShipmentRemeasureNotice: vi.fn(async (req: { shipmentId: string; remeasured: unknown; comparedWith: string; note?: string }) => {
+      _internalShipmentRemeasureNotice: vi.fn(async (req: { shipmentId: string; remeasured: unknown; comparedWith: string; source: string; note?: string }) => {
         if (notices.fail) throw notices.fail;
         notices.posted.push(req);
         return { commentId: randomUUID(), tagged: ["pic@firma.cz"] };
@@ -158,7 +158,7 @@ describe("sections stored per position", () => {
     notices.posted = [];
     const told = await warehouseService.informOperations(taskId, " 2 crates crushed ", c, user);
     expect(told.tagged).toEqual(["pic@firma.cz"]);
-    expect(notices.posted).toEqual([{ shipmentId, remeasured: { colli: 11, weightKg: 2750, volumeCbm: 15.84 }, comparedWith: "declared", note: "2 crates crushed" }]);
+    expect(notices.posted).toEqual([{ shipmentId, remeasured: { colli: 11, weightKg: 2750, volumeCbm: 15.84 }, comparedWith: "declared", source: "warehouseConcept", note: "2 crates crushed" }]);
     const informed = (told.row.data as Record<string, string>).inform_operations_sent;
     expect(informed).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     // A notice that cannot be posted takes the record and its History line back with it.
@@ -184,7 +184,7 @@ describe("sections stored per position", () => {
     const alone = randomUUID();
     const own = await warehouseService.informOperationsByShipment(alone, "", c, user);
     expect(own).toMatchObject({ row: { taskId: null, shipmentId: alone }, tagged: ["pic@firma.cz"] });
-    expect(notices.posted.at(-1)).toMatchObject({ shipmentId: alone, remeasured: { colli: 0, weightKg: 0, volumeCbm: 0 }, comparedWith: "dimensions" });
+    expect(notices.posted.at(-1)).toMatchObject({ shipmentId: alone, remeasured: { colli: 0, weightKg: 0, volumeCbm: 0 }, comparedWith: "dimensions", source: "warehouseConcept" });
     await expect(warehouseService.informOperationsByShipment("nope", "", c, user)).rejects.toThrow(/Not a shipment id/);
   });
 

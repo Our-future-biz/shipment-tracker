@@ -10,7 +10,7 @@ vi.mock("~encore/clients", () => ({
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn(), _internalReleaseCheck: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
-  warehouse: { _internalPickupPlates: vi.fn() },
+  warehouse: { _internalPickupPlates: vi.fn(), warehouseSectionGet: vi.fn() },
   holidays: { _internalHolidaysCzNational: vi.fn() },
 }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
@@ -48,7 +48,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
   },
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
-vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
+vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: { upsert: vi.fn() } }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({
   shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), supersede: vi.fn(), settle: vi.fn(), latestPerShipment: vi.fn(async () => new Map()), factsOfKinds: vi.fn() },
@@ -3133,5 +3133,69 @@ describe("step 6: a job created as Cancelled Shipment", () => {
     await create({ status: "Booking Confirmation Pending [DOM]", tradeDirection: "Domestic", cancelReason: "kept as typed" });
     expect(repository.createWithJobNumber).toHaveBeenCalledTimes(2);
     expect(cancelLines()).toEqual([]);
+  });
+});
+
+// Cargo Details → Accept remeasurement (lib/remeasureAccept): the warehouse's lines replace the
+// shipment's cargo figures, so lines not measured in full are never accepted.
+describe("accepting the warehouse's remeasurement", () => {
+  const job = (rows: unknown[]) => {
+    const saved = JSON.stringify(rows);
+    vi.mocked(warehouse.warehouseSectionGet).mockResolvedValue({ section: { data: { remeasure_rows: saved } } } as never);
+    return saved;
+  };
+  const MANAGER = { companyID: COMPANY, userID: USER, role: "manager" };
+  const full = { pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" };
+
+  beforeEach(() => {
+    stored.set(SHIPMENT, row({ pcs: "5", totalWeightTons: "0.1700", totalVolumeCbm: "7.2000", personInCharge: "", holidayCover: "" }));
+  });
+
+  it("is refused while a line with pieces has no kg per piece or no size, naming the line, and nothing is written", async () => {
+    const saved = job([full, { ...full, weightPerPcKg: "" }]);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, saved)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Remeasured line 2 has no kg per piece: the warehouse must measure weight and sizes of every line before it can be accepted",
+    });
+    const noHeight = job([{ ...full, heightCm: "" }]);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, noHeight)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Remeasured line 1 has no height: the warehouse must measure weight and sizes of every line before it can be accepted",
+    });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(repository.writeTurn).not.toHaveBeenCalled();
+    expect(stored.get(SHIPMENT)).toMatchObject({ totalWeightTons: "0.1700", totalVolumeCbm: "7.2000" });
+  });
+});
+
+// Costs Breakdown's "Quantities checked" after an accepted remeasurement.
+describe("the last accepted remeasurement and its Quantities checked", () => {
+  const accepted = { id: "a2", userId: JAN.id, field: "remeasurementAccepted", oldValue: JSON.stringify({ colli: 5, weightKg: 170, volumeCbm: 7.2 }), newValue: JSON.stringify({ colli: 5, weightKg: 250, volumeCbm: 34.65 }), changedAt: new Date("2026-11-18T10:00:00.000Z") };
+  const checkedFor = (acceptedAt: string, changedAt: string) => ({ id: "c1", userId: MARTIN.id, field: "remeasurementCostsChecked", oldValue: null, newValue: acceptedAt, changedAt: new Date(changedAt) });
+  const history = (checked: ReturnType<typeof checkedFor> | null) =>
+    vi.mocked(shipmentAuditRepository.listByShipmentId).mockImplementation(async (_id, _companyId, fields) => {
+      if (fields.includes("remeasurementAccepted")) return [accepted] as never;
+      return (checked ? [checked] : []) as never;
+    });
+
+  beforeEach(() => {
+    stored.set(SHIPMENT, row({ freightMode: "Air Freight" }));
+  });
+
+  it("counts the check made for this acceptance", async () => {
+    history(checkedFor("2026-11-18T10:00:00.000Z", "2026-11-18T11:00:00.000Z"));
+    expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY)).toMatchObject({
+      acceptedAt: "2026-11-18T10:00:00.000Z",
+      acceptedBy: "Jan Novák",
+      costsCheckedAt: "2026-11-18T11:00:00.000Z",
+      costsCheckedBy: "Martin Koubek",
+    });
+  });
+
+  it("does not count a check made for an earlier acceptance, even one written after this acceptance", async () => {
+    history(checkedFor("2026-11-17T09:00:00.000Z", "2026-11-18T10:00:00.050Z"));
+    expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY)).toMatchObject({ costsCheckedAt: null, costsCheckedBy: null });
+    history(null);
+    expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY)).toMatchObject({ costsCheckedAt: null });
   });
 });

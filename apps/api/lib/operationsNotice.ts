@@ -17,10 +17,16 @@ export interface RemeasuredFigures {
 /** What the screen compared the remeasured lines with (see the shipments service's lib/remeasureNotice). */
 export type ComparedWith = "dimensions" | "declared";
 
+/**
+ * The warehouse telling (the shipments service's RemeasureSource). Kept with the notice, so the
+ * shipment's Alert says where the remeasured lines are: Cargo Details accepts only the Warehouse's.
+ */
+export type RemeasureSource = "warehouse" | "warehouseConcept";
+
 /** Posts the notice; answers the e-mails tagged (empty when nobody is set to notify). */
-export async function tellOperations(shipmentId: string, remeasured: RemeasuredFigures, comparedWith: ComparedWith, note = ""): Promise<string[]> {
+export async function tellOperations(shipmentId: string, remeasured: RemeasuredFigures, comparedWith: ComparedWith, source: RemeasureSource, note = ""): Promise<string[]> {
   try {
-    const { tagged } = await shipments._internalShipmentRemeasureNotice({ shipmentId, remeasured, comparedWith, note });
+    const { tagged } = await shipments._internalShipmentRemeasureNotice({ shipmentId, remeasured, comparedWith, source, note });
     return tagged;
   } catch (err) {
     if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.notFound("Shipment not found");

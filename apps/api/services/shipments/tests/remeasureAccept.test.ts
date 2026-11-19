@@ -24,13 +24,23 @@ const saved = JSON.stringify([{ pieces: "5", lengthCm: "140", widthCm: "220", he
 
 describe("parseRemeasuredLines", () => {
   it("reads the saved lines, a decimal comma as a point", () => {
-    expect(parseRemeasuredLines(JSON.stringify([{ pieces: "2", lengthCm: "10,5", widthCm: "20", heightCm: "30", weightPerPcKg: "" }]))).toEqual([
-      { pieces: "2", lengthCm: "10.5", widthCm: "20", heightCm: "30", weightPerPcKg: "" },
+    expect(parseRemeasuredLines(JSON.stringify([{ pieces: "2", lengthCm: "10,5", widthCm: "20", heightCm: "30", weightPerPcKg: "1,5" }]))).toEqual([
+      { pieces: "2", lengthCm: "10.5", widthCm: "20", heightCm: "30", weightPerPcKg: "1.5" },
     ]);
   });
 
-  it("leaves out lines without pieces", () => {
-    expect(parseRemeasuredLines(JSON.stringify([{ pieces: "", lengthCm: "10" }, { pieces: "1", lengthCm: "10" }]))).toHaveLength(1);
+  it("leaves out lines without pieces, which need no figures", () => {
+    expect(parseRemeasuredLines(JSON.stringify([{ pieces: "", lengthCm: "10" }, { pieces: "1", lengthCm: "10", widthCm: "10", heightCm: "10", weightPerPcKg: "1" }]))).toHaveLength(1);
+  });
+
+  it("refuses a line with pieces whose weight or sizes are not measured, naming the line, so no empty weight or volume is written over the shipment's", () => {
+    const full = { pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" };
+    const rule = "the warehouse must measure weight and sizes of every line before it can be accepted";
+    expect(() => parseRemeasuredLines(JSON.stringify([full, { ...full, weightPerPcKg: "" }]))).toThrow(`Remeasured line 2 has no kg per piece: ${rule}`);
+    expect(() => parseRemeasuredLines(JSON.stringify([{ ...full, heightCm: "" }]))).toThrow(`Remeasured line 1 has no height: ${rule}`);
+    // A missing field and a 0 alike; the number is the line's in the warehouse's list, lines without pieces counted.
+    expect(() => parseRemeasuredLines(JSON.stringify([{ pieces: "" }, { pieces: "3", lengthCm: "0", weightPerPcKg: "10" }]))).toThrow(`Remeasured line 2 has no length, width or height: ${rule}`);
+    expect(() => parseRemeasuredLines(JSON.stringify([{ pieces: "3" }]))).toThrow(`Remeasured line 1 has no kg per piece, length, width or height: ${rule}`);
   });
 
   it("refuses nothing to accept, unreadable text and a figure that is not a number", () => {

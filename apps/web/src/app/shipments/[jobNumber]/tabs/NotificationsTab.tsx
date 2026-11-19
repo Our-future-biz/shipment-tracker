@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageOutlined, PaperClipOutlined, RightOutlined } from "@ant-design/icons";
 import { apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentAlerts, type RemeasureInformed } from "@/hooks/useShipmentAlerts";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { remeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { formatDateTime } from "@/lib/date";
 import { BTN_GHOST, BTN_SM, HINT } from "@/styles/ui";
@@ -22,8 +25,9 @@ interface NotificationsTabProps {
 // The shipment's Alerts: what needs the operations team's attention - a document customs declined
 // (an approved one needs nothing, and is no alert), and the warehouse's Inform Operations whose
 // remeasured figures are more or less than the shipment's (one that matches is only its chat
-// message, under Notifications). Only the fact is told, newest first: a click leads to the tab
-// where the whole of it is - Documents, or Cargo Details with the remeasurement to accept.
+// message, under Notifications). Only the fact is told, newest first: a click leads to where the
+// whole of it is - Documents, Cargo Details with the Warehouse's remeasurement to accept, or
+// Warehouse Concept for a remeasurement of its own.
 // Beside them, Notifications: the shipment's chat messages.
 export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
   const { alerts: reviewed, remeasured, isLoading, isError } = useShipmentAlerts(shipment.id);
@@ -48,7 +52,7 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
             {items.map((item) =>
               item.kind === "remeasured" ? (
                 <li key={`r-${item.r.id}`}>
-                  <RemeasuredAlert informed={item.r} onOpen={() => onOpen("cargo")} />
+                  <RemeasuredAlert informed={item.r} shipmentId={shipment.id} onOpen={() => onOpen("cargo")} />
                 </li>
               ) : (
                 <li key={item.doc.id}>
@@ -88,30 +92,59 @@ const figures = (f: RemeasureInformed["shipment"]) =>
     `${f.volumeCbm > 0 ? f.volumeCbm.toFixed(3) : "—"} CBM`,
   ].join(" · ");
 
+const ALERT_ROW = "w-full flex items-center gap-4 px-3 py-3 text-left rounded-md";
+const ALERT_LINK = `${ALERT_ROW} hover:bg-slate-50 border-0 bg-transparent cursor-pointer`;
+const OPEN_IN = "shrink-0 flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600";
+
 // One Inform Operations whose remeasured figures differ: by how much, from what to what, who told
-// and when. A click opens Cargo Details, where the remeasurement can be accepted.
-function RemeasuredAlert({ informed, onOpen }: { informed: RemeasureInformed; onOpen: () => void }) {
+// and when. The Warehouse's opens Cargo Details, where its remeasurement can be accepted. Warehouse
+// Concept keeps its remeasured lines to itself (a prototype with its own database): Cargo Details
+// neither shows nor accepts them, so its alert leads to Warehouse Concept's Remeasurement for those
+// who see the concept modules, and for everyone else only says where the lines are.
+function RemeasuredAlert({ informed, shipmentId, onOpen }: { informed: RemeasureInformed; shipmentId: string; onOpen: () => void }) {
+  const canSeeConcepts = useCanSeeConcepts();
+  const fromConcept = informed.source === "warehouseConcept";
   const against = informed.comparedWith === "declared" ? "declared" : "Cargo Details";
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="w-full flex items-center gap-4 px-3 py-3 text-left rounded-md hover:bg-slate-50 border-0 bg-transparent cursor-pointer"
-    >
+  const content = (
+    <>
       <span className="shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset bg-red-50 text-red-700 ring-red-200">Remeasured</span>
       <span className="min-w-0 flex-1">
         {/* Wrapped, not cut: the difference is the alert. */}
         <span className="block text-[14px] text-slate-900">
-          Warehouse measured <span className="font-semibold">{informed.difference}</span>
+          {fromConcept ? "Warehouse Concept" : "Warehouse"} measured <span className="font-semibold">{informed.difference}</span>
         </span>
         <span className={`block ${HINT}`} title={`${against}: ${figures(informed.shipment)} → remeasured: ${figures(informed.remeasured)}`}>
           {[`${against} ${figures(informed.shipment)} → ${figures(informed.remeasured)}`, informed.informedBy, formatDateTime(informed.informedAt)].filter(Boolean).join(" · ")}
         </span>
       </span>
-      <span className="shrink-0 flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600">
-        Open in Cargo Details <RightOutlined className="text-[10px]" />
-      </span>
-    </button>
+    </>
+  );
+
+  if (!fromConcept) {
+    return (
+      <button type="button" onClick={onOpen} className={ALERT_LINK}>
+        {content}
+        <span className={OPEN_IN}>
+          Open in Cargo Details <RightOutlined className="text-[10px]" />
+        </span>
+      </button>
+    );
+  }
+  if (canSeeConcepts) {
+    return (
+      <Link href={remeasurementHref(shipmentId)} className={`${ALERT_LINK} no-underline`}>
+        {content}
+        <span className={OPEN_IN}>
+          Open in Warehouse Concept <RightOutlined className="text-[10px]" />
+        </span>
+      </Link>
+    );
+  }
+  return (
+    <div className={ALERT_ROW} title="Remeasured in Warehouse Concept: Cargo Details shows and accepts only the Warehouse's remeasurement">
+      {content}
+      <span className={`shrink-0 ${HINT}`}>In Warehouse Concept</span>
+    </div>
   );
 }
 

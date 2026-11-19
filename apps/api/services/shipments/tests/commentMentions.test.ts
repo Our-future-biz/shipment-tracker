@@ -91,7 +91,7 @@ describe("the warehouse's remeasurement notice", () => {
   it("tags the shipment's Person in Charge and Holiday Cover as stored - the one clicking too - and says whom", async () => {
     repo.createWithHistory.mockImplementation(async (companyId, c) => ({ id: "n1", companyId, createdAt: new Date(), ...c }) as never);
     shipments.get.mockResolvedValue(shipment({ personInCharge: "me@firma.cz", holidayCover: "EVA@firma.cz" }));
-    const res = await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "dimensions", note: "" });
+    const res = await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "dimensions", source: "warehouse", note: "" });
     expect(shipments.get).toHaveBeenCalledWith("s1", "c1");
     expect(res).toEqual({ commentId: "n1", tagged: ["me@firma.cz", "eva@firma.cz"] });
     expect(repo.createWithHistory).toHaveBeenCalledWith(
@@ -110,19 +110,19 @@ describe("the warehouse's remeasurement notice", () => {
       },
       expect.any(Function),
     );
-    // Its record, for the Alerts tab: the figures compared, the remeasured ones, and the message it goes with.
+    // Its record, for the Alerts tab: the figures compared, the remeasured ones, which warehouse told, and the message it goes with.
     const history = repo.createWithHistory.mock.calls.at(-1)![2];
     expect(history("n1")).toEqual({
       field: "remeasureInformed",
       oldValue: JSON.stringify({ colli: 20, weightKg: 3000, volumeCbm: 10 }),
-      newValue: JSON.stringify({ colli: 11, weightKg: 2750, volumeCbm: 31.68, comparedWith: "dimensions", commentId: "n1" }),
+      newValue: JSON.stringify({ colli: 11, weightKg: 2750, volumeCbm: 31.68, comparedWith: "dimensions", source: "warehouse", commentId: "n1" }),
     });
   });
 
   it("posts it tagging nobody when nobody is set, and answers so", async () => {
     repo.createWithHistory.mockImplementation(async (companyId, c) => ({ id: "n2", companyId, createdAt: new Date(), ...c }) as never);
     shipments.get.mockResolvedValue(shipment({ personInCharge: "", holidayCover: "someone@else.com" }));
-    const res = await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "declared", note: "two crates crushed" });
+    const res = await commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "declared", source: "warehouseConcept", note: "two crates crushed" });
     expect(res.tagged).toEqual([]);
     expect(repo.createWithHistory).toHaveBeenCalledWith("c1", expect.objectContaining({ mentionedUserIds: [], message: expect.stringContaining("Note: two crates crushed") }), expect.any(Function));
   });
@@ -131,11 +131,11 @@ describe("the warehouse's remeasurement notice", () => {
     repo.createWithHistory.mockClear();
     shipments.get.mockResolvedValue(shipment({ personInCharge: "me@firma.cz", holidayCover: "" }));
     vi.mocked(companyUsers).mockRejectedValueOnce(new Error("auth down"));
-    await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "dimensions", note: "" })).rejects.toThrow("auth down");
-    await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured: { colli: -1, weightKg: 0, volumeCbm: 0 }, comparedWith: "dimensions", note: "" })).rejects.toThrow(
+    await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "dimensions", source: "warehouse", note: "" })).rejects.toThrow("auth down");
+    await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured: { colli: -1, weightKg: 0, volumeCbm: 0 }, comparedWith: "dimensions", source: "warehouse", note: "" })).rejects.toThrow(
       expect.objectContaining({ code: "invalid_argument" }),
     );
-    await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "gate", note: "" })).rejects.toThrow(/comparedWith/);
+    await expect(commentService.postRemeasureNotice("s1", "c1", "u-me", { remeasured, comparedWith: "gate", source: "warehouse", note: "" })).rejects.toThrow(/comparedWith/);
     expect(repo.createWithHistory).not.toHaveBeenCalled();
   });
 });

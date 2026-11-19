@@ -120,6 +120,17 @@ describe("only shipments of the master job's filling (Load Type)", () => {
     });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
+
+  it("lets a save that sends the master job's Load Type back go through, leaving a house of another filling as it is", async () => {
+    repository.getByIdForCompany.mockResolvedValue(consol as never);
+    // Linked before the rule: a Full Load house on a Consolidation master job.
+    vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([{ id: S, jobNumber: "CZFCL00000019", loadType: "Full Load" }] as never);
+    service.update = vi.fn();
+    await expect(update({ loadType: "Consolidation", vessel: "ONE RELIABILITY" })).resolves.toMatchObject({ mczNumber: "MCZCONSOL00000001" });
+    expect(written()).not.toHaveProperty("loadType");
+    expect(written()).toMatchObject({ vessel: "ONE RELIABILITY" });
+    expect(service.update).toHaveBeenCalledWith(S, COMPANY, { vessel: "ONE RELIABILITY" }, USER, undefined, "master_job");
+  });
 });
 
 describe("the MBL Shipper and Consignee", () => {

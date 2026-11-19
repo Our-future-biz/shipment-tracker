@@ -15,13 +15,15 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { BTN_BAR_PRIMARY, HINT } from "@/styles/ui";
 import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { RemeasureCompare, figuresCompared, figuresDiffer, type CargoFigures } from "./warehouse/RemeasureCompare";
-import { figuresText, lineCbm, readRemeasuredLines, remeasuredFigures } from "./warehouse/remeasuredLines";
+import { figuresText, lineCbm, readRemeasuredLines, remeasuredFigures, unmeasuredReason } from "./warehouse/remeasuredLines";
 
 // Cargo Details' view of the warehouse's remeasurement (owner decision, 18 Nov 2026): the lines the
 // warehouse saved (Warehouse → Shipment Details → Dimensions / Remeasurement), read-only, against
 // the dimension lines here, with the same Compared table. Accepting it is never automatic: who may
 // change the shipment's details clicks "Accept remeasurement", and the warehouse's lines replace
-// the dimension lines, Pcs, Total Weight and Total Volume (the description lines stay).
+// the dimension lines, Pcs, Total Weight and Total Volume (the description lines stay). Only lines
+// measured in full can be accepted: a line with pieces but no kg per piece or no size would empty
+// the shipment's weight or volume, so Accept waits, saying which line (the API refuses it too).
 
 const cell = (v: string) => v || "—";
 
@@ -36,6 +38,7 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
   const informedAt = typeof job.inform_operations_sent === "string" ? job.inform_operations_sent : "";
   const lines = useMemo(() => readRemeasuredLines(saved), [saved]);
   const re = useMemo(() => remeasuredFigures(lines), [lines]);
+  const unmeasured = useMemo(() => unmeasuredReason(saved), [saved]);
   const ship = useMemo<CargoFigures>(() => {
     const t = dimensionTotals(shipment.cargoDimensions ?? []);
     return { colli: t.pcs, weightKg: t.kg, volumeCbm: t.m3 };
@@ -50,7 +53,7 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
     ? "Only the user in Handled By or Holiday Cover, or a manager, can accept the remeasurement"
     : lines.length === 0
       ? "The warehouse has no remeasured lines saved"
-      : null;
+      : unmeasured;
 
   const onAccept = async () => {
     try {

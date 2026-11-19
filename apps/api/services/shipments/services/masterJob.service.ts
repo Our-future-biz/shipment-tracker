@@ -277,6 +277,9 @@ class MasterJobService {
       throw APIError.failedPrecondition(`Load Type is already ${existing.loadType} and can't be changed`);
     }
     const clean: Record<string, unknown> = { ...data };
+    // The same Load Type sent back is no change: it is not written onto the houses again, where it
+    // would turn a house of another filling (linked before the rule) into this one.
+    if (existing.loadType.trim() && clean.loadType === existing.loadType) delete clean.loadType;
     await resolveParties(clean);
     await this.checkPeople(existing, clean, editor);
     assertTimes(clean);
@@ -295,8 +298,9 @@ class MasterJobService {
     const synced = syncedShipmentData(existing, clean);
     const houses = Object.keys(synced).length > 0 ? await shipmentRepository.findByMasterJobId(id, companyId) : [];
     // The Load Type is written onto the houses: one of another filling would be turned into this one
-    // (lib/masterJobKind). Only a first Load Type gets here - it locks once set.
-    const kindProblem = data.loadType ? loadTypeKindProblem(existing.mczNumber, data.loadType, houses) : null;
+    // (lib/masterJobKind). Checked for a first Load Type only - it locks once set, and the same one
+    // sent back (a document reading's MBL save sends it again) is no change to check.
+    const kindProblem = !existing.loadType.trim() && data.loadType ? loadTypeKindProblem(existing.mczNumber, data.loadType, houses) : null;
     if (kindProblem) throw APIError.failedPrecondition(kindProblem);
     const locked = await this.invoicedTaxDateChanges(houses, synced);
     if (locked.length > 0) {

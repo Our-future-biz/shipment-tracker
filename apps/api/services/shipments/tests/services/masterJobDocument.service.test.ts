@@ -188,7 +188,8 @@ describe("downloading the linked shipments' documents in one ZIP", () => {
   const S1 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c11";
   const S2 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c12";
   const S3 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c13";
-  const bl = (id: string, shipmentId: string, fileName: string, storageKey: string | null = `${shipmentId}/${id}`) => ({ id, shipmentId, fileName, storageKey });
+  const bl = (id: string, shipmentId: string, fileName: string, storageKey: string | null = `${shipmentId}/${id}`, fileSize = 1_000) => ({ id, shipmentId, fileName, storageKey, fileSize });
+  const MB = 1024 * 1024;
 
   beforeEach(() => {
     masterJobs.getByIdForCompany.mockResolvedValue({ id: MJ, mczNumber: "MCZFULL00000006" });
@@ -230,6 +231,26 @@ describe("downloading the linked shipments' documents in one ZIP", () => {
     const { unzipSync } = await import("fflate");
     const files = unzipSync(new Uint8Array(Buffer.from(res.file!.fileBase64, "base64")));
     expect(Object.keys(files)).toEqual(["CZFCL00000060/Invoice 12.pdf", "CZFCL00000060/PL.xlsx", "CZFCL00000061/Invoice 77.pdf"]);
+  });
+
+  it("is refused before anything is downloaded when the stored files come to more than 100 MB", async () => {
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a1", S1, "Invoice.pdf", undefined, 60 * MB), bl("a2", S2, "Scan.pdf", undefined, 50 * MB)]);
+    await expect(masterJobDocumentService.commercialPaperwork(MJ, "c1")).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "These documents come to 110 MB, more than 100 MB in one download: download them per shipment",
+    });
+    expect(attachmentBucket.download).not.toHaveBeenCalled();
+  });
+
+  it("stops downloading once files stored without a size pass 100 MB", async () => {
+    attachments.listByShipmentIdsOfTypes.mockResolvedValue([bl("a1", S1, "A.pdf", undefined, 0), bl("a2", S1, "B.pdf", undefined, 0), bl("a3", S2, "C.pdf", undefined, 0)]);
+    // Only the size of what comes down is read before the ZIP is made.
+    attachmentBucket.download.mockImplementation(async () => ({ length: 60 * MB }));
+    await expect(masterJobDocumentService.commercialPaperwork(MJ, "c1")).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "These documents come to more than 100 MB in one download: download them per shipment",
+    });
+    expect(attachmentBucket.download).toHaveBeenCalledTimes(2);
   });
 
   it("is refused for a master job of another company, and for an id that is none", async () => {

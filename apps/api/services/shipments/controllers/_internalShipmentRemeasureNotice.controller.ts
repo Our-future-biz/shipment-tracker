@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { commentService } from "../services/comment.service";
-import type { RemeasureFigures, RemeasureNoticeResult } from "../interfaces/interfaces";
+import type { RemeasureFigures, RemeasureNoticeResult, RemeasureSource } from "../interfaces/interfaces";
 
 interface RemeasureNoticeRequest {
   shipmentId: string;
@@ -12,6 +12,8 @@ interface RemeasureNoticeRequest {
    * cargo dimension lines) or "declared" (its pieces, weight and volume).
    */
   comparedWith: string;
+  /** The warehouse informing: "warehouse" (Shipments → Warehouse) or "warehouseConcept". */
+  source: RemeasureSource;
   /** Typed with Inform Operations; "" or left out for none. */
   note?: string;
 }
@@ -29,6 +31,7 @@ export const _internalShipmentRemeasureNotice = api(
     return commentService.postRemeasureNotice(req.shipmentId, auth.companyID, auth.userID, {
       remeasured: req.remeasured,
       comparedWith: req.comparedWith,
+      source: req.source,
       note: req.note ?? "",
     });
   },

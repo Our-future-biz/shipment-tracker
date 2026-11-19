@@ -709,10 +709,18 @@ export interface RemeasureInformedItem {
   remeasured: RemeasureFigures;
   /** "dimensions": the shipment's cargo dimension lines (Shipments → Warehouse); "declared": its Pcs, weight and volume (Warehouse Concept). */
   comparedWith: string;
+  /**
+   * Which warehouse informed: the Warehouse, whose remeasured lines Cargo Details shows and accepts,
+   * or Warehouse Concept, whose lines stay in Warehouse Concept.
+   */
+  source: RemeasureSource;
   verdict: "differs" | "matches" | "unknown";
   /** "weight +200.0 kg · volume +5.332 CBM"; "" when nothing differs. */
   difference: string;
 }
+
+/** The warehouse a remeasurement comes from: the Warehouse, or the Warehouse Concept prototype. */
+export type RemeasureSource = "warehouse" | "warehouseConcept";
 
 /** The warehouse's "Cargo has been remeasured" notice, as posted to a shipment's chat. */
 export interface RemeasureNoticeResult {

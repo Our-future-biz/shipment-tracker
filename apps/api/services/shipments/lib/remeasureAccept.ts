@@ -30,13 +30,31 @@ export interface RemeasuredLine {
 
 const FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
 const LABELS: Record<(typeof FIELDS)[number], string> = { pieces: "Qty", lengthCm: "length", widthCm: "width", heightCm: "height", weightPerPcKg: "kg per piece" };
+/** What the warehouse must have measured on every line with pieces before it can be accepted. */
+const MEASURED = ["weightPerPcKg", "lengthCm", "widthCm", "heightCm"] as const;
 
 const round = (n: number, decimals: number) => Math.round(n * 10 ** decimals) / 10 ** decimals;
 
+/** "length", "length or width", "length, width or height". */
+const orList = (words: readonly string[]) => (words.length < 2 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`);
+
+/**
+ * Why a remeasured line with pieces can't be accepted, or null: it lacks its kg per piece or one
+ * of its sizes (empty or 0). Accepted, such a line would write an empty weight or volume over the
+ * shipment's. `line`: its number in the warehouse's list. The web holds the same rule
+ * (apps/web/src/app/shipments/[jobNumber]/tabs/warehouse/remeasuredLines.ts).
+ */
+export function unmeasuredProblem(l: RemeasuredLine, line: number): string | null {
+  const missing = MEASURED.filter((f) => !(cargoNum(l[f]) > 0)).map((f) => LABELS[f]);
+  if (missing.length === 0) return null;
+  return `Remeasured line ${line} has no ${orList(missing)}: the warehouse must measure weight and sizes of every line before it can be accepted`;
+}
+
 /**
  * The warehouse's saved lines (its `remeasure_rows` text), each checked: whole pieces above 0 and
- * plain numbers (a decimal comma read as a point). Throws a message naming the line otherwise, and
- * when there is no line with pieces - nothing to accept.
+ * plain numbers (a decimal comma read as a point), and every line with pieces measured in full -
+ * kg per piece, length, width and height. Throws a message naming the line otherwise, and when
+ * there is no line with pieces - nothing to accept.
  */
 export function parseRemeasuredLines(raw: string): RemeasuredLine[] {
   let list: unknown;
@@ -59,9 +77,13 @@ export function parseRemeasuredLines(raw: string): RemeasuredLine[] {
     if (line.pieces && !Number.isInteger(Number(line.pieces))) throw new Error(`Remeasured line ${i + 1}: Qty must be a whole number`);
     return line;
   });
-  const counted = lines.filter((l) => cargoNum(l.pieces) > 0);
+  const counted = lines.map((l, i) => ({ l, line: i + 1 })).filter(({ l }) => cargoNum(l.pieces) > 0);
   if (counted.length === 0) throw new Error("The warehouse has saved no remeasured lines with pieces: there is nothing to accept");
-  return counted;
+  for (const { l, line } of counted) {
+    const problem = unmeasuredProblem(l, line);
+    if (problem) throw new Error(problem);
+  }
+  return counted.map(({ l }) => l);
 }
 
 /** Pieces, kg (0.1) and m³ (0.001) of cargo dimension lines or remeasured lines. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { diffText, figuresCompared, figuresDiffer } from "./RemeasureCompare";
-import { figuresText, readRemeasuredLines, remeasuredFigures } from "./remeasuredLines";
+import { figuresText, readRemeasuredLines, remeasuredFigures, unmeasuredReason } from "./remeasuredLines";
 
 // CZAIR00000094: Cargo Details 5 × 120×80×150 cm, 170 kg; the warehouse 5 × 140×220×225 cm, 50 kg each.
 const saved = JSON.stringify([{ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" }]);
@@ -19,6 +19,23 @@ describe("readRemeasuredLines", () => {
     expect(readRemeasuredLines("{")).toEqual([]);
     expect(readRemeasuredLines('{"a":1}')).toEqual([]);
     expect(readRemeasuredLines("[null, 3]")).toEqual([]);
+  });
+});
+
+describe("unmeasuredReason", () => {
+  const full = { pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" };
+  const rule = "the warehouse must measure weight and sizes of every line before it can be accepted";
+
+  it("lets lines measured in full be accepted, lines without pieces needing no figures", () => {
+    expect(unmeasuredReason(saved)).toBeNull();
+    expect(unmeasuredReason(JSON.stringify([{ pieces: "", lengthCm: "1" }, { ...full, weightPerPcKg: "1,5" }]))).toBeNull();
+    expect(unmeasuredReason(undefined)).toBeNull();
+  });
+
+  it("names the first line with pieces that lacks its weight or a size, numbered as in the warehouse's list", () => {
+    expect(unmeasuredReason(JSON.stringify([full, { ...full, weightPerPcKg: "" }]))).toBe(`Remeasured line 2 has no kg per piece: ${rule}`);
+    expect(unmeasuredReason(JSON.stringify([{ pieces: "" }, { pieces: 3, lengthCm: "0", weightPerPcKg: 10 }]))).toBe(`Remeasured line 2 has no length, width or height: ${rule}`);
+    expect(unmeasuredReason(JSON.stringify([{ pieces: "3" }]))).toBe(`Remeasured line 1 has no kg per piece, length, width or height: ${rule}`);
   });
 });
 

@@ -216,9 +216,11 @@ describe("containers", () => {
 });
 
 describe("expected today", () => {
-  it("follows the dock slot, the ETA, the trip's arrival and an ETW, by Prague day", () => {
+  it("follows the dock slot, the ETA, the shipment's ETA Warehouse/HUB, the trip's arrival and an ETW, by Prague day", () => {
     const exp = (over: Partial<GateMovementItem>) => item({ status: "Expected", ...over });
     expect(isExpectedToday(exp({ eta: "2026-10-23" }), TODAY)).toBe(true);
+    expect(isExpectedToday(exp({ eta: "2026-10-20", etaWarehouse: "2026-10-23" }), TODAY)).toBe(true);
+    expect(isExpectedToday(exp({ etaWarehouse: "2026-10-24" }), TODAY)).toBe(false);
     // 22:30 UTC on the 22nd is already the 23rd in Prague.
     expect(isExpectedToday(exp({ eta: "2026-10-22T22:30:00Z" }), TODAY)).toBe(true);
     expect(isExpectedToday(exp({ eta: "2026-10-24" }), TODAY)).toBe(false);
@@ -252,6 +254,14 @@ describe("the cockpit", () => {
     const held = item({ openExceptions: 2 });
     const c = buildCockpit(input({ items: [inside, walkIn, held] }));
     expect(c.tiles).toMatchObject({ inWarehouse: 2, chargeable: 1, chargeableCzk: 240, onHold: 1, needsAttention: 1 });
+  });
+
+  it("counts Expected today as the chip it opens: a position expected today only by its shipment's ETA Warehouse/HUB is counted", () => {
+    const byEtaWarehouse = item({ status: "Expected", eta: "2026-10-20", etaWarehouse: TODAY });
+    const later = item({ status: "Expected", eta: "2026-10-20", etaWarehouse: "2026-10-24" });
+    const arrived = item({ status: "Expected", etaWarehouse: TODAY, gateIn: hoursAgo(1) });
+    const walkIn = item({ status: "Expected", etaWarehouse: TODAY, warehouseTaskId: null });
+    expect(buildCockpit(input({ items: [byEtaWarehouse, later, arrived, walkIn] })).tiles.expectedToday).toBe(1);
   });
 
   it("lists containers with their own rows", () => {

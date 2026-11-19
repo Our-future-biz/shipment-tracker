@@ -1918,7 +1918,9 @@ class ShipmentService {
       const u = users.find((x) => x.id === userId);
       return u ? u.displayName || u.email : "";
     };
-    const costsChecked = checked && checked.changedAt >= accepted.changedAt ? checked : null;
+    // A check names the acceptance it was made for (its new value, markRemeasureCostsChecked), so
+    // one made for an earlier acceptance never counts for a later one, whenever it was written.
+    const costsChecked = checked && checked.newValue === iso(accepted.changedAt) ? checked : null;
     return {
       acceptedAt: iso(accepted.changedAt)!,
       acceptedBy: nameOf(accepted.userId),

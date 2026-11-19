@@ -52,8 +52,24 @@ export function shipmentDocEntryNames(files: Pick<ShipmentDocFile, "jobNumber" |
   });
 }
 
-/** The files as one ZIP. */
+/**
+ * The most one download holds. The ZIP is built in memory and goes back base64 in the response,
+ * so a master job whose files come to more is downloaded per shipment instead.
+ */
+export const SHIPMENT_DOCS_ZIP_MAX_BYTES = 100 * 1024 * 1024;
+
+/** Why the files can't go in one download, or null: together they come to more than the cap. */
+export function shipmentDocsTooLarge(totalBytes: number): string | null {
+  if (totalBytes <= SHIPMENT_DOCS_ZIP_MAX_BYTES) return null;
+  const mb = SHIPMENT_DOCS_ZIP_MAX_BYTES / (1024 * 1024);
+  return `These documents come to ${Math.ceil(totalBytes / (1024 * 1024))} MB, more than ${mb} MB in one download: download them per shipment`;
+}
+
+/**
+ * The files as one ZIP. Stored, not deflated (level 0): PDFs and images are compressed already,
+ * and deflating them would hold up the event loop for nothing.
+ */
 export function shipmentDocsZip(files: ShipmentDocFile[], layout: ShipmentDocsDownload["layout"]): Buffer {
   const names = shipmentDocEntryNames(files, layout);
-  return Buffer.from(zipSync(Object.fromEntries(files.map((f, i) => [names[i], f.bytes]))));
+  return Buffer.from(zipSync(Object.fromEntries(files.map((f, i) => [names[i], f.bytes])), { level: 0 }));
 }

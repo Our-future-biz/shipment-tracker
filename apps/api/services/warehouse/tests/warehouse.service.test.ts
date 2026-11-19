@@ -120,7 +120,7 @@ describe("Inform Operations", () => {
     notice.tellOperations.mockResolvedValueOnce(["pic@firma.cz"]);
     const res = await warehouseService.informOperations(SHIPMENT, COMPANY, "");
     expect(sections.patchKeys).toHaveBeenCalledWith(SHIPMENT, "job", COMPANY, [{ key: "inform_operations_sent", value: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), expected: "" }], expect.any(Function));
-    expect(notice.tellOperations).toHaveBeenCalledWith(SHIPMENT, { colli: 11, weightKg: 2750, volumeCbm: 15.84 }, "dimensions");
+    expect(notice.tellOperations).toHaveBeenCalledWith(SHIPMENT, { colli: 11, weightKg: 2750, volumeCbm: 15.84 }, "dimensions", "warehouse");
     expect(res.tagged).toEqual(["pic@firma.cz"]);
   });
 
