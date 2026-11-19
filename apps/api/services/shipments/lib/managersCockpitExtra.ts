@@ -5,6 +5,8 @@ import {
   DANGEROUS_ATTENTION_DAYS,
   DANGEROUS_URGENT_DAYS,
   DECLINED_NOT_REPLACED_HOURS,
+  DELIVERY_ORDER_ATTENTION_WORKING_DAYS,
+  DELIVERY_ORDER_URGENT_WORKING_DAYS,
   ETA_PASSED_KEPT_DAYS,
   IMPORT_INSTRUCTIONS_ANSWER_WORKING_DAYS,
   IMPORT_INSTRUCTIONS_OPEN_DAYS,
@@ -29,6 +31,7 @@ import {
 import type { OpsSignal } from "./managersCockpit";
 import type { RemeasureVerdict } from "./remeasureNotice";
 import { CUSTOMS_DOCUMENT_TYPES, SAFETY_PAPERWORK_TYPES, documentTypeLabel, isReviewedDocumentType, missingDocumentTypes } from "./requiredDocuments";
+import { workingDaysSince } from "./trackingAttention";
 import { CUSTOMS_CLEARED, freightKindOf, isTruckingJob } from "./trackingEvents";
 
 // The operations managers' cockpit (Shipments → Managers, Council Outlay 11, step 2): the signals
@@ -69,6 +72,14 @@ export interface ExtraJob {
   shippingInstructions: string | null;
   bolDraft: string | null;
   masterBolType: string | null;
+  /**
+   * The import's B/L in hand (step 6, D31). Left out (undefined) when the row read does not carry
+   * them: then the original B/L counts as not in hand, as before, and the delivery order is not
+   * known - no "no delivery order" tag. null: no such day.
+   */
+  originalsReceivedDate?: string | null;
+  telexReleaseReceivedDate?: string | null;
+  deliveryOrderDate?: string | null;
   /** "Yes" for dangerous goods. */
   dangerous: string | null;
   masterJobId: string | null;
@@ -159,10 +170,14 @@ export interface ExtraSignals {
 export const EXTRA_RANK = {
   paperworkUrgent: 3,
   originalBl: 4,
+  // Step 6: after the original B/L and the filings it sits with, before the Closing (45 on OPS_RANK's scale).
+  deliveryOrderUrgent: 4.5,
   dangerousUrgent: 5,
   request: 6,
   remeasureUrgent: 7,
   paperworkAhead: 28,
+  // Step 6: a clock that runs from the arrival, with the paperwork of one (285).
+  deliveryOrder: 28.5,
   declinedNotReplaced: 29,
   notReviewed: 30,
   dangerousAhead: 31,
@@ -344,13 +359,43 @@ export function paperworkSignals(
 /**
  * An import ORIGINAL_BL_URGENT_DAYS from its ETA whose Master BoL Type is still "OBL": an original
  * that is not in hand ("OMBL ok" is one that is; a Telex release or a Sea Waybill needs none).
- * Without it the cargo is not released.
+ * Without it the cargo is not released. A day typed in Originals Received or Telex Release
+ * Received says it is in hand (step 6, D31), whatever the type still reads.
  */
-export function originalBlSignals(job: Pick<ExtraJob, "tradeDirection" | "masterBolType" | "estimatedArrival" | "actualArrival" | "actualDeliveryDate">, today: string): ExtraSignal[] {
+export function originalBlSignals(
+  job: Pick<ExtraJob, "tradeDirection" | "masterBolType" | "estimatedArrival" | "actualArrival" | "actualDeliveryDate" | "originalsReceivedDate" | "telexReleaseReceivedDate">,
+  today: string,
+): ExtraSignal[] {
   if (!isImport(job) || text(job.masterBolType).toUpperCase() !== "OBL") return [];
+  if (dayOf(job.originalsReceivedDate) || dayOf(job.telexReleaseReceivedDate)) return [];
   const days = arrivingIn(job, today);
   if (days === null || days > ORIGINAL_BL_URGENT_DAYS) return [];
   return [signal(true, EXTRA_RANK.originalBl, "bl", "details", `Master BoL is an OBL, not in hand · ${arrivingWords(job, today)}`)];
+}
+
+/**
+ * A sea or rail import that arrived (its ATA) and is not delivered, with no Delivery Order date
+ * (step 6): the cargo can't be collected. ATTENTION once DELIVERY_ORDER_ATTENTION_WORKING_DAYS
+ * working days have passed since the ATA, URGENT at DELIVERY_ORDER_URGENT_WORKING_DAYS. Only an
+ * arrival within the last ETA_PASSED_KEPT_DAYS calendar days is judged: an older one gives no tag -
+ * the Delivery Order date is new (step 6), no job had it before, and a job that arrived weeks ago
+ * has been collected or is stuck for reasons this tag does not say. Nothing either when the row did
+ * not carry the date (undefined): not known is no tag.
+ */
+export function deliveryOrderSignals(
+  job: Pick<ExtraJob, "tradeDirection" | "freightMode" | "department" | "actualArrival" | "actualDeliveryDate" | "deliveryOrderDate">,
+  today: string,
+  holidays: readonly string[],
+): ExtraSignal[] {
+  if (job.deliveryOrderDate === undefined || dayOf(job.deliveryOrderDate) || !isImport(job) || dayOf(job.actualDeliveryDate)) return [];
+  const kind = freightKindOf(job);
+  if (kind !== "sea" && kind !== "rail") return [];
+  const arrived = dayOf(job.actualArrival);
+  if (!arrived || arrived > today || daysBetween(arrived, today) > ETA_PASSED_KEPT_DAYS) return [];
+  const waited = workingDaysSince(arrived, today, holidays);
+  if (waited < DELIVERY_ORDER_ATTENTION_WORKING_DAYS) return [];
+  const words = `Arrived ${dm(arrived)}, no delivery order`;
+  return waited >= DELIVERY_ORDER_URGENT_WORKING_DAYS ? [signal(true, EXTRA_RANK.deliveryOrderUrgent, "bl", "details", words)] : [signal(false, EXTRA_RANK.deliveryOrder, "bl", "details", words)];
 }
 
 // ─── A6: documents waiting for customs, declined and not replaced ─────────

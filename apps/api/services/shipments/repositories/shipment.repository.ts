@@ -18,6 +18,11 @@ import { shipmentEventOutboxTable } from "../schemas/shipmentEventOutbox.schema"
 import { containsAllWords, escapeLike, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
 import { JOB_NUMBER_PATTERN, referenceSearchDigits } from "../../../lib/jobNumber";
 import type { PeopleRewrite, ShipmentPeople } from "../lib/people";
+import type { LinkedPersonField, UserIdField, UserLinkPlan } from "../lib/userLinks";
+
+// lib/userLinks USER_ID_FIELDS, written again: that file reads lib/personPick, which loads the Encore
+// runtime - the repository stays free of it (its tests run without one).
+const USER_ID_COLUMN = { personInCharge: "personInChargeUserId", holidayCover: "holidayCoverUserId" } as const satisfies Record<LinkedPersonField, UserIdField>;
 import { plainSalesReference } from "../../../lib/salesReference";
 import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
 import { BILL_OF_LADING_KEY_PATTERN, billOfLadingKey } from "../../../lib/billOfLading";
@@ -1152,6 +1157,9 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         closingTime: shipmentTable.closingTime,
         masterBolNumber: shipmentTable.masterBolNumber,
         masterBolType: shipmentTable.masterBolType,
+        originalsReceivedDate: shipmentTable.originalsReceivedDate,
+        telexReleaseReceivedDate: shipmentTable.telexReleaseReceivedDate,
+        deliveryOrderDate: shipmentTable.deliveryOrderDate,
         houseBolType: shipmentTable.houseBolType,
         houseBolRelease: shipmentTable.houseBolRelease,
         bolDraft: shipmentTable.bolDraft,
@@ -1243,6 +1251,9 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         closingTime: shipmentTable.closingTime,
         masterBolNumber: shipmentTable.masterBolNumber,
         masterBolType: shipmentTable.masterBolType,
+        originalsReceivedDate: shipmentTable.originalsReceivedDate,
+        telexReleaseReceivedDate: shipmentTable.telexReleaseReceivedDate,
+        deliveryOrderDate: shipmentTable.deliveryOrderDate,
         houseBolType: shipmentTable.houseBolType,
         houseBolRelease: shipmentTable.houseBolRelease,
         bolDraft: shipmentTable.bolDraft,
@@ -1377,6 +1388,43 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
       .returning({ jobNumber: shipmentTable.jobNumber });
     return row?.jobNumber ?? null;
+  }
+
+  /**
+   * The distinct values the company's live shipments hold in Handled By and in Holiday Cover: what the
+   * backfill of their users' ids (services/shipmentUserLinks.service) works out an id for - a few
+   * dozen people, not a row per job.
+   */
+  async personValuesOf(companyId: string): Promise<{ field: LinkedPersonField; value: string }[]> {
+    const live = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
+    const [handledBy, covers] = await Promise.all([
+      this.db.selectDistinct({ value: shipmentTable.personInCharge }).from(shipmentTable).where(live),
+      this.db.selectDistinct({ value: shipmentTable.holidayCover }).from(shipmentTable).where(live),
+    ]);
+    return [...handledBy.map((r) => ({ field: "personInCharge" as const, value: r.value })), ...covers.map((r) => ({ field: "holidayCover" as const, value: r.value }))];
+  }
+
+  /**
+   * Sets the user id beside a person field on the company's live shipments that still hold `value`
+   * there and carry another id, in one transaction: an edit made since the read (which sets its own
+   * id) is kept. updatedAt is left as it is - nobody edited the shipments, and no history line: the
+   * e-mail means the same person as before. Returns the jobs changed.
+   */
+  async setUserLinks(companyId: string, plans: readonly UserLinkPlan[]): Promise<number> {
+    if (!plans.length) return 0;
+    return this.db.transaction(async (tx) => {
+      const ids = new Set<string>();
+      for (const { field, value, userId } of plans) {
+        const column = shipmentTable[USER_ID_COLUMN[field]];
+        const rows = await tx
+          .update(shipmentTable)
+          .set({ [USER_ID_COLUMN[field]]: userId })
+          .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), eq(shipmentTable[field], value), sql`${column} IS DISTINCT FROM ${userId}::uuid`))
+          .returning({ id: shipmentTable.id });
+        for (const r of rows) ids.add(r.id);
+      }
+      return ids.size;
+    });
   }
 
   /** The columns that name people, of the company's live shipments: what the people backfill reads. */

@@ -36,6 +36,11 @@ export const shipmentTable = pgTable(
     // Who released the house BoL and when; empty until it is released.
     houseBolRelease: text("house_bol_release").notNull().default(""),
     masterBolType: text("master_bol_type").notNull().default(""),
+    // The import's B/L in hand (D31): the day the original bills arrived, the day the telex release
+    // came, and the day the delivery order was issued; null until then.
+    originalsReceivedDate: date("originals_received_date", { mode: "string" }),
+    telexReleaseReceivedDate: date("telex_release_received_date", { mode: "string" }),
+    deliveryOrderDate: date("delivery_order_date", { mode: "string" }),
     vessel: text("vessel").notNull().default(""),
     voyage: text("voyage").notNull().default(""),
     pcs: text("pcs").notNull().default(""),
@@ -62,6 +67,14 @@ export const shipmentTable = pgTable(
     department: text("department").notNull().default(""),
     personInCharge: text("person_in_charge").notNull().default(""),
     holidayCover: text("holiday_cover").notNull().default(""),
+    // The user Handled By / Holiday Cover names, by id (auth service, another database: no FK). Never
+    // typed: set on every write of the e-mail when it is an active user of the company (lib/userLinks),
+    // and filled for older rows by the daily backfill (crons/shipmentUserLinks.cron.ts). It outlives a
+    // deactivation, so the cockpit can tell a user who left from a name that was never one.
+    personInChargeUserId: uuid("person_in_charge_user_id"),
+    holidayCoverUserId: uuid("holiday_cover_user_id"),
+    // Why the job was cancelled (D22): required in the write that sets status Cancelled Shipment; kept when it is un-cancelled.
+    cancelReason: text("cancel_reason").notNull().default(""),
 
     // — Customer —
     // Links the party fields to CRM customers (crm/customers service). Cross-database,

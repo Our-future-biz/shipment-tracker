@@ -1,7 +1,7 @@
 import type { OpsCockpitDirection, OpsCockpitFilter, OpsCockpitMode, OpsCockpitReports, OpsCockpitRow, OpsCockpitTiles } from "@/hooks/useShipmentsManagersCockpit";
 
 // Shipments → Managers keeps what it shows in its address - the tab (?tab=team, ?tab=money,
-// ?tab=approvals), the mode (?mode=), the Trade Direction (?direction=), the Handled By person
+// ?tab=approvals, ?tab=settings), the mode (?mode=), the Trade Direction (?direction=), the Handled By person
 // (?handledBy=), "My reports" (?reports=mine), the signal the Cockpit's cards are narrowed to
 // (?signal=, read by _lib/cockpitSignals) and the one the Money tab's cards are (?msignal=, read by
 // _lib/cockpitMoney) - so it survives a reload and can be linked to. This file reads that address,
@@ -32,7 +32,9 @@ export const OPS_DIRECTIONS: { value: OpsCockpitDirection; label: string }[] = [
 /** A row's mode in words; "" for a job with no Freight Mode (it gets no chip). */
 export const modeLabel = (mode: string): string => OPS_MODES.find((m) => m.key !== "all" && m.key === mode)?.label ?? "";
 
-export type ShipmentsManagersTab = "cockpit" | "team" | "money" | "approvals";
+export type ShipmentsManagersTab = "cockpit" | "team" | "money" | "approvals" | "settings";
+
+const TABS: readonly ShipmentsManagersTab[] = ["cockpit", "team", "money", "approvals", "settings"];
 
 /** The Handled By filter's value for the jobs nobody handles, in the address and in the request. */
 export const NOBODY = "nobody";
@@ -41,7 +43,7 @@ export const NOBODY = "nobody";
 export const EVERYONE = "everyone";
 
 /** The tab an address names, or the cockpit. */
-export const tabOf = (value: string | null): ShipmentsManagersTab => (value === "approvals" || value === "team" || value === "money" ? value : "cockpit");
+export const tabOf = (value: string | null): ShipmentsManagersTab => TABS.find((t) => t === value) ?? "cockpit";
 
 /** The mode an address names, or All. */
 export const modeOf = (value: string | null): OpsCockpitMode => OPS_MODES.find((m) => m.key === value)?.key ?? "all";

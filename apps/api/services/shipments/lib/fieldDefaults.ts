@@ -97,6 +97,17 @@ export function actionStamp(actor: string, at: Date): string {
 // A cancelled shipment stays in the grid but drops out of every count, deadline and warning.
 export const CANCELLED_STATUS = "Cancelled Shipment";
 
+// Why a job is cancelled (Council Outlay 11, D22): the write that cancels it says so - by a person
+// or by the app. Changing the reason of a job already cancelled, or un-cancelling one, asks nothing
+// (the reason stays on record).
+export const CANCEL_REASON_REFUSAL = "Say why the shipment is cancelled";
+
+/** Why this write may not set the status, or null when it may: one that cancels a job that was not cancelled needs a reason in the same write. */
+export function cancelReasonRefusal(statusBefore: string | null | undefined, statusAfter: string | null | undefined, reasonSent: unknown): string | null {
+  const cancels = (statusAfter ?? "").trim() === CANCELLED_STATUS && (statusBefore ?? "").trim() !== CANCELLED_STATUS;
+  return cancels && !(typeof reasonSent === "string" && reasonSent.trim()) ? CANCEL_REASON_REFUSAL : null;
+}
+
 // Shipment statuses carry their direction as a suffix ("Billing [IMP]"). When a shipment's
 // Trade Direction flips, a status of the other direction moves to the same step on the new
 // side when that side has it (Booking Confirmation Pending, All Done, Billing, Billed),

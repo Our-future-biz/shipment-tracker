@@ -50,8 +50,10 @@ import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { searchesAllFields, typedSearchParams } from "@/app/shipments/_lib/allFieldsSearch";
 import { addressFiltersKey, arrivesByLink } from "@/app/shipments/_lib/addressFilters";
 import { CustomerCell } from "./CustomerCell";
+import { CancelReasonDialog } from "./CancelReasonDialog";
+import { asksCancelReason, cancelUpdate } from "./cancelReason";
 import { statusLabel } from "@/lib/shipmentStatus";
-import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
+import { CANCELLED_STATUS, LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
@@ -278,6 +280,8 @@ export const ShipmentsTable = ({
   const dimsShipment = shipments.find((s) => s.id === dimsShipmentId) ?? null;
   const [invoicesShipmentId, setInvoicesShipmentId] = useState<string | null>(null);
   const [chatShipment, setChatShipment] = useState<Pick<ShipmentItem, "id" | "jobNumber"> | null>(null);
+  // A row whose status is being set to Cancelled Shipment: the reason is asked first (D22).
+  const [cancelling, setCancelling] = useState<ShipmentItem | null>(null);
   // ?chat=<shipmentId> (from a mention notification) opens that shipment's chat, then
   // drops out of the URL so the drawer can be closed and the same link used again.
   const chatParam = searchParams.get("chat");
@@ -637,7 +641,10 @@ export const ShipmentsTable = ({
               customerId={record.customerId ?? null}
               contactId={record.customerPicContactId ?? null}
               emailSubject={shipmentEmailSubject(record)}
-              onCommit={(fieldKey, value, links) => updateField(record.id, fieldKey, value, record, links)}
+              onCommit={(fieldKey, value, links) =>
+                // Cancelling asks why first; the status and the reason then go in one write.
+                asksCancelReason(fieldKey, value, record.status) ? setCancelling(record) : updateField(record.id, fieldKey, value, record, links)
+              }
               placeholder={"\u2014"}
               dateTimeBoxes={false}
               displayClassName="text-slate-700"
@@ -1141,6 +1148,19 @@ export const ShipmentsTable = ({
       >
         Do you really want to delete the filter template <strong>{filterTemplateToDelete?.name}</strong>? This cannot be undone.
       </Modal>
+
+      {cancelling && (
+        <CancelReasonDialog
+          jobNumber={cancelling.jobNumber}
+          initial={cancelling.cancelReason}
+          onClose={() => setCancelling(null)}
+          onConfirm={(reason) => {
+            // The status with its reason, in one write (the status's automations run as for any change).
+            updateField(cancelling.id, "status", CANCELLED_STATUS, cancelling, cancelUpdate(reason));
+            setCancelling(null);
+          }}
+        />
+      )}
 
       {/* Chat — the shipment's internal conversation; opening it marks it read. */}
       <ShipmentChatDrawer shipment={chatShipment} onClose={() => setChatShipment(null)} />

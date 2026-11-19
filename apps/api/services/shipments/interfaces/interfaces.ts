@@ -141,7 +141,7 @@ export interface CustomsOfficeRequestItem {
   answerSeenAt: string | null;
 }
 
-export interface ShipmentItem {
+export interface ShipmentItem extends ShipmentStep6Fields {
   id: string;
   jobNumber: string;
   shipper: string;
@@ -1357,6 +1357,8 @@ export interface OpsCockpitPerson {
   coversSince: string | null;
   /** More active jobs than 1.5 times the median of the people with at least one - said only among three such people or more, and never of "nobody". */
   highLoad: boolean;
+  /** Step 6 (D12): the last day of the absence they are on today (YYYY-MM-DD); null when not away, or when the absences could not be read. */
+  awayUntil: string | null;
 }
 
 /**
@@ -1878,3 +1880,237 @@ export interface ShipmentsManagersMoney {
 }
 
 // ─── end of builder S's block ───
+
+// ─── Step 6, builder B: the job's own new fields (Council Outlay 11, D22, D31) ───
+
+/**
+ * The fields of a shipment step 6 added (ShipmentItem extends this): the import's B/L in hand, why
+ * it was cancelled, and the users its Handled By / Holiday Cover name.
+ */
+export interface ShipmentStep6Fields {
+  /** The day the original B/Ls arrived, YYYY-MM-DD; null until then. Clears "Master BoL is an OBL, not in hand". */
+  originalsReceivedDate: string | null;
+  /** The day the telex release came, YYYY-MM-DD; null until then. Clears "Master BoL is an OBL, not in hand" as well. */
+  telexReleaseReceivedDate: string | null;
+  /** The day the delivery order was issued, YYYY-MM-DD; null until then. */
+  deliveryOrderDate: string | null;
+  /** Why the job was cancelled: required in the write that sets status "Cancelled Shipment"; "" for none. Kept when the job is un-cancelled. */
+  cancelReason: string;
+  /** The user Handled By names, by id: an active user of the company when it was last written; null for nobody or a name that is no user. Never written by a client. */
+  personInChargeUserId: string | null;
+  /** The user Holiday Cover names, by id (as personInChargeUserId). */
+  holidayCoverUserId: string | null;
+}
+
+/** POST /internal/shipments/user-links/backfill (the daily cron): how the ids of Handled By / Holiday Cover were filled. */
+export interface UserLinksBackfillResult {
+  /** Companies whose live jobs were looked at. */
+  companies: number;
+  /** Of those, how many could not be done (logged; tried again on the next run). */
+  failed: number;
+  /** Jobs whose Handled By or Holiday Cover id was set or cleared. */
+  changed: number;
+}
+
+// ─── end of builder B's step 6 block ───
+
+// ─── Step 6, builder C: cargo claims' life, claim time limits, a job's history (Council Outlay 11, D20, D21) ───
+
+/** Where a claim on the shipment (cargo) stands: open · notified (the carrier was) · with_insurer · settled · rejected · withdrawn. */
+export type CargoClaimStatus = "open" | "notified" | "with_insurer" | "settled" | "rejected" | "withdrawn";
+/** A claim's status of either kind: a claim on costs has ClaimStatus, a cargo claim CargoClaimStatus. */
+export type AnyClaimStatus = ClaimStatus | CargoClaimStatus;
+/** How a job travels, as the claim time limits are kept by. */
+export type ClaimMode = "sea" | "air" | "rail" | "road";
+
+/** One claim of a shipment as the Claims tab shows it (ClaimItem with a cargo claim's life). */
+export interface ShipmentClaimView {
+  id: string;
+  shipmentId: string;
+  kind: ClaimKind;
+  /** Damaged | Incomplete | Undamaged | Lost (cargo claims) */
+  cargoState: string;
+  note: string;
+  supplier: string;
+  invoiceNumber: string;
+  reason: string;
+  /** Disputed amount, with currency, as typed (free text, from before claimAmount). */
+  amount: string;
+  /** The day the supplier (cost) or the carrier (cargo: "carrier notified on") was given notice; null when not yet. */
+  noticeDate: string | null;
+  createdAt: string;
+  /** Of a claim on costs: the supplier invoice it is raised against; null when none. */
+  supplierInvoiceId: string | null;
+  /** The amount claimed as a decimal ("120.50"), of either kind; null when not given. */
+  claimAmount: string | null;
+  /** 3-letter currency of claimAmount; "" when not given. */
+  claimCurrency: string;
+  /** Cost: open | accepted | rejected | withdrawn. Cargo: open | notified | with_insurer | settled | rejected | withdrawn. */
+  status: AnyClaimStatus;
+  /** Whether it is still open: cargo until settled, rejected or withdrawn; cost until accepted, rejected or withdrawn. */
+  isOpen: boolean;
+  /** When it was closed; null while open. */
+  closedAt: string | null;
+  /** Who closed it, by e-mail; "" while open. */
+  closedBy: string;
+  /** Cargo: who looks after it (a user of the company); null for nobody. */
+  ownerUserId: string | null;
+  /** Cargo: the owner's e-mail as it was when they were named; "" for nobody. */
+  ownerName: string;
+  /** Cargo: the day the insurer was notified, YYYY-MM-DD; null when not yet. */
+  insurerNotifiedOn: string | null;
+  /** Cargo: the amount settled as a decimal; null when not given. */
+  settledAmount: string | null;
+  /** 3-letter currency of settledAmount; "" when not given. */
+  settledCurrency: string;
+  /** Cargo, with the time limits on: what the deadlines count from - the actual delivery, else the ATA; null when off or the job has neither. */
+  deadlineFrom: "delivery" | "arrival" | null;
+  /** Cargo, with the time limits on: the last day the carrier may be notified; null when not counted. */
+  noticeDeadline: string | null;
+  /** Cargo, with the time limits on: the day a suit is time-barred; null when not counted. */
+  suitDeadline: string | null;
+}
+
+/** A claim's fields as they are sent: ClaimInput with a cargo claim's own. "" clears a field. */
+export interface ClaimChangeInput {
+  cargoState?: string;
+  note?: string;
+  supplier?: string;
+  invoiceNumber?: string;
+  reason?: string;
+  amount?: string;
+  /** yyyy-mm-dd; "" takes it back. Of a cargo claim: the day the carrier was notified. */
+  noticeDate?: string;
+  /** Claims on costs only: the supplier invoice's id; "" unties it. */
+  supplierInvoiceId?: string;
+  /** Either kind: a decimal with at most 2 places ("120.50"); "" clears it. */
+  claimAmount?: string;
+  /** Either kind: a 3-letter code ("EUR"); "" clears it. */
+  claimCurrency?: string;
+  /** Cost: open | accepted | rejected | withdrawn. Cargo: open | notified (needs noticeDate) | with_insurer (needs insurerNotifiedOn) | settled (needs settledAmount and settledCurrency) | rejected | withdrawn. A closing one is stamped when and by whom. */
+  status?: string;
+  /** Cargo only: the owner, an active user of the company by id; "" for nobody. A new cargo claim's owner is its creator unless given. */
+  ownerUserId?: string;
+  /** Cargo only: yyyy-mm-dd; "" takes it back. */
+  insurerNotifiedOn?: string;
+  /** Cargo only: a decimal with at most 2 places; "" clears it. */
+  settledAmount?: string;
+  /** Cargo only: a 3-letter code; "" clears it. */
+  settledCurrency?: string;
+}
+
+/** GET /shipments/:shipmentId/claims. */
+export interface ShipmentClaimsAnswer {
+  claims: ShipmentClaimView[];
+  /** Whether the company's claim time limits are switched on (the deadlines are then given on the cargo claims). */
+  timeLimitsOn: boolean;
+  /** Whether the caller may add and change the job's claims on the shipment (cargo): its Handled By, its Holiday Cover or a manager (a job nobody is named on: anyone). */
+  mayEdit: boolean;
+  /** Whether the caller may add and change its claims on costs: always - every user of the company may (D15, Accounts Payable's "Raise claim"). */
+  mayEditCost: boolean;
+  /** Whether the caller may delete one, of either kind: a manager only. */
+  mayDelete: boolean;
+}
+
+/** One mode's numbers. */
+export interface ClaimModeLimits {
+  /** Days after delivery (else the ATA) the carrier must be notified within: 1-365. */
+  noticeDays: number;
+  /** Months after delivery (else the ATA) a suit is time-barred: 1-120. */
+  suitMonths: number;
+}
+
+export interface ClaimModesLimits {
+  sea: ClaimModeLimits;
+  air: ClaimModeLimits;
+  rail: ClaimModeLimits;
+  road: ClaimModeLimits;
+}
+
+/** GET / PUT /shipments/claim-time-limits. */
+export interface ClaimTimeLimitsSettings {
+  /** Switched on: the Claims tab shows the deadlines and Shipments → Managers tags them. Off by default. */
+  enabled: boolean;
+  /** The numbers kept (the general practice while never saved). */
+  limits: ClaimModesLimits;
+  /** General practice - not confirmed with the insurer: what a company starts with. */
+  generalPractice: ClaimModesLimits;
+  /** Whether the company ever saved them. */
+  saved: boolean;
+  /** Who switched them on with these numbers, by e-mail; "" while off. */
+  confirmedBy: string;
+  /** When; null while off. */
+  confirmedAt: string | null;
+  /** Who saved them last, by e-mail; "" when never saved. */
+  updatedBy: string;
+  updatedAt: string | null;
+}
+
+/** One change in a job's history (shipment_audit), for managers. */
+export interface ShipmentHistoryEntry {
+  id: string;
+  /** The field's key as stored ("estimatedArrival", "claimStatus", "task:<key>", …). */
+  field: string;
+  /**
+   * The label of an entry the app writes itself (a claim, a hand-over, a nudge, a tick taken back,
+   * a deletion…). Null for a field of the job: the API keeps no catalogue of the job's field labels -
+   * the web labels it from its own (lib/columnConfig), else shows the key.
+   */
+  label: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  /** Whether a value was cut at 2,000 characters. */
+  cut: boolean;
+  changedAt: string;
+  userId: string;
+  /** Who, as named now; "former user" for a user since removed; "" when the names could not be read (namesKnown false). */
+  userName: string;
+  /** Their e-mail; "" for a former user, or when not known. */
+  userEmail: string;
+}
+
+/** GET /shipments/:shipmentId/history. */
+export interface ShipmentHistoryPage {
+  /** Newest first. */
+  entries: ShipmentHistoryEntry[];
+  /** Pass as `before` for the next (older) page; null when there is none. */
+  nextBefore: string | null;
+  /** False when the users' names could not be read (the look-up failed): the entries then carry the user ids only. */
+  namesKnown: boolean;
+}
+
+// ─── end of builder C's step 6 block ───
+
+// ─── Shipments → Managers, step 6: absences and the dated Holiday Cover (builder A's block; keep additions inside it) ───
+
+/** An absence as the cover job hands it to one company's run (auth's absences in force or ended lately; lib/absenceCover). */
+export interface AbsenceCoverAbsence {
+  id: string;
+  companyId: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  /** Prague days, YYYY-MM-DD, both included. */
+  fromDate: string;
+  toDate: string;
+  /** It covers today. */
+  inForce: boolean;
+  /** The cover's e-mail; null for none, or a cover who is no user any more. */
+  coverEmail: string | null;
+}
+
+/** What one company's run of the cover job did. */
+export interface AbsenceCoverResult {
+  /** Jobs whose Holiday Cover it set. */
+  set: number;
+  /** Jobs whose Holiday Cover it cleared. */
+  cleared: number;
+  /** Rows it closed without touching the job: somebody changed the cover since, or the job is gone. */
+  left: number;
+  /** Rows that went over to the user's next absence naming the same cover. */
+  moved: number;
+  /** Jobs it could not write just now (tried again by the next run). */
+  failed: number;
+}
+
+// ─── end of builder A's block ───

@@ -16,6 +16,7 @@ import {
   arrivingIn,
   customsFieldSignals,
   dangerousSignals,
+  deliveryOrderSignals,
   departureAhead,
   documentReviewSignals,
   hasLeft,
@@ -280,6 +281,62 @@ describe("U10: an original Master BoL not in hand", () => {
     expect(originalBlSignals(job({ masterBolType: "OBL", estimatedArrival: TODAY, tradeDirection: "Export" }), TODAY)).toEqual([]);
     expect(originalBlSignals(job({ masterBolType: "OBL", estimatedArrival: TODAY, actualArrival: TODAY }), TODAY)).toEqual([]);
     expect(originalBlSignals(job({ masterBolType: "OBL" }), TODAY)).toEqual([]);
+  });
+
+  it("clears once Originals Received or Telex Release Received has a day (step 6), whatever the type still reads", () => {
+    const obl = { masterBolType: "OBL", estimatedArrival: day(1) };
+    expect(originalBlSignals(job({ ...obl, originalsReceivedDate: day(-1) }), TODAY)).toEqual([]);
+    expect(originalBlSignals(job({ ...obl, telexReleaseReceivedDate: TODAY }), TODAY)).toEqual([]);
+    // No day, or a row that does not carry the dates: not in hand, as before.
+    expect(tags(originalBlSignals(job({ ...obl, originalsReceivedDate: null, telexReleaseReceivedDate: null }), TODAY))).toEqual([["Master BoL is an OBL, not in hand · arriving tomorrow", true]]);
+    expect(tags(originalBlSignals(job({ ...obl, originalsReceivedDate: " " }), TODAY))).toHaveLength(1);
+  });
+});
+
+describe("step 6: an import that arrived with no delivery order", () => {
+  // Today is Wednesday the 18th; Tuesday the 17th is a public holiday.
+  const arrived = (actualArrival: string, over: Partial<ExtraJob> = {}, holidays: readonly string[] = NONE) =>
+    deliveryOrderSignals(job({ actualArrival, deliveryOrderDate: null, ...over }), TODAY, holidays);
+
+  it("is ATTENTION a working day after the ATA, and URGENT at three", () => {
+    // Monday the 16th: the holiday is no working day, so one has passed.
+    expect(arrived("2026-11-16")).toEqual([{ rank: 28.5, text: "Arrived 16.11., no delivery order", urgent: false, area: "details", kind: "bl" }]);
+    // Friday the 13th: Monday and today, two.
+    expect(tags(arrived("2026-11-13"))).toEqual([["Arrived 13.11., no delivery order", false]]);
+    // Thursday the 12th: Friday, Monday and today, three.
+    expect(arrived("2026-11-12")).toEqual([{ rank: 4.5, text: "Arrived 12.11., no delivery order", urgent: true, area: "details", kind: "bl" }]);
+  });
+
+  it("judges only an arrival of the last 14 calendar days: an older one gives no tag (no job had the date before step 6)", () => {
+    expect(ETA_PASSED_KEPT_DAYS).toBe(14);
+    // Wednesday the 4th is 14 days ago: still judged, and URGENT by then.
+    expect(tags(arrived(day(-ETA_PASSED_KEPT_DAYS)))).toEqual([["Arrived 04.11., no delivery order", true]]);
+    expect(arrived(day(-ETA_PASSED_KEPT_DAYS - 1))).toEqual([]);
+    expect(arrived("2026-10-30")).toEqual([]);
+  });
+
+  it("waits a working day: not on the day of arrival, nor before a company day off has passed", () => {
+    expect(arrived(TODAY)).toEqual([]);
+    expect(arrived("2026-11-16", {}, [TODAY])).toEqual([]);
+    expect(arrived(day(1))).toEqual([]);
+  });
+
+  it("is for a sea or rail import only", () => {
+    expect(tags(arrived("2026-11-12", { freightMode: "Rail Freight" }))).toHaveLength(1);
+    expect(tags(arrived("2026-11-12", { freightMode: "" }))).toHaveLength(1);
+    expect(arrived("2026-11-12", { freightMode: "Air Freight" })).toEqual([]);
+    expect(arrived("2026-11-12", { freightMode: "Road Freight" })).toEqual([]);
+    expect(arrived("2026-11-12", { department: "Road Department" })).toEqual([]);
+    expect(arrived("2026-11-12", { tradeDirection: "Export" })).toEqual([]);
+    expect(tags(arrived("2026-11-12", { tradeDirection: " IMPORT " }))).toHaveLength(1);
+  });
+
+  it("says nothing once there is a delivery order or a delivery, without an ATA, or when the row does not carry the date", () => {
+    expect(arrived("2026-11-12", { deliveryOrderDate: "2026-11-13" })).toEqual([]);
+    expect(arrived("2026-11-12", { actualDeliveryDate: "2026-11-16" })).toEqual([]);
+    expect(deliveryOrderSignals(job({ estimatedArrival: "2026-11-12", deliveryOrderDate: null }), TODAY, NONE)).toEqual([]);
+    // Not known is no tag (D29).
+    expect(deliveryOrderSignals(job({ actualArrival: "2026-11-12" }), TODAY, NONE)).toEqual([]);
   });
 });
 
@@ -747,7 +804,7 @@ describe("A25: Master Jobs", () => {
 
 describe("ranks", () => {
   it("keeps the urgent ones between 3 and 9 and the others after step 1's last flag (27), no two alike", () => {
-    const urgent = [EXTRA_RANK.paperworkUrgent, EXTRA_RANK.originalBl, EXTRA_RANK.dangerousUrgent, EXTRA_RANK.request, EXTRA_RANK.remeasureUrgent];
+    const urgent = [EXTRA_RANK.paperworkUrgent, EXTRA_RANK.originalBl, EXTRA_RANK.deliveryOrderUrgent, EXTRA_RANK.dangerousUrgent, EXTRA_RANK.request, EXTRA_RANK.remeasureUrgent];
     for (const rank of urgent) expect(rank >= 3 && rank <= 9).toBe(true);
     const attention = Object.values(EXTRA_RANK).filter((rank) => !urgent.includes(rank as (typeof urgent)[number]));
     for (const rank of attention) expect(rank).toBeGreaterThanOrEqual(28);
@@ -755,5 +812,10 @@ describe("ranks", () => {
     // Customs and paperwork first, a request after the cut-offs (step 1: filings 4, Closing 5).
     expect(EXTRA_RANK.paperworkUrgent).toBeLessThan(EXTRA_RANK.originalBl);
     expect(EXTRA_RANK.request).toBeGreaterThan(5);
+    // Step 6: the delivery order after the original B/L and before the Closing; its ATTENTION with the paperwork of an arrival.
+    expect(EXTRA_RANK.deliveryOrderUrgent).toBeGreaterThan(EXTRA_RANK.originalBl);
+    expect(EXTRA_RANK.deliveryOrderUrgent).toBeLessThan(EXTRA_RANK.dangerousUrgent);
+    expect(EXTRA_RANK.deliveryOrder).toBeGreaterThan(EXTRA_RANK.paperworkAhead);
+    expect(EXTRA_RANK.deliveryOrder).toBeLessThan(EXTRA_RANK.declinedNotReplaced);
   });
 });

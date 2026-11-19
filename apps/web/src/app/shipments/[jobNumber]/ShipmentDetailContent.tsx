@@ -31,7 +31,7 @@ import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
-import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, isDetailsManager, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
 import { isOpenInvoice } from "@/app/invoicing/_lib/openInvoices";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
@@ -92,6 +92,10 @@ import {
   REF,
 } from "@/styles/ui";
 import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
+import { CancelReasonDialog } from "../_components/CancelReasonDialog";
+import { asksCancelReason, cancelUpdate, isCancelled } from "../_components/cancelReason";
+import { CANCELLED_STATUS } from "@/lib/enums";
+import { HistoryTab } from "./tabs/HistoryTab";
 import { CONTAINER_PARAM, containerToShow } from "../_lib/containerLink";
 import { NotesTab } from "./tabs/NotesTab";
 import { useShipmentNotes } from "@/hooks/useShipmentNotes";
@@ -125,7 +129,8 @@ import { invalidateReleaseRequests, readReleaseRequests, useReleasePass } from "
 export type CommitFn = (fieldKey: string, value: string, links?: ContactLinks) => void;
 
 /* ── Tabs ── */
-const TABS = [
+// `managers`: shown to a manager, an admin and a superadmin only.
+const TABS: { key: string; label: string; managers?: boolean }[] = [
   { key: "details", label: "Shipment Details" },
   { key: "container", label: "Container Details" },
   { key: "cargo", label: "Cargo Details" },
@@ -137,6 +142,8 @@ const TABS = [
   { key: "claim", label: "Claim" },
   { key: "alerts", label: "Alerts" },
   { key: "notes", label: "Notes To-Do" },
+  // The job's history, change by change (Council Outlay 11, step 6): managers only, as the server holds to.
+  { key: "history", label: "History", managers: true },
 ];
 
 /* ── Shared UI pieces ── */
@@ -690,6 +697,26 @@ interface HouseBolReleaseRowProps {
 // The same line for a request to release the cargo from the warehouse, named "Warehouse Released": the job's
 // page shows that field nowhere (it is set from Warehouse → Stock), and this is where an answer under the bell
 // and a row of the Approvals tab lead. While its approval can be used, the way to Stock is beside it.
+// Why a cancelled job was cancelled (Council Outlay 11, D22), asked when its status was set; whoever may change
+// the details changes it here. A job that is not cancelled shows no row (the reason of an earlier cancel is kept).
+function CancelReasonRow({ status, reason, onChange }: { status?: string | null; reason?: string | null; onChange?: () => void }) {
+  if (!isCancelled(status)) return null;
+  const said = (reason ?? "").trim();
+  return (
+    <div className={ROW_TOP}>
+      <span className={LABEL_TOP}>Cancel Reason</span>
+      <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className={`min-w-0 whitespace-pre-line break-words ${said ? "text-slate-900" : EMPTY}`}>{said || "—"}</span>
+        {onChange && (
+          <button type="button" onClick={onChange} className="text-[12px] text-slate-500 hover:text-indigo-600 cursor-pointer bg-transparent border-none p-0">
+            {said ? "change" : "add"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HouseBolReleaseRow({ shipmentId, releasedAt, warehouseReleased, onRelease }: HouseBolReleaseRowProps) {
   return (
     <div className={ROW}>
@@ -794,6 +821,10 @@ const CARRIER_BOL: FieldDef[] = [
   { key: "houseBolType", label: "House BoL Type" },
   { key: "masterBolNumber", label: "Master BoL Number" },
   { key: "masterBolType", label: "Master BoL Type" },
+  // The import's B/L in hand (Council Outlay 11, D31).
+  { key: "originalsReceivedDate", label: "Originals Received" },
+  { key: "telexReleaseReceivedDate", label: "Telex Release Received" },
+  { key: "deliveryOrderDate", label: "Delivery Order" },
 ];
 const KEY_DATES_L: FieldDef[] = [
   { key: "estimatedDeparture", label: "ETD Estimated" },
@@ -1085,6 +1116,8 @@ export function ShipmentDetailContent() {
   const canOverrideStop = useCanOverrideReleaseStop();
   // Warehouse Released set by hand and stopped for prepayment: the stop and the edit to send again with a reason.
   const [releasedStop, setReleasedStop] = useState<ReleasedStop | null>(null);
+  // The cancel reason's dialog (D22): asked when the status is set to Cancelled Shipment, or opened to change the reason.
+  const [cancelAsk, setCancelAsk] = useState<"cancel" | "change" | null>(null);
   const queryClient = useQueryClient();
   // vyber poli zobrazenych v kartach (tuzka v hlavicce karty)
   const { visibleKeys: visibleCardKeys } = useCardFields();
@@ -1134,7 +1167,8 @@ export function ShipmentDetailContent() {
   const costsQuote = invoicingData?.costsQuote ?? null;
 
 
-  const visibleTabs = TABS;
+  const isManager = isDetailsManager(user?.role ?? "");
+  const visibleTabs = TABS.filter((t) => !t.managers || isManager);
   const TAB_KEYS = visibleTabs.map((t) => t.key);
   const rawTab = searchParams.get("tab");
   const activeTab = rawTab && TAB_KEYS.includes(rawTab) ? rawTab : "details";
@@ -1258,8 +1292,16 @@ export function ShipmentDetailContent() {
   const detailsEditable = canChangeShipmentDetails(user, shipment);
   // Warehouse Released stopped for prepayment (step 7) opens a dialog: the server's sentence, and for a manager a
   // reason to send the same edit again with.
-  const handleCommit: CommitFn = (fieldKey, value, links) =>
+  const commitField: CommitFn = (fieldKey, value, links) =>
     updateField(shipment.id, fieldKey, value, shipment, links, { onReleaseStop: (stop, resend) => setReleasedStop({ stop, resend }) });
+  // Setting the status to Cancelled Shipment asks why first (D22): the status and the reason then go in one write.
+  const handleCommit: CommitFn = (fieldKey, value, links) =>
+    asksCancelReason(fieldKey, value, shipment.status) ? setCancelAsk("cancel") : commitField(fieldKey, value, links);
+  const confirmCancelReason = (reason: string) => {
+    if (cancelAsk === "cancel") commitField("status", CANCELLED_STATUS, cancelUpdate(reason));
+    else void saveShipment({ cancelReason: reason });
+    setCancelAsk(null);
+  };
 
   // A write of a field of its own (a party, a contact, opening hours): one that is refused is rolled
   // back and says why, instead of the value just snapping back.
@@ -1466,6 +1508,20 @@ export function ShipmentDetailContent() {
             message="View only: only the user in Handled By or Holiday Cover, or a manager, can change its details."
           />
         )}
+        {/* A cancelled job says why on every tab (D22); the reason is changed in the Shipment Overview card. */}
+        {isCancelled(shipment.status) && (
+          <Alert
+            type="warning"
+            showIcon
+            className="mb-4"
+            message="This shipment is cancelled"
+            description={
+              <span className="whitespace-pre-line break-words">
+                {shipment.cancelReason?.trim() || "No reason was given: it was cancelled before a reason was asked for."}
+              </span>
+            }
+          />
+        )}
         {activeTab === "details" && (
           <DetailsGuard editable={detailsEditable}>
           <div className="space-y-4">
@@ -1505,6 +1561,8 @@ export function ShipmentDetailContent() {
                   ];
                   const right: FieldDef[] = [
                     { key: "status", label: "Shipment Status" },
+                    // Why it was cancelled (D22): shown on a cancelled job only.
+                    { key: "cancelReason", label: "Cancel Reason" },
                     // Follows the paperwork; its manual steps are set in the Customs tab.
                     { key: "customsStatus", label: "Customs Status", ro: true },
                     { key: "invoicingStatus", label: "Invoicing Status" },
@@ -1516,6 +1574,9 @@ export function ShipmentDetailContent() {
 
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
+                    cancelReason: (
+                      <CancelReasonRow status={shipment.status} reason={shipment.cancelReason} onChange={detailsEditable ? () => setCancelAsk("change") : undefined} />
+                    ),
                     houseBolRelease: (
                       <HouseBolReleaseRow
                         shipmentId={shipment.id}
@@ -2012,6 +2073,8 @@ export function ShipmentDetailContent() {
 
         {activeTab === "alerts" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
 
+        {activeTab === "history" && isManager && <HistoryTab shipmentId={shipment.id} />}
+
         {activeTab === "notes" && <NotesTab shipment={shipment} freeCommentsEditable={detailsEditable} onSaveFreeComments={(value) => handleCommit("freeComments", value)} />}
       </div>
 
@@ -2087,6 +2150,16 @@ export function ShipmentDetailContent() {
       </WarningConfirm>
 
       <ReleasedStopDialog shipmentId={shipment.id} value={releasedStop} onClose={() => setReleasedStop(null)} />
+
+      {cancelAsk && (
+        <CancelReasonDialog
+          jobNumber={shipment.jobNumber}
+          mode={cancelAsk}
+          initial={shipment.cancelReason}
+          onClose={() => setCancelAsk(null)}
+          onConfirm={confirmCancelReason}
+        />
+      )}
 
       <ConfirmModal
         open={deleteOpen}

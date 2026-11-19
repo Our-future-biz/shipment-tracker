@@ -617,6 +617,13 @@
       "when": 1795008852974,
       "tag": "0087_managers_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795055287115,
+      "tag": "0088_managers_new_data",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,17 @@ export function modeSplit(byMode: Partial<OpsCockpitPerson["byMode"]> | null | u
   }).join(" · ");
 }
 
+/**
+ * The mark of somebody away today (step 6, D12): "away until 28.11." - the last day of the absence
+ * they are on. "" when they are not away, for the jobs nobody handles, and when the absences could
+ * not be read (the server then sends null and names "who is away" as not known).
+ */
+export function awayText(person: Pick<OpsCockpitPerson, "handledBy"> & { awayUntil?: string | null }): string {
+  if (person.handledBy === "") return "";
+  const until = shortDay(person.awayUntil);
+  return until ? `away until ${until}` : "";
+}
+
 /** What the Holiday Cover column says: on how many jobs, and since when the oldest of them stands. */
 export function coversText(person: Pick<OpsCockpitPerson, "covers" | "coversSince">): string {
   const since = person.covers > 0 ? shortDay(person.coversSince) : "";
@@ -58,6 +69,8 @@ export interface TeamRow {
   /** Stands in as a Holiday Cover only: no job of their own here. */
   coverOnly: boolean;
   highLoad: boolean;
+  /** "away until 28.11."; "" when not away today (or not known). */
+  away: string;
   active: number;
   /** "Sea 8 · Air 3"; "" for nobody's none. */
   modes: string;
@@ -86,6 +99,7 @@ export function teamRows(people: readonly OpsCockpitPerson[], page: TeamPage): T
       coverOnly: !nobody && p.active <= 0,
       // Never of "nobody": the jobs nobody handles are not a load somebody carries.
       highLoad: !nobody && p.highLoad === true,
+      away: awayText(p),
       active: p.active,
       modes: modeSplit(p.byMode),
       urgent: p.urgent,

@@ -53,6 +53,8 @@ const SERVER_KINDS = [
   "todo",
   "mention",
   "not_touched",
+  "away",
+  "claim",
 ];
 
 const family = (key: string): SignalFamily => {
@@ -93,7 +95,7 @@ const tiles = (signals: Record<string, number>, over: Partial<OpsCockpitTiles> =
 });
 
 describe("Shipments → Managers: the signal tiles", () => {
-  it("draws eleven, in the order agreed: step 3's two come last", () => {
+  it("draws thirteen, in the order agreed: step 3's two come last", () => {
     expect(SIGNAL_FAMILIES.map((f) => f.label)).toEqual([
       "Cut-offs due or missed",
       "Booking at risk",
@@ -102,8 +104,10 @@ describe("Shipments → Managers: the signal tiles", () => {
       "Free time",
       "Delivery, warehouse and road",
       "Departure and arrival late",
+      "Cargo claims",
       "Waiting for approval",
       "Handled By is not a user",
+      "Away",
       "To-dos and @mentions",
       "Not touched",
     ]);
@@ -115,6 +119,20 @@ describe("Shipments → Managers: the signal tiles", () => {
     // Counted over the cards' rows and by the server's own count: neither has a figure of a narrower rule.
     expect(family("todo").figure).toBeUndefined();
     expect(family("not_touched").figure).toBeUndefined();
+  });
+
+  it("gives step 6's away and cargo claims a tile each, counted by the server's count of their kind", () => {
+    expect(family("away").kinds).toEqual(["away"]);
+    expect(family("claim").kinds).toEqual(["claim"]);
+    expect(family("away").figure).toBeUndefined();
+    const empty = whole([]);
+    expect(signalFigure(family("away"), { tiles: tiles({ away: 3, not_user: 1 }), urgent: empty, attention: empty })).toEqual({ count: 3, atLeast: false });
+    expect(signalFigure(family("claim"), { tiles: tiles({ claim: 2 }), urgent: empty, attention: empty })).toEqual({ count: 2, atLeast: false });
+    // Where the time limits are switched is said on hover, and that they are off until confirmed.
+    expect(family("claim").note).toContain("Settings tab");
+    // One tile for all three: Handled By away with no cover, both away, the cover away - under the same address key.
+    expect(signalOf("away")?.label).toBe("Away");
+    expect(family("away").hint).toMatch(/no Holiday Cover.*both away.*Holiday Cover away/);
   });
 
   it("says Waiting for approval counts a request to release before payment too - and not what approving one does", () => {

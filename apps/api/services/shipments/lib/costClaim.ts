@@ -1,5 +1,5 @@
 import { isUuid } from "../../../lib/uuid";
-import type { ClaimStatus } from "../interfaces/interfaces";
+import type { AnyClaimStatus, ClaimStatus } from "../interfaces/interfaces";
 
 // A claim on costs is tied to the supplier invoice it disputes, with the amount as a number, its
 // currency and where it stands. Accounts Payable (the invoicing service) holds the invoice's payment
@@ -23,8 +23,20 @@ export interface CostClaimColumns {
   status?: ClaimStatus;
 }
 
-/** Whether a claim in this status is closed: accepted, rejected or withdrawn. */
-export const isClosedStatus = (status: ClaimStatus): boolean => status !== "open";
+/** The statuses in which a claim of either kind is still open: a claim on costs "open"; a cargo claim also "notified" and "with_insurer" (lib/cargoClaim). */
+const OPEN_STATUSES: readonly AnyClaimStatus[] = ["open", "notified", "with_insurer"];
+
+/** Whether a claim in this status is closed: accepted, rejected or withdrawn (a cargo claim also settled). */
+export const isClosedStatus = (status: AnyClaimStatus): boolean => !OPEN_STATUSES.includes(status);
+
+/** Why an amount as typed (trimmed, "" for none) can't be kept in a numeric(14,2) column, or null when it can. */
+export function amountProblem(amount: string, what = "claimed amount"): string | null {
+  // At most 12 digits before the point and 2 after: what numeric(14,2) holds. A claim is never below zero.
+  return amount && !/^\d{1,12}(\.\d{1,2})?$/.test(amount) ? `The ${what} must be a number with at most 2 decimal places, like 120.50` : null;
+}
+
+/** Why a currency (trimmed, upper case, "" for none) is no 3-letter code, or null when it is one. */
+export const currencyProblem = (currency: string): string | null => (currency && !/^[A-Z]{3}$/.test(currency) ? "The currency must be a 3-letter code, like EUR" : null);
 
 /**
  * The cost fields as they go into the columns, or the plain sentence saying what is wrong with one.
@@ -40,15 +52,14 @@ export function costClaimColumns(input: CostClaimInput): { columns: CostClaimCol
   }
   if (input.claimAmount !== undefined) {
     const amount = input.claimAmount.trim();
-    // At most 12 digits before the point and 2 after: what numeric(14,2) holds. A claim is never below zero.
-    if (amount && !/^\d{1,12}(\.\d{1,2})?$/.test(amount)) {
-      return { problem: "The claimed amount must be a number with at most 2 decimal places, like 120.50" };
-    }
+    const problem = amountProblem(amount);
+    if (problem) return { problem };
     columns.claimAmount = amount || null;
   }
   if (input.claimCurrency !== undefined) {
     const currency = input.claimCurrency.trim().toUpperCase();
-    if (currency && !/^[A-Z]{3}$/.test(currency)) return { problem: "The currency must be a 3-letter code, like EUR" };
+    const problem = currencyProblem(currency);
+    if (problem) return { problem };
     columns.claimCurrency = currency;
   }
   if (input.status !== undefined) {
@@ -70,8 +81,8 @@ export const fillsCostFields = (input: CostClaimInput): boolean =>
  * sent as it already is keeps them, so saving a closed claim again does not move its date.
  */
 export function closingStamps(
-  next: ClaimStatus,
-  previous: ClaimStatus | undefined,
+  next: AnyClaimStatus,
+  previous: AnyClaimStatus | undefined,
   by: string,
   now: Date,
 ): { closedAt: Date | null; closedBy: string } | null {

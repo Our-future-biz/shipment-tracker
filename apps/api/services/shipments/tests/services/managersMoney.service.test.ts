@@ -20,6 +20,7 @@ vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: s
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: {} }));
 vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: {} }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: {} }));
+vi.mock("../../services/claimTimeLimits.service", () => ({ claimTimeLimitsService: { of: vi.fn() } }));
 vi.mock("../../repositories/shipmentClaim.repository", () => ({ shipmentClaimRepository: claims }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: history }));
 

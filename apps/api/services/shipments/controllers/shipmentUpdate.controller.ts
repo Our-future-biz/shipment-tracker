@@ -24,6 +24,12 @@ interface ShipmentUpdateRequest {
   tradeDirection?: string;
   loadType?: string;
   status?: string;
+  /**
+   * Why the job is cancelled (D22): a write that sets status "Cancelled Shipment" on a job that was not
+   * cancelled is refused without it ("Say why the shipment is cancelled"). Stored trimmed; kept when
+   * the job is un-cancelled.
+   */
+  cancelReason?: string & MaxLen<1000>;
   customsStatus?: string;
   vessel?: string;
   voyage?: string;
@@ -45,6 +51,10 @@ interface ShipmentUpdateRequest {
   masterBolNumber?: string;
   houseBolType?: string;
   masterBolType?: string;
+  /** The import's B/L in hand (D31), each "YYYY-MM-DD"; "" clears it. */
+  originalsReceivedDate?: string;
+  telexReleaseReceivedDate?: string;
+  deliveryOrderDate?: string;
   pcs?: string;
   totalWeightTons?: string;
   totalVolumeCbm?: string;

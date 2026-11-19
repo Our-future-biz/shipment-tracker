@@ -2939,3 +2939,150 @@ describe("a hand-over (services/handOver.service) is the single edit's own write
     expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
   });
 });
+
+// Step 6 (Council Outlay 11): the job's own new fields - the B/L dates (D31), the cancel reason
+// (D22) and the users Handled By and Holiday Cover name, by id.
+describe("step 6: the B/L dates, the cancel reason and the users' ids", () => {
+  const update = (data: Record<string, unknown>, role?: string) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role);
+  const create = (data: Record<string, unknown>) => shipmentService.create(COMPANY, data as never);
+  const written = (call = 0) => repository.updateForCompany.mock.calls[call]![2] as Record<string, unknown>;
+  const audited = () => vi.mocked(shipmentAuditRepository.create).mock.calls.map(([entry]) => entry.field);
+
+  it("stores the three B/L dates trimmed, a blank one as none, each with its line in the history", async () => {
+    stored.set(SHIPMENT, row({ originalsReceivedDate: null, telexReleaseReceivedDate: "2026-11-10", deliveryOrderDate: null }));
+    await update({ originalsReceivedDate: " 2026-11-16 ", telexReleaseReceivedDate: "", deliveryOrderDate: "2026-11-18" }, "manager");
+    expect(written()).toMatchObject({ originalsReceivedDate: "2026-11-16", telexReleaseReceivedDate: null, deliveryOrderDate: "2026-11-18" });
+    expect(audited()).toEqual(expect.arrayContaining(["originalsReceivedDate", "telexReleaseReceivedDate", "deliveryOrderDate"]));
+  });
+
+  it("refuses a B/L date that is no day, naming it, before anything is written", async () => {
+    stored.set(SHIPMENT, row());
+    for (const [field, label] of [
+      ["originalsReceivedDate", "Originals Received"],
+      ["telexReleaseReceivedDate", "Telex Release Received"],
+      ["deliveryOrderDate", "Delivery Order"],
+    ]) {
+      await expect(update({ [field!]: "2026-02-30" })).rejects.toMatchObject({ code: "invalid_argument", message: `${label} must be a date as "YYYY-MM-DD"` });
+      await expect(update({ [field!]: "16.11.2026" })).rejects.toMatchObject({ code: "invalid_argument" });
+    }
+    await expect(create({ deliveryOrderDate: "tomorrow" })).rejects.toMatchObject({ code: "invalid_argument", message: 'Delivery Order must be a date as "YYYY-MM-DD"' });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+  });
+
+  it("refuses to cancel a job without a reason in the same write - a person's or the app's - and writes nothing", async () => {
+    stored.set(SHIPMENT, row({ status: "Booking Confirmation Pending [IMP]", cancelReason: "an old one" }));
+    for (const reason of [undefined, "", "   "]) {
+      await expect(update({ status: "Cancelled Shipment", ...(reason === undefined ? {} : { cancelReason: reason }) }, "manager")).rejects.toMatchObject({
+        code: "invalid_argument",
+        message: "Say why the shipment is cancelled",
+      });
+      await expect(update({ status: "Cancelled Shipment", cancelReason: reason })).rejects.toMatchObject({ message: "Say why the shipment is cancelled" });
+    }
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("cancels with the reason stored trimmed, the status and the reason each a line in the history", async () => {
+    stored.set(SHIPMENT, row({ status: "Booking Confirmation Pending [IMP]", cancelReason: "" }));
+    await update({ status: "Cancelled Shipment", cancelReason: "  Customer cancelled the order  " }, "manager");
+    expect(written()).toMatchObject({ status: "Cancelled Shipment", cancelReason: "Customer cancelled the order" });
+    expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "cancelReason", oldValue: "", newValue: "Customer cancelled the order" }), TX);
+    expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "status", newValue: "Cancelled Shipment" }), TX);
+  });
+
+  it("asks nothing of a job already cancelled, nor when it is un-cancelled - which keeps the reason", async () => {
+    stored.set(SHIPMENT, row({ status: "Cancelled Shipment", cancelReason: "Customer cancelled the order" }));
+    await update({ status: "Cancelled Shipment", pol: "Hamburg" });
+    await update({ cancelReason: "Booked twice" });
+    expect(written(1)).toMatchObject({ cancelReason: "Booked twice" });
+    stored.set(SHIPMENT, row({ status: "Cancelled Shipment", cancelReason: "Customer cancelled the order" }));
+    await update({ status: "Booking Confirmation Pending [IMP]" });
+    expect(written(2)).not.toHaveProperty("cancelReason");
+    expect(stored.get(SHIPMENT)).toMatchObject({ status: "Booking Confirmation Pending [IMP]", cancelReason: "Customer cancelled the order" });
+  });
+
+  it("links a new Handled By and Holiday Cover to their users by id, nobody to none, with no history line of the ids", async () => {
+    stored.set(SHIPMENT, row({ personInCharge: "jan@firma.cz", personInChargeUserId: JAN.id, holidayCover: "", holidayCoverUserId: null }));
+    await update({ personInCharge: "Martin@Firma.cz", holidayCover: "jana@firma.cz" }, "manager");
+    expect(written()).toMatchObject({ personInCharge: "martin@firma.cz", personInChargeUserId: MARTIN.id, holidayCover: "jana@firma.cz", holidayCoverUserId: JANA.id });
+    await update({ holidayCover: "" }, "manager");
+    expect(written(1)).toMatchObject({ holidayCover: "", holidayCoverUserId: null });
+    expect(audited()).not.toContain("personInChargeUserId");
+    expect(audited()).not.toContain("holidayCoverUserId");
+    expect(audited()).toEqual(expect.arrayContaining(["personInCharge", "holidayCover"]));
+  });
+
+  it("links the people of a new shipment too, reading the users once", async () => {
+    await create({ personInCharge: "JAN@firma.cz", holidayCover: "" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ personInCharge: "jan@firma.cz", personInChargeUserId: JAN.id, holidayCover: "", holidayCoverUserId: null });
+    expect(auth.usersList).toHaveBeenCalledTimes(1);
+  });
+
+  it("never takes an id from the caller: only the e-mail beside it decides", async () => {
+    stored.set(SHIPMENT, row({ personInCharge: "jan@firma.cz", personInChargeUserId: JAN.id }));
+    await update({ pol: "Hamburg", personInChargeUserId: MARTIN.id, holidayCoverUserId: MARTIN.id });
+    expect(written()).not.toHaveProperty("personInChargeUserId");
+    expect(written()).not.toHaveProperty("holidayCoverUserId");
+    await create({ personInChargeUserId: MARTIN.id });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).not.toHaveProperty("personInChargeUserId");
+  });
+
+  it("keeps the id of a value sent back as it is; fills one it lacks when the users can be read, and saves without it when they cannot", async () => {
+    // Linked already: the users are not read for it.
+    stored.set(SHIPMENT, row({ personInCharge: "jan@firma.cz", personInChargeUserId: JAN.id, holidayCover: "" }));
+    await update({ personInCharge: "jan@firma.cz" });
+    expect(auth.usersList).not.toHaveBeenCalled();
+    expect(written(0)).not.toHaveProperty("personInChargeUserId");
+    // Not linked yet: linked now.
+    stored.set(SHIPMENT, row({ personInCharge: "jana@firma.cz", personInChargeUserId: null }));
+    await update({ personInCharge: "jana@firma.cz" });
+    expect(written(1)).toMatchObject({ personInChargeUserId: JANA.id });
+    // An old e-mail of somebody who left keeps the id it has, and one with none stays without.
+    stored.set(SHIPMENT, row({ personInCharge: "left@firma.cz", personInChargeUserId: null }));
+    await update({ personInCharge: "left@firma.cz" });
+    expect(written(2)).not.toHaveProperty("personInChargeUserId");
+    // The users unreadable: the edit is saved all the same, the id left for the backfill.
+    vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
+    stored.set(SHIPMENT, row({ personInCharge: "jana@firma.cz", personInChargeUserId: null }));
+    await update({ personInCharge: "jana@firma.cz", pol: "Hamburg" });
+    expect(written(3)).toMatchObject({ pol: "Hamburg" });
+    expect(written(3)).not.toHaveProperty("personInChargeUserId");
+  });
+});
+
+// Review of step 6: a job created already cancelled needs a reason too (D22).
+describe("step 6: a job created as Cancelled Shipment", () => {
+  const create = (data: Record<string, unknown>, by?: string) => shipmentService.create(COMPANY, data as never, by, { creatorRole: by ? "user" : undefined });
+  const cancelLines = () => vi.mocked(shipmentAuditRepository.create).mock.calls.filter(([entry]) => entry.field === "cancelReason");
+
+  it("is refused without a reason - by a person or by the app - and nothing is created", async () => {
+    for (const reason of [undefined, "", "  "]) {
+      await expect(create({ status: "Cancelled Shipment", cancelReason: reason }, USER)).rejects.toMatchObject({ code: "invalid_argument", message: "Say why the shipment is cancelled" });
+      await expect(create({ status: "Cancelled Shipment", cancelReason: reason })).rejects.toMatchObject({ message: "Say why the shipment is cancelled" });
+    }
+    await expect(create({ status: "Cancelled Shipment", fromQuoteNumber: REF }, USER)).rejects.toMatchObject({ message: "Say why the shipment is cancelled" });
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+    expect(repository.createFromQuote).not.toHaveBeenCalled();
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("stores the reason trimmed, with its line in the history in the create's own transaction", async () => {
+    await create({ status: "Cancelled Shipment", cancelReason: "  Booked by mistake  " }, USER);
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ status: "Cancelled Shipment", cancelReason: "Booked by mistake" });
+    expect(cancelLines()).toEqual([[{ companyId: COMPANY, shipmentId: SHIPMENT, userId: USER, field: "cancelReason", oldValue: null, newValue: "Booked by mistake" }, TX]]);
+  });
+
+  it("writes the line for one made from a quote too, once the shipment exists", async () => {
+    await create({ fromQuoteNumber: REF, status: "Cancelled Shipment", cancelReason: "Customer withdrew" }, USER);
+    expect(repository.createFromQuote.mock.calls[0]![2]).toMatchObject({ cancelReason: "Customer withdrew" });
+    expect(cancelLines()).toEqual([[{ companyId: COMPANY, shipmentId: SHIPMENT, userId: USER, field: "cancelReason", oldValue: null, newValue: "Customer withdrew" }, undefined]]);
+  });
+
+  it("asks nothing of a job created with any other status, and writes no line for a reason that cancels nothing", async () => {
+    await create({ status: "Booking Confirmation Pending [IMP]", tradeDirection: "Import" }, USER);
+    await create({ status: "Booking Confirmation Pending [DOM]", tradeDirection: "Domestic", cancelReason: "kept as typed" });
+    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(2);
+    expect(cancelLines()).toEqual([]);
+  });
+});

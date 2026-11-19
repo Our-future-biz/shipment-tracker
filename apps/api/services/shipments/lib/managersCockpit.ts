@@ -36,6 +36,7 @@ import {
 } from "./cockpitThresholds";
 import { clockApplies } from "./detentionClock";
 import { isCreditApproved } from "./fieldDefaults";
+import { NO_CLAIM_FACTS, claimSignals, type ClaimFacts } from "./managersCockpitClaims";
 import { NO_HANDOVER_FACTS, handoverLine, handoverSignals, stepTwoWarehouseTagStays, truckingSpeaksForRoad, type HandoverFacts } from "./managersCockpitHandover";
 import { highLoadAbove, type TeamFacts } from "./managersCockpitTeam";
 import { personEmail } from "./shipmentEditRule";
@@ -71,6 +72,10 @@ import { freightKindOf, isTruckingJob, type FreightKind } from "./trackingEvents
 // words, with no tag of step 2 that says the same once the module does and no warehouse tag the
 // job already says itself (lib/managersCockpitHandover), and the hand-over line: the updates the
 // two owe the page's jobs.
+//
+// Step 6 (D21): the cargo claims' own signals (lib/managersCockpitClaims, family "claim"): the
+// carrier's notice and the suit time bar while the company's claim time limits are switched on,
+// and "open since" either way.
 
 /** An active job (not invoiced, not cancelled) as the cockpit reads it. */
 export interface OpsCockpitJob extends AttentionShipment {
@@ -123,6 +128,10 @@ export interface OpsCockpitJob extends AttentionShipment {
   customsOffice: string;
   mrn: string;
   warehouseReleasedDate: string | null;
+  /** Step 6 (D31): the day the original B/Ls arrived, the telex release came, the delivery order was issued; null until then. */
+  originalsReceivedDate: string | null;
+  telexReleaseReceivedDate: string | null;
+  deliveryOrderDate: string | null;
   /** The customer was sent an arrival notice (a customer notice of that kind stands on the job). */
   arrivalNoticeSent: boolean;
   createdAt: Date;
@@ -201,6 +210,11 @@ export interface OpsCockpitInput {
    * own road and warehouse tags as they are.
    */
   handover?: HandoverFacts;
+  /**
+   * The jobs' open cargo claims and the company's claim time limits (lib/managersCockpitClaims), a
+   * part that could not be read null. Left out, none were asked: no claim tag.
+   */
+  claims?: ClaimFacts;
   /** What could not be read, in the words the page shows; the cockpit adds nothing to it. */
   notKnown: readonly string[];
   /** The company has more active jobs than `jobs` holds. */
@@ -352,6 +366,9 @@ export const SIGNAL_KINDS = [
   "todo",
   "mention",
   "not_touched",
+  // Step 6: Handled By away with no Holiday Cover (lib/managersCockpitTeam), and the cargo claims (lib/managersCockpitClaims).
+  "away",
+  "claim",
 ] as const;
 export type SignalKind = (typeof SIGNAL_KINDS)[number];
 
@@ -380,6 +397,9 @@ const attention = (rank: number, kind: SignalKind, area: Area, text: string): Op
 // ATTENTION 410-430, after everything else. So are the warehouse's and Trucking's own
 // (lib/managersCockpitHandover HANDOVER_RANK): URGENT 61-62, after the delivery and road ones and
 // before free time; ATTENTION 251-252, after the delivery, warehouse and road warnings.
+// Step 6: Handled By away with no Holiday Cover (lib/managersCockpitTeam, kind "away") URGENT 101,
+// right after "Nobody in Handled By", and "away from dd.mm." ATTENTION 405; the cargo claims
+// (lib/managersCockpitClaims CLAIM_RANK, kind "claim") URGENT 63-64, ATTENTION 253-256.
 export const OPS_RANK = {
   customsUrgent: 30,
   customsHold: 32,
@@ -965,7 +985,7 @@ interface Judged {
 /** Every signal of one job: its own columns, the timeline, Needs Attention's flags and what the other tables say. */
 export function jobSignals(
   job: OpsCockpitJob,
-  input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "team" | "cutoffsKept" | "now" | "handover">,
+  input: Pick<OpsCockpitInput, "facts" | "timeline" | "boxes" | "userEmails" | "extraByJob" | "team" | "cutoffsKept" | "now" | "handover" | "claims">,
   day: OpsDay,
 ): { signals: OpsSignal[]; flags: TrackingAttentionFlag[] } {
   // A job with no event of these kinds has no entry: its timeline is known, and empty.
@@ -994,6 +1014,7 @@ export function jobSignals(
     ...boxSignals(job, input.boxes ? (input.boxes.get(job.id) ?? []) : null, day.today),
     ...creditSignals(job, day.today),
     ...flagSignals(flags),
+    ...claimSignals(job, input.claims ?? NO_CLAIM_FACTS, day.today),
     ...(input.extraByJob.get(job.id) ?? []).map(onScale),
   ];
   const team = input.team.byJob.get(job.id);
@@ -1088,6 +1109,8 @@ function peopleOf(team: readonly Judged[], pool: readonly Judged[], input: Pick<
     // The oldest of their covers; a cover whose day is not known leaves the others' to say it.
     coversSince: known.coverSince ? least(covers.get(email)?.since ?? []) : null,
     highLoad: false,
+    // Step 6 (D12): the last day of today's absence; not known (the absences unread) is null, as not away.
+    awayUntil: input.team.awayUntil ? (input.team.awayUntil.get(email) ?? null) : null,
   });
   const people = new Map<string, OpsCockpitPerson>();
   for (const j of team) {

@@ -57,6 +57,7 @@ import { filterValueOf, handledByOptions, isNotUser, personFigures, personName, 
 import { CARD_TAG_LIMIT, SIGNAL_FAMILIES, cardWithSignal, figureText, listWithSignal, loadFailedText, notKnownText, signalFigure, signalOf, type ShownList, type SignalFamily } from "../_lib/cockpitSignals";
 import { ApprovalLinks } from "./ApprovalLinks";
 import { AuditLine } from "./AuditLine";
+import { ClaimTimeLimitsPanel } from "./ClaimTimeLimitsPanel";
 import { NOBODY_TEXT, PRAGUE_TIME, SignalChip, SignalTile, TileGroup, dash, modeChip, tagList } from "./CockpitParts";
 import { CustomsOfficeApprovals } from "./CustomsOfficeApprovals";
 import { DismissCutoffDialog } from "./DismissCutoffDialog";
@@ -76,7 +77,8 @@ import { TeamTable } from "./TeamTable";
 // a table - who carries what. Money: what the money of the same jobs asks of a manager (MoneyTab;
 // an answer of its own, read only while that tab is shown). Approvals: the requests a manager
 // answers (to release a job before payment, to change a Customs Office or an approved document,
-// to sell a cost on below what it costs), and what waits for one on another page.
+// to sell a cost on below what it costs), and what waits for one on another page. Settings (step 6):
+// what the company keeps for these jobs - the claim time limits, off until a manager confirms them.
 // The Cockpit and the Team tab come from one server answer, worked out in Prague time by the rules
 // the app already has, so the counts never disagree with each other. From a row a manager hands the
 // job over, nudges whoever handles it, or dismisses a missed cut-off (the dialogs are their own
@@ -370,7 +372,7 @@ function ShipmentsManagersCockpit() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
-  // The tab (?tab=team, ?tab=money, ?tab=approvals), the filters (?mode=, ?direction=,
+  // The tab (?tab=team, ?tab=money, ?tab=approvals, ?tab=settings), the filters (?mode=, ?direction=,
   // ?handledBy=, ?reports=mine) and the signal each tab's cards are narrowed to (?signal= the
   // Cockpit's, ?msignal= the Money tab's) live in the address, so they survive a reload, a link can
   // name them, and the way back from a job returns to the cards as they were left. They stay when
@@ -468,7 +470,7 @@ function ShipmentsManagersCockpit() {
   const scope = scopeOf(filter).join(" · ");
   // When what is on screen was worked out. The money is kept on the server for five minutes: its
   // own time says how fresh it is.
-  const asOf = tab === "approvals" ? null : tab === "money" ? (money.money?.asOf ?? null) : (cockpit?.asOf ?? null);
+  const asOf = tab === "approvals" || tab === "settings" ? null : tab === "money" ? (money.money?.asOf ?? null) : (cockpit?.asOf ?? null);
 
   return (
     <Page extra={asOf && <span className="text-xs text-slate-500">Updated {PRAGUE_TIME.format(new Date(asOf))} · Prague time</span>}>
@@ -493,10 +495,14 @@ function ShipmentsManagersCockpit() {
               </span>
             ),
           },
+          { key: "settings", label: "Settings" },
         ]}
       />
 
-      {tab === "approvals" ? (
+      {tab === "settings" ? (
+        // The company's settings for these jobs; no filter applies to them.
+        <ClaimTimeLimitsPanel />
+      ) : tab === "approvals" ? (
         // A request has no filter of its own: every one waiting is listed. What waits on another
         // page is a line on top; then the requests to release before payment: a job stands still
         // until its request is answered. Selling below the cost is the component Sales → Managers

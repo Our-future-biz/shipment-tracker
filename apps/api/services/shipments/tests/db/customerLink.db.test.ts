@@ -79,10 +79,10 @@ describe("the customer's link", () => {
 describe("a claim's notice date", () => {
   it("is kept, and taken back with an empty value", async () => {
     const s = await newJob();
-    const claim = await claimService.create(s.id, s.companyId, "cargo", { noticeDate: "2026-11-05" });
+    const claim = await claimService.create(s.actor, s.id, "cargo", { noticeDate: "2026-11-05" });
     expect(claim.noticeDate).toBe("2026-11-05");
-    expect((await claimService.update(s.id, claim.id, s.companyId, { note: "wet" })).noticeDate).toBe("2026-11-05");
-    expect((await claimService.update(s.id, claim.id, s.companyId, { noticeDate: "" })).noticeDate).toBeNull();
-    await expect(claimService.update(s.id, claim.id, s.companyId, { noticeDate: "soon" })).rejects.toThrow("notice date");
+    expect((await claimService.update(s.actor, s.id, claim.id, { note: "wet" })).noticeDate).toBe("2026-11-05");
+    expect((await claimService.update(s.actor, s.id, claim.id, { noticeDate: "" })).noticeDate).toBeNull();
+    await expect(claimService.update(s.actor, s.id, claim.id, { noticeDate: "soon" })).rejects.toThrow("notice date");
   });
 });

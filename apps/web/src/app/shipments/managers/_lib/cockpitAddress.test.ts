@@ -31,6 +31,8 @@ describe("Shipments → Managers: its address", () => {
     expect(tabOf("approvals")).toBe("approvals");
     expect(tabOf("team")).toBe("team");
     expect(tabOf("money")).toBe("money");
+    expect(tabOf("settings")).toBe("settings");
+    expect(tabOf("Settings")).toBe("cockpit");
     expect(tabOf("Money")).toBe("cockpit");
     expect(tabOf("Team")).toBe("cockpit");
     expect(tabOf("cockpit")).toBe("cockpit");

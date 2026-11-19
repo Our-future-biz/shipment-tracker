@@ -71,6 +71,15 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     hint: "Planned delivery or pick-up passed, POD missing, the haulier not confirmed, and what our warehouse or Trucking reports on the job",
   },
   { key: "departure", kinds: ["departure", "arrival"], label: "Departure and arrival late", hint: "ETD passed with no ATD, ETA passed with no ATA, or a job that was rolled" },
+  // Step 6 (D21): the job's cargo claims. What it says beyond "open since" depends on the claim time
+  // limits, which stay off until a manager confirms them on the Settings tab.
+  {
+    key: "claim",
+    kinds: ["claim"],
+    label: "Cargo claims",
+    hint: "A cargo claim open for 14 days or longer; with the claim time limits switched on, also the carrier not notified and a notice deadline or suit time bar coming close",
+    note: "The claim time limits are switched on or off on the Settings tab.",
+  },
   {
     key: "request",
     kinds: ["request"],
@@ -85,6 +94,14 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     label: "Handled By is not a user",
     hint: "Handled By names somebody who is not an active user of the company",
     figure: "handledByNotUser",
+  },
+  // Step 6 (D12): beside "is not a user" - both say nobody is at work on the job.
+  {
+    key: "away",
+    kinds: ["away"],
+    label: "Away",
+    hint: "Handled By away with no Holiday Cover (today, or from within 2 working days on an absence that names no cover), Handled By and Holiday Cover both away, or the Holiday Cover away",
+    note: "Absences are recorded under the user menu (Away…) or on Settings → Users; the cover an absence names is set on the jobs within 15 minutes.",
   },
   // Step 3: what people left undone. Two kinds on one tile - a row with both is counted once.
   {

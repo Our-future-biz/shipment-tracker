@@ -76,6 +76,9 @@ const job = (over: Partial<OpsCockpitJob> = {}): OpsCockpitJob => {
     etaWarehouse: null,
     warehouseReceivedDate: null,
     warehouseReleasedDate: null,
+    originalsReceivedDate: null,
+    telexReleaseReceivedDate: null,
+    deliveryOrderDate: null,
     plannedDeliveryDate: null,
     actualDeliveryDate: null,
     personInCharge: "jan@firma.cz",
@@ -169,6 +172,7 @@ const person = (handledBy: string, counts: { isUser?: boolean | null; active?: n
   notTouched: 0,
   coversSince: null,
   highLoad: false,
+  awayUntil: null,
   ...counts,
   ...over,
 });
@@ -1297,7 +1301,8 @@ describe("the ranks", () => {
     expect(all.map((s) => s.kind)).toEqual(["owner", "not_user", "customs", "customs", "cutoff", "booking", "cargo_ready", "air", "departure", "delivery", "warehouse", "road", "bl", "arrival_notice", "free_time", "credit"]);
     expect(all.every((s) => (SIGNAL_KINDS as readonly string[]).includes(s.kind))).toBe(true);
     // Step 3 added the three families of the people around a job (lib/managersCockpitTeam).
-    expect(new Set(SIGNAL_KINDS).size).toBe(29);
+    expect(new Set(SIGNAL_KINDS).size).toBe(31);
+    expect(SIGNAL_KINDS).toEqual(expect.arrayContaining(["away", "claim"]));
     expect(SIGNAL_KINDS).toContain("not_user");
     expect(SIGNAL_KINDS).toEqual(expect.arrayContaining(["todo", "mention", "not_touched"]));
   });

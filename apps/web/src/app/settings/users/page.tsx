@@ -33,6 +33,8 @@ export default function CompanyUsersPage() {
         orgUnits={{ departments, branches }}
         // The users are the signed-in user's own company's, and both roles of this page may read the count.
         handledByWarning
+        // The same goes for the absences: read in the signed-in user's company.
+        away
         createUser={cu.createUser}
         updateUser={cu.updateUser}
         deleteUser={cu.deleteUser}

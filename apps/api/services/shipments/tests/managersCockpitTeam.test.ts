@@ -14,6 +14,9 @@ import {
   NO_TEAM_FACTS,
   TEAM_PARTS,
   TEAM_RANK,
+  awaySignals,
+  awayToday,
+  awayUntilOf,
   coverSinceOf,
   highLoadAbove,
   lateTodos,
@@ -26,6 +29,7 @@ import {
   touchReadFrom,
   touchedFrom,
   unreadMentionsOf,
+  type AbsenceFact,
   type MentionFact,
   type TeamJob,
   type TeamReads,
@@ -317,7 +321,7 @@ describe("a load that stands out", () => {
 });
 
 describe("the jobs' facts together", () => {
-  const reads = (over: Partial<TeamReads> = {}): TeamReads => ({ todos: new Map(), mentions: new Map(), touched: new Map(), coverChanged: new Map(), releaseRequests: new Map(), emailOf: USERS, ...over });
+  const reads = (over: Partial<TeamReads> = {}): TeamReads => ({ todos: new Map(), mentions: new Map(), touched: new Map(), coverChanged: new Map(), releaseRequests: new Map(), emailOf: USERS, absences: [], ...over });
 
   it("gives each job its signals and the figures the people line adds up; a job nothing is said of has no entry", () => {
     const busy = job({ holidayCover: "eva@firma.cz" });
@@ -387,5 +391,93 @@ describe("the jobs' facts together", () => {
     expect(NO_TEAM_FACTS.byJob.size).toBe(0);
     expect(NO_TEAM_FACTS.known).toEqual({ todos: false, mentions: false, touched: false, coverSince: false });
     expect(NO_TEAM_FACTS.notKnown).toEqual(Object.values(TEAM_PARTS));
+  });
+});
+
+describe("D12: Handled By away", () => {
+  const absence = (fromDate: string, toDate: string, over: Partial<AbsenceFact> = {}): AbsenceFact => ({ email: "jan@firma.cz", fromDate, toDate, hasCover: false, ...over });
+  const signalsOf = (j: TeamJob, absences: AbsenceFact[], holidays: string[] = []) => awaySignals(j, absences, awayToday(absences, TODAY), TODAY, holidays);
+
+  it("ranks a job with nobody covering an absent Handled By right after a job with nobody at all, and an absence coming first of the ATTENTION ones of the people", () => {
+    expect(TEAM_RANK.awayNoCover).toBeGreaterThan(OPS_RANK.nobody);
+    expect(TEAM_RANK.awayNoCover).toBeLessThan(OPS_RANK.notUser);
+    const otherTables = Object.values(EXTRA_RANK).map((rank) => rank * EXTRA_RANK_SCALE);
+    expect(TEAM_RANK.awaySoon).toBeGreaterThan(Math.max(...otherTables, OPS_RANK.houseBol, 275));
+    expect(TEAM_RANK.awaySoon).toBeLessThan(TEAM_RANK.todoLate);
+  });
+
+  it("knows until when somebody is away today, carried on through an absence that starts the day after", () => {
+    expect(awayUntilOf([absence("2026-11-16", "2026-11-20")], "jan@firma.cz", TODAY)).toBe("2026-11-20");
+    expect(awayUntilOf([absence("2026-11-18", "2026-11-18")], "jan@firma.cz", TODAY)).toBe("2026-11-18");
+    expect(awayUntilOf([absence("2026-11-21", "2026-11-27"), absence("2026-11-16", "2026-11-20")], "jan@firma.cz", TODAY)).toBe("2026-11-27");
+    // A day in between: back on it.
+    expect(awayUntilOf([absence("2026-11-16", "2026-11-20"), absence("2026-11-22", "2026-11-27")], "jan@firma.cz", TODAY)).toBe("2026-11-20");
+    expect(awayUntilOf([absence("2026-11-19", "2026-11-20")], "jan@firma.cz", TODAY)).toBeNull();
+    expect(awayUntilOf([absence("2026-11-10", "2026-11-17")], "jan@firma.cz", TODAY)).toBeNull();
+    expect(awayUntilOf([absence("2026-11-16", "2026-11-20", { email: "eva@firma.cz" })], "jan@firma.cz", TODAY)).toBeNull();
+    expect(awayToday([absence("2026-11-16", "2026-11-20"), absence("2026-11-18", "2026-11-19", { email: "eva@firma.cz" }), absence("2026-11-19", "2026-11-19", { email: "petr@firma.cz" })], TODAY)).toEqual(
+      new Map([
+        ["jan@firma.cz", "2026-11-20"],
+        ["eva@firma.cz", "2026-11-19"],
+      ]),
+    );
+  });
+
+  it("is URGENT on a job whose Handled By is away today with no Holiday Cover - whether the absence names a cover or not", () => {
+    for (const hasCover of [false, true]) {
+      expect(signalsOf(job(), [absence("2026-11-16", "2026-11-20", { hasCover })])).toEqual([
+        { rank: TEAM_RANK.awayNoCover, urgent: true, kind: "away", area: "details", text: "Handled By away until 20.11., no Holiday Cover" },
+      ]);
+    }
+    // Handled By with a name after the e-mail is the same person.
+    expect(signalsOf(job({ personInCharge: " Jan@Firma.cz — Jan Novák" }), [absence("2026-11-18", "2026-11-18")])).toHaveLength(1);
+  });
+
+  it("says nothing of a job with a Holiday Cover, with nobody in Handled By, or whose Handled By is not away", () => {
+    const away = [absence("2026-11-16", "2026-11-20")];
+    expect(signalsOf(job({ holidayCover: "eva@firma.cz" }), away)).toEqual([]);
+    expect(signalsOf(job({ personInCharge: "" }), away)).toEqual([]);
+    expect(signalsOf(job({ personInCharge: "petr@firma.cz" }), away)).toEqual([]);
+    expect(signalsOf(job(), [absence("2026-11-10", "2026-11-17")])).toEqual([]);
+  });
+
+  it("tags a job whose Holiday Cover is away today too: URGENT with its Handled By away, ATTENTION with the cover alone", () => {
+    const both = [absence("2026-11-16", "2026-11-25"), absence("2026-11-17", "2026-11-20", { email: "eva@firma.cz" })];
+    // Until the first of the two is back.
+    expect(signalsOf(job({ holidayCover: "eva@firma.cz" }), both)).toEqual([{ rank: TEAM_RANK.awayNoCover, urgent: true, kind: "away", area: "details", text: "Handled By and Holiday Cover away until 20.11." }]);
+    expect(signalsOf(job({ holidayCover: "Eva@Firma.cz — Eva Malá" }), [absence("2026-11-18", "2026-11-22", { email: "eva@firma.cz" })])).toEqual([
+      { rank: TEAM_RANK.coverAway, urgent: false, kind: "away", area: "details", text: "Holiday Cover away until 22.11." },
+    ]);
+    // A cover away tomorrow, or not at all, says nothing.
+    expect(signalsOf(job({ holidayCover: "eva@firma.cz" }), [absence("2026-11-19", "2026-11-22", { email: "eva@firma.cz" })])).toEqual([]);
+    expect(TEAM_RANK.coverAway).toBeGreaterThan(TEAM_RANK.awaySoon);
+    expect(TEAM_RANK.coverAway).toBeLessThan(TEAM_RANK.todoLate);
+  });
+
+  it("is ATTENTION when an absence naming no cover starts within two working days", () => {
+    // Thursday 19 and Friday 20: one and two working days ahead.
+    expect(signalsOf(job(), [absence("2026-11-20", "2026-11-27")])).toEqual([{ rank: TEAM_RANK.awaySoon, urgent: false, kind: "away", area: "details", text: "Handled By away from 20.11." }]);
+    expect(signalsOf(job(), [absence("2026-11-19", "2026-11-19")])[0]?.text).toBe("Handled By away from 19.11.");
+    // Monday 23 is the third working day; with Friday a company holiday it is the second.
+    expect(signalsOf(job(), [absence("2026-11-23", "2026-11-27")])).toEqual([]);
+    expect(signalsOf(job(), [absence("2026-11-23", "2026-11-27")], ["2026-11-20"])).toHaveLength(1);
+    // An absence starting on the weekend is within the days.
+    expect(signalsOf(job(), [absence("2026-11-21", "2026-11-22")])).toHaveLength(1);
+    // One that names a cover is taken care of: its cover is set on the jobs when it starts.
+    expect(signalsOf(job(), [absence("2026-11-20", "2026-11-27", { hasCover: true })])).toEqual([]);
+    expect(signalsOf(job({ holidayCover: "eva@firma.cz" }), [absence("2026-11-20", "2026-11-27")])).toEqual([]);
+  });
+
+  it("hands the cockpit who is away; when the absences could not be read, no tag, nobody's awayUntil, and the part named", () => {
+    const j = job();
+    const read = teamFactsOf([j], { todos: new Map(), mentions: new Map(), touched: new Map(), coverChanged: new Map(), releaseRequests: new Map(), emailOf: USERS, absences: [absence("2026-11-16", "2026-11-20")] }, CTX);
+    expect(read.byJob.get(j.id)?.signals.map((s) => s.kind)).toEqual(["away"]);
+    expect(read.awayUntil).toEqual(new Map([["jan@firma.cz", "2026-11-20"]]));
+    expect(read.notKnown).toEqual([]);
+    const unread = teamFactsOf([j], { todos: new Map(), mentions: new Map(), touched: new Map(), coverChanged: new Map(), releaseRequests: new Map(), emailOf: USERS, absences: null }, CTX);
+    expect(unread.byJob.get(j.id)?.signals ?? []).toEqual([]);
+    expect(unread.awayUntil).toBeNull();
+    expect(unread.notKnown).toEqual([TEAM_PARTS.away]);
+    expect(NO_TEAM_FACTS.awayUntil).toBeNull();
   });
 });

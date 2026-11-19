@@ -20,7 +20,8 @@ import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf,
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
+import { CANCELLED_STATUS, actionStamp, cancelReasonRefusal, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
+import { USER_ID_COLUMNS, USER_ID_FIELDS, linkedUser, mayNameUser } from "../lib/userLinks";
 import { quoteLinksService } from "./quoteLinks.service";
 import { needsAttentionService } from "./needsAttention.service";
 import type { NamingShipment, ShipmentListFilters } from "../repositories/shipment.repository";
@@ -416,6 +417,9 @@ const DATE_FIELDS = new Set([
   "actualDeliveryDate",
   "shipmentsDate",
   "equipmentDeliveryDate",
+  "originalsReceivedDate",
+  "telexReleaseReceivedDate",
+  "deliveryOrderDate",
 ]);
 const MONEY_FIELDS = new Set(["selling", "buying"]);
 // How many quotes one request may ask the shipments of: a page of the Quotes list at most.
@@ -442,6 +446,42 @@ function sanitizeTypedFields<T extends BlankablePriority>(
     else if (key === "customsPriority") out[key] = "Standard";
   }
   return out as Omit<T, "customsPriority"> & { customsPriority?: CustomsPriority };
+}
+
+// The import's B/L in hand (D31): each a real day, stored trimmed - Postgres would refuse anything
+// else with an error the user can't read.
+const BL_DATES = { originalsReceivedDate: "Originals Received", telexReleaseReceivedDate: "Telex Release Received", deliveryOrderDate: "Delivery Order" } as const;
+
+function assertBlDates(data: Record<string, unknown>): void {
+  for (const key of Object.keys(BL_DATES) as (keyof typeof BL_DATES)[]) {
+    const value = data[key];
+    if (typeof value !== "string") continue;
+    const day = value.trim();
+    if (day && !isRealYmd(day)) throw APIError.invalidArgument(`${BL_DATES[key]} must be a date as "YYYY-MM-DD"`);
+    data[key] = day || null;
+  }
+}
+
+/**
+ * Why the write may not cancel the job (lib/fieldDefaults cancelReasonRefusal), checked before
+ * anything else is asked; the reason is stored trimmed. `existing`: the job as it is, none for a
+ * job being created - which, created already Cancelled Shipment, needs a reason as well.
+ */
+function assertCancelReason(data: Record<string, unknown>, existing?: Pick<ShipmentRecord, "status">): void {
+  if (typeof data.cancelReason === "string") data.cancelReason = data.cancelReason.trim();
+  if (!("status" in data)) return;
+  const refusal = cancelReasonRefusal(existing?.status ?? "", data.status as string | null | undefined, data.cancelReason);
+  if (refusal) throw APIError.invalidArgument(refusal);
+}
+
+/**
+ * The history line of a job created already cancelled: its reason, as an edit that cancels writes
+ * it (field cancelReason). Null when it is not created cancelled, or nobody signed in creates it
+ * (the line needs a user; no app write creates a cancelled job).
+ */
+function cancelLineOfNew(data: { status?: string | null; cancelReason?: string | null }, creatorUserId: string | undefined): { userId: string; reason: string } | null {
+  const cancelled = (data.status ?? "").trim() === CANCELLED_STATUS;
+  return cancelled && creatorUserId && data.cancelReason ? { userId: creatorUserId, reason: data.cancelReason } : null;
 }
 
 const WAREHOUSE_DATES = { warehouseReceivedDate: "Warehouse Received", warehouseReleasedDate: "Warehouse Released" } as const;
@@ -571,6 +611,34 @@ async function checkPeople(data: Record<string, unknown>, users: UsersOnce, exis
 }
 
 /**
+ * The users Handled By and Holiday Cover name, by id (lib/userLinks), set in the same write as the
+ * e-mails, after checkPeople: a new e-mail is a user's (checkPeople refused anything else, with the
+ * users read), so it takes that user's id - nobody takes none. A value the shipment already holds
+ * keeps the id it has; without one, an e-mail gets the id of the user it names when the users can be
+ * read (a write that could not read them is not refused for it - the daily backfill fills it). An id
+ * sent by a caller is never taken: only this sets them.
+ */
+async function linkUsers(data: Record<string, unknown>, users: UsersOnce, existing?: ShipmentRecord): Promise<void> {
+  for (const column of USER_ID_COLUMNS) delete data[column];
+  const stored: Record<string, unknown> | undefined = existing;
+  for (const [field, idField] of Object.entries(USER_ID_FIELDS)) {
+    const value = data[field];
+    if (typeof value !== "string") continue;
+    if (!stored || value !== stored[field]) {
+      data[idField] = value.trim() ? (linkedUser(value, await users())?.id ?? null) : null;
+      continue;
+    }
+    if (stored[idField] || !mayNameUser(value)) continue;
+    try {
+      const id = linkedUser(value, await users())?.id;
+      if (id) data[idField] = id;
+    } catch (err) {
+      log.warn(err, "the user of a person field was not linked: the users could not be read", { field });
+    }
+  }
+}
+
+/**
  * The contact person a quote names becomes the Customer's PIC of the shipment made from it - by
  * the contact's id when the quote keeps it - unless the request names another (or nobody).
  */
@@ -658,6 +726,11 @@ class ShipmentService {
   }
 
   // Persist the detail rows of a shipment just created, in its write turn (see writeDetailRows).
+  // The cancel reason of a job created cancelled, as a line in its history (cancelLineOfNew).
+  private async recordCancelLine(companyId: string, shipmentId: string, line: { userId: string; reason: string }, tx?: Tx): Promise<void> {
+    await shipmentAuditRepository.create({ companyId, shipmentId, userId: line.userId, field: "cancelReason", oldValue: null, newValue: line.reason }, tx);
+  }
+
   private async syncDetailRows(shipmentId: string, companyId: string, rows: DetailRows): Promise<void> {
     if (!hasDetailRows(rows)) return;
     await shipmentRepository.writeTurn(shipmentId, companyId, (tx) => this.writeDetailRows(tx, shipmentId, companyId, rows));
@@ -1058,6 +1131,7 @@ class ShipmentService {
     rows: DetailRows,
     users: UsersOnce,
     contactsOf: ContactsOnce,
+    cancelLine: { userId: string; reason: string } | null = null,
   ): Promise<CreatedShipment> {
     let quote;
     try {
@@ -1091,6 +1165,14 @@ class ShipmentService {
       throw APIError.alreadyExists(`shipment ${jobNumber} was already created from quote ${reference}`).withDetails({ shipmentId: id, jobNumber });
     }
     const shipment = made.created;
+    // The shipment exists by now: like its cargo lines, a history line that can't be written is logged, not thrown.
+    if (cancelLine) {
+      try {
+        await this.recordCancelLine(companyId, shipment.id, cancelLine);
+      } catch (err) {
+        log.warn(err, "the cancel reason of a shipment created from a quote was not written to its history", { companyId, shipmentId: shipment.id });
+      }
+    }
 
     let detailRowsError: string | undefined;
     try {
@@ -1150,8 +1232,11 @@ class ShipmentService {
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
+    assertCancelReason(shipmentData);
+    assertBlDates(shipmentData);
     const users = usersOnce();
     await checkPeople(shipmentData, users);
+    await linkUsers(shipmentData, users);
     // Who created it, by e-mail ("" when nobody can tell); when is the row's createdAt ("Created on").
     if (creatorUserId) shipmentData.createdBy = (await this.actorOf(creatorUserId)).trim();
     // Created with the credit check approved by a user: the approval is theirs, as on an update.
@@ -1167,6 +1252,7 @@ class ShipmentService {
     const stored: Record<string, unknown> = shipmentData;
     normalizeCustomsPriority(stored, (key) => stored[key] as string);
     const fromQuote = fromQuoteNumber?.trim();
+    const cancelLine = cancelLineOfNew(shipmentData, creatorUserId);
     // A person's create holds its Customer to the Customer role; one from a quote takes the quote's
     // customer, and the app's own (a Trucking road job) the customer it was asked for.
     const linked = await this.resolveCustomerLinks(shipmentData, creatorRole !== undefined && !fromQuote);
@@ -1198,7 +1284,7 @@ class ShipmentService {
     );
 
     if (fromQuote) {
-      return this.createFromQuote(companyId, fromQuote, allowSecondShipment === true, shipmentData, { containers, cargoItems, cargoDimensions, commercialInvoices }, users, contactsOf);
+      return this.createFromQuote(companyId, fromQuote, allowSecondShipment === true, shipmentData, { containers, cargoItems, cargoDimensions, commercialInvoices }, users, contactsOf, cancelLine);
     }
 
     // The Sales Number is stored trimmed: it is what a quote finds its shipments by.
@@ -1216,7 +1302,14 @@ class ShipmentService {
     // written leaves no shipment behind, so the request fails as a whole and a retry can't make a
     // second one. (One made from a quote reports such a failure instead - see createFromQuote.)
     const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
-    const alongside = hasDetailRows(rows) ? (tx: Tx, created: ShipmentRecord) => this.writeDetailRows(tx, created.id, companyId, rows) : undefined;
+    // The history line of a job created cancelled lands with it, in the same transaction.
+    const alongside =
+      hasDetailRows(rows) || cancelLine
+        ? async (tx: Tx, created: ShipmentRecord) => {
+            if (hasDetailRows(rows)) await this.writeDetailRows(tx, created.id, companyId, rows);
+            if (cancelLine) await this.recordCancelLine(companyId, created.id, cancelLine, tx);
+          }
+        : undefined;
     let shipment: ShipmentRecord;
     if (houseBol) {
       // A reading sent again (or twice at once) finds the shipment it made: a House B/L is one shipment.
@@ -1295,11 +1388,14 @@ class ShipmentService {
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    assertCancelReason(shipmentData, existing);
+    assertBlDates(shipmentData);
     if (role !== undefined) assertWarehouseDates(existing, shipmentData, role);
     if (shipmentData.shippingLine !== undefined) shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
     clearStaleTimes(shipmentData, existing);
     const users = usersOnce();
     await checkPeople(shipmentData, users, existing);
+    await linkUsers(shipmentData, users, existing);
     Object.assign(shipmentData, normalizeStops(shipmentData, existing));
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
@@ -1455,6 +1551,8 @@ class ShipmentService {
       const audit = (field: string, oldValue: string | null, newValue: string | null) =>
         shipmentAuditRepository.create({ companyId, shipmentId: id, userId, field, oldValue, newValue }, tx);
       for (const [key, newValue] of Object.entries(shipmentData)) {
+        // The users' ids follow the e-mails beside them, whose change is the line in the history.
+        if (USER_ID_COLUMNS.has(key)) continue;
         const oldValue = before[key];
         if (oldValue !== newValue) await audit(key, oldValue != null ? String(oldValue) : null, newValue != null ? String(newValue) : null);
       }

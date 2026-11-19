@@ -4,6 +4,8 @@ const shipments = vi.hoisted(() => ({ managersCockpitRows: vi.fn(), dateMovedLat
 const events = vi.hoisted(() => ({ proposedOn: vi.fn(), latestPerShipment: vi.fn(), arrivedAtHub: vi.fn(), ofKinds: vi.fn() }));
 const notices = vi.hoisted(() => ({ latestPerShipment: vi.fn() }));
 const containers = vi.hoisted(() => ({ withFreeTime: vi.fn(), listByShipmentIds: vi.fn() }));
+const claims = vi.hoisted(() => ({ openCargoClaimsByShipmentIds: vi.fn() }));
+const claimLimits = vi.hoisted(() => ({ of: vi.fn() }));
 const holidays = vi.hoisted(() => ({ _internalHolidaysCzNational: vi.fn() }));
 const extra = vi.hoisted(() => ({ extraSignals: vi.fn() }));
 const team = vi.hoisted(() => ({ cockpitUsers: vi.fn(), teamFacts: vi.fn() }));
@@ -25,6 +27,8 @@ vi.mock("../../services/managersCockpitHandover.service", () => handover);
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: events }));
 vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: notices }));
+vi.mock("../../repositories/shipmentClaim.repository", () => ({ shipmentClaimRepository: claims }));
+vi.mock("../../services/claimTimeLimits.service", () => ({ claimTimeLimitsService: claimLimits }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: containers }));
 
 import { COCKPIT_JOB_LIMIT } from "../../lib/cockpitThresholds";
@@ -66,6 +70,7 @@ const person = (handledBy: string, over = {}) => ({
   notTouched: 0,
   coversSince: null,
   highLoad: false,
+  awayUntil: null,
   ...over,
 });
 
@@ -608,5 +613,75 @@ describe("Needs Attention, on the shared facts", () => {
     ]);
     expect(shipments.trackingAttentionCandidates).toHaveBeenCalledWith(COMPANY, 1001);
     expect(containers.withFreeTime).toHaveBeenCalledWith(["id-1", "id-2", "id-3", "id-4"], COMPANY);
+  });
+});
+
+describe("Shipments → Managers' cargo claims (step 6, D21)", () => {
+  const claimRow = (over = {}) => ({
+    id: "claim-1",
+    shipmentId: "id-1",
+    createdAt: new Date("2026-11-01T09:00:00Z"),
+    status: "open",
+    cargoState: "Damaged",
+    note: "",
+    claimAmount: null,
+    claimCurrency: "",
+    noticeDate: null,
+    insurerNotifiedOn: null,
+    ...over,
+  });
+  const ON = { enabled: true, limits: { sea: { noticeDays: 3, suitMonths: 12 }, air: { noticeDays: 14, suitMonths: 24 }, rail: { noticeDays: 7, suitMonths: 12 }, road: { noticeDays: 7, suitMonths: 12 } } };
+  const OFF = { enabled: false, limits: ON.limits };
+  const claimTags = (c: { urgent: { rows: { tags: { kind?: string; text: string; urgent: boolean }[] }[] }; attention: { rows: { tags: { kind?: string; text: string; urgent: boolean }[] }[] } }) =>
+    [...c.urgent.rows, ...c.attention.rows].flatMap((r) => r.tags.filter((t) => t.kind === "claim").map((t) => `${t.urgent ? "URGENT" : "attention"} ${t.text}`));
+
+  beforeEach(() => {
+    claims.openCargoClaimsByShipmentIds.mockResolvedValue([claimRow()]);
+    claimLimits.of.mockResolvedValue(OFF);
+  });
+
+  it("asks only about the jobs whose Claim field says Yes, and for the limits only when one has an open claim", async () => {
+    shipments.managersCockpitRows.mockResolvedValue([row(1), row(2)]);
+    await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(claims.openCargoClaimsByShipmentIds).not.toHaveBeenCalled();
+    expect(claimLimits.of).not.toHaveBeenCalled();
+
+    shipments.managersCockpitRows.mockResolvedValue([row(1, { claim: "Yes" }), row(2)]);
+    claims.openCargoClaimsByShipmentIds.mockResolvedValue([]);
+    await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(claims.openCargoClaimsByShipmentIds).toHaveBeenCalledWith(COMPANY, ["id-1"]);
+    expect(claimLimits.of).not.toHaveBeenCalled();
+  });
+
+  it("with the time limits off says only how long an open claim has stood", async () => {
+    shipments.managersCockpitRows.mockResolvedValue([row(1, { claim: "Yes", actualDeliveryDate: "2026-11-16" })]);
+    const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(claimLimits.of).toHaveBeenCalledWith(COMPANY);
+    expect(claimTags(c)).toEqual(["attention Cargo claim open since 01.11."]);
+    expect(c.tiles.signals.claim).toBe(1);
+    expect(c.notKnown).toEqual([]);
+  });
+
+  it("with them on tags the carrier's notice and the time bar instead", async () => {
+    claimLimits.of.mockResolvedValue(ON);
+    shipments.managersCockpitRows.mockResolvedValue([row(1, { claim: "Yes", actualDeliveryDate: "2026-11-16" })]);
+    const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    // Sea: 3 days from the delivery on the 16th - the 19th, and today is the 18th.
+    expect(claimTags(c)).toEqual(["URGENT Cargo claim: notify the carrier by 19.11."]);
+  });
+
+  it("names what it could not read and tags nothing it can't know", async () => {
+    shipments.managersCockpitRows.mockResolvedValue([row(1, { claim: "Yes" })]);
+    claims.openCargoClaimsByShipmentIds.mockRejectedValue(new Error("down"));
+    const lost = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    expect(claimTags(lost)).toEqual([]);
+    expect(lost.notKnown).toEqual(["cargo claims"]);
+
+    claims.openCargoClaimsByShipmentIds.mockResolvedValue([claimRow()]);
+    claimLimits.of.mockRejectedValue(new Error("down"));
+    const noLimits = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
+    // No time-limit tag; how long the claim has stood is no time limit.
+    expect(claimTags(noLimits)).toEqual(["attention Cargo claim open since 01.11."]);
+    expect(noLimits.notKnown).toEqual(["claim time limits"]);
   });
 });

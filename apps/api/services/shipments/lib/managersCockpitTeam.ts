@@ -1,6 +1,7 @@
 import { addDays, businessDay, businessTime } from "../../../lib/businessDate";
 import { officeMinutesBetween } from "../../../lib/officeHours";
 import {
+  AWAY_SOON_WORKING_DAYS,
   HIGH_LOAD_FACTOR,
   HIGH_LOAD_MIN_PEOPLE,
   MENTION_UNREAD_OFFICE_HOURS,
@@ -55,7 +56,7 @@ export interface ReleaseRequestFact {
 }
 
 /** The signal families of this file: the `kind` a tag is filtered by on the cockpit's tiles. "request" is the family of the other requests waiting for a manager (lib/managersCockpitExtra). */
-export type TeamKind = "todo" | "mention" | "not_touched" | "request";
+export type TeamKind = "todo" | "mention" | "not_touched" | "request" | "away";
 /** A cockpit signal that names its family. */
 export type TeamSignal = OpsSignal & { kind: TeamKind };
 
@@ -66,9 +67,15 @@ export type TeamSignal = OpsSignal & { kind: TeamKind };
 // after it. ATTENTION: after the other tables' last signal (a status that stands still, 400): what
 // people left undone, and last a job nobody touched - it says the least. A release request
 // waiting for a manager sits with the other requests that do (lib/managersCockpitExtra
-// EXTRA_RANK.request, on this scale 60).
+// EXTRA_RANK.request, on this scale 60). Step 6: a job whose Handled By is away with nobody covering
+// it right after "Nobody in Handled By" (100) - it is the same want, for a while - and before "not a
+// user" (110), and so is a job whose Handled By and Holiday Cover are both away; an absence with no
+// cover that starts soon first of this file's ATTENTION, a Holiday Cover away right after it.
 export const TEAM_RANK = {
   releaseRequest: 60,
+  awayNoCover: 101,
+  awaySoon: 405,
+  coverAway: 406,
   mentionUrgent: 96,
   todoUrgent: 97,
   todoLate: 410,
@@ -231,6 +238,70 @@ export function notTouchedSignal(job: TeamJob, lastTouch: Date | null, today: st
   return signal(false, TEAM_RANK.notTouched, "not_touched", "details", `Not touched since ${dm(since)}`);
 }
 
+// ─── D12: Handled By away ──────────────────────────────────────────
+
+/** A user's absence as the cockpit reads it (auth's absences ending today or later). */
+export interface AbsenceFact {
+  /** Who is away, by e-mail (trimmed, lower case). */
+  email: string;
+  /** Prague days, YYYY-MM-DD, both included. */
+  fromDate: string;
+  toDate: string;
+  /** Whether the absence names who covers meanwhile. */
+  hasCover: boolean;
+}
+
+/**
+ * The last day of the absence `email` is in today, carried on through any absence of theirs that
+ * starts the day after (a holiday followed by sick leave is one time away); null when they are not
+ * away today.
+ */
+export function awayUntilOf(absences: readonly AbsenceFact[], email: string, today: string): string | null {
+  const own = absences.filter((a) => a.email === email).sort((a, b) => (a.fromDate < b.fromDate ? -1 : 1));
+  const first = own.find((a) => a.fromDate <= today && a.toDate >= today);
+  if (!first) return null;
+  let until = first.toDate;
+  for (const a of own) if (a.fromDate > first.fromDate && a.fromDate <= addDays(until, 1) && a.toDate > until) until = a.toDate;
+  return until;
+}
+
+/** Everybody away today, by e-mail, with the last day they are away. */
+export function awayToday(absences: readonly AbsenceFact[], today: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const email of new Set(absences.map((a) => a.email))) {
+    const until = awayUntilOf(absences, email, today);
+    if (until) out.set(email, until);
+  }
+  return out;
+}
+
+/**
+ * A job whose Handled By is away and that has no Holiday Cover: URGENT "Handled By away until dd.mm.,
+ * no Holiday Cover" while they are away today (the cover job sets an absence's cover within a quarter
+ * of an hour - this is the absence that names none, or the job it could not be set on); ATTENTION
+ * "Handled By away from dd.mm." when an absence of theirs that names no cover starts within
+ * AWAY_SOON_WORKING_DAYS working days. A job with a Holiday Cover is covered - unless the cover is
+ * away today too: URGENT "Handled By and Holiday Cover away until dd.mm." when both are (the day the
+ * first of them is back), ATTENTION "Holiday Cover away until dd.mm." when only the cover is.
+ */
+export function awaySignals(job: Pick<TeamJob, "personInCharge" | "holidayCover">, absences: readonly AbsenceFact[], away: ReadonlyMap<string, string>, today: string, holidays: readonly string[]): TeamSignal[] {
+  const email = personEmail(job.personInCharge);
+  const cover = personEmail(job.holidayCover);
+  const until = email ? away.get(email) : undefined;
+  if (cover) {
+    const coverUntil = away.get(cover);
+    if (!coverUntil) return [];
+    if (until) return [signal(true, TEAM_RANK.awayNoCover, "away", "details", `Handled By and Holiday Cover away until ${dm(until < coverUntil ? until : coverUntil)}`)];
+    return [signal(false, TEAM_RANK.coverAway, "away", "details", `Holiday Cover away until ${dm(coverUntil)}`)];
+  }
+  if (!email) return [];
+  if (until) return [signal(true, TEAM_RANK.awayNoCover, "away", "details", `Handled By away until ${dm(until)}, no Holiday Cover`)];
+  const soon = absences
+    .filter((a) => a.email === email && !a.hasCover && a.fromDate > today && workingDaysSince(today, a.fromDate, holidays) <= AWAY_SOON_WORKING_DAYS)
+    .sort((a, b) => (a.fromDate < b.fromDate ? -1 : 1))[0];
+  return soon ? [signal(false, TEAM_RANK.awaySoon, "away", "details", `Handled By away from ${dm(soon.fromDate)}`)] : [];
+}
+
 // ─── Team: since when a Holiday Cover stands ─────────────────────────────
 
 /**
@@ -281,6 +352,7 @@ export const TEAM_PARTS = {
   touched: "jobs nobody touched",
   coverSince: "since when a Holiday Cover stands",
   releaseRequests: "release requests",
+  away: "who is away",
 } as const;
 
 /** What services/managersCockpitTeam.service answers. */
@@ -291,10 +363,16 @@ export interface TeamFacts {
   known: { todos: boolean; mentions: boolean; touched: boolean; coverSince: boolean };
   /** The parts that were not, in TEAM_PARTS' words. */
   notKnown: string[];
+  /**
+   * Step 6: who is away today, by e-mail (trimmed, lower case), with the last day they are away - the
+   * people line's `awayUntil`; a person not in it is not away. Null when the absences could not be
+   * read: then nobody's `awayUntil` is known and no job has an `away` tag.
+   */
+  awayUntil?: ReadonlyMap<string, string> | null;
 }
 
 /** Nothing read, nothing said: what the cockpit is handed when the whole of this file's reads failed. */
-export const NO_TEAM_FACTS: TeamFacts = { byJob: new Map(), known: { todos: false, mentions: false, touched: false, coverSince: false }, notKnown: Object.values(TEAM_PARTS) };
+export const NO_TEAM_FACTS: TeamFacts = { byJob: new Map(), known: { todos: false, mentions: false, touched: false, coverSince: false }, notKnown: Object.values(TEAM_PARTS), awayUntil: null };
 
 /** What was read for the jobs; a part that could not be read is null. */
 export interface TeamReads {
@@ -310,18 +388,26 @@ export interface TeamReads {
   releaseRequests: ReadonlyMap<string, readonly ReleaseRequestFact[]> | null;
   /** The company's users, id to e-mail (trimmed, lower case); null when they could not be read - then nobody can say whom a mention tagged. */
   emailOf: ReadonlyMap<string, string> | null;
+  /** The company's absences ending today or later; null when they could not be read. */
+  absences: readonly AbsenceFact[] | null;
 }
 
 /** The jobs judged by this file's rules on one `now`: their signals and the figures the people line adds up. */
 export function teamFactsOf(jobs: readonly TeamJob[], reads: TeamReads, ctx: { now: Date; today: string; holidays: readonly string[] }): TeamFacts {
   const { now, today, holidays } = ctx;
   const mentionsKnown = reads.mentions !== null && reads.emailOf !== null;
+  const away = reads.absences && awayToday(reads.absences, today);
   const byJob = new Map<string, TeamJobFacts>();
   for (const job of jobs) {
     const todos = reads.todos?.get(job.id) ?? [];
     const unread = mentionsKnown ? unreadMentionsOf(job, reads.mentions!.get(job.id) ?? [], reads.emailOf!, now, holidays) : [];
     const facts: TeamJobFacts = {
-      signals: [...releaseRequestSignals(reads.releaseRequests?.get(job.id) ?? [], now, holidays), ...todoSignals(todos, today, holidays), ...mentionSignals(unread)],
+      signals: [
+        ...releaseRequestSignals(reads.releaseRequests?.get(job.id) ?? [], now, holidays),
+        ...(reads.absences && away ? awaySignals(job, reads.absences, away, today, holidays) : []),
+        ...todoSignals(todos, today, holidays),
+        ...mentionSignals(unread),
+      ],
       notTouched: reads.touched ? notTouchedSignal(job, reads.touched.get(job.id) ?? null, today, holidays) : null,
       todosLate: lateTodos(todos, today).length,
       mentionsUnread: new Map(unread.map((u) => [u.email, u.waiting])),
@@ -330,6 +416,6 @@ export function teamFactsOf(jobs: readonly TeamJob[], reads: TeamReads, ctx: { n
     if (facts.signals.length || facts.notTouched || facts.coverSince) byJob.set(job.id, facts);
   }
   const known = { todos: reads.todos !== null, mentions: mentionsKnown, touched: reads.touched !== null, coverSince: reads.coverChanged !== null };
-  const read = { ...known, releaseRequests: reads.releaseRequests !== null };
-  return { byJob, known, notKnown: (Object.keys(TEAM_PARTS) as (keyof typeof TEAM_PARTS)[]).filter((part) => !read[part]).map((part) => TEAM_PARTS[part]) };
+  const read = { ...known, releaseRequests: reads.releaseRequests !== null, away: reads.absences !== null };
+  return { byJob, known, notKnown: (Object.keys(TEAM_PARTS) as (keyof typeof TEAM_PARTS)[]).filter((part) => !read[part]).map((part) => TEAM_PARTS[part]), awayUntil: away };
 }

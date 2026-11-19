@@ -141,6 +141,10 @@ export namespace auth {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.absenceCreate = this.absenceCreate.bind(this)
+            this.absenceDelete = this.absenceDelete.bind(this)
+            this.absenceUpdate = this.absenceUpdate.bind(this)
+            this.absencesList = this.absencesList.bind(this)
             this.airportSearch = this.airportSearch.bind(this)
             this.announcementAttachmentContent = this.announcementAttachmentContent.bind(this)
             this.announcementAttachmentCreate = this.announcementAttachmentCreate.bind(this)
@@ -182,6 +186,40 @@ export namespace auth {
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
             this.usersList = this.usersList.bind(this)
+        }
+
+        public async absenceCreate(params: controllers.AbsenceCreateRequest): Promise<controllers.AbsenceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/absences`, JSON.stringify(params))
+            return await resp.json() as controllers.AbsenceResponse
+        }
+
+        public async absenceDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/absences/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async absenceUpdate(id: string, params: controllers.AbsenceUpdateRequest): Promise<controllers.AbsenceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/absences/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.AbsenceResponse
+        }
+
+        public async absencesList(params: controllers.AbsencesListRequest): Promise<controllers.AbsencesListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                since:  params.since,
+                userId: params.userId,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/absences`, undefined, {query})
+            return await resp.json() as controllers.AbsencesListResponse
         }
 
         /**
@@ -3233,6 +3271,8 @@ export namespace shipments {
             this.claimCreate = this.claimCreate.bind(this)
             this.claimDelete = this.claimDelete.bind(this)
             this.claimList = this.claimList.bind(this)
+            this.claimTimeLimitsGet = this.claimTimeLimitsGet.bind(this)
+            this.claimTimeLimitsSave = this.claimTimeLimitsSave.bind(this)
             this.claimUpdate = this.claimUpdate.bind(this)
             this.commentCreate = this.commentCreate.bind(this)
             this.commentDelete = this.commentDelete.bind(this)
@@ -3306,6 +3346,7 @@ export namespace shipments {
             this.shipmentGet = this.shipmentGet.bind(this)
             this.shipmentHandOver = this.shipmentHandOver.bind(this)
             this.shipmentHandledByCount = this.shipmentHandledByCount.bind(this)
+            this.shipmentHistory = this.shipmentHistory.bind(this)
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
             this.shipmentLinksNormalize = this.shipmentLinksNormalize.bind(this)
             this.shipmentList = this.shipmentList.bind(this)
@@ -3422,12 +3463,12 @@ export namespace shipments {
         }
 
         public async claimCreate(shipmentId: string, params: controllers.ClaimCreateRequest): Promise<{
-    claim: interfaces.ClaimItem
+    claim: interfaces.ShipmentClaimView
 }> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/claims`, JSON.stringify(params))
             return await resp.json() as {
-    claim: interfaces.ClaimItem
+    claim: interfaces.ShipmentClaimView
 }
         }
 
@@ -3441,23 +3482,31 @@ export namespace shipments {
 }
         }
 
-        public async claimList(shipmentId: string): Promise<{
-    claims: interfaces.ClaimItem[]
-}> {
+        public async claimList(shipmentId: string): Promise<interfaces.ShipmentClaimsAnswer> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/claims`)
-            return await resp.json() as {
-    claims: interfaces.ClaimItem[]
-}
+            return await resp.json() as interfaces.ShipmentClaimsAnswer
+        }
+
+        public async claimTimeLimitsGet(): Promise<interfaces.ClaimTimeLimitsSettings> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/claim-time-limits`)
+            return await resp.json() as interfaces.ClaimTimeLimitsSettings
+        }
+
+        public async claimTimeLimitsSave(params: controllers.ClaimTimeLimitsSaveRequest): Promise<interfaces.ClaimTimeLimitsSettings> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/shipments/claim-time-limits`, JSON.stringify(params))
+            return await resp.json() as interfaces.ClaimTimeLimitsSettings
         }
 
         public async claimUpdate(shipmentId: string, claimId: string, params: controllers.ClaimUpdateRequest): Promise<{
-    claim: interfaces.ClaimItem
+    claim: interfaces.ShipmentClaimView
 }> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}/claims/${encodeURIComponent(claimId)}`, JSON.stringify(params))
             return await resp.json() as {
-    claim: interfaces.ClaimItem
+    claim: interfaces.ShipmentClaimView
 }
         }
 
@@ -4207,6 +4256,18 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/handled-by-count`, undefined, {query})
             return await resp.json() as interfaces.HandledByCount
+        }
+
+        public async shipmentHistory(shipmentId: string, params: controllers.ShipmentHistoryRequest): Promise<interfaces.ShipmentHistoryPage> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                before: params.before,
+                limit:  params.limit === undefined ? undefined : String(params.limit),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/history`, undefined, {query})
+            return await resp.json() as interfaces.ShipmentHistoryPage
         }
 
         /**
@@ -7536,6 +7597,60 @@ export namespace warehouseConcept {
 }
 
 export namespace controllers {
+    export interface AbsenceCreateRequest {
+        /**
+         * Who is away; left out: the caller. Somebody else's only for a manager, an admin or a superadmin.
+         */
+        userId?: string
+
+        /**
+         * Prague days, YYYY-MM-DD, both included.
+         */
+        fromDate: string
+
+        toDate: string
+        /**
+         * Who covers meanwhile: another active user of the company; null or left out for nobody.
+         */
+        coverUserId?: string | null
+
+        note?: string
+    }
+
+    export interface AbsenceResponse {
+        absence: interfaces.UserAbsenceItem
+    }
+
+    export interface AbsenceUpdateRequest {
+        fromDate?: string
+        toDate?: string
+        /**
+         * null clears the cover.
+         */
+        coverUserId?: string | null
+
+        note?: string
+    }
+
+    export interface AbsencesListRequest {
+        /**
+         * The first day an absence may end on to be listed, YYYY-MM-DD; default 30 days ago.
+         */
+        since?: string
+
+        /**
+         * Only this user's.
+         */
+        userId?: string
+    }
+
+    export interface AbsencesListResponse {
+        /**
+         * The earliest first. Each one's `note` only for the absent person and the managers ("" for anybody else).
+         */
+        absences: interfaces.UserAbsenceItem[]
+    }
+
     export interface AcceptRemeasurementRequest {
         /**
          * The warehouse's remeasured lines as the page shows them (their saved text): changed meanwhile, nothing is accepted.
@@ -8059,7 +8174,7 @@ export namespace controllers {
         reason?: string
         amount?: string
         /**
-         * yyyy-mm-dd; "" takes it back
+         * yyyy-mm-dd; "" takes it back. Of a cargo claim: the day the carrier was notified.
          */
         noticeDate?: string
 
@@ -8069,19 +8184,39 @@ export namespace controllers {
         supplierInvoiceId?: string
 
         /**
-         * Claims on costs only: a decimal with at most 2 places ("120.50"); "" clears it.
+         * Either kind: a decimal with at most 2 places ("120.50"); "" clears it.
          */
         claimAmount?: string
 
         /**
-         * Claims on costs only: a 3-letter code ("EUR"); "" clears it.
+         * Either kind: a 3-letter code ("EUR"); "" clears it.
          */
         claimCurrency?: string
 
         /**
-         * Claims on costs only. Accepted, rejected or withdrawn closes it (stamped when and by whom); open reopens it.
+         * Cost: open | accepted | rejected | withdrawn. Cargo: open | notified (needs noticeDate) | with_insurer (needs insurerNotifiedOn) | settled (needs settledAmount and settledCurrency) | rejected | withdrawn. A closing one is stamped when and by whom.
          */
         status?: string
+
+        /**
+         * Cargo only: the owner, an active user of the company by id; "" for nobody. A new cargo claim's owner is its creator unless given.
+         */
+        ownerUserId?: string
+
+        /**
+         * Cargo only: yyyy-mm-dd; "" takes it back.
+         */
+        insurerNotifiedOn?: string
+
+        /**
+         * Cargo only: a decimal with at most 2 places; "" clears it.
+         */
+        settledAmount?: string
+
+        /**
+         * Cargo only: a 3-letter code; "" clears it.
+         */
+        settledCurrency?: string
     }
 
     export interface ClaimListResponse {
@@ -8092,6 +8227,18 @@ export namespace controllers {
         claim: interfaces.WarehouseClaimItem
     }
 
+    export interface ClaimTimeLimitsSaveRequest {
+        /**
+         * Switched on, all four modes' numbers are required: saving them so is the manager's confirmation (stamped).
+         */
+        enabled: boolean
+
+        sea?: interfaces.ClaimModeLimits
+        air?: interfaces.ClaimModeLimits
+        rail?: interfaces.ClaimModeLimits
+        road?: interfaces.ClaimModeLimits
+    }
+
     export interface ClaimUpdateRequest {
         cargoState?: string
         note?: string
@@ -8100,7 +8247,7 @@ export namespace controllers {
         reason?: string
         amount?: string
         /**
-         * yyyy-mm-dd; "" takes it back
+         * yyyy-mm-dd; "" takes it back. Of a cargo claim: the day the carrier was notified.
          */
         noticeDate?: string
 
@@ -8110,19 +8257,39 @@ export namespace controllers {
         supplierInvoiceId?: string
 
         /**
-         * Claims on costs only: a decimal with at most 2 places ("120.50"); "" clears it.
+         * Either kind: a decimal with at most 2 places ("120.50"); "" clears it.
          */
         claimAmount?: string
 
         /**
-         * Claims on costs only: a 3-letter code ("EUR"); "" clears it.
+         * Either kind: a 3-letter code ("EUR"); "" clears it.
          */
         claimCurrency?: string
 
         /**
-         * Claims on costs only. Accepted, rejected or withdrawn closes it (stamped when and by whom); open reopens it.
+         * Cost: open | accepted | rejected | withdrawn. Cargo: open | notified (needs noticeDate) | with_insurer (needs insurerNotifiedOn) | settled (needs settledAmount and settledCurrency) | rejected | withdrawn. A closing one is stamped when and by whom.
          */
         status?: string
+
+        /**
+         * Cargo only: the owner, an active user of the company by id; "" for nobody. A new cargo claim's owner is its creator unless given.
+         */
+        ownerUserId?: string
+
+        /**
+         * Cargo only: yyyy-mm-dd; "" takes it back.
+         */
+        insurerNotifiedOn?: string
+
+        /**
+         * Cargo only: a decimal with at most 2 places; "" clears it.
+         */
+        settledAmount?: string
+
+        /**
+         * Cargo only: a 3-letter code; "" clears it.
+         */
+        settledCurrency?: string
     }
 
     export interface CollectionDatesRequest {
@@ -11528,6 +11695,11 @@ export namespace controllers {
         tradeDirection?: string
         loadType?: string
         status?: string
+        /**
+         * Why the job is cancelled: required when it is created as "Cancelled Shipment" ("Say why the shipment is cancelled"); stored trimmed.
+         */
+        cancelReason?: string
+
         customsStatus?: string
         vessel?: string
         voyage?: string
@@ -11813,6 +11985,18 @@ export namespace controllers {
         reason: string
     }
 
+    export interface ShipmentHistoryRequest {
+        /**
+         * The `nextBefore` of the page before: the entries older than that one.
+         */
+        before?: string
+
+        /**
+         * Entries a page, 1-100; 50 when not given.
+         */
+        limit?: number
+    }
+
     export interface ShipmentListRequest {
         limit?: number
         offset?: number
@@ -12029,6 +12213,13 @@ export namespace controllers {
         tradeDirection?: string
         loadType?: string
         status?: string
+        /**
+         * Why the job is cancelled (D22): a write that sets status "Cancelled Shipment" on a job that was not
+         * cancelled is refused without it ("Say why the shipment is cancelled"). Stored trimmed; kept when
+         * the job is un-cancelled.
+         */
+        cancelReason?: string
+
         customsStatus?: string
         vessel?: string
         voyage?: string
@@ -12050,6 +12241,13 @@ export namespace controllers {
         masterBolNumber?: string
         houseBolType?: string
         masterBolType?: string
+        /**
+         * The import's B/L in hand (D31), each "YYYY-MM-DD"; "" clears it.
+         */
+        originalsReceivedDate?: string
+
+        telexReleaseReceivedDate?: string
+        deliveryOrderDate?: string
         pcs?: string
         totalWeightTons?: string
         totalVolumeCbm?: string
@@ -14173,6 +14371,11 @@ export namespace interfaces {
 
     export type AgingBucket = "current" | "1-30" | "31-60" | "61-90" | "90+"
 
+    /**
+     * A claim's status of either kind: a claim on costs has ClaimStatus, a cargo claim CargoClaimStatus.
+     */
+    export type AnyClaimStatus = ClaimStatus | CargoClaimStatus
+
     export interface ApprovalChat {
         threadId: string
         companyName: string
@@ -14640,6 +14843,11 @@ export namespace interfaces {
     export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none"
 
     /**
+     * Where a claim on the shipment (cargo) stands: open · notified (the carrier was) · with_insurer · settled · rejected · withdrawn.
+     */
+    export type CargoClaimStatus = "open" | "notified" | "with_insurer" | "settled" | "rejected" | "withdrawn"
+
+    /**
      * A dimension line of the Cargo Dimensions card: `pieces` identical pieces of
      * L×W×H (cm) and weightPerPcKg each. Volume per piece is derived, never stored.
      */
@@ -14716,63 +14924,31 @@ export namespace interfaces {
     }
 
     /**
-     * One claim of a shipment.
-     */
-    export interface ClaimItem {
-        id: string
-        shipmentId: string
-        kind: ClaimKind
-        /**
-         * Damaged | Incomplete | Undamaged | Lost (cargo claims)
-         */
-        cargoState: string
-
-        note: string
-        supplier: string
-        invoiceNumber: string
-        reason: string
-        /**
-         * Disputed amount, with currency, as typed (free text).
-         */
-        amount: string
-
-        /**
-         * The day the carrier or supplier was given notice; null when not yet.
-         */
-        noticeDate: string | null
-
-        createdAt: string
-        /**
-         * Of a claim on costs: the supplier invoice (invoicing's supplier_invoice id) it is raised against; null when none.
-         */
-        supplierInvoiceId: string | null
-
-        /**
-         * The claimed amount as a decimal ("120.50"); null when not given.
-         */
-        claimAmount: string | null
-
-        /**
-         * 3-letter currency of claimAmount; "" when not given.
-         */
-        claimCurrency: string
-
-        status: ClaimStatus
-        /**
-         * When it was accepted, rejected or withdrawn; null while open.
-         */
-        closedAt: string | null
-
-        /**
-         * Who closed it, by e-mail; "" while open.
-         */
-        closedBy: string
-    }
-
-    /**
      * cargo = claim on the shipment · cost = claim on a supplier's invoice
      */
     export type ClaimKind = "cargo" | "cost"
+
+    /**
+     * One mode's numbers.
+     */
+    export interface ClaimModeLimits {
+        /**
+         * Days after delivery (else the ATA) the carrier must be notified within: 1-365.
+         */
+        noticeDays: number
+
+        /**
+         * Months after delivery (else the ATA) a suit is time-barred: 1-120.
+         */
+        suitMonths: number
+    }
+
+    export interface ClaimModesLimits {
+        sea: ClaimModeLimits
+        air: ClaimModeLimits
+        rail: ClaimModeLimits
+        road: ClaimModeLimits
+    }
 
     /**
      * Where a claim on costs stands: open = disputed with the supplier (it holds the supplier
@@ -14780,6 +14956,48 @@ export namespace interfaces {
      * supplier refused it · withdrawn = we dropped it.
      */
     export type ClaimStatus = "open" | "accepted" | "rejected" | "withdrawn"
+
+    /**
+     * GET / PUT /shipments/claim-time-limits.
+     */
+    export interface ClaimTimeLimitsSettings {
+        /**
+         * Switched on: the Claims tab shows the deadlines and Shipments → Managers tags them. Off by default.
+         */
+        enabled: boolean
+
+        /**
+         * The numbers kept (the general practice while never saved).
+         */
+        limits: ClaimModesLimits
+
+        /**
+         * General practice - not confirmed with the insurer: what a company starts with.
+         */
+        generalPractice: ClaimModesLimits
+
+        /**
+         * Whether the company ever saved them.
+         */
+        saved: boolean
+
+        /**
+         * Who switched them on with these numbers, by e-mail; "" while off.
+         */
+        confirmedBy: string
+
+        /**
+         * When; null while off.
+         */
+        confirmedAt: string | null
+
+        /**
+         * Who saved them last, by e-mail; "" when never saved.
+         */
+        updatedBy: string
+
+        updatedAt: string | null
+    }
 
     /**
      * What managers did, or what happened to records, in the last `days` days.
@@ -20112,6 +20330,11 @@ export namespace interfaces {
          * More active jobs than 1.5 times the median of the people with at least one - said only among three such people or more, and never of "nobody".
          */
         highLoad: boolean
+
+        /**
+         * Step 6 (D12): the last day of the absence they are on today (YYYY-MM-DD); null when not away, or when the absences could not be read.
+         */
+        awayUntil: string | null
     }
 
     /**
@@ -20698,15 +20921,6 @@ export namespace interfaces {
     }
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -20724,6 +20938,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -24286,6 +24509,135 @@ export namespace interfaces {
     }
 
     /**
+     * One claim of a shipment as the Claims tab shows it (ClaimItem with a cargo claim's life).
+     */
+    export interface ShipmentClaimView {
+        id: string
+        shipmentId: string
+        kind: ClaimKind
+        /**
+         * Damaged | Incomplete | Undamaged | Lost (cargo claims)
+         */
+        cargoState: string
+
+        note: string
+        supplier: string
+        invoiceNumber: string
+        reason: string
+        /**
+         * Disputed amount, with currency, as typed (free text, from before claimAmount).
+         */
+        amount: string
+
+        /**
+         * The day the supplier (cost) or the carrier (cargo: "carrier notified on") was given notice; null when not yet.
+         */
+        noticeDate: string | null
+
+        createdAt: string
+        /**
+         * Of a claim on costs: the supplier invoice it is raised against; null when none.
+         */
+        supplierInvoiceId: string | null
+
+        /**
+         * The amount claimed as a decimal ("120.50"), of either kind; null when not given.
+         */
+        claimAmount: string | null
+
+        /**
+         * 3-letter currency of claimAmount; "" when not given.
+         */
+        claimCurrency: string
+
+        /**
+         * Cost: open | accepted | rejected | withdrawn. Cargo: open | notified | with_insurer | settled | rejected | withdrawn.
+         */
+        status: AnyClaimStatus
+
+        /**
+         * Whether it is still open: cargo until settled, rejected or withdrawn; cost until accepted, rejected or withdrawn.
+         */
+        isOpen: boolean
+
+        /**
+         * When it was closed; null while open.
+         */
+        closedAt: string | null
+
+        /**
+         * Who closed it, by e-mail; "" while open.
+         */
+        closedBy: string
+
+        /**
+         * Cargo: who looks after it (a user of the company); null for nobody.
+         */
+        ownerUserId: string | null
+
+        /**
+         * Cargo: the owner's e-mail as it was when they were named; "" for nobody.
+         */
+        ownerName: string
+
+        /**
+         * Cargo: the day the insurer was notified, YYYY-MM-DD; null when not yet.
+         */
+        insurerNotifiedOn: string | null
+
+        /**
+         * Cargo: the amount settled as a decimal; null when not given.
+         */
+        settledAmount: string | null
+
+        /**
+         * 3-letter currency of settledAmount; "" when not given.
+         */
+        settledCurrency: string
+
+        /**
+         * Cargo, with the time limits on: what the deadlines count from - the actual delivery, else the ATA; null when off or the job has neither.
+         */
+        deadlineFrom: "delivery" | "arrival" | null
+
+        /**
+         * Cargo, with the time limits on: the last day the carrier may be notified; null when not counted.
+         */
+        noticeDeadline: string | null
+
+        /**
+         * Cargo, with the time limits on: the day a suit is time-barred; null when not counted.
+         */
+        suitDeadline: string | null
+    }
+
+    /**
+     * GET /shipments/:shipmentId/claims.
+     */
+    export interface ShipmentClaimsAnswer {
+        claims: ShipmentClaimView[]
+        /**
+         * Whether the company's claim time limits are switched on (the deadlines are then given on the cargo claims).
+         */
+        timeLimitsOn: boolean
+
+        /**
+         * Whether the caller may add and change the job's claims on the shipment (cargo): its Handled By, its Holiday Cover or a manager (a job nobody is named on: anyone).
+         */
+        mayEdit: boolean
+
+        /**
+         * Whether the caller may add and change its claims on costs: always - every user of the company may (D15, Accounts Payable's "Raise claim").
+         */
+        mayEditCost: boolean
+
+        /**
+         * Whether the caller may delete one, of either kind: a manager only.
+         */
+        mayDelete: boolean
+    }
+
+    /**
      * A shipment's customer link as the desk sees it; the URL isn't kept.
      */
     export interface ShipmentCustomerLink {
@@ -24392,6 +24744,63 @@ export namespace interfaces {
          * Currencies without a rate that made the totals unknown.
          */
         missingCurrencies: string[]
+    }
+
+    /**
+     * One change in a job's history (shipment_audit), for managers.
+     */
+    export interface ShipmentHistoryEntry {
+        id: string
+        /**
+         * The field's key as stored ("estimatedArrival", "claimStatus", "task:<key>", …).
+         */
+        field: string
+
+        /**
+         * The label of an entry the app writes itself (a claim, a hand-over, a nudge, a tick taken back,
+         * a deletion…). Null for a field of the job: the API keeps no catalogue of the job's field labels -
+         * the web labels it from its own (lib/columnConfig), else shows the key.
+         */
+        label: string | null
+
+        oldValue: string | null
+        newValue: string | null
+        /**
+         * Whether a value was cut at 2,000 characters.
+         */
+        cut: boolean
+
+        changedAt: string
+        userId: string
+        /**
+         * Who, as named now; "former user" for a user since removed; "" when the names could not be read (namesKnown false).
+         */
+        userName: string
+
+        /**
+         * Their e-mail; "" for a former user, or when not known.
+         */
+        userEmail: string
+    }
+
+    /**
+     * GET /shipments/:shipmentId/history.
+     */
+    export interface ShipmentHistoryPage {
+        /**
+         * Newest first.
+         */
+        entries: ShipmentHistoryEntry[]
+
+        /**
+         * Pass as `before` for the next (older) page; null when there is none.
+         */
+        nextBefore: string | null
+
+        /**
+         * False when the users' names could not be read (the look-up failed): the entries then carry the user ids only.
+         */
+        namesKnown: boolean
     }
 
     export interface ShipmentItem {
@@ -24719,6 +25128,35 @@ export namespace interfaces {
 
         createdAt: string
         updatedAt: string
+        /**
+         * The day the original B/Ls arrived, YYYY-MM-DD; null until then. Clears "Master BoL is an OBL, not in hand".
+         */
+        originalsReceivedDate: string | null
+
+        /**
+         * The day the telex release came, YYYY-MM-DD; null until then. Clears "Master BoL is an OBL, not in hand" as well.
+         */
+        telexReleaseReceivedDate: string | null
+
+        /**
+         * The day the delivery order was issued, YYYY-MM-DD; null until then.
+         */
+        deliveryOrderDate: string | null
+
+        /**
+         * Why the job was cancelled: required in the write that sets status "Cancelled Shipment"; "" for none. Kept when the job is un-cancelled.
+         */
+        cancelReason: string
+
+        /**
+         * The user Handled By names, by id: an active user of the company when it was last written; null for nobody or a name that is no user. Never written by a client.
+         */
+        personInChargeUserId: string | null
+
+        /**
+         * The user Holiday Cover names, by id (as personInChargeUserId).
+         */
+        holidayCoverUserId: string | null
     }
 
     /**
@@ -26789,6 +27227,50 @@ export namespace interfaces {
          * e.g. "No zone for postcode 790 01 in Standard sell list"
          */
         reason: string
+    }
+
+    /**
+     * A user's absence as the company sees it (Settings → Users and the user menu: "Away").
+     */
+    export interface UserAbsenceItem {
+        id: string
+        /**
+         * Who is away.
+         */
+        userId: string
+
+        userName: string
+        userEmail: string
+        /**
+         * Prague days, YYYY-MM-DD, both included.
+         */
+        fromDate: string
+
+        toDate: string
+        /**
+         * Who covers meanwhile; null for nobody named.
+         */
+        coverUserId: string | null
+
+        /**
+         * The cover's name and e-mail; null when none is named or the cover is no active user any more.
+         */
+        coverName: string | null
+
+        coverEmail: string | null
+        /**
+         * Seen by the absent person and the managers (superadmin, admin, manager) only - it may hold health information; "" for anybody else.
+         */
+        note: string
+
+        createdBy: string
+        updatedBy: string
+        createdAt: string
+        updatedAt: string
+        /**
+         * Whether the caller may change or delete it: their own, or anybody's for a manager, an admin or a superadmin.
+         */
+        mayChange: boolean
     }
 
     export interface ValidationFinding {

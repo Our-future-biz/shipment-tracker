@@ -271,6 +271,21 @@ describe("the reads of the cockpit's step 2 signals", () => {
     expect(out.byJob.size).toBe(0);
   });
 
+  it("reads the B/L dates off the job's row (step 6): an original in hand clears its tag, a delivery order missing after the arrival is one", async () => {
+    attachments.reviewFactsByShipmentIds.mockResolvedValue([...verified("a"), ...verified("b"), ...verified("c")]);
+    const jobs = [
+      job("a", { masterBolType: "OBL", estimatedArrival: "2026-11-19", originalsReceivedDate: "2026-11-16", telexReleaseReceivedDate: null, deliveryOrderDate: null }),
+      job("b", { actualArrival: "2026-11-12", originalsReceivedDate: null, telexReleaseReceivedDate: null, deliveryOrderDate: null }),
+      job("c", { actualArrival: "2026-11-12", originalsReceivedDate: null, telexReleaseReceivedDate: null, deliveryOrderDate: "2026-11-13" }),
+    ];
+    const out = await extraSignals(jobs, CTX);
+    expect(out.byJob.get("a")).toBeUndefined();
+    expect(out.byJob.get("b")).toEqual([{ rank: 4.5, text: "Arrived 12.11., no delivery order", urgent: true, area: "details", kind: "bl" }]);
+    expect(out.byJob.get("c")).toBeUndefined();
+    // With the 13th and the 16th off, only today has passed since the ATA: ATTENTION.
+    expect((await extraSignals([jobs[1]!], { ...CTX, holidays: ["2026-11-13", "2026-11-16"] })).byJob.get("b")?.map((s) => s.urgent)).toEqual([false]);
+  });
+
   it("hands the company's own days off to the rules", async () => {
     attachments.reviewFactsByShipmentIds.mockResolvedValue(verified("a"));
     documentRequests.waitingByShipmentIds.mockResolvedValue([{ shipmentId: "a", requestedAt: at("2026-11-16 09:00") }]);

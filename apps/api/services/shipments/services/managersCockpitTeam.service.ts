@@ -1,7 +1,8 @@
 import log from "encore.dev/log";
+import { auth } from "~encore/clients";
 import { businessInstant } from "../../../lib/businessDate";
 import { companyUsersWithReportsTo } from "../../../lib/companyUsers";
-import { teamFactsOf, touchCandidates, touchReadFrom, type MentionFact, type ReleaseRequestFact, type TeamFacts, type TeamJob, type TodoFact } from "../lib/managersCockpitTeam";
+import { teamFactsOf, touchCandidates, touchReadFrom, type AbsenceFact, type MentionFact, type ReleaseRequestFact, type TeamFacts, type TeamJob, type TodoFact } from "../lib/managersCockpitTeam";
 import { unlimited, type Limit } from "../lib/readLimiter";
 import { personEmail } from "../lib/shipmentEditRule";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
@@ -22,6 +23,10 @@ export type { TeamFacts, TeamJob } from "../lib/managersCockpitTeam";
 // nothing to ask about (no job with a cover, no job old enough to be untouched, no users). A part
 // that fails gives no signal and no figure, and is named in `notKnown` in the words the page
 // shows after "Not known right now:" (D29: not known is not zero).
+//
+// Step 6 adds a sixth part: who is away (auth's absences ending today or later, one call per
+// answer, beside the users; it holds no connection of this pool, so it does not go through the
+// limiter). Not read: no `away` tag, nobody's `awayUntil` known, and "who is away" named.
 
 /** A user of the company as the cockpit reads one: who they are and whom they report to. */
 export interface CockpitUser {
@@ -82,6 +87,12 @@ function byShipment<R extends { shipmentId: string }, V>(rows: readonly R[], val
   return map;
 }
 
+/** The company's absences ending `today` or later, as the Team rules read them (auth: every user of the company may read them). */
+export async function companyAbsences(today: string): Promise<AbsenceFact[]> {
+  const { absences } = await auth.absencesList({ since: today });
+  return absences.map((a) => ({ email: a.userEmail.trim().toLowerCase(), fromDate: a.fromDate, toDate: a.toDate, hasCover: !!a.coverEmail }));
+}
+
 export async function teamFacts(jobs: readonly TeamJob[], ctx: TeamContext): Promise<TeamFacts> {
   const { companyId, now, today, holidays, users, run = unlimited } = ctx;
   const ids = jobs.map((j) => j.id);
@@ -95,7 +106,8 @@ export async function teamFacts(jobs: readonly TeamJob[], ctx: TeamContext): Pro
   const touchedSince = businessInstant(touchReadFrom(today, holidays), "00:00");
   const covered = jobs.filter((j) => personEmail(j.holidayCover)).map((j) => j.id);
 
-  const [todos, mentions, touched, coverChanged, releaseRequests] = await Promise.all([
+  const [absences, todos, mentions, touched, coverChanged, releaseRequests] = await Promise.all([
+    part("who is away", () => companyAbsences(today)),
     part("to-dos", async () => byShipment(await run(() => shipmentNoteRepository.lateByShipmentIds(ids, companyId, today)), (r): TodoFact => ({ text: r.text, dueDate: r.dueDate }))),
     answering === null
       ? null
@@ -106,5 +118,5 @@ export async function teamFacts(jobs: readonly TeamJob[], ctx: TeamContext): Pro
     part("release requests", async () => byShipment(await run(() => shipmentReleaseRequestRepository.waitingByShipmentIds(ids, companyId)), (r): ReleaseRequestFact => ({ requestedAt: r.requestedAt }))),
   ]);
 
-  return teamFactsOf(jobs, { todos, mentions, touched, coverChanged, releaseRequests, emailOf }, { now, today, holidays });
+  return teamFactsOf(jobs, { todos, mentions, touched, coverChanged, releaseRequests, emailOf, absences }, { now, today, holidays });
 }

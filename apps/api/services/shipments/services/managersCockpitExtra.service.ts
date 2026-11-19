@@ -6,6 +6,7 @@ import {
   UNDER_CLEARANCE,
   customsFieldSignals,
   dangerousSignals,
+  deliveryOrderSignals,
   documentReviewSignals,
   importInstructionSignals,
   masterJobHouseSignals,
@@ -132,7 +133,7 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
 
   const byJob = new Map<string, OpsSignal[]>();
   for (const job of jobs) {
-    const signals: OpsSignal[] = [...originalBlSignals(job, today)];
+    const signals: OpsSignal[] = [...originalBlSignals(job, today), ...deliveryOrderSignals(job, today, holidays)];
 
     // The customs status the shipment shows follows its documents: without them it is not known,
     // and neither is anything that is read off it.

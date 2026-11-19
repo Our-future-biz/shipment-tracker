@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
 import { handledByOf, modeOf, reportsOf, tabOf } from "./cockpitAddress";
-import { coversText, modeSplit, shortDay, teamFigure, teamRowHref, teamRows } from "./cockpitTeam";
+import { awayText, coversText, modeSplit, shortDay, teamFigure, teamRowHref, teamRows } from "./cockpitTeam";
 
 const person = (handledBy: string, over: Partial<OpsCockpitPerson> = {}): OpsCockpitPerson => ({
   handledBy,
@@ -16,6 +16,7 @@ const person = (handledBy: string, over: Partial<OpsCockpitPerson> = {}): OpsCoc
   notTouched: 0,
   coversSince: null,
   highLoad: false,
+  awayUntil: null,
   ...over,
 });
 
@@ -126,6 +127,7 @@ describe("Shipments → Managers, Team: the rows", () => {
       notUser: false,
       coverOnly: false,
       highLoad: true,
+      away: "",
       active: 12,
       modes: "Sea 8 · Air 3 · Road 1",
       urgent: 3,
@@ -164,13 +166,21 @@ describe("Shipments → Managers, Team: the rows", () => {
   it("does not fall over an answer from before step 3: no split, no step 3 figures", () => {
     const old = JSON.parse(JSON.stringify({ handledBy: "jana@cto.cz", isUser: true, active: 4, urgent: 1, attention: 0, covers: 1 })) as OpsCockpitPerson;
     const [row] = teamRows([old], everyone);
-    expect(row).toMatchObject({ active: 4, modes: "", todosLate: null, mentionsUnread: null, notTouched: null, highLoad: false, coversText: "1" });
+    expect(row).toMatchObject({ active: 4, modes: "", todosLate: null, mentionsUnread: null, notTouched: null, highLoad: false, away: "", coversText: "1" });
   });
 
   it("carries the page's mode, direction and My reports into every link", () => {
     const rows = teamRows(PEOPLE, { mode: "sea", direction: "export", reports: "mine" });
     expect(rows[0]!.href).toBe("/shipments/managers?mode=sea&direction=export&handledBy=jana%40cto.cz&reports=mine");
     expect(rows[1]!.href).toBe("/shipments/managers?mode=sea&direction=export&handledBy=nobody&reports=mine");
+  });
+
+  it("marks who is away today until the last day of their absence - never the jobs nobody handles", () => {
+    expect(teamRows([person("jana@cto.cz", { awayUntil: "2026-11-28" })], everyone)[0]).toMatchObject({ away: "away until 28.11." });
+    expect(awayText({ handledBy: "jana@cto.cz", awayUntil: null })).toBe("");
+    expect(awayText({ handledBy: "", awayUntil: "2026-11-28" })).toBe("");
+    // An answer from before step 6 has no field: not away, as far as anybody knows.
+    expect(awayText({ handledBy: "jana@cto.cz" })).toBe("");
   });
 
   it("has no rows for no people", () => {

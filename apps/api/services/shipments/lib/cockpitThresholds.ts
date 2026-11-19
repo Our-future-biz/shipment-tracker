@@ -226,3 +226,30 @@ export const HANDOVER_FACTS_KEPT_MINUTES = 2;
  * says the same number in words.
  */
 export const HANDOVER_CALL_TIMEOUT_MS = 6_000;
+
+// ─── Step 6, builder B: the delivery order of an import that has arrived (lib/managersCockpitExtra) ───
+
+/**
+ * A sea or rail import that arrived (an ATA) and is not delivered, with no Delivery Order date: the
+ * cargo can't be collected from the terminal. ATTENTION once a working day has passed since the
+ * ATA, URGENT at three - storage and demurrage run meanwhile.
+ */
+export const DELIVERY_ORDER_ATTENTION_WORKING_DAYS = 1;
+export const DELIVERY_ORDER_URGENT_WORKING_DAYS = 3;
+// ─── end of builder B's step 6 block ───
+
+// ─── Step 6: who is away (builder A's block; lib/managersCockpitTeam) ──────────
+/** "Handled By away from dd.mm.": an absence with no cover that starts within this many working days of today. */
+export const AWAY_SOON_WORKING_DAYS = 2;
+// ─── end of builder A's block ───
+
+// ─── Step 6: cargo claims (builder C's block; lib/managersCockpitClaims) ──────────
+/** "Cargo claim open since dd.mm.": an open cargo claim asks for a look this many days after it was raised. */
+export const CLAIM_OPEN_ATTENTION_DAYS = 14;
+/** With the claim time limits on: the carrier not notified is URGENT from this many days before the notice deadline. */
+export const CLAIM_NOTICE_URGENT_DAYS_BEFORE = 1;
+/** With the claim time limits on: the suit time bar is ATTENTION this many days ahead… */
+export const CLAIM_SUIT_ATTENTION_DAYS = 60;
+/** …and URGENT this many days ahead. */
+export const CLAIM_SUIT_URGENT_DAYS = 30;
+// ─── end of builder C's block ───

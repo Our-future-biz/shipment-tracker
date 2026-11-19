@@ -98,6 +98,7 @@ export const DATE_COLUMNS = new Set([
   "estimatedDeparture", "estimatedArrival", "actualDeparture", "actualArrival",
   "etaWarehouse", "warehouseReceivedDate", "warehouseReleasedDate", "plannedDeliveryDate",
   "quoteValidity", "equipmentDeliveryDate", "vgmClosing", "siClosing", "amsDeadline", "isfDeadline",
+  "originalsReceivedDate", "telexReleaseReceivedDate", "deliveryOrderDate",
 ]);
 
 // ─── Date + time ──────────────────────────────────────────────────────
@@ -280,6 +281,15 @@ export const COLUMNS: ColumnDef[] = [
   { key: "houseBolType", title: "House BoL Type", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["House BoL Type"], apiField: "houseBolType" },
   { key: "masterBolNumber", title: "Master BoL Number", width: 140, type: "text", apiField: "masterBolNumber" },
   { key: "masterBolType", title: "Master BoL Type", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Master BoL Type"], apiField: "masterBolType" },
+  // An import's B/L in hand (Council Outlay 11, D31): the originals or the telex release received, and the
+  // delivery order. Either of the first two clears the cockpit's "OBL, not in hand"; an arrived job without
+  // the third is flagged there.
+  { key: "originalsReceivedDate", title: "Originals Received", width: 140, type: "date", apiField: "originalsReceivedDate" },
+  { key: "telexReleaseReceivedDate", title: "Telex Release Received", width: 160, type: "date", apiField: "telexReleaseReceivedDate" },
+  { key: "deliveryOrderDate", title: "Delivery Order", width: 130, type: "date", apiField: "deliveryOrderDate" },
+  // Why the job was cancelled (D22): asked in a dialog when the status is set to Cancelled Shipment, changed
+  // on the shipment's page; only shown here.
+  { key: "cancelReason", title: "Cancel Reason", width: 220, type: "text", readonly: true, apiField: "cancelReason" },
   { key: "vessel", title: "Vessel", width: 140, type: "text", apiField: "vessel" },
   { key: "voyage", title: "Voyage", width: 90, type: "text", apiField: "voyage" },
 

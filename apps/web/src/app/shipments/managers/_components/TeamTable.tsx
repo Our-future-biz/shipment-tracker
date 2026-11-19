@@ -37,6 +37,11 @@ const COLUMNS: ColumnsType<TeamRow> = [
           <span className="font-semibold text-slate-900">{r.name}</span>
         )}
         {r.notUser && <Pill tone="red">not a user</Pill>}
+        {r.away && (
+          <Pill tone="amber" title="On an absence recorded under Away… (the user menu or Settings → Users); while it lasts, the absence's cover stands in on the jobs with no Holiday Cover">
+            {r.away}
+          </Pill>
+        )}
         {r.highLoad && (
           <Pill tone="amber" title="More active jobs than 1.5 times the team's median">
             high load

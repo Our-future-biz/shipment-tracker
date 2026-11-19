@@ -9,13 +9,17 @@ import { useToast } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
 import { WarningConfirm } from "@/components/finance/ReleasePaymentWarning";
 import { useHandledByCount } from "@/hooks/useShipmentManagerActions";
+import { useAbsences } from "@/hooks/useAbsences";
+import { businessToday } from "@/lib/date";
 import { handledByJobsHref, handledByWarning, HANDLED_BY_COUNT_NOT_READ, HANDLES_NO_JOB } from "@/lib/managerActions";
 import { Badge, type Tone } from "@/components/Badge";
 import { SectionCard } from "@/components/SectionCard";
-import { EMPTY, HINT, LINK } from "@/styles/ui";
+import { EMPTY, HINT, LINK, LINK_PLAIN } from "@/styles/ui";
 import type { ManagedUser, NewUserInput, UpdateUserInput } from "@/hooks/useUserAdmin";
 import type { Department, Branch } from "@/hooks/useOrgUnits";
 import { userActionRefusals } from "../_lib/userRules";
+import { awaySummary } from "../_lib/absences";
+import { AwayDialog } from "./AwayDialog";
 
 // The role marks in the app's badge tones: the administrators in indigo, managers amber, users grey.
 const ROLE_TONE: Record<string, Tone> = { superadmin: "i", admin: "i", manager: "a", user: "" };
@@ -33,6 +37,7 @@ export function UsersManager({
   currentUserRole,
   orgUnits,
   handledByWarning: warnOfJobs = false,
+  away: showAway = false,
   createUser,
   updateUser,
   deleteUser,
@@ -51,6 +56,10 @@ export function UsersManager({
   // (Council Outlay 11, D13). Only where the users are the signed-in user's own company's: the count is read
   // in that company, so the platform's list of another company's users must not ask for it.
   handledByWarning?: boolean;
+  // Who is away, and when (Council Outlay 11, D12): the current or next absence of each user, each
+  // to be recorded, changed or deleted. Only where the users are the signed-in user's own company's:
+  // the absences are read in that company.
+  away?: boolean;
   createUser: (input: NewUserInput) => Promise<unknown>;
   updateUser: (args: { id: string; input: UpdateUserInput }) => Promise<unknown>;
   deleteUser: (id: string) => Promise<unknown>;
@@ -61,6 +70,10 @@ export function UsersManager({
   const [deactivateTarget, setDeactivateTarget] = useState<ManagedUser | null>(null);
   const [saving, setSaving] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  const [today] = useState(businessToday);
+  // From today on: whoever is away now, and the absences to come.
+  const absences = useAbsences({ since: today }, showAway);
+  const [awayTarget, setAwayTarget] = useState<ManagedUser | null>(null);
   // Read when the dialog opens. It never holds the deactivation up: the jobs stay with the person until handed over.
   const handles = useHandledByCount(deactivateTarget?.email, warnOfJobs && !!deactivateTarget);
   const handlesWarning = handles.count ? handledByWarning(handles.count) : null;
@@ -177,6 +190,42 @@ export function UsersManager({
           { title: "Reports to", dataIndex: "reportsToUserId", render: (v: string | null) => reportsToName(v) },
         ]
       : []),
+    ...(showAway
+      ? [
+          {
+            title: "Away",
+            key: "away",
+            width: 200,
+            render: (_: unknown, r: ManagedUser) => {
+              const summary = awaySummary(absences.absences, r.id, today);
+              return (
+                <div className="flex flex-col items-start text-[12px] leading-4">
+                  {absences.isError ? (
+                    <span className="text-slate-400" title="The absences could not be read">
+                      –
+                    </span>
+                  ) : summary ? (
+                    <>
+                      <span className={`font-medium tabular-nums ${summary.now ? "text-amber-700" : "text-slate-700"}`}>{summary.text}</span>
+                      <span className="text-slate-500">{summary.cover}</span>
+                    </>
+                  ) : (
+                    !absences.isLoading && <span className={EMPTY}>—</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAwayTarget(r)}
+                    aria-label={`Absences of ${r.email}`}
+                    className={`p-0 mt-0.5 border-none bg-transparent cursor-pointer text-[12px] ${LINK_PLAIN}`}
+                  >
+                    {summary ? "Absences…" : "Record…"}
+                  </button>
+                </div>
+              );
+            },
+          },
+        ]
+      : []),
     {
       title: "",
       key: "actions",
@@ -275,6 +324,13 @@ export function UsersManager({
           </Form.Item>
         </Form>
       </Modal>
+
+      <AwayDialog
+        open={!!awayTarget}
+        person={awayTarget ? { id: awayTarget.id, name: awayTarget.displayName || awayTarget.email } : null}
+        self={!!awayTarget && awayTarget.id === currentUserId}
+        onClose={() => setAwayTarget(null)}
+      />
 
       {/* The app's confirmation, with room for the jobs the person still handles (D13): a warning, never a stop. */}
       <WarningConfirm

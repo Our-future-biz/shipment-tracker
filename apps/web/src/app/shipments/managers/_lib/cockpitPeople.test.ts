@@ -16,6 +16,7 @@ const person = (handledBy: string, over: Partial<OpsCockpitPerson> = {}): OpsCoc
   notTouched: 0,
   coversSince: null,
   highLoad: false,
+  awayUntil: null,
   ...over,
 });
 

@@ -27,6 +27,8 @@ interface ShipmentCreateRequest {
   tradeDirection?: string;
   loadType?: string;
   status?: string;
+  /** Why the job is cancelled: required when it is created as "Cancelled Shipment" ("Say why the shipment is cancelled"); stored trimmed. */
+  cancelReason?: string & MaxLen<1000>;
   customsStatus?: string;
   vessel?: string;
   voyage?: string;

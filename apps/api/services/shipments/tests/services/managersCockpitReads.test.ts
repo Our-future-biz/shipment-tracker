@@ -36,7 +36,7 @@ const db = vi.hoisted(() => {
   return { state, repository, call, jobs: [] as unknown[] };
 });
 const clients = vi.hoisted(() => ({
-  auth: { usersList: vi.fn() },
+  auth: { usersList: vi.fn(), absencesList: vi.fn(async () => ({ absences: [] })) },
   holidays: { _internalHolidaysCzNational: vi.fn() },
   warehouseConcept: { _internalWarehouseOperationsFacts: vi.fn(db.call("call.warehouseConcept")) },
   trucking: { _internalTruckingOperationsFacts: vi.fn(db.call("call.trucking")) },
@@ -58,6 +58,8 @@ vi.mock("../../repositories/shipmentNote.repository", () => ({ shipmentNoteRepos
 vi.mock("../../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: db.repository("comment") }));
 vi.mock("../../repositories/shipmentReleaseRequest.repository", () => ({ shipmentReleaseRequestRepository: db.repository("releaseRequest") }));
 vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipmentReleaseOverrideRepository: db.repository("releaseOverride") }));
+vi.mock("../../repositories/shipmentClaim.repository", () => ({ shipmentClaimRepository: db.repository("claim") }));
+vi.mock("../../repositories/claimTimeLimits.repository", () => ({ claimTimeLimitsRepository: db.repository("claimTimeLimits", { of: () => null }) }));
 vi.mock("../../repositories/shipmentCutoffDismissal.repository", () => ({ shipmentCutoffDismissalRepository: db.repository("dismissal") }));
 
 import { COCKPIT_READS_AT_ONCE } from "../../lib/cockpitThresholds";

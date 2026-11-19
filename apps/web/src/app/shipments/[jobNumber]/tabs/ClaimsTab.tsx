@@ -8,8 +8,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import type { controllers, interfaces } from "@/lib/api/client";
-import { businessDateTime, businessDayOf, formatDate } from "@/lib/date";
+import type { controllers } from "@/lib/api/client";
+import { businessDateTime, businessDayOf, businessToday, formatDate } from "@/lib/date";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { supplierInvoiceKeys } from "@/hooks/supplierInvoiceKeys";
 import { Pill } from "@/components/Pill";
@@ -18,15 +18,17 @@ import { noticeWords } from "./tracking/trackingText";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { ClaimFormModal, type ClaimValues } from "./ClaimFormModal";
-import { claimAmountText, claimStatusOf } from "./claimValues";
+import { claimAmountText, claimDeadlines, claimStatusOf, deadlineFromText, figureText, type Claim } from "./claimValues";
 import { apInvoiceHref } from "@/lib/accountsPayable";
 import { supplierInvoiceOptions } from "./supplierInvoiceLink";
 
 // Claim tab: claims on the shipment itself (how the cargo arrived) and claims on a
 // supplier's costs. Each card holds as many claims as needed: "+" opens a dialog to fill one in,
-// and ⋯ > Edit opens it again; the rows themselves only show.
-
-type Claim = interfaces.ClaimItem;
+// and ⋯ > Edit opens it again; the rows themselves only show. Who may (Council Outlay 11, D20): a
+// claim on the shipment is added and changed by the job's Handled By, its Holiday Cover or a manager
+// (mayEdit); a claim on costs by every user (mayEditCost - Accounts Payable's "Raise claim", D15);
+// either is deleted by a manager only (mayDelete). The server says which and holds to it. With the company's claim time limits
+// on (D21), a cargo claim shows its deadlines.
 
 const CARGO_STATE_TONE: Record<string, string> = {
   Undamaged: "bg-emerald-50",
@@ -46,6 +48,11 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
     queryFn: () => api.shipments.claimList(shipment.id),
   });
   const claims = data?.claims ?? [];
+  // Until the answer says so, nothing can be added, changed or deleted here.
+  const mayEditOf = (kind: "cargo" | "cost") => (kind === "cargo" ? (data?.mayEdit ?? false) : (data?.mayEditCost ?? false));
+  const mayDelete = data?.mayDelete ?? false;
+  const timeLimitsOn = data?.timeLimitsOn ?? false;
+  const today = businessToday();
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["shipment-claims", shipment.id] });
     // The shipment's Claim field (Yes/No) follows the claims.
@@ -104,7 +111,13 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   const [toDelete, setToDelete] = useState<Claim | null>(null);
   const deleteCell = (c: Claim) => (
     <td className={CELL}>
-      <RowActionsMenu label="Claim actions" onEdit={() => setForm({ kind: c.kind as "cargo" | "cost", claim: c })} onDelete={() => setToDelete(c)} />
+      {(mayEditOf(c.kind) || mayDelete) && (
+        <RowActionsMenu
+          label="Claim actions"
+          onEdit={mayEditOf(c.kind) ? () => setForm({ kind: c.kind, claim: c }) : undefined}
+          onDelete={mayDelete ? () => setToDelete(c) : undefined}
+        />
+      )}
     </td>
   );
 
@@ -115,20 +128,24 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
       <div className={CARD_BAR}>
         <span className={`${CARD_ICON} shrink-0`}>{icon}</span>
         <h3 className={`${CARD_TITLE} min-w-0`}>{title}</h3>
-        <Tooltip title="Add claim">
-          {/* the small purple "+" of Container and Cargo Details */}
-          <Button
-            size="small"
-            type="primary"
-            icon={<PlusOutlined className="text-[11px]" />}
-            aria-label={`Add ${title.toLowerCase()}`}
-            onClick={() => setForm({ kind })}
-            className={`${ADD_BTN} ml-auto`}
-          />
-        </Tooltip>
+        {mayEditOf(kind) ? (
+          <Tooltip title="Add claim">
+            {/* the small purple "+" of Container and Cargo Details */}
+            <Button
+              size="small"
+              type="primary"
+              icon={<PlusOutlined className="text-[11px]" />}
+              aria-label={`Add ${title.toLowerCase()}`}
+              onClick={() => setForm({ kind })}
+              className={`${ADD_BTN} ml-auto`}
+            />
+          </Tooltip>
+        ) : (
+          data && kind === "cargo" && <span className={`${HINT} ml-auto`}>Handled By, Holiday Cover or a manager adds claims on the shipment</span>
+        )}
       </div>
       <div className="overflow-x-auto">
-        <table className={`w-full ${kind === "cost" ? "min-w-[720px]" : "min-w-[560px]"} table-fixed border-collapse`}>
+        <table className={`w-full ${kind === "cost" ? "min-w-[720px]" : "min-w-[860px]"} table-fixed border-collapse`}>
           <thead>
             <tr>
               {columns.map((c) => (
@@ -172,7 +189,7 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
         open={!!toDelete}
         danger
         title="Delete claim?"
-        description="The claim is removed from this shipment. This can't be undone."
+        description="The claim is removed from this shipment; the job's history keeps what was deleted. This can't be undone."
         confirmLabel="Delete"
         loading={remove.isPending}
         onClose={() => setToDelete(null)}
@@ -185,22 +202,71 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
           "Claim on the shipment",
           <WarningOutlined />,
           "cargo",
-          [{ label: "Cargo state", width: "w-[150px]" }, { label: "Note" }, { label: "Delivered", width: "w-[110px]" }, { label: "Notice given", width: "w-[150px]" }],
+          [
+            { label: "Status", width: "w-[190px]" },
+            { label: "Cargo state", width: "w-[120px]" },
+            { label: "Note" },
+            { label: "Claimed", width: "w-[140px]" },
+            { label: "Notified", width: "w-[170px]" },
+            { label: "Owner", width: "w-[150px]" },
+          ],
           claims
             .filter((c) => c.kind === "cargo")
-            .map((c) => (
-              <tr key={c.id} className="hover:bg-slate-50">
-                <td className={`${CELL} ${CARGO_STATE_TONE[c.cargoState] ?? ""}`}>{read(c.cargoState)}</td>
-                <td className={CELL}>{read(c.note, "two")}</td>
-                <td className={`${CELL} whitespace-nowrap tabular-nums`}>{shipment.actualDeliveryDate ? formatDate(shipment.actualDeliveryDate) : <span className={EMPTY}>—</span>}</td>
-                <td className={CELL}>
-                  {read(c.noticeDate ? formatDate(c.noticeDate) : "")}
-                  {noticeWords(shipment.actualDeliveryDate, c.noticeDate) && <div className={HINT}>{noticeWords(shipment.actualDeliveryDate, c.noticeDate)}</div>}
-                </td>
-                {deleteCell(c)}
-              </tr>
-            )),
-          "No claim on this shipment — add one with +.",
+            .map((c) => {
+              const status = claimStatusOf(c.status, "cargo");
+              const deadlines = claimDeadlines(c, timeLimitsOn, today);
+              const from = deadlineFromText(c.deadlineFrom);
+              const settled = figureText(c.settledAmount, c.settledCurrency);
+              const afterDelivery = noticeWords(shipment.actualDeliveryDate, c.noticeDate);
+              return (
+                <tr key={c.id} className="hover:bg-slate-50 align-top">
+                  <td className={CELL}>
+                    <Pill tone={status.tone}>{status.label}</Pill>
+                    {!c.isOpen && c.closedAt && (
+                      <div className={`${HINT} truncate`} title={[businessDateTime(c.closedAt), c.closedBy].filter(Boolean).join(" · ")}>
+                        {formatDate(businessDayOf(c.closedAt))}
+                        {c.closedBy && ` · ${c.closedBy}`}
+                      </div>
+                    )}
+                    {/* The claim time limits (D21), while they are on: what is due by when, red once passed. */}
+                    {deadlines.map((d) => (
+                      <div key={d.label} className={`text-[12px] ${d.passed ? "text-red-600 font-medium" : "text-slate-500"}`} title={from ? `Counted ${from}` : undefined}>
+                        {d.label} {d.day}
+                        {d.passed && " (passed)"}
+                      </div>
+                    ))}
+                    {deadlines.length > 0 && from && <div className={HINT}>{from}</div>}
+                    {timeLimitsOn && c.isOpen && !c.deadlineFrom && (
+                      <div className={HINT}>Deadlines count from the delivery, else the arrival: neither is in yet</div>
+                    )}
+                  </td>
+                  <td className={`${CELL} ${CARGO_STATE_TONE[c.cargoState] ?? ""}`}>{read(c.cargoState)}</td>
+                  <td className={CELL}>{read(c.note, "two")}</td>
+                  <td className={`${CELL} tabular-nums`}>
+                    {read(claimAmountText(c))}
+                    {settled && <div className={`${HINT} truncate`} title={`Settled ${settled}`}>Settled {settled}</div>}
+                  </td>
+                  <td className={CELL}>
+                    {c.noticeDate || c.insurerNotifiedOn ? (
+                      <>
+                        {c.noticeDate && (
+                          <div className="text-[13px] text-slate-900 whitespace-nowrap tabular-nums">Carrier {formatDate(c.noticeDate)}</div>
+                        )}
+                        {afterDelivery && <div className={HINT}>{afterDelivery}</div>}
+                        {c.insurerNotifiedOn && (
+                          <div className="text-[13px] text-slate-900 whitespace-nowrap tabular-nums">Insurer {formatDate(c.insurerNotifiedOn)}</div>
+                        )}
+                      </>
+                    ) : (
+                      <span className={EMPTY}>—</span>
+                    )}
+                  </td>
+                  <td className={CELL}>{read(c.ownerName)}</td>
+                  {deleteCell(c)}
+                </tr>
+              );
+            }),
+          mayEditOf("cargo") ? "No claim on this shipment — add one with +." : "No claim on this shipment.",
         )}
 
         {card(
@@ -250,7 +316,7 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
                 </tr>
               );
             }),
-          "No claim on costs — add one with +.",
+          mayEditOf("cost") ? "No claim on costs — add one with +." : "No claim on costs.",
         )}
       </div>
     </>

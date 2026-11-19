@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { Dropdown, type MenuProps } from "antd";
-import { LogoutOutlined, UserOutlined } from "@ant-design/icons";
+import { CalendarOutlined, LogoutOutlined, UserOutlined } from "@ant-design/icons";
+import { AwayDialog } from "@/app/settings/_components/AwayDialog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { GlobalSearch } from "./globalSearch/GlobalSearch";
 import { NotificationBell } from "./NotificationBell";
@@ -9,6 +11,8 @@ import { CompanySwitcher } from "./CompanySwitcher";
 
 export function TopNav() {
   const { user, logout } = useAuth();
+  // "Away…" (Council Outlay 11, D12): every user records their own absences and who covers them.
+  const [awayOpen, setAwayOpen] = useState(false);
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short",
     day: "numeric",
@@ -25,6 +29,12 @@ export function TopNav() {
       disabled: true,
     },
     { type: "divider" },
+    {
+      key: "away",
+      icon: <CalendarOutlined />,
+      label: "Away…",
+      onClick: () => setAwayOpen(true),
+    },
     {
       key: "logout",
       icon: <LogoutOutlined />,
@@ -68,6 +78,8 @@ export function TopNav() {
           </div>
         </Dropdown>
       </div>
+
+      <AwayDialog open={awayOpen} person={user ? { id: user.id, name: user.displayName || user.email } : null} self onClose={() => setAwayOpen(false)} />
     </header>
   );
 }

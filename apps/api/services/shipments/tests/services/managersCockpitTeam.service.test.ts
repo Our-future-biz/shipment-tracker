@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const auth = vi.hoisted(() => ({ usersList: vi.fn() }));
+const auth = vi.hoisted(() => ({ usersList: vi.fn(), absencesList: vi.fn() }));
 const notes = vi.hoisted(() => ({ lateByShipmentIds: vi.fn() }));
 const comments = vi.hoisted(() => ({ unreadMentionsByShipmentIds: vi.fn() }));
 const history = vi.hoisted(() => ({ lastTouchedSince: vi.fn(), latestByShipmentIds: vi.fn() }));
@@ -53,6 +53,7 @@ beforeEach(() => {
   history.lastTouchedSince.mockResolvedValue(new Map());
   history.latestByShipmentIds.mockResolvedValue([]);
   releaseRequests.waitingByShipmentIds.mockResolvedValue([]);
+  auth.absencesList.mockResolvedValue({ absences: [] });
 });
 
 describe("the company's users, as the cockpit reads them", () => {
@@ -187,6 +188,31 @@ describe("the reads of the people around the jobs", () => {
     expect(history.latestByShipmentIds).toHaveBeenCalledWith(COMPANY, [{ fields: ["holidayCover"], shipmentIds: [] }]);
     const facts = await teamFacts([], CTX);
     expect(notes.lateByShipmentIds).toHaveBeenLastCalledWith([], COMPANY, "2026-11-18");
-    expect(facts).toEqual({ byJob: new Map(), known: { todos: true, mentions: true, touched: true, coverSince: true }, notKnown: [] });
+    expect(facts).toEqual({ byJob: new Map(), known: { todos: true, mentions: true, touched: true, coverSince: true }, notKnown: [], awayUntil: new Map() });
+  });
+});
+
+describe("who is away (step 6, D12)", () => {
+  const absence = (over = {}) => ({ id: "a-1", userId: "u-jan", userName: "Jan Novák", userEmail: " Jan@Firma.cz ", fromDate: "2026-11-16", toDate: "2026-11-20", coverUserId: null, coverName: null, coverEmail: null, note: "", mayChange: false, ...over });
+
+  it("reads the company's absences ending today or later once per answer, and tags the jobs of whoever is away with no cover", async () => {
+    auth.absencesList.mockResolvedValue({ absences: [absence(), absence({ id: "a-2", userId: "u-eva", userEmail: "eva@firma.cz", fromDate: "2026-11-19", toDate: "2026-11-20", coverEmail: "petr@firma.cz" })] });
+    const facts = await teamFacts([job(1), job(2, { holidayCover: "eva@firma.cz" }), job(3, { personInCharge: "eva@firma.cz" })], CTX);
+    expect(auth.absencesList).toHaveBeenCalledTimes(1);
+    expect(auth.absencesList).toHaveBeenCalledWith({ since: "2026-11-18" });
+    expect(facts.byJob.get("id-1")?.signals).toEqual([expect.objectContaining({ kind: "away", urgent: true, text: "Handled By away until 20.11., no Holiday Cover" })]);
+    // Covered: nothing. Eva's absence tomorrow names a cover: nothing either.
+    expect(facts.byJob.get("id-2")?.signals ?? []).toEqual([]);
+    expect(facts.byJob.get("id-3")?.signals ?? []).toEqual([]);
+    expect(facts.awayUntil).toEqual(new Map([["jan@firma.cz", "2026-11-20"]]));
+    expect(facts.notKnown).toEqual([]);
+  });
+
+  it("names who is away as not known when the absences could not be read: no tag, nobody's awayUntil", async () => {
+    auth.absencesList.mockRejectedValue(new Error("auth is down"));
+    const facts = await teamFacts([job(1)], CTX);
+    expect(facts.byJob.get("id-1")?.signals ?? []).toEqual([]);
+    expect(facts.awayUntil).toBeNull();
+    expect(facts.notKnown).toEqual([TEAM_PARTS.away]);
   });
 });
