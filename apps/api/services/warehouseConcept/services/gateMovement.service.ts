@@ -335,7 +335,7 @@ const stampText = (d: Date) =>
 // Fields the general update never writes: status and release follow the stamps, the release
 // gates, Refuse and the supervisor override, each logged through its own endpoint. Dropped
 // even if a client sends them (the request type no longer has them).
-const NOT_EDITABLE = ["pickupShipmentId", "status", "releaseGates", "releaseStatus", "overridden", "refusalLog", "overrideLog", "gateIn", "gateOut", "impRelease", "expDraft", "expReceipt", "events", "pinTries", "pinHash", "surveys"];
+const NOT_EDITABLE = ["pickupShipmentId", "etaWarehouse", "status", "releaseGates", "releaseStatus", "overridden", "refusalLog", "overrideLog", "gateIn", "gateOut", "impRelease", "expDraft", "expReceipt", "events", "pinTries", "pinHash", "surveys"];
 
 const t = gateMovementTable;
 const DIRECTION_LOCKED = "Direction cannot change once a gate stamp is recorded";

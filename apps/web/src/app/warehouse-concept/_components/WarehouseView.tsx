@@ -225,6 +225,15 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   textCol("pod", "Port of Discharge", 150),
   { key: "etd", title: "ETD", width: 110, text: (r) => formatDate(r.m?.etd), sorter: byText((r) => r.m?.etd || "9999"), render: (_, r) => dim(formatDate(r.m?.etd)) },
   { key: "eta", title: "ETA", width: 110, text: (r) => formatDate(r.m?.eta), sorter: byText((r) => r.m?.eta || "9999"), render: (_, r) => dim(formatDate(r.m?.eta)) },
+  // The shipment's ETA Warehouse/HUB, kept up to date with the shipment and its master job.
+  {
+    key: "etaWarehouse",
+    title: "ETA Warehouse/HUB",
+    width: 150,
+    text: (r) => formatDate(r.m?.etaWarehouse),
+    sorter: byText((r) => r.m?.etaWarehouse || "9999"),
+    render: (_, r) => dim(formatDate(r.m?.etaWarehouse)),
+  },
   {
     key: "colli",
     title: TERMS.pieces,

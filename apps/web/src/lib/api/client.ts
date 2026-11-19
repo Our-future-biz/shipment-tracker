@@ -2731,7 +2731,9 @@ export namespace quotes {
          * Deletes a sales quote: it is gone from Sales for everybody, while its row, its history and
          * its reference - which is never used again - are kept. Only a Draft that never went out can
          * be: refused for everybody (failed precondition) while a shipment or trucking job names it,
-         * once it is Ready to Send or later, and for the revision of a Replaced quote; refused for a
+         * once it is Ready to Send or later, for the revision of a Replaced quote and for the original
+         * offer a variant (-2) or revision (-R1) follows on from - it stays as the record of what was
+         * offered; refused for a
          * user who may not delete this quote (permission denied). What the signed-in user may do is on
          * every quote that is handed out: permissions.canDelete.
          */
@@ -17429,6 +17431,11 @@ export namespace interfaces {
         pod: string
         etd: string
         eta: string
+        /**
+         * The shipment's ETA Warehouse/HUB (YYYY-MM-DD; "" for none): a copy kept up to date with the shipment, never edited here.
+         */
+        etaWarehouse: string
+
         /**
          * The shipment's closing date (cargo cut-off, YYYY-MM-DD), read with its customs status; "" when none.
          */

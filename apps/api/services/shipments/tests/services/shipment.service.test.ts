@@ -251,9 +251,15 @@ describe("changes passed on to Trucking and the gate", () => {
     const owed = { companyId: COMPANY, shipmentId: SHIPMENT, actingUserId: USER, actingRole: "manager" };
     expect(rows).toEqual([
       { ...owed, target: "trucking", changes: { pickupDate: { from: "2026-11-18", to: "2026-11-19" }, plateNumber: { from: "3AB 1234", to: "4CD 5678" } } },
-      { ...owed, target: "warehouse", changes: { plateNumber: { from: "3AB 1234", to: "4CD 5678" } } },
+      // The gate keeps the ETA Warehouse/HUB too (Trucking does not).
+      { ...owed, target: "warehouse", changes: { etaWarehouse: { from: "", to: "2026-11-21" }, plateNumber: { from: "3AB 1234", to: "4CD 5678" } } },
     ]);
     expect(pushes.claimDue).toHaveBeenCalledWith(expect.any(Number), SHIPMENT);
+  });
+
+  it("owes the gate the master job's ETA Warehouse/HUB a person saved onto its houses", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { etaWarehouse: "2026-11-21" } as never, USER, undefined, "master_job");
+    expect(pushes.enqueue.mock.calls[0]![1]).toEqual([expect.objectContaining({ target: "warehouse", changes: { etaWarehouse: { from: "", to: "2026-11-21" } } })]);
   });
 
   it("owes them for the master job's values a person saved onto its houses", async () => {
@@ -271,7 +277,7 @@ describe("changes passed on to Trucking and the gate", () => {
   });
 
   it("sends nothing when the edit changes none of the fields the others keep", async () => {
-    await shipmentService.update(SHIPMENT, COMPANY, { etaWarehouse: "2026-11-21", pickupDate: "2026-11-18" } as never, USER, "manager");
+    await shipmentService.update(SHIPMENT, COMPANY, { plannedDeliveryDate: "2026-11-21", pickupDate: "2026-11-18" } as never, USER, "manager");
     expect(pushes.enqueue).not.toHaveBeenCalled();
     expect(pushes.claimDue).not.toHaveBeenCalled();
   });

@@ -150,6 +150,11 @@ export const gateMovementTable = pgTable(
     pod: text("pod").notNull().default(""),
     etd: text("etd").notNull().default(""),
     eta: text("eta").notNull().default(""),
+    // The shipment's ETA Warehouse/HUB (YYYY-MM-DD; "" for none): when the cargo is due at the
+    // warehouse, where ETA above is the vessel's. A copy of the shipment's only - never edited at the
+    // gate - kept up to date when it changes there or through its master job (lib/shipmentPush), and
+    // by the shipment follow (shipmentFollow.service). "Expected today" goes by it.
+    etaWarehouse: text("eta_warehouse").notNull().default(""),
     // The shipment's closing date (cargo cut-off, YYYY-MM-DD), read with its customs status; "" when none.
     closingDate: text("closing_date").notNull().default(""),
     vessel: text("vessel").notNull().default(""),

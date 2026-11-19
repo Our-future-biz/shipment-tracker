@@ -65,6 +65,20 @@ describe("a shipment's change on its gate record", () => {
     expect((await gateMovementRepository.findById(id, c))!).toMatchObject({ eta: "2026-11-25", plate: "3AB 1234" });
   });
 
+  it("copies the shipment's ETA Warehouse/HUB on import, and takes its change - also on a stamped record, whatever it held", async () => {
+    const c = randomUUID();
+    const s = randomUUID();
+    shipmentData.set(s, { tradeDirection: "Import", estimatedArrival: "2026-11-12", etaWarehouse: "2026-11-15" });
+    const [r] = await warehouseImportService.importShipments(c, user, [s]);
+    const id = r!.movementId!;
+    expect((await gateMovementRepository.findById(id, c))!).toMatchObject({ eta: "2026-11-12", etaWarehouse: "2026-11-15" });
+    await gateMovementRepository.update(id, c, { etaWarehouse: "2026-11-16", gateIn: new Date() });
+    await expect(shipmentChangesService.follow(c, user, s, { etaWarehouse: { from: "2026-11-15", to: "2026-11-18" } })).resolves.toEqual({ kept: [] });
+    const m = (await gateMovementRepository.findById(id, c))!;
+    expect(m).toMatchObject({ eta: "2026-11-12", etaWarehouse: "2026-11-18" });
+    expect(m.events.at(-1)).toMatchObject({ kind: "refreshedFromShipment", label: "From shipment: ETA warehouse", detail: "ETA warehouse: 2026-11-15 → 2026-11-18" });
+  });
+
   it("touches no other company's records", async () => {
     const { c, s, id } = await linked();
     await shipmentChangesService.follow(randomUUID(), user, s, { estimatedArrival: { from: "2026-11-24", to: "2026-11-25" } });

@@ -10,11 +10,12 @@
 //   and the promised delivery is counted again - Trucking's own rules), shipment.plateNumber ↔ the
 //   FTL trip's tractorPlate. Not pushed: plannedDeliveryDate (Trucking counts the promise from the
 //   service level and sends it to the shipment), pickupTime (Trucking never sends it either).
-// - Gate record: shipment.estimatedArrival ↔ eta (what "Refresh from shipment" copies), and
-//   shipment.plateNumber ↔ plate. etaWarehouse has no field on the gate record.
+// - Gate record: shipment.estimatedArrival ↔ eta (what "Refresh from shipment" copies),
+//   shipment.etaWarehouse ↔ etaWarehouse (a copy only, never edited at the gate), and
+//   shipment.plateNumber ↔ plate.
 // A write that came from Trucking or the gate (appWrite) owes nothing, so a change never loops.
 
-export type PushedField = "pickupDate" | "plateNumber" | "estimatedArrival";
+export type PushedField = "pickupDate" | "plateNumber" | "estimatedArrival" | "etaWarehouse";
 export type PushTarget = "trucking" | "warehouse";
 
 /** A field's value before and after the shipment's write ("" for none). */
@@ -28,12 +29,13 @@ export interface ShipmentChanges {
   pickupDate?: FieldChange;
   plateNumber?: FieldChange;
   estimatedArrival?: FieldChange;
+  etaWarehouse?: FieldChange;
 }
 
 /** The shipment's fields each side keeps, by the shipment's names for them. */
 export const PUSHED_FIELDS: Readonly<Record<PushTarget, readonly PushedField[]>> = {
   trucking: ["pickupDate", "plateNumber"],
-  warehouse: ["estimatedArrival", "plateNumber"],
+  warehouse: ["estimatedArrival", "etaWarehouse", "plateNumber"],
 };
 
 const value = (v: unknown): string => (v === null || v === undefined ? "" : String(v).trim());
@@ -100,6 +102,8 @@ export function tripPlateDecision(
 
 interface GateState {
   eta: string;
+  /** The record's copy of the shipment's ETA Warehouse/HUB. */
+  etaWarehouse?: string;
   plate: string;
   /** Any gate stamp (gate-in, gate-out, release, receipt…). */
   stamped: boolean;
@@ -112,8 +116,11 @@ interface GateState {
  * copies it (stamped or not); the plate only before any stamp - then it is the vehicle the gate
  * saw - and not on a record a Trucking trip announced (its legs carry the trip's vehicle).
  */
-export function gateDecisions(m: GateState, changes: ShipmentChanges): { eta?: PushDecision; plate?: PushDecision } {
-  const out: { eta?: PushDecision; plate?: PushDecision } = {};
+export function gateDecisions(m: GateState, changes: ShipmentChanges): { eta?: PushDecision; etaWarehouse?: PushDecision; plate?: PushDecision } {
+  const out: { eta?: PushDecision; etaWarehouse?: PushDecision; plate?: PushDecision } = {};
+  // The ETA Warehouse/HUB is the shipment's own: the gate never edits it, so it always follows.
+  const etw = changes.etaWarehouse;
+  if (etw) out.etaWarehouse = (m.etaWarehouse ?? "") === etw.to ? { kind: "same" } : { kind: "apply", to: etw.to };
   const eta = changes.estimatedArrival;
   if (eta) {
     out.eta =
@@ -143,7 +150,7 @@ export function gateDecisions(m: GateState, changes: ShipmentChanges): { eta?: P
 export function parseShipmentChanges(raw: unknown): ShipmentChanges {
   const out: ShipmentChanges = {};
   if (!raw || typeof raw !== "object") return out;
-  for (const field of ["pickupDate", "plateNumber", "estimatedArrival"] as const) {
+  for (const field of ["pickupDate", "plateNumber", "estimatedArrival", "etaWarehouse"] as const) {
     const c = (raw as Record<string, unknown>)[field] as { from?: unknown; to?: unknown } | undefined;
     if (c && typeof c.from === "string" && typeof c.to === "string") out[field] = { from: c.from, to: c.to };
   }

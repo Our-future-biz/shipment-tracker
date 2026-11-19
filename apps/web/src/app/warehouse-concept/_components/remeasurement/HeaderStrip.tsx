@@ -82,6 +82,7 @@ export function HeaderStrip({
           </span>,
         )}
         {m?.eta && m.status === "Expected" && item("ETA", formatDate(m.eta))}
+        {m?.etaWarehouse && m.status === "Expected" && item("ETA warehouse", formatDate(m.etaWarehouse))}
       </div>
     </div>
   );

@@ -13,7 +13,7 @@ const shown = (v: string) => v || "—";
 const announcedByTrip = (legs: readonly GateTransportLeg[] | null | undefined) => (legs ?? []).some((l) => l.source?.kind === "trucking");
 
 // What a person changed on a shipment in Shipments, taken by the shipment's live gate records
-// (lib/shipmentPush): its ETA, and the plate before the gate saw the vehicle. A record that holds
+// (lib/shipmentPush): its ETA, its ETA Warehouse/HUB, and the plate before the gate saw the vehicle. A record that holds
 // its own value, or may not change any more, keeps it and says why; the write is guarded by the
 // value it replaces, so the gate's own edit made meanwhile wins. Logged on the record as
 // "Refresh from shipment" logs it. Idempotent: a change taken already is "same" the second time.
@@ -25,7 +25,7 @@ class ShipmentChangesService {
     let by: string | null = null;
     for (const m of records) {
       const name = m.positionRef || m.gateRef;
-      const d = gateDecisions({ eta: m.eta, plate: m.plate, stamped: hasStamp(m), fromTrip: announcedByTrip(m.transportLegs) }, changes);
+      const d = gateDecisions({ eta: m.eta, etaWarehouse: m.etaWarehouse, plate: m.plate, stamped: hasStamp(m), fromTrip: announcedByTrip(m.transportLegs) }, changes);
       const set: Partial<NewGateMovementRecord> = {};
       const guards: SQL[] = [];
       const details: string[] = [];
@@ -34,6 +34,11 @@ class ShipmentChangesService {
         set.eta = d.eta.to;
         guards.push(eq(t.eta, changes.estimatedArrival.from));
         details.push(`ETA: ${shown(changes.estimatedArrival.from)} → ${shown(d.eta.to)}`);
+      }
+      // Not guarded by the value it replaces: the gate never edits it, the shipment's is always right.
+      if (d.etaWarehouse?.kind === "apply" && changes.etaWarehouse) {
+        set.etaWarehouse = d.etaWarehouse.to;
+        details.push(`ETA warehouse: ${shown(changes.etaWarehouse.from)} → ${shown(d.etaWarehouse.to)}`);
       }
       if (d.plate?.kind === "skip") kept.push(`${name} plate: ${d.plate.reason}`);
       if (d.plate?.kind === "apply" && changes.plateNumber) {

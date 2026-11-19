@@ -43,6 +43,14 @@ describe("customs status follows the shipment", () => {
     expect(m.shipmentCheckedAt).not.toBeNull();
   });
 
+  it("brings the ETA Warehouse/HUB up to date with the shipment (a record from before it was kept, or a lost change), logged", async () => {
+    const { c, s, id } = await linked();
+    shipmentData.set(s, { customsStatus: "Paperwork Verified", etaWarehouse: "2026-11-18" });
+    const m = (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
+    expect(m.etaWarehouse).toBe("2026-11-18");
+    expect(m.events.at(-1)).toMatchObject({ kind: "etaWarehouseFromShipment", label: "ETA warehouse from shipment: 2026-11-18", by: "Shipments" });
+  });
+
   it("reads a shipment again only after a while, unless asked to refresh", async () => {
     const { c, id } = await linked();
     (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));

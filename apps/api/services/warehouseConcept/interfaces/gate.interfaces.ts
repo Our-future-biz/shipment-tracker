@@ -398,6 +398,8 @@ export interface GateMovementItem {
   pod: string;
   etd: string;
   eta: string;
+  /** The shipment's ETA Warehouse/HUB (YYYY-MM-DD; "" for none): a copy kept up to date with the shipment, never edited here. */
+  etaWarehouse: string;
   /** The shipment's closing date (cargo cut-off, YYYY-MM-DD), read with its customs status; "" when none. */
   closingDate: string;
   vessel: string;

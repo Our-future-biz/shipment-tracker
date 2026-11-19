@@ -15,13 +15,28 @@ describe("what a shipment write owes Trucking and the gate", () => {
   });
 
   it("owes nothing for fields the other side does not keep, unchanged ones, or ones the write did not name", () => {
-    const after = { ...before, etaWarehouse: "2026-11-21", plannedDeliveryDate: "2026-11-22", pickupDate: "2026-11-30" };
-    expect(pushesOwed(before, after, ["etaWarehouse", "plannedDeliveryDate", "plateNumber"])).toEqual([]);
+    const after = { ...before, plannedDeliveryDate: "2026-11-22", pickupDate: "2026-11-30" };
+    expect(pushesOwed(before, after, ["plannedDeliveryDate", "plateNumber"])).toEqual([]);
     // Cleared counts as a change to "".
     expect(pushesOwed(before, { ...before, plateNumber: null }, ["plateNumber"]).map((p) => p.changes)).toEqual([
       { plateNumber: { from: "3AB 1234", to: "" } },
       { plateNumber: { from: "3AB 1234", to: "" } },
     ]);
+  });
+
+  it("owes the gate - not Trucking - a changed ETA Warehouse/HUB", () => {
+    expect(pushesOwed(before, { ...before, etaWarehouse: "2026-11-21" }, ["etaWarehouse"])).toEqual([
+      { target: "warehouse", changes: { etaWarehouse: { from: "2026-11-20", to: "2026-11-21" } } },
+    ]);
+    expect(parseShipmentChanges({ etaWarehouse: { from: "2026-11-20", to: "2026-11-21" } })).toEqual({ etaWarehouse: { from: "2026-11-20", to: "2026-11-21" } });
+  });
+
+  it("lets the gate record always take the ETA Warehouse/HUB, stamped or not, whatever it held: it is never edited at the gate", () => {
+    const changes = { etaWarehouse: { from: "2026-11-20", to: "2026-11-21" } };
+    const gate = { eta: "", plate: "", stamped: true, fromTrip: false };
+    expect(gateDecisions({ ...gate, etaWarehouse: "" }, changes).etaWarehouse).toEqual({ kind: "apply", to: "2026-11-21" });
+    expect(gateDecisions({ ...gate, etaWarehouse: "2026-11-19" }, changes).etaWarehouse).toEqual({ kind: "apply", to: "2026-11-21" });
+    expect(gateDecisions({ ...gate, etaWarehouse: "2026-11-21" }, changes).etaWarehouse).toEqual({ kind: "same" });
   });
 
   it("reads back only well-formed changes from an outbox row", () => {

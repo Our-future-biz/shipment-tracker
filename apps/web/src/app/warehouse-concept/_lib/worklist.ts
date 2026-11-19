@@ -24,7 +24,7 @@ function dayOf(v: string | null | undefined): string {
   return "";
 }
 
-type ExpectedFields = Pick<Movement, "status" | "gateIn" | "eta" | "slot" | "subPositions" | "dockSlots"> & Partial<Pick<Movement, "transportLegs">>;
+type ExpectedFields = Pick<Movement, "status" | "gateIn" | "eta" | "slot" | "subPositions" | "dockSlots"> & Partial<Pick<Movement, "transportLegs" | "etaWarehouse">>;
 type DockSlot = interfaces.GateDockSlot;
 
 /** Dock slots that still hold their door (Cancelled and Completed ones free it). */
@@ -49,12 +49,13 @@ export function tripArrivalToday(m: Partial<Pick<Movement, "transportLegs">>, to
 
 /**
  * Expected at the gate today: not arrived yet (status Expected, no gate-in) and today is its ETA,
- * its dock slot (Dock & Yard; the older slot text when it has none), the planned arrival of the
- * Trucking trip that fills its IN leg, or the ETA warehouse (ETW) of one of its sub-positions.
+ * its shipment's ETA Warehouse/HUB, its dock slot (Dock & Yard; the older slot text when it has
+ * none), the planned arrival of the Trucking trip that fills its IN leg, or the ETA warehouse (ETW)
+ * of one of its sub-positions.
  */
 export function isExpectedToday(m: ExpectedFields, today: string): boolean {
   if (m.status !== "Expected" || m.gateIn) return false;
-  if (slotToday(m, today) || dayOf(m.eta) === today || dayOf(m.slot) === today || tripArrivalToday(m, today)) return true;
+  if (slotToday(m, today) || dayOf(m.eta) === today || dayOf(m.etaWarehouse) === today || dayOf(m.slot) === today || tripArrivalToday(m, today)) return true;
   return m.subPositions.some((s) => dayOf(s.etw) === today);
 }
 
@@ -67,6 +68,7 @@ export function expectedBecause(m: ExpectedFields, today: string): string {
   else if (dayOf(m.slot) === today) parts.push(`Slot ${m.slot.slice(11, 16) || m.slot}`.trim());
   else if (trip) parts.push(`${tripLabel(trip)} ${PRAGUE_TIME.format(new Date(trip.gateTime))}`);
   if (dayOf(m.eta) === today) parts.push("ETA");
+  if (dayOf(m.etaWarehouse) === today) parts.push("ETA warehouse");
   if (m.subPositions.some((s) => dayOf(s.etw) === today)) parts.push("ETW");
   return parts.join(" · ");
 }
@@ -140,7 +142,7 @@ export const CHIPS: { id: ChipId; label: string; hint: string; danger?: boolean;
     danger: true,
     match: (m) => m.needsAttention || m.openExceptions > 0 || m.shipmentUpdate?.state === "failed",
   },
-  { id: "expectedToday", label: "Expected today", hint: "Not arrived yet; ETA, dock slot or ETA warehouse is today (Prague time)", match: (m, today) => isExpectedToday(m, today) },
+  { id: "expectedToday", label: "Expected today", hint: "Not arrived yet; ETA, ETA Warehouse/HUB, dock slot or a drop's ETA warehouse is today (Prague time)", match: (m, today) => isExpectedToday(m, today) },
   { id: "inWarehouse", label: "In warehouse", hint: "Received and not yet released or gone out", match: (m) => inWarehouse(m) },
   {
     id: "expiring",

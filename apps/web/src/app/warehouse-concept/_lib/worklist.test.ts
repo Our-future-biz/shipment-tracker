@@ -68,6 +68,12 @@ describe("expected today", () => {
     expect(isExpectedToday(mv({ subPositions: [{ etw: "2026-10-14" } as interfaces.GateSubPosition] }), today)).toBe(true);
     expect(isExpectedToday(mv({ eta: "2026-10-15" }), today)).toBe(false);
   });
+  it("matches the shipment's ETA Warehouse/HUB, and says so", () => {
+    expect(isExpectedToday(mv({ eta: "2026-10-10", etaWarehouse: "2026-10-14" }), today)).toBe(true);
+    expect(expectedBecause(mv({ eta: "2026-10-10", etaWarehouse: "2026-10-14" }), today)).toBe("ETA warehouse");
+    expect(isExpectedToday(mv({ eta: "2026-10-14", etaWarehouse: "2026-10-18" }), today)).toBe(true);
+    expect(isExpectedToday(mv({ eta: "2026-10-10", etaWarehouse: "2026-10-18" }), today)).toBe(false);
+  });
   it("leaves out arrived movements", () => {
     expect(isExpectedToday(mv({ eta: today, gateIn: "2026-10-14T06:00:00Z" }), today)).toBe(false);
     expect(isExpectedToday(mv({ eta: today, status: "In Warehouse" }), today)).toBe(false);

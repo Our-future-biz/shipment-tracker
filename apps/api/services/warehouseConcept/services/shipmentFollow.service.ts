@@ -33,7 +33,7 @@ const t = gateMovementTable;
 // The history event of a position kept after its shipment was deleted (gateAdmin.service).
 const SHIPMENT_GONE = "shipmentDeleted";
 
-type Fetched = { ok: true; customsStatus: string; closingDate: string; customer: string; customerPic: string } | { ok: false; error: string };
+type Fetched = { ok: true; customsStatus: string; closingDate: string; etaWarehouse: string; customer: string; customerPic: string } | { ok: false; error: string };
 
 // Reads each shipment once, at most PARALLEL at a time, within the time budget. Shipments not
 // answered in time are missing from the result.
@@ -48,6 +48,7 @@ async function fetchStatuses(shipmentIds: string[], budgetMs: number, authData?:
           ok: true,
           customsStatus: shipment.customsStatus,
           closingDate: shipment.closingDate ?? "",
+          etaWarehouse: shipment.etaWarehouse ?? "",
           customer: shipment.customer ?? "",
           customerPic: shipment.customerPic ?? "",
         });
@@ -115,6 +116,21 @@ export async function followCustoms(
         for (const row of rows) changed.set(row.id, row);
       } catch (err) {
         log.warn(err, "warehouse: gate records not brought up to date with their shipment's customer", { shipmentId: m.shipmentId });
+      }
+    }
+    // The shipment's ETA Warehouse/HUB comes with it too ("Expected today" goes by it): a record
+    // imported before it was kept, or whose change from Shipments went missing, catches up here.
+    if (f.ok && f.etaWarehouse !== m.etaWarehouse) {
+      const row = await gateMovementRepository.conditionalUpdate(
+        m.id,
+        companyId,
+        { etaWarehouse: f.etaWarehouse, shipmentCheckedAt: at },
+        [{ kind: "etaWarehouseFromShipment", label: `ETA warehouse from shipment: ${f.etaWarehouse || "none"}`, at: at.toISOString(), by: "Shipments", detail: `was ${m.etaWarehouse || "none"}` }],
+        sql`${t.impRelease} IS NULL`,
+      );
+      if (row) {
+        changed.set(m.id, row);
+        m.etaWarehouse = row.etaWarehouse;
       }
     }
     // The shipment's closing date (cargo cut-off) comes with it: the stuffing plan is measured on it.
