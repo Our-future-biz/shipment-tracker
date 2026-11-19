@@ -1174,9 +1174,11 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         warehouseReleasedDate: shipmentTable.warehouseReleasedDate,
         createdAt: shipmentTable.createdAt,
         updatedAt: shipmentTable.updatedAt,
+        // The job's id named with its table: in a select of one table Drizzle writes the column bare ("id"), and inside
+        // the subquery that is the notice's own id, so no notice would ever be found.
         arrivalNoticeSent: sql<boolean>`EXISTS (
           SELECT 1 FROM ${shipmentCustomerNoticeTable} told
-          WHERE told.shipment_id = ${shipmentTable.id} AND told.kind = 'arrival_notice' AND told.deleted_at IS NULL
+          WHERE told.shipment_id = "shipment"."id" AND told.kind = 'arrival_notice' AND told.deleted_at IS NULL
         )`,
       })
       .from(shipmentTable)

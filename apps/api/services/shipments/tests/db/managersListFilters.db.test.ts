@@ -12,6 +12,7 @@ import { COCKPIT_JOB_LIMIT } from "../../lib/cockpitThresholds";
 import { freightKindOf } from "../../lib/trackingEvents";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentAuditTable } from "../../schemas/shipmentAudit.schema";
+import { shipmentCustomerNoticeTable } from "../../schemas/shipmentCustomerNotice.schema";
 import { shipmentTable, type NewShipmentRecord } from "../../schemas/shipment.schema";
 import { managersCockpitService } from "../../services/managersCockpit.service";
 
@@ -215,5 +216,15 @@ describe("the cockpit's read of the jobs", () => {
     expect((await shipmentRepository.managersCockpitRows(companyId, COCKPIT_JOB_LIMIT + 1)).map((r) => r.id)).toEqual([third.id, second.id, first.id]);
     expect((await shipmentRepository.managersCockpitRows(companyId, 2)).map((r) => r.id)).toEqual([third.id, second.id]);
     expect(await listed(companyId, { tile: "active" })).toEqual(ids([first, second, third]));
+  });
+
+  it("says a job's arrival notice was sent when one is recorded for it, and only for that job", async () => {
+    const companyId = randomUUID();
+    const told = await newJob(companyId);
+    const other = await newJob(companyId);
+    await db.insert(shipmentCustomerNoticeTable).values({ companyId, shipmentId: told.id, kind: "arrival_notice" });
+    await db.insert(shipmentCustomerNoticeTable).values({ companyId, shipmentId: other.id, kind: "eta_change" });
+    const rows = await shipmentRepository.managersCockpitRows(companyId, 10);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.arrivalNoticeSent]))).toEqual({ [told.id]: true, [other.id]: false });
   });
 });
