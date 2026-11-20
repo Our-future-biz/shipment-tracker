@@ -67,6 +67,8 @@ describe("stock line from the gate", () => {
     expect((await stock.updateStockLine(line!.id, c, { location: "a-04-2", status: "On hold" })).location).toBe("A-04-2");
     await expect(stock.deleteStockLine(line!.id, c)).rejects.toThrow(/closes when the position leaves/);
 
+    // An override never clears Customs (Q18 (b)).
+    await gateMovementService.update(id, c, user, { customsStatus: "Customs Cleared/Released" });
     await gateMovementService.override(id, c, user, "test release");
     await gateMovementService.stamp(id, c, user, "impRelease");
     const [closed] = await linesOf(c, id);

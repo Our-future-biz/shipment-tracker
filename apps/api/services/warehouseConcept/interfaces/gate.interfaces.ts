@@ -189,7 +189,8 @@ export interface GateStorageInfo {
   startDate: string;
   /**
    * What started the clock: "gateIn" (inbound), "tally" (outbound, ticked received at the
-   * stripping tally), "loadInDate" (outbound without a tally), "" (not started).
+   * stripping tally), "receipt" (outbound in no container, received by its receipt),
+   * "loadInDate" (outbound without either), "" (not started).
    */
   startSource: string;
   stopped: boolean;
@@ -350,6 +351,10 @@ export interface GatePositionContainer {
   /** "" (not tallied) | received | short | not_arrived */
   tallyOutcome: string;
   tallyPieces: number | null;
+  /** The condition noted at the tally tick (Good, Damaged packaging…); "" when none (Q20). */
+  tallyCondition: string;
+  /** The zone / rack noted at the tally tick; "" when none. */
+  tallyLocation: string;
   tickedAt: string | null;
   tickedBy: string;
   /**

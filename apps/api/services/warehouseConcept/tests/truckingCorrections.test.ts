@@ -163,6 +163,8 @@ describe("What Trucking hears (C12, decisions 3 and 4)", () => {
 
     // Without a pick-up run, an outbound gate-in is the truck that picks the cargo up: nothing.
     const [plain] = await warehouseImportService.importShipments(c, user, [randomUUID()]);
+    // Loose import cargo is received before its pick-up truck gates in (Q19): the typed date.
+    await gateMovementRepository.update(plain!.movementId!, c, { loadInDate: "2026-01-02" });
     publish.mockClear();
     await gateMovementService.stamp(plain!.movementId!, c, user, "gateIn");
     expect(publish).not.toHaveBeenCalled();

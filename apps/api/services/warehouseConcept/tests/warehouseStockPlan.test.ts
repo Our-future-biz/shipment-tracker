@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planStockSync, type StockSyncState } from "../services/warehouseStockPlan";
+import { planStockSync, stockCustomsValue, type StockSyncState } from "../services/warehouseStockPlan";
 import type { BondedEntryRecord, StockLineRecord, StockSyncMovement } from "../repositories/warehouseStock.repository";
 import type { HouseCtx } from "../services/houses";
 
@@ -135,6 +135,34 @@ describe("stock line from the gate", () => {
     expect(planStockSync(state({ ...m, receivedAt: null }, { house: notTicked }), by).line).toBeNull();
     // Without a container the "Received in warehouse" date is the receipt.
     expect(planStockSync(state({ ...m, receivedAt: null }), by).lineChange).toBe("none->open");
+  });
+
+  // Q19: loose import cargo (no container) received by its receipt — counted pieces and location.
+  it("loose import cargo received by its receipt: the counted pieces and location, on the line and the bonded entry", () => {
+    const receipt = { kind: "positionReceived", label: "Received", at: T0.toISOString(), by: "Eva", receipt: { pieces: 8, condition: "Damaged packaging", location: "a-03-2" } };
+    const m = movement({ visit: "výdej", handling: "Import", customsMode: "RDT", receivedAt: T0, loadInDate: "2026-10-01", events: [receipt] });
+    const plan = planStockSync(state(m), by);
+    expect(plan.line?.insert).toMatchObject({ pieces: 8, location: "A-03-2", receivedAt: "2026-10-01" });
+    expect(plan.movements[0]).toMatchObject({ type: "Receipt", reference: "Receipt in the warehouse (no container)", toLocation: "A-03-2", pieces: 8 });
+    expect(plan.entry?.insert).toMatchObject({ pieces: 8, balance: 8 });
+    // Not counted: the expected pieces; a voided receipt gives the typed date's plain receipt back.
+    const uncounted = { ...receipt, receipt: { pieces: null, condition: "", location: "" } };
+    expect(planStockSync(state({ ...m, events: [uncounted] }), by).line?.insert).toMatchObject({ pieces: 10, location: "" });
+    const voided = { kind: "positionReceiptVoided", label: "Receipt voided", at: T1.toISOString(), by: "Ota" };
+    const back = planStockSync(state({ ...m, receivedAt: null, events: [receipt, voided] }), by);
+    expect(back.line?.insert).toMatchObject({ pieces: 10, location: "" });
+    expect(back.movements[0]).toMatchObject({ reference: "Received in warehouse" });
+  });
+
+  // User council c7: import cargo waiting for its paperwork read "Free circulation".
+  it("import cargo customs has not cleared is 'Not cleared' under SCP, free circulation once cleared", () => {
+    const m = movement({ visit: "výdej", handling: "Import", receivedAt: T0, loadInDate: "2026-10-01" });
+    expect(planStockSync(state(m), by).line?.insert).toMatchObject({ customs: "Not cleared", customsRegime: "" });
+    const cleared = planStockSync(state({ ...m, customsStatus: "Customs Cleared/Released" }), by);
+    expect(cleared.line?.insert).toMatchObject({ customs: "Free circulation", customsRegime: "" });
+    expect(stockCustomsValue({ visit: "příjem", customsStatus: "Waiting For Commercial Paperwork" }, "")).toBe("Free circulation");
+    expect(stockCustomsValue({ visit: "příjem", customsStatus: "Customs Cleared/Released" }, "")).toBe("Export cleared");
+    expect(stockCustomsValue({ visit: "výdej", customsStatus: "Waiting For Commercial Paperwork" }, "Transit T1")).toBe("T1 bonded");
   });
 
   it("inbound stuffed in an export container: Allocated to it, then Load at its gate-out", () => {

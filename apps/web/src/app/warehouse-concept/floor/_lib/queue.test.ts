@@ -349,6 +349,8 @@ describe("re-weighs and container work in the queue", () => {
       stuffedBy: "",
       tallyOutcome: "",
       tallyPieces: null,
+      tallyCondition: "",
+      tallyLocation: "",
       tickedAt: null,
       tickedBy: "",
       tallyRequired: true,

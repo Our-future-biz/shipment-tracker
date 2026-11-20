@@ -9,6 +9,7 @@ import { gateAdminService } from "../services/gateAdmin.service";
 import { deliverDue, MAX_ATTEMPTS } from "../services/shipmentOutbox.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { pragueDate } from "../services/storage";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { shipmentOutboxTable } from "../schemas/shipmentOutbox.schema";
 
@@ -42,10 +43,11 @@ async function inboundRow() {
   return r;
 }
 
-// Linked tasks come in as outgoing (výdej); this ticks every release gate so it is armed.
+// Linked tasks come in as outgoing (výdej); this ticks every release gate so it is armed, and
+// receives the cargo by the typed date (loose import cargo is received before its release, Q19).
 async function armedRow(plate = "3AB 1234") {
   const r = await linkedRow();
-  await gateMovementRepository.update(r.row.id, r.c, { plate, releaseGates: r.row.releaseGates.map((g) => ({ ...g, s: "OK" as const })) });
+  await gateMovementRepository.update(r.row.id, r.c, { plate, loadInDate: pragueDate(new Date()), releaseGates: r.row.releaseGates.map((g) => ({ ...g, s: "OK" as const })) });
   return r;
 }
 
@@ -116,6 +118,8 @@ describe("gate stamps write back to the shipment", () => {
 
   it("writes nothing back when the pickup truck gates in for outgoing cargo", async () => {
     const { c, row } = await linkedRow();
+    // Loose import cargo is received before its pick-up truck gates in (Q19): the typed date.
+    await gateMovementRepository.update(row.id, c, { loadInDate: pragueDate(new Date()) });
     await gateMovementService.stamp(row.id, c, user, "gateIn");
     expect(shipmentUpdate).not.toHaveBeenCalled();
     expect(await outboxOf(row.id)).toEqual([]);
@@ -218,7 +222,8 @@ describe("shipment update outbox", () => {
     const { c, row } = await inboundRow();
     shipmentUpdate.mockRejectedValue(new Error("down"));
     await gateMovementService.stamp(row.id, c, user, "gateIn");
-    await gateMovementRepository.update(row.id, c, { visit: "výdej", overridden: true });
+    // An override never clears Customs (Q18 (b)): the Customs line is ticked as well.
+    await gateMovementRepository.update(row.id, c, { visit: "výdej", overridden: true, loadInDate: pragueDate(new Date()), releaseGates: row.releaseGates.map((g) => (g.g === "Customs" ? { ...g, s: "OK" as const } : g)) });
     // The release is stamped while the received date is still waiting: it waits behind it.
     await gateMovementService.stamp(row.id, c, user, "impRelease");
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);

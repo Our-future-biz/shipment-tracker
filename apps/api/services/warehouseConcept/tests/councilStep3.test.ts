@@ -101,6 +101,9 @@ describe("a container with T1 / RDT houses leaves only with their MRN (decision 
     await containerService.setStuffed(box.id, c, user, id, true);
     await containerService.stamp(box.id, c, user, "user", "close", { seal: "CZ0084412" });
     await expect(containerService.stamp(box.id, c, user, "user", "gateOut")).rejects.toThrow(/under customs control \(T1 transit\) with no MRN/);
+    // A supervisor override does not skip it: it is a customs control (Q18 (b)).
+    await gateMovementService.override(id, c, user, "supervisor lets it go");
+    await expect(containerService.stamp(box.id, c, user, "user", "gateOut")).rejects.toThrow(/with no MRN/);
     await gateMovementRepository.update(id, c, { mrn: "26CZ5100001234A7" });
     const out = await containerService.stamp(box.id, c, user, "user", "gateOut");
     expect(out.container.status).toBe("Gone out");

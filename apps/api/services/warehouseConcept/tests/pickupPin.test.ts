@@ -5,6 +5,7 @@ import { sectionItem, warehouseService } from "../services/warehouse.service";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { pragueDate } from "../services/storage";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { sql } from "drizzle-orm";
 import { db } from "../db/db";
@@ -35,6 +36,8 @@ const ROWS = [{ haulier: "Trans CZ", licensePlate: "3AB 1234", driver: "Petr Nov
 // A position linked to a shipment: it comes into the Gate Log as outbound (výdej).
 async function linkedRow(c = randomUUID(), shipmentId = randomUUID()) {
   const [r] = await warehouseImportService.importShipments(c, user, [shipmentId]);
+  // Received by the typed date: loose import cargo is received before its WH release (Q19).
+  await gateMovementRepository.update(r!.movementId!, c, { loadInDate: pragueDate(new Date()) });
   const row = (await gateMovementService.list(c)).find((m) => m.id === r!.movementId)!;
   return { c, shipmentId, task: { id: r!.taskId!, taskId: r!.ref }, row };
 }

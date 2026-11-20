@@ -28,6 +28,7 @@ import {
   tallyHouses,
 } from "@/app/warehouse-concept/_lib/containerPlan";
 import { Badge, hhmm, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { conditionAndLocation, conditionNotGood, tallyQuestions } from "@/app/warehouse-concept/_lib/tallyCondition";
 import { useFloorQueue, type SubmitResult } from "../_lib/useFloorQueue";
 import { applyPendingContainer, pendingInContainer } from "../_lib/queue";
 import { Chip, FloorCard, NeedsConnection, Stepper, bigDanger, bigDefault, bigDefaultLink, bigPrimary, bigPrimaryLink } from "./floorUi";
@@ -38,6 +39,9 @@ import { Chip, FloorCard, NeedsConnection, Stepper, bigDanger, bigDefault, bigDe
 // in. The container's gate-in and the start of stripping are stamped here too. All of it works
 // offline (kept on the phone with the time it was done). The close with the seal and the gate-out
 // need a connection and the desk page: they are checked against all houses when stamped.
+// A tick whose count differs or whose condition is not Good asks "record an exception?" and leads
+// to the position's Damage / short / over screen (Q20, User Council 20 Nov); the ticked line shows
+// the condition and the location.
 
 type Draft = { pieces: number; condition: string; location: string; reason: string };
 
@@ -97,9 +101,9 @@ export function FloorContainer({ id }: { id: string }) {
           {waiting.length > 0 && <span className="font-semibold text-amber-700">{waiting.length} waiting to send</span>}
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2">
-          <KpiTile centered label="Houses" value={String(c.positions.length)} />
-          <KpiTile centered label={TERMS.pieces} value={nf(c.totals.pieces)} />
-          <KpiTile centered label={kind === "export" ? "Stuffed" : "Done"} value={`${kind === "export" ? c.positions.filter((h) => h.stuffedAt).length : tallyHouses(c).length - openHouses(c).length}`} />
+          <KpiTile centered wrapLabel label="Houses" value={String(c.positions.length)} />
+          <KpiTile centered wrapLabel label={TERMS.pieces} value={nf(c.totals.pieces)} />
+          <KpiTile centered wrapLabel label={kind === "export" ? "Stuffed" : "Done"} value={`${kind === "export" ? c.positions.filter((h) => h.stuffedAt).length : tallyHouses(c).length - openHouses(c).length}`} />
         </div>
       </FloorCard>
 
@@ -160,6 +164,8 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
   const [openId, setOpenId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
+  // After a tick that found something: the question, with the way to the exception screen.
+  const [ask, setAsk] = useState<{ movementId: string; ref: string; questions: string[] } | null>(null);
   const blocked = !c.gateInAt ? "Stamp the container gate-in first" : c.gateOutAt ? "The container has gone out" : null;
 
   const draftOf = (h: ContainerHouse): Draft => drafts[h.movementId] ?? { pieces: h.pieces, condition: "Good", location: "", reason: "" };
@@ -180,7 +186,11 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
           tally: { outcome, pieces: d.pieces, condition: d.condition, location: d.location.trim(), reason: d.reason.trim() },
         },
       });
-      if (report(res, outcome === "received" ? `${ref} ticked off — received` : `${ref} marked ${TALLY_LABEL[outcome]!.toLowerCase()}`)) setOpenId(null);
+      if (report(res, outcome === "received" ? `${ref} ticked off — received` : `${ref} marked ${TALLY_LABEL[outcome]!.toLowerCase()}`)) {
+        setOpenId(null);
+        const questions = tallyQuestions(outcome, h.pieces, d.pieces, d.condition);
+        setAsk(questions.length ? { movementId: h.movementId, ref, questions } : null);
+      }
     } finally {
       setBusy(false);
     }
@@ -189,6 +199,22 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
   return (
     <FloorCard title={`${TERMS.strippingTally} (${openHouses(c).length} open)`}>
       {blocked && <div className="mb-2 text-[14px] font-semibold text-red-600">{blocked}</div>}
+      {ask && (
+        <div role="alert" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+          <div className="text-[14px] font-semibold text-amber-900">
+            {ask.ref}: {ask.questions.join(" · ")} — record an exception?
+          </div>
+          <div className="mt-1 text-[13px] text-amber-800">While it is open the cargo is on hold.</div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Link href={`/warehouse-concept/floor/${ask.movementId}?view=damage`} className={bigPrimaryLink}>
+              Damage / short / over
+            </Link>
+            <button type="button" className={bigDefault} onClick={() => setAsk(null)}>
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
       <ul className="-mx-4 m-0 list-none p-0">
         {c.positions.map((h) => {
           const ref = h.positionRef || h.gateRef;
@@ -221,6 +247,11 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                     <span className="block text-[13px] text-slate-500">
                       <Badge tone={TALLY_TONE[h.tallyOutcome] ?? ""}>{TALLY_LABEL[h.tallyOutcome] ?? h.tallyOutcome}</Badge>
                       {h.tallyPieces != null ? ` ${h.tallyPieces} pcs` : ""} {by(h.tickedAt, h.tickedBy)}
+                    </span>
+                  )}
+                  {done && conditionAndLocation(h.tallyCondition, h.tallyLocation) && (
+                    <span className={`block text-[13px] ${conditionNotGood(h.tallyCondition) ? "font-semibold text-red-600" : "text-slate-500"}`}>
+                      {conditionAndLocation(h.tallyCondition, h.tallyLocation)}
                     </span>
                   )}
                   {exempt && <span className="block text-[13px] text-slate-500">Not tallied. {exempt}</span>}

@@ -102,6 +102,17 @@ describe("storage clock", () => {
     expect(movementStorage(inbound({ gateIn: new Date("2026-10-13T08:00:00Z") }), now).startSource).toBe("gateIn");
   });
 
+  it("names the start of loose import cargo received by its receipt (Q19) 'receipt', a tally tick 'tally'", () => {
+    const now = new Date("2026-10-14T10:00:00Z");
+    const receivedAt = new Date("2026-10-12T08:00:00Z");
+    const receipt = { kind: "positionReceived", label: "Received", at: receivedAt.toISOString(), by: "Eva" };
+    const out = (p: Partial<StorageMovement>) => movementStorage(inbound({ visit: "výdej", receivedAt, loadInDate: "2026-10-12", ...p }), now);
+    expect(out({ events: [receipt] })).toMatchObject({ startDate: "2026-10-12", startSource: "receipt" });
+    expect(out({})).toMatchObject({ startSource: "tally" });
+    // A voided receipt is not the start any more.
+    expect(out({ events: [receipt, { kind: "positionReceiptVoided", label: "Receipt voided", at: now.toISOString(), by: "Ota" }] }).startSource).toBe("tally");
+  });
+
   it("writes the Storage settled note", () => {
     expect(storageNote(storageClock({ start: "2026-10-01", wm: 1, today: "2026-10-09" }))).toBe("day 9 · 7 free · 2 chargeable · est. CZK 240");
     expect(storageNote(storageClock({ start: "2026-10-01", wm: 1, today: "2026-10-06" }))).toBe("day 6 · 7 free · 1 free day left");

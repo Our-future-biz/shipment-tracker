@@ -122,6 +122,12 @@ export const useGateMovement = (id: string | undefined) => {
     mutationFn: ({ kind, reason }: { kind: GateStampKind; reason: string }) => api.warehouseConcept.gateMovementVoidStamp(id!, { kind, reason }),
     onSuccess: onGateEvent,
   });
+  // Manager: voids the receipt of loose import cargo (no container) with a reason; the typed
+  // "Received in warehouse" date it replaced comes back (POST /warehouse-concept/gate/:id/void-receipt).
+  const voidReceipt = useMutation({
+    mutationFn: (reason: string) => api.warehouseConcept.gateMovementVoidReceipt(id!, { reason }),
+    onSuccess: onGateEvent,
+  });
   // Customs status read from the shipment now (instead of after the 30 s cache): the follow
   // writes it on the server (opening or discharging the bonded entry), then the row is read back.
   const refreshCustoms = useMutation({
@@ -192,6 +198,7 @@ export const useGateMovement = (id: string | undefined) => {
     archive,
     restore,
     voidStamp,
+    voidReceipt,
     refreshCustoms,
     refreshFromShipment,
     retryShipmentUpdate,

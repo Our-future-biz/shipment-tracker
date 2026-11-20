@@ -43,9 +43,9 @@ export function Section({
   );
 }
 
-export function FieldRow({ label, children, tall }: { label: string; children: ReactNode; tall?: boolean }) {
+export function FieldRow({ label, children, tall, id }: { label: string; children: ReactNode; tall?: boolean; id?: string }) {
   return (
-    <div className={`flex gap-2.5 py-1 text-[13px] border-b border-slate-100 last:border-b-0 ${tall ? "items-start" : "items-center"}`}>
+    <div id={id} className={`flex gap-2.5 py-1 text-[13px] border-b border-slate-100 last:border-b-0 ${tall ? "items-start" : "items-center"}`}>
       <span className={`w-[140px] shrink-0 ${LABEL_TEXT} ${tall ? "pt-1.5" : ""}`}>{label}</span>
       <div className="flex-1 min-w-0">{children}</div>
     </div>

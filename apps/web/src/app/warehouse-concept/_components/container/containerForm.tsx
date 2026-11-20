@@ -4,9 +4,9 @@ import { useMemo } from "react";
 import { useGateLog } from "@/hooks/useGateLog";
 import type { WarehouseContainer } from "@/hooks/useWarehouseRecords";
 import type { interfaces } from "@/lib/api/client";
-import { CONTAINER_TYPES, PACKINGS } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { PACKINGS } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
-import { addBlocked } from "@/app/warehouse-concept/_lib/containerPlan";
+import { addBlocked, EQUIPMENT_TYPES } from "@/app/warehouse-concept/_lib/containerPlan";
 import { RecordFormModal, type FieldDef } from "../tabs/shared";
 
 // The container's record form (Containers tab and the container page): register / details, the
@@ -61,7 +61,7 @@ export function ContainerFormModal({
   const registerFields: FieldDef[] = [
     ...identity,
     { name: "direction", label: "Loading / unloading", type: "select", options: CONTAINER_DIRECTIONS, required: true },
-    { name: "equipment", label: "Equipment", type: "select", options: CONTAINER_TYPES },
+    { name: "equipment", label: "Equipment", type: "select", options: EQUIPMENT_TYPES },
     { name: "seal", label: "Seal number" },
     { name: "bookingNumber", label: "Booking number", section: "Sailing" },
     { name: "mblNumber", label: "MBL number" },
@@ -80,7 +80,8 @@ export function ContainerFormModal({
     { name: "dischargePort", label: "Port of Discharge" },
     { name: "arrivedAt", label: "Arrived at WH", type: "datetime" },
     { name: "houses", label: "Houses expected", type: "number" },
-    { name: "dockSlot", label: "Dock slot", placeholder: "Dock 4 · 09:00" },
+    // A note only: dock slots are booked per position in Dock & Yard (user council W20).
+    { name: "dockSlot", label: "Dock slot note", placeholder: "Booked in Dock & Yard" },
     { name: "detentionExpiry", label: "Detention expiry (the job's free time wins)", type: "date" },
     { name: "scheduleStatus", label: "Status", type: "select", options: SCHEDULE_STATUSES },
   ];

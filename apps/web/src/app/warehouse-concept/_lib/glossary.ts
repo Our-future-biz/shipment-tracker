@@ -22,7 +22,7 @@ export const TERMS = {
   plate: "Plate",
   driver: "Driver's name",
   gateIn: "Gate-in",
-  gateInTruck: "Gate-in (truck)",
+  gateInTruck: "Pick-up truck in",
   draftReceipt: "Draft receipt",
   receipt: "Receipt",
   gateOut: "Gate-out",
@@ -66,6 +66,15 @@ export const TERMS = {
   recordedOnly: "Recorded only",
 } as const;
 
+/**
+ * Where the pick-up PIN is made, as the gate job and the phone say it: on the linked job's own
+ * Warehouse tab, whose Pick-up is the Warehouse Concept's for a job that is a position (owner
+ * decision Q17, user council W1).
+ */
+export const PIN_MADE_WHERE = "Operations make the PIN on the job's Warehouse tab → Pick-up.";
+/** The job page tab that holds the pick-up of a linked shipment. */
+export const pickupHref = (shipmentId: string) => `/shipments/${shipmentId}?tab=warehouse`;
+
 // What each term means, for the glossary in the Read me.
 export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = [
   {
@@ -87,7 +96,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: TERMS.pickupPin,
     meaning:
-      "Six digits operations make in Shipments (Warehouse tab → Pick-up) and give to the haulier. At the outbound gate the clerk types the PIN the driver gives; a match sets the release gate \"Pick-up PIN verified\" to OK. After 3 wrong tries the PIN is locked until operations make a new one.",
+      "Six digits the server makes when operations press Generate PIN on the job's Warehouse tab → Pick-up (a job that is a position here; the normal Warehouse's pick-up of that job is then view only and never read by the gate), shown once, to give to the haulier. At the outbound gate the clerk types the PIN the driver gives; a match sets the release gate \"Pick-up PIN verified\" to OK. After 3 wrong tries the PIN is locked until operations make a new one.",
     replaces: "PIN",
   },
   {
@@ -104,7 +113,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: "Free time / storage",
     meaning:
-      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container (without a container tally, the “Received in warehouse” date) — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo, the gate-out of the export container inbound cargo was stuffed in (or its WH release). An inbound truck's gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer. Only a manager sets more than 7 free days. When the storage of outbound cargo becomes chargeable, the release gate “Storage settled” goes back to Pending (logged) unless someone ticked it by hand.",
+      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container; outbound cargo in no container (it came by truck) at its receipt — pieces counted, condition, location — or the typed “Received in warehouse” date — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo, the gate-out of the export container inbound cargo was stuffed in (or its WH release). An inbound truck's gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer. Only a manager sets more than 7 free days. When the storage of outbound cargo becomes chargeable, the release gate “Storage settled” goes back to Pending (logged) unless someone ticked it by hand.",
   },
   {
     term: "Exception / On hold",
@@ -147,7 +156,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: `${TERMS.containerGateIn} / ${TERMS.containerGateOut}`,
     meaning:
-      "The container's own stamps (time and who, logged): the container arriving at our yard and leaving it. They fill the yard dates of Dock & Yard. The gate-out of a stuffed export container releases every stuffed house: its storage clock stops, it is Left, and its shipment gets the warehouse released date and the container's truck plate. The gate-out needs a connection. An export container with T1 transit or temporary-storage houses goes out only when each has its MRN (unless a supervisor overrode).",
+      "The container's own stamps (time and who, logged): the container arriving at our yard and leaving it. They fill the yard dates of Dock & Yard. The gate-out of a stuffed export container releases every stuffed house: its storage clock stops, it is Left, and its shipment gets the warehouse released date and the container's truck plate. The gate-out needs a connection. An export container with T1 transit or temporary-storage houses goes out only when each has its MRN — a supervisor override does not skip it (it is a customs control).",
   },
   {
     term: TERMS.strippingTally,

@@ -33,7 +33,9 @@ const t = gateMovementTable;
 // The history event of a position kept after its shipment was deleted (gateAdmin.service).
 const SHIPMENT_GONE = "shipmentDeleted";
 
-type Fetched = { ok: true; customsStatus: string; closingDate: string; etaWarehouse: string; customer: string; customerPic: string } | { ok: false; error: string };
+type Fetched =
+  | { ok: true; customsStatus: string; closingDate: string; etaWarehouse: string; customer: string; customerPic: string; jobNumber: string }
+  | { ok: false; error: string };
 
 // Reads each shipment once, at most PARALLEL at a time, within the time budget. Shipments not
 // answered in time are missing from the result.
@@ -51,6 +53,7 @@ async function fetchStatuses(shipmentIds: string[], budgetMs: number, authData?:
           etaWarehouse: shipment.etaWarehouse ?? "",
           customer: shipment.customer ?? "",
           customerPic: shipment.customerPic ?? "",
+          jobNumber: shipment.jobNumber ?? "",
         });
       } catch (err) {
         log.warn(err, "warehouse: shipment not read for the customs follow", { shipmentId: id });
@@ -116,6 +119,22 @@ export async function followCustoms(
         for (const row of rows) changed.set(row.id, row);
       } catch (err) {
         log.warn(err, "warehouse: gate records not brought up to date with their shipment's customer", { shipmentId: m.shipmentId });
+      }
+    }
+    // The job's number comes with it: Shipments renumbers a job as it is filled in (CZ → CZLCL,
+    // CZ → CZPROJECT), and a record kept the number it was imported with (user council c8).
+    // Only while the record still holds the number read, so an older read never undoes a newer one.
+    if (f.ok && f.jobNumber && f.jobNumber !== m.jobNumber) {
+      const row = await gateMovementRepository.conditionalUpdate(
+        m.id,
+        companyId,
+        { jobNumber: f.jobNumber, shipmentCheckedAt: at },
+        [{ kind: "jobNumberFromShipment", label: `Job number from shipment: ${f.jobNumber}`, at: at.toISOString(), by: "Shipments", detail: `was ${m.jobNumber || "none"}` }],
+        sql`${t.jobNumber} = ${m.jobNumber}`,
+      );
+      if (row) {
+        changed.set(m.id, row);
+        m.jobNumber = row.jobNumber;
       }
     }
     // The shipment's ETA Warehouse/HUB comes with it too ("Expected today" goes by it): a record

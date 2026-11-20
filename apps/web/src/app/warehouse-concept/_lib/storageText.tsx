@@ -35,12 +35,15 @@ export function storageSummary(s: Storage): string {
   return parts.join(" · ");
 }
 
+// How the receipt that started the clock was made, when it was not the plain gate-in / typed date.
+const START_SOURCE: Record<string, string> = { tally: ", ticked off at the stripping tally", receipt: ", at its receipt in the warehouse" };
+
 /** Hover text: how the clock is counted for this record. */
 export function storageHint(s: Storage): string {
   if (!s.started)
-    return "The storage clock starts at the receipt: the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container (without one, the “Received in warehouse” date).";
+    return "The storage clock starts at the receipt: the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container (in no container, its receipt or the “Received in warehouse” date).";
   return [
-    `Received ${s.startDate} (day 1${s.startSource === "tally" ? ", ticked off at the stripping tally" : ""})`,
+    `Received ${s.startDate} (day 1${START_SOURCE[s.startSource] ?? ""})`,
     `${s.freeDays} free days, last free day ${s.lastFreeDay}`,
     `CZK ${nf(s.dailyCzk)} a day after that (W/M ${nf(s.wm, 2)} × CZK 22, at least CZK 120)`,
     s.stopped ? `Clock stopped ${s.stopDate}` : "",

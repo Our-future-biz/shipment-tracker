@@ -52,6 +52,16 @@ describe("customs status follows the shipment", () => {
     expect(m.events.at(-1)).toMatchObject({ kind: "etaWarehouseFromShipment", label: "ETA warehouse from shipment: 2026-11-18", by: "Shipments" });
   });
 
+  // User council c8: a record kept CZ00000010 after the job became CZPROJECT00000010.
+  it("takes the job's new number when Shipments renumbered the job, logged", async () => {
+    const { c, s, id } = await linked();
+    const before = await gateMovementService.get(id, c);
+    shipmentData.set(s, { customsStatus: "Paperwork Verified", jobNumber: "CZPROJECT00000010" });
+    const m = (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
+    expect(m.jobNumber).toBe("CZPROJECT00000010");
+    expect(m.events.some((e) => e.kind === "jobNumberFromShipment" && e.label === "Job number from shipment: CZPROJECT00000010" && e.detail === `was ${before.jobNumber}`)).toBe(true);
+  });
+
   it("does not write an older ETA Warehouse/HUB over one Shipments pushed while the shipment was read", async () => {
     const { c, s, id } = await linked();
     shipmentData.set(s, { customsStatus: "Paperwork Verified", etaWarehouse: "2026-11-18" });

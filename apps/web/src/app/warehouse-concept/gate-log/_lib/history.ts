@@ -52,6 +52,9 @@ const BY_KIND: Record<string, HistoryCategory> = {
   tallyShort: "cargo",
   tallyNotArrived: "cargo",
   tallyVoided: "voids",
+  // Loose import cargo (no container): its receipt counts it as a tally tick does (Q19).
+  positionReceived: "cargo",
+  positionReceiptVoided: "voids",
   shipmentUpdated: "shipment",
   shipmentUpdateFailed: "shipment",
   shipmentUpdateRetry: "shipment",

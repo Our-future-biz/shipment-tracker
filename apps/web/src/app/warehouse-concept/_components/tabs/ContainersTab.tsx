@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PlusOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useWarehouseContainers, type WarehouseContainer } from "@/hooks/useWarehouseRecords";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { Badge, CONTAINER_TYPES } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { Badge } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
-import { CONTAINER_STATUSES, CONTAINER_STATUS_TONE, KIND_LABEL, containerKind, fillPct } from "@/app/warehouse-concept/_lib/containerPlan";
+import { CONTAINER_STATUSES, CONTAINER_STATUS_TONE, EQUIPMENT_TYPES, KIND_LABEL, containerKind, fillPct } from "@/app/warehouse-concept/_lib/containerPlan";
 import { ContainerFormModal, type ContainerFormMode } from "../container/containerForm";
 import { FillBar } from "../container/FillBar";
 import { BulkDeleteButton, dim, nf } from "./shared";
@@ -36,7 +37,13 @@ export function ContainersTab() {
       width: 160,
       text: (c) => c.number,
       sorter: (a, b) => a.number.localeCompare(b.number),
-      render: (_, c) => <span className={`${REF} font-bold text-indigo-600`}>{c.number}</span>,
+      // A real link to the container page, as the row opens it (user council W15: the bold blue
+      // number read as a link and did nothing when clicked).
+      render: (_, c) => (
+        <Link href={containerHref(c.id)} onClick={(e) => e.stopPropagation()} className={`${REF} font-bold !text-indigo-600 hover:underline`}>
+          {c.number}
+        </Link>
+      ),
     },
     {
       key: "kind",
@@ -54,7 +61,7 @@ export function ContainersTab() {
       filterOptions: [...CONTAINER_STATUSES],
       render: (_, c) => <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>,
     },
-    { key: "equipment", title: "Equipment", width: 100, text: (c) => c.equipment, filterOptions: CONTAINER_TYPES, render: (_, c) => dim(c.equipment) },
+    { key: "equipment", title: "Equipment", width: 100, text: (c) => c.equipment, filterOptions: EQUIPMENT_TYPES, render: (_, c) => dim(c.equipment) },
     {
       key: "houses",
       title: "Houses",

@@ -18,11 +18,12 @@ describe("history categories", () => {
     expect(categoryOf("somethingNew")).toBe("records");
   });
   it("puts the container, tally and re-weigh events together, their voids with the voids", () => {
-    for (const k of ["reweighed", "addedToContainer", "removedFromContainer", "stuffed", "unstuffed", "leftInContainer", "notLoaded", "tallyReceived", "tallyShort", "tallyNotArrived"]) {
+    for (const k of ["reweighed", "addedToContainer", "removedFromContainer", "stuffed", "unstuffed", "leftInContainer", "notLoaded", "tallyReceived", "tallyShort", "tallyNotArrived", "positionReceived"]) {
       expect(categoryOf(k)).toBe("cargo");
     }
     expect(categoryOf("tallyVoided")).toBe("voids");
     expect(categoryOf("leftInContainerVoided")).toBe("voids");
+    expect(categoryOf("positionReceiptVoided")).toBe("voids");
     expect(categoryCounts([ev("reweighed", "2026-10-14T08:00:00Z")])).toMatchObject({ cargo: 1 });
   });
   it("counts per category", () => {

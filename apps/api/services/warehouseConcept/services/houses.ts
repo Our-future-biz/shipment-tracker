@@ -65,6 +65,8 @@ export function positionContainer(h: HouseCtx): GatePositionContainer {
     stuffedBy: h.link.stuffedBy,
     tallyOutcome: h.link.tallyOutcome,
     tallyPieces: h.link.tallyPieces,
+    tallyCondition: h.link.tallyCondition,
+    tallyLocation: h.link.tallyLocation,
     tickedAt: iso(h.link.tickedAt),
     tickedBy: h.link.tickedBy,
     tallyRequired: tallyRequired(h),
@@ -106,6 +108,17 @@ export const houseReleaseOkSql = sql`(${t.leftAt} IS NULL AND NOT EXISTS (
   WHERE p.movement_id = ${t.id} AND p.deleted_at IS NULL
     AND ((c.direction = 'Loading' AND p.stuffed_at IS NOT NULL)
       OR (c.direction <> 'Loading' AND ${t.visit} = 'výdej' AND p.added_by <> ${LEGACY_LINK} AND p.tally_outcome <> 'received'))))`;
+
+/**
+ * receiptMissing in SQL, on the movement being released: loose import cargo (no container house,
+ * no container number, not an FCL / container-yard operation — isLooseImport) is received (its
+ * receipt or the typed "Received in warehouse" date) before its WH release (Q19).
+ */
+export const looseReceivedOkSql = sql`(${t.visit} <> 'výdej' OR ${t.receivedAt} IS NOT NULL OR ${t.leftAt} IS NOT NULL
+  OR ${t.loadInDate} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+  OR btrim(${t.containerNumber}) <> '' OR ${t.operationType} ~ '^(FCL|Container yard)'
+  OR EXISTS (SELECT 1 FROM ${cp} p JOIN ${ct} c ON c.id = p.container_id AND c.deleted_at IS NULL
+    WHERE p.movement_id = ${t.id} AND p.deleted_at IS NULL))`;
 
 /** The position is a stuffed house (export) or a tallied house (import) of a container that has not gone out. */
 const holdsPosition = (h: HouseCtx) => !h.container.gateOutAt && (!!h.link.stuffedAt || !!h.link.tallyOutcome);

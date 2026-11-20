@@ -10,6 +10,7 @@ import type { HouseCtx } from "./houses";
 import { containerKind, LEGACY_LINK } from "./containerRules";
 import { CUSTOMS_CLEARED } from "./customs";
 import { positionLifecycle } from "./lifecycle";
+import { receiptOf } from "./positionReceipt";
 import { isDomestic, releasePlate } from "./direction";
 import { DEFAULT_FREE_DAYS, isIsoDate, movementStorage, pragueDate, pragueStamp } from "./storage";
 import { customsDeadline, customsRegime, type CustomsRegime } from "./warehouseStockCustoms";
@@ -20,8 +21,9 @@ import { customsDeadline, customsRegime, type CustomsRegime } from "./warehouseS
 //
 //   received   inbound (příjem): the WH receipt stamp — Domestic cargo: its gate-in (no draft
 //              receipt / receipt; the storage clock starts there too); outbound (výdej): the tick-off at the
-//              stripping tally of its container, else (no container tally) the "Received in
-//              warehouse" date — the same receipt as the lifecycle (lifecycle.ts).
+//              stripping tally of its container; in no container its receipt (counted pieces and
+//              location, positionReceipt.ts), else the "Received in warehouse" date — the same
+//              receipt as the lifecycle (lifecycle.ts).
 //   left       inbound: the gate-out of the export container it was stuffed in, or the WH
 //              release; outbound: the WH release.
 //
@@ -104,11 +106,20 @@ export function receiptAndLeft(m: StockSyncMovement, house: HouseCtx | null): { 
 const dayOf = (at: string) => (isIsoDate(at) ? at : pragueDate(new Date(at)));
 const instantOf = (at: string) => (isIsoDate(at) ? null : new Date(at));
 
-/** The value of the line's Customs column. */
+/** Import cargo (outbound) customs has not cleared yet, held under no counted regime (SCP, JSD…). */
+export const NOT_CLEARED = "Not cleared";
+
+/**
+ * The value of the line's Customs column. Import cargo (výdej) is in free circulation only once
+ * customs cleared it: before that, under SCP or JSD, it is "Not cleared" (user council c7: an
+ * import waiting for its paperwork read "Free circulation"). Export and domestic cargo are Union
+ * goods: free circulation, "Export cleared" once cleared.
+ */
 export function stockCustomsValue(m: Pick<StockSyncMovement, "visit" | "customsStatus">, regime: CustomsRegime): string {
   if (regime === "Transit T1") return "T1 bonded";
   if (regime) return regime;
-  return m.visit !== "výdej" && m.customsStatus === CUSTOMS_CLEARED ? "Export cleared" : "Free circulation";
+  if (m.visit === "výdej") return m.customsStatus === CUSTOMS_CLEARED ? "Free circulation" : NOT_CLEARED;
+  return m.customsStatus === CUSTOMS_CLEARED ? "Export cleared" : "Free circulation";
 }
 
 /** The target state of the position's stock line and bonded entry. Pure. */
@@ -122,7 +133,11 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
   const regime = customsRegime(m);
   const receiptDay = receipt ? dayOf(receipt) : "";
   const tally = tallied(house) && house.link.tallyOutcome === "received" ? house.link : null;
-  const pieces = tally && tally.tallyPieces !== null ? tally.tallyPieces : m.colli;
+  // Loose import cargo (a position with no house) received by its receipt: its counted pieces and
+  // location, as a tally tick gives a house its own (Q19).
+  const counted = !house ? receiptOf(m.events ?? []) : null;
+  const pieces = tally?.tallyPieces ?? counted?.pieces ?? m.colli;
+  const countedLocation = (tally?.tallyLocation ?? counted?.location ?? "").trim().toUpperCase();
   const exportHouse = house && isExport(house) ? house : null;
   const reason = opts.why?.trim() || "";
   const movements: NewStockMovementRecord[] = [];
@@ -185,7 +200,7 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
             source: "auto",
             job: ref,
             receivedAt: follow.receivedAt!,
-            location: (tally?.tallyLocation ?? "").trim().toUpperCase(),
+            location: countedLocation,
             status: "Available",
             ...stuffing,
           },
@@ -197,7 +212,7 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
         update: {
           ...follow,
           ...(reopen ? { status: "Available", closedAt: null, closedReason: "" } : {}),
-          ...(reopen && !line.location && tally?.tallyLocation ? { location: tally.tallyLocation.trim().toUpperCase() } : {}),
+          ...(reopen && !line.location && countedLocation ? { location: countedLocation } : {}),
           ...stuffing,
         },
       };
@@ -221,11 +236,13 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
     if (before === "none" && after === "open") {
       const receiptText = tally
         ? `Ticked off at the stripping tally — ${house!.container.number}`
-        : m.visit === "výdej"
-          ? "Received in warehouse"
-          : isDomestic(m.handling) && !m.expReceipt
-            ? "Gate-in (Domestic: the gate-in is the receipt)"
-            : "WH receipt";
+        : counted
+          ? "Receipt in the warehouse (no container)"
+          : m.visit === "výdej"
+            ? "Received in warehouse"
+            : isDomestic(m.handling) && !m.expReceipt
+              ? "Gate-in (Domestic: the gate-in is the receipt)"
+              : "WH receipt";
       movements.push(mv("Receipt", receiptText, { toLocation: location }));
     } else if (after === "left") {
       movements.push(

@@ -10,6 +10,7 @@ import { warehouseRecordsService } from "../services/warehouseRecords.service";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { pragueDate } from "../services/storage";
 import { warehouseDockSlotTable } from "../schemas/warehouseRecords.schema";
 import { gateEventOutboxTable } from "../schemas/gateEventOutbox.schema";
 import { readPickup } from "../services/pickupPin";
@@ -304,7 +305,8 @@ describe("warehouse-gate-stamped is published after commit", () => {
     const c = randomUUID();
     const r = await svc.expectArrival(c, user, arrival(randomUUID()));
     const m = await gateMovementService.get(r.gateMovementId, c);
-    await gateMovementRepository.update(r.gateMovementId, c, { releaseGates: m.releaseGates.map((g) => ({ ...g, s: "OK" as const })) });
+    // Received by the typed date: loose import cargo is received before its WH release (Q19).
+    await gateMovementRepository.update(r.gateMovementId, c, { loadInDate: pragueDate(new Date()), releaseGates: m.releaseGates.map((g) => ({ ...g, s: "OK" as const })) });
     await gateMovementService.stamp(r.gateMovementId, c, user, "impRelease");
     expect(publish).toHaveBeenCalledTimes(1);
     expect(publish.mock.calls[0]![0]).toMatchObject({ kind: "gateOut", stampKind: "impRelease" });

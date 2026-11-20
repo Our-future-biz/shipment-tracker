@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Input } from "antd";
 import { KeyOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { formatDateTime } from "@/lib/date";
 import { TripMarker } from "@/components/TripMarker";
-import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
+import { PIN_MADE_WHERE, pickupHref, TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { Badge } from "../../_lib/gate";
 import { MAX_PIN_TRIES, PICKUP_PIN_GATE, pinCheckMessage, type PinCheckResult } from "../../_lib/steps";
 import { btnPrimary, Section } from "./fields";
-import { HINT, REF, TD, TH } from "@/styles/ui";
+import { HINT, LINK, REF, TD, TH } from "@/styles/ui";
 
 const TONE_BOX = {
   g: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -19,7 +20,8 @@ const TONE_BOX = {
 } as const;
 
 // Outbound cargo of a position linked to a shipment leaves against the pick-up PIN operations
-// made in Shipments. The clerk compares the truck with the pick-up rows, types the PIN the
+// made in Shipments (the job's Warehouse tab → Pick-up, which for a job that is a position here is
+// this module's pick-up: owner decision Q17). The clerk compares the truck with the pick-up rows, types the PIN the
 // driver gives and gets match / no match; a match sets the Pick-up PIN line of the release
 // gates OK. The PIN itself is never shown here.
 export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (pin: string) => Promise<{ result: PinCheckResult; tries: number }> }) {
@@ -114,7 +116,18 @@ export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (
       ) : (
         <div className="mt-3">
           <div className={`${HINT} mb-1.5`}>
-            {p.pinSet ? `${p.tries} of ${MAX_PIN_TRIES} tries used` : "Operations make the PIN in Shipments → Warehouse → Pick-up."}
+            {p.pinSet ? (
+              `${p.tries} of ${MAX_PIN_TRIES} tries used`
+            ) : m.shipmentId ? (
+              <>
+                {PIN_MADE_WHERE}{" "}
+                <Link href={pickupHref(m.shipmentId)} className={LINK}>
+                  Open the job
+                </Link>
+              </>
+            ) : (
+              PIN_MADE_WHERE
+            )}
           </div>
           <div className="flex gap-2">
             <Input

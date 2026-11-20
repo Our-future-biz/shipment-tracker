@@ -19,7 +19,7 @@ import {
 import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
-import { CONTAINER_TYPES } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { EQUIPMENT_TYPES } from "@/app/warehouse-concept/_lib/containerPlan";
 import { TERMS, directionOf } from "@/app/warehouse-concept/_lib/glossary";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
@@ -427,7 +427,7 @@ function YardPark() {
   const fields: FieldDef[] = [
     ...(editing?.container ? [] : [{ name: "number", label: "Container number", type: "container", required: true, placeholder: "TGHU2205539" } as FieldDef]),
     { name: "carrier", label: "Carrier" },
-    { name: "equipment", label: "Type", type: "select", options: CONTAINER_TYPES },
+    { name: "equipment", label: "Type", type: "select", options: EQUIPMENT_TYPES },
     { name: "yardState", label: "State", placeholder: "Full — devanning / Empty …" },
     { name: "gatedIn", label: "Gated in", type: "date", required: true },
     { name: "gatedOut", label: "Gated out", type: "date" },
@@ -443,7 +443,7 @@ function YardPark() {
   const columns: AppGridColumn<WarehouseContainer>[] = [
     { key: "number", title: "Container", width: 160, text: (c) => c.number, render: (_, c) => <span className={`${REF} font-bold text-indigo-600`}>{c.number}</span> },
     { key: "carrier", title: "Carrier", width: 140, text: (c) => c.carrier, render: (_, c) => dim(c.carrier) },
-    { key: "equipment", title: "Type", width: 100, text: (c) => c.equipment, filterOptions: CONTAINER_TYPES, render: (_, c) => dim(c.equipment) },
+    { key: "equipment", title: "Type", width: 100, text: (c) => c.equipment, filterOptions: EQUIPMENT_TYPES, render: (_, c) => dim(c.equipment) },
     { key: "yardState", title: "State", width: 190, text: (c) => c.yardState, render: (_, c) => dim(c.yardState) },
     { key: "gatedIn", title: "Gated in", width: 110, text: (c) => c.gatedIn, render: (_, c) => dim(c.gatedIn) },
     { key: "detentionExpiry", title: "Detention expiry (empty return due)", width: 250, text: (c) => c.detentionExpiry, render: (_, c) => (

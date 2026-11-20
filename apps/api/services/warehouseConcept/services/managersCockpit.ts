@@ -9,6 +9,7 @@ import { DEFAULT_FREE_DAYS, dayNo, pragueDate } from "./storage";
 import { customsClock, customsRegime, type CustomsClockInfo } from "./warehouseStockCustoms";
 import { isTripSource } from "./tripSource";
 import { FLOOR_WRITE_LOST_EVENT } from "./correction";
+import { CUSTOMS_GATE, customsHolds } from "./overrideCustoms";
 import {
   ARRIVED_NOT_RECEIVED_ATTENTION_HOURS,
   ARRIVED_NOT_RECEIVED_URGENT_HOURS,
@@ -223,10 +224,13 @@ export function recordSignals(m: Item, today: string, now: Date, ctx: RecordCont
   }
   if (ctx.truckingNotSent?.length) out.push(urgent(`Not sent to Trucking: ${[...new Set(ctx.truckingNotSent)].join(", ")}`, 2));
   if (m.overridden && open) {
-    // An override arms the release whatever the gates say; it matters while it lets something pass.
-    const passes = notOkGates(m).map((g) => `${g.g} ${g.s}`);
+    // An override arms the release past the other gates; it matters while it lets something pass.
+    // It never clears Customs (Q18 (b)): a Customs line not OK is not passed — it still holds the cargo.
+    const passes = notOkGates(m)
+      .filter((g) => g.g !== CUSTOMS_GATE)
+      .map((g) => `${g.g} ${g.s}`);
     if (m.openExceptions > 0) passes.push(plural(m.openExceptions, "open exception"));
-    if (passes.length) out.push(urgent(`Override in force: ${passes.join(", ")}`, 3));
+    if (passes.length) out.push(urgent(`Override in force: ${passes.join(", ")}${customsHolds(m.releaseGates) ? " · held by Customs" : ""}`, 3));
   }
 
   // Time passed: something was due and did not happen.
@@ -446,7 +450,11 @@ export function buildAudit(records: AuditRecord[], archived: ArchivedRecord[], n
   for (const r of records) {
     const events = (r.events ?? []).filter((e) => recent(e.at));
     overrides += events.filter((e) => e.kind === "override").length;
-    overridesPastCustoms += events.filter((e) => e.kind === "override" && (e.gates ?? []).some((g) => g.g === "Customs" && g.s !== "OK")).length;
+    // Since Q18 (b) (20 Nov 2026) an override never passes Customs: its event says so (customsKept,
+    // services/overrideCustoms) and is not counted; the older ones stay counted and readable.
+    overridesPastCustoms += events.filter(
+      (e) => e.kind === "override" && !(e as GateEvent & { customsKept?: boolean }).customsKept && (e.gates ?? []).some((g) => g.g === "Customs" && g.s !== "OK"),
+    ).length;
     refusals += events.filter((e) => e.kind === "refused").length;
     shipmentsDeleted += events.filter((e) => e.kind === "shipmentDeleted").length;
     // One void can clear later stamps too (one event each, same moment): count the action once.

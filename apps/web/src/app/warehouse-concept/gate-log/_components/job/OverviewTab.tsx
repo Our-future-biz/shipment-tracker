@@ -34,11 +34,13 @@ import { ReleaseGatesPanel, releaseState } from "./ReleaseGatesPanel";
 import { PickupPinCheck } from "./PickupPinCheck";
 import { ExceptionsPanel } from "./ExceptionsPanel";
 import { StorageLine } from "@/app/warehouse-concept/_lib/storageText";
+import { conditionAndLocation, conditionNotGood } from "@/app/warehouse-concept/_lib/tallyCondition";
 import { CONTAINER_STATUS_TONE, KIND_LABEL, TALLY_LABEL, TALLY_TONE, containerKind } from "@/app/warehouse-concept/_lib/containerPlan";
 import { positionRemeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { ReweighSection, kgText } from "./ReweighSection";
 import type { PinCheckResult } from "../../_lib/steps";
 import { shipmentOwnerHint, shipmentOwnerOf } from "../../_lib/owner";
+import { legStamp, nextCheck, type GateFieldChange, type GateLegChange } from "../../_lib/transportLegs";
 import {
   btnInline,
   FieldRow,
@@ -54,7 +56,8 @@ import {
   YesNo,
 } from "./fields";
 
-type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id">) => void;
+// A field save; `legChange` / `checkChange` carry one leg field or one checklist icon only (W2).
+type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id"> & GateFieldChange) => void;
 type CheckKey = keyof GateMovement["checklist"];
 
 // Gate checklist items shown on the overview (seal lives on the container interchange).
@@ -87,8 +90,7 @@ const CHECKS: { key: CheckKey; label: string; paths: string[] }[] = [
     paths: ["M12 3.4 20.6 12 12 20.6 3.4 12z", "M12 8.4v4.2M12 15.6v.1"],
   },
 ];
-// Click cycle: n/a → done → pending → problem.
-const CHECK_CYCLE = ["n", "g", "a", "r"] as const;
+// Click cycle: n/a → done → pending → problem (nextCheck).
 const CHECK_TEXT: Record<string, string> = { n: "n/a", g: "done", a: "pending", r: "problem" };
 const CHECK_STYLE: Record<string, { box: string; text: string }> = {
   n: { box: "border-slate-200 bg-slate-50 text-slate-400", text: "text-slate-400" },
@@ -100,8 +102,9 @@ const CHECK_STYLE: Record<string, { box: string; text: string }> = {
 // A transport table cell: the app's TD, with the card's 16px inset on the outer columns.
 const LEG_TD = `${TD} first:pl-4 last:pr-4`;
 
-// Two columns on wide screens: main cards on the left, the gate checklist on the right.
-const overviewGrid = "grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start";
+// Two columns on wide screens: main cards on the left, the gate checklist on the right (380px, so
+// the transport table fits the left column at 1440px with the menu open; user council x7 / W17).
+const overviewGrid = "grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start";
 
 const LEG_DOT: Record<string, string> = {
   IN: "bg-indigo-500",
@@ -149,20 +152,13 @@ export function OverviewTab({
       </span>
     ) : null;
 
-  const setLeg = (
-    leg: interfaces.GateTransportLeg["leg"],
-    patch: Partial<interfaces.GateTransportLeg>,
-  ) =>
-    save({ transportLegs: m.transportLegs.map((l) => (l.leg === leg ? { ...l, ...patch } : l)) });
+  // Only the field changed goes to the server, which merges it into the legs as stored: a quick
+  // second field save no longer undoes the first (user council W2).
+  const setLeg = (leg: interfaces.GateTransportLeg["leg"], patch: Omit<GateLegChange, "leg">) => save({ legChange: { leg, ...patch } });
 
-  // Gate time falls back to the gate stamp of that direction.
-  const gateTimeOf = (l: interfaces.GateTransportLeg) =>
-    l.gateTime ||
-    (l.leg === "IN" && m.gateIn
-      ? formatDateTime(m.gateIn)
-      : l.leg === "OUT" && m.gateOut
-        ? formatDateTime(m.gateOut)
-        : "");
+  // Gate time falls back to the gate stamp of the truck on that leg (legStamp: the pick-up truck's
+  // gate-in of outbound cargo is the OUT row's, W17).
+  const gateTimeOf = (l: interfaces.GateTransportLeg) => l.gateTime || formatDateTime(legStamp(l.leg, m));
 
   // Gate date and gate time edit the two halves of the same stamp: changing one keeps the
   // other (a time without a date lands on today, a date without a time at 00:00).
@@ -183,10 +179,16 @@ export function OverviewTab({
   // The VGM icon is done once the cargo is re-weighed (the warehouse's re-weigh): then it is not
   // cycled by hand.
   const vgmLocked = !!m.reweigh;
+  // Each click saves that one icon (merged on the server, so icons never undo each other) and shows
+  // it at once; quick clicks on the same icon cycle from what is shown, not from the last answer.
+  const [checkDraft, setCheckDraft] = useState<Partial<Record<CheckKey, string>>>({});
+  useEffect(() => setCheckDraft({}), [m.checklist]);
+  const checkOf = (key: CheckKey) => checkDraft[key] ?? m.checklist[key];
   const cycleCheck = (key: CheckKey) => {
     if (key === "vgm" && vgmLocked) return;
-    const next = CHECK_CYCLE[(CHECK_CYCLE.indexOf(m.checklist[key]) + 1) % CHECK_CYCLE.length];
-    save({ checklist: { ...m.checklist, [key]: next } });
+    const state = nextCheck(checkOf(key));
+    setCheckDraft((d) => ({ ...d, [key]: state }));
+    save({ checkChange: { key, state } });
   };
 
   return (
@@ -398,19 +400,21 @@ export function OverviewTab({
           </Section>
 
           {/* ============ transport ============ */}
+          {/* Fixed column widths and the gate day and time in one column, so the table fits the left
+              column at 1440px (user council x7 / W17: the plate and "Gate time" were cut off). */}
           <Section title="Transport" icon={<CarOutlined />} bodyClassName="overflow-x-auto">
-            <table className="w-full min-w-[780px] border-collapse">
+            <table className="w-full min-w-[640px] table-fixed border-collapse">
+              <colgroup>
+                <col className="w-[64px]" />
+                <col />
+                <col className="w-[108px]" />
+                <col />
+                <col className="w-[120px]" />
+                <col className="w-[200px]" />
+              </colgroup>
               <thead>
                 <tr>
-                  {[
-                    "Leg",
-                    "Transport company",
-                    TERMS.plate,
-                    TERMS.driver,
-                    "Phone Number",
-                    "Gate date",
-                    "Gate time",
-                  ].map((h) => (
+                  {["Leg", "Transport company", TERMS.plate, TERMS.driver, "Phone", "Gate day · time"].map((h) => (
                     <th key={h} className={`${TH} first:pl-4 last:pr-4`}>
                       {h}
                     </th>
@@ -438,8 +442,7 @@ export function OverviewTab({
                           <td className={LEG_TD}>{shown(l.plate, "tabular-nums")}</td>
                           <td className={LEG_TD}>{shown(l.driver)}</td>
                           <td className={LEG_TD}>{shown(l.phone, "!text-slate-500")}</td>
-                          <td className={LEG_TD}>{shown(stamp ? stamp.format("YYYY-MM-DD") : "", "!text-slate-500")}</td>
-                          <td className={LEG_TD}>{shown(stamp ? stamp.format("HH:mm") : "", "!text-slate-500")}</td>
+                          <td className={LEG_TD}>{shown(stamp ? stamp.format("DD.MM.YYYY HH:mm") : "", "!text-slate-500 tabular-nums")}</td>
                         </tr>
                       );
                     }
@@ -477,18 +480,18 @@ export function OverviewTab({
                         />
                       </td>
                       <td className={LEG_TD}>
-                        <InlineDate
-                          value={gateTimeOf(l)}
-                          className="!text-slate-500"
-                          onSave={(v) => setLegStamp(l, { date: v })}
-                        />
-                      </td>
-                      <td className={LEG_TD}>
-                        <InlineTime
-                          value={gateTimeOf(l)}
-                          className="!text-slate-500"
-                          onSave={(v) => setLegStamp(l, { time: v })}
-                        />
+                        <span className="flex items-center gap-1">
+                          <InlineDate
+                            value={gateTimeOf(l)}
+                            className="!text-slate-500 !w-[104px]"
+                            onSave={(v) => setLegStamp(l, { date: v })}
+                          />
+                          <InlineTime
+                            value={gateTimeOf(l)}
+                            className="!text-slate-500 !w-[68px]"
+                            onSave={(v) => setLegStamp(l, { time: v })}
+                          />
+                        </span>
                       </td>
                     </tr>
                     );
@@ -522,7 +525,7 @@ export function OverviewTab({
             <div className="grid grid-cols-5 gap-2">
               {CHECKS.map((c) => {
                 const locked = c.key === "vgm" && vgmLocked;
-                const st = locked ? "g" : (m.checklist[c.key] ?? "n");
+                const st = locked ? "g" : (checkOf(c.key) ?? "n");
                 const style = CHECK_STYLE[st]!;
                 return (
                   <button
@@ -697,6 +700,9 @@ function UnNumberInput({ value, onSave }: { value: string; onSave: (v: string) =
 // pick-up, never the receipt) — and stops at the WH release (outbound cargo also at its gate-out;
 // inbound cargo stuffed in an export container at that container's gate-out; an inbound truck's
 // gate-out is the delivering truck leaving). Free days: empty = the default (7). Each change is logged.
+/** The typed "Received in warehouse" date's row, which the gate job's steps jump to (loose import cargo, Q19). */
+export const RECEIVED_DATE_ID = "received-in-warehouse";
+
 function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
   const outbound = m.visit === "výdej";
   const s = m.storage;
@@ -708,15 +714,16 @@ function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
         </span>
       </FieldRow>
       {outbound && (m.receivedAt || m.container?.tallyRequired) ? (
-        // An import house is received by its tick-off at the stripping tally: the date follows it.
+        // An import house is received by its tick-off at the stripping tally, loose import cargo (no
+        // container) by its receipt (Q19): the date follows it.
         <FieldRow label="Received in warehouse">
           <span className="text-slate-700">
             {m.receivedAt ? `${dayjs(m.receivedAt).format("DD.MM.YYYY HH:mm")} — ` : "Not yet — "}
-            set by the stripping tally{m.container ? ` of container ${m.container.number}` : ""}
+            {m.container ? `set by the stripping tally of container ${m.container.number}` : "set by the receipt — a manager voids it"}
           </span>
         </FieldRow>
       ) : outbound ? (
-        <FieldRow label="Received in warehouse">
+        <FieldRow label="Received in warehouse" id={RECEIVED_DATE_ID}>
           <InlineDate value={m.loadInDate} onSave={(v) => save({ loadInDate: v })} />
         </FieldRow>
       ) : (
@@ -825,6 +832,12 @@ function ContainerCard({ m }: { m: GateMovement }) {
               {c.tallyPieces != null ? ` ${c.tallyPieces} of ${m.colli} pcs` : ""}
               {c.tickedAt ? ` · ${formatDateTime(c.tickedAt)}` : ""}
               {c.tickedBy ? ` · ${c.tickedBy}` : ""}
+              {/* The condition and location noted at the tick; red when not Good — it may be damaged (Q20). */}
+              {conditionAndLocation(c.tallyCondition, c.tallyLocation) && (
+                <span className={`block ${conditionNotGood(c.tallyCondition) ? "font-semibold text-red-600" : "text-slate-500"}`}>
+                  {conditionAndLocation(c.tallyCondition, c.tallyLocation)}
+                </span>
+              )}
             </span>
           ) : (
             <span className="text-slate-500">{c.tallyRequired ? "Not tallied yet — received when ticked off at the stripping tally" : "Registered before the stripping tally — received by the date on Storage"}</span>

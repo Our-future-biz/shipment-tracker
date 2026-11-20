@@ -4,9 +4,9 @@
 //
 //   clock start   the receipt: inbound cargo (příjem) at its gate-in; outbound cargo (výdej, the
 //                 import cargo a truck picks up) when its house is ticked received at the
-//                 stripping tally of its container, else (no container tally) at its "Received
-//                 in warehouse" date (load-in date) — the truck's gate-in is the pick-up, never
-//                 the receipt.
+//                 stripping tally of its container; in no container (it came by truck) at its
+//                 receipt (positionReceipt.ts, Q19), else at its "Received in warehouse" date
+//                 (load-in date) — the truck's gate-in is the pick-up, never the receipt.
 //   clock stop    the WH release; inbound cargo stuffed in an export container stops at that
 //                 container's gate-out; outbound cargo (výdej) also stops at its gate-out. An
 //                 inbound (příjem) gate-out of its own is the delivering truck leaving, not the
@@ -14,6 +14,9 @@
 //   counting      calendar days in Prague time; the arrival day is day 1.
 //   free days     the position's own free days, else DEFAULT_FREE_DAYS.
 //   tariff        CZK 22 per W/M per day, at least CZK 120 per day (one tariff for everyone).
+
+import type { GateEvent } from "../schemas/gateMovement.schema";
+import { lastReceiptEvent } from "./positionReceipt";
 
 export const DEFAULT_FREE_DAYS = 7;
 export const STORAGE_CZK_PER_WM = 22;
@@ -35,6 +38,28 @@ const PRAGUE_MINUTE = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Pragu
 export const pragueStamp = (d: Date) => PRAGUE_MINUTE.format(d).replace(" ", "T");
 
 export const isIsoDate = (s: string | null | undefined): s is string => !!s && DATE.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
+
+/**
+ * The first instant of a Prague day (YYYY-MM-DD): midnight there is 23:00 or 22:00 UTC the day
+ * before (CET / CEST). A receipt that keeps an earlier typed "Received in warehouse" day is
+ * received at the start of that day, so the storage clock counts from it.
+ */
+export function pragueDayStart(day: string): Date {
+  const utcMidnight = Date.parse(`${day}T00:00:00Z`);
+  for (const hours of [1, 2]) {
+    const d = new Date(utcMidnight - hours * 3_600_000);
+    if (pragueDate(d) === day && pragueDate(new Date(d.getTime() - 1)) !== day) return d;
+  }
+  return new Date(utcMidnight - 3_600_000);
+}
+
+/**
+ * The typed "Received in warehouse" day a receipt or a tally tick on `day` keeps: one earlier than
+ * that day (moving it later is storage given away, which only a manager does —
+ * lib/warehouseReceivedRule). Null when nothing is typed, or the typed day is not earlier.
+ */
+export const keptReceivedDay = (loadInDate: string | null | undefined, day: string): string | null =>
+  isIsoDate(loadInDate) && loadInDate < day ? loadInDate : null;
 
 /** Day number of a YYYY-MM-DD date (calendar days, no time zone shifts). */
 export const dayNo = (d: string) => Math.floor(Date.parse(`${d}T00:00:00Z`) / DAY);
@@ -116,10 +141,11 @@ export function storageClock(p: { start: string | null; stop?: string | null; fr
 
 export interface StorageInfo extends StorageClock {
   /**
-   * What started the clock: the gate-in (inbound), the stripping tally (outbound, ticked received)
-   * or the "Received in warehouse" date (outbound without a tally).
+   * What started the clock: the gate-in (inbound), the stripping tally (outbound, ticked received),
+   * the receipt (outbound in no container) or the "Received in warehouse" date (outbound without
+   * either).
    */
-  startSource: "gateIn" | "tally" | "loadInDate" | "";
+  startSource: "gateIn" | "tally" | "receipt" | "loadInDate" | "";
 }
 
 /** The fields of a gate movement the storage clock reads. */
@@ -132,8 +158,10 @@ export interface StorageMovement {
   freeDays: number | null;
   measureCbm: number;
   weightKg: number;
-  /** Outbound: ticked received at the stripping tally. */
+  /** Outbound: ticked received at the stripping tally, or received by its receipt. */
   receivedAt?: Date | null;
+  /** The record's events: a receipt (no container) among them names the clock's start "receipt". */
+  events?: readonly GateEvent[];
   /** Inbound: left stuffed in a container (its gate-out). */
   leftAt?: Date | null;
 }
@@ -151,7 +179,8 @@ export function movementStorage(m: StorageMovement, now = new Date()): StorageIn
     wm: wmOf(m.measureCbm, m.weightKg),
     today: pragueDate(now),
   });
-  return { ...clock, startSource: clock.started ? (inbound ? "gateIn" : tally ? "tally" : "loadInDate") : "" };
+  const received = tally && m.events && lastReceiptEvent(m.events) ? "receipt" : "tally";
+  return { ...clock, startSource: clock.started ? (inbound ? "gateIn" : tally ? received : "loadInDate") : "" };
 }
 
 const czk = (n: number) => `CZK ${n.toLocaleString("en-GB")}`;

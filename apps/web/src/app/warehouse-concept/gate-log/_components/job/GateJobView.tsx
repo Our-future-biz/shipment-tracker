@@ -25,12 +25,14 @@ import { errorMessage, hasAnyStamp, hasSurvey, isManager, nf, requiredSurveyPhas
 import { cargoLeg, gateSteps, isOutbound, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
 import { PrintLabelsModal } from "../PrintLabelsModal";
 import { btnDefault, btnPrimary } from "./fields";
-import { OverviewTab } from "./OverviewTab";
+import { OverviewTab, RECEIVED_DATE_ID } from "./OverviewTab";
 import { SurveyTab } from "./SurveyTab";
 import { ShipmentManagementTab } from "./ShipmentManagementTab";
-import { ReasonModal } from "./ReleaseGatesPanel";
+import { customsHeld, ReasonModal } from "./ReleaseGatesPanel";
+import { saveQueue, type GateFieldChange } from "../../_lib/transportLegs";
 import { HistoryTab } from "./HistoryTab";
 import { ReweighModal } from "./ReweighSection";
+import { lastReceipt } from "@/app/warehouse-concept/_lib/tallyCondition";
 import { LifecycleStrip } from "@/app/warehouse-concept/_components/LifecycleStrip";
 import { Badge } from "@/components/Badge";
 import { CARD, EMPTY, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
@@ -41,6 +43,9 @@ const TABS = ["overview", "survey", "shipman", "history"] as const;
 type Tab = (typeof TABS)[number];
 // The Gate Log list, now a tab of the Warehouse page.
 const GATE_LOG_HREF = "/warehouse-concept?tab=gatelog";
+
+/** The phone's receipt screen of a position (floor mode, FloorReceipt). */
+export const floorReceiptHref = (movementId: string) => `/warehouse-concept/floor/${encodeURIComponent(movementId)}?view=receipt`;
 
 /** Dock & Yard → Dock Schedule with the booking form open for this position. */
 export const dockBookingHref = (movementId: string) => `/warehouse-concept?tab=dock&book=${encodeURIComponent(movementId)}`;
@@ -58,7 +63,7 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
           ? "Not started — starts at the gate-in"
           : m.container?.tallyRequired
             ? `Not started — starts at the tick-off in container ${m.container.number}`
-            : "Not started — set “Received in warehouse” on Overview",
+            : "Not started — starts at the receipt (or the “Received in warehouse” date on Overview)",
       }
     : s.chargeableDays > 0
       ? { value: `+${s.chargeableDays}`, tone: "text-red-600", sub: `Day ${s.daysInWarehouse} · ${freeTimeText(s)} · est. CZK ${nf(s.estimatedCzk)}` }
@@ -222,6 +227,7 @@ export function GateJobView({ id }: { id: string }) {
     archive,
     restore,
     voidStamp,
+    voidReceipt,
     refreshCustoms,
     refreshFromShipment,
     retryShipmentUpdate,
@@ -232,7 +238,7 @@ export function GateJobView({ id }: { id: string }) {
   const manager = isManager(user);
   const [tab, setTab] = useUrlParam<Tab>("tab", TABS, "overview");
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [dialog, setDialog] = useState<"archive" | "restore" | null>(null);
+  const [dialog, setDialog] = useState<"archive" | "restore" | "voidReceipt" | null>(null);
   const [voidStep, setVoidStep] = useState<GateStep | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
   const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
@@ -243,6 +249,9 @@ export function GateJobView({ id }: { id: string }) {
   const { stamp: stampMovement, refresh: refreshAfterStamp } = useStampMovement();
   const [reweighOpen, setReweighOpen] = useState(false);
   const [linkChange, setLinkChange] = useState<controllers.GateMovementUpdateRequest | null>(null);
+  // Field saves of this gate record run one after another (as the job's plain Pick-up chains its
+  // saves): two quick saves of the same leg field or checklist icon never land out of order.
+  const [inTurn] = useState(saveQueue);
 
   if (isLoading) {
     return (
@@ -270,7 +279,8 @@ export function GateJobView({ id }: { id: string }) {
     ((data.visit !== undefined && data.visit !== m.visit) ||
       (data.handling !== undefined && data.handling !== m.handling) ||
       (data.warehouseTaskId !== undefined && data.warehouseTaskId !== m.warehouseTaskId));
-  const save = (data: controllers.GateMovementUpdateRequest) => {
+  // `legChange` / `checkChange`: one transport leg field or checklist icon, merged on the server (W2).
+  const save = (data: controllers.GateMovementUpdateRequest & GateFieldChange) => {
     if (changesLink(data)) {
       if (!manager) {
         toast.error("This record is linked to a shipment — only a manager can change its direction or position, with a reason.");
@@ -279,7 +289,7 @@ export function GateJobView({ id }: { id: string }) {
       setLinkChange(data);
       return Promise.resolve();
     }
-    return update.mutateAsync(data).catch((e) => toast.error(errorMessage(e, "Failed to save")));
+    return inTurn(() => update.mutateAsync(data)).catch((e) => toast.error(errorMessage(e, "Failed to save")));
   };
 
   // Stamps are final, so each one is confirmed first (as in the Gate Log bulk bar).
@@ -355,8 +365,27 @@ export function GateJobView({ id }: { id: string }) {
       toast.error(errorMessage(e, "Failed to refresh from the shipment"));
     }
   };
+  // Loose import cargo (no container) received by its receipt (Q19): a manager voids a wrong one.
+  const receipt = !m.container && m.receivedAt && !m.impRelease ? lastReceipt(m.events) : null;
+  const doVoidReceipt = async (reason: string) => {
+    try {
+      const res = await voidReceipt.mutateAsync(reason);
+      toast.success("Receipt voided — logged on the movement");
+      if (res.notice) toast.notify({ type: "warning", title: "Shipment may need correcting", description: res.notice });
+    } catch (e) {
+      toast.error(errorMessage(e, "Failed to void the receipt"));
+      // Rethrown so the dialog stays open with the reason typed (ReasonModal).
+      throw e;
+    }
+  };
+  // The typed "Received in warehouse" date on Overview → Storage: the desk's way to receive it.
+  const showReceivedDate = () => {
+    setTab("overview");
+    window.setTimeout(() => document.getElementById(RECEIVED_DATE_ID)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
   const actionItems = [
     ...(m.shipmentId ? [{ key: "refresh", label: "Refresh from shipment", onClick: doRefreshFromShipment }] : []),
+    ...(receipt && manager ? [{ key: "voidReceipt", label: "Void receipt…", danger: true, onClick: () => setDialog("voidReceipt") }] : []),
     stamped
       ? {
           key: "archive",
@@ -429,6 +458,17 @@ export function GateJobView({ id }: { id: string }) {
                 <button type="button" className={btnPrimary} onClick={() => setReweighOpen(true)}>
                   Re-weigh
                 </button>
+              )}
+              {/* Loose import cargo is received first: by its receipt on the phone, or the typed date at the desk (Q19). */}
+              {!archived && mainSteps.some((x) => x.state === "blocked" && x.needs === "receipt") && (
+                <>
+                  <Link href={floorReceiptHref(m.id)} className={btnPrimary} title="Count the pieces, note the condition and location on the phone">
+                    {TERMS.receipt} (phone)
+                  </Link>
+                  <button type="button" className={btnDefault} onClick={showReceivedDate} title="Type the day it was received, on Overview → Storage">
+                    Received in warehouse date
+                  </button>
+                </>
               )}
               {!archived && m.container && mainSteps.some((x) => x.state === "blocked" && (x.needs === "tally" || x.needs === "container")) && (
                 <Link href={`/warehouse-concept/containers/${m.container.id}`} className={btnDefault}>
@@ -638,7 +678,12 @@ export function GateJobView({ id }: { id: string }) {
             override={(reason) =>
               override
                 .mutateAsync(reason)
-                .then(() => toast.success(`${TERMS.releaseGates} cleared by supervisor override — logged on the movement`))
+                .then((res) =>
+                  // An override never clears Customs (Q18 (b)): say so when Customs still holds the cargo.
+                  customsHeld(res.movement)
+                    ? toast.info("Override logged — the other lines are cleared; Customs still holds the cargo until customs clears it")
+                    : toast.success(`${TERMS.releaseGates} cleared by supervisor override — logged on the movement`),
+                )
                 .catch((e) => {
                   toast.error(errorMessage(e, "Failed to override"));
                   throw e;
@@ -758,6 +803,17 @@ export function GateJobView({ id }: { id: string }) {
             })
         }
       />
+      <ReasonModal
+        open={dialog === "voidReceipt"}
+        title="Void the receipt"
+        hint={`${m.gateRef} is not received any more: the stock line is voided and the “Received in warehouse” date typed before the receipt comes back. Who, when, the receipt and the reason are logged.`}
+        okText="Void receipt"
+        danger
+        onClose={() => setDialog(null)}
+        onSubmit={doVoidReceipt}
+      >
+        {m.shipmentId && <p className="text-xs text-amber-700 mt-0">The shipment is not changed back — correct it in Shipments if needed.</p>}
+      </ReasonModal>
       <ReasonModal
         open={dialog === "restore"}
         title="Restore record"

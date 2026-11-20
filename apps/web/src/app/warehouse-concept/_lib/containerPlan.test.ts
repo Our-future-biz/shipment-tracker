@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   addBlocked,
+  CONTAINER_CAPACITY,
+  EQUIPMENT_TYPES,
   containerKind,
   containerStampBlocked,
   containerStampWrites,
@@ -37,7 +39,7 @@ const mv = (over: Partial<M> = {}): M => ({
   ...over,
 });
 const inContainer = (id: string, number: string) =>
-  ({ id, number, equipment: "", direction: "Loading", kind: "export", status: "Planning", seal: "", gateInAt: null, gateOutAt: null, stuffedAt: null, stuffedBy: "", tallyOutcome: "", tallyPieces: null, tickedAt: null, tickedBy: "", tallyRequired: false }) as const;
+  ({ id, number, equipment: "", direction: "Loading", kind: "export", status: "Planning", seal: "", gateInAt: null, gateOutAt: null, stuffedAt: null, stuffedBy: "", tallyOutcome: "", tallyPieces: null, tallyCondition: "", tallyLocation: "", tickedAt: null, tickedBy: "", tallyRequired: false }) as const;
 
 describe("who may be added", () => {
   it("export containers take inbound cargo received in the warehouse, not on hold, not left", () => {
@@ -90,6 +92,12 @@ describe("totals against the capacity", () => {
     expect(fillTone(101)).toBe("bg-red-500");
     expect(fillTone(95)).toBe("bg-amber-500");
     expect(fillTone(40)).toBe("bg-indigo-500");
+  });
+  // User council W20: reefers, the 40' open top and the 20' flat rack could not be chosen.
+  it("offers every type it has a capacity for, reefers and open tops too", () => {
+    expect([...EQUIPMENT_TYPES].sort()).toEqual(Object.keys(CONTAINER_CAPACITY).sort());
+    expect(EQUIPMENT_TYPES).toEqual(expect.arrayContaining(["20' RF", "40' RF HC", "40' OT", "20' FR"]));
+    expect(planTotals("40' OT", [{ pieces: 1, kg: 13_300, cbm: 32.5 }])).toMatchObject({ fillCbmPct: 50, fillKgPct: 50 });
   });
   it("knows no capacity for an unknown type", () => {
     const t = planTotals("", [{ pieces: 1, kg: 1, cbm: 1 }]);

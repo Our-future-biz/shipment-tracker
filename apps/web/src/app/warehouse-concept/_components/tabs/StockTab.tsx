@@ -41,9 +41,12 @@ const STOCK_STATUSES = ["Available", "Allocated", "On hold", "Picked"];
 const AUTO_STATUSES = ["Available", "Allocated", "On hold"];
 const ALL_STATUSES = [...STOCK_STATUSES, "Voided"];
 const STOCK_STATUS_TONES: Record<string, Tone> = { Available: "g", Allocated: "b", "On hold": "r", Picked: "i", Voided: "" };
-const CUSTOMS = ["Free circulation", "T1 bonded", "Temporary storage", "Customs warehouse", "Export cleared"];
+// "Not cleared": import cargo customs has not cleared yet, under no counted regime (SCP, JSD; the
+// server's stockCustomsValue, user council c7). It has no 90-day counter, so it is not "Bonded / T1".
+const CUSTOMS = ["Free circulation", "Not cleared", "T1 bonded", "Temporary storage", "Customs warehouse", "Export cleared"];
 const UNDER_CUSTOMS = ["T1 bonded", "Temporary storage", "Customs warehouse"];
 const CUSTOMS_TONES: Record<string, Tone> = {
+  "Not cleared": "a",
   "T1 bonded": "a",
   "Temporary storage": "a",
   "Customs warehouse": "a",
@@ -320,7 +323,13 @@ function StockOnHand() {
         )}
         storageKey="warehouse:stock-on-hand"
         exportFilePrefix="stock-on-hand"
-        emptyText={shown.length ? "No lines match this filter." : "Nothing in stock yet — lines open at the WH receipt / stripping tally."}
+        // A position that arrived (gate-in) but was never received counts storage days on Positions,
+        // yet is no stock until its receipt (user council W16).
+        emptyText={
+          shown.length
+            ? "No lines match this filter."
+            : "Nothing in stock yet — a line opens at the receipt (WH receipt, stripping tally or received date). A position that arrived but is not received yet is not stock."
+        }
         resetKey={`${status}|${customs}|${showClosed}`}
       />
       {editing && (

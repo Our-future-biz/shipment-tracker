@@ -7,6 +7,7 @@ import { reweighService } from "../services/reweigh.service";
 import { gateAdminService, statusAfterVoid, voidBlocked } from "../services/gateAdmin.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { pragueDate } from "../services/storage";
 import { containerService } from "../services/container.service";
 import { gateFileService } from "../services/gateFile.service";
 import { shipmentOutboxTable } from "../schemas/shipmentOutbox.schema";
@@ -73,6 +74,8 @@ describe("deleting and archiving", () => {
 
   it("restores a position removed with its record, unless the shipment came back meanwhile", async () => {
     const { c, id, taskId, ref } = await linked();
+    // Loose import cargo is received before its pick-up truck gates in (Q19): the typed date.
+    await gateMovementRepository.update(id, c, { loadInDate: pragueDate(new Date()) });
     await gateMovementService.stamp(id, c, user, "gateIn");
     await gateAdminService.removePosition(taskId, c, user, "manager", "wrong shipment");
     const back = await gateAdminService.restore(id, c, user, "manager", "it was right");
@@ -91,6 +94,8 @@ describe("deleting and archiving", () => {
 describe("restoring a removed position", () => {
   it("brings back the position's other records archived with it, not one archived on its own before", async () => {
     const { c, id, taskId, ref } = await linked();
+    // Loose import cargo is received before its pick-up truck gates in (Q19): the typed date.
+    await gateMovementRepository.update(id, c, { loadInDate: pragueDate(new Date()) });
     await gateMovementService.stamp(id, c, user, "gateIn");
     const second = await gateMovementService.create(c, user, { gateRef: "S2", warehouseTaskId: taskId });
     const alone = await gateMovementService.create(c, user, { gateRef: "S3", warehouseTaskId: taskId });
@@ -131,7 +136,10 @@ describe("voiding a stamp", () => {
 
   it("voids the WH release with its gate-out and logs that the shipment may need correcting", async () => {
     const { c, id } = await linked();
-    await gateMovementRepository.update(id, c, { overridden: true });
+    // An override never clears Customs (Q18 (b)): the Customs line is ticked as well.
+    const gates = (await gateMovementRepository.findById(id, c))!.releaseGates;
+    // Loose import cargo is received before its WH release (Q19): the typed date, today.
+    await gateMovementRepository.update(id, c, { overridden: true, loadInDate: pragueDate(new Date()), releaseGates: gates.map((g) => (g.g === "Customs" ? { ...g, s: "OK" as const } : g)) });
     await gateMovementService.stamp(id, c, user, "gateIn");
     await gateMovementService.stamp(id, c, user, "impRelease");
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);

@@ -18,6 +18,10 @@ type ImportRow = {
   jobNumber: string;
   customer: string;
   shipper: string;
+  /** The customer's reference ("" when the list does not carry it: a master job's houses). */
+  customerRef: string;
+  /** Pieces as Shipments shows them ("1,353"); "" when none. */
+  pieces: string;
   masterJob: string;
   etaWarehouse: string | null;
 };
@@ -69,7 +73,9 @@ export function ShipmentImportPicker({
 
 type ListProps = { inWarehouse: Set<string>; selected: string[]; onChange: (ids: string[]) => void; results?: Results };
 
-const columns = (withMaster: boolean, inWarehouse: Set<string>, results?: Results) => [
+// The customer's reference and the pieces help tell one job from another (user council W19); a
+// master job's houses carry no reference, so that list has no such column.
+const columns = (withMaster: boolean, inWarehouse: Set<string>, results?: Results, withRef = false) => [
   {
     title: TERMS.jobNo,
     dataIndex: "jobNumber",
@@ -89,7 +95,9 @@ const columns = (withMaster: boolean, inWarehouse: Set<string>, results?: Result
   },
   // Parties often carry their full address; one line each keeps the list scannable.
   { title: "Customer", dataIndex: "customer", ellipsis: true },
+  ...(withRef ? [{ title: "Customer Reference", dataIndex: "customerRef", width: 150, ellipsis: true, render: (v: string) => v || <span className={EMPTY}>—</span> }] : []),
   { title: "Shipper", dataIndex: "shipper", ellipsis: true },
+  { title: TERMS.pieces, dataIndex: "pieces", width: 80, align: "right" as const, render: (v: string) => v || <span className={EMPTY}>—</span> },
   ...(withMaster ? [{ title: "Master Job", dataIndex: "masterJob", width: 140 }] : []),
   { title: "ETA Warehouse/HUB", dataIndex: "etaWarehouse", width: 150, render: (v: string | null) => formatDate(v) },
 ];
@@ -110,6 +118,8 @@ function ShipmentsList({ inWarehouse, selected, onChange, results }: ListProps) 
           jobNumber: s.jobNumber,
           customer: s.customer,
           shipper: s.shipper,
+          customerRef: s.customerReference ?? "",
+          pieces: s.pcs ?? "",
           masterJob: s.masterJobMczNumber ?? "",
           etaWarehouse: s.etaWarehouse,
         })),
@@ -130,7 +140,7 @@ function ShipmentsList({ inWarehouse, selected, onChange, results }: ListProps) 
         size="small"
         rowKey="id"
         dataSource={rows}
-        columns={columns(true, inWarehouse, results)}
+        columns={columns(true, inWarehouse, results, true)}
         loading={isFetching}
         pagination={false}
         scroll={{ y: 360 }}
@@ -166,6 +176,8 @@ function MasterJobsList({ inWarehouse, selected, onChange, results }: ListProps)
           jobNumber: s.jobNumber,
           customer: s.customer,
           shipper: s.shipper,
+          customerRef: "",
+          pieces: s.pieces,
           masterJob: masterJob.mczNumber,
           etaWarehouse: masterJob.etaWarehouse,
         }));

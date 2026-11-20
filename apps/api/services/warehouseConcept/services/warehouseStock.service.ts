@@ -41,7 +41,8 @@ export const STOCK_STATUSES = ["Available", "Allocated", "On hold", "Picked"];
 export const AUTO_LINE_STATUSES = ["Available", "Allocated", "On hold"];
 /** Fields of an automatic line people may change; the rest follows the gate record. */
 export const AUTO_LINE_EDITABLE = ["location", "status", "consol", "marks"] as const;
-export const STOCK_CUSTOMS = ["Free circulation", "T1 bonded", "Temporary storage", "Customs warehouse", "Export cleared"];
+// "Not cleared": import cargo customs has not cleared yet (warehouseStockPlan stockCustomsValue).
+export const STOCK_CUSTOMS = ["Free circulation", "Not cleared", "T1 bonded", "Temporary storage", "Customs warehouse", "Export cleared"];
 const CLOSED_STATUSES = CLOSED_LINE_STATUSES;
 const FOLLOWS_GATE = "follows the gate record — change it on the position (gate job)";
 export const MOVEMENT_TYPES = ["Receipt", "Put-away", "Transfer", "Pick", "Load", "Adjustment", "Rework"];

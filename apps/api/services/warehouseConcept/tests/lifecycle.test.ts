@@ -83,5 +83,8 @@ describe("container rules", () => {
     expect(containerStatus({ ...none, direction: "Loading" }, [{ ...open, stuffedAt: at("2026-10-01T00:00:00Z") }])).toBe("Stuffing");
     expect(containerTotals("20' DV", [{ colli: 10, weightKg: 30_000, measureCbm: 20 }])).toMatchObject({ fillCbmPct: 65, fillKgPct: 106, overCapacity: true });
     expect(containerTotals("unknown", [])).toMatchObject({ capacityCbm: null, fillCbmPct: null, overCapacity: false });
+    // The equipment types added on the web (W20): a reefer has a fill %, a flat rack (0 cbm) only by weight.
+    expect(containerTotals("40' RF HC", [{ colli: 5, weightKg: 14_500, measureCbm: 33.5 }])).toMatchObject({ capacityCbm: 67, fillCbmPct: 50, fillKgPct: 50 });
+    expect(containerTotals("20' FR", [{ colli: 1, weightKg: 34_100, measureCbm: 40 }])).toMatchObject({ capacityCbm: 0, fillCbmPct: null, fillKgPct: 110, overCapacity: true });
   });
 });

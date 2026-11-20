@@ -49,6 +49,8 @@ export function ScanBox({
   const createWalkIn = useCreateWalkIn();
   const [value, setValue] = useState("");
   const [result, setResult] = useState<{ q: string; matches: GateMovement[] } | null>(null);
+  // A typed / scanned container number that matched: said as a position match is (W11).
+  const [openingContainer, setOpeningContainer] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const inputRef = useRef<InputRef>(null);
   const refocus = () => inputRef.current?.focus({ cursor: "all" });
@@ -85,10 +87,15 @@ export function ScanBox({
     // Floor mode: a container number opens the container's tally / stuffing list.
     const container = target === "floor" ? scannedContainer(q, movements) : null;
     if (container) {
+      setResult(null);
       // A scan is a navigation like a click: unsaved edits on this screen are asked about first.
-      if (confirmLeave()) router.push(containerHref(target, container.id));
+      if (confirmLeave()) {
+        setOpeningContainer(container.number);
+        router.push(containerHref(target, container.id));
+      } else refocus();
       return;
     }
+    setOpeningContainer(null);
     const { value: used, result: r } = matchScanned(q, movements);
     if (r.kind === "open") {
       setResult({ q: used, matches: [r.movement] });
@@ -115,7 +122,7 @@ export function ScanBox({
     }
   };
 
-  const status = !result ? "" : result.matches.length === 1 ? `Match — opening ${result.matches[0]!.positionRef || result.matches[0]!.gateRef}` : result.matches.length > 1 ? `${result.matches.length} matches for “${result.q}”` : `No match for “${result.q}”`;
+  const status = openingContainer ? `Match — opening container ${openingContainer}` : !result ? "" : result.matches.length === 1 ? `Match — opening ${result.matches[0]!.positionRef || result.matches[0]!.gateRef}` : result.matches.length > 1 ? `${result.matches.length} matches for “${result.q}”` : `No match for “${result.q}”`;
 
   return (
     <div data-scan-box className={large ? `${CARD} p-3` : `mt-4 ${CARD} px-4 py-3`}>
@@ -135,11 +142,12 @@ export function ScanBox({
             autoCapitalize="characters"
             enterKeyHint="go"
             prefix={<ScanOutlined className="text-slate-400" />}
-            placeholder={large ? "Scan the label, or type the ref, container or plate" : "Warehouse ref (label barcode / QR), job no., container or plate — Enter opens"}
+            placeholder={large ? "Ref, container or plate" : "Warehouse ref (label barcode / QR), job no., container or plate — Enter opens"}
             value={value}
             onChange={(e) => {
               setValue(e.target.value);
               setResult(null);
+              setOpeningContainer(null);
             }}
             onPressEnter={go}
             onKeyDown={(e) => {

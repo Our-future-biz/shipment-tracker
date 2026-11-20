@@ -217,7 +217,7 @@ function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: 
             <Link href="/warehouse-concept" className={LINK}>
               Positions → Create new
             </Link>{" "}
-            to get the gate figures, exceptions and release here.
+            to get the gate figures, exceptions and release here. Its pick-up and PIN are then made on the job&apos;s Warehouse tab → Pick-up.
           </span>
         }
       />

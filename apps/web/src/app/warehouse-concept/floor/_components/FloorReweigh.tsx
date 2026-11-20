@@ -8,7 +8,7 @@ import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { pctText } from "@/app/warehouse-concept/_lib/cargoCompare";
 import { hhmm, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
-import { KPI_VALUE } from "@/styles/ui";
+import { KPI_VALUE, REF } from "@/styles/ui";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { MAX_KG, typeKg } from "../_lib/keypad";
 import { FloorCard, bigPrimary } from "./floorUi";
@@ -19,10 +19,14 @@ import { CameraButton, useTakePhoto } from "./FloorPhotos";
 // import before its house is ticked off at the stripping tally). A big keypad for the kg read off
 // the scale, an optional photo of the scale and a note. Works offline: kept on the phone with the
 // time it was weighed and sent in order — before a receipt stamped behind it.
+//
+// Once recorded the screen moves on (`onDone`: to the receipt or the tally the weighing held, else
+// back to the position) and its button stays off meanwhile, so a second tap on a slow connection
+// records nothing twice (W12, User Council). The ref, customer and declared weight are on top.
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"] as const;
 
-export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => void }) {
+export function FloorReweigh({ m, onBack, onDone = onBack }: { m: GateMovement; onBack: () => void; onDone?: () => void }) {
   const toast = useToast();
   const q = useFloorQueue();
   const take = useTakePhoto(m);
@@ -31,22 +35,26 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
   const [fileIds, setFileIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  // Recorded (sent or kept on the phone): the screen is leaving, the button stays off.
+  const [recorded, setRecorded] = useState(false);
   const kg = Number(value);
   const valid = value !== "" && Number.isFinite(kg) && kg > 0 && kg <= MAX_KG;
   const r = m.reweigh;
 
   const record = async () => {
-    if (!valid) return;
+    if (!valid || recorded) return;
     setBusy(true);
     try {
       const res = await q.submit({ kind: "reweigh", movement: m, label: `${TERMS.reweigh} ${nf(kg, kg % 1 ? 1 : 0)} kg`, payload: { reweigh: { weighedKg: kg, note: note.trim(), fileIds } } });
       if (res.type === "sent") {
         if (res.notice) toast.warning(res.notice);
         else toast.success(`Re-weighed ${nf(kg, kg % 1 ? 1 : 0)} kg`);
-        onBack();
+        setRecorded(true);
+        onDone();
       } else if (res.type === "queued") {
         toast.info(`Re-weigh recorded at ${hhmm(res.recordedAt)} — waiting to send`);
-        onBack();
+        setRecorded(true);
+        onDone();
       } else toast.error(res.type === "refused" ? res.error : "Failed to record the re-weigh");
     } finally {
       setBusy(false);
@@ -58,6 +66,12 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
   return (
     <div className="flex flex-col gap-4 pb-24">
       <FloorBack onBack={onBack} title={TERMS.reweigh} />
+
+      <FloorCard>
+        <div className={`${REF} text-[16px] font-bold text-slate-900`}>{m.positionRef || m.gateRef}</div>
+        <div className="text-[14px] text-slate-700">{m.customer || "—"}</div>
+        <div className="text-[13px] text-slate-500">Declared {m.weightKg > 0 ? `${nf(m.weightKg)} kg` : "—"} (gate figure){m.colli ? ` · ${nf(m.colli)} pcs` : ""}</div>
+      </FloorCard>
 
       {r && (
         <FloorCard title="Current re-weigh (the one that counts)">
@@ -83,7 +97,7 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
             </button>
           ))}
         </div>
-        {m.weightKg > 0 && <div className="mt-2 text-[13px] text-slate-500">Gate figure {nf(m.weightKg)} kg — compared with the shipment&rsquo;s declared weight on the server.</div>}
+        <div className="mt-2 text-[13px] text-slate-500">Compared with the shipment&rsquo;s declared weight on the server.</div>
       </FloorCard>
 
       <FloorCard title={`Scale photo (${fileIds.length})`}>
@@ -105,8 +119,8 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
 
       <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3">
         <div className="mx-auto max-w-[560px]">
-          <button type="button" className={bigPrimary} disabled={!valid || busy || photoBusy || !!m.archivedAt} onClick={record}>
-            {busy ? "Recording…" : valid ? `Record ${nf(kg, kg % 1 ? 1 : 0)} kg` : "Type the weighed kg"}
+          <button type="button" className={bigPrimary} disabled={!valid || busy || recorded || photoBusy || !!m.archivedAt} onClick={record}>
+            {busy ? "Recording…" : recorded ? "Recorded" : valid ? `Record ${nf(kg, kg % 1 ? 1 : 0)} kg` : "Type the weighed kg"}
           </button>
         </div>
       </div>

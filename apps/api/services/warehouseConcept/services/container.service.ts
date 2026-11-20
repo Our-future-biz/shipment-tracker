@@ -29,13 +29,14 @@ import { containerKind, containerStatus, containerTotals, directionFits, LEGACY_
 import { positionLifecycle } from "./lifecycle";
 import { needsReweigh, needsReweighSql } from "./reweigh";
 import { acceptRecordedAt, checkRequestId, offlineDetail, pragueHhmm } from "./offline";
-import { pragueDate } from "./storage";
+import { keptReceivedDay, pragueDate, pragueDayStart } from "./storage";
 import { customsRegime } from "./warehouseStockCustoms";
 import { openExceptionInTx, resolveTallyExceptionsInTx } from "./gateException.service";
 import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
 import { syncStockForMovement } from "./warehouseStockSync";
 import { isUniqueViolation } from "../../../lib/db/errors";
+import { conditionNotGood, countedText, damageNotice } from "./positionReceipt";
 
 // One container, many positions (houses): the stuffing plan of an export container and the
 // stripping tally of an import container, with the container's own stamps. Every action runs in
@@ -497,9 +498,11 @@ class ContainerService {
             throw APIError.failedPrecondition(`${ref(m)} is on hold — an open damage / short / over exception; resolve it, or un-stuff the house (a manager voids the close first)`);
           }
           // Goods under customs control (T1 transit, temporary storage) leave only with their
-          // transit document (Council Outlay 5, decision 16): the MRN, not customs clearance.
+          // transit document (Council Outlay 5, decision 16): the MRN, not customs clearance. A
+          // supervisor override does not skip it: it is a customs control, and an override never
+          // clears Customs (Q18 (b)).
           const regime = customsRegime(m);
-          if (!m.overridden && (regime === "Transit T1" || regime === "Temporary storage") && (!m.mrn.trim() || m.mrn.trim() === "—")) {
+          if ((regime === "Transit T1" || regime === "Temporary storage") && (!m.mrn.trim() || m.mrn.trim() === "—")) {
             throw APIError.failedPrecondition(`${ref(m)} is under customs control (${regime === "Transit T1" ? "T1 transit" : "temporary storage"}) with no MRN — record the transit document on the position before the container leaves`);
           }
         }
@@ -724,25 +727,31 @@ class ContainerService {
       }
       const atIso = at.toISOString();
       const offline = opts.recordedAt ? offlineDetail(at, now) : "";
-      const counted = [pieces !== null ? `${pieces} of ${m.colli} pcs counted` : "", condition, location ? `at ${location}` : ""].filter(Boolean).join(" · ");
+      const counted = countedText(pieces, m.colli, condition, location);
       const movementEvents: GateEvent[] = [];
       if (outcome === "received") {
         if (m.receivedAt || m.impRelease) throw APIError.failedPrecondition(`${ref(m)} is already received`);
         // LCL cargo is re-weighed before it is ticked off (checked under the position's lock).
         const res = await tx.execute(sql`SELECT (NOT ${needsReweighSql} OR EXISTS (SELECT 1 FROM warehouse_reweigh rw WHERE rw.movement_id = ${t.id} AND rw.deleted_at IS NULL)) AS ok FROM ${t} WHERE ${t.id} = ${m.id}`);
         if (!(res.rows[0] as { ok?: boolean } | undefined)?.ok) throw APIError.failedPrecondition("LCL cargo is re-weighed before the tick-off — record the re-weigh first");
-        const day = pragueDate(at);
+        // A typed "Received in warehouse" day earlier than the tick stays (as the receipt keeps it,
+        // positionReceipt.service): moving it later is storage given away, a manager's call.
+        const kept = keptReceivedDay(m.loadInDate, pragueDate(at));
+        const day = kept ?? pragueDate(at);
         const row = await gateMovementRepository.conditionalUpdate(
           m.id,
           companyId,
-          { receivedAt: at, loadInDate: day, status: sql`CASE WHEN ${t.status} = 'Expected' THEN 'In Warehouse' ELSE ${t.status} END`, updatedBy: by },
+          { receivedAt: kept ? pragueDayStart(kept) : at, loadInDate: day, status: sql`CASE WHEN ${t.status} = 'Expected' THEN 'In Warehouse' ELSE ${t.status} END`, updatedBy: by },
           [
             {
               kind: "tallyReceived",
               label: `Received — ticked off at the stripping tally of container ${c.number}`,
               at: atIso,
               by,
-              detail: [counted, m.loadInDate && m.loadInDate !== day ? `Received in warehouse was ${m.loadInDate}` : "", offline].filter(Boolean).join(" · ") || undefined,
+              detail:
+                [counted, kept ? `Received in warehouse ${kept} kept` : m.loadInDate && m.loadInDate !== day ? `Received in warehouse was ${m.loadInDate}` : "", offline]
+                  .filter(Boolean)
+                  .join(" · ") || undefined,
               // The typed received date the tick replaces, restored if the tally is voided.
               ...(m.loadInDate ? { previous: m.loadInDate } : {}),
             },
@@ -825,6 +834,10 @@ class ContainerService {
         opts.recordedAt ? `Tallied — recorded offline at ${pragueHhmm(at)}` : "",
         auto ? `Exception recorded: Short ${auto.pieces} pc${auto.pieces === 1 ? "" : "s"} — the cargo is on hold until it is resolved` : "",
         suggestException ? `${suggestException.type} ${suggestException.pieces} pc${suggestException.pieces === 1 ? "" : "s"} against the expected ${m.colli} — record an exception?` : "",
+        // A damaged tick gets the same question a count difference gets (Q20 of the User Council,
+        // 20 Nov). Nothing opens by itself: how many pieces are damaged is the person's to say.
+        // Not for a house not arrived — nothing of it was there to be damaged.
+        outcome !== "not_arrived" && conditionNotGood(condition) ? damageNotice(condition) : "",
       ]
         .filter(Boolean)
         .join(" · ");

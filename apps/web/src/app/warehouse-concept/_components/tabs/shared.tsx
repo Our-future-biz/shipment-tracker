@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Alert, Button, Form, Input, Modal, Select } from "antd";
+import { Alert, Button, DatePicker, Form, Input, Modal, Select } from "antd";
+import type { Dayjs } from "dayjs";
 import { DecimalInput } from "@/components/DecimalInput";
 import { DeleteOutlined } from "@ant-design/icons";
 import { Badge, type Tone } from "@/components/Badge";
@@ -14,6 +15,7 @@ import { formatNumber } from "@/lib/number";
 import { businessToday } from "@/lib/date";
 import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 import { formOpensNow } from "@/app/warehouse-concept/_lib/formReset";
+import { pickerStored, pickerValue } from "@/app/warehouse-concept/_lib/pickerDate";
 
 // Shared pieces of the Warehouse module tabs (Containers, Dock & Yard, Reports):
 // sub-tab pills, cards, KPI tiles, callouts, status marks and a record form - in the app's one
@@ -313,12 +315,17 @@ export function RecordFormModal<V extends object>({
               <Select allowClear showSearch optionFilterProp="label" options={options} placeholder={f.placeholder} />
             ) : f.type === "textarea" ? (
               <Input.TextArea rows={2} placeholder={f.placeholder} />
-            ) : (
-              <Input
-                type={f.type === "date" ? "date" : f.type === "time" ? "time" : f.type === "datetime" ? "datetime-local" : "text"}
+            ) : f.type === "date" || f.type === "datetime" ? (
+              <DatePicker
+                className="w-full"
+                format={f.type === "datetime" ? "DD.MM.YYYY HH:mm" : "DD.MM.YYYY"}
+                showTime={f.type === "datetime" ? { format: "HH:mm", minuteStep: 5 } : false}
                 placeholder={f.placeholder}
               />
+            ) : (
+              <Input type={f.type === "time" ? "time" : "text"} placeholder={f.placeholder} />
             );
+          const picker = f.type === "date" || f.type === "datetime" ? f.type : null;
           return [
             header,
             <Form.Item
@@ -326,7 +333,10 @@ export function RecordFormModal<V extends object>({
               name={f.name}
               label={f.label}
               className={f.full || f.type === "textarea" ? "col-span-full" : undefined}
-              normalize={f.type === "container" ? (v: string) => containerNumberInput(v ?? "") : undefined}
+              normalize={
+                f.type === "container" ? (v: string) => containerNumberInput(v ?? "") : picker ? (d: Dayjs | null) => pickerStored(d, picker) : undefined
+              }
+              getValueProps={picker ? (v: unknown) => ({ value: pickerValue(v) }) : undefined}
               rules={[
                 ...(f.required ? [{ required: true, message: `${f.label} is required` }] : []),
                 ...(f.type === "container"

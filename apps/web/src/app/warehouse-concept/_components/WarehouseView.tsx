@@ -32,7 +32,7 @@ import { customsChipText, customsClockSort, movementCustomsClock } from "../_lib
 import { CustomsDeadlineChip } from "../_lib/customsDeadline";
 import { confirmLeave } from "../_lib/useUnsavedGuard";
 import { carryPositionsLayoutHere, POSITIONS_STORAGE_KEY } from "../_lib/positionsLayout";
-import { copiedCargoFigures } from "../_lib/cargoCompare";
+import { copiedFromJob } from "../_lib/copiedFromJob";
 import { ContainersTab } from "./tabs/ContainersTab";
 import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
@@ -73,6 +73,8 @@ const byText = (get: (r: PositionRow) => string) => (a: PositionRow, b: Position
 const byNum = (get: (m: GateMovement) => number) => (a: PositionRow, b: PositionRow) =>
   (a.m ? get(a.m) : Number.MAX_SAFE_INTEGER) - (b.m ? get(b.m) : Number.MAX_SAFE_INTEGER);
 const storageOf = (r: PositionRow) => (r.m?.storage.started ? r.m.storage : null);
+// The position's one page is its Gate Log job; a position without one gets a short note.
+const positionHref = (r: PositionRow) => (r.m ? `/warehouse-concept/gate-log/${r.m.id}` : `/warehouse-concept/${r.task.id}`);
 
 /** The Positions columns added after layouts were first saved without the list of known columns (AppGrid addedLater). */
 const POSITIONS_ADDED_LATER: readonly string[] = ["etaWarehouse"];
@@ -84,7 +86,13 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     width: 150,
     text: (r) => r.task.taskId,
     sorter: byText((r) => r.task.taskId),
-    render: (_, r) => <span className={`${REF} font-bold text-indigo-600`}>{r.task.taskId}</span>,
+    // A real link to what the row opens: the bold blue reference read as one and did nothing when
+    // clicked (user council W15); it also opens in a new tab.
+    render: (_, r) => (
+      <Link href={positionHref(r)} onClick={(e) => e.stopPropagation()} className={`${REF} font-bold !text-indigo-600 hover:underline`}>
+        {r.task.taskId}
+      </Link>
+    ),
   },
   // Every position — imported or stand-alone — opens its Remeasurement / Release.
   {
@@ -362,17 +370,18 @@ function ModuleTabs({
 type BubbleId = "consolImport" | "consolExport" | "shuttle";
 
 const isOpen = (m: GateMovement) => !["Released", "Refused"].includes(m.status);
+// The tiles count positions (houses), not containers: the Containers tab lists those (user council W14).
 const BUBBLES: { id: BubbleId; label: string; hint: string; match: (m: GateMovement) => boolean }[] = [
   {
     id: "consolImport",
-    label: "Open Consol Outbound Containers",
-    hint: "Outbound (import) · load type Consolidation · not yet done",
+    label: "Open Consol Outbound Positions",
+    hint: "Positions · outbound (import) · load type Consolidation · not yet done. Containers are on the Containers tab.",
     match: (m) => isOpen(m) && m.handling === "Import" && m.loadType === "Consolidation",
   },
   {
     id: "consolExport",
-    label: "Open Consol Inbound Containers",
-    hint: "Inbound (export) · load type Consolidation · not yet done",
+    label: "Open Consol Inbound Positions",
+    hint: "Positions · inbound (export) · load type Consolidation · not yet done. Containers are on the Containers tab.",
     match: (m) => isOpen(m) && m.handling === "Export" && m.loadType === "Consolidation",
   },
   {
@@ -631,8 +640,7 @@ export const WarehouseView = () => {
           rows={rows}
           rowKey={(r) => r.task.id}
           loading={tasksLoading || movementsLoading}
-          // The position's one page is its Gate Log job; a position without one gets a short note.
-          onRowClick={(r) => router.push(r.m ? `/warehouse-concept/gate-log/${r.m.id}` : `/warehouse-concept/${r.task.id}`)}
+          onRowClick={(r) => router.push(positionHref(r))}
           // v2: saved layouts reset once so the Lifecycle and Container columns appear. v3: the layout is carried
           // over without its known columns, so ETA Warehouse/HUB shows once (_lib/positionsLayout).
           storageKey={POSITIONS_STORAGE_KEY}
@@ -754,7 +762,7 @@ const fromShipment = (sh: ShipmentItem, users: readonly PickableUser[]): Partial
   loadType: sh.loadType || undefined,
   commodity: sh.cargoDescription || undefined,
   packing: sh.typeOfPackages || undefined,
-  ...copiedCargoFigures(sh),
+  ...copiedFromJob(sh),
   shipmentOwner: userByEmail(sh.personInCharge, users)?.email || undefined,
   customsStatus: asGateCustomsStatus(sh.customsStatus),
   jobNumber: sh.jobNumber || undefined,
@@ -805,7 +813,8 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
   const router = useRouter();
   const toast = useToast();
   const [saving, setSaving] = useState<Source | null>(null);
-  const [source, setSource] = useState<Exclude<Source, "blank">>("job");
+  // Opens on the import, which links the position to its shipment; a copy stays separate (user council W19).
+  const [source, setSource] = useState<Exclude<Source, "blank">>("shipments");
   const [jobId, setJobId] = useState("");
   const [quoteNumber, setQuoteNumber] = useState("");
   const [jobQuery, setJobQuery] = useState("");
@@ -822,7 +831,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
 
   useEffect(() => {
     if (!open) return;
-    setSource("job");
+    setSource("shipments");
     setJobId("");
     setQuoteNumber("");
     setJobQuery("");
@@ -939,10 +948,10 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
         value={source}
         onChange={(v) => changeSource(v as Exclude<Source, "blank">)}
         options={[
-          { label: `Copy from ${TERMS.jobNo}`, value: "job" },
-          { label: "Copy from quote", value: "quote" },
           { label: "Import from Shipments", value: "shipments" },
           { label: "Import from Master Jobs", value: "masters" },
+          { label: `Copy from ${TERMS.jobNo} (unlinked)`, value: "job" },
+          { label: "Copy from quote", value: "quote" },
         ]}
       />
       {importing ? (

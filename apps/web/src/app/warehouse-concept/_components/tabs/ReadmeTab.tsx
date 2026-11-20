@@ -23,6 +23,13 @@ export function ReadmeTab() {
   return (
     <div className="flex flex-col gap-4">
       <Part title="What the Warehouse module is">
+        {/* Until the Concept opens to users (owner decision Q17, user council 20 Nov 2026). */}
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+          <b>Warehouse Concept is a prototype</b>, seen by superadmins only. The live warehouse everyone works in is <b>Warehouse</b> in the menu (In
+          Warehouse · Stock · Out Warehouse), and the Warehouse tab of a job in Shipments belongs to it — except the <b>Pick-up</b> of a job that is a
+          position here, which is this module&apos;s (see &ldquo;Remeasurement / Release and pick-up&rdquo; below). Both modules set the same received and
+          released dates on a linked job, so work each job in one of them only.
+        </p>
         <p>
           The Warehouse module runs our CFS warehouse: cargo comes in, is checked, stored and released. Each lot of cargo is a <b>position</b> with its own{" "}
           <b>{TERMS.warehouseRef}</b>: WCZ, the year and a six-digit number that rises with every new position, imported or created (WCZ2026000001,
@@ -150,7 +157,8 @@ export function ReadmeTab() {
           </li>
           <li>
             <b>{TERMS.outbound}</b> (import cargo going out): {TERMS.gateInTruck} → {TERMS.whRelease} → {TERMS.gateOut}. {TERMS.whRelease} stamps the gate-out at the
-            same time.
+            same time. Loose import cargo (no container, it came by truck) is received first: {TERMS.receipt} (pieces counted, condition, location — or the
+            typed &ldquo;Received in warehouse&rdquo; date) → {TERMS.gateInTruck} → {TERMS.whRelease} → {TERMS.gateOut}.
           </li>
         </ul>
         <p>
@@ -288,8 +296,8 @@ export function ReadmeTab() {
       <Part title="Remeasurement / Release and pick-up">
         <p>
           This tab shows the warehouse part of one imported shipment: its details, notes, the remeasured dimensions (with Inform Operations: a difference goes to the shipment&apos;s Alerts, a match to its Notifications) and the
-          push to suppliers. Open it from the {TERMS.jobNo} in Positions or from Shipment Details in the job. Shipments shows the same part read-only, with a link back
-          here.
+          push to suppliers. Open it from the {TERMS.jobNo} in Positions or from Shipment Details in the Gate Log job. The job&apos;s own Warehouse tab in Shipments
+          still shows the normal Warehouse&apos;s details, not these.
         </p>
         <p>
           Each part saves on its own (notes, remeasured lines, each &ldquo;sent&rdquo; mark), so two people working on different parts never overwrite each other. If
@@ -297,8 +305,10 @@ export function ReadmeTab() {
           your notes text stays in the box — check it and save again.
         </p>
         <p>
-          <b>Pick-up</b> works the other way round: operations enter the pick-up (haulier, plate, driver) in Shipments and generate the {TERMS.pickupPin} there
-          — six digits made by the server. The warehouse sees it here, read-only.
+          <b>Pick-up</b> works the other way round: operations enter the pick-up (haulier, plate, driver) on the job&apos;s Warehouse tab → Pick-up in
+          Shipments and press <b>Generate PIN</b> there — six digits made by the server, shown once. For a job that is a position here, that Pick-up is this
+          module&apos;s; the normal Warehouse&apos;s pick-up of the job is shown under it, view only, and the gate never reads it. A job that is not a position
+          (and anyone who doesn&apos;t see this module) keeps the normal Warehouse&apos;s pick-up. The warehouse sees the pick-up here, read-only.
         </p>
         <p>
           The warehouse releases against that PIN. In the Gate Log job of an outbound position linked to the shipment, the {TERMS.pickupPin} card shows the

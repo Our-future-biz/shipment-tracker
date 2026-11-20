@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useGateMovement, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
-import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
+import { PIN_MADE_WHERE, TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { errorMessage } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { MAX_PIN_TRIES, PICKUP_PIN_GATE, pinCheckMessage, type PinCheckResult } from "@/app/warehouse-concept/gate-log/_lib/steps";
 import { LABEL_TEXT, REF } from "@/styles/ui";
@@ -90,7 +90,7 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
         <FloorCard title="PIN the driver gives">
           <div className="flex flex-col gap-3">
             {!q.online && <NeedsConnection what="The PIN check" />}
-            <div className="text-[14px] text-slate-500">{p.pinSet ? `${p.tries} of ${MAX_PIN_TRIES} tries used` : "Operations make the PIN in Shipments → Warehouse → Pick-up."}</div>
+            <div className="text-[14px] text-slate-500">{p.pinSet ? `${p.tries} of ${MAX_PIN_TRIES} tries used` : PIN_MADE_WHERE}</div>
             <input
               type="text"
               inputMode="numeric"

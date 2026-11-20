@@ -15,7 +15,8 @@ import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { Badge } from "@/components/Badge";
 import { InfoRow } from "@/components/InfoRow";
 import { Pill } from "@/components/Pill";
-import { CARD, EMPTY, HINT, LABEL_TEXT, TH } from "@/styles/ui";
+import { CARD, EMPTY, HINT, LABEL_TEXT, LINK, TH } from "@/styles/ui";
+import { pickupHref } from "@/app/warehouse-concept/_lib/glossary";
 import { PickupSection } from "./PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./JobExtras";
 import { differs, figuresDiffer } from "@/app/shipments/[jobNumber]/tabs/warehouse/RemeasureCompare";
@@ -63,8 +64,9 @@ interface WarehouseTabProps {
  * page. Shipment Details (notes, remeasurement, push to suppliers) is kept by the warehouse:
  * Shipments shows it read-only, with `editHref` leading to Warehouse → Remeasurement / Release when the
  * shipment has a position. Pick-up is the other way round: Shipments generates the PIN and
- * enters the pick-up, the warehouse only sees it. A company without the Warehouse Concept keeps
- * both parts here, in Shipments.
+ * enters the pick-up (the job's Warehouse tab → Pick-up mounts PickupSection editable for a job
+ * that is a position, owner decision Q17), the warehouse only sees it. A company without the
+ * Warehouse Concept keeps both parts here, in Shipments.
  */
 export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !readOnly, editHref }: WarehouseTabProps) {
   const [subTab, setSubTab] = useState<string>("details");
@@ -87,7 +89,14 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
           </span>
         )}
         {subTab === "pickup" && pickupReadOnly && (
-          <span className={`ml-auto ${HINT}`}>Entered in Shipments → Warehouse → Pick-up — view only</span>
+          // Only a job that is a position here edits this pick-up, on its own Warehouse tab (owner decision Q17).
+          <span className={`ml-auto ${HINT}`}>
+            Entered on the{" "}
+            <Link href={pickupHref(shipment.id)} className={LINK}>
+              job&apos;s Warehouse tab → Pick-up
+            </Link>{" "}
+            once the shipment is a position here — view only
+          </span>
         )}
       </div>
 

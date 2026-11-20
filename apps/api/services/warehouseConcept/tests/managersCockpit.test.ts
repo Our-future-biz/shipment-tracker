@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { arrivalDay, arrivalPassedReason, buildAudit, buildCockpit, containerSignals, dayText, hoursText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
 import type { GateMovementItem, GateStorageInfo } from "../interfaces/gate.interfaces";
 import type { WarehouseContainerItem } from "../interfaces/records.interfaces";
+import type { GateEvent } from "../schemas/gateMovement.schema";
 
 // Pure: no database. Runs with the warehouse tests (WAREHOUSE_DB_TESTS=1).
 
@@ -134,7 +135,11 @@ describe("urgent signals", () => {
       { g: "Storage settled", s: "OK" as const, note: "" },
       { g: "Empty return planned", s: "Pending" as const, note: "" },
     ];
-    expect(texts(item({ overridden: true, releaseGates: gates, openExceptions: 1 }))).toEqual(["U Override in force: Customs Pending, 1 open exception"]);
+    // Q18 (b): the override never passes Customs — the pending Customs line still holds the cargo.
+    expect(texts(item({ overridden: true, releaseGates: gates, openExceptions: 1 }))).toEqual(["U Override in force: 1 open exception · held by Customs"]);
+    expect(texts(item({ overridden: true, releaseGates: gates }))).toEqual([]);
+    const blPending = [{ g: "Customs", s: "OK" as const, note: "" }, { g: "B/L released", s: "Pending" as const, note: "" }];
+    expect(texts(item({ overridden: true, releaseGates: blPending }))).toEqual(["U Override in force: B/L released Pending"]);
     expect(texts(item({ overridden: true, releaseGates: [{ g: "Customs", s: "OK", note: "" }] }))).toEqual([]);
   });
 
@@ -454,6 +459,17 @@ describe("step 3 signals", () => {
     const at = hoursAgo(2);
     const audit = buildAudit(
       [{ events: [{ kind: "override", label: "", at, by: "", gates: [{ g: "Customs", s: "Pending" }] }, { kind: "override", label: "", at, by: "", gates: [{ g: "Customs", s: "OK" }] }] }],
+      [],
+      NOW,
+    );
+    expect(audit).toMatchObject({ overrides: 2, overridesPastCustoms: 1 });
+  });
+
+  it("counts no override made since an override never passes Customs (Q18 (b)), and keeps the old ones", () => {
+    const at = hoursAgo(2);
+    const pending = [{ g: "Customs", s: "Pending" }];
+    const audit = buildAudit(
+      [{ events: [{ kind: "override", label: "", at, by: "", gates: pending }, { kind: "override", label: "", at, by: "", gates: pending, customsKept: true } as GateEvent] }],
       [],
       NOW,
     );

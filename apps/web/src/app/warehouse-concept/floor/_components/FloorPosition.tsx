@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CheckCircleFilled, ClockCircleOutlined, RightOutlined } from "@ant-design/icons";
 import { useGateLog, useGateMovement, type GateMovement, type GateStampKind, useStampMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { releaseStopOf } from "@/lib/paymentWarnings";
 import { floorReleaseStopText } from "../_lib/releaseStop";
-import { formatDateTime } from "@/lib/date";
+import { businessToday, formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { KpiTile } from "@/components/KpiTile";
 import { CARD, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
@@ -16,7 +17,19 @@ import { TERMS, directionOf } from "@/app/warehouse-concept/_lib/glossary";
 import { dockSlotText, exceptionText, isOnHold } from "@/app/warehouse-concept/_lib/worklist";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, errorMessage, hasSurvey, hhmm, isManager, nf, requiredSurveyPhase, surveyTargets } from "@/app/warehouse-concept/gate-log/_lib/gate";
-import { cargoLeg, gateSteps, isOutbound, isQueueableStamp, leavesByRelease, stampConfirmText, stampPrecheck, type GateStep } from "@/app/warehouse-concept/gate-log/_lib/steps";
+import {
+  cargoLeg,
+  gateSteps,
+  isLooseImport,
+  isOutbound,
+  isQueueableStamp,
+  leavesByRelease,
+  receiptMissing,
+  stampConfirmText,
+  stampPrecheck,
+  typedDateReceiptHint,
+  type GateStep,
+} from "@/app/warehouse-concept/gate-log/_lib/steps";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { applyPending, pendingStamps, uuid } from "../_lib/queue";
 import { FloorCard, NeedsConnection, bigPrimary, bigPrimaryLink } from "./floorUi";
@@ -26,12 +39,14 @@ import { FloorPhotos } from "./FloorPhotos";
 import { FloorPinCheck } from "./FloorPinCheck";
 import { FloorReadiness } from "./FloorReadiness";
 import { FloorReweigh } from "./FloorReweigh";
+import { FloorReceipt } from "./FloorReceipt";
 import { LifecycleChip } from "@/app/warehouse-concept/_components/LifecycleStrip";
 import { CustomsDeadlineChip } from "@/app/warehouse-concept/_lib/customsDeadline";
 import { movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock";
 import { TALLY_LABEL } from "@/app/warehouse-concept/_lib/containerPlan";
+import { lastReceipt } from "@/app/warehouse-concept/_lib/tallyCondition";
 
-const VIEWS = ["main", "survey", "damage", "photos", "pin", "release", "reweigh"] as const;
+const VIEWS = ["main", "survey", "damage", "photos", "pin", "release", "reweigh", "receipt"] as const;
 type View = (typeof VIEWS)[number];
 
 // The later of two copies of the same movement (the list and the detail are cached apart).
@@ -40,8 +55,11 @@ const newer = (a: GateMovement | undefined, b: GateMovement | undefined) => (!a 
 // One position on the phone: only what the floor needs — refs, direction, customs, pieces /
 // weight / volume, the dock slot, the steps with the next one as one big button (same order,
 // confirmations and words as the gate job), then the survey, photos, damage / short / over, the
-// pick-up PIN and the release readiness each on a screen of its own.
+// pick-up PIN and the release readiness each on a screen of its own. Loose import cargo (no
+// container) is received by its receipt first: until then the big button leads there, not to the
+// pick-up truck's stamp (Q19, User Council 20 Nov).
 export function FloorPosition({ id }: { id: string }) {
+  const router = useRouter();
   const toast = useToast();
   const { stamp: stampMovement, refresh: refreshAfterStamp } = useStampMovement();
   const q = useFloorQueue();
@@ -133,9 +151,20 @@ export function FloorPosition({ id }: { id: string }) {
   if (view === "photos") return <FloorPhotos m={m} onBack={back} />;
   if (view === "pin") return <FloorPinCheck m={m} onBack={back} />;
   if (view === "release") return <FloorReadiness m={m} onBack={back} />;
-  if (view === "reweigh") return <FloorReweigh m={m} onBack={back} />;
+  // After the re-weigh, on to what it held: the receipt of loose cargo, or the house's tally.
+  const tallyOpen = !!m.container && m.container.kind === "import" && m.container.tallyRequired && m.container.tallyOutcome !== "received";
+  const afterReweigh = () => {
+    if (receiptMissing(m)) setView("receipt");
+    else if (tallyOpen && m.container) router.push(`/warehouse-concept/floor/container/${m.container.id}`);
+    else back();
+  };
+  if (view === "reweigh") return <FloorReweigh m={m} onBack={back} onDone={afterReweigh} />;
+  if (view === "receipt") return <FloorReceipt m={m} onBack={back} onReweigh={() => setView("reweigh")} onException={() => setView("damage")} />;
 
-  const tile = (label: string, value: string) => <KpiTile centered label={label} value={value} />;
+  // Loose import cargo received by its receipt: when, who, and what was counted.
+  const receipt = out && m.receivedAt ? lastReceipt(m.events) : null;
+  // Labels take a second line on a narrow phone instead of being cut ("VOLUME C…", W18).
+  const tile = (label: string, value: string) => <KpiTile centered wrapLabel label={label} value={value} />;
   const reweighDue = m.needsReweigh && !m.reweigh;
   const menu: { key: View; label: string; hint?: string; alert?: boolean; show: boolean }[] = [
     {
@@ -143,9 +172,19 @@ export function FloorPosition({ id }: { id: string }) {
       label: TERMS.reweigh,
       hint: m.reweigh
         ? `${nf(m.reweigh.weighedKg)} kg · ${formatDateTime(m.reweigh.weighedAt)}${m.reweigh.flagged ? " · variance" : ""}`
-        : `Required before the ${out ? "tick-off" : "receipt"} (LCL)`,
+        : `Required before the ${out && m.container ? "tick-off" : "receipt"} (LCL)`,
       alert: reweighDue,
       show: m.needsReweigh || !!m.reweigh,
+    },
+    // Loose import cargo: its receipt (pieces, condition, location), or when it was received.
+    {
+      key: "receipt",
+      label: TERMS.receipt,
+      hint: receiptMissing(m) ? "Not received yet — count, condition, location" : typedDateReceiptHint(m.loadInDate, businessToday()),
+      alert: receiptMissing(m),
+      // Received by a receipt already: shown on its card above, not offered again. Only truly loose
+      // cargo: an FCL / container-yard position comes in its container (isLooseImport).
+      show: isLooseImport(m) && !m.receivedAt && !m.impRelease,
     },
     { key: "survey", label: "Survey", hint: phase ? `${phase === "release" ? "Release" : "Receipt"} pass${surveyDue ? " — missing" : " — done"}` : "After the gate-in", alert: surveyDue, show: true },
     { key: "photos", label: "Photos", show: true },
@@ -173,7 +212,8 @@ export function FloorPosition({ id }: { id: string }) {
           </div>
           <div className="flex flex-col items-end gap-1">
             <Badge tone={STATUS_TONE[m.status] ?? ""}>{m.status}</Badge>
-            <LifecycleChip l={m.lifecycle} />
+            {/* The stage only when it says more than the status (W18: "Expected / Expected"). */}
+            {(m.lifecycle?.label ?? "").toLowerCase() !== m.status.toLowerCase() && <LifecycleChip l={m.lifecycle} />}
             <CustomsDeadlineChip clock={movementCustomsClock(m)} empty="" />
           </div>
         </div>
@@ -218,6 +258,17 @@ export function FloorPosition({ id }: { id: string }) {
           )}
         </div>
       </FloorCard>
+
+      {receipt && !m.container && (
+        <FloorCard>
+          <div className={LABEL_TEXT}>{TERMS.receipt}</div>
+          <div className="text-[14px] font-semibold text-slate-900">
+            Received {formatDateTime(receipt.at)}
+            {receipt.by ? ` · ${receipt.by}` : ""}
+          </div>
+          {receipt.detail && <div className="text-[13px] text-slate-500">{receipt.detail}</div>}
+        </FloorCard>
+      )}
 
       {m.container && (
         <Link
@@ -314,6 +365,10 @@ export function FloorPosition({ id }: { id: string }) {
                 {next.state === "blocked" && next.needs === "reweigh" ? (
                   <button type="button" className={bigPrimary} onClick={() => setView("reweigh")}>
                     {TERMS.reweigh}
+                  </button>
+                ) : next.state === "blocked" && next.needs === "receipt" ? (
+                  <button type="button" className={bigPrimary} onClick={() => setView("receipt")}>
+                    {TERMS.receipt}
                   </button>
                 ) : next.state === "blocked" && (next.needs === "tally" || next.needs === "container") && m.container ? (
                   <Link href={`/warehouse-concept/floor/container/${m.container.id}`} className={bigPrimaryLink}>

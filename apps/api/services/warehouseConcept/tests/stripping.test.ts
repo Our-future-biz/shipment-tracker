@@ -165,14 +165,19 @@ describe("import stripping tally", () => {
     expect((await gateMovementService.get(h.id, c)).events.at(-1)).toMatchObject({ kind: "shipmentMayNeedCorrecting" });
   });
 
-  it("restores the typed received date when a tick that replaced it is voided", async () => {
+  // Review of step 7: a tick never moves a typed received day later (storage given away, a manager's call).
+  it("keeps an earlier typed received date at the tick, and still has it when the tick is voided", async () => {
     const { c, box, houses } = await importContainer(1);
     const h = houses[0]!;
     await gateMovementRepository.update(h.id, c, { loadInDate: "2026-10-01" });
     await containerService.stamp(box.id, c, user, "user", "gateIn");
     await reweighService.record(h.id, c, user, { weighedKg: 1000 });
     await containerService.tally(box.id, c, user, "user", h.id, { outcome: "received" });
-    expect((await gateMovementService.get(h.id, c)).loadInDate).not.toBe("2026-10-01");
+    const ticked = await gateMovementService.get(h.id, c);
+    expect(ticked).toMatchObject({ loadInDate: "2026-10-01", receivedAt: "2026-09-30T22:00:00.000Z" });
+    expect(ticked.storage).toMatchObject({ startDate: "2026-10-01", startSource: "tally" });
+    expect(ticked.events.find((e) => e.kind === "tallyReceived")?.detail).toMatch(/Received in warehouse 2026-10-01 kept/);
+    expect((await outboxOf(h.id))[0]!.payload).toMatchObject({ warehouseReceivedDate: "2026-10-01" });
     await containerService.voidTally(box.id, c, user, "manager", h.id, "wrong house");
     const m = await gateMovementService.get(h.id, c);
     expect(m).toMatchObject({ receivedAt: null, loadInDate: "2026-10-01" });
@@ -202,5 +207,19 @@ describe("import stripping tally", () => {
       expect(await outboxOf(m.id)).toEqual([]);
     }
     expect((await gateMovementService.get(outbound.id, c)).loadInDate).toBe("2026-10-01");
+  });
+});
+
+// Q20 (User Council, 20 Nov): a damaged tick gets the same question a count difference gets.
+describe("a tick whose condition is not Good", () => {
+  it("asks to record a Damaged exception, opens nothing by itself", async () => {
+    const { c, box, houses } = await importContainer(1);
+    const h = houses[0]!;
+    await containerService.stamp(box.id, c, user, "user", "gateIn");
+    await reweighService.record(h.id, c, user, { weighedKg: 1000 });
+    const res = await containerService.tally(box.id, c, user, "user", h.id, { outcome: "received", pieces: 10, condition: "Damaged packaging", location: "A-03-2" });
+    expect(res.notice).toBe("Damaged packaging — record a Damaged exception?");
+    expect(res.suggestException).toBeNull();
+    expect((await gateMovementService.get(h.id, c)).exceptions).toEqual([]);
   });
 });

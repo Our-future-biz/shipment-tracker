@@ -15,8 +15,8 @@ import { syncStockForMovement } from "./warehouseStockSync";
 import { dockSlotRepository } from "../repositories/warehouseRecords.repository";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
 import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
-import { publishedSteps, voidedSteps } from "./gateEvents";
-import type { GateMovementRecord } from "../schemas/gateMovement.schema";
+import { gateInLabel, publishedSteps, voidedSteps } from "./gateEvents";
+import type { GateMovementRecord, GateTransportLeg } from "../schemas/gateMovement.schema";
 import { CORRECTION_DISMISSED_EVENT, FLOOR_WRITE_LOST_EVENT, correctionNeeded } from "./correction";
 import { mayNeedCorrectingDetail } from "./voidNotice";
 
@@ -32,6 +32,8 @@ const STAMP_LABEL: Record<StampKind, string> = {
   expDraft: "WH draft receipt",
   expReceipt: "WH receipt",
 };
+// The stamp's name on this record: an outbound gate-in is the pick-up truck coming in (gateInLabel).
+const stampLabel = (m: { visit: string; transportLegs?: GateTransportLeg[] | null }, kind: StampKind) => (kind === "gateIn" ? gateInLabel(m) : STAMP_LABEL[kind]);
 const MANAGERS_ONLY = "Only a manager can do this";
 // A shipment deleted in Shipments (retireForDeletedShipment): who and why, as logged.
 export const SHIPMENT_DELETED_REASON = "Shipment deleted in Shipments";
@@ -162,10 +164,10 @@ class GateAdminService {
     const stampedBy = (k: StampKind) => [...m.events].reverse().find((e) => e.kind === k)?.by || "—";
     const events: GateEvent[] = cleared.map((k) => ({
       kind: "stampVoided",
-      label: `${STAMP_LABEL[k]} voided`,
+      label: `${stampLabel(m, k)} voided`,
       at,
       by,
-      detail: `${why} · was ${stampText(m[k]!)} by ${stampedBy(k)}${k !== kind ? ` · stamped with the ${STAMP_LABEL[kind]}` : ""}`,
+      detail: `${why} · was ${stampText(m[k]!)} by ${stampedBy(k)}${k !== kind ? ` · stamped with the ${stampLabel(m, kind)}` : ""}`,
     }));
     // Stamps that wrote (or would write) to the linked shipment.
     // (An outgoing gate-out stamped together with the WH release wrote nothing of its own.)
@@ -247,7 +249,7 @@ class GateAdminService {
         role,
       );
       // Stock on Hand / Bonded Register follow the gate record (a voided receipt voids the line).
-      await syncStockForMovement(tx, companyId, id, { by, why: `${STAMP_LABEL[kind]} voided: ${why}` });
+      await syncStockForMovement(tx, companyId, id, { by, why: `${stampLabel(m, kind)} voided: ${why}` });
     });
     if (published) await deliverGateEvents(id);
     return {

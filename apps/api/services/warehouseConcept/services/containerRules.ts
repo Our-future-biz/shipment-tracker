@@ -17,6 +17,12 @@ export const CONTAINER_CAPACITY: Record<string, { cbm: number; kg: number }> = {
   "45' HC": { cbm: 84, kg: 27_600 },
   "20' OT": { cbm: 31, kg: 28_000 },
   "40' FR": { cbm: 0, kg: 40_000 },
+  // Reefers, the 40' open top and the 20' flat rack (user council W20), as the web's containerPlan.ts.
+  // A flat rack has no volume (0 cbm): no cbm fill % is made of it, here and in the lane fill rates.
+  "20' RF": { cbm: 28, kg: 27_400 },
+  "40' RF HC": { cbm: 67, kg: 29_000 },
+  "40' OT": { cbm: 65, kg: 26_600 },
+  "20' FR": { cbm: 0, kg: 31_000 },
 };
 
 /** Usable volume per equipment type (the Reports fill rates read this). */

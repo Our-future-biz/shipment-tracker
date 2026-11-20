@@ -174,14 +174,15 @@ const BUBBLE_IDS = BUBBLES.map((b) => b.id);
 
 // Bulk stamps follow the same step order as the gate job (see _lib/steps): a movement is
 // stamped only when this stamp is its next step — inbound: Gate-in, Draft receipt, Receipt,
-// Gate-out; outbound: Gate-in (truck), WH release (once the release gates are clear), Gate-out;
-// Domestic: Gate-in (the receipt), WH release, Gate-out (gateSteps).
+// Gate-out; outbound: Pick-up truck in (loose cargo once it is received), WH release (once the
+// release gates are clear), Gate-out; Domestic: Gate-in (the receipt), WH release, Gate-out
+// (gateSteps).
 // Everything else is skipped, with the reason. `shipment` says what the stamp writes to the
 // linked shipment.
 type StampAction = { kind: GateStampKind; label: string; primary?: boolean; skipHint: string; shipment?: string };
 
 const STAMP_ACTIONS: StampAction[] = [
-  { kind: "gateIn", label: TERMS.gateIn, skipHint: "already gated in", shipment: "received date (inbound cargo only)" },
+  { kind: "gateIn", label: TERMS.gateIn, skipHint: "already gated in, or outbound cargo not received yet", shipment: "received date (inbound cargo only)" },
   { kind: "expDraft", label: TERMS.draftReceipt, skipHint: "outbound or Domestic, already stamped, or not gated in yet" },
   { kind: "expReceipt", label: TERMS.receipt, skipHint: "outbound or Domestic, already stamped, or without a draft receipt" },
   {

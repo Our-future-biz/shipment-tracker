@@ -13,6 +13,7 @@ import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { TALLY_CONDITIONS, TALLY_LABEL, TALLY_TONE, openHouses, planCandidates, strippingComplete, tallyExempt, tallyHouses } from "@/app/warehouse-concept/_lib/containerPlan";
 import { stageLabel, stageTone } from "@/app/warehouse-concept/_lib/lifecycle";
+import { conditionNotGood } from "@/app/warehouse-concept/_lib/tallyCondition";
 import { Badge, errorMessage, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { btnDefault, btnInline, btnPrimary } from "@/app/warehouse-concept/gate-log/_components/job/fields";
 import { ReasonModal } from "@/app/warehouse-concept/gate-log/_components/job/ReleaseGatesPanel";
@@ -26,7 +27,9 @@ import { EMPTY, HINT, ICON_BTN, LINK, REF, TD, TH } from "@/styles/ui";
 // warehouse" date is the day of the tick, its free time starts, and its shipment gets the
 // received date and the WCZ reference. LCL cargo is re-weighed first. A house not (fully) there is
 // marked short / not arrived with a reason; a count that differs offers the Short / Over
-// exception. Stripping is complete when every house is accounted for. A manager voids a tick.
+// exception, and a condition other than Good the Damaged one (Q20, User Council 20 Nov: how many
+// pieces is the person's to say). Stripping is complete when every house is accounted for. A
+// manager voids a tick.
 
 type Api = ReturnType<typeof useWarehouseContainer>;
 type Draft = { pieces: number | null; condition: string; location: string; note: string };
@@ -44,7 +47,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
   const [voidFor, setVoidFor] = useState<ContainerHouse | null>(null);
   const [reweighFor, setReweighFor] = useState<ContainerHouse | null>(null);
   // `requestId` is sent with the exception, so recording the same suggestion twice adds it once.
-  const [suggestion, setSuggestion] = useState<{ h: ContainerHouse; type: "Short" | "Over"; pieces: number; requestId: string } | null>(null);
+  const [suggestions, setSuggestions] = useState<{ h: ContainerHouse; type: "Short" | "Over" | "Damaged"; pieces: number; requestId: string; condition?: string }[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
   const gone = !!c.gateOutAt;
 
@@ -68,7 +71,10 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
       if (res.outcome !== "done") toast.info(res.notice);
       else if (outcome === "received") toast.success(`${ref} ticked off — received; its shipment gets the received date`);
       else toast.success(`${ref} marked ${TALLY_LABEL[outcome]!.toLowerCase()} — logged`);
-      if (res.suggestException) setSuggestion({ h, ...res.suggestException, requestId: uuid() });
+      const next: typeof suggestions = [];
+      if (res.suggestException) next.push({ h, ...res.suggestException, requestId: uuid() });
+      if (res.outcome === "done" && outcome !== "not_arrived" && conditionNotGood(d.condition)) next.push({ h, type: "Damaged", pieces: 1, requestId: uuid(), condition: d.condition.trim() });
+      setSuggestions(next);
       setDrafts((all) => {
         const next = { ...all };
         delete next[h.movementId];
@@ -80,8 +86,9 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
     }
   };
 
-  const recordException = async () => {
-    if (!suggestion || createException.isPending) return;
+  const recordException = async (suggestion: (typeof suggestions)[number]) => {
+    if (createException.isPending) return;
+    const found = suggestion.type === "Damaged" ? `${suggestion.condition || "Damaged"} at` : "Found at";
     try {
       await createException.mutateAsync({
         movementId: suggestion.h.movementId,
@@ -90,12 +97,12 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
           pieces: suggestion.pieces,
           container: c.number,
           source: "tally",
-          note: `Found at the stripping tally of container ${c.number}`,
+          note: `${found} the stripping tally of container ${c.number}`,
           clientRequestId: suggestion.requestId,
         },
       });
       toast.success(`${suggestion.type} recorded on ${suggestion.h.positionRef || suggestion.h.gateRef} — the cargo is on hold until it is resolved`);
-      setSuggestion(null);
+      setSuggestions((all) => all.filter((x) => x !== suggestion));
     } catch (e) {
       toast.error(errorMessage(e, "Failed to record the exception"));
     }
@@ -110,24 +117,47 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
           <Alert type="info" showIcon message={`${tallied - open} of ${tallied} houses accounted for`} description="Tick each house off as it comes out of the container, or mark it short / not arrived with a reason." />
         ) : null)}
 
-      {suggestion && (
+      {suggestions.map((suggestion) => (
         <Alert
+          key={suggestion.requestId}
           type="warning"
           showIcon
-          message={`${suggestion.h.positionRef || suggestion.h.gateRef}: ${suggestion.type.toLowerCase()} ${suggestion.pieces} pc${suggestion.pieces === 1 ? "" : "s"} against the expected ${suggestion.h.pieces}`}
-          description="Record it as an exception? While it is open the cargo is on hold."
+          message={
+            suggestion.type === "Damaged"
+              ? `${suggestion.h.positionRef || suggestion.h.gateRef}: ticked off ${suggestion.condition ? suggestion.condition.toLowerCase() : "not in good condition"}`
+              : `${suggestion.h.positionRef || suggestion.h.gateRef}: ${suggestion.type.toLowerCase()} ${suggestion.pieces} pc${suggestion.pieces === 1 ? "" : "s"} against the expected ${suggestion.h.pieces}`
+          }
+          description={
+            suggestion.type === "Damaged" ? (
+              <span className="inline-flex flex-wrap items-center gap-2">
+                Record a Damaged exception? Damaged pieces
+                <InputNumber
+                  size="small"
+                  min={1}
+                  precision={0}
+                  value={suggestion.pieces}
+                  onChange={(v) => setSuggestions((all) => all.map((x) => (x === suggestion ? { ...x, pieces: Math.max(1, Number(v) || 1) } : x)))}
+                  className="!w-[80px]"
+                  aria-label="Damaged pieces"
+                />
+                While it is open the cargo is on hold.
+              </span>
+            ) : (
+              "Record it as an exception? While it is open the cargo is on hold."
+            )
+          }
           action={
             <div className="flex flex-col gap-1.5">
-              <button type="button" className={btnPrimary} onClick={recordException} disabled={createException.isPending}>
+              <button type="button" className={btnPrimary} onClick={() => recordException(suggestion)} disabled={createException.isPending}>
                 Record {suggestion.type.toLowerCase()} — {suggestion.pieces} pc{suggestion.pieces === 1 ? "" : "s"}
               </button>
-              <button type="button" className={btnDefault} onClick={() => setSuggestion(null)}>
+              <button type="button" className={btnDefault} onClick={() => setSuggestions((all) => all.filter((x) => x !== suggestion))}>
                 Not now
               </button>
             </div>
           }
         />
-      )}
+      ))}
 
       <Card title={TERMS.strippingTally} extra={tallyBlocked ?? `${open} open`} bodyClassName="p-0">
         {c.positions.length === 0 ? (

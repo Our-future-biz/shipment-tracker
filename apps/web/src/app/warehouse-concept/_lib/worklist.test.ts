@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { arrivalDay, chipMatch, containerScanMatch, dockSlotText, exceptionText, isOnHold, releasedOn, expectedBecause, expectedSortKey, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
+import { arrivalDay, chipMatch, CHIPS, containerScanMatch, dockSlotText, exceptionText, isOnHold, releasedOn, expectedBecause, expectedSortKey, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
 
 type M = interfaces.GateMovementItem;
 
@@ -182,6 +182,9 @@ describe("Positions chips", () => {
     // No storage clock yet: the status decides; an inbound gate-out does not take it out.
     expect(chipMatch("inWarehouse", mv({ status: "In Warehouse", gateOut: "2026-10-14T08:00:00Z" }), today)).toBe(true);
     expect(chipMatch("inWarehouse", mv({ status: "In Warehouse", visit: "výdej", gateOut: "2026-10-14T08:00:00Z" }), today)).toBe(false);
+    // The hint fits both: an inbound gate-in before its WH receipt counts as in the warehouse.
+    expect(chipMatch("inWarehouse", mv({ status: "In Warehouse", gateIn: "2026-10-14T08:00:00Z" }), today)).toBe(true);
+    expect(CHIPS.find((c) => c.id === "inWarehouse")?.hint).toMatch(/gated in or received/);
   });
   it("on hold = an open exception, until the WH release", () => {
     expect(chipMatch("onHold", mv({ openExceptions: 2 }), today)).toBe(true);

@@ -29,6 +29,16 @@ export function arrivesOnPickupRun(m: Pick<ArrivalFields, "transportLegs">): boo
 /** The gate-in is the cargo arriving at our hub (published as gateIn). */
 export const gateInIsArrival = (m: ArrivalFields): boolean => m.visit !== "výdej" || arrivesOnPickupRun(m);
 
+/**
+ * The name of a gate-in stamp, as the gate job's steps show it: on outbound cargo (výdej) it is the
+ * truck that comes to collect the cargo — "Pick-up truck in" (Q19, User Council 20 Nov) — not the
+ * cargo arriving. When a Trucking pick-up run brings the cargo in on the IN leg (arrivesOnPickupRun)
+ * the gate-in IS the cargo arriving: the plain "Gate-in". Must match TERMS.gateInTruck / the web's
+ * gateSteps.
+ */
+export const PICKUP_TRUCK_IN = "Pick-up truck in";
+export const gateInLabel = (m: ArrivalFields): string => (m.visit === "výdej" && !arrivesOnPickupRun(m) ? PICKUP_TRUCK_IN : "Gate-in");
+
 /** The cargo leaves the warehouse with this stamp (published as gateOut). */
 export const stampDeparts = (m: Pick<ArrivalFields, "visit">, kind: string): boolean => kind === "impRelease" || (kind === "gateOut" && m.visit === "výdej");
 

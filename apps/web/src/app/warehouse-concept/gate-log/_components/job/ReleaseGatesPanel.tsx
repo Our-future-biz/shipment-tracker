@@ -14,9 +14,15 @@ import { EXCEPTION_GATE } from "./ExceptionsPanel";
 import { customsDue, movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock";
 import { HINT } from "@/styles/ui";
 import { PaymentNotCheckedNote, ReleasePaymentWarning, useReleaseCheckState } from "@/components/finance/ReleasePaymentWarning";
+import { overrideLogParts, overrideSummary } from "../../_lib/overrideLog";
 
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 const isCharges = (g: string) => /^charges$/i.test(g);
+const isCustomsLine = (g: string) => /^customs$/i.test(g);
+
+// A supervisor override never clears Customs (owner's answer Q18 (b), 20 Nov 2026; the server's
+// services/overrideCustoms): the Customs line is there and not OK.
+export const customsHeld = (m: Pick<GateMovement, "releaseGates">) => m.releaseGates.some((x) => isCustomsLine(x.g) && x.s !== "OK");
 
 const GATE_ICON: Record<string, ReactNode> = {
   OK: <CheckCircleFilled className="text-emerald-500" />,
@@ -33,7 +39,10 @@ export function releaseState(m: GateMovement): { tone: Tone; label: string; deta
   if (m.openExceptions > 0 && !m.overridden) {
     return { tone: "r", label: "On hold", detail: `${m.openExceptions} open damage / short / over exception${m.openExceptions === 1 ? "" : "s"} — resolve to release` };
   }
-  if (m.overridden) return { tone: "a", label: `${TERMS.clear} (supervisor override)`, detail: m.overrideLog || undefined };
+  if (m.overridden && customsHeld(m)) {
+    return { tone: "r", label: "Held by Customs", detail: "The supervisor override cleared the other lines; it never clears Customs — released once customs clears it" };
+  }
+  if (m.overridden) return { tone: "a", label: `${TERMS.clear} (supervisor override)`, detail: overrideSummary(m.overrideLog) || undefined };
   if (m.armed) return { tone: "g", label: TERMS.clear, detail: "All release gates OK" };
   return { tone: "r", label: TERMS.blocked, detail: `Waiting for: ${waitingGates(m).join(", ") || "—"}` };
 }
@@ -59,8 +68,10 @@ export function ReleaseGatesPanel({
   const state = releaseState(m);
   const canRefuse = !m.impRelease && m.status !== "Refused";
   const supervisor = isManager(user);
-  const canOverride = supervisor && !m.impRelease && !m.armed;
-  const isCustoms = (g: string) => /^customs$/i.test(g);
+  // Once an override is in force there is nothing more for one to clear (Customs it never clears).
+  const canOverride = supervisor && !m.impRelease && !m.armed && !m.overridden;
+  const isCustoms = isCustomsLine;
+  const overrideParts = m.overridden ? overrideLogParts(m.overrideLog) : null;
   const isPickupPin = (g: string) => g === PICKUP_PIN_GATE;
   const isException = (g: string) => g === EXCEPTION_GATE;
   // Goods under customs control: days in temporary storage and the 90-day deadline, on the
@@ -81,7 +92,8 @@ export function ReleaseGatesPanel({
         <Badge tone={state.tone} className="self-start">
           {state.label}
         </Badge>
-        {state.detail && <div className={`${HINT} break-words`}>{state.detail}</div>}
+        {state.detail && !(overrideParts && state.detail === overrideSummary(m.overrideLog)) && <div className={`${HINT} break-words`}>{state.detail}</div>}
+        {m.overridden && <OverrideLog log={m.overrideLog} />}
       </div>
 
       <ul className="list-none m-0 mt-3 p-0 border-t border-slate-100">
@@ -154,12 +166,30 @@ export function ReleaseGatesPanel({
       <ReasonModal
         open={dialog === "override"}
         title="Supervisor override"
-        hint="Clears the release gates whatever the lines say. Who, when, the lines at this moment and the reason are logged."
+        hint="Clears the other release lines whatever they say — B/L, the pick-up PIN, an open exception, payment and the rest. Never Customs: a position not cleared by customs stays held until it is. Who, when, the lines at this moment and the reason are logged."
         okText="Override"
         onClose={() => setDialog(null)}
         onSubmit={override}
-      />
+      >
+        {customsHeld(m) && (
+          <p className="mt-0 text-[13px] text-amber-700">Customs is not cleared on this position: after the override it stays held until customs clears it.</p>
+        )}
+      </ReasonModal>
     </Section>
+  );
+}
+
+// The override log in short lines: when and who, the reason, and the lines at that moment. A log
+// in another form is shown as it is.
+function OverrideLog({ log }: { log: string }) {
+  const p = overrideLogParts(log);
+  if (!p) return log ? <div className={`${HINT} break-words`}>{log}</div> : null;
+  return (
+    <div className={`${HINT} break-words flex flex-col gap-0.5`}>
+      <span>{overrideSummary(log)}</span>
+      {p.reason && <span>Reason: {p.reason}</span>}
+      {p.lines.length > 0 && <span>Lines at that moment: {p.lines.map((x) => `${x.g} ${x.s}`.trim()).join(" · ")}</span>}
+    </div>
   );
 }
 

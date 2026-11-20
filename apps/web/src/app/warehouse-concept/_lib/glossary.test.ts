@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DIRECTIONS, directionOf, directionOfHandling, directionOfVisit, GLOSSARY, handlingOfDirection, releaseGatesText, TERMS } from "./glossary";
+import { DIRECTIONS, directionOf, directionOfHandling, directionOfVisit, GLOSSARY, handlingOfDirection, PIN_MADE_WHERE, pickupHref, releaseGatesText, TERMS } from "./glossary";
 
 describe("direction mapping", () => {
   it("maps visits", () => {
@@ -32,6 +32,14 @@ describe("glossary", () => {
     const entry = GLOSSARY.find((g) => g.term === TERMS.pickupPin);
     expect(entry?.meaning).toMatch(/Six digits/);
     expect(entry?.meaning).toMatch(/Pick-up PIN verified/);
+    // Made where the gate reads it: the job's Warehouse tab, whose Pick-up is this module's for a position (Q17).
+    expect(entry?.meaning).toMatch(/job's Warehouse tab → Pick-up/);
+    expect(entry?.meaning).toMatch(/never read by the gate/);
+  });
+
+  it("says where the PIN is made and links the job's Warehouse tab", () => {
+    expect(PIN_MADE_WHERE).toBe("Operations make the PIN on the job's Warehouse tab → Pick-up.");
+    expect(pickupHref("5519a0c2-0000-4000-8000-000000000001")).toBe("/shipments/5519a0c2-0000-4000-8000-000000000001?tab=warehouse");
   });
 
   it("explains the new references, archiving and voiding", () => {

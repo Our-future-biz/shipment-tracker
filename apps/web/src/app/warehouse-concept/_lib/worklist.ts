@@ -127,7 +127,10 @@ export const customsDeadlineDue = (m: ChipFields, today: string) =>
 // Only an outbound (výdej) gate-out means the cargo has gone.
 const goneOut = (m: Pick<Movement, "visit" | "gateOut">) => m.visit === "výdej" && !!m.gateOut;
 
-/** The storage clock runs: received and not yet released / gone out. */
+/**
+ * In the warehouse: the storage clock runs (received), or the record is In Warehouse (an inbound
+ * gate-in before its WH receipt counts too) — and not yet released / gone out.
+ */
 export const inWarehouse = (m: ChipFields) => (m.storage.started && !m.storage.stopped) || (m.status === "In Warehouse" && !goneOut(m) && !m.impRelease);
 
 /**
@@ -153,7 +156,7 @@ export const CHIPS: { id: ChipId; label: string; hint: string; danger?: boolean;
     match: (m) => m.needsAttention || m.openExceptions > 0 || m.shipmentUpdate?.state === "failed",
   },
   { id: "expectedToday", label: "Expected today", hint: "Not arrived yet; ETA, ETA Warehouse/HUB, dock slot or a drop's ETA warehouse is today (Prague time)", match: (m, today) => isExpectedToday(m, today) },
-  { id: "inWarehouse", label: "In warehouse", hint: "Received and not yet released or gone out", match: (m) => inWarehouse(m) },
+  { id: "inWarehouse", label: "In warehouse", hint: "In the warehouse (gated in or received) and not yet released or gone out", match: (m) => inWarehouse(m) },
   {
     id: "expiring",
     label: "Free time expiring ≤ 2 days",

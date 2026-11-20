@@ -49,15 +49,18 @@ import { receivedDateRefusal } from "../../../lib/warehouseReceivedRule";
 import { acceptRecordedAt, checkRequestId, latest, offlineDetail, pragueHhmm, type StampOutcome, type SurveyOutcome } from "./offline";
 import { dockSlotsOf } from "./dockSlots";
 import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
-import { gateInIsArrival, stampDeparts } from "./gateEvents";
+import { arrivesOnPickupRun, gateInIsArrival, gateInLabel, stampDeparts } from "./gateEvents";
 import { protectTripLegs, tripFiguresOf } from "./tripSource";
+import { customsHolds, HELD_BY_CUSTOMS, type OverrideEvent } from "./overrideCustoms";
+import { checkChangeProblem, legChangeProblem, mergeLegChange, TRIP_LEG_READ_ONLY, type GateCheckChange, type GateLegChange } from "./gateLegChange";
 import { reweighRepository } from "../repositories/reweigh.repository";
 import type { WarehouseReweighRecord } from "../schemas/warehouseReweigh.schema";
 import { needsReweigh, REWEIGH_FIRST, reweighOkSql } from "./reweigh";
 import { positionLifecycle } from "./lifecycle";
+import { RECEIPT_FIRST, receiptMissing } from "./positionReceipt";
 import { correctionNeeded } from "./correction";
 import { syncStockForMovement, syncStockForMovements } from "./warehouseStockSync";
-import { houseBlocksRelease, houseContexts, houseReleaseOkSql, isExportContainer, lockHouse, positionContainer, releaseHousesForArchive, tallyRequired, type HouseCtx } from "./houses";
+import { houseBlocksRelease, houseContexts, houseReleaseOkSql, isExportContainer, lockHouse, looseReceivedOkSql, positionContainer, releaseHousesForArchive, tallyRequired, type HouseCtx } from "./houses";
 import {
   isLinkedOutbound,
   linkedOutboundCond,
@@ -188,11 +191,12 @@ function baseReleaseGates(handling: string, operationType: string, customsStatus
 // The release tick is a view of the release gates, never set by hand; the empty-return
 // line does not hold cargo release. A refusal disarms, a supervisor override (with reason)
 // arms. An open damage / short / over exception holds the cargo until resolved, unless a
-// supervisor overrides (the override wins, as for every other release line).
+// supervisor overrides (the override wins, as for every other release line) - except Customs:
+// an override never clears the Customs line (owner's answer Q18 (b), 20 Nov 2026; overrideCustoms).
 // The old hand-set release status is no longer read (migration 0013 cleared it).
 export function isArmed(m: Pick<GateMovementRow, "status" | "overridden" | "releaseGates"> & { pickupShipmentId?: string | null }): boolean {
   if (m.status === "Refused") return false;
-  if (m.overridden) return true;
+  if (m.overridden) return !customsHolds(m.releaseGates);
   if (exceptionHold(m.releaseGates)) return false;
   // Cargo of a shipment released against its pick-up PIN needs the PIN line OK, even if the line is gone.
   if (m.pickupShipmentId && !m.releaseGates.some((x) => x.g === PICKUP_PIN_GATE && x.s === "OK")) return false;
@@ -344,8 +348,16 @@ function toItem(
 // HH:MM in the warehouse's local time, for the human-readable log lines.
 const hhmm = (d: Date) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit" }).format(d);
-const stampText = (d: Date) =>
-  new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" }).format(d);
+// DD.MM.YYYY HH:mm in Prague time, as the app shows times elsewhere (user council W17: the
+// override log had an ISO date).
+const stampText = (d: Date) => {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
+  return `${p.day}.${p.month}.${p.year} ${p.hour}:${p.minute}`;
+};
 
 // Fields the general update never writes: status and release follow the stamps, the release
 // gates, Refuse and the supervisor override, each logged through its own endpoint. Dropped
@@ -369,8 +381,12 @@ const sameTime = (a: Date | null, b: Date) => !!a && a.getTime() === b.getTime()
 // (customs can change between loading the row and stamping it).
 // Safety net: a linked outbound row is released only with its Pick-up PIN line OK, even if the
 // line went missing from the gates (a supervisor override still clears it). An open damage /
-// short / over exception holds the cargo unless a supervisor overrides.
-const armedSql = sql`${t.status} <> 'Refused' AND (${t.overridden} OR NOT EXISTS (
+// short / over exception holds the cargo unless a supervisor overrides. A Customs line not OK holds
+// it even then (Q18 (b)).
+const armedSql = sql`${t.status} <> 'Refused' AND NOT EXISTS (
+  SELECT 1 FROM jsonb_array_elements(${t.releaseGates}) x
+  WHERE COALESCE(x->>'g', '') = 'Customs' AND COALESCE(x->>'s', '') <> 'OK')
+  AND (${t.overridden} OR NOT EXISTS (
   SELECT 1 FROM jsonb_array_elements(${t.releaseGates}) x
   WHERE COALESCE(x->>'s', '') <> 'OK' AND COALESCE(x->>'g', '') !~* 'empty return'))
   AND (${t.overridden} OR NOT ${linkedOutboundCond} OR ${pickupLineOkSql})
@@ -410,7 +426,10 @@ export interface StampContext {
 function stampBlocked(m: GateMovementRow, kind: StampKind, ctx: StampContext = {}): string | null {
   switch (kind) {
     case "gateIn":
-      return m.gateIn ? "Gate-in already stamped" : null;
+      if (m.gateIn) return "Gate-in already stamped";
+      // Loose import cargo: the pick-up truck waits for the receipt, as the web's steps show it (Q19).
+      // A Trucking pick-up run bringing the cargo in on the IN leg is the cargo arriving: no wait.
+      return receiptMissing(m, !!ctx.house) && !arrivesOnPickupRun(m) ? RECEIPT_FIRST : null;
     case "gateOut":
       if (m.gateOut) return "Gate-out already stamped";
       if (isDomestic(m.handling) && !m.impRelease) return DOMESTIC_OUT_NEEDS_RELEASE;
@@ -423,7 +442,10 @@ function stampBlocked(m: GateMovementRow, kind: StampKind, ctx: StampContext = {
         const house = houseBlocksRelease(m, ctx.house);
         if (house) return house;
       }
+      // Loose import cargo (no container) came by truck: its receipt receives it, not a tally (Q19).
+      if (receiptMissing(m, !!ctx.house)) return RECEIPT_FIRST;
       if (!m.overridden && exceptionHold(m.releaseGates)) return "On hold — an open damage / short / over exception must be resolved before the WH release";
+      if (m.overridden && customsHolds(m.releaseGates)) return HELD_BY_CUSTOMS;
       return isArmed(m) ? null : "Release box NOT armed — gate must refuse. Use supervisor override only with reason.";
     case "expDraft":
       if (m.expDraft) return "Draft receipt already created";
@@ -443,6 +465,8 @@ const STAMP_LABEL: Record<StampKind, string> = {
   expDraft: "WH draft receipt",
   expReceipt: "WH receipt",
 };
+// The stamp's name on this record: an outbound gate-in is the pick-up truck coming in (gateInLabel).
+const stampLabel = (m: Pick<GateMovementRow, "visit" | "transportLegs">, kind: StampKind) => (kind === "gateIn" ? gateInLabel(m) : STAMP_LABEL[kind]);
 
 /** Floor mode (phones): the time the stamp was made on the phone and the id of the request. */
 export interface StampOptions {
@@ -472,13 +496,13 @@ interface ReleaseDecision {
 function stampConflict(m: GateMovementRow, kind: StampKind, requestId: string): { outcome: StampOutcome; notice: string } | null {
   const mine = m.events.find((e) => e.requestId === requestId);
   if (mine) {
-    return { outcome: "already_stamped", notice: `${STAMP_LABEL[kind]} was already sent from this phone (stamped ${pragueHhmm(new Date(mine.at))})` };
+    return { outcome: "already_stamped", notice: `${stampLabel(m, kind)} was already sent from this phone (stamped ${pragueHhmm(new Date(mine.at))})` };
   }
   const value = m[kind];
   if (!value) return null;
   const evt = [...m.events].reverse().find((e) => e.kind === kind);
   const who = evt?.by ? ` by ${evt.by}` : "";
-  return { outcome: "stamped_by_someone_else", notice: `${STAMP_LABEL[kind]} was already stamped ${pragueHhmm(value)}${who}` };
+  return { outcome: "stamped_by_someone_else", notice: `${stampLabel(m, kind)} was already stamped ${pragueHhmm(value)}${who}` };
 }
 
 // The step a stamp made offline must not come before: a WH receipt after its draft, a gate-out
@@ -842,6 +866,8 @@ class GateMovementService {
     const clockEvents: GateEvent[] = [];
     const clockAt = new Date().toISOString();
     if (patch.loadInDate !== undefined && patch.loadInDate !== m.loadInDate) {
+      // Loose import cargo (no container) received by its receipt: the receipt set the date (Q19).
+      if (m.receivedAt && !house) throw APIError.failedPrecondition("Received in warehouse is set by the receipt — a manager voids it");
       if (m.receivedAt || tallyRequired(house)) {
         throw APIError.failedPrecondition(
           `Received in warehouse is set by the stripping tally${house ? ` of container ${house.container.number}` : ""} — tick the house off there`,
@@ -910,6 +936,51 @@ class GateMovementService {
         });
       }
     }
+    return this.get(id, companyId);
+  }
+
+  // One transport leg's fields as a person changed them, merged into the legs as stored under the
+  // row lock (user council W2, 20 Nov 2026; services/gateLegChange): a quick second field save, or
+  // a second person, no longer undoes the first. As the general update, the grid's carrier /
+  // driver / plate follow the leg the cargo moves on, and a plate entered after the release of a
+  // linked record goes to the shipment.
+  async updateLeg(id: string, companyId: string, userId: string, change: GateLegChange, role = "user") {
+    const problem = legChangeProblem(change);
+    if (problem) throw APIError.invalidArgument(problem);
+    await this.load(id, companyId);
+    const by = await this.userName(userId);
+    let plateLater = false;
+    await db.transaction(async (tx) => {
+      const [m] = await gateMovementRepository.lockLive(tx, [id], companyId);
+      if (!m) throw APIError.notFound("Gate movement not found");
+      const transportLegs = mergeLegChange(normalizeLegs(m.transportLegs), change);
+      if (!transportLegs) throw APIError.failedPrecondition(TRIP_LEG_READ_ONLY);
+      const leg = transportLegs.find((l) => l.leg === cargoLeg(m))!;
+      const patch: Partial<NewGateMovementRecord> = { transportLegs, carrier: leg.company, driver: leg.driver, plate: leg.plate, updatedBy: by };
+      const plateAfter = releasePlate({ handling: m.handling, plate: leg.plate, transportLegs });
+      plateLater = !!m.shipmentId && !!m.impRelease && !!plateAfter.trim() && plateAfter !== releasePlate(m);
+      await gateMovementRepository.update(id, companyId, patch, tx);
+      await syncStockForMovement(tx, companyId, id, { by, why: "gate record changed" });
+      if (plateLater) {
+        await shipmentOutboxRepository.enqueue(tx, [outboxRow(m, "plate", m.impRelease ? "impRelease" : "gateOut", { plateNumber: plateAfter.trim() }, userId, role)]);
+      }
+    });
+    if (plateLater) await deliverDue(id);
+    return this.get(id, companyId);
+  }
+
+  // One gate checklist icon, merged into the stored checklist in SQL (user council, "Anything
+  // new" 3, 20 Nov 2026): two quick clicks, or two people, no longer undo each other's icon.
+  async setCheck(id: string, companyId: string, userId: string, change: GateCheckChange) {
+    const problem = checkChangeProblem(change);
+    if (problem) throw APIError.invalidArgument(problem);
+    await this.load(id, companyId);
+    const by = await this.userName(userId);
+    const row = await gateMovementRepository.conditionalUpdate(id, companyId, {
+      checklist: sql`${json(DEFAULT_CHECKLIST)} || COALESCE(${t.checklist}, '{}'::jsonb) || ${json({ [change.key]: change.state })}`,
+      updatedBy: by,
+    });
+    if (!row) throw APIError.notFound("Gate movement not found");
     return this.get(id, companyId);
   }
 
@@ -1194,7 +1265,7 @@ class GateMovementService {
     }
     if (owed.length) await deliverDue(id);
     if (published) await deliverGateEvents(id);
-    const notice = opts.recordedAt ? `${STAMP_LABEL[kind]} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";
+    const notice = opts.recordedAt ? `${stampLabel(m, kind)} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";
     return { movement: await this.get(id, companyId), outcome: "stamped", notice };
   }
 
@@ -1257,7 +1328,7 @@ class GateMovementService {
       let row: GateMovementRecord | null = null;
       switch (kind) {
         case "gateIn":
-          row = await gateMovementRepository.conditionalUpdate(id, companyId, { gateIn: at, status: toWarehouse }, [evt(kind, STAMP_LABEL.gateIn, true)], sql`${t.gateIn} IS NULL`, tx);
+          row = await gateMovementRepository.conditionalUpdate(id, companyId, { gateIn: at, status: toWarehouse }, [evt(kind, gateInLabel(m), true)], sql`${t.gateIn} IS NULL`, tx);
           break;
         case "gateOut":
           row = await gateMovementRepository.conditionalUpdate(
@@ -1285,7 +1356,7 @@ class GateMovementService {
               ...(released ? [releasedInShipmentsEvent(released, at.toISOString(), by)] : []),
               ...(unchecked ? [paymentUncheckedEvent(at.toISOString(), by, unchecked)] : []),
             ],
-            sql`${t.impRelease} IS NULL AND ${armedSql} AND ${houseReleaseOkSql}`,
+            sql`${t.impRelease} IS NULL AND ${armedSql} AND ${houseReleaseOkSql} AND ${looseReceivedOkSql}`,
             tx,
           );
           break;
@@ -1367,7 +1438,7 @@ class GateMovementService {
       await shipmentOutboxRepository.enqueue(tx, owed);
       // The receipt opens the stock line (and bonded entry), the WH release closes them — in this
       // transaction, so a stamp and its stock line never drift apart (a replay changes nothing).
-      await syncStockForMovement(tx, companyId, id, { by, at, why: STAMP_LABEL[kind] });
+      await syncStockForMovement(tx, companyId, id, { by, at, why: stampLabel(m, kind) });
       return { row, owed, published };
     });
     return { ...written, at, now };
@@ -1438,7 +1509,8 @@ class GateMovementService {
     return this.get(id, companyId);
   }
 
-  // Supervisor-only: arms the release box regardless of the gates, keeping who, when,
+  // Supervisor-only: arms the release box whatever the other lines say - never past Customs (Q18
+  // (b), 20 Nov 2026: a position not cleared by customs stays held) - keeping who, when,
   // a snapshot of the gates at that moment (in the override log, and as data on the history
   // event) and the mandatory reason. An exception opened later takes the override back
   // (gateException.service openExceptionInTx; Council Outlay 5, decision 14).
@@ -1449,11 +1521,12 @@ class GateMovementService {
     const by = await this.userName(userId);
     const snapshot = m.releaseGates.map((x) => `${x.g}: ${x.s}`).join("; ");
     const overrideLog = `${stampText(now)} · OVERRIDE by ${by || "—"} · gates at moment of override: ${snapshot || "none"} · reason: ${reason.trim()}`;
+    const event: OverrideEvent = { kind: "override", label: "Supervisor override", at: now.toISOString(), by, detail: reason.trim(), gates: m.releaseGates.map(({ g, s }) => ({ g, s })), customsKept: true };
     const row = await gateMovementRepository.conditionalUpdate(
       id,
       companyId,
       { overridden: true, overrideLog, status: sql`CASE WHEN ${t.status} = 'Refused' THEN 'In Warehouse' ELSE ${t.status} END` },
-      [{ kind: "override", label: "Supervisor override", at: now.toISOString(), by, detail: reason.trim(), gates: m.releaseGates.map(({ g, s }) => ({ g, s })) }],
+      [event],
     );
     if (!row) throw APIError.notFound("Gate movement not found");
     return this.get(id, companyId);

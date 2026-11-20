@@ -6503,6 +6503,7 @@ export namespace warehouseConcept {
             this.gateMovementLabelPrinted = this.gateMovementLabelPrinted.bind(this)
             this.gateMovementList = this.gateMovementList.bind(this)
             this.gateMovementOverride = this.gateMovementOverride.bind(this)
+            this.gateMovementReceipt = this.gateMovementReceipt.bind(this)
             this.gateMovementRefreshFromShipment = this.gateMovementRefreshFromShipment.bind(this)
             this.gateMovementRefuse = this.gateMovementRefuse.bind(this)
             this.gateMovementReleaseGate = this.gateMovementReleaseGate.bind(this)
@@ -6520,6 +6521,7 @@ export namespace warehouseConcept {
             this.gateMovementUpdate = this.gateMovementUpdate.bind(this)
             this.gateMovementUseRemeasured = this.gateMovementUseRemeasured.bind(this)
             this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
+            this.gateMovementVoidReceipt = this.gateMovementVoidReceipt.bind(this)
             this.gateMovementVoidStamp = this.gateMovementVoidStamp.bind(this)
             this.gatePeopleNormalize = this.gatePeopleNormalize.bind(this)
             this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
@@ -6773,6 +6775,18 @@ export namespace warehouseConcept {
         }
 
         /**
+         * The receipt of loose import cargo (an outbound position with no container): pieces counted,
+         * condition and location, as a stripping tally tick keeps them. Receives the position (its free
+         * time starts, the stock line opens at the location) and sends its shipment the received date and
+         * the WCZ reference. LCL cargo is re-weighed first. Any user.
+         */
+        public async gateMovementReceipt(id: string, params: controllers.PositionReceiptRequest): Promise<controllers.PositionReceiptResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/receipt`, JSON.stringify(params))
+            return await resp.json() as controllers.PositionReceiptResponse
+        }
+
+        /**
          * Copies the linked shipment's data onto the gate record again; any user, logged.
          */
         public async gateMovementRefreshFromShipment(id: string): Promise<controllers.GateRefreshFromShipmentResponse> {
@@ -6926,6 +6940,24 @@ export namespace warehouseConcept {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/verify-pin`, JSON.stringify(params))
             return await resp.json() as controllers.GatePinVerifyResponse
+        }
+
+        /**
+         * Manager: voids the receipt with a reason. The typed received date it replaced comes back; the
+         * shipment is not changed back (logged).
+         */
+        public async gateMovementVoidReceipt(id: string, params: {
+    reason: string
+}): Promise<{
+    movement: interfaces.GateMovementItem
+    notice: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/void-receipt`, JSON.stringify(params))
+            return await resp.json() as {
+    movement: interfaces.GateMovementItem
+    notice: string
+}
         }
 
         /**
@@ -9750,6 +9782,17 @@ export namespace controllers {
          */
         linkChangeReason?: string
 
+        /**
+         * One transport leg's changed fields only, merged into the legs as stored (the gate job's field
+         * saves send this instead of the whole `transportLegs`, so a quick second save never undoes the first).
+         */
+        legChange?: services.GateLegChange
+
+        /**
+         * One gate checklist icon only, merged into the stored checklist (instead of the whole `checklist`).
+         */
+        checkChange?: services.GateCheckChange
+
         gateRef?: string
         warehouseTaskId?: string | null
         visit?: interfaces.GateVisit
@@ -10946,6 +10989,33 @@ export namespace controllers {
          * stand-alone position (no shipment, no chat).
          */
         tagged: string[] | null
+    }
+
+    export interface PositionReceiptRequest {
+        receipt: services.PositionReceiptInput
+    }
+
+    export interface PositionReceiptResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * done · already_done (this request came before) · done_by_someone_else (received meanwhile; only with a clientRequestId).
+         */
+        outcome: "done" | "already_done" | "done_by_someone_else"
+
+        /**
+         * Text for a toast (an exception to offer, already received); "" when nothing to say.
+         */
+        notice: string
+
+        /**
+         * What the receipt found that the client may offer as an OS&D exception (POST
+         * /warehouse-concept/gate/:id/exceptions): a count that differs (Short / Over, with the pieces)
+         * and a condition that is not Good (Damaged, pieces null — the person enters how many).
+         */
+        suggestExceptions: {
+            type: "Short" | "Over" | "Damaged"
+            pieces: number | null
+        }[]
     }
 
     export interface PositionSectionPatchRequest {
@@ -17889,6 +17959,16 @@ export namespace interfaces {
         tallyOutcome: string
 
         tallyPieces: number | null
+        /**
+         * The condition noted at the tally tick (Good, Damaged packaging…); "" when none (Q20).
+         */
+        tallyCondition: string
+
+        /**
+         * The zone / rack noted at the tally tick; "" when none.
+         */
+        tallyLocation: string
+
         tickedAt: string | null
         tickedBy: string
         /**
@@ -18021,7 +18101,8 @@ export namespace interfaces {
 
         /**
          * What started the clock: "gateIn" (inbound), "tally" (outbound, ticked received at the
-         * stripping tally), "loadInDate" (outbound without a tally), "" (not started).
+         * stripping tally), "receipt" (outbound in no container, received by its receipt),
+         * "loadInDate" (outbound without either), "" (not started).
          */
         startSource: string
 
@@ -29202,6 +29283,29 @@ export namespace services {
     }
 
     /**
+     * One gate checklist icon set to a state; the other icons stay as stored.
+     */
+    export interface GateCheckChange {
+        key: "ht" | "photos" | "measure" | "vgm" | "seal" | "dg"
+        state: "g" | "a" | "r" | "n"
+    }
+
+    /**
+     * The fields of one transport leg a person changed; the fields left out stay as stored.
+     */
+    export interface GateLegChange {
+        leg: "IN" | "OUT" | "CFS"
+        company?: string
+        plate?: string
+        driver?: string
+        phone?: string
+        /**
+         * ISO time, "" clears it.
+         */
+        gateTime?: string
+    }
+
+    /**
      * What a gate record failed to send for good.
      */
     export interface GateUnsent {
@@ -29387,6 +29491,29 @@ export namespace services {
      * What a place picker asks for: "sea" lists the seaports first (a sea quote's or job's POL / POD).
      */
     export type PlaceSearchMode = "sea"
+
+    export interface PositionReceiptInput {
+        /**
+         * Pieces counted; null when not counted.
+         */
+        pieces?: number | null
+
+        /**
+         * Good · Damaged packaging · Damaged cargo · Wet · Re-packed (free text, at most 200).
+         */
+        condition?: string
+
+        /**
+         * Zone / rack (at most 100).
+         */
+        location?: string
+
+        note?: string
+        /**
+         * Floor mode: id of this request (UUID). A receipt already there from it is then an answer, not an error.
+         */
+        clientRequestId?: string
+    }
 
     export interface RailOffersResult {
         /**

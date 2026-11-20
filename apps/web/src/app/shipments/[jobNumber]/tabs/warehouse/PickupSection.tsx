@@ -1,17 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Input, Button } from "antd";
+import { Alert, Input, Button, Spin } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import { LockOutlined, PlusOutlined } from "@ant-design/icons";
 import type { Messages } from "@/lib/toast";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
-import { apiErrorMessage } from "@/lib/api";
+import { warehouseTaskKeys } from "@/hooks/warehouseKeys";
+import { api, apiErrorMessage } from "@/lib/api";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { BTN_BAR, BTN_BAR_PRIMARY, KPI_VALUE, LABEL_TEXT, REF } from "@/styles/ui";
+import { PickupSection as ConceptPickupSection } from "@/app/warehouse-concept/_components/shipmentPart/PickupSection";
+import { BTN_BAR, BTN_BAR_PRIMARY, HINT, KPI_VALUE, LABEL_TEXT, REF } from "@/styles/ui";
 import { EMPTY } from "../../_components/detailStyles";
 import { TD_CELL, TH_CELL, rowLine } from "./warehouseUi";
+import { filledPickupRows, pickupHome } from "./pickupHome";
 
 interface PickupSectionData {
   pin?: string;
@@ -29,7 +34,106 @@ const emptyRow = (): PickupRow => ({ haulier: "", licensePlate: "", driver: "" }
 /** A driver is a name: letters only (any alphabet), with the spaces, hyphens, dots and apostrophes names have. */
 const driverInput = (text: string) => text.replace(/[^\p{L}\s'.-]/gu, "");
 
+/**
+ * The job's Warehouse tab → Pick-up. A job with a Warehouse Concept position, for a user who may
+ * see the Concept, keeps its live pick-up and server-made PIN there (the ones the Concept's gate
+ * checks) and shows this normal Warehouse pick-up read-only under it; every other job, and every
+ * user who can't see the Concept, keeps the normal one, editable as before (owner decision Q17,
+ * user council 20 Nov 2026: per job until the Concept opens).
+ */
 export function PickupSection({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
+  const canSeeConcept = useCanSeeConcepts();
+  // This shipment's positions only; the Concept's screens refresh it with every position change.
+  const positions = useQuery({
+    queryKey: warehouseTaskKeys.byShipment(ownerId),
+    queryFn: () => api.warehouseConcept.warehouseList({ shipmentId: ownerId }),
+    enabled: canSeeConcept && !!ownerId,
+  });
+  const home = pickupHome({ canSeeConcept, isLoading: positions.isLoading, isError: positions.isError, positions: positions.data?.tasks });
+
+  if (home.kind === "checking") {
+    return (
+      <div className="flex justify-center py-8">
+        <Spin />
+      </div>
+    );
+  }
+  if (home.kind === "concept") {
+    return (
+      <div className="flex flex-col gap-5">
+        <div className={HINT}>
+          This job is Warehouse Concept position <span className={`${REF} text-slate-900`}>{home.positionRef}</span>. Its gate releases the cargo against the
+          pick-up and PIN entered here. The server makes the PIN (six digits) and shows it once — give it to the haulier.
+        </div>
+        <ConceptPickupSection ownerId={ownerId} messageApi={messageApi} />
+        <BasicPickupView ownerId={ownerId} />
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      {home.checkFailed && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Could not check whether this job is a Warehouse Concept position — this is the normal Warehouse's pick-up. Reload the page to check again."
+        />
+      )}
+      <BasicPickupSection ownerId={ownerId} messageApi={messageApi} />
+    </div>
+  );
+}
+
+// The normal Warehouse's pick-up of a job whose live one is the Warehouse Concept's: read-only, so
+// nobody enters a pick-up or gives out a PIN the gate never reads (user council W1).
+function BasicPickupView({ ownerId }: { ownerId: string }) {
+  const { data: sectionData } = useWarehouseSection(ownerId, "pickup");
+  const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
+  const rows = filledPickupRows(section.rows);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+      <div className="flex items-center gap-2 mb-1">
+        <span className={LABEL_TEXT}>Normal Warehouse pick-up</span>
+        <span className={HINT}>· view only</span>
+      </div>
+      <div className={`${HINT} mb-2`}>
+        The gate does not read this one. The live pick-up and PIN of this job are the Warehouse Concept&apos;s, above.
+        {section.pin ? " A PIN was made here earlier: it does not release the cargo — give the haulier the PIN made above." : ""}
+      </div>
+      {rows.length === 0 ? (
+        <div className={`text-[13px] ${EMPTY}`}>Nothing entered here.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] border-collapse table-fixed text-[13px]">
+            <thead>
+              <tr>
+                {FIELDS.map((f) => (
+                  <th key={f} className={`${TH_CELL} text-left`}>
+                    {FIELD_NAMES[f]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={idx} className={rowLine(idx, rows.length)}>
+                  {FIELDS.map((f) => (
+                    <td key={f} className={`${TD_CELL} text-slate-900 truncate`}>
+                      {(row[f] ?? "").trim() || <span className={EMPTY}>—</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The normal Warehouse's pick-up, editable: the job's PIN (made here) and its rows.
+function BasicPickupSection({ ownerId, messageApi }: { ownerId: string; messageApi: Messages }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
   const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
   // The PIN and the rows are saved together (one section): each save sends the other's last value,

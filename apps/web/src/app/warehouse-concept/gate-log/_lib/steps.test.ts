@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { QUEUEABLE_STAMPS, REWEIGH_FIRST, cargoLeg, containerHoldsRelease, gateSteps, leavesByRelease, isQueueableStamp, pinCheckMessage, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, writesBack } from "./steps";
+import { TERMS } from "../../_lib/glossary";
+import {
+  QUEUEABLE_STAMPS,
+  RECEIPT_FIRST,
+  REWEIGH_FIRST,
+  cargoLeg,
+  containerHoldsRelease,
+  gateSteps,
+  isLooseImport,
+  leavesByRelease,
+  isQueueableStamp,
+  pinCheckMessage,
+  receiptMissing,
+  releaseTruckWarning,
+  stampConfirmText,
+  stampPrecheck,
+  typedDateReceiptHint,
+  voidBlocked,
+  voidsGateOutToo,
+  writesBack,
+} from "./steps";
 
 type M = Parameters<typeof gateSteps>[0];
 const T = "2026-10-14T08:00:00.000Z";
@@ -31,15 +51,16 @@ describe("gateSteps", () => {
     const m = base({
       visit: "výdej",
       gateIn: T,
+      loadInDate: "2026-10-14",
       releaseGates: [
         { g: "Customs", s: "Pending", note: "" },
         { g: "Charges", s: "OK", note: "" },
         { g: "Empty return planned", s: "Pending", note: "" },
       ],
     });
-    expect(brief(m)).toEqual(["Gate-in (truck):done", "WH release:blocked", "Gate-out:later"]);
+    expect(brief(m)).toEqual([`${TERMS.gateInTruck}:done`, "WH release:blocked", "Gate-out:later"]);
     expect(gateSteps(m)[1]!.reason).toBe("Release gates blocked — waiting for: Customs");
-    expect(brief({ ...m, armed: true })).toEqual(["Gate-in (truck):done", "WH release:next", "Gate-out:later"]);
+    expect(brief({ ...m, armed: true })).toEqual([`${TERMS.gateInTruck}:done`, "WH release:next", "Gate-out:later"]);
   });
 
   it("takes the outbound gate-out from the WH release", () => {
@@ -139,6 +160,19 @@ describe("stamp confirmation (gate job and floor mode)", () => {
     );
     expect(stampConfirmText({ ...inbound, gateIn: T }, "expReceipt", "Receipt")).toBe("Stamp the Receipt on WCZ2026000001? The stamp cannot be taken back.");
   });
+  it("warns in the WH release confirmation when the outgoing truck has no plate or driver (W9)", () => {
+    const leg = (plate: string, driver: string) => [{ leg: "OUT" as const, company: "", plate, driver, phone: "", gateTime: "" }];
+    expect(releaseTruckWarning({ ...outbound, transportLegs: leg("1AB 2345", "Jan Novak") })).toBe("");
+    expect(releaseTruckWarning({ ...outbound, transportLegs: leg("", "") })).toBe("The outgoing truck has no plate and no driver's name yet — check the truck before you release.");
+    expect(releaseTruckWarning({ ...outbound, transportLegs: leg("", "Jan Novak") })).toMatch(/has no plate yet/);
+    expect(releaseTruckWarning({ ...outbound, transportLegs: [], plate: "1AB 2345", driver: "" })).toMatch(/has no driver's name yet/);
+    // Domestic cargo leaves on its OUT leg only — never the grid's plate of the truck that brought it.
+    expect(releaseTruckWarning({ ...inbound, handling: "Domestic", transportLegs: [], plate: "1AB 2345", driver: "Jan" })).toMatch(/no plate and no driver/);
+    expect(stampConfirmText({ ...outbound, transportLegs: leg("", "") }, "impRelease", "WH release")).toBe(
+      "Stamp the WH release on WCZ2026000001? The stamp cannot be taken back and sets the linked shipment's released date and plate (if any). The outgoing truck has no plate and no driver's name yet — check the truck before you release.",
+    );
+    expect(stampConfirmText({ ...outbound, transportLegs: leg("", "") }, "gateIn", TERMS.gateInTruck)).not.toMatch(/outgoing truck/);
+  });
   it("answers an already stamped step or an outbound gate-out with information, not a confirmation", () => {
     expect(stampPrecheck(inbound, "gateIn", "Gate-in", T, () => "14 Oct 10:00")).toBe("Gate-in was already stamped 14 Oct 10:00");
     expect(stampPrecheck(outbound, "gateOut", "Gate-out", null, String)).toMatch(/leaves through WH release/);
@@ -169,6 +203,8 @@ describe("re-weigh and the container hold the steps", () => {
       stuffedBy: "",
       tallyOutcome: "",
       tallyPieces: null,
+      tallyCondition: "",
+      tallyLocation: "",
       tickedAt: null,
       tickedBy: "",
       tallyRequired: false,
@@ -212,8 +248,55 @@ describe("gateSteps by handling", () => {
     expect(brief(base({ handling: "Export" }))).toEqual(["Gate-in:next", "Draft receipt:later", "Receipt:later", "Gate-out:later"]);
   });
 
-  it("Import (outbound): Gate-in (truck) → WH release → Gate-out", () => {
-    expect(brief(base({ handling: "Import", visit: "výdej" }))).toEqual(["Gate-in (truck):next", "WH release:later", "Gate-out:later"]);
+  it("Import (outbound): Pick-up truck in → WH release → Gate-out", () => {
+    expect(brief(base({ handling: "Import", visit: "výdej", loadInDate: "2026-10-14" }))).toEqual([`${TERMS.gateInTruck}:next`, "WH release:later", "Gate-out:later"]);
+  });
+
+  // Q19 (User Council, 20 Nov): loose import cargo is received by its receipt before the truck that collects it.
+  it("Import with no container: the truck stamp and the WH release wait for the receipt", () => {
+    const loose = base({ handling: "Import", visit: "výdej", container: null, loadInDate: "" });
+    expect(receiptMissing(loose)).toBe(true);
+    expect(brief(loose)).toEqual([`${TERMS.gateInTruck}:blocked`, "WH release:later", "Gate-out:later"]);
+    expect(gateSteps(loose)[0]).toMatchObject({ reason: RECEIPT_FIRST, needs: "receipt" });
+    // LCL cargo is re-weighed first.
+    expect(gateSteps({ ...loose, needsReweigh: true, reweigh: null })[0]).toMatchObject({ reason: REWEIGH_FIRST, needs: "reweigh" });
+    // Received by the receipt, or by the typed date: the truck is next.
+    expect(brief({ ...loose, receivedAt: T })[0]).toBe(`${TERMS.gateInTruck}:next`);
+    expect(brief({ ...loose, loadInDate: "2026-10-14" })[0]).toBe(`${TERMS.gateInTruck}:next`);
+    // A truck stamped before the rule: the WH release waits for the receipt.
+    const gated = gateSteps({ ...loose, gateIn: T, armed: true });
+    expect(gated[1]).toMatchObject({ kind: "impRelease", state: "blocked", needs: "receipt" });
+    // Released cargo and inbound cargo have no receipt to wait for.
+    expect(receiptMissing({ ...loose, impRelease: T })).toBe(false);
+    expect(receiptMissing({ ...loose, visit: "příjem" })).toBe(false);
+  });
+
+  // Review of step 7: import cargo that comes in a container has no loose-cargo receipt, even
+  // without a container house here (Import FCL → FCL stripping, a container number, the yard).
+  it("Import in a container (FCL / container number / yard) is not loose cargo: no receipt wait", () => {
+    const loose = base({ handling: "Import", visit: "výdej", container: null, loadInDate: "", operationType: "LCL consolidation", containerNumber: "" });
+    expect(isLooseImport(loose)).toBe(true);
+    for (const over of [{ operationType: "FCL stripping" }, { operationType: "Container yard storage" }, { operationType: "FCL transload (cross-stuff)" }, { containerNumber: "MSKU6119027" }]) {
+      expect(isLooseImport({ ...loose, ...over })).toBe(false);
+      expect(receiptMissing({ ...loose, ...over })).toBe(false);
+      expect(brief({ ...loose, ...over })[0]).toBe(`${TERMS.gateInTruck}:next`);
+    }
+    expect(isLooseImport({ ...loose, containerNumber: "  " })).toBe(true);
+  });
+
+  // A Trucking pick-up run bringing the cargo in on the IN leg: its gate-in is the cargo arriving.
+  it("Import brought in by a pick-up run: plain Gate-in, not waiting for the receipt; the WH release still does", () => {
+    const run = [{ leg: "IN" as const, company: "", plate: "", driver: "", phone: "", gateTime: "", source: { kind: "trucking", tripRef: "LCZ1", tripKind: "PICKUP_RUN" } }];
+    const loose = base({ handling: "Import", visit: "výdej", container: null, loadInDate: "", transportLegs: run as M["transportLegs"] });
+    expect(brief(loose)).toEqual(["Gate-in:next", "WH release:later", "Gate-out:later"]);
+    expect(gateSteps({ ...loose, gateIn: T, armed: true })[1]).toMatchObject({ kind: "impRelease", state: "blocked", needs: "receipt" });
+    expect(gateSteps(loose)[1]).toMatchObject({ state: "later", reason: "Stamp Gate-in first" });
+  });
+
+  it("the phone's receipt entry says the count keeps a typed day (today or earlier)", () => {
+    expect(typedDateReceiptHint("2026-11-18", "2026-11-20")).toMatch(/keeps that date/);
+    expect(typedDateReceiptHint("2026-11-20", "2026-11-20")).toMatch(/keeps that date/);
+    expect(typedDateReceiptHint("2026-11-22", "2026-11-20")).toMatch(/sets today/);
   });
 
   it("Domestic: Gate-in → WH release → Gate-out stamped with the release, never a receipt or re-weigh", () => {

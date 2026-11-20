@@ -26,6 +26,7 @@ import { db } from "../db/db";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { shipmentOutboxTable } from "../schemas/shipmentOutbox.schema";
 import { deliverDue } from "../services/shipmentOutbox.service";
+import { pragueDate } from "../services/storage";
 
 // Shipments answer from the fakes (the real service needs an authenticated caller).
 vi.mock("~encore/clients", async () => {
@@ -41,12 +42,14 @@ vi.mock("~encore/clients", async () => {
 const company = () => randomUUID();
 const user = randomUUID();
 const allOk = (gates: ReturnType<typeof defaultReleaseGates>) => gates.map((g) => ({ ...g, s: "OK" as const }));
+// Loose import cargo (no container) is received before its WH release (Q19): the typed date, today.
+const received = () => pragueDate(new Date());
 
 // A shipment's outbound record (imported with its position), every release gate OK: ready for its WH release.
 async function linkedOutbound(c: string, shipmentId: string) {
   const [r] = await warehouseImportService.importShipments(c, user, [shipmentId]);
   const m = await gateMovementService.get(r!.movementId!, c);
-  await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
+  await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates), loadInDate: received() });
   return m;
 }
 
@@ -62,14 +65,17 @@ describe("release gates", () => {
     expect(defaultReleaseGates("Export", "FCL stuffing", "Paperwork Verified").map((g) => g.g)).toContain("VGM submitted");
   });
 
-  it("arms only when every gate except the empty return is OK, or on override", () => {
+  it("arms only when every gate except the empty return is OK, or on override — never past Customs", () => {
     const gates = allOk(defaultReleaseGates("Import", "FCL stripping", "Customs Cleared/Released"));
     expect(isArmed({ status: "Expected", overridden: false, releaseGates: gates })).toBe(true);
     const emptyPending = gates.map((g) => (/empty return/i.test(g.g) ? { ...g, s: "Pending" as const } : g));
     expect(isArmed({ status: "Expected", overridden: false, releaseGates: emptyPending })).toBe(true);
     const customsPending = gates.map((g) => (g.g === "Customs" ? { ...g, s: "Blocked" as const } : g));
     expect(isArmed({ status: "Expected", overridden: false, releaseGates: customsPending })).toBe(false);
-    expect(isArmed({ status: "Expected", overridden: true, releaseGates: customsPending })).toBe(true);
+    // Q18 (b): a supervisor override never clears the Customs line; it clears every other line.
+    expect(isArmed({ status: "Expected", overridden: true, releaseGates: customsPending })).toBe(false);
+    const othersPending = gates.map((g) => (g.g === "Customs" ? g : { ...g, s: "Pending" as const }));
+    expect(isArmed({ status: "Expected", overridden: true, releaseGates: othersPending })).toBe(true);
     expect(isArmed({ status: "Refused", overridden: false, releaseGates: gates })).toBe(false);
   });
 
@@ -79,8 +85,11 @@ describe("release gates", () => {
     expect(needsAttention({ ...base, visit: "příjem" })).toBe(false);
     expect(needsAttention({ ...base, visit: "výdej" })).toBe(true);
     expect(needsAttention({ ...base, visit: "výdej", overridden: true })).toBe(true);
-    expect(needsAttention({ ...base, visit: "výdej", overridden: true, mrn: "26CZ1" })).toBe(false);
-    expect(needsAttention({ ...base, visit: "výdej", overridden: true, customsStatus: "Customs Cleared/Released" })).toBe(false);
+    // Q18 (b): an override never clears Customs — a pending Customs line still holds the release.
+    expect(needsAttention({ ...base, visit: "výdej", overridden: true, mrn: "26CZ1" })).toBe(true);
+    const customsOk = gates.map((g) => (g.g === "Customs" ? { ...g, s: "OK" as const } : g));
+    expect(needsAttention({ ...base, visit: "výdej", overridden: true, mrn: "26CZ1", releaseGates: customsOk })).toBe(false);
+    expect(needsAttention({ ...base, visit: "výdej", overridden: true, customsStatus: "Customs Cleared/Released", releaseGates: customsOk })).toBe(false);
     // Released or gone out: nothing left to attend to.
     expect(needsAttention({ ...base, visit: "výdej", gateOut: new Date() })).toBe(false);
     expect(needsAttention({ ...base, visit: "výdej", impRelease: new Date() })).toBe(false);
@@ -90,7 +99,7 @@ describe("release gates", () => {
 describe("gate movement flow", () => {
   it("blocks WH release until armed, then stamps release and gate-out", async () => {
     const c = company();
-    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091601-1", visit: "výdej", handling: "Import", customsMode: "T1", mrn: "26CZ1" });
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091601-1", visit: "výdej", handling: "Import", customsMode: "T1", mrn: "26CZ1", loadInDate: received() });
     expect(m.armed).toBe(false);
     expect(m.needsAttention).toBe(true);
     await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/NOT armed/);
@@ -594,7 +603,7 @@ describe("gate movement flow", () => {
 
   it("checks the release gates at the moment of the release, not at load", async () => {
     const c = company();
-    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091622", visit: "výdej", mrn: "26CZ4" });
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091622", visit: "výdej", mrn: "26CZ4", loadInDate: received() });
     // The row looks armed when loaded, but its gates change before the UPDATE runs.
     await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
     const load = gateMovementRepository.findById.bind(gateMovementRepository);
@@ -648,7 +657,7 @@ describe("gate movement flow", () => {
 
   it("requires a reason to refuse and to override; override re-arms a refused row", async () => {
     const c = company();
-    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091603", visit: "výdej", plate: "3AB 1234" });
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091603", visit: "výdej", plate: "3AB 1234", loadInDate: received() });
     await expect(gateMovementService.refuse(m.id, c, user, "  ")).rejects.toThrow(/reason/);
     const refused = await gateMovementService.refuse(m.id, c, user, "customs not discharged");
     expect(refused).toMatchObject({ status: "Refused", armed: false });
@@ -656,8 +665,39 @@ describe("gate movement flow", () => {
 
     await expect(gateMovementService.override(m.id, c, user, "")).rejects.toThrow(/reason/);
     const overridden = await gateMovementService.override(m.id, c, user, "duty paid, papers on the way");
-    expect(overridden).toMatchObject({ status: "In Warehouse", overridden: true, armed: true });
-    expect(overridden.overrideLog).toMatch(/gates at moment of override: .*reason: duty paid/);
+    // Customs is not cleared: the override clears the other lines, the Customs line still holds (Q18 (b)).
+    expect(overridden).toMatchObject({ status: "In Warehouse", overridden: true, armed: false });
+    expect(overridden.overrideLog).toMatch(/^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2} · OVERRIDE by .* · gates at moment of override: .*Customs: Pending.*reason: duty paid/);
+    expect(overridden.events.at(-1)).toMatchObject({ kind: "override", customsKept: true });
+    await gateMovementService.stamp(m.id, c, user, "gateIn");
+    await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/Held by Customs/);
+    const cleared = await gateMovementService.update(m.id, c, user, { customsStatus: "Customs Cleared/Released" });
+    expect(cleared).toMatchObject({ overridden: true, armed: true });
+    expect((await gateMovementService.stamp(m.id, c, user, "impRelease")).impRelease).not.toBeNull();
+  });
+
+  it("saves one transport leg field or one checklist icon onto the record as stored (W2)", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026112001", visit: "výdej" });
+    // Two quick saves sent at once, each with only its own field: both are kept.
+    await Promise.all([
+      gateMovementService.updateLeg(m.id, c, user, { leg: "OUT", company: " Haulier s.r.o. " }),
+      gateMovementService.updateLeg(m.id, c, user, { leg: "OUT", plate: "1AB 2345" }),
+      gateMovementService.updateLeg(m.id, c, user, { leg: "OUT", driver: "Jan Novak" }),
+    ]);
+    const saved = await gateMovementService.get(m.id, c);
+    expect(saved.transportLegs.find((l) => l.leg === "OUT")).toMatchObject({ company: "Haulier s.r.o.", plate: "1AB 2345", driver: "Jan Novak" });
+    // The grid follows the leg the cargo leaves on.
+    expect(saved).toMatchObject({ carrier: "Haulier s.r.o.", plate: "1AB 2345", driver: "Jan Novak" });
+    await expect(gateMovementService.updateLeg(m.id, c, user, { leg: "OUT" })).rejects.toThrow(/Nothing to change/);
+    await expect(gateMovementService.updateLeg(m.id, c, user, { leg: "OUT", gateTime: "soon" })).rejects.toThrow(/date and time/);
+
+    await Promise.all([
+      gateMovementService.setCheck(m.id, c, user, { key: "ht", state: "g" }),
+      gateMovementService.setCheck(m.id, c, user, { key: "photos", state: "r" }),
+    ]);
+    expect((await gateMovementService.get(m.id, c)).checklist).toMatchObject({ ht: "g", photos: "r", measure: "a" });
+    await expect(gateMovementService.setCheck(m.id, c, user, { key: "nope" as never, state: "g" })).rejects.toThrow(/Checklist item/);
   });
 
   it("verifies the PIN without revealing it and locks after three misses", async () => {
@@ -690,7 +730,7 @@ describe("gate movement flow", () => {
 describe("direction", () => {
   it("moves the gate visit with the trade direction until the first stamp, then locks", async () => {
     const c = company();
-    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091640", visit: "výdej", handling: "Import" });
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091640", visit: "výdej", handling: "Import", loadInDate: received() });
     const flipped = await gateMovementService.update(m.id, c, user, { handling: "Export" });
     expect(flipped).toMatchObject({ handling: "Export", visit: "příjem" });
     const back = await gateMovementService.update(m.id, c, user, { visit: "výdej" });
@@ -716,7 +756,7 @@ describe("release gate lines", () => {
 
   it("never ticks Customs by hand, nor lines after release", async () => {
     const c = company();
-    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091631", visit: "výdej", handling: "Import", mrn: "26CZ10" });
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091631", visit: "výdej", handling: "Import", mrn: "26CZ10", loadInDate: received() });
     await expect(gateMovementService.setReleaseGate(m.id, c, user, "Customs", true)).rejects.toThrow(/customs status/);
     await expect(gateMovementService.setReleaseGate(m.id, c, user, "No such gate", true)).rejects.toThrow(/No release gate/);
     await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
@@ -816,6 +856,8 @@ describe("warehouse tasks in the gate log", () => {
   it("archives the gate rows with their position: any user without stamps, a manager with a reason otherwise", async () => {
     const c = company();
     const [a, b] = await warehouseImportService.importShipments(c, user, [randomUUID(), randomUUID()]);
+    // Loose import cargo is received before its pick-up truck gates in (Q19): the typed date.
+    await gateMovementRepository.update(b!.movementId!, c, { loadInDate: received() });
     await gateMovementService.stamp(b!.movementId!, c, user, "gateIn");
 
     await gateAdminService.removePosition(a!.taskId!, c, user, "user");
