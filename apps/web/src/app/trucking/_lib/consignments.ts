@@ -158,8 +158,8 @@ export function attentionSummary(reasons: readonly string[]): { first: string; m
   return { first: reasons[0]!, more: reasons.length - 1 };
 }
 
-/** The views the chips filter by; "openFtl" belongs to its tile. */
-export type ChipView = Exclude<ConsignmentView, "openFtl">;
+/** The views the chips filter by; "openFtl" and "pickupPassed" belong to their tiles. */
+export type ChipView = Exclude<ConsignmentView, "openFtl" | "pickupPassed">;
 
 /** Quick filters of the Consignments tab (?view=); the server counts and filters them. */
 export const CONSIGNMENT_CHIPS: { id: ChipView; label: string; hint: string; danger?: boolean }[] = [
@@ -173,8 +173,10 @@ export const CONSIGNMENT_CHIPS: { id: ChipView; label: string; hint: string; dan
 ];
 
 /** The tiles over the Consignments grid: counts from the server, each opening the server view that counted it. */
-export const CONSIGNMENT_TILES: { id: "openFtlWithoutHaulier" | "pickupToday" | "deliveryToday"; label: string; hint: string; view: ConsignmentView }[] = [
+export const CONSIGNMENT_TILES: { id: "openFtlWithoutHaulier" | "pickupPassed" | "pickupToday" | "deliveryToday"; label: string; hint: string; view: ConsignmentView }[] = [
   { id: "openFtlWithoutHaulier", label: "Open FTL without haulier", hint: "Booked FTL consignments not yet on a trip", view: "openFtl" },
+  // The dispatcher's most urgent case gets its own count (User Council T6, mock council R23).
+  { id: "pickupPassed", label: "Pick-up date passed", hint: "The pick-up day has gone and no truck is ordered: no trip yet, or its transport order not sent", view: "pickupPassed" },
   { id: "pickupToday", label: "Pick-up today", hint: "Planned to be picked up today (Prague)", view: "pickupToday" },
   { id: "deliveryToday", label: "Delivery today", hint: "Promised for delivery today (Prague)", view: "deliveryToday" },
 ];

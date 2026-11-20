@@ -9,7 +9,8 @@ import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
 import { usePublicHolidays } from "@/hooks/usePublicHolidays";
-import { useMyCountries } from "@/hooks/useMyCountries";
+import { useMyCountryChoice } from "@/hooks/useMyCountries";
+import { ALL_COUNTRIES_MARK, pickerPlaceholder, pickerValue } from "@/app/calendar/_lib/countryChoice";
 import { CARD, ICON_BTN_GHOST } from "@/styles/ui";
 import { type HolidayItem, listedCountries, occurrences, ofMyCountries, overlaps, rowCountry } from "../_lib/holidays";
 import { HolidayAlerts } from "./HolidayAlerts";
@@ -29,15 +30,17 @@ interface WorldHolidaysTabProps {
 export function WorldHolidaysTab({ items: allItems, loading, canManage }: WorldHolidaysTabProps) {
   const toast = useToast();
   const { deleteHoliday } = usePublicHolidays();
-  // The countries the user cares about (kept on their account; the year calendar shows the same).
-  // Picked, the cards and the table show only theirs, until "All countries" is chosen for a look.
-  const { myCountries, saveMyCountries } = useMyCountries();
+  // The countries the user cares about (kept on their account and read as the year calendar reads
+  // them): the cards and the table show only theirs, until "All countries" is chosen for a look. A
+  // user who never picked gets the calendar's default - the company's countries, else Germany - not
+  // every country (mock council R21).
+  const { choice, countries: myCountries, pick } = useMyCountryChoice(allItems);
   const [showAll, setShowAll] = useState(false);
   const allCountries = useMemo(() => listedCountries(allItems), [allItems]);
   const items = useMemo(() => (showAll ? allItems : ofMyCountries(allItems, myCountries)), [allItems, myCountries, showAll]);
   const pickMyCountries = (next: string[]) => {
     setShowAll(false);
-    saveMyCountries(next).catch((err) => toast.error(`Could not save your countries: ${apiErrorMessage(err)}`));
+    void pick(allCountries, next);
   };
   const [search, setSearch] = useState("");
   const [countries, setCountries] = useState<string[]>([]);
@@ -108,26 +111,28 @@ export function WorldHolidaysTab({ items: allItems, loading, canManage }: WorldH
           mode="multiple"
           allowClear
           showSearch
-          placeholder="All countries — pick the ones you care about"
-          value={myCountries}
+          placeholder={pickerPlaceholder(choice)}
+          value={pickerValue(choice)}
           onChange={pickMyCountries}
-          options={allCountries.map((c) => ({ value: c, label: c }))}
+          options={[{ value: ALL_COUNTRIES_MARK, label: "All countries" }, ...allCountries.map((c) => ({ value: c, label: c }))]}
           maxTagCount="responsive"
           className="min-w-[280px] max-w-[560px] flex-1"
           aria-label="My countries"
         />
-        {myCountries.length > 0 && (
+        {myCountries !== null && (
           <Segmented<"mine" | "all">
             value={showAll ? "all" : "mine"}
             onChange={(v) => setShowAll(v === "all")}
             options={[
-              { value: "mine", label: `My countries (${myCountries.length})` },
+              { value: "mine", label: myCountries.length ? `My countries (${myCountries.length})` : "Czech holidays" },
               { value: "all", label: "All countries" },
             ]}
           />
         )}
         <span className="text-[12px] text-slate-500 basis-full">
-          Only these countries&apos; holidays show on this page and in the year calendar (which always shows the Czech ones), on every browser you sign in with. None picked shows all countries.
+          Only these countries&apos; holidays show on this page and in the year calendar (which always shows the Czech ones), on every browser you sign in with.
+          {choice.kind === "default" && " Until you pick, they are your company's countries (or Germany)."}
+          {" "}Take them all out for the Czech holidays only, or pick &ldquo;All countries&rdquo;.
         </span>
       </div>
 

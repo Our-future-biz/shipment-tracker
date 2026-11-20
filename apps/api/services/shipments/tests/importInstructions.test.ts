@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACCOUNT_FORMAT_PROBLEM, answerText, answersProblem, changedAnswers, needsClassification, otherProcedureLabel, fieldsToFill, importInstructionsUrl, isAccountNumber, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
+import { ACCOUNT_FORMAT_PROBLEM, answerText, approvedDutyPaidBy, answersProblem, changedAnswers, needsClassification, otherProcedureLabel, fieldsToFill, importInstructionsUrl, isAccountNumber, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
 import { importInstructionsPdf } from "../lib/importInstructionsPdf";
 import type { ImportInstructionAnswers } from "../interfaces/importInstructions";
 
@@ -50,9 +50,16 @@ describe("the form", () => {
   });
 
   it("keeps no bank or account when the duty and VAT are paid by us", () => {
-    expect(normalizeAnswers({ dutyPaidBy: "us", bank: "ČSOB", accountNumber: "19-2000145399/0800" })).toMatchObject({ bank: "", accountNumber: "" });
-    expect(normalizeAnswers({ dutyPaidBy: "own_account", bank: "ČSOB", accountNumber: "19-2000145399/0800" })).toMatchObject({ bank: "ČSOB", accountNumber: "19-2000145399/0800" });
-    expect(normalizeAnswers({ dutyPaidBy: "", bank: "ČSOB", accountNumber: "1/0300" })).toMatchObject({ bank: "ČSOB", accountNumber: "1/0300" });
+    const fc = { procedure: "free_circulation" as const };
+    expect(normalizeAnswers({ ...fc, dutyPaidBy: "us", bank: "ČSOB", accountNumber: "19-2000145399/0800" })).toMatchObject({ bank: "", accountNumber: "" });
+    expect(normalizeAnswers({ ...fc, dutyPaidBy: "own_account", bank: "ČSOB", accountNumber: "19-2000145399/0800" })).toMatchObject({ bank: "ČSOB", accountNumber: "19-2000145399/0800" });
+    expect(normalizeAnswers({ ...fc, dutyPaidBy: "", bank: "ČSOB", accountNumber: "1/0300" })).toMatchObject({ bank: "ČSOB", accountNumber: "1/0300" });
+  });
+
+  it("keeps who pays the duty, the bank and the account only under a) free circulation (mock council S3-7)", () => {
+    for (const procedure of ["t1", "own_broker", "other", ""] as const) {
+      expect(normalizeAnswers({ procedure, dutyPaidBy: "own_account", bank: "ČSOB", accountNumber: "19-2000145399/0800" })).toMatchObject({ dutyPaidBy: "", bank: "", accountNumber: "" });
+    }
   });
 });
 
@@ -134,6 +141,30 @@ describe("what an approved form writes to the shipment", () => {
     });
   });
 
+  it("writes the form's contact with its phone, over a different Contact the consignee brought (mock council M5)", () => {
+    const picked = { ...empty, consigneeContact: "Jana (CS)" };
+    expect(fieldsToFill(picked, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420 602" }))).toMatchObject({ consigneeContact: "Petr Skladník", deliveryPhone: "+420 602" });
+    // The same person: nothing to write.
+    expect(fieldsToFill({ ...empty, consigneeContact: "Petr Skladník" }, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420 602" })).consigneeContact).toBeUndefined();
+    // The job already has a phone, so none is written and the Contact stays as it is.
+    expect(fieldsToFill({ ...picked, deliveryPhone: "+420 1" }, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420 602" }))).not.toHaveProperty("consigneeContact");
+    // No phone on the form: the Contact is filled only when empty.
+    expect(fieldsToFill(picked, answers({ deliveryContact: "Petr Skladník" })).consigneeContact).toBeUndefined();
+    expect(fieldsToFill(empty, answers({ deliveryContact: "Petr Skladník" })).consigneeContact).toBe("Petr Skladník");
+  });
+
+  // System-21 mock council review: half a pair is still a pair - the form's phone with no contact named clears the
+  // Contact the consignee brought, so customer service's name never stands beside the warehouse man's phone.
+  it("clears the consignee's Contact when the form's phone is written with no contact (mock council M5)", () => {
+    const picked = { ...empty, consigneeContact: "Jana (CS)" };
+    expect(fieldsToFill(picked, answers({ deliveryContact: "", deliveryPhone: "+420 602" }))).toMatchObject({ consigneeContact: "", deliveryPhone: "+420 602" });
+    expect(fieldsToFill(picked, answers({ deliveryContact: "  ", deliveryPhone: "+420 602" })).consigneeContact).toBe("");
+    // No Contact to clear: none is written.
+    expect(fieldsToFill(empty, answers({ deliveryContact: "", deliveryPhone: "+420 602" }))).not.toHaveProperty("consigneeContact");
+    // No phone written (the job has one already): the Contact stays.
+    expect(fieldsToFill({ ...picked, deliveryPhone: "+420 1" }, answers({ deliveryContact: "", deliveryPhone: "+420 602" }))).not.toHaveProperty("consigneeContact");
+  });
+
   it("writes a T1 office only under a T1", () => {
     expect(fieldsToFill(empty, answers({ procedure: "t1", t1Office: "CZ590201 Praha" }))).toMatchObject({ customsProcedure: "T1", customsOffice: "CZ590201 Praha" });
     expect(fieldsToFill({ ...empty, customsProcedure: "SCP" }, answers({ procedure: "t1", t1Office: "CZ590201 Praha" })).customsOffice).toBeUndefined();
@@ -165,6 +196,10 @@ describe("what the reviewer changed", () => {
   it("is each changed answer in the form's order, the procedure in words", () => {
     expect(changedAnswers(answers(), answers({ procedure: "t1", t1Office: "CZ590201 Praha", tariffCode: "" }))).toEqual([
       { field: "procedure", label: "Customs procedure", sent: "a) Release for free circulation (SAD)", approved: "b) T1 transit" },
+      // Under a T1 nobody pays duty here, and no bank is kept (mock council S3-7).
+      { field: "dutyPaidBy", label: "Duty and VAT paid by", sent: "From your own account", approved: "" },
+      { field: "bank", label: "Bank", sent: "ČSOB", approved: "" },
+      { field: "accountNumber", label: "Account number", sent: "19-2000145399/0800", approved: "" },
       { field: "t1Office", label: "Customs office of destination", sent: "", approved: "CZ590201 Praha" },
       { field: "tariffCode", label: "Customs tariff code", sent: "8431", approved: "" },
     ]);
@@ -176,5 +211,20 @@ describe("what the reviewer changed", () => {
       { field: "bank", label: "Bank", sent: "ČSOB", approved: "" },
       { field: "accountNumber", label: "Account number", sent: "19-2000145399/0800", approved: "" },
     ]);
+  });
+});
+
+describe("who pays the duty and VAT, for Billing (mock council R3)", () => {
+  it("is what the approved form says, under free circulation only", () => {
+    expect(approvedDutyPaidBy({ status: "approved", approvedAnswers: answers({ dutyPaidBy: "us" }) })).toBe("us");
+    expect(approvedDutyPaidBy({ status: "approved", approvedAnswers: answers() })).toBe("own_account");
+    // A T1 form keeps no answer, even one sent anyway (S3-7).
+    expect(approvedDutyPaidBy({ status: "approved", approvedAnswers: { procedure: "t1", dutyPaidBy: "us" } })).toBe("");
+  });
+
+  it("is nothing while the form is not approved, or when there is none", () => {
+    expect(approvedDutyPaidBy({ status: "submitted", approvedAnswers: null })).toBe("");
+    expect(approvedDutyPaidBy({ status: "rejected", approvedAnswers: answers({ dutyPaidBy: "us" }) })).toBe("");
+    expect(approvedDutyPaidBy(null)).toBe("");
   });
 });

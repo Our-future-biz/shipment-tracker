@@ -135,8 +135,9 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
             />
           </TruckingField>
         )}
+        {/* A "by" time is a time-window delivery and is charged as one: the hint says it costs (mock council R22). */}
         {fixed && (
-          <TruckingField label="Delivery by" hint="Optional; the end of the Delivery time window">
+          <TruckingField label="Delivery by" hint="Optional; the end of the Delivery time window. Adds the Time window surcharge when the tariff has one">
             <TimePicker
               aria-label="Delivery by time"
               className="w-full"

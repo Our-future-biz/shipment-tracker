@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getTableColumns, sql, type SQL } from "drizzle-orm";
+import { and, getTableColumns, sql, type SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 // The parts of the repository that find the shipments of a sales quote and tell what the
@@ -120,7 +120,9 @@ import {
   directionMatch,
   handledByMatch,
   invoicingPredicate,
+  jobsOfMatch,
   modeMatch,
+  personNameMatch,
   searchMatch,
   searchedColumns,
   shipmentRepository,
@@ -398,9 +400,56 @@ describe("searchedColumns", () => {
     );
   });
 
+  it("reads Handled By and Holiday Cover as stored (an e-mail, a legacy \"e-mail — Name\"); their names are searchMatch's", () => {
+    expect(searched(["personInCharge", "holidayCover"])).toBe('"shipment"."job_number", "shipment"."person_in_charge", "shipment"."holiday_cover"');
+  });
+
   it("leaves out what the browser works out and keys it doesn't know, an object's own names among them", () => {
     expect(searched(["freightTon", "estimatedDepartureWeek", "profit", "nonsense"])).toBe('"shipment"."job_number"');
     expect(searched(["constructor", "toString", "__proto__", "hasOwnProperty"])).toBe('"shipment"."job_number"');
+  });
+});
+
+describe("a person searched by the name the grid shows (mock council S7-5)", () => {
+  const names = new Map([
+    ["eva.mala@cto.cz", "Eva Malá"],
+    ["jan@cto.cz", "Jan Novák"],
+    ["jana@cto.cz", "Jana Nováková"],
+  ]);
+  const EMAIL_OF = (column: string) => `lower(btrim(split_part("shipment"."${column}", ' — ', 1), $`;
+
+  it("compares the person columns with the e-mails of the users whose name holds the word, as bound parameters", () => {
+    const { sql: text, params } = sent(personNameMatch([shipmentTable.personInCharge, shipmentTable.holidayCover], names, "novak"));
+    expect(text).toContain(`${EMAIL_OF("person_in_charge")}`);
+    expect(text).toContain(`${EMAIL_OF("holiday_cover")}`);
+    expect(text).not.toMatch(/CASE/);
+    expect(params.filter((p) => p === "jan@cto.cz" || p === "jana@cto.cz")).toHaveLength(4);
+    expect(params).not.toContain("Jan Novák");
+    // No user's name holds it, no columns, a typed % kept literal: nothing.
+    expect(personNameMatch([shipmentTable.personInCharge], names, "koubek")).toBeUndefined();
+    expect(personNameMatch([], names, "novak")).toBeUndefined();
+    expect(personNameMatch([shipmentTable.personInCharge], names, "\\%")).toBeUndefined();
+  });
+
+  it("searching all fields: Handled By and Holiday Cover too, by their stored text and by the user's name", () => {
+    const { sql: text, params } = sent(searchMatch("Malá", undefined, names));
+    expect(text).toContain('"shipment"."person_in_charge", "shipment"."holiday_cover")');
+    expect(text).toContain(`${EMAIL_OF("person_in_charge")}`);
+    expect(params).toContain("%mala%");
+    expect(params).toContain("eva.mala@cto.cz");
+    // The main search sends no names: as before, no person columns.
+    expect(sent(searchMatch("Malá")).sql).not.toContain("person_in_charge");
+  });
+
+  it("searching chosen columns: only the chosen person columns by the name; others not at all", () => {
+    const chosen = sent(searchMatch("Malá", ["personInCharge", "pol"], names)).sql;
+    expect(chosen).toContain(`${EMAIL_OF("person_in_charge")}`);
+    expect(chosen).not.toContain("holiday_cover");
+    expect(sent(searchMatch("Malá", ["pol"], names)).sql).not.toContain("split_part");
+    // A reference word keeps its number match beside the name.
+    const both = sent(searchMatch("czfcl00000023", ["personInCharge"], new Map([["x@cto.cz", "CZFCL00000023 desk"]]))).sql;
+    expect(both).toContain("substring(");
+    expect(both).toContain("split_part");
   });
 });
 
@@ -474,6 +523,25 @@ describe("the list's Handled By filter", () => {
   it("asks nothing when no person is given", () => {
     expect(handledByMatch(undefined)).toBeUndefined();
     expect(handledByMatch("   ")).toBeUndefined();
+  });
+});
+
+// The list's "My jobs" button (mock council S9-1): the person's jobs, and those they cover.
+describe("the list's My jobs filter", () => {
+  const PERSON = (column: string, n: number) => `lower(btrim(split_part("shipment"."${column}", ' — ', 1), $${n}))`;
+  const TRIMMED = " \t\n\r ";
+
+  it("finds the jobs whose Handled By or Holiday Cover names the e-mail, trimmed and in any case", () => {
+    expect(sent(jobsOfMatch(" Jan@Firma.cz "))).toEqual({
+      sql: `(${PERSON("person_in_charge", 1)} = $2 OR ${PERSON("holiday_cover", 3)} = $4)`,
+      params: [TRIMMED, "jan@firma.cz", TRIMMED, "jan@firma.cz"],
+    });
+  });
+
+  it("asks nothing when no person is given, and has no word for nobody", () => {
+    expect(jobsOfMatch(undefined)).toBeUndefined();
+    expect(jobsOfMatch("  ")).toBeUndefined();
+    expect(sent(jobsOfMatch("nobody")).params).toEqual([TRIMMED, "nobody", TRIMMED, "nobody"]);
   });
 });
 
@@ -591,13 +659,34 @@ describe("the Invoicing page's lists (User Council B4 / Q9)", () => {
 
   // Owner's decision (a434fd85), kept by the chair: released for billing or invoiced, cancelled ones left out - now
   // with To bill's late-charge jobs (Q9). The unbilled arrivals stay their own tab.
-  it("All: released for billing or invoiced, with To bill's late charges, cancelled ones left out - no unbilled arrivals", () => {
+  // Mock council S5-1 / X-2, answer R10: a late-charge job is in All whatever its status, a cancelled one too, so To
+  // bill stays a part of All (the cancelled job is marked Cancelled on the queue).
+  it("All: released for billing or invoiced, cancelled ones left out, plus To bill's late charges whatever their status - no unbilled arrivals", () => {
     const { sql, params } = sent(invoicingPredicate("all", [JOB_55]));
-    expect(sql).toBe(`((${RELEASED} OR "shipment"."id" in ($1)) OR ${INVOICED}) AND "shipment"."status" IS DISTINCT FROM $2`);
-    expect(params).toEqual([JOB_55, CANCELLED_STATUS]);
+    expect(sql).toBe(`(((${RELEASED} OR ${INVOICED}) AND "shipment"."status" IS DISTINCT FROM $1) OR "shipment"."id" in ($2))`);
+    expect(params).toEqual([CANCELLED_STATUS, JOB_55]);
     expect(sql).not.toContain("NOT ILIKE 'bill%'");
     // No late-charge job named: All is released or invoiced, never everything.
-    expect(sent(invoicingPredicate("all")).sql).toBe(`((${RELEASED} OR false) OR ${INVOICED}) AND "shipment"."status" IS DISTINCT FROM $1`);
+    expect(sent(invoicingPredicate("all")).sql).toBe(`(((${RELEASED} OR ${INVOICED}) AND "shipment"."status" IS DISTINCT FROM $1) OR false)`);
+    // Every late-charge job To bill takes in, All takes in too.
+    expect(sent(invoicingPredicate("billing", [JOB_55])).sql).toContain(`"shipment"."id" in ($1)`);
+  });
+
+  // System-21 mock council review: listFiltered joins the list's predicate with the company, deleted and other filters
+  // by and(); All's OR must stay inside its own brackets, or a late-charge job of another company, a deleted one, or
+  // one another filter leaves out would be listed.
+  it("All and To bill each stay one bracketed condition, so and() keeps the company, deleted and other filters over their late charges", () => {
+    for (const filter of INVOICING_FILTERS_WITH_LATE_CHARGES) {
+      const joined = sent(and(sql`"shipment"."company_id" = 'c1'`, sql`"shipment"."deleted_at" IS NULL`, invoicingPredicate(filter, [JOB_55]))).sql;
+      const own = sent(invoicingPredicate(filter, [JOB_55])).sql;
+      expect(joined).toBe(`("shipment"."company_id" = 'c1' and "shipment"."deleted_at" IS NULL and ${own})`);
+      // The predicate opens with a bracket that closes only at its end: nothing of it stands outside.
+      let depth = 0;
+      for (const [i, ch] of [...own].entries()) {
+        depth += ch === "(" ? 1 : ch === ")" ? -1 : 0;
+        if (depth === 0) expect(i).toBe(own.length - 1);
+      }
+    }
   });
 
   it("keeps Invoiced and the unbilled arrivals as they were, and asks nothing for a word that is no list", () => {

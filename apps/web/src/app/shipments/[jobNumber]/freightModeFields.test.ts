@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEA_STAGES, carrierCardTitle, currentStageOf, fieldsForMode, progressStagesFor, showsContainerTab, workflowHeading } from "./freightModeFields";
+import { SEA_STAGES, airChargeableWeight, carrierCardTitle, currentStageOf, fieldsForMode, houseReleaseWords, modeLabel, progressStagesFor, showsChargeableWeight, showsContainerTab, workflowHeading } from "./freightModeFields";
 
 const CARRIER = [
   { key: "bookingNumber", label: "Booking Number" },
@@ -175,5 +175,38 @@ describe("the Carrier card's title and the Container Details tab", () => {
     // One entered before the mode changed can still be reached.
     expect(showsContainerTab("Air Freight", 1)).toBe(true);
     expect(showsContainerTab("Air Freight", 0, "MSKU1234565")).toBe(true);
+  });
+});
+
+// Mock council S4-3, S4-4: an air job's (and air master job's) rows say air waybill, flight and airports.
+describe("an air job's release and its master job's rows", () => {
+  it("names the House BoL release by the air waybill on air, and as before on sea and road", () => {
+    expect(houseReleaseWords("Air Freight")).toEqual({ label: "HAWB Release", button: "Release Air Waybill", document: "Air Waybill" });
+    expect(houseReleaseWords("Sea Freight")).toEqual({ label: "House BoL Release", button: "Release Bill of Lading", document: "Bill of Lading" });
+    expect(fieldsForMode([{ key: "houseBolRelease", label: "House BoL Release" }], "Air Freight", none)[0]!.label).toBe("HAWB Release");
+  });
+
+  it("gives a row its air name on air, its own elsewhere", () => {
+    expect(modeLabel("masterBolNumber", "Master BoL Number", "Air Freight")).toBe("MAWB Number");
+    expect(modeLabel("vessel", "Vessel", "Air Freight")).toBe("Flight");
+    expect(modeLabel("pol", "Port of Loading", "Air Freight")).toBe("Airport of Departure");
+    expect(modeLabel("pol", "Port of Loading", "Sea Freight")).toBe("Port of Loading");
+    expect(modeLabel("hub", "HUB", "Air Freight")).toBe("HUB");
+  });
+});
+
+// Mock council S4-Q2 / R17: an air job shows its chargeable weight, read only.
+describe("an air job's chargeable weight", () => {
+  it("is the greater of the gross weight and the volumetric weight (m³ × 1,000,000 ÷ 6000), as the quote's", () => {
+    expect(airChargeableWeight("Air Freight", "640", "1.2")).toBe("640.0 kg");
+    expect(airChargeableWeight("Air Freight", "100", "3")).toBe("500.0 kg");
+    expect(airChargeableWeight("Air Freight", "", "")).toBe("—");
+  });
+
+  it("is shown on air jobs only", () => {
+    expect(showsChargeableWeight("Air Freight")).toBe(true);
+    expect(showsChargeableWeight("Sea Freight")).toBe(false);
+    expect(showsChargeableWeight({ freightMode: "Air Freight", tradeDirection: "Domestic" })).toBe(false);
+    expect(airChargeableWeight("Sea Freight", "640", "1.2")).toBe("");
   });
 });

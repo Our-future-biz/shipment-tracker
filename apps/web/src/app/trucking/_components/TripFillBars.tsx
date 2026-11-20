@@ -37,19 +37,19 @@ const Bar = ({ label, value, of, unit, pct, tone, compact }: BarProps) => (
   </Tooltip>
 );
 
-// The fill of a trip as two bars, LDM and kg. The fuller of the two sets the colour of both (amber
-// from 90 %, red over 100 %); over capacity is a warning, never a block. A load given in pallet
-// places with no LDM shows a pallet-places bar instead of "LDM 0 %" (User Council T5); the server
-// sets palletPlacesPercent only then.
+// The fill of a trip as bars: LDM and kg, and pallet places when the vehicle has any. The fullest
+// sets the colour of all of them (amber from 90 %, red over 100 %); over capacity is a warning,
+// never a block. The places bar stands next to the LDM bar, not instead of it, so a truck full by
+// places with one LDM load on it no longer reads "LDM 15 %" alone (User Council T5, mock council
+// S6-1); the server sets palletPlacesPercent whenever the vehicle has pallet places.
 export const TripFillBars = ({ fill, capacity, compact = false }: TripFillBarsProps) => {
   const tone = tripFillTone(fill);
   const fuller = tripFillPercent(fill);
   return (
     <span className="flex flex-col gap-1" aria-label={fuller == null ? TERMS.fill : `${TERMS.fill} ${fuller} %`}>
-      {fill.palletPlacesPercent != null ? (
+      <Bar label={TERMS.ldm} value={fill.ldm} of={capacity?.ldm ?? null} unit={TERMS.ldm} pct={fill.ldmPercent} tone={tone} compact={compact} />
+      {fill.palletPlacesPercent != null && (
         <Bar label="PP" value={fill.palletPlaces} of={capacity?.palletPlaces ?? null} unit="pallet places" pct={fill.palletPlacesPercent} tone={tone} compact={compact} />
-      ) : (
-        <Bar label={TERMS.ldm} value={fill.ldm} of={capacity?.ldm ?? null} unit={TERMS.ldm} pct={fill.ldmPercent} tone={tone} compact={compact} />
       )}
       <Bar label="kg" value={fill.kg} of={capacity?.kg ?? null} unit="kg" pct={fill.kgPercent} tone={tone} compact={compact} />
     </span>

@@ -118,10 +118,11 @@ describe("stripping tally", () => {
 
     await containerService.voidTally(box.id, c, user, "manager", id, "wrong house");
     expect((await linesOf(c, id))[0]).toMatchObject({ status: "Voided" });
-    await containerService.tally(box.id, c, user, "user", id, { outcome: "received", pieces: 10 });
+    // Ticked off again at another rack: the line takes the new count's location, not the voided one's (mock council S11-2).
+    await containerService.tally(box.id, c, user, "user", id, { outcome: "received", pieces: 10, location: "c-07" });
     const again = await linesOf(c, id);
     expect(again).toHaveLength(1);
-    expect(again[0]).toMatchObject({ status: "Available", pieces: 10, location: "B-12" });
+    expect(again[0]).toMatchObject({ status: "Available", pieces: 10, location: "C-07" });
     expect((await movesOf(c, id)).map((m) => m.type).sort()).toEqual(["Adjustment", "Adjustment", "Receipt"]);
   });
 });

@@ -103,6 +103,12 @@ class CreditNoteRequestService {
     if ("problem" in plan) throw APIError.invalidArgument(plan.problem);
     const totals = partialCreditTotals(plan.lines, Number(original.fxRate));
     const userEmail = await userEmailOf(actor.userID);
+    // Checked again under the invoice's row lock, with the insert (mock council S5-4 / X-3): a change asked a second
+    // ago is seen, so the two never both wait.
+    const noChangeWaits: Parameters<typeof requests.create>[1] = async (tx) => {
+      const now = await changeRequests.pendingFor(actor.companyID, original.id, tx);
+      if (now && now.issueDate === pragueToday()) throw APIError.failedPrecondition(waitingRequestProblem("change", now.requestedAt));
+    };
     const created = await requests.create({
       companyId: actor.companyID,
       shipmentId: original.shipmentId,
@@ -120,7 +126,7 @@ class CreditNoteRequestService {
       reason,
       requestedById: actor.userID,
       requestedByName: userEmail,
-    });
+    }, noChangeWaits);
     if (!created) throw APIError.failedPrecondition(`A partial credit note of ${original.number} already waits for a manager: take it back to ask again`);
     return toCreditRequestItem(created);
   }

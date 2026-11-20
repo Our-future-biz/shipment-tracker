@@ -1,4 +1,5 @@
 import { businessDay } from "../../../lib/businessDate";
+import { seaPortText } from "../../../lib/geo/carrierPorts";
 import { canApproveMargin, ownerChangeRight, quoteDeletePermission, type OwnerChangeRight } from "../../../lib/salesPolicy";
 import { freightModeGateMessage, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { fclProfitGateMessage } from "./fclProfit.utils";
@@ -91,6 +92,21 @@ function ownerPermission(
 }
 
 /**
+ * The quote's document as it is shown: on a sea quote, a POL or POD stored with a carrier code
+ * before the pickers named it as its port ("Shanghai Hongqiao International Apt (CNSHA)") reads
+ * "Shanghai (CNSHA)", in the editor, the lists and the customer's document (mock council S4-1).
+ * Only on the way out: the stored row is not changed by it. Any other document is returned as it is.
+ */
+export function shownDocument(data: unknown): unknown {
+  if (!isPlainObject(data)) return data;
+  const mode = typeof data.serviceType === "string" ? data.serviceType : "";
+  const port = (value: unknown) => (typeof value === "string" ? seaPortText(value, mode) : value);
+  const pol = port(data.pol);
+  const pod = port(data.pod);
+  return pol === data.pol && pod === data.pod ? data : { ...data, pol, pod };
+}
+
+/**
  * THE ONE MAPPER from a stored sales quote to what the API hands out. Everything that depends on
  * the moment or on who asks is worked out here, from the rules: whether the quote counts as
  * expired, what it may be set to, whether a follow-up is due, its road margin, and what this user
@@ -120,7 +136,7 @@ export function toItem(
   return {
     id: row.id,
     quoteNumber: row.quoteNumber,
-    data: row.data,
+    data: shownDocument(row.data),
     terms: row.terms,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

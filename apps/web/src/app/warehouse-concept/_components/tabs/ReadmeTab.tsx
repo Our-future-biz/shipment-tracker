@@ -268,12 +268,14 @@ export function ReadmeTab() {
         <ul>
           <li>Anyone can tick a line OK once it is met, or untick it back to Pending. Every change is logged on the movement with who and when.</li>
           <li>
-            <b>Customs</b> is not ticked by hand: it follows the customs status and is OK only at &ldquo;Customs Cleared/Released&rdquo;.
+            <b>Customs</b> is not ticked by hand: it follows the customs status and is OK only at &ldquo;Customs Cleared/Released&rdquo;. Outbound cargo under
+            transit (customs mode T1 or T2L) with an MRN recorded passes it too: it leaves under its transit document, the same rule as the export container
+            gate-out.
           </li>
           <li>The empty return line never holds the release.</li>
           <li>
-            <b>Refuse</b> (with a reason) blocks the release. A <b>supervisor override</b> (admin or manager, with a reason) clears it whatever the lines say; both
-            are logged.
+            <b>Refuse</b> (with a reason) blocks the release. A <b>supervisor override</b> (admin or manager, with a reason) clears the other lines whatever they
+            say, never Customs; both are logged. The prepayment stop at the {TERMS.whRelease} still asks a manager for a reason.
           </li>
           <li>
             The indicator reads <b>{TERMS.clear}</b> or <b>{TERMS.blocked}</b> (with what it is waiting for). After the {TERMS.whRelease} stamp it reads{" "}

@@ -249,23 +249,24 @@ export function capacityOf(v: VehicleTypeSetting | null): TripCapacity | null {
 const percent = (used: number, cap: number) => (cap > 0 ? roundToStep((used / cap) * 100, 0.1) : null);
 
 /**
- * What the legs fill of the vehicle. A load given in pallet places with no LDM is filled by its
- * places against the vehicle's (User Council T5: a full truck of 33 places read "LDM 0 %"); with
- * any LDM the LDM bar stays, so palletPlacesPercent is then null. The web's projectedFill
- * (trucking/_lib/planning.ts) counts the same way.
+ * What the legs fill of the vehicle. The pallet places are always counted against the vehicle's
+ * when it has any (User Council T5: a full truck of 33 places read "LDM 0 %"; mock council S6-1:
+ * one 2 LDM load among place-only loads still read "LDM 15 %" on a truck full by places). The
+ * fill is the fullest of LDM, kg and pallet places, and the screens show the places bar next to
+ * the LDM bar. palletPlacesPercent is null only without a vehicle or when it has no pallet places.
+ * The web's projectedFill (trucking/_lib/planning.ts) counts the same way.
  */
 export function tripFill(loads: { ldm: number; weightKg: number; palletPlaces: number }[], cap: TripCapacity | null): TripFill {
   const ldm = roundToStep(loads.reduce((a, l) => a + l.ldm, 0), 0.01);
   const kg = roundToStep(loads.reduce((a, l) => a + l.weightKg, 0), 0.01);
   const palletPlaces = roundToStep(loads.reduce((a, l) => a + l.palletPlaces, 0), 0.01);
-  const byPlaces = !!cap && ldm <= 0 && palletPlaces > 0;
   return {
     ldm,
     kg,
     palletPlaces,
     ldmPercent: cap ? percent(ldm, cap.ldm) : null,
     kgPercent: cap ? percent(kg, cap.kg) : null,
-    palletPlacesPercent: byPlaces ? percent(palletPlaces, cap.palletPlaces) : null,
+    palletPlacesPercent: cap ? percent(palletPlaces, cap.palletPlaces) : null,
   };
 }
 

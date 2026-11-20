@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Input } from "antd";
+import { prefillFromParams, type ExceptionPrefill } from "@/app/warehouse-concept/_lib/exceptionPrefill";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
@@ -18,11 +20,17 @@ type Prefill = { type: string; pieces: number; container: string; surveyPhase: s
 // The same exception as on the gate job — while it is open the cargo is on hold. What the survey
 // of the pass due now found (damaged → Damaged, lost → Short) is offered first. Resolving stays
 // on the gate job.
-export function FloorException({ m, onBack }: { m: GateMovement; onBack: () => void }) {
+// A receipt or a tally tick that found something opens it with the type and pieces found
+// (`prefill`, or `type` / `pieces` in the link), not Damaged, 1 pc (mock council S11-1).
+export function FloorException({ m, onBack, prefill }: { m: GateMovement; onBack: () => void; prefill?: ExceptionPrefill | null }) {
   const toast = useToast();
   const q = useFloorQueue();
   const take = useTakePhoto(m);
-  const [form, setForm] = useState<Prefill>({ type: "Damaged", pieces: 1, container: m.containers[0]?.number ?? "", surveyPhase: "" });
+  const searchParams = useSearchParams();
+  const [form, setForm] = useState<Prefill>(() => {
+    const found = prefill ?? prefillFromParams(searchParams.get("type"), searchParams.get("pieces"));
+    return { type: found?.type ?? "Damaged", pieces: found?.pieces ?? 1, container: m.containers[0]?.number ?? "", surveyPhase: "" };
+  });
   const [note, setNote] = useState("");
   const [fileIds, setFileIds] = useState<string[]>([]);
   const [tag, setTag] = useState("CTN");

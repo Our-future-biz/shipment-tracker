@@ -109,8 +109,9 @@ const TIME_OF_DATE: Partial<Record<MasterJobPrefilledField, MasterJobPrefilledFi
  * The values a new master job takes from the houses it is made from: each field every one of them
  * has filled in alike. A field they differ on, or one of them leaves empty, stays empty, so linking
  * them changes nothing on any house (an empty master job field is not written onto a house). A place
- * agrees by its code, and takes the text of the house written last. A time comes only with its date:
- * on its own it would be a time of no day.
+ * agrees by its code, and takes the text of the house written last; linking leaves a house's place
+ * that has the master job's code as it is (linkedHouseData, mock council S4-7). A time comes only
+ * with its date: on its own it would be a time of no day.
  */
 export function agreedHouseValues(houses: readonly Record<string, unknown>[]): Partial<Record<MasterJobPrefilledField, string>> {
   const out: Partial<Record<MasterJobPrefilledField, string>> = {};
@@ -125,6 +126,26 @@ export function agreedHouseValues(houses: readonly Record<string, unknown>[]): P
   }
   for (const [time, date] of Object.entries(TIME_OF_DATE) as [MasterJobPrefilledField, MasterJobPrefilledField][]) {
     if (!(date in out)) delete out[time];
+  }
+  return out;
+}
+
+/**
+ * The synced values a house just linked takes, without a place it already has by the same code: an
+ * older house's "Shanghai Hongqiao International Apt (CNSHA)" is the master job's "Shanghai (CNSHA)",
+ * and rewriting its text would change it, with a History entry, for no new port (mock council S4-7).
+ */
+export function linkedHouseData(
+  synced: Partial<Record<MasterJobSyncedField, string | null>>,
+  house: Record<string, unknown>,
+): Partial<Record<MasterJobSyncedField, string | null>> {
+  const out = { ...synced };
+  for (const key of ["pol", "pod"] as const) {
+    const value = out[key];
+    const own = house[key];
+    if (typeof value !== "string" || typeof own !== "string" || own === value) continue;
+    const code = placeCodeOf(value);
+    if (code && placeCodeOf(own) === code) delete out[key];
   }
   return out;
 }

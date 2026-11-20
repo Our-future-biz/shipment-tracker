@@ -7,6 +7,7 @@ import type { Actor } from "../../../lib/rbac";
 import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
 import { isUuid } from "../../../lib/uuid";
 import { toDecimal } from "../lib/amounts";
+import { BILLED_LATE_DECIDED } from "../lib/billedLock";
 import { INVOICED } from "../lib/shipmentStatus";
 import { CANCELLED_STATUS, seesTruckingConcept } from "../lib/supplierCosts";
 import {
@@ -14,10 +15,10 @@ import {
   claimsOf,
   daysOverdue,
   dueDayOf,
-  hasNoAmount,
   holdsPayment,
   lineAmount,
   marksOf,
+  missingAmountProblem,
   invoiceNumberKey,
   paymentProblem,
   sumByCurrency,
@@ -178,6 +179,25 @@ const masterLineItem = (l: MasterJobCostRecord, masters: Context["masters"]): Pa
   };
 };
 
+/**
+ * Why an invoice can't be approved or paid for its lines' amounts, or null (mock council M2: any line with no real
+ * cost). The job numbers are read only when a line is empty, to name it; when they can't be read the line is named
+ * without one - the refusal stands either way.
+ */
+async function missingAmountOf(costLines: InvoiceCostRecord[], masterLines: MasterJobCostRecord[]): Promise<string | null> {
+  const all = [...costLines, ...masterLines];
+  if (all.length && all.every((l) => l.realAmount !== null)) return null;
+  // None with an amount reads "no amount yet", with no line to name.
+  const toName = all.some((l) => l.realAmount !== null);
+  const [jobs, masters] = toName
+    ? await Promise.all([
+        jobsOf([...new Set(costLines.filter((l) => l.realAmount === null).map((l) => l.shipmentId))]).catch(() => new Map<string, JobFacts>()),
+        mastersOf([...new Set(masterLines.filter((l) => l.realAmount === null).map((l) => l.masterJobId))]).catch((): Context["masters"] => new Map()),
+      ])
+    : [new Map<string, JobFacts>(), new Map() as Context["masters"]];
+  return missingAmountProblem([...costLines.map((l) => costLineItem(l, jobs)), ...masterLines.map((l) => masterLineItem(l, masters))]);
+}
+
 const claimItem = (c: PayableClaimFact, invoiceId: string): PayableClaimItem => ({
   id: c.id,
   shipmentId: c.shipmentId,
@@ -323,6 +343,8 @@ class SupplierInvoiceService {
         claims: claims.map((c) => claimItem(c, h.id)),
         claimed: holdsPayment(claims),
         mine,
+        // Why Approve and Mark paid are refused for its amounts (mock council M2): a line with no real cost.
+        missingAmount: h.status === "refused" ? "" : (missingAmountProblem(lines) ?? ""),
         aboveEstimate: lines.some((l) => l.difference !== null && l.difference > 0.005),
         jobBilled: jobFacts.some((j) => j.invoicingStatus === INVOICED),
         arrivedAfterBilling: shipmentIds.some((id) => {
@@ -540,11 +562,11 @@ class SupplierInvoiceService {
     }
     const users = await companyUsersWithRoles();
     const anotherManager = users.some((u) => canDecideQuoteInquiry(u.role) && u.id !== actor.userID);
-    // No line with a real cost: nothing to approve yet (User Council A1).
+    // A line with no real cost: nothing to approve yet (User Council A1; any line, mock council M2).
     const [costLines, masterLines] = await Promise.all([repo.costLinesOf(actor.companyID, [h.id]), repo.masterLinesOf(actor.companyID, [h.id])]);
     const { problem, selfDecision } = approvalProblem({
       status: h.status,
-      noAmount: hasNoAmount([...costLines, ...masterLines]),
+      missingAmount: await missingAmountOf(costLines, masterLines),
       // Linked: to a company the Customer Database still has.
       linked: !!supplierId && facts !== null,
       facts,
@@ -637,8 +659,8 @@ class SupplierInvoiceService {
       today: businessDay(new Date()),
       bookedOn: paidNotBefore(h),
       openClaim: open,
-      // No line with a real cost: nothing to pay yet (User Council A1).
-      noAmount: hasNoAmount([...costLines, ...masterLines]),
+      // A line with no real cost: nothing to pay yet (User Council A1; any line, mock council M2).
+      missingAmount: await missingAmountOf(costLines, masterLines),
     });
     if (problem) throw APIError.failedPrecondition(problem);
     const by = await userEmailOf(actor.userID);
@@ -815,13 +837,23 @@ class SupplierInvoiceService {
     actor: Pick<Actor, "userID" | "companyID">,
     line: { supplierInvoiceId: string | null } & Record<string, unknown>,
     changes: Record<string, unknown> | "delete",
+    opts: { keepDecided?: boolean } = {},
   ): Promise<void> {
-    if (line.supplierInvoiceId) await this.beforeLeaving(actor, line as { supplierInvoiceId: string } & Record<string, unknown>, changes);
+    if (line.supplierInvoiceId) await this.beforeLeaving(actor, line as { supplierInvoiceId: string } & Record<string, unknown>, changes, opts);
     if (changes !== "delete") await this.beforeJoining(actor, line, changes);
   }
 
-  /** The invoice the line is on: kept as paid once paid, approved again when what it bills changes. */
-  private async beforeLeaving(actor: Pick<Actor, "userID" | "companyID">, line: { supplierInvoiceId: string } & Record<string, unknown>, changes: Record<string, unknown> | "delete") {
+  /**
+   * The invoice the line is on: kept as paid once paid, approved again when what it bills changes. `keepDecided`: a
+   * billed job's late real cost put right while its invoice waited for approval - approved meanwhile, it stays approved
+   * and the change is refused (lib/billedLock, system-21 mock council review).
+   */
+  private async beforeLeaving(
+    actor: Pick<Actor, "userID" | "companyID">,
+    line: { supplierInvoiceId: string } & Record<string, unknown>,
+    changes: Record<string, unknown> | "delete",
+    opts: { keepDecided?: boolean } = {},
+  ) {
     if (changes !== "delete" && changes.paidOn !== undefined && (changes.paidOn ?? null) !== (line.paidOn ?? null)) {
       throw APIError.failedPrecondition("This line is on a supplier invoice: its payment is noted for the whole invoice on Finance → Accounts Payable");
     }
@@ -835,6 +867,7 @@ class SupplierInvoiceService {
       throw APIError.failedPrecondition(`Supplier invoice ${h.invoiceNumber} is marked paid (${h.paidOn}): its lines stay as paid. Take the payment back on Finance → Accounts Payable first`);
     }
     if (h.status !== "approved" || !changed.length) return;
+    if (opts.keepDecided) throw APIError.failedPrecondition(BILLED_LATE_DECIDED);
     await this.backToBooked(actor, h, { line: (line as { id?: string }).id ?? null, changed });
   }
 

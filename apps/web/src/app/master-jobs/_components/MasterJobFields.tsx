@@ -1,16 +1,17 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useContext, useState } from "react";
 import { Select, Tooltip } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
-import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { EditableCell, FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CARD, CARD_BODY, COLS2, LABEL, REF_KEYS, REF_VALUE, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
 import { CardFieldTools, type CardField } from "@/app/shipments/[jobNumber]/_components/CardFieldTools";
 import { useCardFields } from "@/app/shipments/[jobNumber]/useCardFields";
 import { shownColumns } from "@/app/shipments/[jobNumber]/cardFields";
 import { FadeText } from "@/components/FadeText";
 import { CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY } from "@/styles/ui";
-import { INCOTERM_NAMES, incotermLabel } from "@/lib/incoterms";
+import { incotermLabel } from "@/lib/incoterms";
+import { incotermOptionsFor } from "@/lib/columnConfig";
 
 // Rows and cards of the master-job detail. They mirror the shipment detail's
 // DetailCard / FieldRow markup, which is bound to ShipmentItem, so the master
@@ -162,12 +163,15 @@ export function ReadOnlyRow({ label, value, code }: { label: string; value?: Rea
   );
 }
 
-const INCOTERM_OPTIONS = Object.keys(INCOTERM_NAMES).map((code) => ({ value: code, label: incotermLabel(code) }));
-
-/** Incoterm stored as its code, shown and picked with its full name ("FOB – Free On Board"). */
+/**
+ * Incoterm stored as its code, shown and picked with its full name ("FOB – Free On Board"). An air, rail or
+ * road master job offers no sea-only terms, as a shipment and a quote do (mock council S4-5).
+ */
 export function IncotermRow({ label, fieldKey, value, onCommit }: FieldRowProps) {
   const [editing, setEditing] = useState(false);
   const code = value ?? "";
+  const freightMode = useContext(FreightModeContext);
+  const options = incotermOptionsFor(freightMode, code).map((c) => ({ value: c, label: incotermLabel(c) }));
   return (
     <div className={ROW}>
       <span className={LABEL}>{label}</span>
@@ -179,7 +183,7 @@ export function IncotermRow({ label, fieldKey, value, onCommit }: FieldRowProps)
           allowClear
           className="flex-1 min-w-[220px]"
           defaultValue={code || undefined}
-          options={INCOTERM_OPTIONS}
+          options={options}
           onChange={(v) => {
             setEditing(false);
             if ((v ?? "") !== code) onCommit(fieldKey, v ?? "");

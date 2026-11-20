@@ -286,7 +286,7 @@ describe("planning board", () => {
     expect(after.unplanned.map((l) => l.consignmentRef)).toEqual([b.ref]);
     expect(after.trips).toHaveLength(1);
     expect(after.trips[0]).toMatchObject({ kind: "PICKUP_RUN", haulierName: "Bravo", buyTotal: 3000, transportOrderSent: false });
-    expect(after.trips[0]!.fill).toEqual({ ldm: 0.8, kg: 500, palletPlaces: 2, ldmPercent: 26.7, kgPercent: 41.7, palletPlacesPercent: null });
+    expect(after.trips[0]!.fill).toEqual({ ldm: 0.8, kg: 500, palletPlaces: 2, ldmPercent: 26.7, kgPercent: 41.7, palletPlacesPercent: 33.3 });
     expect(after.trips[0]!.stops.map((s) => s.consignmentRef)).toEqual([a.ref]);
   });
 });

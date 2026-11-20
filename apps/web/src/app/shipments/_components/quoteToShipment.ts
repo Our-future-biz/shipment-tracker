@@ -147,7 +147,9 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
   // its own. Where the container or package lines give a figure, the shipment works it out from
   // its own rows; a stored total is what it shows when its rows carry none.
   const cargo = computeCargo(data);
-  if (data.weight && !cargo.weightFromLines) set("totalWeightTons", (Number(data.weight) / 1000).toFixed(3));
+  // To 0.1 kg, as the quote's chargeable weight is counted (chargeableKg) and the job stores it (4
+  // decimals of a ton): 640.45 kg is 640.5 kg on both, not 640.0 on the job (mock council S2-3).
+  if (data.weight && !cargo.weightFromLines) set("totalWeightTons", (Math.round(cargo.grossWeight * 10) / 10_000).toFixed(4));
   if (data.cbm && !cargo.cbmFromLines) set("totalVolumeCbm", String(data.cbm));
 
   return out;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { expiresWithin, formatPsc, HAULIER_CHIPS, HAULIER_STATUS_CHIP, issueSummary, profileProblems, pscDigits, pscRangeProblem, sortIssues, type LaneDraft } from "./hauliers";
+import { expiresWithin, formatPsc, HAULIER_CHIPS, HAULIER_STATUS_CHIP, issueFixHref, issueSummary, profileProblems, pscDigits, pscRangeProblem, sortIssues, type LaneDraft } from "./hauliers";
 
 const issue = (code: interfaces.HaulierIssueCode, severity: "block" | "warn", message: string = code): interfaces.HaulierIssue => ({ code, severity, message });
 
@@ -99,5 +99,16 @@ describe("profileProblems", () => {
       "Lane 1 destination: “from” must not be after “to”",
       "Lane 2 origin: postcodes have 5 digits",
     ]);
+  });
+});
+
+describe("where a haulier's issue is put right (mock council S6-4)", () => {
+  it("sends the VAT register and bank account to the Customer Database's Finance tab, the rest to the haulier page", () => {
+    expect(issueFixHref("c1", "no_bank_account")).toBe("/customers/c1?tab=finance");
+    expect(issueFixHref("c1", "vat_check_due")).toBe("/customers/c1?tab=finance");
+    expect(issueFixHref("c1", "vat_unreliable")).toBe("/customers/c1?tab=finance");
+    expect(issueFixHref("c1", "insurance_expiring")).toBe("/trucking/hauliers/c1");
+    expect(issueFixHref("c1", "missing_licence")).toBe("/trucking/hauliers/c1");
+    expect(issueFixHref("c1", "blocked")).toBe("/trucking/hauliers/c1");
   });
 });

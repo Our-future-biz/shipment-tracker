@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBillingQueue, countCreditsOwed, countInvoicedLines, type QueueOpenInvoice, type QueueSellingRow } from "../lib/billingQueue";
+import { buildBillingQueue, countCreditsOwed, countInvoicedLines, countNotTicked, type QueueOpenInvoice, type QueueSellingRow } from "../lib/billingQueue";
 
 const rates = { CZK: 1, EUR: 25, USD: 22 };
 const row = (id: string, shipmentId: string, amount: string, currency = "CZK", qty: string | null = "1.00"): QueueSellingRow => ({
@@ -122,5 +122,27 @@ describe("countCreditsOwed (M3)", () => {
       ],
     );
     expect([...owed]).toEqual([["s1", 1], ["s3", 1]]);
+  });
+});
+
+// Mock council S5-3: a charge not ticked for Invoice kept the job in To bill with 0 to bill and no word why.
+describe("countNotTicked (S5-3)", () => {
+  const row = (id: string, shipmentId: string, amount: string | null, invoice: boolean, over: Record<string, unknown> = {}) => ({ id, shipmentId, qty: "1.00", amount, invoice, ...over });
+
+  it("counts a job's charges on no open invoice that are not ticked for Invoice", () => {
+    const counts = countNotTicked(
+      [
+        row("ticked", "s1", "1000.00", true),
+        row("late", "s1", "150.00", false),
+        // on an open invoice already: billed
+        row("billed", "s1", "90.00", false),
+        // below nothing, nothing, or a credit note's own row: no charge
+        row("credit", "s1", "-20.00", false),
+        row("blank", "s2", null, false),
+        row("cn", "s2", "40.00", false, { sourceCreditNoteId: "cn1" }),
+      ],
+      [{ sourceSellingCostIds: ["billed"] }],
+    );
+    expect([...counts]).toEqual([["s1", 1]]);
   });
 });

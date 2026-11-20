@@ -50,6 +50,26 @@ export function answerSummary(a: ImportAnswers): { key: keyof ImportAnswers; lab
     .filter((row) => row.value);
 }
 
-/** Whom to ask about a link that no longer opens: the company that sent it when the server names it. */
-export const usedLinkText = (companyName: string | null | undefined): string =>
-  `It was already used, it has expired or it was cancelled. Please ask ${companyName?.trim() || "your contact"} for a new one.`;
+/** How the customer reaches us: the company's phone and e-mail, as the tracking page gives them (mock council S3-2). */
+export interface OurContact {
+  companyName?: string | null;
+  ourPhone?: string | null;
+  ourEmail?: string | null;
+}
+
+// The company's name, then its phone and e-mail in brackets when known: "Austromar s.r.o. (+420 222 333 444, ops@austromar.cz)".
+const whom = (our: OurContact, fallback: string): string => {
+  const ways = [our.ourPhone, our.ourEmail].map((v) => v?.trim() ?? "").filter(Boolean);
+  const name = our.companyName?.trim() || fallback;
+  return ways.length ? `${name} (${ways.join(", ")})` : name;
+};
+
+/** The header's line on whom to ask about the form. */
+export const questionsText = (our: OurContact): string => `Questions: contact ${whom(our, "whoever sent you this link")}`.replace(/\.?$/, ".");
+
+/** Whom to ask for a new link: the company that sent it when the server names it, with its phone and e-mail. */
+export const askForNewLink = (our: OurContact | null | undefined): string => `Please ask ${whom(our ?? {}, "your contact")} for a new one.`;
+
+/** Why a link no longer opens, and whom to ask. A bare name is taken as the company's. */
+export const usedLinkText = (our: OurContact | string | null | undefined): string =>
+  `It was already used, it has expired or it was cancelled. ${askForNewLink(typeof our === "string" ? { companyName: our } : our)}`;

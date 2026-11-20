@@ -1,14 +1,21 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
+import { useToast } from "@/lib/toast";
+import { useCountries } from "@/hooks/useOrgUnits";
+import { defaultCountries } from "@/app/calendar/_lib/dayHolidays";
+import { chosenCountries, countryChoice, keptAfterPick, pickerValue } from "@/app/calendar/_lib/countryChoice";
+import type { HolidayItem } from "@/app/calendar/public-holidays/_lib/holidays";
 
 const MY_COUNTRIES_KEY = ["holiday-my-countries"];
 const SAVE_KEY = ["holiday-my-countries", "save"];
 
 /**
  * The countries whose holidays the signed-in user cares about, kept on their account: the Public
- * Holidays page and the year calendar show only theirs. An empty list shows every country.
+ * Holidays page and the year calendar show only theirs. As kept, not as read: useMyCountryChoice
+ * says what the list means (an empty one is a user who never picked).
  */
 export function useMyCountries() {
   const queryClient = useQueryClient();
@@ -42,4 +49,24 @@ export function useMyCountries() {
     },
   });
   return { myCountries: query.data ?? [], loaded: query.isSuccess, saveMyCountries: save.mutateAsync, isSaving: save.isPending };
+}
+
+/**
+ * The user's "My countries" as the year calendar and the Public Holidays page both read it (mock
+ * council R21): the countries picked, every country, no other country - or, for a user who never
+ * picked, the company's countries (else Germany) as if picked, on both pages alike (user council
+ * M19). `listed` is the World Holidays list; `pick` keeps what a picker offering `offered` (and
+ * "All countries", ALL_COUNTRIES_MARK) was changed to, and says so when the save fails.
+ */
+export function useMyCountryChoice(listed: HolidayItem[]) {
+  const toast = useToast();
+  const { myCountries: stored, saveMyCountries } = useMyCountries();
+  const { countries: companyCountries } = useCountries();
+  const fallback = useMemo(() => defaultCountries(companyCountries.map((c) => c.code), listed), [companyCountries, listed]);
+  const choice = useMemo(() => countryChoice(stored, fallback), [stored, fallback]);
+  const pick = (offered: readonly string[], next: string[]) =>
+    saveMyCountries(keptAfterPick(stored, offered, pickerValue(choice), next)).catch((err) => {
+      toast.error(`Could not save your countries: ${apiErrorMessage(err)}`);
+    });
+  return { choice, countries: chosenCountries(choice), pick };
 }

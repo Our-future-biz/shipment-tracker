@@ -183,6 +183,32 @@ export function withOceanOffer(lines: CostLine[], index: number, offer: OceanOff
   return withTariffLines(lines, index, OCEAN_REF_PREFIX, (picked) => oceanOfferLines(picked, offer, route, quote));
 }
 
+/**
+ * The selling lines after an ocean offer was picked again on buying line `before`: the selling line
+ * that sells it (its pair) takes the new freight's text when it still has the text the buying line
+ * had, or ends with the old shipping line's name in brackets, as lines were described before the
+ * supplier left the text (owner's answer Q27). Picking the tariff again so clears the supplier's
+ * name from what the customer reads (mock council S2-4); a stored quote is changed only when
+ * someone picks again. A selling text written by hand stays. Null when nothing changes.
+ */
+export function sellingAfterOceanPick(selling: readonly CostLine[], before: CostLine | undefined, freight: CostLine | undefined): CostLine[] | null {
+  if (!before || !freight?.description) return null;
+  const old = before.description?.trim() ?? "";
+  const supplier = before.supplier?.trim() ?? "";
+  let changed = false;
+  const lines = selling.map((l) => {
+    const text = l.description?.trim() ?? "";
+    const copied = !!old && text === old;
+    const named = !!supplier && text.endsWith(` (${supplier})`);
+    // Its pair; a line from before pairs were kept is known by the same text alone (costPairs counterpartIndex).
+    const sells = before.pairId ? l.pairId === before.pairId : !l.pairId && copied;
+    if (!sells || text === freight.description || !(copied || named)) return l;
+    changed = true;
+    return { ...l, description: freight.description };
+  });
+  return changed ? lines : null;
+}
+
 /** An offer's all-in total in the quote's currency: every currency's total converted; null when one has no rate. */
 export function oceanAllIn(offer: Pick<OceanOffer, "totals">, quoteCurrency: string, toQuoteCurrency: ToQuoteCurrency): number | null {
   let sum = 0;

@@ -102,6 +102,7 @@ import { InvoiceHeaderFields } from "./InvoiceHeaderFields";
 import { anyToSplit, creditAmount, creditLines, invoiceDocumentDetails, invoiceLinesInvalid, invoicePostLines, lineAmount, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
 import { shipmentFreight } from "@/lib/freightTons";
 import { apInvoiceHref } from "@/lib/accountsPayable";
+import { masterJobModeOf } from "@/app/master-jobs/_lib/masterJobWords";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 
@@ -1899,6 +1900,8 @@ export function DocumentReadingWorkflow() {
             onEdit={editField}
             onPick={pickField}
             containersOnFile={shipmentMode === "existing" ? containerNumbersOnFile(targetShipment?.containers ?? []) : []}
+            // A booking read onto a master job names no Freight Mode: the master job's (mock council R18).
+            freightMode={destination === "booking" && bookingMasterJob ? masterJobModeOf(bookingMasterJob) : undefined}
           />
           {shipmentDocViews.map((d) => (
             <SaveDocumentBox
@@ -2347,6 +2350,7 @@ export function DocumentReadingWorkflow() {
                       editable
                       onEdit={editMasterField}
                       showExisting={false}
+                      freightMode={currentMasterJob ? masterJobModeOf(currentMasterJob) : undefined}
                       accent="amber"
                     />
                     {docToSave && (

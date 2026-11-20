@@ -62,8 +62,9 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
     return (
       <div className="flex flex-col gap-5">
         <div className={HINT}>
-          This job is Warehouse Concept position <span className={`${REF} text-slate-900`}>{home.positionRef}</span>. Its gate releases the cargo against the
-          pick-up and PIN entered here. The server makes the PIN (six digits) and shows it once — give it to the haulier.
+          {/* Worded for both directions: the gate checks the PIN only when import cargo is collected (mock council S10-6). */}
+          This job is Warehouse Concept position <span className={`${REF} text-slate-900`}>{home.positionRef}</span>. When import cargo is collected, the gate
+          checks the pick-up and PIN entered here before it releases the cargo. The server makes the PIN (six digits) and shows it once — give it to the haulier.
         </div>
         <ConceptPickupSection ownerId={ownerId} messageApi={messageApi} />
         <BasicPickupView ownerId={ownerId} />

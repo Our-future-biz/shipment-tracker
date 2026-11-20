@@ -1,4 +1,6 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import { warehouseConcept } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { businessDay } from "../../../lib/businessDate";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
@@ -20,6 +22,18 @@ import {
 
 // The year of a reference is Prague's (23:30 UTC on 31 December is already the next year there).
 const pragueYear = (now: Date) => businessDay(now).slice(0, 4);
+
+// The jobs among these whose live pick-up is the Warehouse Concept's, with the Concept's plate
+// ("" when it has none). When the Concept doesn't answer, none: the plates stay this pick-up's.
+async function conceptPlates(shipmentIds: string[], companyId: string): Promise<Map<string, string>> {
+  try {
+    const { jobs } = await warehouseConcept._internalConceptPickupPlates({ companyId, shipmentIds });
+    return new Map(jobs.map((j) => [j.shipmentId, j.licensePlate]));
+  } catch (err) {
+    log.warn(err, "Warehouse Concept pick-up plates not read");
+    return new Map();
+  }
+}
 
 const toTaskItem = (r: WarehouseTaskRecord): WarehouseTaskItem => ({
   id: r.id,
@@ -223,13 +237,26 @@ class WarehouseService {
     return row ? toSectionItem(row) : null;
   }
 
-  /** The Pick-up license plates of these shipments; a shipment with none is left out. */
-  async pickupPlates(shipmentIds: string[], companyId: string): Promise<{ shipmentId: string; licensePlate: string }[]> {
+  /**
+   * The Pick-up license plates of these shipments; a shipment with none is left out. A job whose
+   * live pick-up is the Warehouse Concept's (it has a Concept position, owner decision Q17) takes the
+   * Concept's plate - the plate it left with at the WH release, else the Concept pick-up's - and not
+   * this pick-up, view only and stale on such a job (mock council C2). When the Concept has no plate
+   * for it, it is left out, so Shipments shows its own plate number. When the Concept doesn't
+   * answer, every job keeps this pick-up's plates, as before.
+   *
+   * Only for a caller who sees the Concept (`seesConcepts`, superadmins today): Trucking's hub trips
+   * put Concept positions on live jobs, and everyone else keeps the normal, editable pick-up until
+   * the Concept opens (owner decision R25), so they keep its plates too (mock council review of C2).
+   */
+  async pickupPlates(shipmentIds: string[], companyId: string, seesConcepts = false): Promise<{ shipmentId: string; licensePlate: string }[]> {
     if (shipmentIds.length === 0) return [];
-    const rows = await warehouseSectionRepository.findManyBySection(shipmentIds, "pickup", companyId);
-    return rows
-      .map((r) => ({ shipmentId: r.shipmentId, licensePlate: pickupLicensePlates(r.data) }))
-      .filter((p) => p.licensePlate);
+    const [rows, concept] = await Promise.all([
+      warehouseSectionRepository.findManyBySection(shipmentIds, "pickup", companyId),
+      seesConcepts ? conceptPlates(shipmentIds, companyId) : new Map<string, string>(),
+    ]);
+    const basic = rows.filter((r) => !concept.has(r.shipmentId)).map((r) => ({ shipmentId: r.shipmentId, licensePlate: pickupLicensePlates(r.data) }));
+    return [...basic, ...[...concept].map(([shipmentId, licensePlate]) => ({ shipmentId, licensePlate }))].filter((p) => p.licensePlate);
   }
 
   // A whole-section save (Pick-up). Shipment Details is saved field by field (patchSection): a

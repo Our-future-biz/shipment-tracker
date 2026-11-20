@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { defaultCountries, flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays } from "./dayHolidays";
+import { defaultCountries, flagOf, isCzechHoliday, listCountries, shownHolidays, yearHolidays } from "./dayHolidays";
 import { holidayKey } from "./calendar";
 import type { HolidayItem } from "../public-holidays/_lib/holidays";
 
@@ -79,7 +79,9 @@ describe("filtering and colour", () => {
 
   it("keeps the Czech holidays whatever countries are picked", () => {
     expect(shownHolidays(day, ["Germany"]).map((h) => h.countryCode)).toEqual(["CZ", "DE"]);
-    expect(shownHolidays(day, []).map((h) => h.countryCode)).toEqual(["CZ", "DE", "SK"]);
+    // Every country (null), and none besides the Czech Republic ([]) - mock council R21.
+    expect(shownHolidays(day, null).map((h) => h.countryCode)).toEqual(["CZ", "DE", "SK"]);
+    expect(shownHolidays(day, []).map((h) => h.countryCode)).toEqual(["CZ"]);
   });
 
   it("is red only for a Czech national holiday", () => {
@@ -96,11 +98,6 @@ describe("filtering and colour", () => {
     const offered = listCountries(items)[0]!;
     expect(offered).toBe("SK");
     expect(shownHolidays(yearHolidays(2026, items).get(NOV_17), [offered]).map((h) => h.countryCode)).toEqual(["CZ", "SK"]);
-  });
-
-  it("keeps the saved picks the calendar does not offer when the user changes the picker", () => {
-    expect(withUnofferedPicks(["Czechia", "Germany", "Gone"], ["Austria", "Germany"], ["Austria"])).toEqual(["Czechia", "Gone", "Austria"]);
-    expect(withUnofferedPicks(["Germany"], ["Austria", "Germany"], [])).toEqual([]);
   });
 });
 

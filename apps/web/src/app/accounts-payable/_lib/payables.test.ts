@@ -69,6 +69,7 @@ const invoice = (over: Partial<PayableInvoice> = {}): PayableInvoice => ({
   claims: [],
   claimed: false,
   mine: false,
+  missingAmount: "",
   aboveEstimate: false,
   jobBilled: false,
   arrivedAfterBilling: false,
@@ -337,6 +338,14 @@ describe("actions", () => {
     expect(actionsFor(invoice({ amounts: [], status: "approved" }), true).markPaid.blocked).toMatch(/no amount/);
     // Refusing it stays open.
     expect(actionsFor(none, true).refuse).toEqual({ shown: true, blocked: "" });
+  });
+
+  // Mock council M2: one amount of two typed was approved and paid short; the server names the empty line per invoice.
+  it("greys Approve and Mark paid while any line has no amount, with the server's reason", () => {
+    const reason = "The real cost of CZ00000028 · THC is not in yet: fill it in on the job's buying line before this invoice is approved or paid";
+    expect(actionsFor(invoice({ missingAmount: reason }), true).approve).toEqual({ shown: true, blocked: reason });
+    expect(actionsFor(invoice({ missingAmount: reason, status: "approved" }), true).markPaid).toEqual({ shown: true, blocked: reason });
+    expect(actionsFor(invoice({ missingAmount: reason }), true).refuse).toEqual({ shown: true, blocked: "" });
   });
 
   it("leaves a refused invoice as it was", () => {

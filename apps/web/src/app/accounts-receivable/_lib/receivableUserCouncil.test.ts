@@ -16,6 +16,13 @@ describe("historyEntries (A13)", () => {
     expect(order).toEqual(["issued", "e1", "cn1", "e2", "e3"]);
   });
 
+  // Mock council S8-5: 00:30 Prague on the issue day is 23:30 UTC the day before; it still comes after "Issued".
+  it("places an event by its Prague day, after that day's issue and credit note", () => {
+    const events = [event("night", "2026-11-11T23:30:00.000Z"), event("before", "2026-11-11T21:00:00.000Z")];
+    const order = historyEntries("2026-11-12", [note("cn1", "2026-11-12")], events).map((h) => (h.kind === "issued" ? "issued" : h.kind === "credit_note" ? h.note.id : h.event.id));
+    expect(order).toEqual(["before", "issued", "cn1", "night"]);
+  });
+
   it("keeps the given order for the same moment", () => {
     const order = historyEntries("2026-11-12", [], [event("a", "2026-11-13T08:00:00.000Z"), event("b", "2026-11-13T08:00:00.000Z")]).map((h) => (h.kind === "event" ? h.event.id : h.kind));
     expect(order).toEqual(["issued", "a", "b"]);

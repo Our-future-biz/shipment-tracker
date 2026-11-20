@@ -147,14 +147,40 @@ const NO_AMOUNT = "This invoice has no amount yet: fill in the real cost on its 
 /** Whether none of an invoice's lines has a real cost, so the invoice has no amount (the list's "—"). */
 export const hasNoAmount = (lines: readonly { realAmount: string | number | null }[]) => lines.every((l) => l.realAmount === null);
 
+/** A line of an invoice as missingAmountProblem names it: what it bills (null: no real cost yet) and where. */
+export interface AmountLineLike {
+  amount: number | null;
+  jobNumber: string;
+  category: string;
+  description: string;
+}
+
+/**
+ * Why the invoice can't be approved or paid for its amounts yet, or null (mock council M2): while ANY of its lines has
+ * no real cost - an invoice on two lines with one amount typed was approved and paid short, and once paid the second
+ * amount could no longer be typed. None with an amount: NO_AMOUNT, as before (User Council A1). Else it names the job
+ * and the line still empty. The list sends it per invoice (missingAmount), so the page greys Approve and Mark paid alike.
+ */
+export function missingAmountProblem(lines: readonly AmountLineLike[]): string | null {
+  const missing = lines.filter((l) => l.amount === null);
+  if (!lines.length || missing.length === lines.length) return NO_AMOUNT;
+  if (!missing.length) return null;
+  const first = missing[0]!;
+  const where = [first.jobNumber, first.description.trim() || first.category].filter(Boolean).join(" · ") || "one of its lines";
+  const more = missing.length > 1 ? ` and ${missing.length - 1} more line${missing.length > 2 ? "s" : ""}` : "";
+  return `The real cost of ${where}${more} is not in yet: fill it in on the job's buying line before this invoice is approved or paid`;
+}
+
 /**
  * Why this manager may not approve the invoice, or null (D8, D9, D13, D14). `enteredByUserId` is null for an
  * invoice gathered from lines, whose enterer is not known. Returns whether the approval is the enterer's own.
- * `noAmount`: none of its lines has a real cost (hasNoAmount).
+ * `noAmount`: none of its lines has a real cost (hasNoAmount). `missingAmount`: missingAmountProblem's reason (a line
+ * with no real cost, mock council M2), which comes first.
  */
 export function approvalProblem(input: {
   status: string;
   noAmount?: boolean;
+  missingAmount?: string | null;
   linked: boolean;
   facts: SupplierFactsLike | null;
   enteredByUserId: string | null;
@@ -163,6 +189,7 @@ export function approvalProblem(input: {
 }): { problem: string | null; selfDecision: boolean } {
   if (input.status === "approved") return { problem: "This invoice is approved already", selfDecision: false };
   if (input.status === "refused") return { problem: "This invoice was refused: the corrected invoice is booked as a new one", selfDecision: false };
+  if (input.missingAmount) return { problem: input.missingAmount, selfDecision: false };
   if (input.noAmount) return { problem: NO_AMOUNT, selfDecision: false };
   if (!input.linked) return { problem: "Link the supplier first: an invoice is approved only for a supplier of the Customer Database", selfDecision: false };
   if (input.facts && isCzechVatPayer(input.facts)) {
@@ -198,7 +225,10 @@ export function claimsOf<T extends CostClaimLike>(invoice: { id: string; numberK
 /** Whether an open claim holds the payment (D15). */
 export const holdsPayment = (claims: readonly { status: string }[]) => claims.some((c) => c.status === "open");
 
-/** Why the invoice may not be marked paid on `day`, or null (D11, D15). `noAmount`: none of its lines has a real cost. */
+/**
+ * Why the invoice may not be marked paid on `day`, or null (D11, D15). `noAmount`: none of its lines has a real cost;
+ * `missingAmount`: missingAmountProblem's reason (any line with no real cost, mock council M2).
+ */
 export function paymentProblem(input: {
   status: string;
   paidOn: string | null;
@@ -207,9 +237,11 @@ export function paymentProblem(input: {
   bookedOn: string | null;
   openClaim: boolean;
   noAmount?: boolean;
+  missingAmount?: string | null;
 }): string | null {
   if (input.status !== "approved") return "Approve the invoice first: only an approved invoice is paid";
   if (input.paidOn) return `This invoice is marked paid already (${input.paidOn})`;
+  if (input.missingAmount) return input.missingAmount;
   if (input.noAmount) return NO_AMOUNT;
   if (input.openClaim) return "A claim on this invoice is open: settle or withdraw it before paying";
   if (input.day > input.today) return "The day it was paid cannot be after today";

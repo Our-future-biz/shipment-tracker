@@ -24,6 +24,21 @@ class ShipmentImportInstructionRepository {
     return row ?? null;
   }
 
+  /**
+   * The shipment's latest approved form, whatever came after it: a newer link still open or a newer form
+   * rejected changes nothing of what was approved (system-21 mock council review: who pays the duty is read
+   * from it, lib/importInstructions approvedDutyPaidBy). The latest decided first; null when none was approved.
+   */
+  async latestApproved(shipmentId: string, companyId: string): Promise<ShipmentImportInstructionRecord | null> {
+    const [row] = await db
+      .select()
+      .from(t)
+      .where(and(eq(t.shipmentId, shipmentId), eq(t.companyId, companyId), eq(t.status, "approved")))
+      .orderBy(sql`${t.decidedAt} DESC NULLS LAST`, desc(t.createdAt))
+      .limit(1);
+    return row ?? null;
+  }
+
   async byHash(tokenHash: string): Promise<ShipmentImportInstructionRecord | null> {
     const [row] = await db.select().from(t).where(eq(t.tokenHash, tokenHash));
     return row ?? null;

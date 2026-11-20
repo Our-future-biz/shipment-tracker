@@ -101,11 +101,43 @@ const RELATED_TEXT: Record<string, SQL> = {
   loadType: LOAD_TYPE_TEXT,
 };
 
+/** The person columns the grid shows by the user's name (user council x4), stored by e-mail alone: USER_ID_COLUMN's. */
+const PERSON_SEARCH_COLUMNS: ReadonlySet<string> = new Set(Object.keys(USER_ID_COLUMN));
+
+/** The company's users' names by e-mail in lower case, for a search in a person column. */
+export type SearchPeopleNames = ReadonlyMap<string, string>;
+
+// A searched word (as searchTokens gives it: folded, escaped for LIKE) as typed.
+const unescapedWord = (word: string) => word.replace(/\\([\\%_])/g, "$1");
+
+/**
+ * A word typed for a person by the name the grid shows (mock council S7-5): the users whose name
+ * holds the word are found in JavaScript, and the person columns are compared with their e-mails,
+ * as bound parameters - one comparison per word, not the names in the SQL. A person column still
+ * holds its stored text too (an e-mail, a legacy "e-mail — Name"), which the text search reads.
+ * Undefined when no user's name holds it.
+ */
+export function personNameMatch(columns: readonly PgColumn[], names: SearchPeopleNames, word: string): SQL | undefined {
+  const plain = unescapedWord(word);
+  if (!columns.length || !plain) return undefined;
+  const emails = [...names].filter(([, name]) => foldDiacritics(name).includes(plain)).map(([email]) => email);
+  if (!emails.length) return undefined;
+  const list = sql.join(
+    emails.map((email) => sql`${email}`),
+    sql`, `,
+  );
+  return sql`(${sql.join(
+    columns.map((column) => sql`${personEmailOf(column)} IN (${list})`),
+    sql` OR `,
+  )})`;
+}
+
 /**
  * The text of the grid columns the user has chosen, as the Shipments search looks in it: a
  * shipment column as stored, a date as the grid shows it (DD.MM.YYYY), the master job's MCZ
- * and the containers' numbers and seals. A column worked out in the browser (weeks, totals,
- * profit) or an unknown key is left out; the Internal Reference is always searched.
+ * and the containers' numbers and seals (a person column also by the user's name: searchMatch).
+ * A column worked out in the browser (weeks, totals, profit) or an unknown key is left out; the
+ * Internal Reference is always searched.
  */
 export function searchedColumns(keys: string[]): (PgColumn | SQL)[] {
   const text: (PgColumn | SQL)[] = [shipmentTable.jobNumber];
@@ -137,12 +169,25 @@ const sameJobNumber = (word: string): SQL | undefined => {
   return digits === null ? undefined : sql`${JOB_NUMBER_DIGITS} LIKE ${`${digits}%`}`;
 };
 
+/** The person columns of the list's "all fields" search: Handled By and Holiday Cover. */
+const PERSON_COLUMNS = [...PERSON_SEARCH_COLUMNS].map((key) => SHIPMENT_COLUMNS[key]!);
+
 /**
  * The Shipments search: every word typed, in the chosen grid columns (searchedColumns) or else in
- * SEARCHED_TEXT, without regard to diacritics or case - a reference also by its number.
+ * SEARCHED_TEXT, without regard to diacritics or case - a reference also by its number. With the
+ * users' `names` (the Shipments list; the main search sends none), a word also finds a chosen
+ * person column - or, searching all fields, Handled By and Holiday Cover, their stored text
+ * searched as well - by the user's name the grid shows (mock council S7-5).
  */
-export function searchMatch(search: string, columnKeys?: string[]): SQL | undefined {
-  return containsAllWords(columnKeys?.length ? searchedColumns(columnKeys) : SEARCHED_TEXT, search, sameJobNumber);
+export function searchMatch(search: string, columnKeys?: string[], names?: SearchPeopleNames): SQL | undefined {
+  const chosen = !!columnKeys?.length;
+  const people = !names ? [] : chosen ? [...new Set(columnKeys)].filter((key) => PERSON_SEARCH_COLUMNS.has(key)).map((key) => SHIPMENT_COLUMNS[key]!) : PERSON_COLUMNS;
+  const text = chosen ? searchedColumns(columnKeys) : names ? [...SEARCHED_TEXT, ...PERSON_COLUMNS] : SEARCHED_TEXT;
+  const orWord = (word: string) => {
+    const matches = [sameJobNumber(word), names ? personNameMatch(people, names, word) : undefined].filter((x): x is SQL => !!x);
+    return matches.length > 1 ? sql`(${sql.join(matches, sql` OR `)})` : matches[0];
+  };
+  return containsAllWords(text, search, orWord);
 }
 
 const TODAY = sql`(now() AT TIME ZONE 'Europe/Prague')::date`;
@@ -262,6 +307,16 @@ export function handledByMatch(handledBy: string | undefined): SQL | undefined {
   return sql`${personEmailOf(shipmentTable.personInCharge)} = ${asked === HANDLED_BY_NOBODY ? "" : asked}`;
 }
 
+/**
+ * The list's "My jobs" (mock council S9-1): the jobs whose Handled By or Holiday Cover names this
+ * e-mail (in any case), read as handledByMatch reads a person. Undefined when nothing is asked for.
+ */
+export function jobsOfMatch(email: string | undefined): SQL | undefined {
+  const asked = (email ?? "").trim().toLowerCase();
+  if (!asked) return undefined;
+  return sql`(${personEmailOf(shipmentTable.personInCharge)} = ${asked} OR ${personEmailOf(shipmentTable.holidayCover)} = ${asked})`;
+}
+
 // How a job travels - lib/trackingEvents freightKindOf, in SQL. Keep the two the same, rule for rule:
 //   road  a Trucking job (Trade Direction Domestic, or the Road Department: lib/deliveryDated
 //         isDeliveryDated, both trimmed, in any case), or "road" anywhere in the Freight Mode;
@@ -341,6 +396,8 @@ export interface ShipmentListFilters {
   attentionIds?: readonly string[];
   /** Handled By: an e-mail (in any case), or "nobody" for the jobs with nobody in it. */
   handledBy?: string;
+  /** "My jobs": an e-mail (in any case) in Handled By or in Holiday Cover (jobsOfMatch). */
+  jobsOf?: string;
   /** How the job travels: sea | air | rail | road (lib/trackingEvents freightKindOf). */
   mode?: string;
   /** Trade Direction: import | export | domestic, in any case (lib/managersCockpit inDirection). */
@@ -362,6 +419,8 @@ export interface ShipmentListFilters {
   search?: string;
   /** The grid columns (their keys) the search looks in; without them, SEARCHED_TEXT. */
   searchColumns?: string[];
+  /** The users' names by e-mail, when a person column or all fields are searched (searchMatch). */
+  searchPeopleNames?: SearchPeopleNames;
   limit: number;
   offset: number;
   sortDirection: "asc" | "desc";
@@ -395,7 +454,11 @@ export function invoicingPredicate(filter: string, lateChargeIds?: readonly stri
   const lateCharge = lateChargeIds?.length ? inArray(shipmentTable.id, [...lateChargeIds]) : sql`false`;
   const toBill = sql`((${BILLING_STATUS} AND ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced') OR ${lateCharge})`;
   const predicates: Record<InvoicingFilterId, SQL> = {
-    all: sql`(${toBill} OR ${INVOICED}) AND ${NOT_CANCELLED}`,
+    // A late-charge job is in All whatever its status, a cancelled one too (mock council S5-1 / X-2, answer R10: in
+    // To bill and All, marked Cancelled - a cancellation fee or a prepayment is still open), so To bill stays a part
+    // of All and the two counts agree. Wrapped whole, as To bill is: listFiltered joins it with and(), and a bare OR
+    // would let a late-charge job past the company, deleted and other filters (system-21 mock council review).
+    all: sql`((((${BILLING_STATUS} AND ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced') OR ${INVOICED}) AND ${NOT_CANCELLED}) OR ${lateCharge})`,
     billing: toBill,
     "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
     invoiced: INVOICED,
@@ -952,6 +1015,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     const handledBy = handledByMatch(f.handledBy);
     if (handledBy) clauses.push(handledBy);
+    const jobsOf = jobsOfMatch(f.jobsOf);
+    if (jobsOf) clauses.push(jobsOf);
     const mode = modeMatch(f.mode);
     if (mode) clauses.push(mode);
     const tradeDirection = directionMatch(f.direction);
@@ -970,7 +1035,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
-      const match = searchMatch(f.search, f.searchColumns);
+      const match = searchMatch(f.search, f.searchColumns, f.searchPeopleNames);
       if (match) clauses.push(match);
     }
     const where = and(...clauses);

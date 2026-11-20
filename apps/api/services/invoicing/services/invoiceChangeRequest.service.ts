@@ -78,6 +78,12 @@ class InvoiceChangeRequestService {
     // Approving a partial credit note would take this change back unasked (user council B5): one waits at a time.
     const credit = await creditRequests.pendingFor(actor.companyID, invoice.id);
     if (credit) throw APIError.failedPrecondition(waitingRequestProblem("credit", credit.requestedAt));
+    // Checked again under the invoice's row lock, with the insert (mock council S5-4 / X-3): a partial credit asked a
+    // second ago is seen, so the two never both wait.
+    const noCreditWaits: Parameters<typeof requests.create>[1] = async (tx) => {
+      const now = await creditRequests.pendingFor(actor.companyID, invoice.id, tx);
+      if (now) throw APIError.failedPrecondition(waitingRequestProblem("credit", now.requestedAt));
+    };
     const created = await requests.create({
       companyId: actor.companyID,
       shipmentId: invoice.shipmentId,
@@ -92,7 +98,7 @@ class InvoiceChangeRequestService {
       reason,
       requestedById: actor.userID,
       requestedByName: await userEmailOf(actor.userID),
-    });
+    }, noCreditWaits);
     if (!created) throw APIError.failedPrecondition(`A change of ${invoice.number} already waits for a manager: take it back to ask again`);
     return toChangeRequestItem(created);
   }

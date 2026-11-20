@@ -34,6 +34,21 @@ export function routeEnds(data: Pick<SalesQuoteData, "origin" | "destination" | 
   return [data.origin?.trim() || data.pol?.trim() || "", data.destination?.trim() || data.pod?.trim() || ""];
 }
 
+/**
+ * A selling line's text on the customer document. One charged per chargeable kg in the quote's own
+ * currency names its rate and weight, as air offers are read: "Air freight PRG → ORD (2.10 EUR per
+ * chargeable kg × 640 kg)" (owner's answer R6, mock council of system-21), like the FCL layout's
+ * "per container × n". A line in another currency is shown converted, so its own rate would not add
+ * up to the amount beside it: it keeps its text alone.
+ */
+export function sellingLineLabel(line: CostLine, currency: string): string {
+  const label = line.description?.trim() || line.type;
+  const rate = Number(line.unitPrice);
+  const kg = Number(line.qty);
+  if (line.basis !== "kg" || (line.currency || currency) !== currency || !(rate > 0) || !(kg > 0)) return label;
+  return `${label} (${fmtMoney(rate, currency, true)} per chargeable kg × ${kg.toLocaleString("en-US", { maximumFractionDigits: 2 })} kg)`;
+}
+
 /** The quotation as an HTML document, or why the customer must not get one. */
 type QuoteDocument = { html: string; blocked: null } | { html: null; blocked: string };
 
@@ -197,7 +212,7 @@ export function quoteDocument(
   const offerLabel = (r: OfferRow) => (r.each ? `${r.label} (${fmtMoney(r.each.amount, currency, true)} per container × ${r.each.count})` : r.label);
   const lineRows = fclGroups
     ? fclGroups.map((g) => groupHead(g.label) + g.rows.map((r) => row(offerLabel(r), r.amount)).join("")).join("")
-    : sellingLines.map((l) => row(l.description?.trim() || l.type, sellingAmount(l))).join("");
+    : sellingLines.map((l) => row(sellingLineLabel(l, currency), sellingAmount(l))).join("");
   // Any other all-in quote offers the total as one price.
   const sellingRows = lineRows && data.allIn && !fclGroups ? row("All-in rate", totals.selling) : lineRows;
 

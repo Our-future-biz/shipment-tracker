@@ -67,6 +67,16 @@ describe("what can't be recorded", () => {
   const TODAY = "2026-11-06";
   const input = (kind: string, occurredOn = TODAY, note = "") => ({ kind, occurredOn, note });
 
+  it("a gate-in on a sea Full Load only: the warehouse records an LCL's, and nothing else has one by hand (mock council R30)", () => {
+    const fcl = { tradeDirection: "Export", freightMode: "Sea Freight", loadType: "Full Load" };
+    expect(recordRefusal(input("gate_in"), fcl, TODAY)).toBeNull();
+    expect(recordableKinds(fcl, true).find((k) => k.kind === "gate_in")).toMatchObject({ group: "milestone", label: "Gate in" });
+    expect(recordRefusal(input("gate_in"), { ...fcl, loadType: "Consolidation" }, TODAY)).toContain("can't be recorded");
+    expect(recordRefusal(input("gate_in"), { ...fcl, freightMode: "Air Freight" }, TODAY)).toContain("can't be recorded");
+    expect(recordableKinds({ ...fcl, freightMode: "Air Freight" }, true).map((k) => k.kind)).not.toContain("gate_in");
+    expect(recordRefusal(input("gate_out"), fcl, TODAY)).toContain("can't be recorded");
+  });
+
   it("never gate in or out, or anything unknown", () => {
     expect(recordRefusal(input("gate_in"), sea, TODAY)).toContain("can't be recorded");
     expect(recordRefusal(input("gate_out"), sea, TODAY)).toContain("can't be recorded");

@@ -420,7 +420,7 @@ export const TruckingReadme = () => (
       <p>
         Its <b>{TERMS.serviceLevel.toLowerCase()}</b> sets the date: <b>+1 … +4</b> working days, counted for {TERMS.ltl} from the gate-in confirmed by the warehouse
         and for {TERMS.ftl} from the planned pick-up; or <b>Express</b> — same day, by 10:00, by 12:00 or on a fixed date. The fixed date is agreed with the customer and asked when the
-        consignment is booked (with an optional &quot;by&quot; time, the end of the Delivery time window); it is the promised date. Weekends and public
+        consignment is booked (with an optional &quot;by&quot; time, the end of the Delivery time window, which adds the Time window surcharge when the tariff has one); it is the promised date. Weekends and public
         holidays are not working days.
       </p>
     </Part>

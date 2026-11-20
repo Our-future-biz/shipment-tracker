@@ -4,7 +4,8 @@
 // ATA and ATD are the tax date and lock the ČNB rate: a machine only ever proposes them, a person
 // confirms, and the confirmation goes through the normal shipment update with its invoice lock.
 // A source may set ETD and ETA while the actual date is empty. Gate in and out belong to the
-// warehouse and a Trucking job's delivery to Trucking: they are never recorded by hand here.
+// warehouse and a Trucking job's delivery to Trucking: they are never recorded by hand here - but a
+// sea Full Load's gate-in at the terminal, which no warehouse records (recordsGateIn).
 
 import { isDeliveryDated } from "../../../lib/deliveryDated";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
@@ -84,6 +85,7 @@ export interface JobMode {
   tradeDirection: string;
   freightMode: string;
   department?: string | null;
+  loadType?: string | null;
 }
 
 /**
@@ -155,19 +157,31 @@ const SETS_LABEL: Record<NonNullable<KindDef["field"]>, string> = {
 /** A shipment field in the words people use; "" for none. */
 export const setsWord = (field: string): string => SETS_LABEL[field as NonNullable<KindDef["field"]>] ?? "";
 
+/**
+ * A sea Full Load: its container's gate-in at the terminal is recorded by hand, as a milestone - no
+ * warehouse records it, as it does an LCL's (mock council S9-Q5 / R30, O23).
+ */
+export const recordsGateIn = (shipment: JobMode): boolean =>
+  !isTruckingJob(shipment) && freightKindOf(shipment) === "sea" && (shipment.loadType ?? "").trim().toLowerCase() === "full load";
+
+/** What people may record of a kind on this shipment (KindDef.group); undefined when only the app writes it. */
+export const groupOf = (kind: TrackingKind, shipment: JobMode): TrackingEventGroup | undefined =>
+  kind === "gate_in" && recordsGateIn(shipment) ? "milestone" : kindDef(kind).group;
+
 /** What this person may record on this shipment. */
 export function recordableKinds(shipment: JobMode, mayChangeDetails: boolean): RecordableKind[] {
   if (isTruckingJob(shipment)) return [];
   const air = freightKindOf(shipment) === "air";
   return (Object.keys(TRACKING_KINDS) as TrackingKind[]).flatMap((kind) => {
     const def = kindDef(kind);
-    if (!def.group || (!mayChangeDetails && !def.department)) return [];
+    const group = groupOf(kind, shipment);
+    if (!group || (!mayChangeDetails && !def.department)) return [];
     // A plane leaves no empty to return.
     if (air && kind === "empty_returned") return [];
     return [{
       kind,
       label: labelOfKind(kind, shipment),
-      group: def.group,
+      group,
       reasonRequired: !!def.reason,
       sets: def.field ? SETS_LABEL[def.field] : "",
       taxDate: def.field === "actualArrival" || def.field === "actualDeparture",
@@ -183,7 +197,7 @@ export interface RecordInput {
 
 /** Why this can't be recorded, or null. The one recording is checked apart (the details rule). */
 export function recordRefusal(input: RecordInput, shipment: JobMode, today: string): string | null {
-  if (!isTrackingKind(input.kind) || !kindDef(input.kind).group) return `"${input.kind}" can't be recorded here`;
+  if (!isTrackingKind(input.kind) || !groupOf(input.kind, shipment)) return `"${input.kind}" can't be recorded here`;
   const def = kindDef(input.kind);
   if (isTruckingJob(shipment)) return "A Trucking job's stamps are set in Trucking";
   if (def.reason && !input.note.trim()) return `${def.label} needs a reason`;

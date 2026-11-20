@@ -20,19 +20,40 @@ export function closesRow(target: EventTarget | null, row: { contains(node: Node
   return row.contains(el as unknown as Node);
 }
 
+/** The few things of an amount box the next rule reads (an input in a table cell, in the browser). */
+interface BoxLike {
+  closest(selector: string): { nextElementSibling: { querySelector(selector: string): unknown } | null } | null;
+}
+
+/**
+ * The Cur box an Enter in an amount box goes on to: the currency picker in the next cell, when it is open. An Enter
+ * in Est. Amount closed the row before its currency was picked, so 32,000 typed for a USD cost was kept in the
+ * billing currency (mock council R4): it moves on to Cur instead, and an Enter there leaves the row open, as a list's
+ * does (closesRow), until it is left. Null when the next cell has no open picker (the quote's currency, a locked
+ * row): the Enter then does what it did.
+ */
+export function curBoxAfter<T>(box: BoxLike): T | null {
+  const next = box.closest("td")?.nextElementSibling ?? null;
+  return (next?.querySelector('.ant-select:not(.ant-select-disabled) input:not([readonly]):not([tabindex="-1"])') as T | null) ?? null;
+}
+
 /**
  * Whether a billed shipment's buying row takes its real cost (quantity, amount, currency): a late supplier
  * invoice typed by hand brings its amount with its number, so it reaches Accounts Payable with what is owed
  * (owner's answer to the User Council, Q1). Only on a line that has the number - the one typed in the row, while
- * it is being saved, else the stored one - and no real amount yet: a real cost on the line, there when the
- * customer was billed or typed since, stays as billed (nothing kept tells which). Never on a line of an invoice
- * marked paid; the estimate stays as billed. The server checks the same (lib/billedLock billedBuyingProblem).
+ * it is being saved, else the stored one - and either no real amount yet, or a late one (its amount came on the line
+ * after the billing, as the server stamps it) whose supplier invoice is not yet approved or paid (`lateRealCostOpen`,
+ * read from the server - the web judges no moment itself, system-21 mock council review): typed left to right,
+ * Qty → Real Cost → Cur, its currency is still picked after its amount, and a typo is put right on the job (mock
+ * council M1). A real cost there when the customer was billed, or a late one once approved, stays as it is. Never
+ * on a line of an invoice marked paid; the estimate stays as billed. The server checks the same (lib/billedLock
+ * billedBuyingProblem).
  */
 export const billedRealCostOpen = (
-  row: { invoiceNumber: string; realAmount: string },
+  row: { invoiceNumber: string; realAmount: string; lateRealCostOpen?: boolean },
   invoicePaid: boolean,
   number: string = row.invoiceNumber,
-): boolean => !invoicePaid && !!number.trim() && !row.realAmount.trim();
+): boolean => !invoicePaid && !!number.trim() && (!row.realAmount.trim() || !!row.lateRealCostOpen);
 
 /** The codes that come as an import and an export twin, the import's first. */
 const DIRECTION_TWINS: readonly (readonly [string, string])[] = [

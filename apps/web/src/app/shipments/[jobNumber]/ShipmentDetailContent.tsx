@@ -69,7 +69,7 @@ import { CustomsTab } from "./tabs/CustomsTab";
 import { ApprovedByLockedContext, CancelOfferedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { FROM_LINES_HINT, FROM_LINES_TITLE, lockedByLines } from "../_lib/cargoFromLines";
-import { carrierCardTitle, fieldsForMode, showsContainerTab, workflowHeading } from "./freightModeFields";
+import { airChargeableWeight, carrierCardTitle, fieldsForMode, houseReleaseWords, showsChargeableWeight, showsContainerTab, workflowHeading } from "./freightModeFields";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
@@ -721,6 +721,8 @@ export function makeStyleFor(shipment: ShipmentItem): StyleFor {
 }
 
 interface HouseBolReleaseRowProps {
+  /** The row's name and its button's, in the words of the job's freight mode (houseReleaseWords). */
+  words: { label: string; button: string };
   shipmentId: string;
   releasedAt: string;
   /** Warehouse Released as the job holds it ("" while the cargo is not released from the warehouse). */
@@ -757,11 +759,11 @@ function CancelReasonRow({ status, reason, onChange }: { status?: string | null;
   );
 }
 
-function HouseBolReleaseRow({ shipmentId, releasedAt, warehouseReleased, onRelease }: HouseBolReleaseRowProps) {
+function HouseBolReleaseRow({ words, shipmentId, releasedAt, warehouseReleased, onRelease }: HouseBolReleaseRowProps) {
   return (
     <div className={ROW}>
       <span className={LABEL}>
-        House BoL Release
+        {words.label}
       </span>
       <div className="flex-1 min-w-0">
         {releasedAt ? (
@@ -770,7 +772,7 @@ function HouseBolReleaseRow({ shipmentId, releasedAt, warehouseReleased, onRelea
         ) : (
           // Red, as its confirmation: a release cannot be undone.
           <Button size="small" type="primary" danger onClick={onRelease}>
-            Release Bill of Lading
+            {words.button}
           </Button>
         )}
         <AskManagerToRelease shipmentId={shipmentId} what="house_bol" released={!!releasedAt} className="mt-1" />
@@ -985,6 +987,9 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "commercialInvoiceValue", label: "Invoice Value" },
 ];
 
+// An air job's chargeable weight, worked out from its kg and m³ (mock council R17): read only, on air jobs only.
+const CHARGEABLE_WEIGHT: CargoField = { key: "chargeableWeight", label: "Chargeable Weight", ro: true };
+
 interface CargoRowProps {
   field: CargoField;
   shipment: ShipmentItem;
@@ -1004,7 +1009,10 @@ function CargoRow({
   if (field.key === "creditCheck") {
     return <CreditCheckRow label={field.label} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />;
   }
-  const value = getFieldValue(shipment, field.key);
+  const value =
+    field.key === CHARGEABLE_WEIGHT.key
+      ? airChargeableWeight(shipment, getFieldValue(shipment, "totalWeightTons"), getFieldValue(shipment, "totalVolumeCbm"))
+      : getFieldValue(shipment, field.key);
   // Approved by is a person, picked from the company's users.
   if (isPersonField(field.key)) {
     return <MemberRow label={field.label} fieldKey={field.key} value={value} onCommit={onCommit} />;
@@ -1120,7 +1128,7 @@ function CargoCommercialCard({
   const { visibleKeys } = useCardFields();
   // An air or road job leaves out its empty container type and TEU (user council O17, T9), here and in "Show all".
   const forMode = (col: CargoField[]) => fieldsForMode(col, shipment, (k) => getFieldValue(shipment, k));
-  const right = forMode(CARGO_COMMERCIAL_R);
+  const right = [...forMode(CARGO_COMMERCIAL_R), ...(showsChargeableWeight(shipment) ? [CHARGEABLE_WEIGHT] : [])];
   const cargoShown = new Set(
     visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...right].map((f) => f.key)),
   );
@@ -1670,6 +1678,7 @@ export function ShipmentDetailContent() {
                     ),
                     houseBolRelease: (
                       <HouseBolReleaseRow
+                        words={houseReleaseWords(shipment)}
                         shipmentId={shipment.id}
                         releasedAt={shipment.houseBolRelease}
                         warehouseReleased={shipment.warehouseReleasedDate ?? ""}
@@ -2222,7 +2231,7 @@ export function ShipmentDetailContent() {
         width={520}
         title={
           <>
-            Release the Bill of Lading for <span className={`${REF} font-bold`}>{shipment.jobNumber ?? shipment.id}</span>?
+            Release the {houseReleaseWords(shipment).document} for <span className={`${REF} font-bold`}>{shipment.jobNumber ?? shipment.id}</span>?
           </>
         }
         description="Your name and the current date and time are recorded as the release. This cannot be undone."

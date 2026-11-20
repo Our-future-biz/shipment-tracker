@@ -29,6 +29,7 @@ import { quoteCommentRepository } from "../repositories/quoteComment.repository"
 import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type SalesQuotePage } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
+import { keepNotedValidTo } from "../lib/tariffOvernight";
 import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
 import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
 import { tryCustomerRefs } from "../lib/customerRefs";
@@ -72,7 +73,7 @@ import {
   type StatusChange,
 } from "../utils/quoteLifecycle.utils";
 import { searchTokens } from "../utils/quoteSearch.utils";
-import { holdsSending, STATES_UNAVAILABLE, toItem, type LinkedStates } from "../utils/salesQuoteItem.utils";
+import { holdsSending, shownDocument, STATES_UNAVAILABLE, toItem, type LinkedStates } from "../utils/salesQuoteItem.utils";
 import { ownerBackfillService } from "./ownerBackfill.service";
 import { companyUsers } from "../../../lib/companyUsers";
 import { companyPeople, peopleOf, withCaller, type People } from "../lib/people";
@@ -197,7 +198,9 @@ function inquiryItem(quote: SalesQuoteRecord, emails: Map<string, string>): Quot
   const stored = readInquiry(quote.data);
   if (!stored) return null;
   const inquiry = shownInquiry(stored, emails);
-  const data = isPlainObject(quote.data) ? quote.data : {};
+  // Ports as a sea quote shows them (mock council S4-1).
+  const shown = shownDocument(quote.data);
+  const data = isPlainObject(shown) ? shown : {};
   return {
     quoteNumber: quote.quoteNumber,
     quoteStatus: quote.status,
@@ -618,7 +621,8 @@ class SalesQuoteService {
     return {
       items: rows.map((row) => {
         const item = toItem(row, people.emails, actor, at);
-        const data = isPlainObject(row.data) ? row.data : {};
+        // The item's document: its ports as a sea quote shows them (mock council S4-1).
+        const data = isPlainObject(item.data) ? item.data : {};
         return {
           id: item.id,
           quoteNumber: item.quoteNumber,
@@ -701,8 +705,9 @@ class SalesQuoteService {
     const storedData = isPlainObject(stored.data) ? stored.data : {};
     const carry = closed ? closedCarryKeys(storedData, data) : carryKeys();
     // An open quote names its customer and contact as the Customer Database has them now, so an
-    // editor's older copy cannot bring back a name that changed since it was loaded.
-    const document = closed ? data : await linkedDocument(data, storedData);
+    // editor's older copy cannot bring back a name that changed since it was loaded. Nor does it drop
+    // the last valid day the night noted on its tariff lines without a new version (mock council S2-6 / M4).
+    const document = closed ? data : keepNotedValidTo(await linkedDocument(data, storedData), storedData);
     // Under the reference as stored: the page may still hold one from before a change of letters.
     const saved = await salesQuoteRepository.saveDocument(
       companyID,

@@ -99,13 +99,13 @@ export function groupLegsByZone(legs: readonly PlanningLeg[]): ZoneGroup[] {
 
 type FillPercents = Pick<TripFill, "ldmPercent" | "kgPercent"> & Partial<Pick<TripFill, "palletPlacesPercent">>;
 
-/** The fuller of LDM (or pallet places, when they stand in for it) and kg, in whole percent; null when the vehicle's capacity is not known. */
+/** The fullest of LDM, kg and pallet places, in whole percent; null when the vehicle's capacity is not known (mock council S6-1). */
 export function tripFillPercent(fill: FillPercents): number | null {
   if (fill.ldmPercent == null && fill.kgPercent == null && fill.palletPlacesPercent == null) return null;
   return Math.round(Math.max(fill.ldmPercent ?? 0, fill.kgPercent ?? 0, fill.palletPlacesPercent ?? 0));
 }
 
-/** The colour of both fill bars of a trip: the fuller of LDM and kg drives it (Warehouse colours). */
+/** The colour of all fill bars of a trip: the fullest of LDM, kg and pallet places drives it (Warehouse colours). */
 export const tripFillTone = (fill: FillPercents) => fillTone(tripFillPercent(fill));
 
 export interface Capacity {
@@ -120,20 +120,20 @@ const percentOf = (value: number, capacity: number) => (capacity > 0 ? Math.roun
 
 /**
  * The fill of a trip with more legs on it, against its capacity (null capacity = percentages unknown).
- * Pallet places with no LDM fill by places, as the server's tripFill counts (User Council T5).
+ * The pallet places always count when the vehicle has any, as the server's tripFill counts
+ * (User Council T5, mock council S6-1).
  */
 export function projectedFill(fill: Pick<TripFill, "ldm" | "kg" | "palletPlaces">, add: readonly Load[], capacity: Capacity | null): TripFill {
   const ldm = round2(fill.ldm + add.reduce((s, l) => s + l.ldm, 0));
   const kg = round2(fill.kg + add.reduce((s, l) => s + l.weightKg, 0));
   const palletPlaces = round2(fill.palletPlaces + add.reduce((s, l) => s + l.palletPlaces, 0));
-  const byPlaces = !!capacity && ldm <= 0 && palletPlaces > 0;
   return {
     ldm,
     kg,
     palletPlaces,
     ldmPercent: capacity ? percentOf(ldm, capacity.ldm) : null,
     kgPercent: capacity ? percentOf(kg, capacity.kg) : null,
-    palletPlacesPercent: byPlaces ? percentOf(palletPlaces, capacity.palletPlaces) : null,
+    palletPlacesPercent: capacity ? percentOf(palletPlaces, capacity.palletPlaces) : null,
   };
 }
 

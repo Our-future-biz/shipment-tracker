@@ -166,7 +166,7 @@ export function ReleaseGatesPanel({
       <ReasonModal
         open={dialog === "override"}
         title="Supervisor override"
-        hint="Clears the other release lines whatever they say — B/L, the pick-up PIN, an open exception, payment and the rest. Never Customs: a position not cleared by customs stays held until it is. Who, when, the lines at this moment and the reason are logged."
+        hint="Clears the other release lines whatever they say — B/L, the pick-up PIN, an open exception, the Charges line and the rest. Never Customs: a position not cleared by customs stays held until it is (transit cargo, T1 / T2L, passes Customs once its MRN is recorded). The prepayment stop at the WH release still asks a manager for a reason. Who, when, the lines at this moment and the reason are logged."
         okText="Override"
         onClose={() => setDialog(null)}
         onSubmit={override}

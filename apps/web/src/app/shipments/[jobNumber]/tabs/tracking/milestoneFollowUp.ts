@@ -11,8 +11,10 @@ import { isBillingStatus } from "@/app/shipments/_components/billingRelease";
 
 /** The Shipment Status a milestone usually leads to, by Trade Direction (a Trucking job records nothing here). */
 const NEXT_STATUS: Record<string, Partial<Record<string, string>>> = {
+  // "Loaded - Customs Clearance In Progress" is the cargo loaded at the shipper, not on board at the
+  // POL (that comes after export clearance): offered after the pick-up (mock council S7-Q2 / R14).
   Export: {
-    loaded: "Loaded - Customs Clearance In Progress [EXP]",
+    picked_up: "Loaded - Customs Clearance In Progress [EXP]",
     departed: "Pre-Alert Sent [EXP]",
   },
   Import: {
@@ -80,6 +82,17 @@ export function statusOfferAfter(kind: string, shipment: { tradeDirection?: stri
   return { suggested: ahead && options.includes(next) ? next : "", options };
 }
 
+/**
+ * What the dialog adds when the status to set says a notice went out: recording the event sends no
+ * pre-alert or arrival notice, so the status is set only if it was sent (mock council S7-Q3 / R15).
+ */
+export function sentOnlyHint(status: string | null | undefined): string {
+  const s = (status ?? "").trim();
+  if (/^Pre-Alert Sent\b/.test(s)) return "Only if the pre-alert was sent: recording the event sends none.";
+  if (/^Arrival Notice Sent\b/.test(s)) return "Only if the arrival notice was sent: recording the event sends none.";
+  return "";
+}
+
 /** After a delivery: the job is next released for billing, which is done on the job page; "" otherwise. */
 export function billingHintAfter(kind: string, status: string | null | undefined): string {
   if (!BILLING_NEXT.has(kind) || isBillingStatus(status) || isBilled(status) || (status ?? "").trim() === CANCELLED_STATUS) return "";
@@ -99,4 +112,15 @@ export function atdWarning(day: string, shipment: { closingDate?: string | null;
   if (closing && day < closing) return `This ATD is before the cargo's Closing (${formatDate(closing)}). Check the date: the ATD is the job's tax date.`;
   if (etd && day < addDays(etd, -ATD_DAYS_BEFORE_ETD)) return `This ATD is more than ${ATD_DAYS_BEFORE_ETD} days before the ETD (${formatDate(etd)}). Check the date: the ATD is the job's tax date.`;
   return "";
+}
+
+/**
+ * The same warning for an ATD typed in its column (the Shipments grid, the job page) or written by a
+ * document reading, not only one recorded in Record an event (mock council S7-4): `value` is the day
+ * saved (YYYY-MM-DD, a time after it allowed). "" for any other field, a cleared ATD, or a day that
+ * looks right. A warning only - the ATD is saved as typed.
+ */
+export function atdEditWarning(fieldKey: string, value: string | null | undefined, shipment: { closingDate?: string | null; estimatedDeparture?: string | null } | undefined): string {
+  const day = /^\d{4}-\d{2}-\d{2}/.exec((value ?? "").trim())?.[0];
+  return fieldKey === "actualDeparture" && day && shipment ? atdWarning(day, shipment) : "";
 }

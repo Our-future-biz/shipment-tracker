@@ -7,6 +7,7 @@ import { useToast } from "@/lib/toast";
 import { uuid } from "@/lib/uuid";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { TALLY_CONDITIONS } from "@/app/warehouse-concept/_lib/containerPlan";
+import { suggestionPrefill, type ExceptionPrefill } from "@/app/warehouse-concept/_lib/exceptionPrefill";
 import { errorMessage, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { reweighMissing } from "@/app/warehouse-concept/gate-log/_lib/steps";
 import { REF } from "@/styles/ui";
@@ -22,7 +23,21 @@ import { FloorBack } from "./FloorBack";
 // differs, or a condition other than Good, offers the Damage / short / over screen (as the tally
 // does). Needs a connection (the server receives the cargo and writes to the shipment).
 
-export function FloorReceipt({ m, onBack, onReweigh, onException }: { m: GateMovement; onBack: () => void; onReweigh: () => void; onException: () => void }) {
+/** The server's ZERO_PIECES (positionReceipt.ts): a receipt of 0 pieces is refused (owner's answer R29). */
+export const ZERO_PIECES_RECEIPT = "0 pieces counted is not a receipt — if the cargo did not come, record a Short exception instead";
+
+export function FloorReceipt({
+  m,
+  onBack,
+  onReweigh,
+  onException,
+}: {
+  m: GateMovement;
+  onBack: () => void;
+  onReweigh: () => void;
+  /** Opens the exception screen with what the receipt found (mock council S11-1). */
+  onException: (prefill: ExceptionPrefill | null) => void;
+}) {
   const toast = useToast();
   const q = useFloorQueue();
   const record = useRecordReceipt();
@@ -75,7 +90,7 @@ export function FloorReceipt({ m, onBack, onReweigh, onException }: { m: GateMov
           </ul>
           <p className="m-0 mb-3 text-[13px] text-slate-500">The cargo is received. While an exception is open it is on hold.</p>
           <div className="flex flex-col gap-2">
-            <button type="button" className={bigPrimary} onClick={onException}>
+            <button type="button" className={bigPrimary} onClick={() => onException(suggestionPrefill(done.suggestExceptions))}>
               Damage / short / over
             </button>
             <button type="button" className={bigDefault} onClick={onBack}>
@@ -95,7 +110,9 @@ export function FloorReceipt({ m, onBack, onReweigh, onException }: { m: GateMov
               </>
             )}
             <Stepper label="Pieces counted" value={pieces} onChange={setPieces} />
-            {diff && (
+            {/* Nothing counted is not a receipt (R29): the server refuses it too. */}
+            {pieces === 0 && <div className="text-[13px] font-semibold text-red-600">{ZERO_PIECES_RECEIPT}</div>}
+            {diff && pieces > 0 && (
               <div className="text-[13px] font-semibold text-amber-700">
                 {pieces < m.colli ? "Short" : "Over"} {Math.abs(m.colli - pieces)} — an exception is offered after the receipt
               </div>
@@ -121,7 +138,7 @@ export function FloorReceipt({ m, onBack, onReweigh, onException }: { m: GateMov
                 <NeedsConnection what={`The ${TERMS.receipt.toLowerCase()}`} />
               </div>
             )}
-            <button type="button" className={bigPrimary} disabled={record.isPending || weighFirst || !q.online || !!m.archivedAt} onClick={send}>
+            <button type="button" className={bigPrimary} disabled={record.isPending || weighFirst || pieces === 0 || !q.online || !!m.archivedAt} onClick={send}>
               {record.isPending ? "Recording…" : `Record receipt — ${nf(pieces)} pcs`}
             </button>
           </div>

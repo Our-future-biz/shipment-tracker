@@ -7,6 +7,7 @@ import {
   roadPricingOf,
   roadRatingDay,
   isTariffCheckable,
+  keepNotedValidTo,
   sameLines,
   tariffRefsOf,
   type OfferSummary,
@@ -150,8 +151,10 @@ describe("the night's actions on a quote", () => {
   });
 
   it("swap the reference with nothing to tell", () => {
-    const { data, messages, changed } = applyTariffActions(quote, [{ ref: OLD, do: "swap", newRef: "ocean:v2:r9" }]);
+    const { data, messages, changed, stampsOnly } = applyTariffActions(quote, [{ ref: OLD, do: "swap", newRef: "ocean:v2:r9" }]);
     expect(changed).toBe(true);
+    // A new rate is a change the user must see: a new version.
+    expect(stampsOnly).toBe(false);
     expect(messages).toEqual([]);
     expect((data.buyingLines as { tariffRef?: string }[])[1]!.tariffRef).toBe("ocean:v2:r9");
   });
@@ -173,6 +176,8 @@ describe("the night's actions on a quote", () => {
     const keep = (validTo?: string | null) => applyTariffActions(old, [{ ref: OLD, do: "keep", ...(validTo !== undefined ? { validTo } : {}) }]);
     const later = keep("2026-12-31");
     expect(later.changed).toBe(true);
+    // Only the day noted: saved without a new version (mock council S2-6).
+    expect(later.stampsOnly).toBe(true);
     expect(later.messages).toEqual([]);
     const lines = later.data.buyingLines as { tariffRef?: string; tariffValidTo?: string }[];
     expect(lines.map((l) => l.tariffValidTo)).toEqual(["2026-12-31", "2026-12-31", undefined]);
@@ -408,5 +413,45 @@ describe("which quotes the check may move", () => {
     expect(isTariffCheckable("won", {})).toBe(false);
     expect(isTariffCheckable("won", { wonRevisionOf: "" })).toBe(false);
     for (const status of ["quoted", "feedback", "lost", "replaced"]) expect(isTariffCheckable(status, { wonRevisionOf: "QCZ20261101001" })).toBe(false);
+  });
+});
+
+// Mock council S2-6 / M4, system-21 review: the night notes a still-valid tariff's last valid day without a new
+// version, so a colleague's page loaded before it still saves - and must not take the day off the lines.
+describe("a save from a page loaded before the night noted the last valid day", () => {
+  const noted = { ...freight, tariffValidTo: "2026-12-31" };
+  const handling = { type: "THC", description: "Terminal handling", currency: "EUR", amount: 120, tariffRef: OLD };
+
+  it("keeps the day on the same line sent without one", () => {
+    const stored = { buyingLines: [noted, { ...handling, tariffValidTo: "2026-12-31" }] };
+    const incoming = { origin: "Brno", buyingLines: [{ ...freight, amount: 1300 }, handling] };
+    expect(keepNotedValidTo(incoming, stored)).toEqual({
+      origin: "Brno",
+      buyingLines: [{ ...freight, amount: 1300, tariffValidTo: "2026-12-31" }, { ...handling, tariffValidTo: "2026-12-31" }],
+    });
+  });
+
+  it("keeps a day the page sends as it is, and none on a line priced from another tariff or a new one", () => {
+    const stored = { buyingLines: [noted] };
+    expect(keepNotedValidTo({ buyingLines: [{ ...freight, tariffValidTo: "2027-01-31" }] }, stored)).toEqual({ buyingLines: [{ ...freight, tariffValidTo: "2027-01-31" }] });
+    const repriced = { ...freight, tariffRef: "ocean:v2:r1" };
+    expect(keepNotedValidTo({ buyingLines: [repriced] }, stored)).toEqual({ buyingLines: [repriced] });
+    const other = { ...freight, pairId: "p9" };
+    expect(keepNotedValidTo({ buyingLines: [other] }, stored)).toEqual({ buyingLines: [other] });
+  });
+
+  it("keeps nothing when it can't tell which line is which", () => {
+    const twin = { ...handling, tariffValidTo: "2026-12-31" };
+    expect(keepNotedValidTo({ buyingLines: [handling] }, { buyingLines: [twin, twin] })).toEqual({ buyingLines: [handling] });
+    expect(keepNotedValidTo({ buyingLines: [handling, handling] }, { buyingLines: [twin] })).toEqual({ buyingLines: [handling, handling] });
+  });
+
+  it("is the document as sent when the stored one noted no day, or the page sends no buying lines", () => {
+    const incoming = { buyingLines: [freight] };
+    expect(keepNotedValidTo(incoming, { buyingLines: [freight] })).toBe(incoming);
+    const noLines = { origin: "Brno" };
+    expect(keepNotedValidTo(noLines, { buyingLines: [noted] })).toBe(noLines);
+    // A line removed on the page stays removed.
+    expect(keepNotedValidTo({ buyingLines: [] }, { buyingLines: [noted] })).toEqual({ buyingLines: [] });
   });
 });

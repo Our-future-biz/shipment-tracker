@@ -39,6 +39,7 @@ const invoice = (over: Partial<PayableInvoice> = {}): PayableInvoice => ({
   claims: [],
   claimed: false,
   mine: false,
+  missingAmount: "",
   aboveEstimate: false,
   jobBilled: false,
   arrivedAfterBilling: false,

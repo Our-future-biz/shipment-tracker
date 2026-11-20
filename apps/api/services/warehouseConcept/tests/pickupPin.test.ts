@@ -4,6 +4,7 @@ import { gateMovementService, MAX_PIN_TRIES } from "../services/gateMovement.ser
 import { sectionItem, warehouseService } from "../services/warehouse.service";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { warehouseImportService } from "../services/warehouseImport.service";
+import { conceptPlatesService } from "../services/conceptPlates.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { pragueDate } from "../services/storage";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
@@ -492,5 +493,23 @@ describe("pick-up PIN hash helpers", () => {
 
   it("strips the PIN and its hash from section data", () => {
     expect(stripPickupSecrets({ pin: "1", pinHash: "h", pinId: "i", rows: "[]" })).toEqual({ pinId: "i", rows: "[]" });
+  });
+});
+
+// The License Plate Shipments shows for a job whose live pick-up is the Concept's (mock council C2).
+describe("Concept plates of a job", () => {
+  it("answers the jobs with a Concept position: the pick-up's plates, then the plate the cargo left with", async () => {
+    const { c, shipmentId, row } = await linkedRow();
+    const other = randomUUID();
+    // A job with a position but no plate anywhere yet is answered with "" (Shipments shows its own plate number).
+    expect(await conceptPlatesService.forShipments([shipmentId, other, "not-a-uuid"], c)).toEqual([{ shipmentId, licensePlate: "" }]);
+    await warehouseService.upsertPickupRows(shipmentId, c, { rows: JSON.stringify(ROWS) });
+    expect(await conceptPlatesService.forShipments([shipmentId], c)).toEqual([{ shipmentId, licensePlate: "3AB 1234" }]);
+    // Released with another truck: that plate wins.
+    await gateMovementRepository.update(row.id, c, { impRelease: new Date(), plate: "9GT 7777" });
+    expect(await conceptPlatesService.forShipments([shipmentId], c)).toEqual([{ shipmentId, licensePlate: "9GT 7777" }]);
+    // Another company sees nothing.
+    expect(await conceptPlatesService.forShipments([shipmentId], randomUUID())).toEqual([]);
+    expect(await conceptPlatesService.forShipments([], c)).toEqual([]);
   });
 });

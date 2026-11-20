@@ -86,6 +86,9 @@ describe("the invoiced jobs owing a credit", () => {
   it("are read in a group of their own, however long ago invoiced, and never in the lately invoiced group, whose limit is the others'", async () => {
     await shipmentRepository.managersMoneyRows(COMPANY, SINCE, LIMITS, ["owed-1", "owed-2"]);
     const { text, values } = sent();
-    console.log(text, values);
+    // Left out of the lately invoiced group, and read in a third group of their own, up to as many as were asked.
+    expect(text).toContain(`>= $7::date) and NOT ("shipment"."id" in ($8, $9)))) ${NEWEST_FIRST} limit $10)) union all (`);
+    expect(text).toContain(`"shipment"."status" IS DISTINCT FROM $12 and "shipment"."id" in ($13, $14))) ${NEWEST_FIRST} limit $15)`);
+    expect(values).toEqual([COMPANY, "Cancelled Shipment", LIMITS.active, COMPANY, "Cancelled Shipment", "road department", SINCE, "owed-1", "owed-2", LIMITS.invoiced, COMPANY, "Cancelled Shipment", "owed-1", "owed-2", 2]);
   });
 });

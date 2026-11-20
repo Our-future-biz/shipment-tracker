@@ -196,7 +196,7 @@ describe("withLineBasis", () => {
 
   // The chair's finding (User Council, 20 Nov 2026): a change of basis keeps the line's total.
   it("keeps its total once set back to a lump sum: rate × quantity becomes the lump sum", () => {
-    expect(withLineBasis({ ...cargo, buyingLines: [perWm(40, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 7.551, amount: 302.04 })]);
+    expect(withLineBasis({ ...cargo, buyingLines: [perWm(40, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", amount: 302.04 })]);
   });
 
   it("prices a line charged per container at its amount per container, the number of containers as its quantity", () => {
@@ -205,7 +205,7 @@ describe("withLineBasis", () => {
     expect(withLineBasis({ ...boxes, buyingLines: [line({ basis: "container", amount: 1750 })] })?.buyingLines).toEqual([perBox(1750, 3)]);
     // It follows the containers, and keeps its total once set back to a lump sum.
     expect(withLineBasis({ ...boxes, containers: [{ qty: 5, type: "40' HC" }], buyingLines: [perBox(1750, 3)] })?.buyingLines).toEqual([perBox(1750, 5)]);
-    expect(withLineBasis({ ...boxes, buyingLines: [{ ...perBox(1750, 3), basis: "lumpsum" }] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 3, amount: 5250 })]);
+    expect(withLineBasis({ ...boxes, buyingLines: [{ ...perBox(1750, 3), basis: "lumpsum" }] })?.buyingLines).toEqual([line({ basis: "lumpsum", amount: 5250 })]);
   });
 
   it("counts only a full-container quote's containers: those another mode kept from an earlier one are not shown, and not charged", () => {
@@ -271,7 +271,7 @@ describe("per chargeable kg", () => {
   });
 
   it("keeps its total once set back to a lump sum", () => {
-    expect(withLineBasis({ ...air, buyingLines: [perKg(2.1, 640, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 640, amount: 1344 })]);
+    expect(withLineBasis({ ...air, buyingLines: [perKg(2.1, 640, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", amount: 1344 })]);
   });
 
   it("leaves a trucking tariff's line priced per kg as the lump sum it is", () => {
@@ -397,6 +397,8 @@ describe("a change of basis", () => {
     expect(back).toMatchObject({ basis: "lumpsum", amount: 1344 });
     expect(back).not.toHaveProperty("unitPrice");
     expect(back).not.toHaveProperty("qty");
+    // Nor the 640 kg as its Quantity beside the kept total (mock council S2-2).
+    expect(back).not.toHaveProperty("value");
     expect(basisChangeNote(perKg, back)).toBe("Lump sum set from the rate: 2.10 × 640 kg = 1,344.00");
   });
 

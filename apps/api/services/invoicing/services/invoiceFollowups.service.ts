@@ -11,7 +11,7 @@ import { countInvoicedLines } from "../lib/billingQueue";
 import { statusesAfterCredit, statusesAfterIssue, type ChargeCount, type StatusPatch } from "../lib/shipmentStatus";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
 import { receivableRepository } from "../repositories/receivable.repository";
-import { customerListStateOf, lastPaidOnOf, settledOther } from "../lib/receivables";
+import { customerListStateOf, lastPaidOnOf } from "../lib/receivables";
 
 // What an issued invoice or credit note owes the other services (schemas/invoiceFollowupOutbox):
 // written in the issue's own transaction (followupsOfInvoice / followupsOfCreditNote), sent straight
@@ -188,8 +188,9 @@ export async function receivableStateNow(companyId: string, invoiceId: string) {
     gross: Number(invoice.gross),
     credited: figures.credited,
     paid: figures.paid,
-    // A confirmed write-off or bank charge closes what is left too (step 7).
-    settledOther: settledOther(figures),
+    // A confirmed write-off or bank charge closes what is left too (step 7); a write-off only down to 0 (mock council R1).
+    writtenOff: figures.writtenOff,
+    bankCharges: figures.bankCharges,
   });
   return {
     customerId: invoice.customerId,

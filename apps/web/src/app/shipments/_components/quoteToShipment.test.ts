@@ -80,7 +80,9 @@ describe("quote → shipment totals", () => {
   it("sends the weight typed for the whole shipment when the package lines carry none, as the quote shows it", () => {
     const req = quoteToCreateRequest("QCZ1", { packages: [{ qty: 2, type: "Pallets", length: 120, width: 80, height: 100 }], weight: 1800 }, NO_RATES);
     expect(req.cargoDimensions).toHaveLength(1);
-    expect(req.totalWeightTons).toBe("1.800");
+    expect(req.totalWeightTons).toBe("1.8000");
+    // To 0.1 kg, as the quote's chargeable weight: 640.45 kg is 640.5 kg on the job too (mock council S2-3).
+    expect(quoteToCreateRequest("QCZ1", { serviceType: "Air", weight: 640.45 }, NO_RATES).totalWeightTons).toBe("0.6405");
     // the volume is the lines': 2 × 1.2 × 0.8 × 1 = 1.92 cbm
     expect(req.totalVolumeCbm).toBeUndefined();
   });

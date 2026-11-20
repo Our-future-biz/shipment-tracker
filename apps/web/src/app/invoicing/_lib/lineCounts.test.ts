@@ -48,14 +48,25 @@ describe("hasLineValue", () => {
 
 describe("linesInvoicedCell (the queue's Lines Invoiced, M3)", () => {
   it("shows the charges invoiced, and a credit owed even when every charge is invoiced", () => {
-    expect(linesInvoicedCell({ sellingLines: 3, invoicedLines: 2, creditsOwed: 0 })).toEqual({ count: "2/3", done: false, creditOwed: false, title: "2 of 3 selling lines invoiced" });
+    expect(linesInvoicedCell({ sellingLines: 3, invoicedLines: 2, creditsOwed: 0 })).toEqual({ count: "2/3", done: false, creditOwed: false, notTicked: "", title: "2 of 3 selling lines invoiced" });
     expect(linesInvoicedCell({ sellingLines: 2, invoicedLines: 2, creditsOwed: 1 })).toEqual({
       count: "2/2",
       done: true,
       creditOwed: true,
+      notTicked: "",
       title: "2 of 2 selling lines invoiced; a credit owed to the customer - give it on a credit note",
     });
     expect(linesInvoicedCell({ sellingLines: 0, invoicedLines: 0, creditsOwed: 2 })).toMatchObject({ count: "", creditOwed: true, title: "2 credits owed to the customer - give it on a credit note" });
     expect(linesInvoicedCell({ sellingLines: 0, invoicedLines: 0, creditsOwed: 0 })).toBeNull();
+  });
+
+  // Mock council S5-3: in To bill with 0 to bill, the row says why.
+  it("names the charges not ticked for Invoice", () => {
+    expect(linesInvoicedCell({ sellingLines: 5, invoicedLines: 4, creditsOwed: 0, notTickedLines: 1 })).toMatchObject({
+      count: "4/5",
+      notTicked: "1 line not ticked for Invoice",
+      title: "4 of 5 selling lines invoiced; 1 line not ticked for Invoice: tick it on the job's Costs tab to bill it",
+    });
+    expect(linesInvoicedCell({ sellingLines: 5, invoicedLines: 3, notTickedLines: 2 })?.notTicked).toBe("2 lines not ticked for Invoice");
   });
 });

@@ -118,6 +118,7 @@ export function listItem(
         status: c.status,
         pickupDate: c.pickupDate,
         promisedDate: c.promisedDate,
+        serviceLevel: c.serviceLevel,
         belowFloor: money.belowFloor,
         marginApproved: money.marginApproved,
         marginCzk: money.marginCzk,

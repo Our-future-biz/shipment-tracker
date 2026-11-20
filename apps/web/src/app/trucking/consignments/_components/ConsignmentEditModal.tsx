@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Alert, Button, Checkbox, Modal } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import type { ConsignmentDetail, ConsignmentUpdate } from "@/hooks/useTruckingConsignments";
-import { consignmentFormProblems, formFromDetail, toUpdateRequest, type ConsignmentForm } from "../../_lib/consignmentForm";
+import { consignmentFormProblems, fixedDayMissing, formFromDetail, toUpdateRequest, type ConsignmentForm } from "../../_lib/consignmentForm";
 import { isVersionConflict } from "../../_lib/saveConflict";
 import { ConsignmentFormFields } from "../../_components/ConsignmentFormFields";
 
@@ -23,8 +23,10 @@ export const ConsignmentEditModal = ({ c, limited, onClose, onSave }: Consignmen
   const [reprice, setReprice] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // An older Express fixed date one without its agreed day saves without it; Needs attention asks for it (mock council R24).
+  const dayMissing = fixedDayMissing(c);
   // The job and quote are fixed; their checks do not apply here.
-  const problems = useMemo(() => consignmentFormProblems({ ...form, source: "new" }, { limited }), [form, limited]);
+  const problems = useMemo(() => consignmentFormProblems({ ...form, source: "new" }, { limited, fixedDateMissingAllowed: dayMissing }), [form, limited, dayMissing]);
 
   const handleSave = async () => {
     setBusy(true);
@@ -47,6 +49,9 @@ export const ConsignmentEditModal = ({ c, limited, onClose, onSave }: Consignmen
           {c.quoteNumber ? ` · quote ${c.quoteNumber}` : ""}
         </div>
         {limited && <Alert type="info" showIcon message="Picked up — only the references and notes for the driver can change now." />}
+        {!limited && dayMissing && !form.fixedDeliveryDate && form.serviceLevel === c.serviceLevel && (
+          <Alert type="warning" showIcon message="No fixed delivery date agreed with the customer yet. Give it when it is known; this edit saves without it." />
+        )}
         <ConsignmentFormFields form={form} onChange={setForm} limited={limited} />
         {!limited && (
           <Checkbox checked={reprice} onChange={(e) => setReprice(e.target.checked)}>

@@ -29,6 +29,11 @@ export interface InvoiceCostItem {
   supplierCustomerId: string | null;
   /** The supplier invoice (Finance → Accounts Payable) the line is on; null for a line with no invoice number yet. Its payment is noted there. */
   supplierInvoiceId: string | null;
+  /**
+   * On a billed shipment: the line's real cost came after the billing, on a supplier invoice not yet approved or
+   * paid, so it can still be put right on the job (mock council M1; lib/billedLock). Set by the job's costs read only.
+   */
+  lateRealCostOpen?: boolean;
   sortOrder: number;
   /** The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then. */
   sourceTruckingRef: string | null;
@@ -617,6 +622,11 @@ export interface BillingQueueItem {
    * sellingLines - it is no charge to bill). The check "Invoiced, charges or credits open" lists such a job too (M3).
    */
   creditsOwed: number;
+  /**
+   * Charges on no open invoice that are not ticked for Invoice: they keep the job in To bill, but issuing skips them
+   * and amountToBill leaves them out. The row says "1 line not ticked for Invoice" (mock council S5-3).
+   */
+  notTickedLines: number;
 }
 
 /** Number of shipments in each queue view */
@@ -1223,6 +1233,11 @@ export interface PayableInvoiceItem {
   claimed: boolean;
   /** The signed-in user is the Person in Charge or Holiday Cover of one of its jobs */
   mine: boolean;
+  /**
+   * Why it can't be approved or paid yet for its amounts: a line with no real cost, named ("" when every line has
+   * one; mock council M2). The page greys Approve and Mark paid with it.
+   */
+  missingAmount: string;
   /** One of its lines bills more than estimated */
   aboveEstimate: boolean;
   /** One of its jobs is invoiced to the customer already */

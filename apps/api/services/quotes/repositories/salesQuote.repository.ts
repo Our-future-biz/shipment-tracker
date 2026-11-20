@@ -521,7 +521,16 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     quoteNumber: string,
     save: { data: Record<string, unknown>; carry: string[] },
     expected: SavedVersion,
-    { statuses, wonRevision = false }: { statuses?: readonly string[]; wonRevision?: boolean } = {},
+    {
+      statuses,
+      wonRevision = false,
+      keepVersion = false,
+    }: {
+      statuses?: readonly string[];
+      wonRevision?: boolean;
+      /** A write nobody needs to see at once (the overnight note of a tariff's last valid day): the version and the time of the last change stay (mock council S2-6). */
+      keepVersion?: boolean;
+    } = {},
   ): Promise<SalesQuoteRecord | null> {
     const carry = textArray(save.carry);
     const live = this.liveSalesQuote(companyId, quoteNumber, expected);
@@ -532,8 +541,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
           || coalesce((SELECT jsonb_object_agg(e.key, e.value)
               FROM jsonb_each(CASE WHEN jsonb_typeof(${quoteTable.data}) = 'object' THEN ${quoteTable.data} ELSE '{}'::jsonb END) e
               WHERE e.key = ANY(${carry})), '{}'::jsonb)`,
-        dataVersion: sql`${quoteTable.dataVersion} + 1`,
-        updatedAt: new Date(),
+        ...(keepVersion ? {} : { dataVersion: sql`${quoteTable.dataVersion} + 1`, updatedAt: new Date() }),
       })
       .where(statuses ? and(live, inStatuses(statuses, wonRevision)) : live)
       .returning();

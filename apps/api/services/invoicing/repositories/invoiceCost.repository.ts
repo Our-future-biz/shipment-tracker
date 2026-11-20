@@ -28,6 +28,26 @@ const lineOf = (id: string, companyId: string, shipmentId: string) =>
 const deletedLineOf = (id: string, companyId: string, shipmentId: string) =>
   and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNotNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef));
 
+/**
+ * A billed line's real cost as it was read: its write goes through only while the line still has it, else no row
+ * comes back and the save is refused as changed meanwhile (mock council S1-06). `openInvoiceId`, for a late real cost
+ * put right while its supplier invoice waits for approval (lib/billedLock "open"): the line is still on that invoice
+ * and it is still booked and unpaid when written, so an approval or a payment landing between the read and the write
+ * lets no change through (system-21 mock council review).
+ */
+export type RealCostAsRead = Partial<Pick<InvoiceCostRecord, "realQty" | "realAmount" | "realCurrency">> & { openInvoiceId?: string };
+const asReadOf = (read: RealCostAsRead | undefined) =>
+  read
+    ? [
+        read.realAmount !== undefined ? sql`${t.realAmount} IS NOT DISTINCT FROM ${read.realAmount}::numeric` : undefined,
+        read.realQty !== undefined ? sql`${t.realQty} IS NOT DISTINCT FROM ${read.realQty}::numeric` : undefined,
+        read.realCurrency !== undefined ? sql`${t.realCurrency} = ${read.realCurrency}` : undefined,
+        read.openInvoiceId !== undefined
+          ? sql`EXISTS (SELECT 1 FROM supplier_invoice h WHERE h.id = ${t.supplierInvoiceId} AND h.id = ${read.openInvoiceId}::uuid AND h.company_id = ${t.companyId} AND h.deleted_at IS NULL AND h.status = 'booked' AND h.paid_on IS NULL)`
+          : undefined,
+      ]
+    : [];
+
 // Rows entered in Costs Breakdown itself (not pushed by Trucking, not a master job's share).
 const ENTERED_HERE = [isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef)];
 
@@ -207,12 +227,19 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
    * still received keeps its stamp and one unticked meanwhile gets this one (two saves at once never leave a
    * received line without it, C-5).
    */
-  async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<NewInvoiceCostRecord>, receivedStamp?: Date): Promise<InvoiceCostRecord | null> {
+  async updateLine(
+    id: string,
+    companyId: string,
+    shipmentId: string,
+    data: Partial<NewInvoiceCostRecord>,
+    receivedStamp?: Date,
+    realCostAsRead?: RealCostAsRead,
+  ): Promise<InvoiceCostRecord | null> {
     const stamp = receivedStamp ? { receivedAt: sql`CASE WHEN ${t.received} THEN ${t.receivedAt} ELSE ${receivedStamp.toISOString()}::timestamptz END` } : {};
     const [row] = await this.db
       .update(t)
       .set({ ...data, ...stamp, updatedAt: new Date() })
-      .where(lineOf(id, companyId, shipmentId))
+      .where(and(lineOf(id, companyId, shipmentId), ...asReadOf(realCostAsRead)))
       .returning();
     return row ?? null;
   }

@@ -1,5 +1,6 @@
-import { eq, ne, desc, isNull, and, sql } from "drizzle-orm";
+import { eq, ne, desc, isNull, and, inArray, sql } from "drizzle-orm";
 import { APIError } from "encore.dev/api";
+import { isUuid } from "../../../lib/uuid";
 import { db } from "../db/db";
 import { warehouseTaskTable, type NewWarehouseTaskRecord, type WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
 import { warehouseRefCounterTable } from "../schemas/warehouseRefCounter.schema";
@@ -31,6 +32,21 @@ class WarehouseTaskRepository {
         eq(warehouseTaskTable.companyId, companyId),
         eq(warehouseTaskTable.shipmentId, shipmentId),
         isNull(warehouseTaskTable.deletedAt),
+      ));
+  }
+
+  /** The live positions (not truck references) linked to these shipments; ids that are not uuids match nothing. */
+  async listPositionsForShipments(shipmentIds: string[], companyId: string): Promise<WarehouseTaskRecord[]> {
+    const ids = shipmentIds.filter(isUuid);
+    if (!ids.length) return [];
+    return db
+      .select()
+      .from(warehouseTaskTable)
+      .where(and(
+        eq(warehouseTaskTable.companyId, companyId),
+        inArray(warehouseTaskTable.shipmentId, ids),
+        isNull(warehouseTaskTable.deletedAt),
+        ne(warehouseTaskTable.type, TRUCK_TYPE),
       ));
   }
 

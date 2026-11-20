@@ -72,6 +72,8 @@ interface GateMovementUpdateRequest extends GateMovementInput {
   id: string;
   /** Required (managers only) to change the link or direction of a position linked to a shipment. */
   linkChangeReason?: string & MaxLen<500>;
+  /** Required (managers only) to move earlier the "Received in warehouse" day a receipt set (R28). */
+  receivedDateReason?: string & MaxLen<500>;
   /**
    * One transport leg's changed fields only, merged into the legs as stored (the gate job's field
    * saves send this instead of the whole `transportLegs`, so a quick second save never undoes the first).
@@ -83,12 +85,12 @@ interface GateMovementUpdateRequest extends GateMovementInput {
 
 export const gateMovementUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-concept/gate/:id" },
-  async ({ id, linkChangeReason, legChange, checkChange, ...data }: GateMovementUpdateRequest): Promise<GateMovementResponse> => {
+  async ({ id, linkChangeReason, receivedDateReason, legChange, checkChange, ...data }: GateMovementUpdateRequest): Promise<GateMovementResponse> => {
     const { companyID, userID, role } = getAuthData()!;
     let movement: GateMovementItem | null = null;
     if (legChange) movement = await gateMovementService.updateLeg(id, companyID, userID, legChange, role);
     if (checkChange) movement = await gateMovementService.setCheck(id, companyID, userID, checkChange);
-    if (!movement || Object.keys(data).length) movement = await gateMovementService.update(id, companyID, userID, data, role, linkChangeReason);
+    if (!movement || Object.keys(data).length) movement = await gateMovementService.update(id, companyID, userID, data, role, linkChangeReason, receivedDateReason);
     return { movement };
   },
 );

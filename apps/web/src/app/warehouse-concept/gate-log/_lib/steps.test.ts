@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TERMS } from "../../_lib/glossary";
 import {
+  HELD_BY_CUSTOMS_STEP,
   QUEUEABLE_STAMPS,
   RECEIPT_FIRST,
   REWEIGH_FIRST,
@@ -18,6 +19,7 @@ import {
   typedDateReceiptHint,
   voidBlocked,
   voidsGateOutToo,
+  waitingGates,
   writesBack,
 } from "./steps";
 
@@ -61,6 +63,32 @@ describe("gateSteps", () => {
     expect(brief(m)).toEqual([`${TERMS.gateInTruck}:done`, "WH release:blocked", "Gate-out:later"]);
     expect(gateSteps(m)[1]!.reason).toBe("Release gates blocked — waiting for: Customs");
     expect(brief({ ...m, armed: true })).toEqual([`${TERMS.gateInTruck}:done`, "WH release:next", "Gate-out:later"]);
+  });
+
+  it("an overridden position still blocked waits only for Customs, not the lines the override cleared (mock council S10-3)", () => {
+    const m = base({
+      visit: "výdej",
+      gateIn: T,
+      loadInDate: "2026-10-14",
+      overridden: true,
+      releaseGates: [
+        { g: "B/L / release order", s: "Pending", note: "" },
+        { g: "Customs", s: "Pending", note: "" },
+        { g: "Charges", s: "Blocked", note: "" },
+      ],
+    });
+    expect(gateSteps(m)[1]).toMatchObject({ state: "blocked", reason: HELD_BY_CUSTOMS_STEP });
+    expect(HELD_BY_CUSTOMS_STEP).toMatch(/waiting for: Customs \(/);
+    // The phone's readiness list names only Customs too.
+    expect(waitingGates(m)).toEqual(["Customs"]);
+    expect(waitingGates({ ...m, overridden: false })).toEqual(["B/L / release order", "Customs", "Charges"]);
+    expect(brief({ ...m, armed: true })).toEqual([`${TERMS.gateInTruck}:done`, "WH release:next", "Gate-out:later"]);
+    // Customs OK (cleared, or transit cargo with an MRN): an overridden position held for anything
+    // else is not said to be held by Customs (review of S10-3).
+    const customsOk = m.releaseGates.map((x) => (x.g === "Customs" ? { ...x, s: "OK" as const } : x));
+    expect(gateSteps({ ...m, releaseGates: customsOk })[1]!.reason).not.toBe(HELD_BY_CUSTOMS_STEP);
+    // Refused: the refusal says why, not Customs.
+    expect(gateSteps({ ...m, status: "Refused" })[1]!.reason).toMatch(/^Refused/);
   });
 
   it("takes the outbound gate-out from the WH release", () => {

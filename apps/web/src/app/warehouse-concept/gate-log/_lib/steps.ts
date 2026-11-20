@@ -40,7 +40,10 @@ type StepMovement = Pick<
   interfaces.GateMovementItem,
   "visit" | "status" | "armed" | "releaseGates" | "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt" | "events"
 > &
-  Partial<Pick<interfaces.GateMovementItem, "needsReweigh" | "reweigh" | "container" | "leftAt" | "handling" | "receivedAt" | "loadInDate" | "containerNumber" | "operationType" | "transportLegs">>;
+  Partial<Pick<interfaces.GateMovementItem, "needsReweigh" | "reweigh" | "container" | "leftAt" | "handling" | "receivedAt" | "loadInDate" | "containerNumber" | "operationType" | "transportLegs" | "overridden">>;
+
+/** An overridden position still blocked: only Customs holds it (the server's HELD_BY_CUSTOMS). */
+export const HELD_BY_CUSTOMS_STEP = `${TERMS.releaseGates} ${TERMS.blocked.toLowerCase()} — waiting for: Customs (a supervisor override never clears it; released once customs clears it)`;
 
 /** LCL cargo is re-weighed before its receipt (the server refuses the Receipt stamp without it). */
 export const REWEIGH_FIRST = "Re-weigh the cargo first — LCL cargo is re-weighed before the receipt";
@@ -118,9 +121,13 @@ export function pinCheckMessage(result: PinCheckResult, tries: number): { tone: 
   }
 }
 
-/** Release gates that still hold the release (the empty return never does). */
-export const waitingGates = (m: Pick<interfaces.GateMovementItem, "releaseGates">) =>
-  m.releaseGates.filter((x) => x.s !== "OK" && !isEmptyReturn(x.g)).map((x) => x.g);
+/**
+ * Release gates that still hold the release (the empty return never does). Under a supervisor
+ * override only Customs can (it never clears Customs, Q18 (b)): the lines it cleared are not named
+ * (mock council S10-3).
+ */
+export const waitingGates = (m: Pick<interfaces.GateMovementItem, "releaseGates"> & { overridden?: boolean }) =>
+  m.releaseGates.filter((x) => x.s !== "OK" && !isEmptyReturn(x.g) && (!m.overridden || /^customs$/i.test(x.g))).map((x) => x.g);
 
 export const isOutbound = (m: Pick<interfaces.GateMovementItem, "visit">) => m.visit === "výdej";
 
@@ -214,6 +221,13 @@ export function gateSteps(m: StepMovement): GateStep[] {
     if (kind === "impRelease") {
       const held = containerHoldsRelease(m);
       if (held) return { kind, label, state: "blocked", at: null, by: "", reason: held.reason, needs: held.needs };
+    }
+    // An override cleared every other line, so only Customs can still hold it (it never clears
+    // Customs, Q18 (b)): say that, not the lines the override passed (mock council S10-3) - when
+    // its Customs line is what holds it (the gates as the server reads them: transit cargo with an
+    // MRN shows Customs OK), not for anything else (review of S10-3).
+    if (kind === "impRelease" && !m.armed && m.overridden && m.releaseGates.some((x) => /^customs$/i.test(x.g) && x.s !== "OK")) {
+      return { kind, label, state: "blocked", at: null, by: "", reason: HELD_BY_CUSTOMS_STEP };
     }
     if (kind === "impRelease" && !m.armed) {
       return {

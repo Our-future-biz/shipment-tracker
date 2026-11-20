@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { customerStateName } from "@/app/shipments/[jobNumber]/tabs/tracking/trackingText";
-import { asOfText, cargoText, contactText, kindText, routeText, stateText, stepText } from "./statusText";
+import { asOfText, cargoText, contactText, kindText, plannedPassed, routeText, stateText, stepText } from "./statusText";
 
 const status = { origin: "", pol: "Ningbo (CNNBO)", pod: "Hamburg (DEHAM)", destination: "Praha" };
 
@@ -50,5 +50,16 @@ describe("the customer's tracking page (user council E10)", () => {
     expect(kindText({ direction: "Import", freightMode: "Sea Freight" })).toEqual({ cs: "Import · Námořní přeprava", en: "Import · Sea Freight" });
     expect(kindText({ direction: "", freightMode: "Barge" })).toEqual({ cs: "Barge", en: "Barge" });
     expect(asOfText("20.11.2026 10:00").cs).toMatch(/^Stav k 20\.11\.2026 10:00/);
+  });
+
+  it("says a passed cut-off's day passed, not that it is planned (mock council S3-3)", () => {
+    expect(plannedPassed({ state: "open", planned: "2026-11-01" }, "2026-11-20")).toBe(true);
+    expect(stateText("open", true, true)).toEqual({ cs: "Termín uplynul", en: "Date passed" });
+    // Today's, a later one, a step with no plan, or one in another state: as before.
+    expect(plannedPassed({ state: "open", planned: "2026-11-20" }, "2026-11-20")).toBe(false);
+    expect(plannedPassed({ state: "open", planned: null }, "2026-11-20")).toBe(false);
+    expect(plannedPassed({ state: "unconfirmed", planned: "2026-11-01" }, "2026-11-20")).toBe(false);
+    expect(stateText("open", true, false).en).toBe("Planned");
+    expect(stateText("done", true, true).en).toBe("Done");
   });
 });

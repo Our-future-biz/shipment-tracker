@@ -78,7 +78,8 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Switch BoL": ["YES", "NO"],
   "House BoL Type": ["OBL", "SWB", "Telex", "OHBL ok", "Direct MBL"],
   "Master BoL Type": ["OBL", "SWB", "Telex", "OMBL ok"],
-  "Customs Procedure": ["SCP", "JSD", "T1", "C-Goods"],
+  // The warehouse gate's procedures (T2L, ATA Carnet, RDT) and an export's own (mock council S9-Q5 / R30, O12).
+  "Customs Procedure": ["SCP", "JSD", "T1", "T2L", "ATA Carnet", "RDT", "C-Goods", "Export"],
   "Customs Priority": ["Standard", "Urgent"],
   "Shipping Instructions": ["Not Queried", "Not Received", "Confirmed"],
   "VGM": ["Pending (Red)", "Confirmed (Green)", "Customer", "Not Applicable"],
@@ -186,7 +187,10 @@ export const COLUMNS: ColumnDef[] = [
   // Read-only in the lists: switching to Urgent asks for a deadline, which happens in the Customs detail.
   { key: "customsPriority", title: "Customs Priority", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
-  { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
+  // 250, not 320: with the defaults before it, it then ends inside the first screen at 1440 px (mock council
+  // S9-1). Most statuses fit; the three longest are cut with "…" in the cell (full on hover), and the
+  // dropdown is wider than the cell, so every option reads in full there.
+  { key: "status", title: "Shipment Status", width: 250, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
   { key: "lastEvent", title: "Last Event", width: 240, type: "text", readonly: true, apiField: "lastEvent" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
   { key: "freightPayableAt", title: "Freight Payable At", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Payable At"], apiField: "freightPayableAt" },
@@ -441,12 +445,16 @@ export function getShipmentUrgency(rowData: Record<string, string>): { level: Sh
 }
 
 /**
- * Whether a job waits for an original B/L: its House or Master BoL Type is "OBL" and neither
+ * Whether a job waits for an original B/L: an import whose House or Master BoL Type is "OBL" and neither
  * Originals Received nor Telex Release Received has a day - the rule Shipments → Managers says
  * "not in hand" by (apps/api …/lib/managersCockpitExtra originalBlSignals): a day in either is the
  * B/L in hand, whatever the type still reads.
  */
 export function waitsForOriginalBl(rowData: Record<string, string>): boolean {
+  // An import's: on an export the forwarder issues or releases the OBL, it waits for none - and every new
+  // export starts with OBL (fieldDefaults), so every export row read red (mock council S9-Q3 / R20). The
+  // cockpit's "not in hand" is an import's too (originalBlSignals).
+  if ((rowData["tradeDirection"] || "").trim().toLowerCase() !== "import") return false;
   const isObl = (rowData["houseBolType"] || "").trim().toUpperCase() === "OBL" || (rowData["masterBolType"] || "").trim().toUpperCase() === "OBL";
   const inHand = !!(rowData["originalsReceivedDate"] || "").trim() || !!(rowData["telexReleaseReceivedDate"] || "").trim();
   return isObl && !inHand;
@@ -758,6 +766,25 @@ export function getStatusBadgeStyle(status: string): React.CSSProperties {
     lineHeight: "22px",
   };
 }
+
+// The Incoterms® 2020 rules for sea and inland waterway only: terms of a ship.
+const SEA_ONLY_INCOTERMS: ReadonlySet<string> = new Set(["FAS", "FOB", "CFR", "CIF"]);
+
+/**
+ * The Incoterms a job's Incoterms Origin / Destination offer, as a quote's picker does (sales
+ * quoteIncoterms): all of them by sea or while no Freight Mode is set, on an air, rail or road job
+ * only the terms for any mode. A code the job already holds stays offered, so it shows as it is
+ * until another is picked (mock council S4-5).
+ */
+export function incotermOptionsFor(freightMode: string | null | undefined, current?: string | null): string[] {
+  const mode = (freightMode ?? "").trim();
+  const offered = !mode || /^sea/i.test(mode) ? [...INCOTERMS] : INCOTERMS.filter((code) => !SEA_ONLY_INCOTERMS.has(code));
+  const held = (current ?? "").trim();
+  return held && !offered.includes(held) ? [...offered, held] : offered;
+}
+
+/** The job fields that hold an Incoterm, whose choices follow the Freight Mode (incotermOptionsFor). */
+export const INCOTERM_FIELDS: ReadonlySet<string> = new Set(["incotermOrigin", "incotermDestination"]);
 
 // The Shipment Status choices for a Trade Direction: its own [IMP] / [EXP] / [DOM] steps plus
 // Cancelled Shipment; every status while the direction is not set yet.

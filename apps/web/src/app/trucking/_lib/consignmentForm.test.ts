@@ -7,10 +7,12 @@ import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import {
   consignmentFormProblems,
   emptyConsignmentForm,
+  fixedDayMissing,
   fixedDeliveryTime,
   formFromDetail,
   formFromQuote,
   formFromShipment,
+  missingSellListNote,
   stopFromSite,
   toCreateRequest,
   toUpdateRequest,
@@ -124,6 +126,14 @@ describe("Express fixed date", () => {
     expect(consignmentFormProblems(fixed(), { limited: true })).toEqual([]);
   });
 
+  it("before the pick-up an older one without the date saves without it; a day typed is checked (mock council R24)", () => {
+    expect(fixedDayMissing({ serviceLevel: "EXP_FIXED", promisedDate: null })).toBe(true);
+    expect(fixedDayMissing({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21" })).toBe(false);
+    expect(fixedDayMissing({ serviceLevel: "D1", promisedDate: null })).toBe(false);
+    expect(consignmentFormProblems(fixed(), { fixedDateMissingAllowed: true })).toEqual([]);
+    expect(consignmentFormProblems(fixed({ fixedDeliveryDate: "2026-10-15" }), { fixedDateMissingAllowed: true })).toEqual(["The fixed delivery date cannot be before the pick-up"]);
+  });
+
   it("refuses a delivery time window off the agreed day", () => {
     const f = fixed({ fixedDeliveryDate: "2026-10-21", delivery: { ...valid().delivery, windowFrom: at("2026-10-22", "08:00"), windowTo: null } });
     expect(consignmentFormProblems(f)).toEqual(["Delivery: the time window is not on the fixed delivery date"]);
@@ -214,5 +224,27 @@ describe("prefill", () => {
     expect(f).toMatchObject({ quoteNumber: "QCZ1", serviceLevel: "D2", priceSource: "QUOTE", pickupDate: TODAY });
     expect(f.load).toMatchObject({ palletPlaces: 33, weightKg: 24000, tailLift: true });
     expect(f.delivery.postcode).toBe("11000");
+  });
+});
+
+// A tariff price with no sell list to take it from is said while the form is filled (mock council S6-5).
+describe("a missing Standard sell list", () => {
+  const form = { priceSource: "TARIFF" as const, scope: "FTL" as const, customerId: "c1" };
+  const standard = { side: "SELL" as const, scope: "FTL" as const, ownerCustomerId: null };
+
+  it("is said for a tariff price when neither the Standard list of the scope nor the customer's own exists", () => {
+    const note = "No Standard FTL sell tariff: add one under Tariffs or pick Agreed price.";
+    expect(missingSellListNote(form, [])).toBe(note);
+    // An LTL list, a buy tariff or another customer's list does not price an FTL order of c1.
+    expect(missingSellListNote(form, [{ ...standard, scope: "LTL" }, { ...standard, side: "BUY", ownerCustomerId: "h1" }, { ...standard, ownerCustomerId: "c2" }])).toBe(note);
+    expect(missingSellListNote({ ...form, scope: "LTL" }, [standard])).toBe("No Standard LTL sell tariff: add one under Tariffs or pick Agreed price.");
+  });
+
+  it("is not said when a list can price it, for another price source, or while the tariffs are not known", () => {
+    expect(missingSellListNote(form, [standard])).toBeNull();
+    expect(missingSellListNote(form, [{ ...standard, ownerCustomerId: "c1" }])).toBeNull();
+    expect(missingSellListNote({ ...form, priceSource: "MANUAL" }, [])).toBeNull();
+    expect(missingSellListNote({ ...form, priceSource: "QUOTE" }, [])).toBeNull();
+    expect(missingSellListNote(form, null)).toBeNull();
   });
 });

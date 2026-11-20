@@ -1,10 +1,44 @@
 import { describe, expect, it } from "vitest";
 import type { GateEvent } from "../schemas/gateMovement.schema";
-import { conditionNotGood, countedText, damageNotice, isLooseImport, receiptBlocked, receiptMissing, receiptOf, receiptSuggestions, suggestionsNotice } from "./positionReceipt";
+import {
+  conditionNotGood,
+  countedText,
+  damageNotice,
+  isLooseImport,
+  receiptBlocked,
+  receiptDateMoveRefusal,
+  receiptMissing,
+  receiptOf,
+  receiptPiecesRefusal,
+  receiptSuggestions,
+  suggestionsNotice,
+  ZERO_PIECES,
+} from "./positionReceipt";
 import { keptReceivedDay, pragueDate, pragueDayStart } from "./storage";
 
 // Pure rules of the receipt of loose import cargo (no database: runs in the plain test run; the
 // service itself is tested in tests/positionReceipt.test.ts under `encore test`).
+
+describe("what a receipt takes (mock council R28, R29)", () => {
+  it("refuses 0 pieces and points to a Short exception; not counted is fine", () => {
+    expect(receiptPiecesRefusal(0)).toBe(ZERO_PIECES);
+    expect(ZERO_PIECES).toMatch(/Short exception/);
+    expect(receiptPiecesRefusal(null)).toBeNull();
+    expect(receiptPiecesRefusal(1)).toBeNull();
+    expect(receiptPiecesRefusal(-1)).toMatch(/whole number from 1/);
+    expect(receiptPiecesRefusal(1.5)).toMatch(/whole number from 1/);
+  });
+
+  it("lets only a manager move the receipt's date, only earlier, with a reason", () => {
+    expect(receiptDateMoveRefusal("2026-11-20", "2026-11-18", "manager", "came on Wednesday")).toBeNull();
+    expect(receiptDateMoveRefusal("2026-11-20", "2026-11-18", "admin", "came on Wednesday")).toBeNull();
+    expect(receiptDateMoveRefusal("2026-11-20", "2026-11-18", "user", "came on Wednesday")).toMatch(/a manager moves it earlier/);
+    expect(receiptDateMoveRefusal("2026-11-20", "2026-11-21", "manager", "typo")).toMatch(/only earlier/);
+    expect(receiptDateMoveRefusal("2026-11-20", "", "manager", "typo")).toMatch(/can't be cleared/);
+    expect(receiptDateMoveRefusal("2026-11-20", "2026-11-18", "manager", " x ")).toMatch(/Give a reason/);
+    expect(receiptDateMoveRefusal("2026-11-20", "2026-11-18", "manager", "x".repeat(501))).toMatch(/too long/);
+  });
+});
 
 const out = { visit: "výdej", receivedAt: null, impRelease: null, status: "Expected" };
 const ev = (kind: string, extra: Partial<GateEvent> & { receipt?: unknown } = {}): GateEvent => ({ kind, label: kind, at: "2026-11-20T09:00:00Z", by: "Jana", ...extra }) as GateEvent;
@@ -19,7 +53,11 @@ describe("receipt rules", () => {
     expect(receiptBlocked({ ...out, status: "Refused" }, null)).toMatch(/refused/);
     // Import cargo that comes in a container (FCL, a container number, the yard) is not loose cargo.
     expect(receiptBlocked({ ...out, operationType: "FCL stripping" }, null)).toMatch(/comes in a container/);
-    expect(receiptBlocked({ ...out, containerNumber: "MSKU6119027" }, null)).toMatch(/comes in a container/);
+    // A container number alone (a sea LCL import carries its consol container's): named, not "FCL" (mock council S11-3).
+    expect(receiptBlocked({ ...out, containerNumber: "MSKU6119027" }, null)).toBe(
+      "It has container number MSKU6119027 — it is received at that container's stripping tally, or by the Received in warehouse date",
+    );
+    expect(receiptBlocked({ ...out, operationType: "FCL stripping", containerNumber: "MSKU6119027" }, null)).toMatch(/comes in a container \(FCL/);
   });
 
   it("words the count as the tally does", () => {

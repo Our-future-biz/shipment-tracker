@@ -16,10 +16,11 @@ import { keptReceivedDay, pragueDate, pragueDayStart } from "./storage";
 import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
 import { syncStockForMovement } from "./warehouseStockSync";
+import { COUNT_VOIDED } from "./warehouseStockPlan";
 import {
   countedText,
   lastReceiptEvent,
-  MAX_RECEIPT_PIECES,
+  receiptPiecesRefusal,
   RECEIPT_EVENT,
   RECEIPT_STAMP,
   RECEIPT_VOIDED_EVENT,
@@ -77,7 +78,9 @@ class PositionReceiptService {
     input: PositionReceiptInput,
   ): Promise<{ movement: GateMovementItem; outcome: ReceiptOutcome; notice: string; suggestExceptions: ReceiptSuggestion[] }> {
     const pieces = input?.pieces ?? null;
-    if (pieces !== null && (!Number.isInteger(pieces) || pieces < 0 || pieces > MAX_RECEIPT_PIECES)) throw APIError.invalidArgument("Pieces counted must be a whole number from 0");
+    // 0 pieces is refused: cargo that did not come is a Short exception (R29).
+    const piecesRefused = receiptPiecesRefusal(pieces);
+    if (piecesRefused) throw APIError.invalidArgument(piecesRefused);
     const condition = text(input?.condition, 200, "The condition");
     const location = text(input?.location, 100, "The location");
     const note = text(input?.note, MAX_NOTE, "The note");
@@ -211,7 +214,7 @@ class PositionReceiptService {
       );
       if (!row) throw APIError.aborted("The position changed meanwhile — reload and try again");
       // The typed date it gave back may still receive the position; else the stock line is voided.
-      await syncStockForMovement(tx, companyId, m.id, { by, why: `receipt voided: ${why}` });
+      await syncStockForMovement(tx, companyId, m.id, { by, why: `${COUNT_VOIDED.receipt}: ${why}`, countVoided: true });
     });
     return { movement: await gateMovementService.get(id, companyId), notice };
   }

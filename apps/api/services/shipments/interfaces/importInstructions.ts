@@ -85,6 +85,9 @@ export interface ImportInstructionState {
 export interface PublicImportInstructionForm {
   /** Whose form it is, for the customer to know whom to ask; "" when it can't be read. No staff names. */
   companyName: string;
+  /** The company's phone and e-mail from its invoicing details, as the tracking page gives them; "" when not known (mock council S3-2). */
+  ourPhone: string;
+  ourEmail: string;
   reference: string;
   prefill: Partial<ImportInstructionAnswers>;
 }

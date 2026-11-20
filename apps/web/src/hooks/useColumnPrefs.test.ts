@@ -7,6 +7,25 @@ describe("DEFAULT_SHIPMENT_COLUMNS", () => {
     expect(DEFAULT_SHIPMENT_COLUMNS).toEqual(expect.arrayContaining(["pol", "pod", "closingDate", "estimatedDeparture", "estimatedArrival", "status"]));
   });
 
+  it("puts the morning check right after Customer, Shipment Status first, on the first screen at 1440 px (mock council S9-1 and its review)", () => {
+    expect(DEFAULT_SHIPMENT_COLUMNS.slice(0, 8)).toEqual(["jobNumber", "customer", "status", "pol", "pod", "closingDate", "estimatedDeparture", "estimatedArrival"]);
+    // At a 1440 px window the 260 px menu and px-8 each side leave the grid 1116 px; the row tick box takes 44.
+    const screen = 1440 - 260 - 2 * 32;
+    const ends = new Map<string, number>();
+    let left = 44;
+    for (const key of DEFAULT_SHIPMENT_COLUMNS.slice(0, 8)) {
+      left += COLUMN_MAP.get(key)!.width;
+      ends.set(key, left);
+    }
+    // Shipment Status, the ports and the Closing end on the first screen; ETD and ETA are the next ones along.
+    for (const key of ["status", "pol", "pod", "closingDate"]) expect(ends.get(key)).toBeLessThanOrEqual(screen);
+  });
+
+  it("no longer shows Shipments Month, Year and Department at first", () => {
+    for (const key of ["shipmentsDate", "shipmentsYear", "department"]) expect(DEFAULT_SHIPMENT_COLUMNS).not.toContain(key);
+    for (const key of ["personInCharge", "holidayCover", "customerPic", "masterJob"]) expect(DEFAULT_SHIPMENT_COLUMNS).toContain(key);
+  });
+
   it("names only columns that exist, each once", () => {
     for (const key of DEFAULT_SHIPMENT_COLUMNS) expect(COLUMN_MAP.has(key)).toBe(true);
     expect(new Set(DEFAULT_SHIPMENT_COLUMNS).size).toBe(DEFAULT_SHIPMENT_COLUMNS.length);

@@ -14,7 +14,7 @@ vi.mock("../repositories/user.repository", () => ({ userRepository: {} }));
 vi.mock("../repositories/locationPick.repository", () => ({ locationPickRepository: {} }));
 
 import { orgUnitService } from "../services/orgUnit.service";
-import { CARRIER_PORT_CODES, CARRIER_PORT_NAMES, carrierCodeWhere, carrierPortsNamed } from "../../../lib/geo/carrierPorts";
+import { CARRIER_PORT_CODES, CARRIER_PORT_NAMES, carrierCodeWhere, carrierPortsNamed, seaPortText } from "../../../lib/geo/carrierPorts";
 
 const JAN = { companyId: "86f202b1-7449-441b-9c5b-5bf4d89f8d88", userId: "11111111-1111-4111-8111-111111111111" };
 
@@ -92,5 +92,16 @@ describe("carrier port codes", () => {
     expect(carrierCodeWhere("CNSHA")).toBe("carrier code for Shanghai port CNSGH");
     expect(carrierCodeWhere("CNSGH")).toBeNull();
     expect(carrierCodeWhere("DEHAM")).toBeNull();
+  });
+
+  it("show an old sea job's carrier code by its port's name, and leave air, road and other places as stored (mock council S4-1)", () => {
+    expect(seaPortText("Shanghai Hongqiao International Apt (CNSHA)", "Sea FCL")).toBe("Shanghai (CNSHA)");
+    expect(seaPortText("Ningbo Lishe International Apt (CNNGB)", "Sea Freight")).toBe("Ningbo (CNNGB)");
+    expect(seaPortText("Shanghai (CNSHA)", "Sea LCL")).toBe("Shanghai (CNSHA)");
+    expect(seaPortText("Shanghai Hongqiao International Apt (CNSHA)", "Air Freight")).toBe("Shanghai Hongqiao International Apt (CNSHA)");
+    expect(seaPortText("Shanghai Hongqiao International Apt (CNSHA)", "")).toBe("Shanghai Hongqiao International Apt (CNSHA)");
+    expect(seaPortText("Hamburg (DEHAM)", "Sea FCL")).toBe("Hamburg (DEHAM)");
+    expect(seaPortText("Shanghai", "Sea FCL")).toBe("Shanghai");
+    expect(seaPortText(null, "Sea FCL")).toBe("");
   });
 });

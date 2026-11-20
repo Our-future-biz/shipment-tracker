@@ -9,6 +9,7 @@ import {
   oceanRouteOf,
   oceanRouteProblem,
   oceanVersionId,
+  sellingAfterOceanPick,
   withOceanOffer,
   type OceanOffer,
 } from "./oceanQuote";
@@ -197,5 +198,27 @@ describe("oceanAllIn and isOceanFreightLine", () => {
     expect(isOceanFreightLine(freightLine)).toBe(true);
     expect(isOceanFreightLine({ type: "Ocean freight (OF / BAS)" })).toBe(true);
     expect(isOceanFreightLine({ type: "Inland container haulage", chargeCode: "inland_haulage" })).toBe(false);
+  });
+});
+
+describe("sellingAfterOceanPick (mock council S2-4)", () => {
+  const OLD = "Ocean freight Hamburg → Shanghai (Maersk Czech Republic s.r.o.)";
+  const before: CostLine = { type: "Ocean freight", description: OLD, supplier: "Maersk Czech Republic s.r.o.", currency: "USD", amount: 900, pairId: "p1" };
+  const freight: CostLine = { ...before, description: "Ocean freight Hamburg → Shanghai", amount: 950 };
+  const sold = (description: string, pairId = "p1"): CostLine => ({ type: "Ocean freight", description, currency: "USD", amount: 1100, pairId });
+
+  it("gives the paired selling line the new text when it still carries the old one or the shipping line's name", () => {
+    expect(sellingAfterOceanPick([sold(OLD)], before, freight)).toEqual([sold("Ocean freight Hamburg → Shanghai")]);
+    expect(sellingAfterOceanPick([sold("Sea freight HAM-SHA (Maersk Czech Republic s.r.o.)")], before, freight)).toEqual([sold("Ocean freight Hamburg → Shanghai")]);
+  });
+
+  it("leaves a selling text written by hand, another pair's line, and a quote with nothing to change", () => {
+    expect(sellingAfterOceanPick([sold("Sea freight door to port")], before, freight)).toBeNull();
+    expect(sellingAfterOceanPick([sold(OLD, "p2")], before, freight)).toBeNull();
+    expect(sellingAfterOceanPick([sold(OLD)], { ...before, pairId: undefined }, freight)).toBeNull();
+    expect(sellingAfterOceanPick([sold(OLD)], undefined, freight)).toBeNull();
+    // Lines from before pairs were kept: the same text is the pair.
+    const unpaired = { ...sold(OLD), pairId: undefined };
+    expect(sellingAfterOceanPick([unpaired], { ...before, pairId: undefined }, { ...freight, pairId: undefined })).toEqual([{ ...unpaired, description: "Ocean freight Hamburg → Shanghai" }]);
   });
 });

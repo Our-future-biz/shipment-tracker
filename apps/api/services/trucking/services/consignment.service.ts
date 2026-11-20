@@ -90,14 +90,35 @@ const bad = (message: string) => APIError.invalidArgument(message);
 // today" tile, the lateness warnings and the job's Planned Delivery see it (User Council Q13).
 const FIXED_LEVEL: ServiceLevelCode = "EXP_FIXED";
 
-/** The fixed delivery date of an Express fixed date order, checked; null for every other level. */
-export function fixedDeliveryOf(level: ServiceLevelCode | null, raw: unknown, pickupDate: string): string | null {
+/**
+ * The fixed delivery date of an Express fixed date order, checked; null for every other level.
+ * `missingAllowed`: the consignment was booked before the agreed day was asked (an older Express
+ * fixed date one has none) - its edits, and the pick-up date Shipments pushes, pass while the day
+ * is still missing; Needs attention asks for it (mock council R24, X-4). A day given is checked.
+ */
+export function fixedDeliveryOf(level: ServiceLevelCode | null, raw: unknown, pickupDate: string, missingAllowed = false): string | null {
   if (level !== FIXED_LEVEL) return null;
-  if (raw === null || raw === undefined || raw === "") throw bad("Express fixed date needs the fixed delivery date agreed with the customer");
+  if (raw === null || raw === undefined || raw === "") {
+    if (missingAllowed) return null;
+    throw bad("Express fixed date needs the fixed delivery date agreed with the customer");
+  }
   if (typeof raw !== "string" || !isRealYmd(raw)) throw bad("The fixed delivery date must be a date like 2026-12-31");
   if (raw < pickupDate) throw bad("The fixed delivery date cannot be before the pick-up date");
   return raw;
 }
+
+// The rate engine's reasons a tariff cannot price that an agreed price gets round: no zone, no
+// price for the level or zone, above the top band, no valid version, no ČNB rate (rateEngine.ts,
+// rate.service.ts). A reason that asks for input ("Nothing to charge: give the pallet places") is
+// cured by filling it in, so it gets no advice of its own (mock council S6-3).
+const AGREED_PRICE_REASONS = [
+  /^No zone for postcode /,
+  / has no .+ prices?( for zone .+)?$/,
+  /^Above the top band/,
+  / has no version valid on /,
+  /^Neither .+ sell list has a version valid on /,
+  /^No ČNB rate for /,
+];
 
 /**
  * A booking the tariff cannot price: the reason and what to do instead (User Council T2). Said here,
@@ -106,7 +127,8 @@ export function fixedDeliveryOf(level: ServiceLevelCode | null, raw: unknown, pi
  */
 export function tariffRefusal(reason: string): string {
   if (/^No Standard (FTL|LTL) sell list$/.test(reason)) return `${reason}: add a Standard sell tariff under Tariffs or use Agreed price`;
-  return `${reason}: use Agreed price instead`;
+  if (AGREED_PRICE_REASONS.some((r) => r.test(reason))) return `${reason}: use Agreed price instead`;
+  return reason;
 }
 
 /** The fields of a create or an update, checked; the fixed delivery date is kept only for Express fixed date. */
@@ -443,11 +465,14 @@ class ConsignmentService {
     return setting ? promise(setting, pickupDate, pickupTime, "FTL", extra).promisedDate : null;
   }
 
-  /** The sell price of a consignment from its source; Express fixed date promises the day agreed at booking (Q13). */
-  async price(companyId: string, customerId: string, f: ConsignmentFields, consignmentId?: string): Promise<Priced> {
+  /**
+   * The sell price of a consignment from its source; Express fixed date promises the day agreed at
+   * booking (Q13). `fixedMissingAllowed`: an older one with no agreed day yet (fixedDeliveryOf).
+   */
+  async price(companyId: string, customerId: string, f: ConsignmentFields, consignmentId?: string, fixedMissingAllowed = false): Promise<Priced> {
     const priced = await this.sourcePrice(companyId, customerId, f, consignmentId);
     if (priced.serviceLevel !== FIXED_LEVEL) return priced;
-    return { ...priced, promisedDate: fixedDeliveryOf(priced.serviceLevel, f.fixedDeliveryDate, f.pickupDate) };
+    return { ...priced, promisedDate: fixedDeliveryOf(priced.serviceLevel, f.fixedDeliveryDate, f.pickupDate, fixedMissingAllowed) };
   }
 
   private async sourcePrice(companyId: string, customerId: string, f: ConsignmentFields, consignmentId?: string): Promise<Priced> {
@@ -740,11 +765,15 @@ class ConsignmentService {
       if (input.reprice) throw APIError.failedPrecondition("After the pick-up the price cannot change");
       if (lockedPart(f, f.price) !== lockedPart(storedFields(c), f.price)) throw APIError.failedPrecondition("After the pick-up only notes and references can change");
     }
-    const priced = input.reprice ? await this.price(companyId, c.customerId, f, c.id) : null;
+    // An Express fixed date one booked before the agreed day was asked has none: its edits pass while
+    // the day is still missing, and Needs attention asks for it (mock council R24, X-4). One moved to
+    // Express fixed date gives the day.
+    const fixedMissingAllowed = c.serviceLevel === FIXED_LEVEL && !c.promisedDate;
+    const priced = input.reprice ? await this.price(companyId, c.customerId, f, c.id, fixedMissingAllowed) : null;
     const level = priced?.serviceLevel ?? f.serviceLevel;
     // Express fixed date: the agreed day is edited like the other fields; after the pick-up it stays
     // as stored (checked above with the rest), so an older one without a date keeps its notes editable.
-    const fixed = c.pickedUpAt || c.gateInAt ? (f.fixedDeliveryDate ?? null) : fixedDeliveryOf(level, f.fixedDeliveryDate, f.pickupDate);
+    const fixed = c.pickedUpAt || c.gateInAt ? (f.fixedDeliveryDate ?? null) : fixedDeliveryOf(level, f.fixedDeliveryDate, f.pickupDate, fixedMissingAllowed);
     const fixedMoved = level === FIXED_LEVEL && fixed !== c.promisedDate;
     // Away from Express fixed date: the job holds the old agreed day, so it learns the new promise too.
     const leftFixed = c.serviceLevel === FIXED_LEVEL && level !== FIXED_LEVEL;
@@ -1509,6 +1538,7 @@ const emptyCounts = (): ConsignmentCounts => ({
   openFtlWithoutHaulier: 0,
   avizacePending: 0,
   openExceptions: 0,
+  pickupPassed: 0,
 });
 
 const DELIVERED_OR_LATER: ConsignmentStatus[] = ["DELIVERED", "POD_RECEIVED", "READY_TO_BILL"];
@@ -1544,6 +1574,10 @@ export function inView(i: ConsignmentListItem, view: ConsignmentView, day: strin
       return i.openExceptions > 0;
     case "openFtl":
       return i.scope === "FTL" && i.status === "BOOKED" && !i.tripId;
+    case "pickupPassed":
+      // The dispatcher's most urgent case (User Council T6's other half, mock council R23): the day
+      // has gone and no truck is ordered - no trip yet, or its transport order not sent.
+      return i.pickupDate < day && (i.status === "BOOKED" || i.status === "PLANNED");
   }
 }
 
@@ -1558,6 +1592,7 @@ export function countsOf(items: ConsignmentListItem[], day: string, flags: ViewF
     openFtlWithoutHaulier: n("openFtl"),
     avizacePending: n("avizacePending"),
     openExceptions: n("openExceptions"),
+    pickupPassed: n("pickupPassed"),
   };
 }
 

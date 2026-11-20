@@ -82,6 +82,8 @@ describe("the overnight tariff check of a quote", () => {
     await expect(checkQuote(found, TODAY)).resolves.toBe(true);
     expect(tariffApi._quoteTariffOffers).not.toHaveBeenCalled();
     expect((repository.saveDocument.mock.calls[0]![2].data.buyingLines as { tariffValidTo?: string }[])[0]!.tariffValidTo).toBe("2027-01-31");
+    // Only the day noted: no new version, so a colleague's open page isn't refused for it (mock council S2-6).
+    expect(repository.saveDocument.mock.calls[0]![4]).toMatchObject({ keepVersion: true });
     expect(chat.createForCompany).not.toHaveBeenCalled();
     repository.saveDocument.mockClear();
     repository.loadSales.mockResolvedValue(record({ data: { ...data, buyingLines: data.buyingLines.map((l) => ({ ...l, tariffValidTo: "2027-01-31" })) } }));
@@ -100,7 +102,7 @@ describe("the overnight tariff check of a quote", () => {
   it("saves only the version it read and only while the quote is not sent, keeping the keys only the server writes as stored", async () => {
     await expect(checkQuote(found, TODAY)).resolves.toBe(true);
     const [company, quoteNumber, save, expected, options] = repository.saveDocument.mock.calls[0]!;
-    expect([company, quoteNumber, expected, options]).toEqual([COMPANY, found.quoteNumber, { dataVersion: 7 }, { statuses: TARIFF_CHECK_STATUSES, wonRevision: true }]);
+    expect([company, quoteNumber, expected, options]).toEqual([COMPANY, found.quoteNumber, { dataVersion: 7 }, { statuses: TARIFF_CHECK_STATUSES, wonRevision: true, keepVersion: false }]);
     expect(save.carry).toEqual([...TARIFF_CHECK_CARRY]);
     expect(save.carry).toEqual(expect.arrayContaining(["quoteStatus", "timeline", "salesOwner", "validUntil", "fx"]));
     // The road pricing and its margin approval are the check's own to move.
@@ -137,7 +139,7 @@ describe("the revision of a Won quote", () => {
   it("is checked as an open quote, its save let through for a Won quote's revision only", async () => {
     repository.loadSales.mockResolvedValue(record({ status: "won", data: { ...data, wonRevisionOf: "QCZ20261020001" } }));
     await expect(checkQuote(found, TODAY)).resolves.toBe(true);
-    expect(repository.saveDocument.mock.calls[0]![4]).toEqual({ statuses: TARIFF_CHECK_STATUSES, wonRevision: true });
+    expect(repository.saveDocument.mock.calls[0]![4]).toMatchObject({ statuses: TARIFF_CHECK_STATUSES, wonRevision: true });
   });
 
   it("is told apart from a Won quote that is no revision, which is never touched", async () => {

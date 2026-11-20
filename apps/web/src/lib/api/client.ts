@@ -4352,6 +4352,7 @@ export namespace shipments {
                 direction:     params.direction,
                 handledBy:     params.handledBy,
                 invoicing:     params.invoicing,
+                jobsOf:        params.jobsOf,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 masterJobMcz:  params.masterJobMcz,
                 mode:          params.mode,
@@ -8896,6 +8897,12 @@ export namespace controllers {
          * user is a manager, it waits for a manager's approval on Sales → Managers → Company approval.
          */
         fromQuote?: string
+
+        /**
+         * The sales owner picked in Add customer: a user's id, or null for nobody. Left out, the creator
+         * owns it when they are in Sales or a manager, else nobody (mock council R12).
+         */
+        salesOwnerUserId?: string | null
     }
 
     export interface CustomerCreateManualResponse {
@@ -8923,6 +8930,12 @@ export namespace controllers {
          * The contact person, created as the customer's main contact.
          */
         contact: interfaces.CustomerContactRequest
+
+        /**
+         * The sales owner picked in Add customer: a user's id, or null for nobody. Left out, the creator
+         * owns it when they are in Sales or a manager, else nobody (mock council R12).
+         */
+        salesOwnerUserId?: string | null
     }
 
     export interface CustomerCreateResponse {
@@ -9781,6 +9794,11 @@ export namespace controllers {
          * Required (managers only) to change the link or direction of a position linked to a shipment.
          */
         linkChangeReason?: string
+
+        /**
+         * Required (managers only) to move earlier the "Received in warehouse" day a receipt set (R28).
+         */
+        receivedDateReason?: string
 
         /**
          * One transport leg's changed fields only, merged into the legs as stored (the gate job's field
@@ -11145,6 +11163,12 @@ export namespace controllers {
          * More shipments match than are listed - narrow it with the search
          */
         truncated: boolean
+
+        /**
+         * The jobs with a charge added after their invoice could not be read just now: To bill and All (and their counts)
+         * are without them (mock council S5-2). The page warns above the queue.
+         */
+        lateChargesNotRead: boolean
     }
 
     export interface QuoteChatFileUploadRequest {
@@ -12231,6 +12255,11 @@ export namespace controllers {
         handledBy?: string
 
         /**
+         * "My jobs": a user's e-mail (in any case), the jobs it names in Handled By or in Holiday Cover (mock council S9-1)
+         */
+        jobsOf?: string
+
+        /**
          * How the job travels: sea | air | rail | road
          */
         mode?: string
@@ -12269,6 +12298,11 @@ export namespace controllers {
             limit: number
         }
         data: interfaces.ShipmentItem[]
+        /**
+         * To bill / All only: the jobs with a charge added after their invoice could not be read from Invoicing just now,
+         * so the list is without them (mock council S5-2). Left out otherwise.
+         */
+        lateChargesNotRead?: boolean
     }
 
     export interface ShipmentManagersAuditRequest {
@@ -15136,6 +15170,12 @@ export namespace interfaces {
          * sellingLines - it is no charge to bill). The check "Invoiced, charges or credits open" lists such a job too (M3).
          */
         creditsOwed: number
+
+        /**
+         * Charges on no open invoice that are not ticked for Invoice: they keep the job in To bill, but issuing skips them
+         * and amountToBill leaves them out. The row says "1 line not ticked for Invoice" (mock council S5-3).
+         */
+        notTickedLines: number
     }
 
     export interface BillingSettingsItem {
@@ -15969,6 +16009,10 @@ export namespace interfaces {
         openFtlWithoutHaulier: number
         avizacePending: number
         openExceptions: number
+        /**
+         * The "Pick-up date passed" tile (mock council R23)
+         */
+        pickupPassed: number
     }
 
     export interface ConsignmentDetail {
@@ -16295,9 +16339,10 @@ export namespace interfaces {
     export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "AT_HUB" | "ON_LINEHAUL" | "OUT_FOR_DELIVERY" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED"
 
     /**
-     * podMissing = delivered more than 2 working days ago without POD; openFtl = booked FTL not yet on a trip
+     * podMissing = delivered more than 2 working days ago without POD; openFtl = booked FTL not yet on a trip;
+     * pickupPassed = the pick-up day gone and the truck not ordered yet (BOOKED / PLANNED; mock council R23)
      */
-    export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions" | "openFtl"
+    export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions" | "openFtl" | "pickupPassed"
 
     export interface ContactItem {
         id: string
@@ -19102,6 +19147,12 @@ export namespace interfaces {
          */
         supplierInvoiceId: string | null
 
+        /**
+         * On a billed shipment: the line's real cost came after the billing, on a supplier invoice not yet approved or
+         * paid, so it can still be put right on the job (mock council M1; lib/billedLock). Set by the job's costs read only.
+         */
+        lateRealCostOpen?: boolean
+
         sortOrder: number
         /**
          * The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then.
@@ -21241,6 +21292,12 @@ export namespace interfaces {
         mine: boolean
 
         /**
+         * Why it can't be approved or paid yet for its amounts: a line with no real cost, named ("" when every line has
+         * one; mock council M2). The page greys Approve and Mark paid with it.
+         */
+        missingAmount: string
+
+        /**
          * One of its lines bills more than estimated
          */
         aboveEstimate: boolean
@@ -21997,6 +22054,12 @@ export namespace interfaces {
          */
         companyName: string
 
+        /**
+         * The company's phone and e-mail from its invoicing details, as the tracking page gives them; "" when not known (mock council S3-2).
+         */
+        ourPhone: string
+
+        ourEmail: string
         reference: string
         prefill: {
             procedure?: "" | "free_circulation" | "t1" | "other" | "own_broker"
@@ -27588,7 +27651,7 @@ export namespace interfaces {
     }
 
     /**
-     * How full a trip is; the fuller of LDM and kg drives the colour. Percentages null without a vehicle.
+     * How full a trip is; the fullest of LDM, kg and pallet places drives the colour. Percentages null without a vehicle.
      */
     export interface TripFill {
         ldm: number
@@ -27597,7 +27660,7 @@ export namespace interfaces {
         ldmPercent: number | null
         kgPercent: number | null
         /**
-         * Shown instead of the LDM bar when the load has pallet places and no LDM; else null
+         * Shown next to the LDM bar whenever the vehicle has pallet places; null without a vehicle or places (mock council S6-1)
          */
         palletPlacesPercent: number | null
     }

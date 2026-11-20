@@ -111,15 +111,20 @@ export async function checkQuote(found: { companyId: string; quoteNumber: string
   if (road) actions.push(road);
   if (!actions.length) return false;
 
-  const { data: next, messages, changed } = applyTariffActions(data, actions);
+  const { data: next, messages, changed, stampsOnly } = applyTariffActions(data, actions);
   if (!changed) return false;
-  // Written only while the quote is the version read above and its prices are still open.
+  // Written only while the quote is the version read above and its prices are still open. A night
+  // that only notes a still-valid tariff's last valid day on its lines - every quote priced before
+  // the day was kept, the first night after the deploy - makes no new version (mock council S2-6):
+  // a colleague's page left open with unsaved edits is not refused as "changed meanwhile" for it.
+  // Their save keeps the day on each line it noted that the page sends as the same line without one
+  // (lib/tariffOvernight keepNotedValidTo, system-21 mock council review of M4).
   const saved = await salesQuoteRepository.saveDocument(
     quote.companyId,
     quote.quoteNumber,
     { data: next, carry: [...TARIFF_CHECK_CARRY] },
     { dataVersion: quote.dataVersion },
-    { statuses: TARIFF_CHECK_STATUSES, wonRevision: true },
+    { statuses: TARIFF_CHECK_STATUSES, wonRevision: true, keepVersion: stampsOnly },
   );
   if (!saved) return false;
   if (messages.length) {

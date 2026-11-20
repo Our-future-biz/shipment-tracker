@@ -18,8 +18,9 @@ export const PLACEHOLDERS = [
   { key: "customer", label: "customer" },
   { key: "reference", label: "quote reference" },
   { key: "route", label: "place of loading → place of delivery" },
-  { key: "origin", label: "place of loading (port of loading when blank)" },
-  { key: "destination", label: "place of delivery (port of discharge when blank)" },
+  // "port / airport": on an Air quote the blank end is the airport (mock council S2-7).
+  { key: "origin", label: "place of loading (port / airport of loading when blank)" },
+  { key: "destination", label: "place of delivery (port / airport of discharge when blank)" },
   { key: "validUntil", label: "valid until" },
   { key: "sender", label: "quoted by" },
 ] as const;

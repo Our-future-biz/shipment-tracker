@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { completeAnswers } from "@/components/ImportInstructionsFields";
-import { answerSummary, usedLinkText } from "./summary";
+import { answerSummary, questionsText, usedLinkText } from "./summary";
 
 describe("what the customer sent, to read or print (user council E12)", () => {
   it("lists every answer given, labelled, in the form's order, the procedure in words", () => {
@@ -29,5 +29,13 @@ describe("a link that no longer opens", () => {
     expect(usedLinkText("Austromar s.r.o.")).toBe("It was already used, it has expired or it was cancelled. Please ask Austromar s.r.o. for a new one.");
     expect(usedLinkText(null)).toMatch(/ask your contact/);
     expect(usedLinkText("  ")).toMatch(/ask your contact/);
+  });
+
+  it("gives the company's phone and e-mail with its name, as the tracking page does (mock council S3-2)", () => {
+    const our = { companyName: "Austromar s.r.o.", ourPhone: " +420 222 333 444 ", ourEmail: "ops@austromar.test" };
+    expect(usedLinkText(our)).toBe("It was already used, it has expired or it was cancelled. Please ask Austromar s.r.o. (+420 222 333 444, ops@austromar.test) for a new one.");
+    expect(questionsText(our)).toBe("Questions: contact Austromar s.r.o. (+420 222 333 444, ops@austromar.test).");
+    expect(questionsText({ companyName: "Austromar s.r.o.", ourPhone: "", ourEmail: "" })).toBe("Questions: contact Austromar s.r.o.");
+    expect(questionsText({ companyName: "", ourPhone: "", ourEmail: "" })).toBe("Questions: contact whoever sent you this link.");
   });
 });

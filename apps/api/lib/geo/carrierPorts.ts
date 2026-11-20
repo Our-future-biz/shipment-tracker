@@ -71,3 +71,17 @@ export function carrierPortsNamed(query: string): string[] {
     .filter(([, name]) => name.toLowerCase().startsWith(q))
     .map(([code]) => code);
 }
+
+/**
+ * A stored place text as a sea job shows it: a carrier code saved before the pickers named it as
+ * its port ("Shanghai Hongqiao International Apt (CNSHA)") reads "Shanghai (CNSHA)". Only on
+ * display, by sea: the stored text is left as it is, and an air or road job's CNSHA stays the
+ * airport (mock council S4-1). Any other text is returned unchanged.
+ */
+export function seaPortText(text: string | null | undefined, freightMode: string | null | undefined): string {
+  const value = text ?? "";
+  if (!/^sea/i.test(freightMode ?? "")) return value;
+  const m = /^(.*\S)\s*\(([A-Z]{2}[A-Z0-9]{3})\)\s*$/.exec(value);
+  const name = m ? CARRIER_PORT_NAMES[m[2]!] : undefined;
+  return m && name && m[1] !== name ? `${name} (${m[2]})` : value;
+}

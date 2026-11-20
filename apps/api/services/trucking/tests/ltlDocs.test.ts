@@ -45,10 +45,15 @@ describe("LTL documents", () => {
     ]);
     expect(doc.rows[1]!.notes).toBe("tail lift");
     expect(doc.totals).toEqual({ pieces: 4, palletPlaces: 4, ldm: 1.6, weightKg: 1200 });
-    expect(doc.capacityText).toBe("7.2 LDM / 9,000 kg — 22.2 % LDM, 13.3 % kg");
+    // The pallet places too, as the fill counts them (mock council S6-1).
+    expect(doc.capacityText).toBe("7.2 LDM / 9,000 kg / 18 pallet places — 22.2 % LDM, 13.3 % kg, 22.2 % pallet places");
     // in the figures of the manifest's language
-    expect(capacityText(cap, fill, "cs")).toBe("7,2 LDM / 9\u00a0000 kg — 22,2 % LDM, 13,3 % kg");
-    expect(capacityText(cap, fill, "both")).toBe("7.2 LDM / 9\u00a0000 kg — 22.2 % LDM, 13.3 % kg");
+    expect(capacityText(cap, fill, "cs")).toBe("7,2 LDM / 9\u00a0000 kg / 18 pal. míst — 22,2 % LDM, 13,3 % kg, 22,2 % pal. míst");
+    expect(capacityText(cap, fill, "both")).toBe("7.2 LDM / 9\u00a0000 kg / 18 pal. míst / pallet places — 22.2 % LDM, 13.3 % kg, 22.2 % pal. míst / pallet places");
+    // A truck full by places reads 100 % of its places; a vehicle type with no places reads as before.
+    expect(capacityText(cap, tripFill([{ ldm: 2, weightKg: 1000, palletPlaces: 18 }], cap), "en")).toMatch(/— 27\.8 % LDM, 11\.1 % kg, 100 % pallet places$/);
+    const noPlaces = { ...cap!, palletPlaces: 0 };
+    expect(capacityText(noPlaces, tripFill([{ ldm: 1.6, weightKg: 1200, palletPlaces: 4 }], noPlaces), "en")).toBe("7.2 LDM / 9,000 kg — 22.2 % LDM, 13.3 % kg");
     expect(doc.vehicleText).toBe("Solo truck 7.2 m with tail lift, tail lift");
     expect(capacityText(null, fill, "en")).toBe("");
   });

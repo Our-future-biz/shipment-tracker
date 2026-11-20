@@ -4,8 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // invoice over shipments, run for real against an in-memory stand-in for the cost lines.
 // Accounts Payable's record is matched after each cost write (services/supplierInvoice): stood in for here.
 vi.mock("../../services/supplierInvoice.service", () => ({ supplierInvoiceService: { beforeLineChange: vi.fn(async () => undefined), afterLineWrite: vi.fn(async () => []) } }));
+// The supplier invoices a line can be on, by id: how a late real cost is told from one in before the billing (M1).
+const apInvoices = vi.hoisted(() => new Map<string, { createdAt: Date; status: string; paidOn: string | null }>());
 vi.mock("../../repositories/supplierInvoice.repository", () => ({
-  supplierInvoiceRepository: { bookedOnOtherJobs: vi.fn(async () => []), idOf: vi.fn(async () => null), fillFromReading: vi.fn(async () => undefined), sharesFollowPaid: vi.fn(async () => undefined), paidDays: vi.fn(async () => new Map<string, string>()) },
+  supplierInvoiceRepository: {
+    bookedOnOtherJobs: vi.fn(async () => []),
+    idOf: vi.fn(async () => null),
+    fillFromReading: vi.fn(async () => undefined),
+    sharesFollowPaid: vi.fn(async () => undefined),
+    paidDays: vi.fn(async () => new Map<string, string>()),
+    byId: vi.fn(async (_c: string, id: string) => apInvoices.get(id) ?? null),
+  },
 }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
@@ -20,8 +29,13 @@ vi.mock("../../repositories/billingSettings.repository", () => ({ billingSetting
 vi.mock("../../repositories/billingOverride.repository", () => ({ billingOverrideRepository: {} }));
 vi.mock("../../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: {} }));
 // The shipments with an issued invoice not credited: billed (lib/billedLock).
-const billing = vi.hoisted(() => ({ billed: new Set<string>() }));
-vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: { countOpenInvoices: vi.fn(async (shipmentId: string) => (billing.billed.has(shipmentId) ? 1 : 0)) } }));
+const billing = vi.hoisted(() => ({ billed: new Set<string>(), billedAt: new Date("2026-11-10T10:00:00Z") }));
+vi.mock("../../repositories/invoice.repository", () => ({
+  invoiceRepository: {
+    countOpenInvoices: vi.fn(async (shipmentId: string) => (billing.billed.has(shipmentId) ? 1 : 0)),
+    firstBilledAt: vi.fn(async (shipmentId: string) => (billing.billed.has(shipmentId) ? billing.billedAt : null)),
+  },
+}));
 vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostRepository: {} }));
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: {} }));
 const trucking = vi.hoisted(() => ({ kept: new Set<string>() }));
@@ -64,13 +78,22 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
     sourceMasterJobRef: null,
     postedFromLines: false,
     supplierInvoiceId: null,
+    realCostAt: null,
   });
+  // As the database stamps when a line's real amount came (migration 0041): set when it goes from none to one, kept
+  // while it stays, cleared with it. Its moment here: after the billing on a billed job, before it on one not billed.
+  const stamped = (before: Row | null, after: Row) => {
+    if (after.realAmount == null) after.realCostAt = null;
+    else if (!before || before.realAmount == null) after.realCostAt = billing.billed.has(after.shipmentId) ? new Date("2026-11-12T09:00:00Z") : new Date("2026-11-01T09:00:00Z");
+    else after.realCostAt = before.realCostAt;
+    return after;
+  };
   return {
     rows,
     invoiceCostRepository: {
       async createForCompany(companyId: string, values: Partial<Row>) {
         next += 1;
-        const row = { ...blank(), id: `row-${next}`, companyId, shipmentId: "", ...values } as Row;
+        const row = stamped(null, { ...blank(), id: `row-${next}`, companyId, shipmentId: "", ...values } as Row);
         rows.push(row);
         return row;
       },
@@ -80,21 +103,40 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
       async hasQuoteRows(companyId: string, shipmentId: string) {
         return rows.some((r) => r.shipmentId === shipmentId && r.companyId === companyId && r.sourceQuoteNumber !== "");
       },
+      // As read from the database: a copy, so a write by someone else meanwhile is not seen in it.
       async findLine(id: string, companyId: string, shipmentId: string) {
-        return rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && !r.deletedAt) ?? null;
+        const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && !r.deletedAt);
+        return row ? { ...row } : null;
       },
       async softDeleteLine(id: string, companyId: string, shipmentId: string) {
         const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && !r.deletedAt);
         if (row) row.deletedAt = new Date();
         return !!row;
       },
-      async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<Row>, receivedStamp?: Date) {
+      async updateLine(
+        id: string,
+        companyId: string,
+        shipmentId: string,
+        data: Partial<Row>,
+        receivedStamp?: Date,
+        asRead?: Partial<Pick<Row, "realQty" | "realAmount" | "realCurrency">> & { openInvoiceId?: string },
+      ) {
         const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && !r.deletedAt);
         if (!row) return null;
+        // As the database's condition: the real cost still as it was read (numbers compared as numbers), else nothing.
+        const same = (a: string | null, b: string | null | undefined, numeric: boolean) => (a === null || b == null ? a === (b ?? null) : numeric ? Number(a) === Number(b) : a === b);
+        if (asRead) {
+          const { openInvoiceId, ...cost } = asRead;
+          for (const [k, v] of Object.entries(cost) as [keyof typeof cost, string | null][]) if (!same(row[k], v, k !== "realCurrency")) return null;
+          // ... and the line still on that supplier invoice, booked and unpaid.
+          const invoice = openInvoiceId !== undefined ? apInvoices.get(openInvoiceId) : undefined;
+          if (openInvoiceId !== undefined && (row.supplierInvoiceId !== openInvoiceId || invoice?.status !== "booked" || invoice.paidOn)) return null;
+        }
         // As the database stamps it: from the row as it is when written.
         const receivedAt = receivedStamp ? (row.received ? row.receivedAt : receivedStamp) : undefined;
+        const before = { ...row };
         Object.assign(row, data, receivedStamp ? { receivedAt } : {});
-        return row;
+        return stamped(before, row);
       },
       async findDeletedLine(id: string, companyId: string, shipmentId: string) {
         return rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && r.deletedAt) ?? null;
@@ -111,8 +153,9 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
 
 import * as costRepo from "../../repositories/invoiceCost.repository";
 import { invoicingService } from "../../services/invoicing.service";
+import { supplierInvoiceService } from "../../services/supplierInvoice.service";
 
-const rows = (costRepo as unknown as { rows: { shipmentId: string; category: string; estAmount: string | null; realAmount: string | null; vendor: string }[] }).rows;
+const rows = (costRepo as unknown as { rows: { shipmentId: string; category: string; estAmount: string | null; realAmount: string | null; vendor: string; realCostAt?: Date | null }[] }).rows;
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const SHIP_A = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
@@ -127,6 +170,7 @@ beforeEach(() => {
   rows.length = 0;
   trucking.kept.clear();
   billing.billed.clear();
+  apInvoices.clear();
 });
 
 describe("guards against counting a Trucking cost twice", () => {
@@ -275,7 +319,8 @@ describe("a billed shipment", () => {
     await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "USD" });
     const saved = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450.00" });
     expect(saved).toMatchObject({ invoiceNumber: "TESTUC-AP-001", realQty: "1", realAmount: "1450.00", realCurrency: "USD", estAmount: "1500.00" });
-    // Once its amount is in, the real cost stays as it is, as the rest of the billed buying does.
+    // Once its amount is in, the real cost stays as it is, as the rest of the billed buying does - here no supplier
+    // invoice was booked for it after the billing (Accounts Payable is stood in for): for one that was, see below (M1).
     await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400" })).rejects.toThrow(/a real cost already on the line stays as billed/);
     await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "EUR" })).rejects.toThrow(/a real cost already on the line stays as billed/);
     await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "" })).rejects.toThrow(/a real cost already on the line stays as billed/);
@@ -283,6 +328,109 @@ describe("a billed shipment", () => {
     await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { estAmount: "1450" })).rejects.toThrow(BILLED);
     await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400", vendor: "Maersk" })).rejects.toThrow(BILLED);
     expect(rows).toEqual([expect.objectContaining({ estAmount: "1500.00", realAmount: "1450.00", realCurrency: "USD" })]);
+  });
+
+  it("keeps a late real cost open until its supplier invoice is approved or paid (mock council M1)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00", estCurrency: "CZK", realCurrency: "CZK" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "DHL-7781", received: true });
+    // Accounts Payable books the number after the billing, as its sync does.
+    apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "booked", paidOn: null });
+    Object.assign(rows[0]!, { supplierInvoiceId: "si-late" });
+    // Typed left to right: the amount, then its currency - the estimate's CZK is not kept for a USD invoice.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450.00" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "USD" });
+    // A typo is put right while nobody has approved it.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1405.00" });
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1405.00", realCurrency: "USD", estAmount: "1500.00", estCurrency: "CZK" })]);
+    // The estimate still stays as billed.
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { estAmount: "1450" })).rejects.toThrow(BILLED);
+    // Approved, or paid: it stays as it is, and is put right on Accounts Payable.
+    apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "approved", paidOn: null });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400" })).rejects.toThrow(/approved or paid, so the real cost stays as it is/);
+    apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "approved", paidOn: "2026-11-15" });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "EUR" })).rejects.toThrow(/approved or paid/);
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1405.00", realCurrency: "USD" })]);
+  });
+
+  it("keeps a real cost that was on the line when billed as billed, whenever its supplier invoice record was made (mock council M1)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "X-1", received: true, realAmount: "1000.00" });
+    apInvoices.set("si-early", { createdAt: new Date("2026-11-01T09:00:00Z"), status: "booked", paidOn: null });
+    Object.assign(rows[0]!, { supplierInvoiceId: "si-early" });
+    billing.billed.add(SHIP_A);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "500" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    // System-21 mock council review: its record made after the billing - gathered by the Accounts Payable backfill, or
+    // made again when its supplier was relinked - opens nothing: the real cost came before the billing.
+    apInvoices.set("si-early", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "booked", paidOn: null });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "500" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    // A refused invoice's line is no late one either.
+    apInvoices.set("si-early", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "refused", paidOn: null });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "500" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1000.00" })]);
+  });
+
+  it("keeps an amount typed before the billing as billed when its number is typed after it (system-21 mock council review)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00", realAmount: "1000.00" });
+    billing.billed.add(SHIP_A);
+    // The number goes on after the billing, and Accounts Payable books a new record for it then.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "DHL-7781", received: true });
+    apInvoices.set("si-new", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "booked", paidOn: null });
+    Object.assign(rows[0]!, { supplierInvoiceId: "si-new" });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "500" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1000.00", invoiceNumber: "DHL-7781" })]);
+  });
+
+  it("refuses a late real cost's fix when its supplier invoice is approved between the read and the write (system-21 mock council review)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "DHL-7781", received: true });
+    apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "booked", paidOn: null });
+    Object.assign(rows[0]!, { supplierInvoiceId: "si-late" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450.00" });
+    // The fix of the late real cost asks Accounts Payable to keep an approval as approved, not to send it back.
+    vi.mocked(supplierInvoiceService.beforeLineChange).mockClear();
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1405.00" });
+    expect(vi.mocked(supplierInvoiceService.beforeLineChange).mock.lastCall?.[3]).toEqual({ keepDecided: true });
+    // A manager approves it after the rule read it as booked, before the write.
+    vi.mocked(supplierInvoiceService.beforeLineChange).mockImplementationOnce(async () => {
+      apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "approved", paidOn: null });
+    });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400.00" })).rejects.toThrow(/approved or paid, so the real cost stays as it is/);
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1405.00" })]);
+    // A line with no real cost yet asks nothing of the kind.
+    vi.mocked(supplierInvoiceService.beforeLineChange).mockClear();
+    const other = await invoicingService.addBuyingCost(SHIP_B, COMPANY, { category: "ocean_freight", estAmount: "10.00" });
+    billing.billed.add(SHIP_B);
+    await invoicingService.updateBuyingCost(other.id, COMPANY, SHIP_B, { invoiceNumber: "F-9", realAmount: "12.00" });
+    expect(vi.mocked(supplierInvoiceService.beforeLineChange).mock.lastCall?.[3]).toBeUndefined();
+  });
+
+  it("refuses the later of two saves of one billed line's real cost at once (mock council S1-06)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "F-1", received: true });
+    // Someone else's amount lands between this save's read and its write - after the billing, as the database stamps it.
+    const meanwhile = (amount: string) =>
+      vi.mocked(supplierInvoiceService.beforeLineChange).mockImplementationOnce(async () => {
+        rows[0]!.realAmount = amount;
+        rows[0]!.realCostAt ??= new Date("2026-11-12T09:00:00Z");
+      });
+    meanwhile("1000.00");
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450" })).rejects.toMatchObject({
+      code: "aborted",
+      message: expect.stringMatching(/changed meanwhile by someone else/),
+    });
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1000.00" })]);
+    // The same on a late real cost still open: the other's change is not overwritten.
+    apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "booked", paidOn: null });
+    Object.assign(rows[0]!, { supplierInvoiceId: "si-late" });
+    meanwhile("1100.00");
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450" })).rejects.toMatchObject({ code: "aborted" });
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1100.00" })]);
+    // With nobody else meanwhile it goes through.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450" });
+    expect(Number(rows[0]!.realAmount)).toBe(1450);
   });
 
   it("keeps a real cost that was in when the customer was billed, number or not (User Council review, Major 1)", async () => {

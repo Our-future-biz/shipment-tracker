@@ -14,6 +14,9 @@ import { MasterJobDialog, linkEach, linkedCount } from "./MasterJobDialog";
 import { apiErrorMessage } from "@/lib/api";
 import { searchColumnsFor, searchesAllFields, shownColumnsParams } from "../_lib/allFieldsSearch";
 import { addressFiltersOf, withoutAddressFilter, type AddressFilterParam } from "../_lib/addressFilters";
+import { usePeopleNames } from "../_lib/usePeopleNames";
+import { myJobsOf, myJobsWaiting } from "../_lib/myJobs";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { HINT } from "@/styles/ui";
 
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
@@ -38,9 +41,23 @@ export const ShipmentsView = () => {
   // results led here: then in every field, as the main search does, to list what it counted.
   const [shownColumns, setShownColumns] = useState<string[]>();
   const allFields = searchesAllFields(searchParams);
-  const { request: addressRequest, chips } = addressFiltersOf(searchParams);
-  const { shipments, total, isLoading, isError, createShipment, linkMasterJob, isCreating } =
-    useShipments({ search, searchColumns: searchColumnsFor(searchParams, shownColumns), statusBucket, tile, ...addressRequest });
+  const peopleNames = usePeopleNames();
+  const { request: addressRequest, chips } = addressFiltersOf(searchParams, peopleNames);
+  // The toolbar's "My jobs" (?mine=1): the signed-in user's jobs, matched over every job (mock council S9-1).
+  const { user } = useAuth();
+  const jobsOf = myJobsOf(searchParams, user?.email);
+  // Until the user is loaded, no request: one without jobsOf would list every job first (review of S9-1).
+  const waitingForUser = myJobsWaiting(searchParams, user?.email);
+  const { shipments, total, isLoading: listLoading, isError, createShipment, linkMasterJob, isCreating } = useShipments({
+    search,
+    searchColumns: searchColumnsFor(searchParams, shownColumns),
+    statusBucket,
+    tile,
+    jobsOf,
+    ...addressRequest,
+    enabled: !waitingForUser,
+  });
+  const isLoading = listLoading || waitingForUser;
   // A chip's ×: its parameter leaves the address, everything else in it stays.
   const clearAddressFilter = (param: AddressFilterParam) => {
     const qs = withoutAddressFilter(searchParams, param).toString();

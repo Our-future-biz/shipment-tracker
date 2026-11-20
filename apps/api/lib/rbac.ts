@@ -41,3 +41,9 @@ export function requireRole(...allowed: Role[]): Actor {
   }
   return auth;
 }
+
+/**
+ * Whether a user of this role sees the concept modules (Warehouse Concept, Trucking Concept): the
+ * server twin of the web's canSeeConcepts (apps/web/src/lib/concepts.ts) - superadmins only.
+ */
+export const seesConcepts = (role: string | null | undefined): boolean => role === "superadmin";

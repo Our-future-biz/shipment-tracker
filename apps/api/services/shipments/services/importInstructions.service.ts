@@ -1,20 +1,20 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { customers, invoicing } from "~encore/clients";
+import { customers } from "~encore/clients";
 import { appUrl } from "../../../lib/appUrl";
 import { userEmailOf } from "../../../lib/companyUsers";
-import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { isUuid } from "../../../lib/uuid";
 import type { ImportInstructionAnswers, ImportInstructionState, ImportInstructionWaiting, PublicImportInstructionForm } from "../interfaces/importInstructions";
 import { hashLinkToken, looksLikeLinkToken, newLinkToken } from "../lib/customerLink";
 import { isListedCustomsOffice } from "../lib/customsOffice";
-import { IMPORT_DOCUMENT_TYPE, IMPORT_LINK_DAYS, IMPORT_LINK_INVALID, answersProblem, changedAnswers, fieldsToFill, importInstructionsUrl, mayAskImportInstructions, normalizeAnswers } from "../lib/importInstructions";
+import { IMPORT_DOCUMENT_TYPE, IMPORT_LINK_DAYS, IMPORT_LINK_INVALID, answersProblem, approvedDutyPaidBy, changedAnswers, fieldsToFill, importInstructionsUrl, mayAskImportInstructions, normalizeAnswers } from "../lib/importInstructions";
 import { importInstructionsPdf } from "../lib/importInstructionsPdf";
 import { DETAILS_REFUSAL, isDetailsManager, isOpenToPerson } from "../lib/shipmentEditRule";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentImportInstructionRepository as repository } from "../repositories/shipmentImportInstruction.repository";
 import type { ShipmentImportInstructionRecord } from "../schemas/shipmentImportInstruction.schema";
 import { attachmentService } from "./attachment.service";
+import { ourContact } from "./ourContact";
 import { shipmentService } from "./shipment.service";
 
 // A customer fills in the Import Instructions through a link created in Shipments → Warehouse: one use,
@@ -36,20 +36,6 @@ const invalid = () => APIError.notFound(IMPORT_LINK_INVALID);
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
 const addressText = (a: { street: string; postalCode: string; city: string; country: string }) => [a.street, [a.postalCode, a.city].filter(Boolean).join(" "), a.country].filter(Boolean).join(", ");
-
-/**
- * Whose form it is, as the tracking link names it (customerLink.service): the customer asks them. Not
- * knowing isn't worth failing the customer's form for.
- */
-async function ourCompanyName(companyId: string): Promise<string> {
-  try {
-    const { profile } = await invoicing.invoiceProfileGet({ authData: await serviceActor(companyId) });
-    return profile.companyName ?? "";
-  } catch (err) {
-    log.warn(err, "import instructions: the company's name not read");
-    return "";
-  }
-}
 
 class ImportInstructionsService {
   private async requireShipment(shipmentId: string, companyId: string) {
@@ -199,6 +185,16 @@ class ImportInstructionsService {
   }
 
   /**
+   * Who pays the shipment's import duty and VAT, as its approved Import Instructions say ("" when none
+   * says): for Billing, which warns of an invoice without the duty when we pay it (mock council R3). The
+   * latest approved form, also when a newer link is open or a newer form was rejected (system-21 mock council review).
+   */
+  async dutyPaidBy(shipmentId: string, companyId: string): Promise<ImportInstructionAnswers["dutyPaidBy"]> {
+    if (!isUuid(shipmentId)) return "";
+    return approvedDutyPaidBy(await repository.latestApproved(shipmentId, companyId));
+  }
+
+  /**
    * The bell: completed forms the user created, or whose shipment names them as Person in Charge or
    * Holiday Cover; only those they may answer (a creator who is no longer named doesn't get theirs).
    */
@@ -219,7 +215,11 @@ class ImportInstructionsService {
     // A link that was used, ran out or was stopped still names whose it was, so the customer knows whom
     // to ask (user council E12). The token is 32 random bytes nobody guesses: only who was sent the
     // link learns the name, which that message already gave. An unknown token answers with nothing.
-    if (row.status !== "open" || row.expiresAt.getTime() <= now.getTime()) throw invalid().withDetails({ companyName: await ourCompanyName(row.companyId) });
+    // With its phone and e-mail, as the tracking page gives them (mock council S3-2): the company's, no person's.
+    if (row.status !== "open" || row.expiresAt.getTime() <= now.getTime()) {
+      const our = await ourContact(row.companyId);
+      throw invalid().withDetails({ companyName: our.name, ourPhone: our.phone.trim(), ourEmail: our.email.trim() });
+    }
     return row;
   }
 
@@ -227,8 +227,10 @@ class ImportInstructionsService {
     const row = await this.openRow(token, now);
     const shipment = await shipmentRepository.getByIdForCompany(row.shipmentId, row.companyId);
     if (!shipment) throw invalid();
-    // The company's name only, as the tracking page shows it: no staff names or e-mails on a public page.
-    return { companyName: await ourCompanyName(row.companyId), reference: shipment.jobNumber, prefill: row.prefill };
+    // Whose form it is and how to reach them, as the tracking page shows it (ourContact, mock council S3-2):
+    // the company's name, phone and e-mail - no staff names or e-mails on a public page.
+    const our = await ourContact(row.companyId);
+    return { companyName: our.name, ourPhone: our.phone.trim(), ourEmail: our.email.trim(), reference: shipment.jobNumber, prefill: row.prefill };
   }
 
   async submit(token: string, input: { confirmed: boolean; answers: Partial<ImportInstructionAnswers> }, now = new Date()): Promise<void> {

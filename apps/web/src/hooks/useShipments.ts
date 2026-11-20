@@ -8,6 +8,7 @@ import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { INVOICE_KEYS } from "./useInvoiceQueue";
 import { api } from "@/lib/api";
 import { releasedEditStop, releaseElsewhereText, type ReleaseStop } from "@/lib/paymentWarnings";
+import { atdEditWarning } from "@/app/shipments/[jobNumber]/tabs/tracking/milestoneFollowUp";
 import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS, dateTimeUpdate, joinDateTime } from "@/lib/columnConfig";
 import type { interfaces, controllers } from "@/lib/api/client";
 
@@ -83,6 +84,8 @@ export interface ShipmentQueryParams {
   customs?: string;
   /** Handled By: a user's e-mail, or "nobody" for the jobs nobody handles; matched server-side. */
   handledBy?: string;
+  /** "My jobs": a user's e-mail in Handled By or Holiday Cover; matched server-side. */
+  jobsOf?: string;
   /** How the job travels (sea | air | rail | road), matched server-side. */
   mode?: string;
   /** Trade Direction (import | export | domestic), matched server-side over every job. */
@@ -328,8 +331,11 @@ export const useShipmentMutations = () => {
       if (!col.apiField) return;
 
       const edit = { ...dateTimeUpdate(col, value), ...links } as controllers.ShipmentUpdateRequest;
+      // An ATD typed in its column is checked as Record an event checks it, once saved (mock council S7-4).
+      const atdCheck = value !== oldValue ? atdEditWarning(fieldKey, value, shipment) : "";
       // The automations of a watched field run on a change that was saved, never on one refused.
       const saved = () => {
+        if (atdCheck) message.warning(atdCheck);
         if (!AUTOMATION_FIELDS.has(fieldKey) || value === oldValue || !shipment) return;
         // Actor (triggeredById) is derived server-side from the token.
         api.automation
@@ -379,6 +385,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   const warehouse = params.warehouse || undefined;
   const customs = params.customs || undefined;
   const handledBy = params.handledBy?.trim() || undefined;
+  const jobsOf = params.jobsOf?.trim() || undefined;
   const mode = params.mode || undefined;
   const direction = params.direction || undefined;
   const invoicing = params.invoicing || undefined;
@@ -402,9 +409,10 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
       mode ?? "",
       direction ?? "",
       invoicing ?? "",
+      jobsOf ?? "",
     ],
     queryFn: () =>
-      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz, handledBy, mode, direction, invoicing }),
+      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz, handledBy, jobsOf, mode, direction, invoicing }),
     placeholderData: (prev) => prev,
     refetchInterval: params.refetchInterval,
     enabled: params.enabled ?? true,

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dayjs from "dayjs";
-import { Input, InputNumber, Tooltip } from "antd";
+import { DatePicker, Input, InputNumber, Tooltip } from "antd";
+import { useAuth } from "@/lib/auth/AuthContext";
 import Link from "next/link";
 import {
   CarOutlined,
@@ -29,8 +30,9 @@ import {
   LOAD_TYPES,
   PACKINGS,
   STATUS_TONE,
+  isManager,
 } from "../../_lib/gate";
-import { ReleaseGatesPanel, releaseState } from "./ReleaseGatesPanel";
+import { ReasonModal, ReleaseGatesPanel, releaseState } from "./ReleaseGatesPanel";
 import { PickupPinCheck } from "./PickupPinCheck";
 import { ExceptionsPanel } from "./ExceptionsPanel";
 import { StorageLine } from "@/app/warehouse-concept/_lib/storageText";
@@ -38,9 +40,9 @@ import { conditionAndLocation, conditionNotGood } from "@/app/warehouse-concept/
 import { CONTAINER_STATUS_TONE, KIND_LABEL, TALLY_LABEL, TALLY_TONE, containerKind } from "@/app/warehouse-concept/_lib/containerPlan";
 import { positionRemeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { ReweighSection, kgText } from "./ReweighSection";
-import type { PinCheckResult } from "../../_lib/steps";
+import { isLooseImport, reweighMissing, type PinCheckResult } from "../../_lib/steps";
 import { shipmentOwnerHint, shipmentOwnerOf } from "../../_lib/owner";
-import { legStamp, nextCheck, type GateFieldChange, type GateLegChange } from "../../_lib/transportLegs";
+import { legStamp, nextCheck, settledChecks, type GateFieldChange, type GateLegChange } from "../../_lib/transportLegs";
 import {
   btnInline,
   FieldRow,
@@ -57,7 +59,8 @@ import {
 } from "./fields";
 
 // A field save; `legChange` / `checkChange` carry one leg field or one checklist icon only (W2).
-type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id"> & GateFieldChange) => void;
+// It answers when that save is done (the checklist keeps a click shown until then).
+type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id"> & GateFieldChange) => void | Promise<unknown>;
 type CheckKey = keyof GateMovement["checklist"];
 
 // Gate checklist items shown on the overview (seal lives on the container interchange).
@@ -181,14 +184,28 @@ export function OverviewTab({
   const vgmLocked = !!m.reweigh;
   // Each click saves that one icon (merged on the server, so icons never undo each other) and shows
   // it at once; quick clicks on the same icon cycle from what is shown, not from the last answer.
+  // A click is shown until the server agrees, or until none of that icon's saves is still waiting
+  // (settledChecks, mock council S10-7).
   const [checkDraft, setCheckDraft] = useState<Partial<Record<CheckKey, string>>>({});
-  useEffect(() => setCheckDraft({}), [m.checklist]);
+  const checkPending = useRef<Partial<Record<CheckKey, number>>>({});
+  useEffect(() => setCheckDraft((d) => settledChecks(d, m.checklist, checkPending.current)), [m.checklist]);
   const checkOf = (key: CheckKey) => checkDraft[key] ?? m.checklist[key];
   const cycleCheck = (key: CheckKey) => {
     if (key === "vgm" && vgmLocked) return;
     const state = nextCheck(checkOf(key));
     setCheckDraft((d) => ({ ...d, [key]: state }));
-    save({ checkChange: { key, state } });
+    checkPending.current[key] = (checkPending.current[key] ?? 0) + 1;
+    void Promise.resolve(save({ checkChange: { key, state } })).finally(() => {
+      checkPending.current[key] = Math.max(0, (checkPending.current[key] ?? 1) - 1);
+      // The last save of the icon is answered (or failed): what the server holds is shown.
+      if (!checkPending.current[key]) {
+        setCheckDraft((d) => {
+          const rest = { ...d };
+          delete rest[key];
+          return rest;
+        });
+      }
+    });
   };
 
   return (
@@ -703,7 +720,12 @@ function UnNumberInput({ value, onSave }: { value: string; onSave: (v: string) =
 /** The typed "Received in warehouse" date's row, which the gate job's steps jump to (loose import cargo, Q19). */
 export const RECEIVED_DATE_ID = "received-in-warehouse";
 
+/** The typed date's hint on loose LCL cargo not re-weighed (owner's answer R26: the desk's date stays the escape). */
+export const TYPED_DATE_SKIPS_REWEIGH = "Loose LCL cargo is normally re-weighed first, then received on the phone — this date receives it without the re-weigh.";
+
 function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
+  const { user } = useAuth();
+  const manager = isManager(user);
   const outbound = m.visit === "výdej";
   const s = m.storage;
   return (
@@ -719,12 +741,18 @@ function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
         <FieldRow label="Received in warehouse">
           <span className="text-slate-700">
             {m.receivedAt ? `${dayjs(m.receivedAt).format("DD.MM.YYYY HH:mm")} — ` : "Not yet — "}
-            {m.container ? `set by the stripping tally of container ${m.container.number}` : "set by the receipt — a manager voids it"}
+            {m.container ? `set by the stripping tally of container ${m.container.number}` : "set by the receipt — a manager voids it, or moves it earlier"}
           </span>
+          {/* A manager may move the receipt's day earlier, with a reason (R28). */}
+          {m.receivedAt && !m.container && manager && <MoveReceiptDayEarlier m={m} save={save} />}
         </FieldRow>
       ) : outbound ? (
         <FieldRow label="Received in warehouse" id={RECEIVED_DATE_ID}>
-          <InlineDate value={m.loadInDate} onSave={(v) => save({ loadInDate: v })} />
+          <span className="inline-flex flex-col">
+            <InlineDate value={m.loadInDate} onSave={(v) => save({ loadInDate: v })} />
+            {/* Loose LCL cargo is re-weighed before its phone receipt; this date is the desk's way past it (R26). */}
+            {isLooseImport(m) && reweighMissing(m) && <span className={HINT}>{TYPED_DATE_SKIPS_REWEIGH}</span>}
+          </span>
         </FieldRow>
       ) : (
         <FieldRow label="Received">
@@ -750,6 +778,41 @@ function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
         The receipt day is day 1; calendar days in Prague time. After the free days CZK 22 per W/M a day, at least CZK 120.
       </p>
     </Section>
+  );
+}
+
+// A manager moves the day a receipt set earlier, with a reason (owner's answer R28): the counted
+// facts stay, the storage clock starts on the new day and the shipment is told. Later is voiding
+// the receipt (the server refuses it).
+function MoveReceiptDayEarlier({ m, save }: { m: GateMovement; save: Save }) {
+  const [open, setOpen] = useState(false);
+  const receiptDay = m.loadInDate || (m.receivedAt ? dayjs(m.receivedAt).format("YYYY-MM-DD") : "");
+  const [day, setDay] = useState(() => dayjs(receiptDay || undefined).subtract(1, "day"));
+  return (
+    <>
+      <button type="button" className={`${LINK} ml-2 bg-transparent border-none p-0 cursor-pointer text-[13px]`} onClick={() => setOpen(true)}>
+        Move earlier…
+      </button>
+      <ReasonModal
+        open={open}
+        title="Move the receipt's day earlier"
+        hint="The cargo came earlier than its receipt says. The counted pieces, condition and location stay; the storage clock starts on the new day and the shipment gets it. To move it later, void the receipt. The reason is logged."
+        okText="Move earlier"
+        onClose={() => setOpen(false)}
+        onSubmit={(reason) => Promise.resolve(save({ loadInDate: day.format("YYYY-MM-DD"), receivedDateReason: reason }))}
+      >
+        <div className="mb-3">
+          <DatePicker
+            format="DD.MM.YYYY"
+            allowClear={false}
+            value={day}
+            onChange={(d) => d && setDay(d)}
+            disabledDate={(d) => !!receiptDay && d.format("YYYY-MM-DD") >= receiptDay}
+            aria-label="Received in warehouse"
+          />
+        </div>
+      </ReasonModal>
+    </>
   );
 }
 

@@ -8,7 +8,7 @@ import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useCreateMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
 import { useToast } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
-import { compareMczNumbers, matchesMczSearch, nextMczNumber } from "@/lib/mcz";
+import { compareMczNumbers, matchesMczSearch, newMasterJobNumber, nextMczNumber } from "@/lib/mcz";
 import { Badge } from "@/components/Badge";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { PillTabs } from "@/components/SectionCard";
@@ -119,7 +119,6 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
 
   const nextMCZ = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
 
-  const activeMCZ = mode === "existing" && selectedExistingMCZ ? selectedExistingMCZ : nextMCZ;
 
   // Existing MCZ numbers with their shipment counts
   const existingMCZs = useMemo(() => {
@@ -158,6 +157,9 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   // What is listed is what goes, when the grid chose them.
   const chosen = chosenIds(selected, blockedIds, onlyIds ? filteredShipments : undefined);
   const chosenKinds = useMemo(() => loadTypesOf(shipments.filter((s) => chosen.includes(s.id))), [shipments, chosen]);
+  // The number a new master job will really get: with the letters of the Load Type the chosen shipments share (mock council S4-6).
+  const newMCZ = newMasterJobNumber(nextMCZ, shipments.filter((s) => chosen.includes(s.id)).map((s) => s.loadType));
+  const activeMCZ = mode === "existing" && selectedExistingMCZ ? selectedExistingMCZ : newMCZ;
   // Load Types are named by freight mode, as every other screen does: an air Full Load reads "Single Shipment".
   const chosenMode = shipments.find((s) => chosen.includes(s.id))?.freightMode ?? null;
   const kindLabel = (kind: string | null | undefined, mcz?: string) => loadTypeLabel(kind, (mcz && modeByMcz.get(mcz)) || chosenMode);
@@ -251,7 +253,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
         {existingMCZs.length > 0 ? (
           <PillTabs
             tabs={[
-              { key: "new", label: `Create new · ${nextMCZ}` },
+              { key: "new", label: `Create new · ${newMCZ}` },
               { key: "existing", label: "Link to existing" },
             ]}
             active={mode}
@@ -259,7 +261,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
           />
         ) : (
           <p className={`m-0 ${HINT}`}>
-            New master job: <strong className={`${REF} font-semibold text-slate-900`}>{nextMCZ}</strong>
+            New master job: <strong className={`${REF} font-semibold text-slate-900`}>{newMCZ}</strong>
           </p>
         )}
 

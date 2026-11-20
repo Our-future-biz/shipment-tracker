@@ -16,6 +16,7 @@ import {
   type CellStyle,
 } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
+import { CANCELLED_STATUS } from "@/lib/enums";
 import { money } from "@/lib/money";
 import { compareJobNumbers } from "@/lib/jobNumber";
 import {
@@ -174,7 +175,7 @@ export function queueColumns({
         const s = styleOf("jobNumber", r.jobNumber, info, r);
         // An OBL row is red throughout, so the link's own indigo (LINK) steps aside for it.
         const coloured = !!s?.color || !!info.get(r.shipmentId)?.rowStyle?.color;
-        return (
+        const link = (
           <Link
             href={jobHref(r.shipmentId)}
             scroll={false}
@@ -184,6 +185,20 @@ export function queueColumns({
           >
             {r.jobNumber || "—"}
           </Link>
+        );
+        // A cancelled job with an open invoice and a charge on none (mock council S5-1, answer R10): listed in To bill
+        // and All, marked so - a cancellation fee to bill or a prepayment to credit is still open.
+        if (r.shipmentStatus !== CANCELLED_STATUS) return link;
+        return (
+          <span className="inline-flex items-center gap-1.5" title="Cancelled job: bill what is still owed or credit the invoice">
+            {link}
+            <span
+              className="cf-own-color text-xs font-medium text-red-600"
+              style={{ "--cf-own-color": "var(--color-red-600)" } as React.CSSProperties}
+            >
+              Cancelled
+            </span>
+          </span>
         );
       },
     },
@@ -306,6 +321,15 @@ export function queueColumns({
                 style={{ "--cf-own-color": "var(--color-amber-700)" } as React.CSSProperties}
               >
                 credit owed
+              </span>
+            )}
+            {/* A charge not ticked for Invoice (mock council S5-3): it keeps the job here, but issuing skips it. */}
+            {cell.notTicked && (
+              <span
+                className="cf-own-color text-xs font-medium text-amber-700"
+                style={{ "--cf-own-color": "var(--color-amber-700)" } as React.CSSProperties}
+              >
+                {cell.notTicked}
               </span>
             )}
           </span>

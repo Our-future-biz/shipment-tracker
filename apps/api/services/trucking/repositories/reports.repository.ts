@@ -244,17 +244,22 @@ class ReportsRepository {
   }
 
   /** LTL line hauls and delivery runs that departed in the period, each with the LDM and kg of its live legs' consignments. */
-  async fillTrips(companyId: string, period: ReportPeriod): Promise<{ kind: "LINEHAUL" | "DELIVERY_RUN"; vehicleTypeCode: string | null; ldm: number; kg: number }[]> {
+  async fillTrips(
+    companyId: string,
+    period: ReportPeriod,
+  ): Promise<{ kind: "LINEHAUL" | "DELIVERY_RUN"; vehicleTypeCode: string | null; ldm: number; kg: number; palletPlaces: number }[]> {
+    // The pallet places too: the fill is the fullest of LDM, kg and pallet places (mock council S6-1).
     const out = await rows(sql`
       SELECT t.id, t.kind, t.vehicle_type_code,
-        sum(coalesce((c.load->>'ldm')::numeric, 0)) AS ldm, sum(coalesce((c.load->>'weightKg')::numeric, 0)) AS kg
+        sum(coalesce((c.load->>'ldm')::numeric, 0)) AS ldm, sum(coalesce((c.load->>'weightKg')::numeric, 0)) AS kg,
+        sum(coalesce((c.load->>'palletPlaces')::numeric, 0)) AS pallet_places
       FROM trucking_trip t
       LEFT JOIN trucking_leg l ON l.trip_id = t.id AND l.deleted_at IS NULL
       LEFT JOIN trucking_consignment c ON c.id = l.consignment_id AND c.cancelled_at IS NULL AND c.deleted_at IS NULL
       WHERE t.company_id = ${companyId} AND t.deleted_at IS NULL AND t.cancelled_at IS NULL AND t.kind IN ('LINEHAUL', 'DELIVERY_RUN')
         AND ${inPeriod(sql`t.departed_at`, period)}
       GROUP BY t.id, t.kind, t.vehicle_type_code`);
-    return out.map((r) => ({ kind: r.kind as "LINEHAUL" | "DELIVERY_RUN", vehicleTypeCode: s(r.vehicle_type_code), ldm: n(r.ldm), kg: n(r.kg) }));
+    return out.map((r) => ({ kind: r.kind as "LINEHAUL" | "DELIVERY_RUN", vehicleTypeCode: s(r.vehicle_type_code), ldm: n(r.ldm), kg: n(r.kg), palletPlaces: n(r.pallet_places) }));
   }
 
   /** Delivery exceptions created in the period, per kind and decision. */

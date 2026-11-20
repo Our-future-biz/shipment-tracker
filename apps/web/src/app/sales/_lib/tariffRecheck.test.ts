@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  bulkValidityText,
+  bulkValidityWarnings,
   cargoWeightKey,
   earliestTariffValidity,
   endsBeforeQuote,
@@ -104,6 +106,24 @@ describe("a quote valid longer than its tariffs (Q12)", () => {
   it("is warned of when the quote goes out with no Valid until at all, as Mark as sent sends it", () => {
     expect(noValidityWarning({ buyingLines: lines })).toBe("The quote has no Valid until, but the Maersk ocean tariff its buying was priced from is valid only until 30.11.2026");
     expect(noValidityWarning({ buyingLines: [ocean, rail, typed] })).toBeNull();
+  });
+
+  it("names the ticked quotes of a bulk move to Ready to Send or Quoted that outlast their tariff (mock council M4)", () => {
+    const quotes = [
+      { quoteNumber: "Q1", status: "draft", validUntil: "2026-12-15", data: { buyingLines: lines } },
+      { quoteNumber: "Q2", status: "draft", validUntil: "2026-11-30", data: { buyingLines: lines } },
+      // No Valid until: to Quoted it goes out with none, past its tariff; Ready to Send asks for one later.
+      { quoteNumber: "Q3", status: "ready_to_send", validUntil: null, data: { buyingLines: lines } },
+      { quoteNumber: "Q4", status: "won", validUntil: "2026-12-15", data: { buyingLines: lines } },
+      { quoteNumber: "Q5", status: "draft", validUntil: "2027-01-31", data: { buyingLines: [ocean, typed] } },
+    ];
+    expect(bulkValidityWarnings("quoted", quotes)).toEqual(["Q1", "Q3"]);
+    expect(bulkValidityWarnings("ready_to_send", quotes)).toEqual(["Q1"]);
+    expect(bulkValidityWarnings("lost", quotes)).toEqual([]);
+    expect(bulkValidityText(["Q1", "Q3"])).toBe(
+      "Valid longer than a tariff their buying was priced from: Q1, Q3. Open the quote to set an earlier Valid until or pick a tariff valid longer. They can still be sent.",
+    );
+    expect(bulkValidityText([])).toBeNull();
   });
 
   it("marks an offer in Tariffs available that ends before the quote's Valid until", () => {

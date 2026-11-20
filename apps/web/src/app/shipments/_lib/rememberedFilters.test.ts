@@ -31,6 +31,12 @@ describe("what the list remembers once the user changes a filter", () => {
     expect(rememberedAfter(on, { filters: [{ key: "pol", value: "Hamburg" }] }, false)).toEqual({ status: "all", filters: [{ key: "pol", value: "Hamburg" }] });
   });
 
+  it("keeps My jobs with the rest, on or off (mock council S9-1)", () => {
+    expect(rememberedAfter({ ...remembered, mine: false }, { mine: true }, false)).toEqual({ ...remembered, mine: true });
+    expect(rememberedAfter({ ...remembered, mine: true }, { status: "active" }, false)).toEqual({ status: "active", filters: remembered.filters, mine: true });
+    expect(rememberedAfter({ ...remembered, mine: false }, { mine: true }, true)).toBeNull();
+  });
+
   it("is nothing on a page entered by such a link: the link's filters never take the place of those remembered", () => {
     // A cockpit tile opened the list with its own filters, no Status and no column filter; a Status
     // picked there must not write that empty set over the remembered column filters.

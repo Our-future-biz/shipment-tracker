@@ -43,8 +43,8 @@ export interface EventInput {
 
 /**
  * An invoice with what its credit notes took off, what its live payments paid (money), and its confirmed write-offs
- * and bank charges (step 7) apart; what is left to pay is gross − credited − paid − writtenOff − bankCharges
- * (lib/receivables leftToPayOf with settledOther). Amounts as numbers.
+ * and bank charges (step 7) apart; what is left to pay is gross − credited − paid − bankCharges − writtenOff, the
+ * write-off bringing it down to 0 at most (lib/receivables leftToPayOf, mock council R1). Amounts as numbers.
  */
 export interface InvoiceFigures {
   invoice: InvoiceRecord;
@@ -124,10 +124,14 @@ const PAID = sql<string>`coalesce((select sum(rp.amount) from "receivable_paymen
 const WRITTEN_OFF = sql<string>`coalesce((select sum(rp.amount) from "receivable_payment" rp where ${LIVE} and rp.kind = 'write_off' and rp.confirmed_at is not null), 0)`;
 const BANK_CHARGED = sql<string>`coalesce((select sum(rp.amount) from "receivable_payment" rp where ${LIVE} and rp.kind = 'bank_charge' and rp.confirmed_at is not null), 0)`;
 const WAITING = sql<string>`coalesce((select sum(rp.amount) from "receivable_payment" rp where ${LIVE} and rp.kind in ('write_off', 'bank_charge') and rp.confirmed_at is null), 0)`;
-const COUNTED = sql<string>`coalesce((select sum(rp.amount) from "receivable_payment" rp where ${LIVE} and rp.confirmed_at is not null), 0)`;
+// Everything confirmed but a write-off: money paid and bank charges (the customer did send that money).
+const COUNTED = sql<string>`coalesce((select sum(rp.amount) from "receivable_payment" rp where ${LIVE} and rp.confirmed_at is not null and rp.kind <> 'write_off'), 0)`;
 const LAST_PAID = sql<string | null>`(select max(rp.paid_on)::text from "receivable_payment" rp where ${LIVE} and rp.kind in ('payment', 'carried_over'))`;
-// What is left to pay (lib/receivables leftToPayOf): a cancelled invoice is not owed.
-const LEFT = sql`((case when ${t.status} = 'cancelled' then 0 else ${t.gross} end) - ${CREDITED} - ${COUNTED})`;
+// What is left to pay (lib/receivables leftToPayOf / leftAfter): a cancelled invoice is not owed. A write-off is not
+// paid (mock council R1, one rule with the credit note's PDF, M3): it brings what is still owed down to 0, never into
+// "To refund", so a credit note after it cancels it up to its amount.
+const BEFORE_WRITE_OFF = sql`((case when ${t.status} = 'cancelled' then 0 else ${t.gross} end) - ${CREDITED} - ${COUNTED})`;
+const LEFT = sql`(case when ${BEFORE_WRITE_OFF} <= 0 then ${BEFORE_WRITE_OFF} else greatest(0, ${BEFORE_WRITE_OFF} - ${WRITTEN_OFF}) end)`;
 // The invoice's last dispute event (opened or closed) was the automatic close (closeSettledDisputes): its dispute closed
 // by itself, and no person has opened or closed one since.
 const AUTO_CLOSED = sql`(select de.action = 'dispute_closed' and coalesce(de.payload->>'automatic', '') = 'true' from "receivable_event" de
@@ -484,7 +488,7 @@ class ReceivableRepository {
       for (const f of rows.map(figuresOf)) {
         if (!f.receivable?.disputed) continue;
         const other = f.writtenOff + f.bankCharges;
-        const leftToPay = leftToPayOf({ invoiceStatus: f.invoice.status, gross: Number(f.invoice.gross), credited: f.credited, paid: f.paid, settledOther: other });
+        const leftToPay = leftToPayOf({ invoiceStatus: f.invoice.status, gross: Number(f.invoice.gross), credited: f.credited, paid: f.paid, writtenOff: f.writtenOff, bankCharges: f.bankCharges });
         const status = statusOf({ invoiceStatus: f.invoice.status, leftToPay, paid: f.paid, settledOther: other });
         if (f.invoice.status === "issued" && leftToPay > 0) continue;
         const [row] = await tx
@@ -547,7 +551,7 @@ class ReceivableRepository {
       const f = figuresOf(row);
       if (!f.receivable || f.receivable.disputed) continue;
       const other = f.writtenOff + f.bankCharges;
-      const leftToPay = leftToPayOf({ invoiceStatus: f.invoice.status, gross: Number(f.invoice.gross), credited: f.credited, paid: f.paid, settledOther: other });
+      const leftToPay = leftToPayOf({ invoiceStatus: f.invoice.status, gross: Number(f.invoice.gross), credited: f.credited, paid: f.paid, writtenOff: f.writtenOff, bankCharges: f.bankCharges });
       if (f.invoice.status !== "issued" || leftToPay <= 0) continue;
       const status = statusOf({ invoiceStatus: f.invoice.status, leftToPay, paid: f.paid, settledOther: other });
       // The dispute it had stands again as it was: its own reason, not the reopening's.

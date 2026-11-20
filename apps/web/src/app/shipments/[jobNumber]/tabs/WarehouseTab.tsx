@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { replaceSearchParams } from "@/lib/urlParams";
+import { WAREHOUSE_SUB_PARAM, warehouseSubTabOf } from "./warehouse/subTab";
 import { Input, Button, Modal, Tooltip } from "antd";
 import { useMessages, type Messages } from "@/lib/toast";
 import { CheckCircleFilled, PlusOutlined, WarningOutlined } from "@ant-design/icons";
@@ -60,7 +63,15 @@ const SUB_TABS = [
 ];
 
 export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
-  const [subTab, setSubTab] = useState<string>("details");
+  // A link may open the Pick-up straight away (`sub=pickup`, mock council S10-5); a click keeps the
+  // URL in step, so a reload stays where the user is.
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [subTab, setSubTabState] = useState<string>(() => warehouseSubTabOf(searchParams.get(WAREHOUSE_SUB_PARAM)));
+  const setSubTab = (key: string) => {
+    setSubTabState(key);
+    replaceSearchParams(pathname, { [WAREHOUSE_SUB_PARAM]: key === "pickup" ? "pickup" : null });
+  };
   // The app's own toasts, so a save that ends after the tab is left still says how it went.
   const messageApi = useMessages();
   const rowData = buildRowData(shipment);

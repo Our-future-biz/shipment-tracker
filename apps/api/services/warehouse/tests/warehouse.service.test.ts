@@ -15,6 +15,10 @@ vi.mock("../../../lib/shipmentRefs", () => shipments);
 vi.mock("../../../lib/operationsNotice", () => notice);
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its code and message here.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
+// The Warehouse Concept's plates of the jobs whose live pick-up is the Concept's (mock council C2).
+const concept = vi.hoisted(() => ({ _internalConceptPickupPlates: vi.fn() }));
+vi.mock("~encore/clients", () => ({ warehouseConcept: concept }));
 
 import { pickupLicensePlates, remeasuredFigures, taskChanges, toSection, warehouseService } from "../services/warehouse.service";
 
@@ -58,6 +62,7 @@ describe("Pick-up license plates", () => {
   });
 
   it("answers only the shipments that have a plate", async () => {
+    concept._internalConceptPickupPlates.mockResolvedValue({ jobs: [] });
     sections.findManyBySection.mockResolvedValue([
       { shipmentId: "a", data: { rows: rows("1AB 2345") } },
       { shipmentId: "b", data: { pin: "1234", rows: "[]" } },
@@ -69,6 +74,56 @@ describe("Pick-up license plates", () => {
   it("does not query for an empty page", async () => {
     await expect(warehouseService.pickupPlates([], COMPANY)).resolves.toEqual([]);
     expect(sections.findManyBySection).not.toHaveBeenCalled();
+    expect(concept._internalConceptPickupPlates).not.toHaveBeenCalled();
+  });
+
+  it("takes the Concept's plate for a job whose live pick-up is the Concept's, not this stale pick-up (mock council C2)", async () => {
+    sections.findManyBySection.mockResolvedValue([
+      { shipmentId: "a", data: { rows: rows("OLD 1111") } },
+      { shipmentId: "b", data: { rows: rows("OLD 2222") } },
+      { shipmentId: "c", data: { rows: rows("1AB 2345") } },
+    ]);
+    // a: the Concept has a plate; b: a Concept job with no plate there yet (Shipments then shows its
+    // own plate number); c: no Concept position, this pick-up as before; d: a Concept plate only.
+    concept._internalConceptPickupPlates.mockResolvedValue({
+      jobs: [
+        { shipmentId: "a", licensePlate: "9GATE 99" },
+        { shipmentId: "b", licensePlate: "" },
+        { shipmentId: "d", licensePlate: "4EF 5678" },
+      ],
+    });
+    const plates = await warehouseService.pickupPlates(["a", "b", "c", "d"], COMPANY, true);
+    expect(plates).toHaveLength(3);
+    expect(plates).toEqual(
+      expect.arrayContaining([
+        { shipmentId: "a", licensePlate: "9GATE 99" },
+        { shipmentId: "c", licensePlate: "1AB 2345" },
+        { shipmentId: "d", licensePlate: "4EF 5678" },
+      ]),
+    );
+    expect(concept._internalConceptPickupPlates).toHaveBeenCalledWith({ companyId: COMPANY, shipmentIds: ["a", "b", "c", "d"] });
+  });
+
+  it("keeps this pick-up's plates for a user who doesn't see the Concept, even on a job with a Concept position (review of C2, R25)", async () => {
+    sections.findManyBySection.mockResolvedValue([
+      { shipmentId: "a", data: { rows: rows("OLD 1111") } },
+      { shipmentId: "c", data: { rows: rows("1AB 2345") } },
+    ]);
+    concept._internalConceptPickupPlates.mockResolvedValue({ jobs: [{ shipmentId: "a", licensePlate: "9GATE 99" }, { shipmentId: "d", licensePlate: "4EF 5678" }] });
+    const plates = await warehouseService.pickupPlates(["a", "c", "d"], COMPANY);
+    expect(plates).toEqual([
+      { shipmentId: "a", licensePlate: "OLD 1111" },
+      { shipmentId: "c", licensePlate: "1AB 2345" },
+    ]);
+    expect(concept._internalConceptPickupPlates).not.toHaveBeenCalled();
+    await warehouseService.pickupPlates(["a", "c", "d"], COMPANY, false);
+    expect(concept._internalConceptPickupPlates).not.toHaveBeenCalled();
+  });
+
+  it("keeps this pick-up's plates when the Concept doesn't answer", async () => {
+    sections.findManyBySection.mockResolvedValue([{ shipmentId: "a", data: { rows: rows("1AB 2345") } }]);
+    concept._internalConceptPickupPlates.mockRejectedValue(new Error("unavailable"));
+    await expect(warehouseService.pickupPlates(["a"], COMPANY, true)).resolves.toEqual([{ shipmentId: "a", licensePlate: "1AB 2345" }]);
   });
 });
 

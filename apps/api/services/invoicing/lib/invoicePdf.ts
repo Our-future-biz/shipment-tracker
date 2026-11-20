@@ -11,8 +11,11 @@ import { VAT_CODE_INFO, isVatCode, legalTextOf } from "./invoiceCalc";
  * diacritics; the built-in PDF fonts do not).
  */
 
-/** Bump when the layout changes; stored with every PDF. 3: a credit note says whether it refunds or lowers what is due (B15). */
-export const PDF_TEMPLATE_VERSION = "3";
+/**
+ * Bump when the layout changes; stored with every PDF. 3: a credit note says whether it refunds or lowers what is due
+ * (B15). 4: part refund, part reduction states both (mock council S8-4).
+ */
+export const PDF_TEMPLATE_VERSION = "4";
 
 export interface InvoicePdfLine {
   description: string;
@@ -447,7 +450,8 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
 
   // ── VAT recap + totals ──
   const recapRows = inv.vatSummary.length + 1;
-  w.ensure(recapRows * 13 + 120 + (isCredit ? 0 : 96));
+  // A credit note may print one row more: what of it lowers the amount due beside a refund (mock council S8-4).
+  w.ensure(recapRows * 13 + 120 + (isCredit ? 14 : 96));
   const recapTop = w.y;
   w.text("Rekapitulace DPH / VAT summary", M, w.y, 8, { bold: true, color: MUTED });
   w.y -= 14;
@@ -513,12 +517,16 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   };
   totalRow("Celkem bez DPH / Net", `${docMoney(inv.net)} ${inv.currency}`);
   totalRow("DPH / VAT", `${docMoney(inv.vat)} ${inv.currency}`);
-  ty -= 4;
-  w.rect(tx - 8, ty - 26, right - tx + 8, 34, rgb(0.93, 0.94, 0.99));
   // A credit note refunds only what was paid beyond the invoice's new total; of an invoice not paid that far it lowers
   // what is due (user council B15: an unpaid invoice's credit note said "To be refunded").
   const effect = isCredit ? inv.creditEffect ?? null : null;
   const lowersDue = !!effect && effect.refund <= 0;
+  // Part refund, part reduction (mock council S8-4: a credit of 300 read only "To be refunded 100"): the rest of it
+  // lowers what is due, said on its own row above the refund.
+  const reduces = effect && !lowersDue ? Math.round((-Number(inv.gross) - effect.refund) * 100) / 100 : 0;
+  if (reduces > 0) totalRow("Snižuje úhradu / Reduces the amount due", `${docMoney(reduces)} ${inv.currency}`);
+  ty -= 4;
+  w.rect(tx - 8, ty - 26, right - tx + 8, 34, rgb(0.93, 0.94, 0.99));
   const boxLabel = !isCredit ? "K ÚHRADĚ / TOTAL DUE" : lowersDue ? "SNIŽUJE ÚHRADU / REDUCES THE AMOUNT DUE" : "K VRÁCENÍ / TO BE REFUNDED";
   const boxValue = !isCredit ? Number(inv.gross) : effect && !lowersDue ? effect.refund : -Number(inv.gross);
   w.text(boxLabel, tx, ty - 4, 8, { bold: true, color: MUTED });

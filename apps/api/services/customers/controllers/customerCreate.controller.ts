@@ -17,6 +17,11 @@ interface CustomerCreateRequest {
   fromQuote?: string & MaxLen<40>;
   /** The contact person, created as the customer's main contact. */
   contact: CustomerContactRequest;
+  /**
+   * The sales owner picked in Add customer: a user's id, or null for nobody. Left out, the creator
+   * owns it when they are in Sales or a manager, else nobody (mock council R12).
+   */
+  salesOwnerUserId?: string | null;
 }
 
 interface CustomerCreateResponse {
@@ -27,6 +32,6 @@ export const customerCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers" },
   async (req: CustomerCreateRequest): Promise<CustomerCreateResponse> => {
     const { companyID, role, userID } = getAuthData()!;
-    return { customer: await customerService.createFromAres(companyID, role, req.ico, req.contact, req.roles, supplierRequestOf(userID, req.fromQuote), userID) };
+    return { customer: await customerService.createFromAres(companyID, role, req.ico, req.contact, req.roles, supplierRequestOf(userID, req.fromQuote), userID, req.salesOwnerUserId) };
   },
 );

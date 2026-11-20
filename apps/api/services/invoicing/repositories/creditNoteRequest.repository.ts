@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { db } from "../db/db";
+import { lockInvoiceRow } from "./invoice.repository";
 import { creditNoteRequestTable as t, type CreditNoteRequestRecord, type NewCreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -12,10 +13,18 @@ const withdrawnByTheApp = and(eq(t.status, "withdrawn"), ne(t.comment, ""));
 
 /** Requests to credit an invoice in part (schemas/creditNoteRequest), and their answers. */
 class CreditNoteRequestRepository {
-  /** A new request; null when one already waits for this invoice. */
-  async create(values: NewCreditNoteRequestRecord): Promise<CreditNoteRequestRecord | null> {
-    const [row] = await db.insert(t).values(values).onConflictDoNothing().returning();
-    return row ?? null;
+  /**
+   * A new request; null when one already waits for this invoice. Under the invoice's row lock (mock council S5-4 /
+   * X-3), with `guard` - the check that no change of it waits - run again there, so a change asked at the same
+   * moment is seen: only one of the two gets in.
+   */
+  async create(values: NewCreditNoteRequestRecord, guard?: (tx: Tx) => Promise<void>): Promise<CreditNoteRequestRecord | null> {
+    return db.transaction(async (tx) => {
+      await lockInvoiceRow(tx, values.companyId, values.invoiceId);
+      await guard?.(tx);
+      const [row] = await tx.insert(t).values(values).onConflictDoNothing().returning();
+      return row ?? null;
+    });
   }
 
   async byId(companyId: string, id: string, reader: Reader = db): Promise<CreditNoteRequestRecord | null> {

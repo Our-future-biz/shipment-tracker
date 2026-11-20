@@ -214,6 +214,7 @@ describe("worklist tiles and chips", () => {
   it("open exactly the server view a tile counts: Open FTL without haulier is the openFtl view, not every booked one", () => {
     expect(CONSIGNMENT_TILES.map((t) => [t.id, t.view])).toEqual([
       ["openFtlWithoutHaulier", "openFtl"],
+      ["pickupPassed", "pickupPassed"],
       ["pickupToday", "pickupToday"],
       ["deliveryToday", "deliveryToday"],
     ]);
@@ -221,6 +222,9 @@ describe("worklist tiles and chips", () => {
     expect(consignmentViewOf("attention")).toBe("attention");
     expect(consignmentViewOf("BOOKED")).toBeNull();
     expect(CONSIGNMENT_CHIPS.map((c) => c.id)).not.toContain("openFtl");
+    // The "Pick-up date passed" tile opens its own view (mock council R23).
+    expect(consignmentViewOf("pickupPassed")).toBe("pickupPassed");
+    expect(CONSIGNMENT_CHIPS.map((c) => c.id)).not.toContain("pickupPassed");
   });
 
   it("link to one job's consignments", () => {

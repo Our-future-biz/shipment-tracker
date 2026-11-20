@@ -75,8 +75,15 @@ export function buildSupplierAttention(input: SupplierAttentionInput): Attention
   const warnings: AttentionItem[] = [];
   const soon = addDays(today, SUPPLIER_RULES.endingWithinDays);
 
+  const terms = customer.supplierTerms;
+  // Only once checked: never checked is said below (or by Trucking), and an unknown account is no finding.
+  const noPublishedAccount = !!terms.vatCheckedAt && (!terms.bankAccountPublished || terms.bankAccounts.length === 0);
+
   // Trucking's own check of a haulier: what blocks a trip is critical, what is about to is a warning.
   for (const issue of haulierIssues ?? []) {
+    // The card's own "No published bank account" says it already, with a link to Finance: one warning,
+    // not two (mock council S6-2). Before the first VAT check Trucking's stays the only one saying it.
+    if (issue.code === "no_bank_account" && noPublishedAccount) continue;
     (issue.severity === "block" ? critical : warnings).push({
       key: `haulier-${issue.code}`,
       severity: issue.severity === "block" ? "critical" : "warning",
@@ -134,7 +141,6 @@ export function buildSupplierAttention(input: SupplierAttentionInput): Attention
 
   // The VAT register checks before we pay it (step 6b): for a haulier Trucking already says whether it is an
   // unreliable payer and when its check is due, so only what Trucking does not say is added for one.
-  const terms = customer.supplierTerms;
   const haulier = customer.roles.includes("haulier");
   if (!haulier && terms.vatUnreliable) {
     critical.push({ key: "vat-unreliable", severity: "critical", title: "Unreliable VAT payer", detail: "Paying it can make us liable for its VAT. Check the VAT register before paying.", tab: "finance" });
@@ -144,8 +150,7 @@ export function buildSupplierAttention(input: SupplierAttentionInput): Attention
   } else if (!haulier && addMonths(terms.vatCheckedAt, SUPPLIER_RULES.vatCheckStaleMonths) < today) {
     warnings.push({ key: "vat-check-old", severity: "warning", title: "VAT check is over 6 months old", detail: `Last checked on ${formatDate(terms.vatCheckedAt)}.`, tab: "finance" });
   }
-  // Only once checked: never checked is said above (or by Trucking), and an unknown account is no finding.
-  if (terms.vatCheckedAt && (!terms.bankAccountPublished || terms.bankAccounts.length === 0)) {
+  if (noPublishedAccount) {
     warnings.push({
       key: "no-published-account",
       severity: "warning",

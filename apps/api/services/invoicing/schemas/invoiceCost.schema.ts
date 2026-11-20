@@ -21,6 +21,13 @@ export const invoiceCostTable = pgTable(
     realQty: numeric("real_qty", { precision: 14, scale: 2 }),
     realAmount: numeric("real_amount", { precision: 14, scale: 2 }),
     realCurrency: text("real_currency").notNull().default("CZK"),
+    /**
+     * When the line's real amount came: stamped by the database (migration 0041's trigger) when it goes from none to
+     * one, kept while it stays, cleared with it - whatever writes it. Null for a line with no real cost, and for one
+     * that held it before the column existed (read as there before the billing). A billed line's real cost that came
+     * after the billing stays open until its supplier invoice is approved or paid (lib/billedLock, mock council M1).
+     */
+    realCostAt: timestamp("real_cost_at", { withTimezone: true }),
     /** What the quantity counts ("km", "pallet", "hour"); "" = a charge counted as a whole. */
     unit: text("unit").notNull().default(""),
     invoiceNumber: text("invoice_number").notNull().default(""),

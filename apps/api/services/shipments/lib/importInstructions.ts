@@ -37,18 +37,32 @@ const LIMITS: Record<Exclude<keyof ImportInstructionAnswers, "procedure" | "duty
   telephone: 50,
 };
 
+/**
+ * Who pays the import duty and VAT, as the shipment's approved Import Instructions say it: "us" (we pay
+ * customs and invoice the customer for it), "own_account", or "" when no approved form says. The Customs
+ * tab's line (dutyVat.ts) and Billing's warning read the same rule (mock council R3).
+ */
+export function approvedDutyPaidBy(form: { status: string; approvedAnswers: Partial<ImportInstructionAnswers> | null } | null): ImportInstructionAnswers["dutyPaidBy"] {
+  if (form?.status !== "approved" || !form.approvedAnswers) return "";
+  // Asked only under a) free circulation; normalizeAnswers keeps no answer for another procedure (S3-7).
+  return normalizeAnswers(form.approvedAnswers).dutyPaidBy;
+}
+
 /** The answers in the form they are kept: every text trimmed and within its limit, whatever was sent. */
 export function normalizeAnswers(raw: Partial<ImportInstructionAnswers>): ImportInstructionAnswers {
   const text = (key: keyof typeof LIMITS) => String(raw[key] ?? "").trim().slice(0, LIMITS[key]);
   const procedure = raw.procedure === "free_circulation" || raw.procedure === "t1" || raw.procedure === "other" || raw.procedure === "own_broker" ? raw.procedure : "";
   const dutyPaidBy = raw.dutyPaidBy === "us" || raw.dutyPaidBy === "own_account" ? raw.dutyPaidBy : "";
-  // Paid by us, the customer's bank isn't asked, so none sent anyway (a direct call, an old page) is kept.
-  const paidByUs = dutyPaidBy === "us";
+  // Who pays the duty and VAT, and the bank, are asked only under a) free circulation; paid by us, the
+  // customer's bank isn't asked either. So none sent anyway (a direct call, an old page) is kept, and a
+  // T1 or own-broker form never files a bank account (mock council S3-7).
+  const freeCirculation = procedure === "free_circulation";
+  const keepsBank = freeCirculation && dutyPaidBy !== "us";
   return {
     procedure,
-    dutyPaidBy,
-    bank: paidByUs ? "" : text("bank"),
-    accountNumber: paidByUs ? "" : text("accountNumber"),
+    dutyPaidBy: freeCirculation ? dutyPaidBy : "",
+    bank: keepsBank ? text("bank") : "",
+    accountNumber: keepsBank ? text("accountNumber") : "",
     t1Office: text("t1Office"),
     otherProcedure: text("otherProcedure"),
     tariffCode: text("tariffCode"),
@@ -180,7 +194,7 @@ export function shipmentProcedureOf(procedure: ImportInstructionAnswers["procedu
 
 /**
  * What approved answers write to the shipment: only fields still empty, nothing already filled in is
- * replaced. A T1 office is written only under a T1. The delivery contact, telephone and notes go beside the
+ * replaced - but for the consignee's Contact, which follows the delivery telephone written, also cleared when the form names no contact (M5). A T1 office is written only under a T1. The delivery contact, telephone and notes go beside the
  * Delivery Address (the consignee's Contact, Delivery Phone, Delivery Notes), so they reach whoever plans
  * the delivery and the Trucking order made from the job (User Council E5).
  */
@@ -192,8 +206,18 @@ export function fieldsToFill(shipment: ImportInstructionShipmentValues, a: Impor
   if (a.procedure === "t1" && isT1 && !shipment.customsOffice.trim() && a.t1Office) out.customsOffice = a.t1Office;
   if (!shipment.hsCode.trim() && a.tariffCode) out.hsCode = a.tariffCode;
   if (!shipment.deliveryAddress.trim() && a.deliveryAddress) out.deliveryAddress = a.deliveryAddress;
-  if (!shipment.consigneeContact.trim() && a.deliveryContact) out.consigneeContact = a.deliveryContact;
-  if (!shipment.deliveryPhone.trim() && a.deliveryPhone) out.deliveryPhone = a.deliveryPhone;
+  // The contact and the phone go as one pair (mock council M5). A consignee picked from the Customer
+  // Database already brings its own Contact (customer service, say), so filling only the empty field
+  // put that name beside the form's delivery phone - the warehouse man's - and the delivery notice
+  // went to his number under her name. When the form's phone is written, the form's contact goes
+  // with it and replaces a different one - and with no contact on the form, the one there is cleared, so
+  // no other name stands beside the warehouse phone (system-21 mock council review); otherwise the Contact
+  // is filled only when empty, as before.
+  const writesPhone = !shipment.deliveryPhone.trim() && !!a.deliveryPhone;
+  if (writesPhone) out.deliveryPhone = a.deliveryPhone;
+  if (writesPhone && !a.deliveryContact.trim()) {
+    if (shipment.consigneeContact.trim()) out.consigneeContact = "";
+  } else if (a.deliveryContact && (writesPhone ? shipment.consigneeContact.trim() !== a.deliveryContact : !shipment.consigneeContact.trim())) out.consigneeContact = a.deliveryContact;
   if (!shipment.deliveryNotes.trim() && a.deliveryNotes) out.deliveryNotes = a.deliveryNotes;
   return out;
 }

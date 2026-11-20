@@ -107,20 +107,24 @@ describe("trip fill", () => {
 
   it("projects the fill with more legs", () => {
     const fill = projectedFill({ ldm: 12, kg: 20000, palletPlaces: 30 }, [leg("1", { ldm: 2, weightKg: 1000, palletPlaces: 4 })], { ldm: 13.6, kg: 24000, palletPlaces: 33 });
-    expect(fill).toEqual({ ldm: 14, kg: 21000, palletPlaces: 34, ldmPercent: 103, kgPercent: 88, palletPlacesPercent: null });
+    expect(fill).toEqual({ ldm: 14, kg: 21000, palletPlaces: 34, ldmPercent: 103, kgPercent: 88, palletPlacesPercent: 103 });
     expect(projectedFill({ ldm: 1, kg: 1, palletPlaces: 1 }, [], null).ldmPercent).toBeNull();
   });
 
-  it("fills by pallet places when there are places and no LDM, as the server does (User Council T5)", () => {
+  it("always counts the pallet places when the vehicle has them, as the server does (User Council T5, mock council S6-1)", () => {
     const truck = { ldm: 13.6, kg: 24000, palletPlaces: 33 };
     const full = projectedFill({ ldm: 0, kg: 12000, palletPlaces: 22 }, [leg("1", { ldm: 0, weightKg: 6000, palletPlaces: 11 })], truck);
     expect(full).toMatchObject({ ldmPercent: 0, kgPercent: 75, palletPlacesPercent: 100 });
     // The places drive the colour and the Fill column's figure, not "0 %".
     expect(tripFillPercent(full)).toBe(100);
     expect(tripFillTone(full)).toBe("bg-amber-500");
-    // Any LDM: the LDM bar stays; no vehicle: nothing known.
-    expect(projectedFill({ ldm: 0, kg: 1, palletPlaces: 22 }, [leg("1", { ldm: 1.2, weightKg: 1, palletPlaces: 3 })], truck).palletPlacesPercent).toBeNull();
+    // One LDM load among place-only loads: the places still count and drive the fill; no vehicle: nothing known.
+    const mixed = projectedFill({ ldm: 0, kg: 1, palletPlaces: 30 }, [leg("1", { ldm: 2, weightKg: 1, palletPlaces: 2 })], truck);
+    expect(mixed).toMatchObject({ ldmPercent: 15, palletPlacesPercent: 97 });
+    expect(tripFillPercent(mixed)).toBe(97);
+    expect(tripFillTone(mixed)).toBe("bg-amber-500");
     expect(projectedFill({ ldm: 0, kg: 1, palletPlaces: 22 }, [], null).palletPlacesPercent).toBeNull();
+    expect(projectedFill({ ldm: 0, kg: 1, palletPlaces: 22 }, [], { ...truck, palletPlaces: 0 }).palletPlacesPercent).toBeNull();
   });
 });
 

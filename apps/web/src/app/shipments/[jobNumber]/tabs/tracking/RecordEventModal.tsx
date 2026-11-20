@@ -12,7 +12,7 @@ import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { addDays, businessToday } from "@/lib/date";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { atdWarning, billingHintAfter, statusOfferAfter } from "./milestoneFollowUp";
+import { atdWarning, billingHintAfter, sentOnlyHint, statusOfferAfter } from "./milestoneFollowUp";
 import { composePlace, mayLieAhead } from "./trackingText";
 
 const GROUPS: { key: TrackingRecordableKind["group"]; label: string }[] = [
@@ -207,6 +207,7 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
             />
             <p className={`${HINT} m-0 mt-1`}>
               Now: {shipment.status ? statusLabel(shipment.status) : "no status"}. Nothing changes unless it is ticked.
+              {sentOnlyHint(nextStatus) && ` ${sentOnlyHint(nextStatus)}`}
             </p>
           </div>
         )}

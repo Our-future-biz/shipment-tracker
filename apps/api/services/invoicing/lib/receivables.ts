@@ -73,11 +73,26 @@ const countedAt = (line: CountedLine & { createdAt: Date | string }, at: Date): 
   (isMoneyKind(line.kind) || (!!line.confirmedAt && new Date(line.confirmedAt).getTime() <= at.getTime()));
 
 /**
+ * What is left of an invoice owed `owed` after its credit notes, money paid, bank charges and write-offs; below 0 is
+ * money to give back. Mock test council M3 / R1 (one rule for the credit note's PDF and Accounts Receivable): a
+ * write-off is not money the customer sent. It closes what is still owed, so it brings the rest down to 0 but never
+ * below: a credit note issued after it cancels it up to its amount, and only money really paid (a bank charge too -
+ * the customer did send that money) beyond the new total is to refund. A write-off of 20 on an invoice of 100 paid 80,
+ * then credited in full, leaves 80 to refund, not 100.
+ */
+export function leftAfter(input: { owed: number; credited: number; paid: number; bankCharges?: number; writtenOff?: number }): number {
+  const beforeWriteOff = money(input.owed - input.credited - input.paid - (input.bankCharges ?? 0));
+  if (beforeWriteOff <= 0) return beforeWriteOff;
+  return money(Math.max(0, beforeWriteOff - (input.writtenOff ?? 0)));
+}
+
+/**
  * What a credit note does to the invoice it corrects, as it stood when the credit note was issued (`at`: its creation),
  * for its PDF (user council B15: a credit note of an unpaid invoice said "To be refunded"): the invoice's total after
- * its credit notes up to this one (`reducedTo`), and what of this credit note is money back (`refund`) - only what was
- * paid (or closed) beyond that total; 0 when the invoice was not paid that far, so the credit only lowers what is due.
- * Read as at the moment, so the PDF made again later says the same.
+ * its credit notes up to this one (`reducedTo`), and what of this credit note is money back (`refund`) - only money
+ * paid (a bank charge too) beyond that total, at most this credit note; 0 when the invoice was not paid that far, so
+ * the credit only lowers what is due. A write-off is not paid (mock council M3): refund = min(credit, max(0, paid +
+ * bank charges − new total)). Read as at the moment, so the PDF made again later says the same.
  */
 export function creditNoteEffect(input: {
   /** The corrected invoice's gross */
@@ -92,10 +107,11 @@ export function creditNoteEffect(input: {
 }): { reducedTo: number; refund: number } {
   const lines = input.lines.filter((l) => countedAt(l, input.at));
   const paid = sumOf(lines.filter((l) => isMoneyKind(l.kind)));
-  const other = sumOf(lines.filter((l) => isWriteOffKind(l.kind)));
+  const bankCharges = sumOf(lines.filter((l) => l.kind === "bank_charge"));
+  const writtenOff = sumOf(lines.filter((l) => l.kind === "write_off"));
   const gross = Number(input.invoiceGross);
   const credited = creditedOf(input.creditNoteGross);
-  const left = money(gross - credited - paid - other);
+  const left = leftAfter({ owed: gross, credited, paid, bankCharges, writtenOff });
   const credit = money(-Number(input.thisGross));
   return { reducedTo: money(gross - credited), refund: left < 0 ? money(Math.min(credit, -left)) : 0 };
 }
@@ -113,11 +129,12 @@ export function lastPaidOnOf(payments: readonly { kind?: string; paidOn: string 
 /**
  * What is left to pay: the invoice with VAT, less its credit notes, its payments and its confirmed write-offs and bank
  * charges; below 0 is to refund. A cancelled invoice is not owed at all (withdrawn on its issue day): only a payment
- * noted on it would be left, to refund.
+ * noted on it would be left, to refund. A write-off is not paid (mock council R1, as the credit note's PDF, M3): it
+ * closes the rest down to 0, never into "To refund" (leftAfter). The repository's LEFT reads the same in SQL.
  */
-export function leftToPayOf(input: { invoiceStatus: string; gross: number; credited: number; paid: number; settledOther?: number }): number {
+export function leftToPayOf(input: { invoiceStatus: string; gross: number; credited: number; paid: number; writtenOff?: number; bankCharges?: number }): number {
   const owed = input.invoiceStatus === "cancelled" ? 0 : input.gross;
-  return money(owed - input.credited - input.paid - (input.settledOther ?? 0));
+  return leftAfter({ owed, credited: input.credited, paid: input.paid, bankCharges: input.bankCharges, writtenOff: input.writtenOff });
 }
 
 /**
@@ -192,7 +209,7 @@ export function receivableStateOf(input: ReceivableInput, today: string): Receiv
   const writtenOff = money(input.writtenOff ?? 0);
   const bankCharges = money(input.bankCharges ?? 0);
   const other = money(writtenOff + bankCharges);
-  const leftToPay = leftToPayOf({ invoiceStatus: input.invoiceStatus, gross: input.gross, credited, paid, settledOther: other });
+  const leftToPay = leftToPayOf({ invoiceStatus: input.invoiceStatus, gross: input.gross, credited, paid, writtenOff, bankCharges });
   const status = statusOf({ invoiceStatus: input.invoiceStatus, leftToPay, paid, settledOther: other });
   const overdue = isOverdue({ status, leftToPay, dueDate: input.dueDate }, today);
   const days = overdue ? daysOverdue(input.dueDate, today) : 0;
@@ -226,7 +243,7 @@ export function carriedOverAmount(gross: number, credited: number): number | nul
  * What the customer's list is told of an invoice (the receivable_state follow-up): what is left to pay after everything
  * that counts (a confirmed write-off too), and settled when nothing is.
  */
-export function customerListStateOf(input: { invoiceStatus: string; gross: number; credited: number; paid: number; settledOther?: number }): { leftToPay: number; settled: boolean } {
+export function customerListStateOf(input: { invoiceStatus: string; gross: number; credited: number; paid: number; writtenOff?: number; bankCharges?: number }): { leftToPay: number; settled: boolean } {
   const leftToPay = leftToPayOf(input);
   return { leftToPay, settled: leftToPay <= 0 };
 }
@@ -772,7 +789,10 @@ export function asAtOf(input: AsAtInput, day: string): AsAtState {
   const counted = input.lines.filter((l) => countsAt(l, day));
   const paid = sumOf(counted.filter((l) => !isWriteOffKind(l.kind)));
   const writtenOff = sumOf(counted.filter((l) => isWriteOffKind(l.kind)));
-  const leftToPay = money(input.gross - credited - paid - writtenOff);
+  // One rule with the AR row and the credit note's PDF (mock council R1): a write-off closes the rest down to 0 only;
+  // a bank charge counts as money sent. (writtenOff stays both, as the month-end column shows them.)
+  const bankCharges = sumOf(counted.filter((l) => l.kind === "bank_charge"));
+  const leftToPay = leftAfter({ owed: input.gross, credited, paid, bankCharges, writtenOff: money(writtenOff - bankCharges) });
   const listed = input.invoiceStatus !== "cancelled" && input.issueDate <= day && leftToPay > 0;
   const days = listed && input.dueDate < day ? daysOverdue(input.dueDate, day) : 0;
   return {

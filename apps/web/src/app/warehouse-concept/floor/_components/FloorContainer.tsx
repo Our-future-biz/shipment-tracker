@@ -29,6 +29,7 @@ import {
 } from "@/app/warehouse-concept/_lib/containerPlan";
 import { Badge, hhmm, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { conditionAndLocation, conditionNotGood, tallyQuestions } from "@/app/warehouse-concept/_lib/tallyCondition";
+import { exceptionViewQuery, tallyPrefill, type ExceptionPrefill } from "@/app/warehouse-concept/_lib/exceptionPrefill";
 import { useFloorQueue, type SubmitResult } from "../_lib/useFloorQueue";
 import { applyPendingContainer, pendingInContainer } from "../_lib/queue";
 import { Chip, FloorCard, NeedsConnection, Stepper, bigDanger, bigDefault, bigDefaultLink, bigPrimary, bigPrimaryLink } from "./floorUi";
@@ -165,7 +166,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
   // After a tick that found something: the question, with the way to the exception screen.
-  const [ask, setAsk] = useState<{ movementId: string; ref: string; questions: string[] } | null>(null);
+  const [ask, setAsk] = useState<{ movementId: string; ref: string; questions: string[]; prefill: ExceptionPrefill | null } | null>(null);
   const blocked = !c.gateInAt ? "Stamp the container gate-in first" : c.gateOutAt ? "The container has gone out" : null;
 
   const draftOf = (h: ContainerHouse): Draft => drafts[h.movementId] ?? { pieces: h.pieces, condition: "Good", location: "", reason: "" };
@@ -189,7 +190,8 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
       if (report(res, outcome === "received" ? `${ref} ticked off — received` : `${ref} marked ${TALLY_LABEL[outcome]!.toLowerCase()}`)) {
         setOpenId(null);
         const questions = tallyQuestions(outcome, h.pieces, d.pieces, d.condition);
-        setAsk(questions.length ? { movementId: h.movementId, ref, questions } : null);
+        // The exception screen opens with what the tick found (mock council S11-1).
+        setAsk(questions.length ? { movementId: h.movementId, ref, questions, prefill: tallyPrefill(outcome, h.pieces, d.pieces, d.condition) } : null);
       }
     } finally {
       setBusy(false);
@@ -206,7 +208,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
           </div>
           <div className="mt-1 text-[13px] text-amber-800">While it is open the cargo is on hold.</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Link href={`/warehouse-concept/floor/${ask.movementId}?view=damage`} className={bigPrimaryLink}>
+            <Link href={`/warehouse-concept/floor/${ask.movementId}?${exceptionViewQuery(ask.prefill)}`} className={bigPrimaryLink}>
               Damage / short / over
             </Link>
             <button type="button" className={bigDefault} onClick={() => setAsk(null)}>

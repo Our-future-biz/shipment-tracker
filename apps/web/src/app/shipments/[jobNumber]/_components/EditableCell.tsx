@@ -9,7 +9,7 @@ import { LockedBox } from "@/components/LockedBox";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
 import { DEPARTMENT_FIELDS } from "@/lib/shipmentEditRule";
-import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions, splitDateTime } from "@/lib/columnConfig";
+import { COLUMN_MAP, INCOTERM_FIELDS, geoKindOf, getFilteredStatusOptions, incotermOptionsFor, splitDateTime } from "@/lib/columnConfig";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
 import { UserPicker } from "@/components/UserPicker";
@@ -26,7 +26,7 @@ import { personShown } from "@/app/shipments/_lib/personNames";
 import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { contactLinks, type ContactLinks } from "@/app/shipments/_lib/parties";
 import { DateTimeEditor } from "./DateTimeEditor";
-import { DATE_INPUT_FORMATS, leaveTypedDay, readTypedDay } from "./typedDate";
+import { DATE_INPUT_FORMATS, leaveTypedDay, readTypedDay, yearOutOfReach } from "./typedDate";
 
 // Dates are stored as ISO "YYYY-MM-DD" (matches the native date input).
 // Still tolerate legacy "MM/DD/YY" values for display prefill.
@@ -127,7 +127,8 @@ function DayEditor({ fieldKey, value, className, onCommit, onClose }: { fieldKey
           status={error ? "error" : undefined}
           className="w-full min-w-[150px]"
           defaultValue={initial && initial.isValid() ? initial : undefined}
-          disabledDate={blocked ? (d) => blocked(d.format("YYYY-MM-DD")) : undefined}
+          // Greyed as typing refuses them: a day the field doesn't allow, and one too many years from today (S1-05).
+          disabledDate={(d) => yearOutOfReach(d.format("YYYY-MM-DD")) || !!blocked?.(d.format("YYYY-MM-DD"))}
           // Commit only when a day is picked — browsing months/years keeps the panel open.
           onChange={(d) => save(d ? d.format("YYYY-MM-DD") : "")}
           // A click away or Escape closes the panel: what was typed is saved first (leaveTypedDay).
@@ -186,6 +187,8 @@ export const CancelOfferedContext = createContext(true);
  * The B/L dates that say when something happened (council finding m24): their picker offers no day
  * after today on the company's calendar, as the server refuses one (mock test council n34).
  */
+// Fits the longest status ("Pre-Alert Received - Further Transport To Be Booked") on one line.
+const STATUS_POPUP_WIDTH = 360;
 const PAST_DAY_FIELDS = new Set(["originalsReceivedDate", "telexReleaseReceivedDate", "deliveryOrderDate"]);
 
 /** Whether a day (YYYY-MM-DD) can't be picked in this field: one after `today` (Prague) in a B/L date. */
@@ -196,12 +199,18 @@ const TERMINAL_FIELDS = new Set(["origin", "destination"]);
 /**
  * What a place cell offers by the shipment's Freight Mode: by air, its POL and POD also IATA airports;
  * by sea, its Origin and Destination also terminals, and its POL and POD the seaports first (user
- * council O1 / S10, owner's answer Q3).
+ * council O1 / S10, owner's answer Q3). Its Origin and Destination list the places before any
+ * terminal, as a quote's do (mock council S4-Q3 / R18).
  */
 export function placeListsOf(fieldKey: string, freightMode: string | undefined) {
   const air = /^air/i.test(freightMode ?? "");
   const sea = /^sea/i.test(freightMode ?? "");
-  return { airports: AIRPORT_FIELDS.has(fieldKey) && air, terminals: TERMINAL_FIELDS.has(fieldKey) && sea, seaports: AIRPORT_FIELDS.has(fieldKey) && sea };
+  return {
+    airports: AIRPORT_FIELDS.has(fieldKey) && air,
+    terminals: TERMINAL_FIELDS.has(fieldKey) && sea,
+    seaports: AIRPORT_FIELDS.has(fieldKey) && sea,
+    placesFirst: TERMINAL_FIELDS.has(fieldKey),
+  };
 }
 
 /**
@@ -325,9 +334,13 @@ function EditableCellBody({
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
   const freightMode = useContext(FreightModeContext);
-  const { airports, terminals, seaports } = placeListsOf(fieldKey, freightMode);
+  const { airports, terminals, seaports, placesFirst } = placeListsOf(fieldKey, freightMode);
   const cancelOk = useContext(CancelOfferedContext);
-  const columnOptions = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
+  // An air, rail or road job offers no sea-only Incoterms, as its quote does (mock council S4-5).
+  const columnOptions =
+    allowedOptions ??
+    (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : INCOTERM_FIELDS.has(fieldKey) ? incotermOptionsFor(freightMode, value) : col?.options) ??
+    [];
   const options = fieldKey === "status" ? offeredStatuses(columnOptions, cancelOk, value) : columnOptions;
   const original = value ?? "";
   // Statuses read without [IMP]/[EXP]/[DOM] once the list holds one direction only; with several
@@ -495,6 +508,7 @@ function EditableCellBody({
           airports={airports}
           terminals={terminals}
           seaports={seaports}
+          placesFirst={placesFirst}
           size="small"
           autoFocus
           defaultOpen
@@ -523,6 +537,8 @@ function EditableCellBody({
           autoFocus
           defaultOpen
           className="w-full min-w-[140px]"
+          // A status list wider than its 250 px column, so the longest statuses read in full (mock council S9-1).
+          popupMatchSelectWidth={fieldKey === "status" ? STATUS_POPUP_WIDTH : true}
           defaultValue={original || undefined}
           options={options.map((o) => ({ value: o, label: optionLabel(o) }))}
           // The "Billing" status says what it does (O11 / Q9): one line under its name in the list.

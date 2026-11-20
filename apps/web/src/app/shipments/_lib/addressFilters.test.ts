@@ -11,6 +11,16 @@ describe("the filters the Shipments list takes from its address", () => {
     }
   });
 
+  it("names the person in the Handled By chip, the e-mail still asked for (mock council S7-5)", () => {
+    const names = new Map([["eva.mala@firma.cz", "Eva Malá"]]);
+    expect(addressFiltersOf(new URLSearchParams("handledBy=eva.mala@firma.cz"), names)).toEqual({
+      request: { handledBy: "eva.mala@firma.cz" },
+      chips: [{ param: "handledBy", label: "Handled By: Eva Malá" }],
+    });
+    // Nobody of that e-mail: as it was asked for.
+    expect(addressFiltersOf(new URLSearchParams("handledBy=jan@firma.cz"), names).chips[0]!.label).toBe("Handled By: jan@firma.cz");
+  });
+
   it("reads Handled By: a person's e-mail, or nobody", () => {
     expect(of("handledBy=jan%40firma.cz")).toEqual({
       request: { handledBy: "jan@firma.cz" },

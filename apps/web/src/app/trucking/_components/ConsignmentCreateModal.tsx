@@ -10,6 +10,7 @@ import { CreditWarning } from "@/components/finance/CreditWarning";
 import { fetchCustomerSites, type CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useCreateConsignment } from "@/hooks/useTruckingConsignments";
+import { useTariffs } from "@/hooks/useTrucking";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ShipmentPicker } from "@/app/sales/quote/[ref]/_components/CopyFromModal";
@@ -19,6 +20,7 @@ import {
   emptyConsignmentForm,
   formFromQuote,
   formFromShipment,
+  missingSellListNote,
   toCreateRequest,
   type ConsignmentForm,
   type ConsignmentSource,
@@ -51,6 +53,10 @@ export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: Consign
   const [refusal, setRefusal] = useState<{ form: ConsignmentForm; text: string } | null>(null);
   const shownRefusal = refusal && refusal.form === form ? refusal.text : null;
   const problems = useMemo(() => consignmentFormProblems(form), [form]);
+  // A tariff price with no sell list is said at once, not first on Create (mock council S6-5); the
+  // Trucking page has the tariffs read already, so this is no extra call there.
+  const { tariffs, isLoading: tariffsLoading, isError: tariffsError } = useTariffs();
+  const sellListNote = missingSellListNote(form, tariffsLoading || tariffsError ? null : tariffs);
 
   // Only the latest pick fills the form: a slow answer for an earlier pick is dropped.
   const pickSeq = useRef(0);
@@ -180,6 +186,7 @@ export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: Consign
             {pickedQuote && !pickedQuote.data.roadPricing && (
               <Alert type="info" showIcon message={`${pickedQuote.quoteNumber} was not priced from the tariff: the price comes from the tariff now, or type an agreed price.`} />
             )}
+            {sellListNote && <Alert type="info" showIcon message={sellListNote} />}
             <div className={prefilling ? "pointer-events-none opacity-60" : undefined}>
               <ConsignmentFormFields form={form} onChange={setForm} />
             </div>

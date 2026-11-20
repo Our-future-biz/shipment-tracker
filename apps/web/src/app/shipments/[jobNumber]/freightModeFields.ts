@@ -5,7 +5,7 @@
 // titles and History's field names stay generic (columnConfig). Pure.
 // A road job leaves out the empty rows a truck has no use for the same way (user council T9).
 
-import { isAirFreight } from "@/lib/chargeBasis";
+import { chargeBasis, fmtChargeBasis, isAirFreight } from "@/lib/chargeBasis";
 import { isDeliveryDated } from "@/lib/deliveryDated";
 
 /** What says how a job travels and whether it is Trucking's; a bare string is its Freight Mode. */
@@ -50,7 +50,19 @@ export const AIR_LABELS: Readonly<Record<string, string>> = {
   // The carrier of an air job is an airline.
   shippingLine: "Airline / Coloader",
   bolDraft: "AWB Draft",
+  // The house air waybill is released, not a bill of lading (mock council S4-3).
+  houseBolRelease: "HAWB Release",
 };
+
+/** A row's name in the words of the job's (or master job's) freight mode: on air its AIR_LABELS name, else `sea`. */
+export const modeLabel = (key: string, sea: string, mode: ModeArg): string => (isAirJob(mode) ? (AIR_LABELS[key] ?? sea) : sea);
+
+/** What the House BoL release row, its button and its dialog say: on an air job the house air waybill (mock council S4-3). */
+export function houseReleaseWords(mode: ModeArg): { label: string; button: string; document: string } {
+  return isAirJob(mode)
+    ? { label: "HAWB Release", button: "Release Air Waybill", document: "Air Waybill" }
+    : { label: "House BoL Release", button: "Release Bill of Lading", document: "Bill of Lading" };
+}
 
 /**
  * Rows only sea freight has, left out of an air job while they are empty: the voyage (the flight
@@ -154,6 +166,22 @@ export function fieldsForMode<F extends { key: string; label: string }>(
     return label ? [{ ...f, label }] : [f];
   });
 }
+
+/**
+ * An air job's chargeable weight as its Cargo & Commercial card shows it (mock council S4-Q2 / R17, O17):
+ * the greater of the gross weight and the volumetric weight, by the rule its quote uses (lib/chargeBasis,
+ * m³ × 1,000,000 ÷ 6000), from the kg and m³ the card shows. "" on any other job, "—" with neither figure.
+ * Read only: it is worked out, never typed.
+ */
+export function airChargeableWeight(mode: ModeArg, weightKg: string | null | undefined, volumeCbm: string | null | undefined): string {
+  if (!isAirJob(mode)) return "";
+  const kg = parseFloat((weightKg ?? "").replace(/,/g, "")) || 0;
+  const m3 = parseFloat((volumeCbm ?? "").replace(/,/g, "")) || 0;
+  return fmtChargeBasis(chargeBasis(jobOf(mode).freightMode, kg, m3));
+}
+
+/** Whether the job shows the Chargeable Weight row: an air job's (airChargeableWeight). */
+export const showsChargeableWeight = (mode: ModeArg): boolean => isAirJob(mode);
 
 /** The Carrier card's title: an air job's transport document is the air waybill. */
 export const carrierCardTitle = (mode: ModeArg): string =>

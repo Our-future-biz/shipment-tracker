@@ -15,6 +15,7 @@ import {
   haulierScores,
   laneLabel,
   lineHaulFillKpi,
+  tripFillPercent,
   marginKpi,
   marginTables,
   onTimeKpi,
@@ -193,15 +194,25 @@ describe("days to POD and POD missing", () => {
 describe("fill", () => {
   it("averages the fuller of LDM and kg against the vehicle, per kind; trips without a vehicle are not counted", () => {
     const k = lineHaulFillKpi([
-      { kind: "LINEHAUL", capacity: { ldm: 13.6, kg: 24000 }, ldm: 6.8, kg: 6000 }, // 50 %
-      { kind: "LINEHAUL", capacity: { ldm: 13.6, kg: 24000 }, ldm: 3.4, kg: 18000 }, // 75 %
-      { kind: "DELIVERY_RUN", capacity: { ldm: 7, kg: 3500 }, ldm: 7, kg: 1000 }, // 100 %
-      { kind: "DELIVERY_RUN", capacity: null, ldm: 1, kg: 100 },
+      { kind: "LINEHAUL", capacity: { ldm: 13.6, kg: 24000, palletPlaces: 33 }, ldm: 6.8, kg: 6000, palletPlaces: 0 }, // 50 %
+      { kind: "LINEHAUL", capacity: { ldm: 13.6, kg: 24000, palletPlaces: 33 }, ldm: 3.4, kg: 18000, palletPlaces: 0 }, // 75 %
+      { kind: "DELIVERY_RUN", capacity: { ldm: 7, kg: 3500, palletPlaces: 0 }, ldm: 7, kg: 1000, palletPlaces: 0 }, // 100 %
+      { kind: "DELIVERY_RUN", capacity: null, ldm: 1, kg: 100, palletPlaces: 2 },
     ]);
     expect(k).toMatchObject({ value: 75, n: 3, notMeasured: "1 trip(s) without a vehicle type are not counted" });
     expect(part(k, "Line haul")).toMatchObject({ value: 62.5, n: 2 });
     expect(part(k, "Delivery run")).toMatchObject({ value: 100, n: 1 });
     expect(lineHaulFillKpi([])).toMatchObject({ value: null, notMeasured: "No line haul or delivery run departed in this period" });
+  });
+
+  it("counts the pallet places too: a truck full by places is full, though its LDM and kg are low (mock council S6-1)", () => {
+    const cap = { ldm: 13.6, kg: 24000, palletPlaces: 33 };
+    // 2 LDM, 3 000 kg and 33 places: 100 % by places, not 15 % by LDM.
+    expect(tripFillPercent({ kind: "LINEHAUL", capacity: cap, ldm: 2, kg: 3000, palletPlaces: 33 })).toBe(100);
+    expect(tripFillPercent({ kind: "LINEHAUL", capacity: cap, ldm: 6.8, kg: 0, palletPlaces: 11 })).toBe(50);
+    // A vehicle type with no pallet places counts LDM and kg as before.
+    expect(tripFillPercent({ kind: "LINEHAUL", capacity: { ...cap, palletPlaces: 0 }, ldm: 2, kg: 3000, palletPlaces: 33 })).toBeCloseTo(14.71, 2);
+    expect(lineHaulFillKpi([{ kind: "LINEHAUL", capacity: cap, ldm: 2, kg: 3000, palletPlaces: 33 }])).toMatchObject({ value: 100, n: 1 });
   });
 });
 

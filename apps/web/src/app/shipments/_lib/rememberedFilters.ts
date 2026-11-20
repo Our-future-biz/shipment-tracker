@@ -7,10 +7,11 @@ import { searchesAllFields } from "./allFieldsSearch";
 // page entered by a link that opens exactly what it names: there they are neither restored nor
 // written over, so the link's filters never become the ones remembered.
 
-/** What the list remembers: its Status bucket and its column filters. */
+/** What the list remembers: its Status bucket, its column filters and whether "My jobs" is on (_lib/myJobs). */
 export interface RememberedFilters {
   status?: string;
   filters?: { key: string; value: string }[];
+  mine?: boolean;
 }
 
 /**
@@ -28,7 +29,7 @@ export const keepsToItsAddress = (params: Pick<URLSearchParams, "get">, isView: 
  * next plain arrival.
  */
 export function rememberedAfter(
-  current: Required<RememberedFilters>,
+  current: RememberedFilters & Required<Pick<RememberedFilters, "status" | "filters">>,
   change: RememberedFilters,
   enteredByLink: boolean,
 ): RememberedFilters | null {

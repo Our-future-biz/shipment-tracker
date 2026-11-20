@@ -701,6 +701,15 @@ describe("saveDocument", () => {
     expect(set.updatedAt).toBeInstanceOf(Date);
   });
 
+  it("keeps the version and the time of the last change with keepVersion: the overnight note of a tariff's end date (mock council S2-6)", async () => {
+    await salesQuoteRepository.saveDocument(COMPANY, "QCZ20261010001", { data, carry }, { dataVersion: 1 }, { keepVersion: true });
+    const { set } = fake.state.updates[0]!;
+    expect(set).not.toHaveProperty("dataVersion");
+    expect(set).not.toHaveProperty("updatedAt");
+    // Still only the version named is written.
+    expect(rendered(fake.state.updates[0]!.where).params).toEqual([COMPANY, "QCZ20261010001", 1]);
+  });
+
   it("writes live sales quotes only, and only the version named", async () => {
     await salesQuoteRepository.saveDocument(COMPANY, "QCZ20261010001", { data, carry }, { dataVersion: 4 });
     expect(rendered(fake.state.updates[0]!.where)).toMatchObject({

@@ -5,7 +5,7 @@ import { Button, DatePicker, TimePicker, Tooltip } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { splitDateTime } from "@/lib/columnConfig";
-import { DATE_INPUT_FORMATS, resolveDateTime } from "./typedDate";
+import { DATE_INPUT_FORMATS, leavesEditor, resolveDateTime, yearOutOfReach } from "./typedDate";
 
 const DATE_LABEL = "Date";
 const TIME_LABEL = "Time (optional)";
@@ -20,7 +20,8 @@ interface Props {
 
 /**
  * A date with an optional exact time (closings, AMS / ISF deadlines). Picking the day opens the
- * time; the time may stay empty. Saved by ✓, Enter or a click elsewhere; Escape leaves it as it was.
+ * time; the time may stay empty. Saved by ✓, Enter, Tab out of it or a click elsewhere, as a date alone is
+ * (mock council S1-04); Escape leaves it as it was.
  * A typed date or time that can't be read keeps the editor open and says how to type it (user
  * council O4): saving the old value instead would let a corrected cut-off look saved.
  */
@@ -106,6 +107,12 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
           if (e.key === "Escape") cancel();
           else if (e.key === "Enter") save();
         }}
+        // Tab out of the editor saves, as a click elsewhere does (S1-04): the focus going from the date to the time
+        // or the ✓, or into a picker's panel (rendered elsewhere in the page), stays in it. After the pickers have
+        // taken what was typed on their own blur, as the click's save waits for it.
+        onBlur={(e) => {
+          if (leavesEditor(e.relatedTarget as Element | null, wrapperRef.current)) setTimeout(save, 0);
+        }}
       >
         <DatePicker
           size="small"
@@ -118,6 +125,8 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
           status={error?.box === "date" ? "error" : undefined}
           className="min-w-[120px] shrink-0"
           value={date}
+          // A day too many years from today is refused as typed (S1-05), and greyed in the panel.
+          disabledDate={(d) => yearOutOfReach(d.format("YYYY-MM-DD"))}
           onChange={(d) => {
             setDate(d);
             if (d) setTimeOpen(true);

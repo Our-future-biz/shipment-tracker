@@ -63,6 +63,8 @@ describe("asking for a partial credit note", () => {
         lines: [{ lineId: "l1", description: "THC", unitCurrency: "EUR", amount: "50.00", net: "50.00" }],
         net: "50.00", vat: "10.50", gross: "60.50", invoiceGross: "363.00", reason: "Agreed discount", requestedById: "u-rep", requestedByName: "u-rep@test.cz",
       }),
+      // the check run again under the invoice's lock (S5-4)
+      expect.any(Function),
     );
     expect(asked.status).toBe("pending");
     expect(docs.issuePartialCredit).not.toHaveBeenCalled();
@@ -100,6 +102,18 @@ describe("asking for a partial credit note", () => {
   it("a change still marked waiting from an earlier issue day has expired: it does not stand in the way", async () => {
     changeRequests.pendingFor.mockResolvedValueOnce({ id: "ch1", issueDate: "2026-11-16", requestedAt: new Date("2026-11-16T08:13:00Z") });
     await expect(creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l1", amount: "50" }], reason: "Discount" })).resolves.toMatchObject({ status: "pending" });
+  });
+
+  // Mock council S5-4 / X-3: a change asked a second earlier is seen again under the invoice's row lock.
+  it("checks again under the invoice's lock, with the insert, so two requests a second apart never both wait", async () => {
+    const tx = { tx: true };
+    requests.create.mockImplementation(async (values: Record<string, unknown>, guard?: (t: unknown) => Promise<void>) => {
+      await guard?.(tx);
+      return row(values);
+    });
+    changeRequests.pendingFor.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "ch1", issueDate: TODAY, requestedAt: new Date("2026-11-17T08:13:00Z") });
+    await expect(creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l1", amount: "5" }], reason: "Discount" })).rejects.toThrow(/change of this invoice is waiting/);
+    expect(changeRequests.pendingFor).toHaveBeenLastCalledWith(COMPANY, "inv1", tx);
   });
 });
 

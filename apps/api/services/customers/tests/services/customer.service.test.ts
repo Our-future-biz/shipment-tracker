@@ -298,8 +298,11 @@ describe("activate", () => {
     await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(true);
     // Already Active, deleted or of another company: nothing matched, nothing written.
     await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(false);
-    expect(repository.activate).toHaveBeenCalledWith("customer-1", COMPANY);
+    expect(repository.activate).toHaveBeenCalledWith("customer-1", COMPANY, {});
     expect(repository.getByIdForCompany).not.toHaveBeenCalled();
+    // Mock council R11: an issued invoice makes only a Prospect Active.
+    await customerService.activate("customer-1", COMPANY, { onlyProspect: true });
+    expect(repository.activate).toHaveBeenLastCalledWith("customer-1", COMPANY, { onlyProspect: true });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 });

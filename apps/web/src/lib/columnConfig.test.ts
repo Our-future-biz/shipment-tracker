@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COLUMN_MAP, computeDimensionTotals, dateTimeUpdate, getRowConditionalStyle, joinDateTime, splitDateTime, summarizeDimensions, waitsForOriginalBl } from "./columnConfig";
+import { COLUMN_MAP, computeDimensionTotals, dateTimeUpdate, getRowConditionalStyle, incotermOptionsFor, joinDateTime, splitDateTime, summarizeDimensions, waitsForOriginalBl } from "./columnConfig";
 
 describe("summarizeDimensions", () => {
   it("writes each line in the unit it was typed in", () => {
@@ -62,7 +62,14 @@ describe("date + time columns", () => {
 });
 
 describe("an OBL row in red (K28)", () => {
-  const row = (over: Record<string, string>) => ({ houseBolType: "", masterBolType: "", originalsReceivedDate: "", telexReleaseReceivedDate: "", ...over });
+  const row = (over: Record<string, string>) => ({ tradeDirection: "Import", houseBolType: "", masterBolType: "", originalsReceivedDate: "", telexReleaseReceivedDate: "", ...over });
+
+  it("is an import's only: an export's OBL is ours to release, it waits for none (mock council R20)", () => {
+    expect(getRowConditionalStyle(row({ tradeDirection: "Export", houseBolType: "OBL", masterBolType: "OBL" }))).toBeNull();
+    expect(waitsForOriginalBl(row({ tradeDirection: "Domestic", masterBolType: "OBL" }))).toBe(false);
+    expect(waitsForOriginalBl(row({ tradeDirection: "", masterBolType: "OBL" }))).toBe(false);
+    expect(waitsForOriginalBl(row({ tradeDirection: " import ", masterBolType: "OBL" }))).toBe(true);
+  });
 
   it("is red while an OBL is not in hand, by the rule Shipments → Managers says it", () => {
     expect(getRowConditionalStyle(row({ masterBolType: "OBL" }))).toEqual({ color: "#b91c1c" });
@@ -75,5 +82,23 @@ describe("an OBL row in red (K28)", () => {
     expect(getRowConditionalStyle(row({ houseBolType: "OBL", telexReleaseReceivedDate: "2026-11-17" }))).toBeNull();
     expect(getRowConditionalStyle(row({ masterBolType: "SWB" }))).toBeNull();
     expect(getRowConditionalStyle({})).toBeNull();
+  });
+});
+
+// Mock council S4-5: a job's Incoterms as its quote's picker offers them.
+describe("incotermOptionsFor", () => {
+  it("offers every term by sea, or while no Freight Mode is set", () => {
+    expect(incotermOptionsFor("Sea Freight")).toContain("FOB");
+    expect(incotermOptionsFor("Sea Break Bulk")).toContain("CIF");
+    expect(incotermOptionsFor("")).toHaveLength(11);
+  });
+
+  it("leaves out the sea-only terms on an air, rail or road job, a term already held still offered", () => {
+    for (const mode of ["Air Freight", "Rail Freight", "Road Freight"]) {
+      const offered = incotermOptionsFor(mode);
+      for (const code of ["FAS", "FOB", "CFR", "CIF"]) expect(offered, `${mode} ${code}`).not.toContain(code);
+      expect(offered).toEqual(expect.arrayContaining(["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP"]));
+    }
+    expect(incotermOptionsFor("Air Freight", "FOB").at(-1)).toBe("FOB");
   });
 });

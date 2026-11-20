@@ -276,6 +276,15 @@ describe("renderInvoicePdf", () => {
     expect(text).toContain(squash("K VRÁCENÍ / TO BE REFUNDED"));
     expect(text).toContain(squash("60.00 EUR"));
     expect(text).not.toContain("SNIŽUJEÚHRADU");
+    // Mock council S8-4: the other 40 of the 100 credited lowers what is due, on its own row.
+    expect(text).toContain(squash("Snižuje úhradu / Reduces the amount due"));
+    expect(text).toContain(squash("40.00 EUR"));
+  });
+
+  it("states no reduction row when the whole credit note is refunded (S8-4)", async () => {
+    const text = squash(await textOf(await renderInvoicePdf({ ...creditNote, creditEffect: { reducedTo: 1021, refund: 100 } }, await loadPdfFonts())));
+    expect(text).toContain(squash("K VRÁCENÍ / TO BE REFUNDED"));
+    expect(text).not.toContain(squash("Snižuje úhradu / Reduces the amount due"));
   });
 
   it("prints the customer's own reference as Your ref., never the Personal Reference; an older invoice as it did (B17)", async () => {

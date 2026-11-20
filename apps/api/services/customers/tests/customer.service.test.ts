@@ -27,6 +27,9 @@ vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } })
 const topics = vi.hoisted(() => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }));
 vi.mock("../topics", () => topics);
 const userLookup = vi.hoisted(() => vi.fn());
+// The company's users and departments: who sits in Sales (a new customer's sales owner, mock council R12).
+const usersList = vi.hoisted(() => vi.fn(async (): Promise<{ users: { id: string; departmentId: string | null }[] }> => ({ users: [] })));
+const departmentList = vi.hoisted(() => vi.fn(async (): Promise<{ departments: { id: string; name: string }[] }> => ({ departments: [] })));
 // What the shipments, quotes and invoicing services count of a customer before it is deleted.
 const uses = vi.hoisted(() => ({
   shipments: vi.fn(async () => ({ count: 0 })),
@@ -34,7 +37,7 @@ const uses = vi.hoisted(() => ({
   unpaidInvoices: vi.fn(async () => ({ count: 0 })),
 }));
 vi.mock("~encore/clients", () => ({
-  auth: { userLookup },
+  auth: { userLookup, usersList, departmentList },
   shipments: { _internalCustomerShipmentCount: uses.shipments },
   quotes: { _internalCustomerOpenQuoteCount: uses.openQuotes },
   invoicing: { _internalCustomerUnpaidCount: uses.unpaidInvoices },
@@ -55,7 +58,7 @@ vi.mock("encore.dev/api", () => ({
 }));
 
 import { getTableColumns } from "drizzle-orm";
-import { customerService } from "../services/customer.service";
+import { OWNER_NOT_YOURS, customerService, isSalesDepartment } from "../services/customer.service";
 import { customerTable } from "../schemas/customer.schema";
 import { CUSTOMER_LANGUAGES, isCustomerLanguage } from "../interfaces/interfaces";
 import { contactService } from "../services/contact.service";
@@ -558,14 +561,42 @@ describe("a new customer's sales owner (S16)", () => {
     customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
   });
 
-  it("is whoever added it, stored with their e-mail", async () => {
+  const SALES = "d-sales";
+  const OPERATIONS = "d-ops";
+  const sitsIn = (departmentId: string | null) => {
+    usersList.mockResolvedValue({ users: [{ id: ME, departmentId }] });
+    departmentList.mockResolvedValue({ departments: [{ id: SALES, name: " Air Sales CZ " }, { id: OPERATIONS, name: "Sea export" }] });
+  };
+
+  it("is whoever added it when they sit in Sales, stored with their e-mail", async () => {
+    sitsIn(SALES);
     userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "Eva@Firm.cz", role: "user" }] });
     await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
     expect(userLookup).toHaveBeenCalledWith({ ids: [ME] });
     expect(created()).toMatchObject({ salesOwner: "eva@firm.cz", salesOwnerUserId: ME });
   });
 
+  it("is a manager who added it, whatever their department (mock council R12)", async () => {
+    sitsIn(OPERATIONS);
+    userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "eva@firm.cz", role: "manager" }] });
+    await customerService.createManual(COMPANY, "manager", SIEMENS, undefined, ME);
+    expect(created()).toMatchObject({ salesOwner: "eva@firm.cz", salesOwnerUserId: ME });
+    expect(usersList).not.toHaveBeenCalled();
+  });
+
+  it("is nobody when a user outside Sales added it, or one in no department (mock council R12)", async () => {
+    userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "eva@firm.cz", role: "user" }] });
+    sitsIn(OPERATIONS);
+    await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
+    expect(created()).not.toHaveProperty("salesOwner");
+    sitsIn(null);
+    await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
+    expect(created()).not.toHaveProperty("salesOwner");
+    expect(userLookup).not.toHaveBeenCalled();
+  });
+
   it("is nobody for a supplier, a creator who is no user of the company, or a lookup that fails — never a refusal", async () => {
+    sitsIn(SALES);
     userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "eva@firm.cz", role: "manager" }] });
     await customerService.createManual(COMPANY, "manager", { ...SIEMENS, roles: ["haulier"] }, undefined, ME);
     expect(created()).not.toHaveProperty("salesOwner");
@@ -577,7 +608,55 @@ describe("a new customer's sales owner (S16)", () => {
     userLookup.mockRejectedValue(new Error("auth down"));
     await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
     expect(created()).not.toHaveProperty("salesOwner");
-    expect(customers.createWithContact).toHaveBeenCalledTimes(4);
+    usersList.mockRejectedValueOnce(new Error("auth down"));
+    await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
+    expect(created()).not.toHaveProperty("salesOwner");
+    expect(customers.createWithContact).toHaveBeenCalledTimes(5);
+  });
+
+  it("is the one picked in Add customer, or nobody when the pick is cleared (mock council R12)", async () => {
+    const PICKED = "9d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11";
+    userLookup.mockResolvedValue({ users: [{ id: PICKED, name: "Petr Rep", email: "Petr@Firm.cz", role: "user" }] });
+    await customerService.createManual(COMPANY, "manager", { ...SIEMENS, salesOwnerUserId: PICKED }, undefined, ME);
+    expect(userLookup).toHaveBeenCalledWith({ ids: [PICKED] });
+    expect(created()).toMatchObject({ salesOwner: "petr@firm.cz", salesOwnerUserId: PICKED });
+    sitsIn(SALES);
+    await customerService.createManual(COMPANY, "manager", { ...SIEMENS, salesOwnerUserId: null }, undefined, ME);
+    expect(created()).toMatchObject({ salesOwner: "", salesOwnerUserId: null });
+  });
+
+  // System-21 mock council review: who owns a customer is a manager's field - a user who is no manager picks only
+  // themself or nobody on Add customer, a manager (or admin) anyone.
+  it("lets a user who is no manager pick only themself or nobody", async () => {
+    const PICKED = "9d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11";
+    userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "eva@firm.cz", role: "user" }, { id: PICKED, name: "Petr Rep", email: "petr@firm.cz", role: "user" }] });
+    await expect(customerService.createManual(COMPANY, "user", { ...SIEMENS, salesOwnerUserId: PICKED }, undefined, ME)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: OWNER_NOT_YOURS,
+    });
+    await expect(customerService.createManual(COMPANY, "user", { ...SIEMENS, salesOwnerUserId: PICKED }, undefined, undefined)).rejects.toMatchObject({ code: "permission_denied" });
+    expect(customers.createWithContact).not.toHaveBeenCalled();
+    await customerService.createManual(COMPANY, "user", { ...SIEMENS, salesOwnerUserId: ME }, undefined, ME);
+    expect(created()).toMatchObject({ salesOwner: "eva@firm.cz", salesOwnerUserId: ME });
+    await customerService.createManual(COMPANY, "user", { ...SIEMENS, salesOwnerUserId: null }, undefined, ME);
+    expect(created()).toMatchObject({ salesOwner: "", salesOwnerUserId: null });
+    await customerService.createManual(COMPANY, "admin", { ...SIEMENS, salesOwnerUserId: PICKED }, undefined, ME);
+    expect(created()).toMatchObject({ salesOwnerUserId: PICKED });
+  });
+
+  it("refuses a pick that is no user of the company, and gives a supplier none whatever was picked", async () => {
+    userLookup.mockResolvedValue({ users: [] });
+    await expect(customerService.createManual(COMPANY, "user", { ...SIEMENS, salesOwnerUserId: ME }, undefined, ME)).rejects.toThrow(
+      "salesOwnerUserId must be a user of the company",
+    );
+    expect(customers.createWithContact).not.toHaveBeenCalled();
+    await customerService.createManual(COMPANY, "manager", { ...SIEMENS, roles: ["haulier"], salesOwnerUserId: ME }, undefined, ME);
+    expect(created()).not.toHaveProperty("salesOwner");
+  });
+
+  it("tells a Sales department by its name", () => {
+    for (const name of ["Sales", " sales CZ ", "Air Sales", "Sales & Marketing"]) expect(isSalesDepartment(name)).toBe(true);
+    for (const name of ["Salesforce admin", "Wholesales", "Sea export", "", null, undefined]) expect(isSalesDepartment(name)).toBe(false);
   });
 
   it("keeps the link's creator for a customer registered by link", async () => {

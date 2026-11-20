@@ -62,7 +62,27 @@ type Item = Record<string, unknown>;
 const DECIMALS = /^-?\d+\.\d{4,}$/;
 export const figure = (v: string): string => (DECIMALS.test(v) ? String(Number(Number(v).toFixed(3))) : v);
 
-const text = (v: unknown): string => (v === null || v === undefined || typeof v === "object" ? "" : figure(String(v).trim()));
+/**
+ * The weights and volumes the app works out (a weight a piece divided from a line's total, the job's
+ * totals from its lines): only these are rounded. An HS code "8708.9997", a 4-decimal rate or any
+ * typed text reads as it was saved (mock council S7-2).
+ */
+const FIGURE_FIELDS: ReadonlySet<string> = new Set([
+  "weightPerPcKg",
+  "weightPerPkg",
+  "volumePerPcM3",
+  "volumePerPkg",
+  "grossWeight",
+  "volume",
+  "weightKg",
+  "volumeCbm",
+  "totalWeightTons",
+  "totalVolumeCbm",
+]);
+
+const text = (v: unknown): string => (v === null || v === undefined || typeof v === "object" ? "" : String(v).trim());
+/** A computed weight or volume of a line, rounded as figure() does. */
+const num = (v: unknown): string => figure(text(v));
 const join = (parts: readonly string[]): string => parts.filter(Boolean).join(", ");
 
 /** A Cargo Details dimension line: "1 × 120×80×100 cm, 300 kg/pc, Pallets, ADR UN1203 cl. 3". */
@@ -70,8 +90,8 @@ function dimensionLine(d: Item): string {
   const sizes = [d.lengthCm, d.widthCm, d.heightCm].map(text);
   const size = sizes.some(Boolean) ? `${sizes.map((s) => s || "?").join("×")} ${text(d.dimensionUnit) || "cm"}` : "";
   const pieces = text(d.pieces);
-  const weight = text(d.weightPerPcKg) || text(d.weightPerPkg);
-  const volume = text(d.volumePerPcM3) || text(d.volumePerPkg);
+  const weight = num(d.weightPerPcKg) || num(d.weightPerPkg);
+  const volume = num(d.volumePerPcM3) || num(d.volumePerPkg);
   const adr = text(d.adrUn) ? `ADR UN${text(d.adrUn)}${text(d.adrClass) ? ` cl. ${text(d.adrClass)}` : ""}` : "";
   return join([
     size ? [pieces && `${pieces} ×`, size].filter(Boolean).join(" ") : pieces && `${pieces} pcs`,
@@ -89,8 +109,8 @@ const containerLine = (c: Item): string =>
     [text(c.containerNumber), text(c.type)].filter(Boolean).join(" "),
     text(c.sealNumber) && `seal ${text(c.sealNumber)}`,
     [text(c.packages), text(c.packageType)].filter(Boolean).join(" "),
-    text(c.grossWeight) && `${text(c.grossWeight)} kg`,
-    text(c.volume) && `${text(c.volume)} m³`,
+    num(c.grossWeight) && `${num(c.grossWeight)} kg`,
+    num(c.volume) && `${num(c.volume)} m³`,
   ]);
 
 /** A cargo line: "10 Pallet(s) AUTOMOTIVE PARTS, HS 870899, 1442 kg, value 5000 EUR". */
@@ -98,7 +118,7 @@ const cargoLine = (c: Item): string =>
   join([
     [text(c.pieces), text(c.packageType), text(c.cargoDescription)].filter(Boolean).join(" "),
     text(c.hsCode) && `HS ${text(c.hsCode)}`,
-    text(c.grossWeight) && `${text(c.grossWeight)} kg`,
+    num(c.grossWeight) && `${num(c.grossWeight)} kg`,
     text(c.commercialInvoiceValue) && `value ${[text(c.commercialInvoiceValue), text(c.currency)].filter(Boolean).join(" ")}`,
   ]);
 
@@ -106,8 +126,8 @@ const cargoLine = (c: Item): string =>
 const totalsLine = (t: Item): string =>
   join([
     text(t.colli) && `${text(t.colli)} colli`,
-    text(t.weightKg) && `${text(t.weightKg)} kg`,
-    text(t.volumeCbm) && `${text(t.volumeCbm)} m³`,
+    num(t.weightKg) && `${num(t.weightKg)} kg`,
+    num(t.volumeCbm) && `${num(t.volumeCbm)} m³`,
   ]);
 
 /** Anything else kept as a record: its filled plain values, ids left out. */
@@ -115,7 +135,10 @@ const otherLine = (o: Item): string =>
   join(
     Object.entries(o)
       .filter(([k]) => !/(^id|Id)$/.test(k))
-      .map(([k, v]) => (text(v) ? `${k}: ${text(v)}` : "")),
+      .map(([k, v]) => {
+        const shown = FIGURE_FIELDS.has(k) ? num(v) : text(v);
+        return shown ? `${k}: ${shown}` : "";
+      }),
   );
 
 function itemLine(o: Item): string {
@@ -145,12 +168,16 @@ function recordValue(v: string): string | null {
   return isItem(parsed) ? itemLine(parsed) || "none" : null;
 }
 
-/** A value as the row shows it: a day as DD.MM.YYYY, a moment on Prague's clock, a list (cargo lines, containers…) a line per row, anything else as stored; "" for none. */
-export function historyValue(value: string | null | undefined): string {
+/**
+ * A value as the row shows it: a day as DD.MM.YYYY, a moment on Prague's clock, a list (cargo lines,
+ * containers…) a line per row, a computed weight or volume of `field` rounded, anything else as stored;
+ * "" for none.
+ */
+export function historyValue(value: string | null | undefined, field?: string): string {
   const v = (value ?? "").trim();
   if (DAY.test(v)) return formatDate(v);
   if (MOMENT.test(v)) return businessDateTime(v) || v;
-  return recordValue(v) ?? (DECIMALS.test(v) ? figure(v) : (value ?? ""));
+  return recordValue(v) ?? (field && FIGURE_FIELDS.has(field) && DECIMALS.test(v) ? figure(v) : (value ?? ""));
 }
 
 /** Who made the change: their name with their e-mail beside it; the user id when the names could not be read. */
@@ -181,6 +208,23 @@ export interface HistoryRow {
  */
 export const ONE_EDIT_MS = 5 * 60 * 1000;
 
+// What is typed box by box, whose saves merge: a free-text or number column, and the job's lists of
+// detail rows. A dropdown, a status, a date, a person or a money field keeps a row per save, so a job
+// set to Cancelled and back within minutes says so (mock council S7-3).
+const MONEY_FIELDS: ReadonlySet<string> = new Set(["commercialInvoiceValue", "buying", "selling"]);
+const TYPED_FIELDS: ReadonlySet<string> = (() => {
+  const typed = new Set<string>(Object.keys(LIST_TITLES));
+  for (const col of COLUMNS) {
+    if (col.type !== "text" || MONEY_FIELDS.has(col.key)) continue;
+    typed.add(col.key);
+    if (col.apiField) typed.add(col.apiField);
+  }
+  return typed;
+})();
+
+/** Whether saves of this field, close together, are one change: a typed field's (TYPED_FIELDS). */
+export const mergesSaves = (field: string): boolean => TYPED_FIELDS.has(field);
+
 /**
  * The rows of the pages read so far, newest first, each page's entries with what it says of the names.
  * An id-only entry is left out; a run of saves of the same field by the same person, each within
@@ -197,13 +241,14 @@ export function historyRows(pages: readonly Pick<interfaces.ShipmentHistoryPage,
       // event, a task tick, a nudge…) and keeps its row.
       if (
         newer &&
+        mergesSaves(e.field) &&
         !e.label?.trim() &&
         !newer.entry.label?.trim() &&
         newer.entry.field === e.field &&
         newer.entry.userId === e.userId &&
         Date.parse(newer.entry.changedAt) - Date.parse(e.changedAt) <= ONE_EDIT_MS
       ) {
-        newer.row.from = historyValue(e.oldValue);
+        newer.row.from = historyValue(e.oldValue, e.field);
         newer.row.cut = newer.row.cut || e.cut;
         newer = { entry: e, row: newer.row };
         continue;
@@ -212,8 +257,8 @@ export function historyRows(pages: readonly Pick<interfaces.ShipmentHistoryPage,
       const row: HistoryRow = {
         id: e.id,
         label: historyLabel(e),
-        from: historyValue(e.oldValue),
-        to: historyValue(e.newValue),
+        from: historyValue(e.oldValue, e.field),
+        to: historyValue(e.newValue, e.field),
         cut: e.cut,
         who,
         whoHint: hint,

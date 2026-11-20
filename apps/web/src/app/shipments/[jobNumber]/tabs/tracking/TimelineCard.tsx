@@ -7,12 +7,14 @@ import { Pill } from "@/components/Pill";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { TrackingMilestone } from "@/hooks/useShipmentTracking";
 import { airWaybillOk } from "@/lib/airWaybill";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
 import { FULL_LOAD } from "@/lib/enums";
 import { EMPTY, EMPTY_STATE, HINT, LINK, REF, TD, TH } from "@/styles/ui";
 import { RecordedBy } from "./RecordedBy";
 import { CELL_LINE, CELL_TEXT, DATE_TEXT, GROUP_BAND, GROUP_GAP, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
-import { customerStateName, customerStates, type CustomerState } from "./trackingText";
+import { customerStates, type CustomerState } from "./trackingText";
+import { Bi } from "@/app/haulier/_components/Bi";
+import { LEG_TITLES, TEXT, plannedPassed, stateText, stepText } from "@/app/track/[token]/statusText";
 
 const LEGS: { key: TrackingMilestone["leg"]; label: string }[] = [
   { key: "origin", label: "Origin" },
@@ -53,9 +55,10 @@ function MilestoneRow({ m, shownState, customerView, taxDateWords, onOpen, onTel
   // is "not yet confirmed", never late, and of the details only the customs row's wording is meant for a customer.
   const state = shownState;
   const detail = customerView && m.key !== "customs" ? "" : m.detail;
-  // In the customer view the state word is printed beside the step, in the link's words (User Council E2).
-  const customerWord = customerView ? customerStateName(state as CustomerState, !!m.planned) : "";
-  const name = customerWord || STATE_NAME[state];
+  // In the customer view the state word is printed beside the step, in the link's words (User Council E2),
+  // in Czech and English as the link prints them, a passed cut-off included (mock council S3-4, S3-3).
+  const customerWord = customerView ? stateText(state as CustomerState, !!m.planned, plannedPassed({ state: state as CustomerState, planned: m.planned }, businessToday())) : null;
+  const name = customerWord?.en || STATE_NAME[state];
   return (
     <tr className={TROW}>
       <td className={`${TD} !align-top`}>
@@ -65,8 +68,12 @@ function MilestoneRow({ m, shownState, customerView, taxDateWords, onOpen, onTel
           </span>
           <div className="min-w-0">
             <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${MAIN_TEXT}`}>
-              {m.label}
-              {customerWord && <span className={`text-[12px] font-medium ${CUSTOMER_STATE_TEXT[state as CustomerState]}`}>{customerWord}</span>}
+              {customerView ? <Bi text={stepText(m.label)} /> : m.label}
+              {customerWord && (
+                <span className={`text-[12px] font-medium ${CUSTOMER_STATE_TEXT[state as CustomerState]}`}>
+                  <Bi text={customerWord} />
+                </span>
+              )}
               {/* what the tax date goes by, whether it is firm, the ČNB rates and an invoice, on the pill */}
               {m.taxDate && !customerView && (
                 <Tooltip title={taxDateWords || undefined}>
@@ -87,7 +94,11 @@ function MilestoneRow({ m, shownState, customerView, taxDateWords, onOpen, onTel
             {formatDate(m.planned)}
             {m.plannedTime && ` ${m.plannedTime}`}
             {/* the column is narrow, so on its own line, as the link prints it on a phone */}
-            {customerView && state === "unconfirmed" && <div className={HINT}>not yet confirmed</div>}
+            {customerView && state === "unconfirmed" && (
+              <div className={HINT}>
+                <Bi text={TEXT.notConfirmed} />
+              </div>
+            )}
           </>
         ) : (
           <span className={EMPTY}>—</span>
@@ -240,7 +251,7 @@ export function TimelineCard({ shipment, milestones, actualsOnly, customerView, 
                   <tr>
                     <th scope="rowgroup" colSpan={columns} className={GROUP_BAND}>
                       <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <span>{leg.label}</span>
+                        <span>{customerView ? <Bi text={LEG_TITLES.find((t) => t.key === leg.key)?.text ?? { cs: "", en: leg.label }} /> : leg.label}</span>
                         {leg.key === "main" && <MainLegFacts shipment={shipment} customerView={customerView} onOpen={onOpen} />}
                       </span>
                     </th>

@@ -19,6 +19,8 @@ interface ShipmentListRequest {
   tile?: string;
   /** Handled By: a user's e-mail (in any case), or "nobody" for the jobs nobody handles */
   handledBy?: string & MaxLen<320>;
+  /** "My jobs": a user's e-mail (in any case), the jobs it names in Handled By or in Holiday Cover (mock council S9-1) */
+  jobsOf?: string & MaxLen<320>;
   /** How the job travels: sea | air | rail | road */
   mode?: string & MaxLen<16>;
   /** Trade Direction: import | export | domestic, in any case */
@@ -41,6 +43,11 @@ interface ShipmentListResponse {
     limit: number;
   };
   data: ShipmentItem[];
+  /**
+   * To bill / All only: the jobs with a charge added after their invoice could not be read from Invoicing just now,
+   * so the list is without them (mock council S5-2). Left out otherwise.
+   */
+  lateChargesNotRead?: boolean;
 }
 
 export const shipmentList = api(
@@ -53,6 +60,7 @@ export const shipmentList = api(
       statusBucket: req.statusBucket,
       tile: req.tile,
       handledBy: req.handledBy?.trim() || undefined,
+      jobsOf: req.jobsOf?.trim() || undefined,
       mode: req.mode,
       direction: req.direction,
       warehouse: req.warehouse,

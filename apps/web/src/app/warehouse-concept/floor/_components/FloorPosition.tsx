@@ -45,6 +45,7 @@ import { CustomsDeadlineChip } from "@/app/warehouse-concept/_lib/customsDeadlin
 import { movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock";
 import { TALLY_LABEL } from "@/app/warehouse-concept/_lib/containerPlan";
 import { lastReceipt } from "@/app/warehouse-concept/_lib/tallyCondition";
+import type { ExceptionPrefill } from "@/app/warehouse-concept/_lib/exceptionPrefill";
 
 const VIEWS = ["main", "survey", "damage", "photos", "pin", "release", "reweigh", "receipt"] as const;
 type View = (typeof VIEWS)[number];
@@ -68,6 +69,8 @@ export function FloorPosition({ id }: { id: string }) {
   const base = newer(detail, movements.find((x) => x.id === id));
   const m = useMemo(() => (base ? applyPending(base, q.items) : undefined), [base, q.items]);
   const [view, setView] = useUrlParam<View>("view", VIEWS, "main");
+  // What the receipt found, for the exception screen it opens (mock council S11-1).
+  const [damagePrefill, setDamagePrefill] = useState<ExceptionPrefill | null>(null);
   const [confirm, setConfirm] = useState<GateStep | null>(null);
   const [busy, setBusy] = useState(false);
   const { user } = useAuth();
@@ -145,9 +148,12 @@ export function FloorPosition({ id }: { id: string }) {
     }
   };
 
-  const back = () => setView("main");
+  const back = () => {
+    setDamagePrefill(null);
+    setView("main");
+  };
   if (view === "survey") return <FloorSurvey m={m} onBack={back} onRecordException={() => setView("damage")} />;
-  if (view === "damage") return <FloorException m={m} onBack={back} />;
+  if (view === "damage") return <FloorException m={m} onBack={back} prefill={damagePrefill} />;
   if (view === "photos") return <FloorPhotos m={m} onBack={back} />;
   if (view === "pin") return <FloorPinCheck m={m} onBack={back} />;
   if (view === "release") return <FloorReadiness m={m} onBack={back} />;
@@ -159,7 +165,19 @@ export function FloorPosition({ id }: { id: string }) {
     else back();
   };
   if (view === "reweigh") return <FloorReweigh m={m} onBack={back} onDone={afterReweigh} />;
-  if (view === "receipt") return <FloorReceipt m={m} onBack={back} onReweigh={() => setView("reweigh")} onException={() => setView("damage")} />;
+  if (view === "receipt") {
+    return (
+      <FloorReceipt
+        m={m}
+        onBack={back}
+        onReweigh={() => setView("reweigh")}
+        onException={(p) => {
+          setDamagePrefill(p);
+          setView("damage");
+        }}
+      />
+    );
+  }
 
   // Loose import cargo received by its receipt: when, who, and what was counted.
   const receipt = out && m.receivedAt ? lastReceipt(m.events) : null;

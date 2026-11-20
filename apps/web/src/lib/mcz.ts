@@ -49,6 +49,23 @@ export function nextMczNumber(shipments: ShipmentItem[], masterJobs: string[] = 
   return `MCZ${String(max + 1).padStart(8, "0")}`;
 }
 
+// The letters a master job's Load Type gives its reference (the API's lib/masterJobNumber masterJobLetters).
+const LETTERS_OF_LOAD_TYPE: Readonly<Record<string, string>> = { consolidation: "CONSOL", "full load": "FULL", "project shipment": "PROJECT" };
+
+/**
+ * The reference a master job made from these shipments will get (mock council S4-6): the next number
+ * with the letters of the Load Type they all share - it starts with what they agree on (the API's
+ * agreedHouseValues), and its Load Type names it at creation - else plain: "Create MCZCONSOL00000010",
+ * not "Create MCZ00000010" for what becomes MCZCONSOL00000010. Still a guess: the server hands out the number.
+ */
+export function newMasterJobNumber(next: string, loadTypes: readonly (string | null | undefined)[]): string {
+  const digits = mczDigits(next);
+  const first = loadTypes[0] ?? "";
+  const agreed = loadTypes.length > 0 && first !== "" && loadTypes.every((t) => (t ?? "") === first);
+  const letters = agreed ? (LETTERS_OF_LOAD_TYPE[first.trim().toLowerCase()] ?? "") : "";
+  return digits === null ? next : `MCZ${letters}${digits}`;
+}
+
 export function existingMczNumbers(shipments: ShipmentItem[], masterJobs: string[] = []): string[] {
   const set = new Set<string>();
   for (const mn of [...shipments.map((s) => s.masterJobMczNumber), ...masterJobs]) {

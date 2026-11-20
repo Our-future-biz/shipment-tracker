@@ -16,6 +16,7 @@ import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
 import { CONTACT_ROLES, customerRoleOptions } from "../_lib/constants";
 import { ICO_LENGTH, lookupStepOf, MIN_NAME_LENGTH, nameSearchHelpOf } from "../_lib/companyLookup";
 import { useCanManageCustomers, useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { NewCustomerSalesOwner } from "./NewCustomerSalesOwner";
 import { LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 const SEARCH_DELAY_MS = 400;
@@ -93,6 +94,11 @@ export function AddCustomerModal({
   // A company is a customer, a supplier (a haulier we subcontract trucking to, a rail operator, a first / last mile
   // haulier, a shipping line), or several of these.
   const [roles, setRoles] = useState<interfaces.CustomerRole[]>(defaultRoles);
+  // The Sales owner picked (a user's id, null for nobody); undefined while untouched, when the server
+  // gives the creator by the same rule the field starts with (mock council R12).
+  const [ownerPick, setOwnerPick] = useState<string | null | undefined>(undefined);
+  // A customer has a sales owner; a supplier added from a quote has none.
+  const asksOwner = !newSupplier && roles.includes("customer");
   // What is typed: an IČO (digits only) or part of the company name.
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<interfaces.AresResult | null>(null);
@@ -236,8 +242,9 @@ export function AddCustomerModal({
     try {
       let res: { customer: interfaces.CustomerItem };
       const fromQuote = newSupplier?.quoteNumber;
-      if (fromRegistry && preview) res = await createCustomer({ ico: preview.ico, contact, roles, fromQuote });
-      else if (company) res = await createManualCustomer({ ...company, country, contact, roles, fromQuote });
+      const salesOwnerUserId = asksOwner ? ownerPick : undefined;
+      if (fromRegistry && preview) res = await createCustomer({ ico: preview.ico, contact, roles, fromQuote, salesOwnerUserId });
+      else if (company) res = await createManualCustomer({ ...company, country, contact, roles, fromQuote, salesOwnerUserId });
       else return;
       created(res.customer);
     } catch (err) {
@@ -254,6 +261,7 @@ export function AddCustomerModal({
   const handleAfterClose = () => {
     setCountry(REGISTRY_COUNTRY);
     setRoles(defaultRoles);
+    setOwnerPick(undefined);
     setQuery("");
     resetLookup();
   };
@@ -336,6 +344,7 @@ export function AddCustomerModal({
             <Checkbox.Group options={roleOptions} value={roles} onChange={setRoles} disabled={isCreating} />
           </Form.Item>
         )}
+        {asksOwner && <NewCustomerSalesOwner picked={ownerPick} onPick={setOwnerPick} disabled={isCreating} />}
       </Form>
 
       {newSupplier && (

@@ -912,8 +912,11 @@ export interface PublicTransportOrder {
   linkExpiresAt: string;
 }
 
-/** podMissing = delivered more than 2 working days ago without POD; openFtl = booked FTL not yet on a trip */
-export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions" | "openFtl";
+/**
+ * podMissing = delivered more than 2 working days ago without POD; openFtl = booked FTL not yet on a trip;
+ * pickupPassed = the pick-up day gone and the truck not ordered yet (BOOKED / PLANNED; mock council R23)
+ */
+export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions" | "openFtl" | "pickupPassed";
 
 export interface ConsignmentCounts {
   attention: number;
@@ -924,6 +927,8 @@ export interface ConsignmentCounts {
   openFtlWithoutHaulier: number;
   avizacePending: number;
   openExceptions: number;
+  /** The "Pick-up date passed" tile (mock council R23) */
+  pickupPassed: number;
 }
 
 export type ConsignmentPriceInput =
@@ -1010,14 +1015,14 @@ export interface TripCapacity {
   tailLift: boolean;
 }
 
-/** How full a trip is; the fuller of LDM and kg drives the colour. Percentages null without a vehicle. */
+/** How full a trip is; the fullest of LDM, kg and pallet places drives the colour. Percentages null without a vehicle. */
 export interface TripFill {
   ldm: number;
   kg: number;
   palletPlaces: number;
   ldmPercent: number | null;
   kgPercent: number | null;
-  /** Shown instead of the LDM bar when the load has pallet places and no LDM; else null */
+  /** Shown next to the LDM bar whenever the vehicle has pallet places; null without a vehicle or places (mock council S6-1) */
   palletPlacesPercent: number | null;
 }
 

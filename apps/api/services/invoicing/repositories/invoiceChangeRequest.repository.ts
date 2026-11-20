@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
 import { db } from "../db/db";
+import { lockInvoiceRow } from "./invoice.repository";
 import { invoiceChangeRequestTable as t, type InvoiceChangeRequestRecord, type NewInvoiceChangeRequestRecord } from "../schemas/invoiceChangeRequest.schema";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -14,10 +15,18 @@ export const EXPIRED_COMMENT = "Not answered on the day the invoice was issued: 
 
 /** Requests to change an invoice on its issue day (schemas/invoiceChangeRequest), and their answers. */
 class InvoiceChangeRequestRepository {
-  /** A new request; null when one already waits for this invoice. */
-  async create(values: NewInvoiceChangeRequestRecord): Promise<InvoiceChangeRequestRecord | null> {
-    const [row] = await db.insert(t).values(values).onConflictDoNothing().returning();
-    return row ?? null;
+  /**
+   * A new request; null when one already waits for this invoice. Under the invoice's row lock (mock council S5-4 /
+   * X-3), with `guard` - the check that no partial credit of it waits - run again there, so a partial credit asked at
+   * the same moment is seen: only one of the two gets in.
+   */
+  async create(values: NewInvoiceChangeRequestRecord, guard?: (tx: Tx) => Promise<void>): Promise<InvoiceChangeRequestRecord | null> {
+    return db.transaction(async (tx) => {
+      await lockInvoiceRow(tx, values.companyId, values.invoiceId);
+      await guard?.(tx);
+      const [row] = await tx.insert(t).values(values).onConflictDoNothing().returning();
+      return row ?? null;
+    });
   }
 
   async byId(companyId: string, id: string, reader: Reader = db): Promise<InvoiceChangeRequestRecord | null> {
@@ -98,8 +107,8 @@ class InvoiceChangeRequestRepository {
   }
 
   /** The request waiting for this invoice, if any. */
-  async pendingFor(companyId: string, invoiceId: string): Promise<InvoiceChangeRequestRecord | null> {
-    const [row] = await db
+  async pendingFor(companyId: string, invoiceId: string, reader: Reader = db): Promise<InvoiceChangeRequestRecord | null> {
+    const [row] = await reader
       .select()
       .from(t)
       .where(and(eq(t.companyId, companyId), eq(t.invoiceId, invoiceId), eq(t.status, "pending"), isNull(t.deletedAt)))

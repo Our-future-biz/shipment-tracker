@@ -11,7 +11,7 @@ import { truckingLinesLock, truckingLinesRepository } from "../repositories/truc
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import type { CustomerSnapshot, InvoiceLineRecord, InvoiceRecord, ShipmentSnapshot, SupplierSnapshot } from "../schemas/invoice.schema";
 import { missingForIssue, normaliseProfile } from "../lib/invoiceProfile";
-import { customerIssueWarnings } from "../lib/issueWarnings";
+import { customerIssueWarnings, customerReferenceHint, dutyVatWarning } from "../lib/issueWarnings";
 import { invoiceSeriesPrefix, jobYear } from "../lib/invoiceNumber";
 import {
   addDays,
@@ -35,7 +35,7 @@ import type {
 } from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
-import { buildBillingQueue, countCreditsOwed, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
+import { buildBillingQueue, countCreditsOwed, countInvoicedLines, countNotTicked, type QueueEntry } from "../lib/billingQueue";
 import type { ChargeCount } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 import { BILLING_CURRENCY_UNKNOWN, startBilling } from "./billingStart.service";
@@ -64,6 +64,7 @@ import { creditNoteRequestRepository } from "../repositories/creditNoteRequest.r
 import { invoiceChangeRequestRepository } from "../repositories/invoiceChangeRequest.repository";
 import { receivableRepository } from "../repositories/receivable.repository";
 import { creditNoteEffect } from "../lib/receivables";
+import { carryOverBeforeTelling, NOT_CHECKED } from "./receivableCarryOver";
 import type { InvoiceChangeRequestRecord } from "../schemas/invoiceChangeRequest.schema";
 import { db } from "../db/db";
 import type { CreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
@@ -271,6 +272,9 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   }
   // The customer's DIČ and its status: warned of, never a block (user council B6).
   warnings.push(...customerIssueWarnings(customer && { dic: customer.dic, country: customer.country, status: customerStatus }));
+  // No "Your ref." without a Customer Reference: said before issuing (mock council R2).
+  const referenceHint = customerReferenceHint(shipment.customerReference);
+  if (referenceHint) warnings.push(referenceHint);
   const picked = await ratesForDuzp(isIsoDate(duzp) ? duzp : issueDate, issueDate);
   // The ČNB rate of the tax date only matters when something is converted: a CZK invoice of CZK
   // rows needs none, so it is not held for the 15:00 import or a fixing that is missing.
@@ -303,18 +307,30 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   // off the next invoice as well.
   else if (calc.gross <= 0) problems.push(alreadyInvoiced.size ? "The invoice total must be above zero: what is left is a credit - give it on a credit note of the invoice" : "The invoice total must be above zero");
 
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  // Duty and VAT we pay, by the approved Import Instructions, with no line for them (mock council R3). Only a
+  // warning: not knowing it is logged, never a reason to hold the invoice.
+  if (calc.lines.length) {
+    try {
+      const { dutyPaidBy } = await shipments._internalImportInstructionsDuty({ shipmentId });
+      const duty = dutyVatWarning(dutyPaidBy, calc.lines.map((l) => ({ category: rowById.get(l.sourceSellingCostId)?.category ?? "", description: l.description })));
+      if (duty) warnings.push(duty);
+    } catch (err) {
+      log.warn("who pays the job's duty and VAT could not be read", { shipmentId, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
   // When each row the lines are built from was last changed: issuing checks them again under its lock.
   const versions = new Map(rows.map((r) => [r.id, r.updatedAt.getTime()]));
   // What the invoice names besides the job: the quote its prices come from - the quote(s) the
   // billed rows were copied from, else the one last copied into the costs, else the job's Sales
   // Number - and from where to where the cargo goes.
-  const rowById = new Map(rows.map((r) => [r.id, r]));
   const billedQuotes = [...new Set(calc.lines.map((l) => rowById.get(l.sourceSellingCostId)?.sourceQuoteNumber?.trim() ?? "").filter(Boolean))];
   const quoteNumber = billedQuotes.join(", ") || settings?.quoteRef?.trim() || shipment.salesNumber?.trim() || "";
   const routeFrom = shipment.pol?.trim() || shipment.origin?.trim() || "";
   const routeTo = shipment.pod?.trim() || shipment.destination?.trim() || "";
-  return { shipment, profile, customer, customerId, customerCurrencies, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions, quoteNumber, routeFrom, routeTo };
+  return { shipment, profile, customer, customerId, customerCurrencies, customerStatus, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions, quoteNumber, routeFrom, routeTo };
 }
 
 function supplierSnapshot(profile: NonNullable<Awaited<ReturnType<typeof loadContext>>["profile"]>, currency: string): SupplierSnapshot {
@@ -461,8 +477,26 @@ export interface InvoicePdfFile {
 }
 
 /**
+ * A Prospect billed is a customer (mock council R11, S5-5): its first issued invoice makes it Active, so "The customer
+ * is still a Prospect" warns on that first invoice only (a won quote does the same, salesQuote). Only a Prospect: an
+ * Inactive customer stays as someone set it. After the issue's commit and outside its locks, as the won quote's is:
+ * the invoice stands when the Customer Database can't be told, which is logged.
+ */
+async function activateProspect(companyId: string, customerId: string): Promise<void> {
+  try {
+    await customers.customerActivate({ id: customerId, companyId, onlyProspect: true });
+  } catch (err) {
+    log.warn("could not make the Prospect of an issued invoice Active", { customerId, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/** Why a credit note's PDF is not made just now (mock council S8-3). */
+export const CREDIT_EFFECT_UNREAD = "What this credit note did to its invoice could not be read just now: try the PDF again in a moment";
+
+/**
  * A credit note's effect on the invoice it corrects, as it stood when the credit note was issued (B15): its credit notes
- * up to this one and its payments then. null when it can't be read: the PDF then says "To be refunded", as before.
+ * up to this one and its payments then. When it can't be read this throws (mock council S8-3): a PDF guessing "To be
+ * refunded" would be stored for good, so none is stored, and the first download makes it again.
  */
 async function creditEffectOf(inv: InvoiceRecord, corrected: InvoiceRecord | null, companyId: string): Promise<InvoiceForPdf["creditEffect"]> {
   if (inv.kind !== "credit_note" || !corrected) return null;
@@ -476,9 +510,23 @@ async function creditEffectOf(inv: InvoiceRecord, corrected: InvoiceRecord | nul
     if (!upToThis.some((c) => c.id === inv.id)) upToThis.push(inv);
     return creditNoteEffect({ invoiceGross: corrected.gross, creditNoteGross: upToThis.map((c) => c.gross), thisGross: inv.gross, lines, at });
   } catch (err) {
-    log.warn("could not read what a credit note did to its invoice; its PDF says to be refunded", { number: inv.number, error: String(err) });
-    return null;
+    log.warn("could not read what a credit note did to its invoice; its PDF is made later", { number: inv.number, error: String(err) });
+    throw APIError.unavailable(CREDIT_EFFECT_UNREAD);
   }
+}
+
+/**
+ * Before a credit note of `invoiceId` is issued (mock council S8-2): an invoice paid before Accounts Receivable, whose
+ * old Paid in the customer's list was never carried over, is carried over first - else its credit note read as
+ * "Reduces the amount due / Invoice now 0.00" on a paid invoice, and the carried-over line came after it. Refused,
+ * to try again, when the customer's list can't be asked (as the payment endpoints are, NOT_CHECKED).
+ */
+async function carryOverBeforeCredit(companyId: string, invoiceId: string): Promise<void> {
+  const figures = await receivableRepository.figuresOne(companyId, invoiceId);
+  if (!figures || figures.receivable?.carriedChecked) return;
+  await carryOverBeforeTelling(companyId, invoiceId);
+  const now = await receivableRepository.figuresOne(companyId, invoiceId);
+  if (now && !now.receivable?.carriedChecked) throw APIError.unavailable(NOT_CHECKED);
 }
 
 async function pdfInput(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyId: string): Promise<InvoiceForPdf> {
@@ -572,16 +620,18 @@ type ListedShipment = Awaited<ReturnType<typeof shipments.shipmentList>>["data"]
  * The shipments of a shipments-list filter, 200 per page (the list endpoint's maximum), newest first,
  * at most `max`: past it it is the oldest that are left out, never the latest. Also how many match.
  */
-async function listedShipments(filter: string, search: string | undefined, max: number): Promise<{ listed: ListedShipment[]; total: number }> {
+async function listedShipments(filter: string, search: string | undefined, max: number): Promise<{ listed: ListedShipment[]; total: number; lateChargesNotRead: boolean }> {
   const listed: ListedShipment[] = [];
   let total = 0;
+  let lateChargesNotRead = false;
   do {
     const page = await shipments.shipmentList({ invoicing: filter, search, limit: 200, offset: listed.length, sortDirection: "desc" });
     total = page.pagination.total;
+    if (page.lateChargesNotRead) lateChargesNotRead = true;
     listed.push(...page.data);
     if (page.data.length === 0) break;
   } while (listed.length < total && listed.length < max);
-  return { listed, total };
+  return { listed, total, lateChargesNotRead };
 }
 
 /**
@@ -730,6 +780,7 @@ class InvoiceDocumentService {
       if (again) return earlierDocument(invoice, lines, sameRequest);
       // Sent straight away; what a service does not take now is sent again by the followups cron.
       await deliverInvoiceFollowups(invoice.id);
+      if (ctx.customerStatus === "Prospect" && invoice.customerId) await activateProspect(companyId, invoice.customerId);
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };
     });
@@ -755,6 +806,7 @@ class InvoiceDocumentService {
       if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
       if (original.status === "cancelled") throw APIError.failedPrecondition(`Invoice ${original.number} was cancelled: it is no longer owed`);
       if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
+      await carryOverBeforeCredit(companyId, original.id);
 
       const [{ credits, remaining }, userEmail] = await Promise.all([creditState(original, companyId), userEmailOf(userId)]);
       // §42 ZDPH: a correction uses the rate of the original supply. With no partial credit before,
@@ -857,6 +909,7 @@ class InvoiceDocumentService {
       const original = await invoiceRepository.getByIdForCompany(request.invoiceId, companyId);
       if (!original || original.kind !== "invoice") throw APIError.failedPrecondition("The invoice of this request is not there any more: reject the request");
       if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has been ${original.status === "cancelled" ? "cancelled" : "credited in full"} since: reject the request`);
+      await carryOverBeforeCredit(companyId, original.id);
 
       const { credits, remaining } = await creditState(original, companyId);
       const plan = planPartialCredit(remaining, request.lines.map((l) => ({ lineId: l.lineId, amount: l.amount })));
@@ -986,15 +1039,23 @@ class InvoiceDocumentService {
     companyId: string,
     view: QueueView,
     search?: string,
-  ): Promise<{ queue: BillingQueueItem[]; counts: BillingQueueCounts; truncated: boolean }> {
+  ): Promise<{ queue: BillingQueueItem[]; counts: BillingQueueCounts; truncated: boolean; lateChargesNotRead: boolean }> {
     const q = search?.trim() || undefined;
-    const countOf = async (filter: string) => (await shipments.shipmentList({ invoicing: filter, search: q, limit: 1 })).pagination.total;
+    // Whether a list or count went without the jobs with a charge added after their invoice (mock council S5-2).
+    let lateChargesNotRead = false;
+    const countOf = async (filter: string) => {
+      const page = await shipments.shipmentList({ invoicing: filter, search: q, limit: 1 });
+      if (page.lateChargesNotRead) lateChargesNotRead = true;
+      return page.pagination.total;
+    };
 
     // The shipments of this view, newest first: past QUEUE_MAX it is the oldest jobs that are left
     // out (the client is told), never the latest. The check reads every invoiced job up to its own
     // maximum and keeps those with a charge not on an invoice.
     const check = view === "invoiced_charges_open" ? await invoicedWithChargesOpen(companyId, q) : null;
-    const { listed, total } = check ? { listed: check.listed, total: check.listed.length + (check.total - check.scanned) } : await listedShipments(QUEUE_VIEWS[view], q, QUEUE_MAX);
+    const viewed = check ? null : await listedShipments(QUEUE_VIEWS[view], q, QUEUE_MAX);
+    if (viewed?.lateChargesNotRead) lateChargesNotRead = true;
+    const { listed, total } = check ? { listed: check.listed, total: check.listed.length + (check.total - check.scanned) } : viewed!;
     // Shown oldest first, as before.
     listed.reverse();
 
@@ -1021,6 +1082,7 @@ class InvoiceDocumentService {
     const todayIso = pragueToday();
     const lineCounts = countInvoicedLines(rows, openInvoices);
     const creditsOwed = countCreditsOwed(rows, openInvoices);
+    const notTicked = countNotTicked(rows, openInvoices);
     const billing = new Map<string, QueueEntry>(
       buildBillingQueue({ rows: rows.filter((r) => r.invoice), openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
     );
@@ -1055,10 +1117,11 @@ class InvoiceDocumentService {
         sellingLines: lineCounts.get(s.id)?.total ?? 0,
         invoicedLines: lineCounts.get(s.id)?.invoiced ?? 0,
         creditsOwed: creditsOwed.get(s.id) ?? 0,
+        notTickedLines: notTicked.get(s.id) ?? 0,
       };
     });
     const counts: BillingQueueCounts = { all, toBill, notInvoiced, invoiced, unbilledArrivals, ...(check ? { invoicedChargesOpen: check.listed.length } : {}) };
-    return { queue, counts, truncated: total > listed.length };
+    return { queue, counts, truncated: total > listed.length, lateChargesNotRead };
   }
 
   /** The main search (the top bar): the tax documents these words find, newest issue date first, and how many in all. */

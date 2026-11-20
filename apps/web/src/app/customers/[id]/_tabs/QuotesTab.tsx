@@ -100,7 +100,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
       title: "Route",
       key: "route",
       width: 180,
-      render: (_: unknown, r) => <QuoteRoute origin={r.data.origin} destination={r.data.destination} />,
+      render: (_: unknown, r) => <QuoteRoute data={r.data} />,
     },
     {
       title: "Valid until",

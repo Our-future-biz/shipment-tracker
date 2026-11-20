@@ -419,11 +419,51 @@ function withValidTo(line: Line, validTo: string | null | undefined): Line {
   return without(line, "tariffValidTo") as Line;
 }
 
+/**
+ * A save of a quote's document from a page loaded before the night noted its tariffs' last valid day: that note
+ * makes no new version (mock council S2-6, keepVersion), so a colleague's page left open still saves - and its copy
+ * has no day on the lines (mock council M4, system-21 review). A stored buying line's tariffValidTo is kept when the
+ * incoming line is the same line - the same pairId and tariff, or with no pairId the same tariff, charge and text,
+ * each one line only - and carries none. A line priced again from another tariff is another line and keeps none;
+ * a day that no longer holds is put right the next night. `incoming` as it is when there is nothing to keep.
+ */
+export function keepNotedValidTo(incoming: Doc, stored: Doc): Doc {
+  const storedLines = linesOf(stored, "buyingLines");
+  if (!Array.isArray(incoming.buyingLines) || !storedLines.some((l) => text(l.tariffValidTo))) return incoming;
+  const keyOf = (l: Line) => {
+    const ref = text(l.tariffRef);
+    if (!ref) return "";
+    const pair = text(l.pairId);
+    return pair ? `pair:${pair}|${ref}` : `line:${ref}|${text(l.type)}|${text(l.description)}`;
+  };
+  const counted = (lines: Line[]) => {
+    const n = new Map<string, number>();
+    for (const l of lines) n.set(keyOf(l), (n.get(keyOf(l)) ?? 0) + 1);
+    return n;
+  };
+  const incomingLines = incoming.buyingLines.filter(isObject) as Line[];
+  const [storedCount, incomingCount] = [counted(storedLines), counted(incomingLines)];
+  const noted = new Map(storedLines.filter((l) => keyOf(l) && storedCount.get(keyOf(l)) === 1 && text(l.tariffValidTo)).map((l) => [keyOf(l), text(l.tariffValidTo)]));
+  let kept = false;
+  const buyingLines = incoming.buyingLines.map((l: unknown) => {
+    if (!isObject(l) || text(l.tariffValidTo)) return l;
+    const day = noted.get(keyOf(l));
+    if (!day || incomingCount.get(keyOf(l)) !== 1) return l;
+    kept = true;
+    return { ...l, tariffValidTo: day };
+  });
+  return kept ? { ...incoming, buyingLines } : incoming;
+}
+
 const textList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
-/** The quote after the night's actions, what to tell the user, and whether anything changed. */
-export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: Doc; messages: string[]; changed: boolean } {
+/**
+ * The quote after the night's actions, what to tell the user, and whether anything changed.
+ * `stampsOnly`: all that changed is the last valid day its lines keep of tariffs still valid (a
+ * "keep") - nothing the user priced or reads in Pricing, so it is written without a new version.
+ */
+export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: Doc; messages: string[]; changed: boolean; stampsOnly: boolean } {
   let buying = linesOf(data, "buyingLines");
   let selling = linesOf(data, "sellingLines");
   const before = Array.isArray(data.tariffUpdates) ? (data.tariffUpdates.filter(isObject) as unknown as TariffUpdate[]) : [];
@@ -433,6 +473,8 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
   const unchecked: string[] = [];
   const messages: string[] = [];
   let linesChanged = false;
+  // Lines that only took a still-valid tariff's last valid day (a "keep").
+  let stamped = false;
   let road: Doc | null | undefined;
 
   const isRoad = (l: Line) => text(l.tariffRef).startsWith(ROAD_REF_PREFIX);
@@ -476,7 +518,7 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
       const stale = (l: Line) => text(l.tariffRef) === action.ref && action.validTo !== undefined && (text(l.tariffValidTo) || null) !== action.validTo;
       if (buying.some(stale)) {
         buying = buying.map((l) => (stale(l) ? withValidTo(l, action.validTo) : l));
-        linesChanged = true;
+        stamped = true;
       }
     } else if (action.do === "swap") {
       // The lines keep the new rate's last valid day, not the lapsed one's: the web warns of a quote
@@ -505,7 +547,7 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
   }
 
   const next: Doc = { ...data };
-  if (linesChanged) {
+  if (linesChanged || stamped) {
     next.buyingLines = buying;
     next.sellingLines = selling;
   }
@@ -520,5 +562,6 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
   if (unchecked.length) next.tariffUnchecked = unchecked;
   else delete next.tariffUnchecked;
   const updatesChanged = updates.length !== before.length || updates.some((u, i) => !sameUpdate(u, before[i]));
-  return { data: next, messages, changed: linesChanged || road !== undefined || updatesChanged || !sameSet(unchecked, toldUnchecked) };
+  const otherChange = linesChanged || road !== undefined || updatesChanged || !sameSet(unchecked, toldUnchecked);
+  return { data: next, messages, changed: otherChange || stamped, stampsOnly: stamped && !otherChange && !messages.length };
 }

@@ -32,7 +32,7 @@ vi.mock("../services/truckingOutbox.service", () => ({
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 
 import { customers, quotes, shipments } from "~encore/clients";
-import { consignmentService, type ConsignmentCreateInput } from "../services/consignment.service";
+import { consignmentService, tariffRefusal, type ConsignmentCreateInput } from "../services/consignment.service";
 import { shipmentChangesService } from "../services/shipmentChanges.service";
 import { tripService } from "../services/trip.service";
 import { APIError } from "../../../lib/tests/encoreApi.stub";
@@ -198,6 +198,22 @@ describe("create and price sources", () => {
       message: "No Standard LTL sell list: add a Standard sell tariff under Tariffs or use Agreed price",
     });
     expect(store.consignments).toHaveLength(0);
+  });
+
+  it("advises Agreed price only where the tariff cannot price, not where a figure is missing (mock council S6-3)", () => {
+    for (const reason of [
+      "No zone for postcode 790 01 in Standard LTL",
+      "Standard LTL has no EXP prices",
+      "Standard LTL has no STD price for zone Z3",
+      "Above the top band — price on request",
+      "Standard LTL has no version valid on 15 Oct 2026",
+      "Neither Kovo LTL nor the Standard LTL sell list has a version valid on 15 Oct 2026",
+      "No ČNB rate for EUR on 15 Oct 2026",
+    ]) {
+      expect(tariffRefusal(reason)).toBe(`${reason}: use Agreed price instead`);
+    }
+    expect(tariffRefusal("Nothing to charge: give the pallet places")).toBe("Nothing to charge: give the pallet places");
+    expect(tariffRefusal("Nothing to charge: give the weight or size")).toBe("Nothing to charge: give the weight or size");
   });
 
   it("marks a price below the floor (saved, not refused)", async () => {
@@ -710,6 +726,40 @@ describe("Express fixed date: the day agreed at booking is the promised date", (
     await expect(shipmentChangesService.follow(user, SHIPMENT, { pickupDate: { from: "2026-10-16", to: "2026-10-19" } })).resolves.toEqual({ kept: [] });
     expect(row(c.id)).toMatchObject({ pickupDate: "2026-10-19", promisedDate: "2026-10-21" });
   });
+
+  // An older one, booked before the agreed day was asked, has none (mock council R24, X-4).
+  it("lets an older one without its day be edited, priced again and moved from Shipments, and names it under Needs attention", async () => {
+    const { c } = await seed({ serviceLevel: "EXP_FIXED", promisedDate: null });
+    const delivery = stop({ city: "Brno", postcode: "602 00", notes: "Gate 4" });
+    expect((await consignmentService.update(user, c.id, fields({ delivery, fixedDeliveryDate: null }))).delivery.notes).toBe("Gate 4");
+    expect(row(c.id).promisedDate).toBeNull();
+    // Priced again from the tariff: still no day asked for.
+    const r = rated(12000, [9000]);
+    Object.assign(r.results[0]!, { serviceLevel: "EXP_FIXED", promisedDate: null });
+    vi.mocked(rateService.rate).mockResolvedValue(r);
+    await consignmentService.update(user, c.id, fields({ version: 2, delivery, fixedDeliveryDate: null, price: { source: "TARIFF" }, reprice: true }));
+    expect(row(c.id).promisedDate).toBeNull();
+    // The pick-up date pushed from the job is taken, not kept back for the missing day.
+    await expect(shipmentChangesService.follow(user, SHIPMENT, { pickupDate: { from: "2026-10-16", to: "2026-10-19" } })).resolves.toEqual({ kept: [] });
+    expect(row(c.id)).toMatchObject({ pickupDate: "2026-10-19", promisedDate: null });
+    const [item] = (await consignmentService.list(user, {})).consignments;
+    expect(item!.needsAttention).toContain("Express fixed date without the agreed delivery day: give it in Edit");
+    // A day given is checked, and once given it is required as for any other.
+    await expect(consignmentService.update(user, c.id, fields({ version: row(c.id).version, delivery, pickupDate: "2026-10-19", fixedDeliveryDate: "2026-10-16" }))).rejects.toMatchObject({
+      message: "The fixed delivery date cannot be before the pick-up date",
+    });
+    await consignmentService.update(user, c.id, fields({ version: row(c.id).version, delivery, pickupDate: "2026-10-19", fixedDeliveryDate: "2026-10-22" }));
+    expect(row(c.id).promisedDate).toBe("2026-10-22");
+    expect((await consignmentService.list(user, {})).consignments[0]!.needsAttention).not.toContain("Express fixed date without the agreed delivery day: give it in Edit");
+    await expect(consignmentService.update(user, c.id, fields({ version: row(c.id).version, delivery, pickupDate: "2026-10-19", fixedDeliveryDate: null }))).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("still asks the day of one moved to Express fixed date", async () => {
+    const { c } = await seed({ serviceLevel: "D1", promisedDate: "2026-10-19" });
+    await expect(consignmentService.update(user, c.id, fields({ fixedDeliveryDate: null }))).rejects.toMatchObject({
+      message: "Express fixed date needs the fixed delivery date agreed with the customer",
+    });
+  });
 });
 
 // F6: a person moved the job's pick-up date or changed its plate in Shipments: its consignment takes
@@ -835,6 +885,18 @@ describe("list", () => {
     const { consignments, counts } = await consignmentService.list(user, { view: "openFtl" });
     expect(consignments.map((c) => c.id)).toEqual([ftl.c.id]);
     expect(counts.openFtlWithoutHaulier).toBe(consignments.length);
+  });
+
+  it("counts and opens the 'Pick-up date passed' tile: the day gone and no truck ordered (mock council R23)", async () => {
+    const booked = await seed({ pickupDate: "2026-10-14" });
+    const planned = await seed({ pickupDate: "2026-10-13" }, { trip: true });
+    // Ordered (the truck is on its way, its pick-up not stamped), today's, and a cancelled one: not in it.
+    await seed({ pickupDate: "2026-10-14" }, { trip: true, sent: true });
+    await seed({ pickupDate: "2026-10-15" });
+    await seed({ pickupDate: "2026-10-12", status: "CANCELLED", cancelledAt: new Date("2026-10-12T08:00:00Z") });
+    const { consignments, counts } = await consignmentService.list(user, { view: "pickupPassed" });
+    expect(consignments.map((c) => c.id).sort()).toEqual([booked.c.id, planned.c.id].sort());
+    expect(counts.pickupPassed).toBe(2);
   });
   it("gives each row its stamp times and the trip's truck and driver, so the job's Trucking tab needs no call per card", async () => {
     const { c, trip } = await seed({ status: "PICKED_UP", pickedUpAt: new Date("2026-10-15T06:00:00Z") }, { trip: true, sent: true });

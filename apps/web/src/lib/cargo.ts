@@ -359,10 +359,12 @@ export interface FigureCheck {
 }
 
 /**
- * How far the lines' weight or volume may be from what is declared and still match: 1 %. Lines of
- * 58.080 m³ against a declared 58.000 m³ are the same cargo, measured or rounded apart, not a
- * mistake (user council O22) - a tolerance as the remeasurement rules keep one (Warehouse Concept's
- * 5 %), smaller here, as both figures come from paperwork. Pieces are counted, so they must agree.
+ * How far the lines' volume may be from what is declared and still match: 1 %. Lines of 58.080 m³
+ * against a declared 58.000 m³ are the same cargo, measured or rounded apart, not a mistake (user
+ * council O22) - a tolerance as the remeasurement rules keep one (Warehouse Concept's 5 %), smaller
+ * here, as both figures come from paperwork. The gross weight has none: it goes into the VGM and the
+ * B/L, so it matches at its declared decimals - a 28 t box 270 kg off is no match (mock council S9-Q2 /
+ * R19). Pieces are counted, so they must agree.
  */
 export const FIGURE_TOLERANCE = 0.01;
 
@@ -373,7 +375,7 @@ export interface ConsistencyCheck {
   m3: FigureCheck;
 }
 
-/** `tolerance`: the share of the declared figure the lines may be off by (FIGURE_TOLERANCE for kg and m³; none for pieces). */
+/** `tolerance`: the share of the declared figure the lines may be off by (FIGURE_TOLERANCE for m³; none for kg and pieces). */
 export function compareFigure(sum: number, declared: number, decimals: number, tolerance = 0): FigureCheck {
   const empty = !sum && !declared;
   const [a, b] = [roundFigure(sum, decimals), roundFigure(declared, decimals)];
@@ -424,7 +426,7 @@ export function shipmentDeclaredFigures(s: { pcs?: string | null; totalWeightTon
 export function checkConsistency(container: DeclaredFigures, dims: CargoDimensionLine[]): ConsistencyCheck {
   const t = dimensionTotals(dims);
   const pcs = compareFigure(t.pcs, num(container.packages), 0);
-  const kg = compareFigure(t.kg, num(container.grossWeight), container.kgDecimals ?? 2, FIGURE_TOLERANCE);
+  const kg = compareFigure(t.kg, num(container.grossWeight), container.kgDecimals ?? 2);
   const m3 = compareFigure(t.m3, num(container.volume), 3, FIGURE_TOLERANCE);
   return { matched: pcs.ok && kg.ok && m3.ok, pcs, kg, m3 };
 }

@@ -17,6 +17,7 @@ import {
   basisOffered,
   basisUnits,
   convertLine,
+  isAirQuote,
   isDraftQuote,
   lineRate,
   perUnitBasis,
@@ -116,11 +117,13 @@ export function serviceChange(line: CostLine, code: string): { line: CostLine; a
 
 // A new cost line is in the quote's currency, so adding one never mixes currencies by accident.
 // On a quote with containers it is charged per container, their number its quantity; otherwise
-// it is a lump sum of quantity 1 unless the user sets another. FCL pricing says where it goes: per
-// container of one type, or as a lump sum, and which charge it is.
+// it is a lump sum. An Air quote's Air freight line starts per chargeable kg, as air is offered
+// (owner's answer R8, mock council of system-21). FCL pricing says where it goes: per container of
+// one type, or as a lump sum, and which charge it is.
 export const newCostLine = (quote: SalesQuoteData, place?: { basis: ChargeBasis; containerType?: string; code?: string }): CostLine => {
   const code = place?.code ?? FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other";
   const containers = quoteContainerCount(quote);
+  const perKg = isAirQuote(quote) && code === "air_freight";
   const line: CostLine = {
     ...chargeOf(code),
     description: describedAs(code),
@@ -128,10 +131,10 @@ export const newCostLine = (quote: SalesQuoteData, place?: { basis: ChargeBasis;
     currency: quoteCurrency(quote),
     amount: 0,
     value: 1,
-    basis: place?.basis ?? (containers > 0 ? "container" : "lumpsum"),
+    basis: place?.basis ?? (containers > 0 ? "container" : perKg ? "kg" : "lumpsum"),
     ...(place?.containerType ? { containerType: place.containerType } : {}),
   };
-  return withRate(line, 0, quoteContainerCount(quote, line.containerType));
+  return withRate(line, 0, basisUnits(quote, line.basis, line.containerType));
 };
 
 interface CostLinesEditorProps {
@@ -337,8 +340,10 @@ export function CostLinesEditor({
                       // Per W/M: the cargo's weight / measure, 3 decimals as Cargo details shows it;
                       // per chargeable kg: the chargeable weight; per container: the number of containers.
                       precision={l.basis === "wm" ? 3 : 2}
-                      // `undefined`, not `false`, when open: antd's own `false` overrides the lock of a closed quote.
-                      disabled={perUnitBasis(l.basis) || !!quantityOf?.(l) || undefined}
+                      // Never typed: per unit the cargo sets it, and a lump sum is charged once - its
+                      // amount is the whole line and it goes to the job as 1, so a quantity typed on it
+                      // did nothing (mock council S2-2). A heavy-cargo fee still shows its pieces.
+                      disabled
                       title={
                         l.basis === "wm"
                           ? "Weight / measure from Cargo details"
@@ -346,14 +351,10 @@ export function CostLinesEditor({
                             ? "Chargeable weight (kg) from Cargo details"
                             : l.basis === "container"
                               ? "Number of containers from Cargo details"
-                              : quantityOf?.(l)
-                                ? "The same as its buying line"
-                                : undefined
+                              : "A lump sum: its amount is the whole line, charged once"
                       }
                       parser={moneyInputParser}
-                      placeholder="=amt"
-                      value={quantityOf?.(l) ? quantityOf(l)!.value : l.value}
-                      onChange={(v) => patch(i, { value: v ?? undefined })}
+                      value={perUnitBasis(l.basis) ? l.value : ((quantityOf?.(l) ? quantityOf(l)!.value : l.value) ?? 1)}
                     />
                   </td>
                   <td className={LINE_TD_CLASS}>

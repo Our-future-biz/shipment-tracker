@@ -201,19 +201,20 @@ describe("trip fill and warnings", () => {
       ],
       tautliner,
     );
-    expect(fill).toEqual({ ldm: 11.2, kg: 9840, palletPlaces: 27, ldmPercent: 82.4, kgPercent: 41, palletPlacesPercent: null });
+    expect(fill).toEqual({ ldm: 11.2, kg: 9840, palletPlaces: 27, ldmPercent: 82.4, kgPercent: 41, palletPlacesPercent: 81.8 });
     expect(tripFill([{ ldm: 1, weightKg: 1, palletPlaces: 1 }], null).ldmPercent).toBeNull();
   });
 
-  it("fills by pallet places when the load has places and no LDM (User Council T5), LDM kept when both are given", () => {
+  it("always counts the pallet places against a vehicle that has them (User Council T5, mock council S6-1)", () => {
     // 33 of 33 places typed without loading metres: a full truck, not "LDM 0 %".
     const full = tripFill([{ ldm: 0, weightKg: 18000, palletPlaces: 33 }], tautliner);
     expect(full).toMatchObject({ ldmPercent: 0, kgPercent: 75, palletPlacesPercent: 100 });
     expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }], tautliner).palletPlacesPercent).toBe(33.3);
-    // Any LDM on the trip: the LDM bar stays.
-    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }, { ldm: 2, weightKg: 500, palletPlaces: 4 }], tautliner).palletPlacesPercent).toBeNull();
-    // Nothing given in places, no vehicle, or a vehicle with no places known: no places bar.
-    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 0 }], tautliner).palletPlacesPercent).toBeNull();
+    // One 2 LDM load among place-only loads: the places still count (they once read "LDM 15 %" alone).
+    const mixed = tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 30 }, { ldm: 2, weightKg: 500, palletPlaces: 2 }], tautliner);
+    expect(mixed).toMatchObject({ ldmPercent: 14.7, palletPlacesPercent: 97 });
+    // No places on the load: 0 %, still shown; no vehicle, or a vehicle with no places known: no places bar.
+    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 0 }], tautliner).palletPlacesPercent).toBe(0);
     expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }], null).palletPlacesPercent).toBeNull();
     expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }], { ...tautliner, palletPlaces: 0 }).palletPlacesPercent).toBeNull();
   });

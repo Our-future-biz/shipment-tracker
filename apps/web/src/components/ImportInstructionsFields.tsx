@@ -70,7 +70,10 @@ export function ImportInstructionsFields({ form, markRequired = false }: { form:
     <>
       <Section title="2. Please clear the goods through customs under the following procedure" required={markRequired}>
         <Form.Item name="procedure" rules={[{ required: true, message: "Choose the customs procedure" }]} className="!mb-2">
-          <Radio.Group className="flex flex-col gap-1">
+          {/* c) and d) share one answer (otherProcedure): a procedure's name, or the customer's broker. antd keeps
+              a hidden field's value, so text typed under c) came back as "Your customs broker" under d) and was
+              filed as the broker. A switch of procedure empties it (mock council S3-5). */}
+          <Radio.Group className="flex flex-col gap-1" onChange={() => form.setFieldValue("otherProcedure", "")}>
             <Radio value="free_circulation">a) Release for free circulation (SAD)</Radio>
             <Radio value="t1">b) T1 transit</Radio>
             <Radio value="other">c) Customs warehousing (SAD) or another procedure</Radio>

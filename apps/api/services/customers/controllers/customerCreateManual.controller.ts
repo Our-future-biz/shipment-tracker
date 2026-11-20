@@ -25,6 +25,11 @@ interface CustomerCreateManualRequest {
    * user is a manager, it waits for a manager's approval on Sales → Managers → Company approval.
    */
   fromQuote?: string & MaxLen<40>;
+  /**
+   * The sales owner picked in Add customer: a user's id, or null for nobody. Left out, the creator
+   * owns it when they are in Sales or a manager, else nobody (mock council R12).
+   */
+  salesOwnerUserId?: string | null;
 }
 
 interface CustomerCreateManualResponse {

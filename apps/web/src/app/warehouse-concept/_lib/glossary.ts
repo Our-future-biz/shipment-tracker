@@ -72,8 +72,8 @@ export const TERMS = {
  * decision Q17, user council W1).
  */
 export const PIN_MADE_WHERE = "Operations make the PIN on the job's Warehouse tab → Pick-up.";
-/** The job page tab that holds the pick-up of a linked shipment. */
-export const pickupHref = (shipmentId: string) => `/shipments/${shipmentId}?tab=warehouse`;
+/** The job page tab that holds the pick-up of a linked shipment, opened on its Pick-up (mock council S10-5). */
+export const pickupHref = (shipmentId: string) => `/shipments/${shipmentId}?tab=warehouse&sub=pickup`;
 
 // What each term means, for the glossary in the Read me.
 export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = [

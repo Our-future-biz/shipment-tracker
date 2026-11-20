@@ -13,6 +13,7 @@ import {
   linkedMasterSiblings,
   masterSiblingKey,
   marksOf,
+  missingAmountProblem,
   paymentProblem,
   sumByCurrency,
   supplierKeyOf,
@@ -256,6 +257,32 @@ describe("hasNoAmount", () => {
     expect(hasNoAmount([{ realAmount: null }, { realAmount: "1450.00" }])).toBe(false);
     // A real cost of 0 is an amount typed, not a missing one.
     expect(hasNoAmount([{ realAmount: "0" }])).toBe(false);
+  });
+});
+
+// Mock council M2: an invoice on two lines with one amount typed was approved and paid short.
+describe("missingAmountProblem", () => {
+  const line = (amount: number | null, over: Partial<{ jobNumber: string; category: string; description: string }> = {}) => ({
+    amount, jobNumber: "CZ00000028", category: "THC Origin", description: "THC", ...over,
+  });
+  it("names the job and the line while any line has no real cost", () => {
+    expect(missingAmountProblem([line(1450), line(null)])).toBe(
+      "The real cost of CZ00000028 · THC is not in yet: fill it in on the job's buying line before this invoice is approved or paid",
+    );
+    expect(missingAmountProblem([line(1450), line(null, { description: " " }), line(null, { jobNumber: "MCZ00000003" })])).toMatch(/^The real cost of CZ00000028 · THC Origin and 1 more line is not in yet/);
+    expect(missingAmountProblem([line(1), line(null), line(null), line(null)])).toMatch(/and 2 more lines is not in yet/);
+    expect(missingAmountProblem([line(1450), line(null, { jobNumber: "", description: "", category: "" })])).toMatch(/^The real cost of one of its lines/);
+  });
+  it("says no amount yet when none has one, and nothing when all have", () => {
+    expect(missingAmountProblem([line(null), line(null)])).toMatch(/has no amount yet/);
+    expect(missingAmountProblem([])).toMatch(/has no amount yet/);
+    expect(missingAmountProblem([line(1450), line(0)])).toBeNull();
+  });
+  it("refuses approval and payment with it, before the other checks", () => {
+    const why = missingAmountProblem([line(1450), line(null)]);
+    expect(approvalProblem({ status: "booked", missingAmount: why, linked: false, facts: null, enteredByUserId: null, approverUserId: "u", anotherManager: false }).problem).toBe(why);
+    expect(paymentProblem({ status: "approved", paidOn: null, day: "2026-11-20", today: "2026-11-20", bookedOn: null, openClaim: true, missingAmount: why })).toBe(why);
+    expect(paymentProblem({ status: "approved", paidOn: null, day: "2026-11-20", today: "2026-11-20", bookedOn: null, openClaim: false, missingAmount: null })).toBeNull();
   });
 });
 

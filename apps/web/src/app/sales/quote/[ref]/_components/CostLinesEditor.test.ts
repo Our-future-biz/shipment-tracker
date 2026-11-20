@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { withBasis } from "@/app/sales/_lib/salesQuote";
-import { amountOf, basisNotes, basisOptions, noteFor, serviceChange } from "./CostLinesEditor";
+import { amountOf, basisNotes, basisOptions, newCostLine, noteFor, serviceChange } from "./CostLinesEditor";
 
 const line = (over: Partial<CostLine> = {}): CostLine => ({ type: "Ocean freight", chargeCode: "ocean_freight", description: "Ocean freight", supplier: "", currency: "USD", amount: 0, ...over });
 
@@ -80,5 +80,15 @@ describe("basisNotes", () => {
   it("notes nothing on the first render or for a line whose basis stayed", () => {
     expect(basisNotes({}, ["row-0"], [perKg], {})).toEqual({});
     expect(basisNotes({ "row-0": lump }, ["row-0"], [{ ...lump, amount: 1500 }], {})).toEqual({});
+  });
+});
+
+describe("newCostLine", () => {
+  it("starts an Air quote's Air freight line per chargeable kg, the chargeable weight as its quantity (R8)", () => {
+    const air = { serviceType: "Air", currency: "EUR", weight: 640 } as never;
+    expect(newCostLine(air)).toMatchObject({ chargeCode: "air_freight", basis: "kg", qty: 640, unit: "chargeable kg", unitPrice: 0, amount: 0 });
+    // Another charge on an Air quote, or the freight line of another mode, starts as a lump sum.
+    expect(newCostLine(air, { basis: "lumpsum", code: "handling" })).toMatchObject({ basis: "lumpsum", amount: 0 });
+    expect(newCostLine({ serviceType: "Sea LCL", currency: "EUR" } as never)).toMatchObject({ chargeCode: "ocean_freight", basis: "lumpsum" });
   });
 });

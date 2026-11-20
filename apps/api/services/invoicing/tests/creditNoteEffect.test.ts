@@ -35,6 +35,28 @@ describe("creditNoteEffect", () => {
       { kind: "bank_charge", amount: "50.00", createdAt: before, takenBackAt: null, confirmedAt: after }, // confirmed later: not counted
       { kind: "write_off", amount: "20.00", createdAt: before, takenBackAt: null, confirmedAt: before },
     ];
-    expect(creditNoteEffect({ invoiceGross: 1000, creditNoteGross: [-800], thisGross: -800, lines, at })).toEqual({ reducedTo: 200, refund: 120 });
+    // Paid 300 as it stood, new total 200: 100 back. The write-off of 20 is not money paid (mock council M3).
+    expect(creditNoteEffect({ invoiceGross: 1000, creditNoteGross: [-800], thisGross: -800, lines, at })).toEqual({ reducedTo: 200, refund: 100 });
+  });
+
+  // Mock test council M3: a confirmed write-off is not money the customer paid, so it never becomes a refund.
+  // refund = min(credit, max(0, paid + bank charges − new total)).
+  const writeOff = (amount: number) => ({ kind: "write_off", amount: amount.toFixed(2), createdAt: before, takenBackAt: null, confirmedAt: before });
+  const bankCharge = (amount: number) => ({ kind: "bank_charge", amount: amount.toFixed(2), createdAt: before, takenBackAt: null, confirmedAt: before });
+
+  it("does not refund a write-off: 100 paid 80, 20 written off, credited in full gives back 80", () => {
+    expect(creditNoteEffect({ invoiceGross: 100, creditNoteGross: [-100], thisGross: -100, lines: [pay(80), writeOff(20)], at })).toEqual({ reducedTo: 0, refund: 80 });
+  });
+
+  it("promises nothing back on an invoice written off in full and then credited in full", () => {
+    expect(creditNoteEffect({ invoiceGross: 1000, creditNoteGross: [-1000], thisGross: -1000, lines: [writeOff(1000)], at })).toEqual({ reducedTo: 0, refund: 0 });
+  });
+
+  it("only lowers what is due when a partial credit comes after a write-off", () => {
+    expect(creditNoteEffect({ invoiceGross: 100, creditNoteGross: [-10], thisGross: -10, lines: [pay(80), writeOff(20)], at })).toEqual({ reducedTo: 90, refund: 0 });
+  });
+
+  it("counts a bank charge as paid: the customer did send that money", () => {
+    expect(creditNoteEffect({ invoiceGross: 100, creditNoteGross: [-100], thisGross: -100, lines: [pay(90), bankCharge(10)], at })).toEqual({ reducedTo: 0, refund: 100 });
   });
 });

@@ -50,6 +50,7 @@ import { useFetchRouteWhere } from "@/hooks/usePlaceSearch";
 import { matchesUserOption, userIdOptions, UserOptionLabel } from "../_lib/userOptions";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../_lib/exportClose";
 import { ExportCloseDialog } from "./ExportCloseDialog";
+import { bulkValidityText, bulkValidityWarnings, TARIFF_VALIDITY_ADVICE, tariffValidityWarning } from "../_lib/tariffRecheck";
 import { quoteHref } from "../_lib/quoteHref";
 import { rememberQuoteListQuery } from "../_lib/quoteListHref";
 import {
@@ -72,6 +73,7 @@ import { ExchangeRatesError } from "./ExchangeRatesError";
 import { NewQuoteDialog } from "./NewQuoteDialog";
 import { QuoteColumnPicker } from "./QuoteColumnPicker";
 import { QuoteListFilters } from "./QuoteListFilters";
+import { QuoteNewDefaultsNotice } from "./QuoteNewDefaultsNotice";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { QuotesLoadError } from "./QuotesLoadError";
 import { SalesDialog } from "./SalesDialog";
@@ -104,6 +106,8 @@ interface StatusTarget {
   /** To Lost: "Category: reason", as the quote page's Lost dialog writes it. */
   lostReason?: string;
   quotes: { quoteNumber: string; status: string }[];
+  /** To Ready to Send or Quoted: the ticked quotes valid longer than their tariff (mock council M4). */
+  validityWarning?: string | null;
 }
 
 // Lost · No response for several quotes at once: the customer never answered (Council Outlay 6
@@ -659,7 +663,13 @@ export function QuotesList() {
     ...SETTABLE_QUOTE_STATUSES.filter((key) => key !== "revised").map((key) => ({
       key: `st:${key}`,
       label: `Set status: ${statusLabel(key)}`,
-      onClick: () => setStatusTarget({ status: key, quotes: selected.map((q) => ({ quoteNumber: q.quoteNumber, status: q.status })) }),
+      onClick: () =>
+        setStatusTarget({
+          status: key,
+          quotes: selected.map((q) => ({ quoteNumber: q.quoteNumber, status: q.status })),
+          // The bulk move is a way to send a quote too: the ones valid past their tariff are named (mock council M4).
+          validityWarning: bulkValidityText(bulkValidityWarnings(key, selected)),
+        }),
     })),
     {
       key: "st:lost_no_response",
@@ -764,6 +774,7 @@ export function QuotesList() {
 
       <ExchangeRatesError exchange={exchange} />
       {isError && <QuotesLoadError onRetry={() => reload()} />}
+      <QuoteNewDefaultsNotice shown={visibleKeys} status={columnSet.status} onChange={columnSet.change} />
 
       <QuoteShipmentsContext.Provider value={shipmentsByQuote}>
         <div>
@@ -881,7 +892,9 @@ export function QuotesList() {
           }}
           onConfirm={bulkStatus}
           title={`Set ${targetLabel(statusTarget)} on ${countOf(statusTarget.quotes.length)}?`}
-          description={`${statusTarget.status === "won" ? "Won cannot be changed afterwards. " : ""}A quote whose status does not allow the change stays as it is, and is listed with the reason.`}
+          description={`${statusTarget.status === "won" ? "Won cannot be changed afterwards. " : ""}A quote whose status does not allow the change stays as it is, and is listed with the reason.${
+            statusTarget.validityWarning ? ` ${statusTarget.validityWarning}` : ""
+          }`}
           confirmLabel={`Set ${targetLabel(statusTarget)}`}
           danger={statusTarget.status === "won"}
           loading={isRunningOnQuotes}
@@ -892,6 +905,11 @@ export function QuotesList() {
         <ExportCloseDialog
           quoteNumber={exportTarget.quoteNumber}
           validUntil={exportTarget.validUntil}
+          // The same warning as the quote page's Export & close (mock council M4): the list's Export PDF sends the quote too.
+          validityWarning={(validUntil) => {
+            const warning = tariffValidityWarning(exportTarget.data, validUntil);
+            return warning && `${warning}. ${TARIFF_VALIDITY_ADVICE}`;
+          }}
           onConfirm={exportAndClose}
           onClose={() => setExportTarget(null)}
         />

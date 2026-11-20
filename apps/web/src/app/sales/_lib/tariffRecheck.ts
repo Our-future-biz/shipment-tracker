@@ -149,6 +149,31 @@ export function noValidityWarning(data: Pick<SalesQuoteData, "buyingLines">): st
 /** What to do about a quote sent with no Valid until, after its warning. */
 export const NO_VALIDITY_ADVICE = "Set a Valid until under Shipping terms, or pick a tariff valid longer under Tariffs available. The quote can still be sent.";
 
+/**
+ * The quotes of a bulk move to Ready to Send or Quoted on the Quotes list whose price holds longer
+ * than a tariff their buying was priced from, by quote number. The list's bulk status change is a
+ * way to send a quote too, so it is warned of as the quote page's status menu is (mock council M4).
+ * A bulk move keeps each quote's Valid until (server validityOnSending): one with none goes to
+ * Quoted with none, past its tariff, as "Mark as sent" sends it. A decided quote is left out - the
+ * server refuses the move anyway.
+ */
+export function bulkValidityWarnings(
+  status: string,
+  quotes: readonly { quoteNumber: string; status: string; validUntil: string | null; data: Pick<SalesQuoteData, "buyingLines"> }[],
+): string[] {
+  if (status !== "ready_to_send" && status !== "quoted") return [];
+  return quotes
+    .filter((q) => !["won", "lost", "replaced"].includes(q.status))
+    .filter((q) => (q.validUntil ? tariffValidityWarning(q.data, q.validUntil) : status === "quoted" && noValidityWarning(q.data)))
+    .map((q) => q.quoteNumber);
+}
+
+/** What the bulk confirmation says of the quotes bulkValidityWarnings named; null when there are none. */
+export function bulkValidityText(quoteNumbers: readonly string[]): string | null {
+  if (!quoteNumbers.length) return null;
+  return `Valid longer than a tariff their buying was priced from: ${quoteNumbers.join(", ")}. Open the quote to set an earlier Valid until or pick a tariff valid longer. They can still be sent.`;
+}
+
 /** Whether a tariff offer (its last valid day `validTo`) ends before the quote's Valid until: the "Tariffs available" drawers mark it. */
 export function endsBeforeQuote(validTo: string | null | undefined, quoteValidUntil: string | null | undefined): boolean {
   const until = quoteValidUntil?.slice(0, 10);

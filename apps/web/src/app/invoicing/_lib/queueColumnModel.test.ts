@@ -41,6 +41,7 @@ const row = (partial: Partial<interfaces.BillingQueueItem> = {}): QueueRow => ({
   sellingLines: 0,
   invoicedLines: 0,
   creditsOwed: 0,
+  notTickedLines: 0,
   ...partial,
 });
 
@@ -126,6 +127,12 @@ describe("queueColumns and the column list", () => {
 });
 
 describe("queueCellText", () => {
+  // Mock council S5-3: the Lines Invoiced text names a charge not ticked for Invoice, so a filter on it finds the job.
+  it("names the charges not ticked for Invoice in Lines Invoiced", () => {
+    expect(queueCellText(row({ sellingLines: 5, invoicedLines: 4, notTickedLines: 1 }), "invoicedLines", false)).toBe("4/5 1 line not ticked for Invoice");
+    expect(queueCellText(row({ sellingLines: 5, invoicedLines: 5 }), "invoicedLines", false)).toBe("5/5");
+  });
+
   it("shows ETD for exports and ETA otherwise, as DD.MM.YYYY", () => {
     const dates = { estimatedDeparture: "2026-03-05", estimatedArrival: "2026-04-10" };
     expect(queueCellText(row({ ...dates, tradeDirection: "Export" }), "serviceDate", false)).toBe("05.03.2026");

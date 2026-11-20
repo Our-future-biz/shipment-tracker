@@ -131,7 +131,7 @@ beforeEach(() => {
   repo.haulierCosts.mockResolvedValue([{ haulierId: H1, haulierName: "Alfa (trip)", trips: 2, partnerLegs: 1, consignments: 4, costCzk: 8000, costKg: 4000 }]);
   repo.failedReasons.mockResolvedValue([{ reason: "ABSENT", n: 1 }]);
   repo.podOpen.mockResolvedValue([{ deliveredDay: "2026-09-30", haulierId: H2, haulierName: null, n: 1 }]);
-  repo.fillTrips.mockResolvedValue([{ kind: "LINEHAUL", vehicleTypeCode: "tautliner_136", ldm: 6.8, kg: 6000 }]);
+  repo.fillTrips.mockResolvedValue([{ kind: "LINEHAUL", vehicleTypeCode: "tautliner_136", ldm: 6.8, kg: 6000, palletPlaces: 11 }]);
   repo.exceptionGroups.mockResolvedValue([{ kind: "FAILED_DELIVERY", decision: "PENDING", n: 1 }]);
   repo.claims.mockResolvedValue([{ haulierId: H1, currency: "EUR", day: "2026-10-20", n: 1, amount: 20 }]);
   repo.invoicesBlocked.mockResolvedValue([]);

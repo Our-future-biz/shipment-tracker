@@ -676,6 +676,80 @@ describe("gate movement flow", () => {
     expect((await gateMovementService.stamp(m.id, c, user, "impRelease")).impRelease).not.toBeNull();
   });
 
+  it("passes the Customs line of outbound transit cargo (T1 / T2L) with an MRN, not without one (mock council C1 / R27)", async () => {
+    const c = company();
+    const notCustoms = (gates: ReturnType<typeof defaultReleaseGates>) => gates.map((g) => (g.g === "Customs" ? g : { ...g, s: "OK" as const }));
+    // T1, customs not cleared here, MRN recorded: the Customs line reads OK and the release goes.
+    const t1 = await gateMovementService.create(c, user, { gateRef: "WCZ2026112011", visit: "výdej", handling: "Import", customsMode: "T1", mrn: "26CZ5100001234A7", loadInDate: received() });
+    await gateMovementRepository.update(t1.id, c, { releaseGates: notCustoms(defaultReleaseGates("Import", "LCL consolidation", "Paperwork Verified")) });
+    const armed = await gateMovementService.get(t1.id, c);
+    expect(armed.armed).toBe(true);
+    expect(armed.releaseGates.find((g) => g.g === "Customs")).toMatchObject({ s: "OK", note: expect.stringMatching(/T1 transit — MRN recorded/) });
+    // The stored line still follows the customs status.
+    expect((await gateMovementRepository.findById(t1.id, c))!.releaseGates.find((g) => g.g === "Customs")!.s).toBe("Pending");
+    await gateMovementService.stamp(t1.id, c, user, "gateIn");
+    expect((await gateMovementService.stamp(t1.id, c, user, "impRelease")).impRelease).not.toBeNull();
+
+    // T2L with an MRN, overridden: no longer held by Customs.
+    const t2 = await gateMovementService.create(c, user, { gateRef: "WCZ2026112012", visit: "výdej", handling: "Import", customsMode: "T2L", mrn: "26CZ5100009999A1", loadInDate: received() });
+    expect((await gateMovementRepository.findById(t2.id, c))!.releaseGates.find((g) => g.g === "Customs")!.s).not.toBe("OK");
+    // Asking for the release does not log Customs as pending, as the release does not wait for it (review of C1).
+    const asked = await gateMovementService.requestRelease(t2.id, c, user);
+    const askedFor = asked.events.find((e) => e.kind === "releaseRequested")!.detail ?? "";
+    expect(askedFor).not.toMatch(/Customs/);
+    const t2Overridden = await gateMovementService.override(t2.id, c, user, "papers checked");
+    expect(t2Overridden.armed).toBe(true);
+    // The override's snapshot shows the gates as the release read them, and what is stored under the transit rule.
+    expect(t2Overridden.overrideLog).toMatch(/Customs: OK \(T2L transit — MRN recorded, leaves under its transit document; stored \w+/);
+    expect(t2Overridden.events.find((e) => e.kind === "override")).toMatchObject({ gates: expect.arrayContaining([{ g: "Customs", s: "OK" }]) });
+    await gateMovementService.stamp(t2.id, c, user, "gateIn");
+    expect((await gateMovementService.stamp(t2.id, c, user, "impRelease")).impRelease).not.toBeNull();
+
+    // No MRN: Customs holds, override or not.
+    const none = await gateMovementService.create(c, user, { gateRef: "WCZ2026112013", visit: "výdej", handling: "Import", customsMode: "T1", loadInDate: received() });
+    await gateMovementRepository.update(none.id, c, { releaseGates: notCustoms(none.releaseGates) });
+    expect((await gateMovementService.get(none.id, c)).armed).toBe(false);
+    await gateMovementService.override(none.id, c, user, "papers checked");
+    await gateMovementService.stamp(none.id, c, user, "gateIn");
+    await expect(gateMovementService.stamp(none.id, c, user, "impRelease")).rejects.toThrow(/Held by Customs/);
+
+    // Another customs mode with an MRN (SCP) still waits for the clearance.
+    const scp = await gateMovementService.create(c, user, { gateRef: "WCZ2026112014", visit: "výdej", handling: "Import", customsMode: "SCP", mrn: "26CZ5100005555A1", loadInDate: received() });
+    await gateMovementRepository.update(scp.id, c, { releaseGates: notCustoms(scp.releaseGates) });
+    expect((await gateMovementService.get(scp.id, c)).armed).toBe(false);
+
+    // The release reads the MRN at the moment of the UPDATE: an MRN cleared meanwhile holds it again.
+    const late = await gateMovementService.create(c, user, { gateRef: "WCZ2026112015", visit: "výdej", handling: "Import", customsMode: "T1", mrn: "26CZ5100007777A1", loadInDate: received() });
+    // (Built from the default gates: the item's own show the transit Customs line OK.)
+    await gateMovementRepository.update(late.id, c, { releaseGates: notCustoms(defaultReleaseGates("Import", "LCL consolidation", "Paperwork Verified")) });
+    await gateMovementService.stamp(late.id, c, user, "gateIn");
+    const load = gateMovementRepository.findById.bind(gateMovementRepository);
+    const spy = vi.spyOn(gateMovementRepository, "findById").mockImplementationOnce(async (...args) => {
+      const row = await load(...args);
+      await gateMovementRepository.update(late.id, c, { mrn: "" });
+      return row;
+    });
+    await expect(gateMovementService.stamp(late.id, c, user, "impRelease")).rejects.toThrow();
+    spy.mockRestore();
+    expect((await gateMovementService.get(late.id, c)).impRelease).toBeNull();
+
+    // An MRN of blanks only (a tab, a no-break space) is no MRN, on the screen and in the release's
+    // SQL alike (review of C1): set meanwhile, it holds the release at the UPDATE.
+    const blank = await gateMovementService.create(c, user, { gateRef: "WCZ2026112016", visit: "výdej", handling: "Import", customsMode: "T1", mrn: "26CZ5100008888A1", loadInDate: received() });
+    await gateMovementRepository.update(blank.id, c, { releaseGates: notCustoms(defaultReleaseGates("Import", "LCL consolidation", "Paperwork Verified")) });
+    await gateMovementService.stamp(blank.id, c, user, "gateIn");
+    const spy2 = vi.spyOn(gateMovementRepository, "findById").mockImplementationOnce(async (...args) => {
+      const row = await load(...args);
+      await gateMovementRepository.update(blank.id, c, { mrn: " \t\u00a0 " });
+      return row;
+    });
+    await expect(gateMovementService.stamp(blank.id, c, user, "impRelease")).rejects.toThrow();
+    spy2.mockRestore();
+    const held = await gateMovementService.get(blank.id, c);
+    expect(held.impRelease).toBeNull();
+    expect(held.armed).toBe(false);
+  });
+
   it("saves one transport leg field or one checklist icon onto the record as stored (W2)", async () => {
     const c = company();
     const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026112001", visit: "výdej" });

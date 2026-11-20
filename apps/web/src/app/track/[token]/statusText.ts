@@ -15,13 +15,23 @@ export const LEG_TITLES: { key: string; text: BiText }[] = [
   { key: "destination", text: { cs: "Doručení", en: "Destination" } },
 ];
 
-/** A step's state as the staff's customer-view preview says it (customerStateName), in both languages. */
-export function stateText(state: State, hasPlanned: boolean): BiText {
+/**
+ * A step's state as the staff's customer-view preview says it (customerStateName), in both languages.
+ * `passed`: an open step whose planned day is behind us - a cut-off (Cargo, VGM, SI closing), which
+ * has no actual, or an earlier step nobody noted. "Planned" with a past date reads as still to come,
+ * so it says the day passed instead (mock council S3-3).
+ */
+export function stateText(state: State, hasPlanned: boolean, passed = false): BiText {
   if (state === "done") return { cs: "Hotovo", en: "Done" };
   if (state === "next") return { cs: "Další krok", en: "Next step" };
   if (state === "unconfirmed") return { cs: "Zatím nepotvrzeno", en: "Not yet confirmed" };
+  if (hasPlanned && passed) return { cs: "Termín uplynul", en: "Date passed" };
   return hasPlanned ? { cs: "Plánováno", en: "Planned" } : { cs: "Teprve nastane", en: "Still to come" };
 }
+
+/** Whether an open step's planned day (YYYY-MM-DD…) is before `today` (YYYY-MM-DD, Prague): its date then reads without "Planned". */
+export const plannedPassed = (m: Pick<interfaces.PublicMilestone, "state" | "planned">, today: string): boolean =>
+  m.state === "open" && !!m.planned && m.planned.slice(0, 10) < today;
 
 // The step names of the tracking timeline (shipments lib/trackingTimeline and trackingEvents), by mode.
 const STEP_CS: Record<string, string> = {

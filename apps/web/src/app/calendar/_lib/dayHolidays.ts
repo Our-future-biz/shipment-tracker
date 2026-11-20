@@ -68,10 +68,13 @@ export function yearHolidays(year: number, items: HolidayItem[]): Map<string, Da
 /** Whether the day is a Czech public holiday (shown red, as weekends). */
 export const isCzechHoliday = (list: readonly DayHoliday[] | undefined) => !!list?.some((h) => isCzech(h.countryCode) && h.kind === "National");
 
-/** The day's holidays in the countries picked (all when none is picked); the Czech ones always. */
-export function shownHolidays(list: readonly DayHoliday[] | undefined, countries: readonly string[]): DayHoliday[] {
+/**
+ * The day's holidays in the countries chosen - every country's for null, none besides the Czech
+ * Republic's for [] (_lib/countryChoice chosenCountries, mock council R21); the Czech ones always.
+ */
+export function shownHolidays(list: readonly DayHoliday[] | undefined, countries: readonly string[] | null): DayHoliday[] {
   if (!list) return [];
-  if (!countries.length) return [...list];
+  if (countries === null) return [...list];
   return list.filter((h) => isCzech(h.countryCode) || countries.includes(countryOf(h)));
 }
 
@@ -95,13 +98,4 @@ export function defaultCountries(companyCodes: readonly string[], items: Holiday
 /** The countries of the list, for the filter (the Czech Republic is always shown, so not offered). */
 export function listCountries(items: HolidayItem[]): string[] {
   return [...new Set(items.filter((h) => !isCzech(h.countryCode)).map(rowCountry).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-
-/**
- * The user's countries after a change in the calendar's picker. It offers only the list's other
- * countries, so the saved picks it does not offer (a Czech row picked on the Public Holidays page, a
- * country no longer listed) are kept, not dropped by an edit here.
- */
-export function withUnofferedPicks(saved: readonly string[], offered: readonly string[], picked: readonly string[]): string[] {
-  return [...saved.filter((c) => !offered.includes(c)), ...picked];
 }

@@ -34,7 +34,7 @@ export interface ManifestDoc {
   to: DocStop | null; // null for a run with many delivery stops
   rows: ManifestRow[];
   totals: { pieces: number; palletPlaces: number; ldm: number; weightKg: number };
-  capacityText: string; // "13.6 LDM / 24 000 kg — 82 % LDM, 41 % kg"
+  capacityText: string; // "13.6 LDM / 24 000 kg / 33 pallet places — 82 % LDM, 41 % kg, 50 % pallet places"
 }
 
 export interface LabelDoc {

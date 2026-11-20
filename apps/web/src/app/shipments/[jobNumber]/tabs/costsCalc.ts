@@ -12,10 +12,13 @@
  * so the user can be told.
  *
  * Each row's total in the billing currency is rounded to cents, as the row shows it, and the totals
- * add up those rounded rows, so a total is always the sum of the figures printed above it. The CZK
- * figures (the Report bar, the "… CZK" line under Total selling) come from those totals through the
- * billing currency's rate, once, so the bar and the line under the total read the same haléř
- * (User Council O19, A17, B23).
+ * add up those rounded rows, so a total is always the sum of the figures printed above it (User Council
+ * O19, A17). The CZK figures (the Report bar, the "… CZK" line under Total selling, the profit set against
+ * the quote) are not taken back from those totals: a 1,000 CZK cost on a EUR-billed job, rounded to
+ * 39.53 EUR, came back as 1,000.11 CZK. They add up each row's own CZK value instead and round the sum to
+ * haléř, as the server's job profit does (invoicing lib/jobCostTotals), so the bar, the Money tab and the
+ * job profit report give one figure (mock council S7-1). The bar and the line under the total still read
+ * the same haléř (B23): both are the one sum.
  */
 
 import { chargeLabel } from "@/lib/chargeCodes";
@@ -59,6 +62,9 @@ export interface BuyingRow {
   /** The supplier invoice on Finance → Accounts Payable the line is on (once it has an invoice number); null
    *  otherwise. Its payment is noted there, for the whole invoice (Council Outlay 9, D11). */
   supplierInvoiceId: string | null;
+  /** On a billed shipment: its real cost came after the billing and its supplier invoice is not yet approved or
+   *  paid, so it stays open to be put right (mock council M1; the server's lib/billedLock). */
+  lateRealCostOpen?: boolean;
 }
 
 export interface SellingRow {
@@ -147,7 +153,10 @@ export function computeCosts(
     if (billingRate === null) return null;
     return (value * from) / billingRate;
   };
-
+  /** A row's own value in CZK, unrounded (its rate is known: conv has said so). */
+  const czkOf = (value: number, currency: string) => value * (rateOf(currency, rates) ?? 0);
+  let buyCZKRaw = 0;
+  let sellCZKRaw = 0;
 
   const buyRowTotals: Record<string, number | null> = {};
   const buyRowOver: Record<string, boolean> = {};
@@ -184,6 +193,7 @@ export function computeCosts(
     // the row's base: Real Cost, until it is filled in -> Est. Amount
     const basis = real ? realC : estC;
     buyTotal += basis;
+    buyCZKRaw += real ? czkOf(real, r.realCurrency) : czkOf(est, r.estCurrency);
     buyRowTotals[r.id] = basis;
 
     buyRowOver[r.id] = !!(est && real && realC - estC > 0.001);
@@ -225,6 +235,7 @@ export function computeCosts(
     // An unticked row doesn't count in revenue (and so not in profit either).
     if (r.invoice) {
       sellTotal += inBilling;
+      sellCZKRaw += czkOf(raw, r.currency);
     } else {
       sellNotInvoicedTotal += inBilling;
       sellNotInvoicedCount += 1;
@@ -238,10 +249,10 @@ export function computeCosts(
   sellTotal = round2(sellTotal);
   sellNotInvoicedTotal = round2(sellNotInvoicedTotal);
 
-  // Totals in CZK: from the billing currency's totals through its rate, rounded to haléř.
-  const bcToCZK = (v: number) => (billingRate === null ? 0 : round2(v * billingRate));
-  const buyCZK = bcToCZK(buyTotal);
-  const sellCZK = bcToCZK(sellTotal);
+  // Totals in CZK: the sum of the rows' own CZK values, rounded to haléř, as jobCostTotals has them (S7-1). Without
+  // the billing currency's rate no row was counted, so they stay 0, as before.
+  const buyCZK = round2(buyCZKRaw);
+  const sellCZK = round2(sellCZKRaw);
 
   return {
     buyRowTotals,
@@ -258,7 +269,8 @@ export function computeCosts(
     sellNotInvoicedCount,
     buyCZK,
     sellCZK,
-    profitCZK: round2(sellCZK - buyCZK),
+    // from the unrounded sums, as the server's profitCzk
+    profitCZK: round2(sellCZKRaw - buyCZKRaw),
     hasAny: buyCZK !== 0 || sellCZK !== 0,
     rxeTotal,
     rxeRows,

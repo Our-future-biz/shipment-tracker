@@ -1,6 +1,7 @@
 import { APIError, ErrCode } from "encore.dev/api";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
-import type { Actor } from "../../../lib/rbac";
+import { seesConcepts, type Actor } from "../../../lib/rbac";
+import { getAuthData } from "~encore/auth";
 import { canManageSales, shipmentFromQuoteBlocked, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
@@ -60,6 +61,7 @@ import { billOfLadingKey } from "../../../lib/billOfLading";
 import { deliverShipmentPushes, owePushes } from "./shipmentPush.service";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
+import { seaPortText } from "../../../lib/geo/carrierPorts";
 import { changesTaxDate } from "../lib/taxDate";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { houseLoadTypeProblem } from "../lib/masterJobKind";
@@ -91,7 +93,7 @@ import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddre
 import { AGENT_CONTACT, CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentPartiesChanged } from "../topics";
 import { deliverShipmentEvents } from "./shipmentEvents.service";
-import { INVOICED_STATUS, jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
+import { INVOICED_STATUS, bookingMakesFinal, jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
 import { jobNumberDigits } from "../../../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
@@ -387,11 +389,13 @@ type EnrichedShipment = ReturnType<typeof enrich> & {
 };
 
 // The Pick-up tab's License Plates, by shipment. A column of the grids: when the warehouse service
-// doesn't answer, the column stays empty rather than the whole list failing.
+// doesn't answer, the column stays empty rather than the whole list failing. The Warehouse Concept's
+// plate only for a caller who sees the Concept (mock council review of C2); a call with no user
+// (a subscription, a cron) gets the normal pick-up's.
 async function pickupPlates(shipmentIds: string[], companyId: string): Promise<Map<string, string>> {
   if (shipmentIds.length === 0) return new Map();
   try {
-    const { plates } = await warehouse._internalPickupPlates({ companyId, shipmentIds });
+    const { plates } = await warehouse._internalPickupPlates({ companyId, shipmentIds, seesConcepts: seesConcepts(getAuthData()?.role) });
     return new Map(plates.map((p) => [p.shipmentId, p.licensePlate]));
   } catch (err) {
     log.warn(err, "pick-up license plates not read");
@@ -423,10 +427,28 @@ function lateChargeShipmentIds(companyId: string): Promise<readonly string[] | u
   return ids;
 }
 
+// The users' names by e-mail for a search in a person column (Handled By, Holiday Cover) or in all
+// fields, which take those two in too (mock council S7-5); none for a search in other columns only.
+// Users that can't be read leave the search to the e-mails, as before.
+async function searchPeopleNamesFor(filters: Pick<ShipmentListFilters, "search" | "searchColumns">): Promise<Map<string, string> | undefined> {
+  if (!filters.search?.trim()) return undefined;
+  if (filters.searchColumns?.length && !filters.searchColumns.some((key) => Object.hasOwn(USER_ID_FIELDS, key))) return undefined;
+  const users = await companyUsers().catch(() => [] as CompanyUser[]);
+  const names = new Map<string, string>();
+  for (const u of users) {
+    const name = (u.displayName ?? "").trim();
+    if (name && u.email.trim()) names.set(u.email.trim().toLowerCase(), name);
+  }
+  return names;
+}
+
 // The API shape of an enriched shipment: dates as ISO strings, no tenant/soft-delete columns.
+// A sea job's POL / POD holding a carrier code saved before the pickers named it as its port reads
+// "Shanghai (CNSHA)", not "Shanghai Hongqiao International Apt (CNSHA)": shown so, stored as it is
+// (mock council S4-1).
 function toShipmentItem(s: EnrichedShipment): ShipmentItem {
   const { createdAt, updatedAt, ...rest } = publicFields(s);
-  return { ...rest, createdAt: iso(createdAt), updatedAt: iso(updatedAt) };
+  return { ...rest, pol: seaPortText(rest.pol, rest.freightMode), pod: seaPortText(rest.pod, rest.freightMode), createdAt: iso(createdAt), updatedAt: iso(updatedAt) };
 }
 
 // Checked before anything is written, so a bad number never leaves a half-saved shipment. `stored`:
@@ -882,14 +904,20 @@ class ShipmentService {
     filters: ShipmentListFilters,
     /** The instant tile=attention is judged on, for a caller that names it (tests); now, without it. */
     now?: Date,
-  ): Promise<{ pagination: { total: number; offset: number; limit: number }; data: ShipmentItem[] }> {
+  ): Promise<{ pagination: { total: number; offset: number; limit: number }; data: ShipmentItem[]; lateChargesNotRead?: boolean }> {
     // The Overview tile "Needs Attention" opens the jobs of the URGENT card: the rule names them
     // once for this page of the list (lib/needsAttention), and the query filters by their ids.
     const attentionIds = filters.tile === ATTENTION_TILE ? await needsAttentionService.urgentIds(companyId, now) : undefined;
     // Invoicing → To bill (and All) also list every job with an open invoice and a charge on no invoice, whatever its
     // status (User Council B4, owner's answer Q9): invoicing names them, the query takes them in by their ids.
-    const lateChargeIds = filters.invoicing && INVOICING_FILTERS_WITH_LATE_CHARGES.includes(filters.invoicing) ? await lateChargeShipmentIds(companyId) : undefined;
-    const result = await shipmentRepository.listFiltered(companyId, { ...filters, attentionIds, lateChargeIds });
+    const withLateCharges = !!filters.invoicing && INVOICING_FILTERS_WITH_LATE_CHARGES.includes(filters.invoicing);
+    const lateChargeIds = withLateCharges ? await lateChargeShipmentIds(companyId) : undefined;
+    // Invoicing did not answer: the list goes on without those jobs, and says so (mock council S5-2: they dropped
+    // from To bill with only a log line), so the queue can warn above itself.
+    const lateChargesNotRead = withLateCharges && lateChargeIds === undefined;
+    // A search in Handled By or Holiday Cover finds the name the grid shows too, not only the stored e-mail (mock council S7-5).
+    const searchPeopleNames = await searchPeopleNamesFor(filters);
+    const result = await shipmentRepository.listFiltered(companyId, { ...filters, attentionIds, lateChargeIds, searchPeopleNames });
 
     // The MCZ numbers of the page's master jobs, read in one query.
     const masterJobIds = [...new Set(result.data.flatMap((s) => (s.masterJobId ? [s.masterJobId] : [])))];
@@ -943,6 +971,7 @@ class ShipmentService {
     return {
       pagination: { total: result.total, offset: filters.offset, limit: filters.limit },
       data: enriched,
+      ...(lateChargesNotRead ? { lateChargesNotRead: true } : {}),
     };
   }
 
@@ -1139,6 +1168,14 @@ class ShipmentService {
     ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord, keyof ShipmentRecord, keyof ShipmentRecord])[];
     const written: Record<string, unknown> = data;
     const sent = (key: string) => !!String(written[key] ?? "").trim();
+    // The Delivery Phone and Delivery Notes belonged to the consignee picked before, whatever comes
+    // next: a consignee with no address, one typed as free text (unlinked), or none (mock council
+    // S3-6). Left, the Trucking order would pair them with the new consignee's Contact. A write that
+    // sends them itself keeps them; the new consignee's address fill below clears them as well.
+    if (existing && "consigneeId" in data && (data.consigneeId ?? null) !== (existing.consigneeId ?? null)) {
+      if (!("deliveryPhone" in data) && existing.deliveryPhone) written.deliveryPhone = "";
+      if (!("deliveryNotes" in data) && existing.deliveryNotes) written.deliveryNotes = "";
+    }
     await Promise.all(
       parties.map(async ([party, idKey, contactKey, contactIdKey]) => {
         const id = data[idKey];
@@ -1335,6 +1372,8 @@ class ShipmentService {
     Object.assign(shipmentData, normalizeStops(shipmentData));
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;
+    // Created booked (a copy, a reading), its reference goes out with the booking: final from the start (mock council R13).
+    if ((shipmentData.bookingNumber ?? "").trim()) (shipmentData as { jobNumberFinal?: boolean }).jobNumberFinal = true;
     // The starting status belongs to the shipment's Trade Direction.
     const directionStatus = statusForDirection(shipmentData.status ?? "", shipmentData.tradeDirection ?? "");
     if (directionStatus) shipmentData.status = directionStatus;
@@ -1713,7 +1752,13 @@ class ShipmentService {
       for (const h of extras.history ?? []) await audit(h.field, h.oldValue, h.newValue);
       if (saved && extras.alongside) await extras.alongside(tx);
       if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
-      return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved, booksNow) : saved;
+      const named = saved && lettersMayFollow ? await this.followLetters(tx, companyId, userId, saved, booksNow) : saved;
+      // Booked, the reference is final for good: a Booking Number cleared later keeps it (mock council R13).
+      if (named && bookingMakesFinal(existing, named)) {
+        await shipmentRepository.markJobNumberFinal(tx, id, companyId);
+        return { ...named, jobNumberFinal: true };
+      }
+      return named;
     });
     // Sent after the commit; what can't go now is retried by the push outbox's cron. Never throws.
     if (pushesOwed) await deliverShipmentPushes(id);

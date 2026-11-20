@@ -37,6 +37,15 @@ import { customsDeadline, customsRegime, type CustomsRegime } from "./warehouseS
 
 export const STOCK_OPEN = ["Available", "Allocated", "On hold"];
 type LineState = "none" | "open" | "left" | "voided";
+// Why the line of an archived position is voided (its location is kept for a restore).
+const ARCHIVED_REASON = "Position archived";
+// How the void reason of a receipt's or a tally tick's void starts (positionReceipt.service,
+// container.service voidTally): a line voided so is reopened at the new count's location.
+export const COUNT_VOIDED = { receipt: "receipt voided", tally: "tally voided" } as const;
+const voidedByCount = (closedReason: string | null | undefined) => {
+  const r = (closedReason ?? "").toLowerCase();
+  return r.startsWith(COUNT_VOIDED.receipt) || r.startsWith(COUNT_VOIDED.tally);
+};
 type EntryState = "none" | "open" | "discharged" | "voided";
 
 export interface StockSyncOptions {
@@ -44,6 +53,12 @@ export interface StockSyncOptions {
   by: string;
   /** Why a line is voided / reopened, e.g. the void reason. */
   why?: string;
+  /**
+   * The change is the void of the count that put the location on the line (a receipt, or a
+   * received tally tick, starting with COUNT_VOIDED's words): only then does the voided line lose
+   * its location (review of mock council S11-2). Any other void keeps it.
+   */
+  countVoided?: boolean;
   at?: Date;
 }
 
@@ -208,11 +223,15 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
       }
     } else {
       const reopen = before !== "open";
+      // A count redone after its void (receipt or tally tick) is where the cargo is now: its location
+      // goes on the line, not the voided count's (mock council S11-2) - also on a line voided before
+      // the void cleared it. Reopened after another void (a stamp, a release), the location is kept.
+      const recounted = before === "voided" && !!countedLocation && voidedByCount(line.closedReason);
       linePlan = {
         update: {
           ...follow,
           ...(reopen ? { status: "Available", closedAt: null, closedReason: "" } : {}),
-          ...(reopen && !line.location && countedLocation ? { location: countedLocation } : {}),
+          ...(recounted || (reopen && !line.location && countedLocation) ? { location: countedLocation } : {}),
           ...stuffing,
         },
       };
@@ -226,7 +245,17 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
     } else {
       after = "voided";
       if (before !== "voided") {
-        linePlan = { update: { status: "Voided", closedAt: now, closedReason: (archived ? "Position archived" : reason || "Receipt voided").slice(0, 500) } };
+        // The void of the count that set the location takes it off (mock council S11-2): it was that
+        // count's, and a redone count gives the new one. Any other void (a stamp, archiving: restored,
+        // the line is back where it was) keeps it (review of S11-2).
+        linePlan = {
+          update: {
+            status: "Voided",
+            closedAt: now,
+            closedReason: (archived ? ARCHIVED_REASON : reason || "Receipt voided").slice(0, 500),
+            ...(opts.countVoided && !archived ? { location: "" } : {}),
+          },
+        };
       }
     }
   }

@@ -138,6 +138,12 @@ describe("write-offs and bank charges", () => {
     expect(leftToPaySum(row({ paid: 2300, writtenOff: 68, bankCharges: 12 }))).toBe("2,380.00 − 2,300.00 paid − 68.00 written off − 12.00 bank charges");
   });
 
+  // Mock council R1: a write-off is not paid; a credit note after it covers it, so it never reads as money to refund.
+  it("says when a credit note covers a write-off", () => {
+    expect(leftToPaySum(row({ gross: 100, credited: 100, paid: 80, writtenOff: 20 }))).toBe("100.00 − 100.00 credited − 80.00 paid (the 20.00 written off is covered by the credit)");
+    expect(leftToPaySum(row({ gross: 100, credited: 10, paid: 80, writtenOff: 20 }))).toBe("100.00 − 10.00 credited − 80.00 paid − 10.00 written off (of 20.00; the credit covers the rest)");
+  });
+
   it("names their events, a bank charge as one", () => {
     expect(eventLabel({ action: "write_off_noted", payload: { kind: "write_off" } })).toBe("Write-off noted");
     expect(eventLabel({ action: "write_off_confirmed", payload: { kind: "bank_charge" } })).toBe("Bank charge confirmed");

@@ -39,7 +39,7 @@ describe("glossary", () => {
 
   it("says where the PIN is made and links the job's Warehouse tab", () => {
     expect(PIN_MADE_WHERE).toBe("Operations make the PIN on the job's Warehouse tab → Pick-up.");
-    expect(pickupHref("5519a0c2-0000-4000-8000-000000000001")).toBe("/shipments/5519a0c2-0000-4000-8000-000000000001?tab=warehouse");
+    expect(pickupHref("5519a0c2-0000-4000-8000-000000000001")).toBe("/shipments/5519a0c2-0000-4000-8000-000000000001?tab=warehouse&sub=pickup");
   });
 
   it("explains the new references, archiving and voiding", () => {

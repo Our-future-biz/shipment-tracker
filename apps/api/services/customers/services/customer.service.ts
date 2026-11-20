@@ -58,6 +58,8 @@ export interface ManualCustomerInput {
   contact: NewCustomerContact;
   /** ["customer"] when left out (a foreign haulier is added here too). */
   roles?: CustomerRole[];
+  /** Add customer's Sales owner: a user's id, null for nobody; left out, creatorAsOwner decides (mock council R12). */
+  salesOwnerUserId?: string | null;
 }
 
 // The first contact of a new customer: its main one. Somebody must be reachable, so an email or a phone is needed.
@@ -298,19 +300,71 @@ async function salesOwnerOf(userId: string | null): Promise<SalesOwnerColumns> {
 }
 
 /**
- * A customer added in the Customer Database has whoever added it as its sales owner until someone else
- * is picked, so it is in their "My customers" from the start (User Council S16). Only a customer (a
- * supplier has no sales owner) and only a real user of the company; a company registered through a link
- * keeps the link's rule (approvalOf). Nobody, never a refusal, when the user can't be found or read.
+ * Whether a department (its name in Settings → Users) is a Sales one: "Sales", "Sales CZ", "Air
+ * Sales". The app has no Sales role - the roles are user, manager and admin - so a user counts as
+ * Sales by the department they sit in, as Invoicing does (shipments lib/shipmentEditRule). The web's
+ * Add customer prefills its Sales owner by the same test (customers/_lib/salesOwnerDefault).
  */
-async function creatorAsOwner(creatorUserId: string | undefined, roles: readonly CustomerRole[], request: NewSupplierRequest | undefined): Promise<Partial<SalesOwnerColumns>> {
+export const isSalesDepartment = (name: string | null | undefined): boolean => /\bsales\b/i.test((name ?? "").trim());
+
+// The roles that own a customer they add, whatever their department (mock council R12).
+const OWNING_ROLES = ["manager", "admin", "superadmin"];
+
+// Whether the user sits in a Sales department (Settings → Users).
+async function inSalesDepartment(userId: string): Promise<boolean> {
+  const { users } = await auth.usersList();
+  const departmentId = users.find((u) => u.id === userId)?.departmentId;
+  if (!departmentId) return false;
+  const { departments } = await auth.departmentList();
+  return isSalesDepartment(departments.find((d) => d.id === departmentId)?.name);
+}
+
+/**
+ * A customer added in the Customer Database has whoever added it as its sales owner until someone else
+ * is picked, so it is in their "My customers" from the start (User Council S16) - but only when they
+ * are in Sales or a manager: an operator or a billing clerk who adds a consignee for a job is nobody's
+ * sales owner, so such a customer has none (mock council R12, the rule Add customer prefills its Sales
+ * owner by). Only a customer (a supplier has no sales owner) and only a real user of the company; a
+ * company registered through a link keeps the link's rule (approvalOf). Nobody, never a refusal, when
+ * the user or their department can't be found or read.
+ */
+async function creatorAsOwner(
+  creatorUserId: string | undefined,
+  creatorRole: string,
+  roles: readonly CustomerRole[],
+  request: NewSupplierRequest | undefined,
+): Promise<Partial<SalesOwnerColumns>> {
   if (!creatorUserId || !isUuid(creatorUserId) || request?.viaLink || !roles.includes("customer")) return {};
   try {
+    if (!OWNING_ROLES.includes(creatorRole) && !(await inSalesDepartment(creatorUserId))) return {};
     return (await userAsOwner(creatorUserId)) ?? {};
   } catch (err) {
     log.warn("the new customer's creator not read: no sales owner set", { userId: creatorUserId, err: String(err) });
     return {};
   }
+}
+
+/** Why a user who is no manager can't give a new customer this sales owner. */
+export const OWNER_NOT_YOURS = "Only a manager can make someone else the sales owner: pick yourself or nobody";
+
+/**
+ * The sales owner of a new customer: the one picked in Add customer's Sales owner field - a user of
+ * the company, or nobody with null; an id that is no user is refused, as on the customer's page - else
+ * the creator by creatorAsOwner's rule (mock council R12). A supplier has none whatever was picked,
+ * and a company registered through a link keeps the link's rule. Who owns a customer is a manager's
+ * field (MANAGER_FIELDS): a user who is no manager picks only themself or nobody, a manager anyone
+ * (system-21 mock council review); the web's picker offers the same.
+ */
+async function ownerOfNew(
+  picked: string | null | undefined,
+  creatorUserId: string | undefined,
+  creatorRole: string,
+  roles: readonly CustomerRole[],
+  request: NewSupplierRequest | undefined,
+): Promise<Partial<SalesOwnerColumns>> {
+  if (picked === undefined || request?.viaLink || !roles.includes("customer")) return creatorAsOwner(creatorUserId, creatorRole, roles, request);
+  if (picked !== null && !canManageSales(creatorRole) && picked !== creatorUserId) throw APIError.permissionDenied(OWNER_NOT_YOURS);
+  return salesOwnerOf(picked);
 }
 
 /**
@@ -468,8 +522,10 @@ class CustomerService {
     contact: NewCustomerContact,
     roles: CustomerRole[] = ["customer"],
     supplierRequest?: NewSupplierRequest,
-    /** The user adding it, who becomes its sales owner (creatorAsOwner). */
+    /** The user adding it, who may become its sales owner (creatorAsOwner). */
     creatorUserId?: string,
+    /** Add customer's Sales owner: a user's id, null for nobody; left out, creatorAsOwner decides (mock council R12). */
+    salesOwnerUserId?: string | null,
   ): Promise<CustomerItem> {
     // The roles of a company registered through a link were given when the link was created.
     if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, roles, !!supplierRequest);
@@ -483,7 +539,7 @@ class CustomerService {
     if (registerCountry(ares.country) !== "CZ") await assertNotInDatabase(companyId, ares.ico, ares.country, "IČO", viaLink);
     const approval = await approvalOf(actorRole, supplierRequest, checkedRoles);
     const values: Omit<NewCustomerRecord, "companyId"> = {
-      ...(await creatorAsOwner(creatorUserId, checkedRoles, supplierRequest)),
+      ...(await ownerOfNew(salesOwnerUserId, creatorUserId, actorRole, checkedRoles, supplierRequest)),
       ...approval,
       ico: ares.ico,
       dic: ares.dic,
@@ -525,7 +581,7 @@ class CustomerService {
     const postalCode = input.postalCode.trim();
     const approval = await approvalOf(actorRole, supplierRequest, checkedRoles);
     const values: Omit<NewCustomerRecord, "companyId"> = {
-      ...(await creatorAsOwner(creatorUserId, checkedRoles, supplierRequest)),
+      ...(await ownerOfNew(input.salesOwnerUserId, creatorUserId, actorRole, checkedRoles, supplierRequest)),
       ...approval,
       // The column holds the IČO of a Czech customer and the registration number of a foreign one.
       ico: registrationNumber,
@@ -637,10 +693,11 @@ class CustomerService {
     }
   }
 
-  // A won quote makes its customer Active, from Prospect or Inactive alike. A customer deleted meanwhile is skipped.
+  // A won quote makes its customer Active, from Prospect or Inactive alike; a Prospect's first issued invoice makes
+  // only a Prospect Active (`onlyProspect`, mock council R11). A customer deleted meanwhile is skipped.
   /** One statement, so a delete or a manual status change in between is never overwritten. */
-  async activate(id: string, companyId: string): Promise<boolean> {
-    return customerRepository.activate(id, companyId);
+  async activate(id: string, companyId: string, opts: { onlyProspect?: boolean } = {}): Promise<boolean> {
+    return customerRepository.activate(id, companyId, opts);
   }
 
   // Its contacts go with it; the one customer event tells the copies of both. Refused while live

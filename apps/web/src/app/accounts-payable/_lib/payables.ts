@@ -364,8 +364,9 @@ export function actionsFor(i: PayableInvoice, canDecide: boolean, viewer?: Viewe
     : i.marks.includes("account_not_published")
       ? MARK_CHIPS.account_not_published.tip
       : "";
-  // No line has a real cost: there is nothing to approve or pay yet (the server's NO_AMOUNT, User Council A1).
-  const noAmount = hasNoAmount(i) ? NO_AMOUNT : "";
+  // A line with no real cost: there is nothing to approve or pay yet (User Council A1). Any line, not only all of them
+  // (mock council M2: one amount of two typed was approved and paid short) - the server's own reason, per invoice.
+  const noAmount = i.missingAmount || (hasNoAmount(i) ? NO_AMOUNT : "");
   // The four-eyes refusal greyed in advance, as the other reasons are (user council A8: it came only after the click).
   const ownEntry = ownEntryBlocked(i, viewer) ? OWN_ENTRY : "";
   return {

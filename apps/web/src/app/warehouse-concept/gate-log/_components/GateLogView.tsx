@@ -182,14 +182,20 @@ const BUBBLE_IDS = BUBBLES.map((b) => b.id);
 type StampAction = { kind: GateStampKind; label: string; primary?: boolean; skipHint: string; shipment?: string };
 
 const STAMP_ACTIONS: StampAction[] = [
-  { kind: "gateIn", label: TERMS.gateIn, skipHint: "already gated in, or outbound cargo not received yet", shipment: "received date (inbound cargo only)" },
+  // One button stamps both: the arriving truck of inbound cargo, the pick-up truck of outbound cargo (mock council S11-5).
+  {
+    kind: "gateIn",
+    label: `${TERMS.gateIn} / ${TERMS.gateInTruck}`,
+    skipHint: "already gated in, or loose import cargo not received yet",
+    shipment: "received date (inbound cargo only)",
+  },
   { kind: "expDraft", label: TERMS.draftReceipt, skipHint: "outbound or Domestic, already stamped, or not gated in yet" },
   { kind: "expReceipt", label: TERMS.receipt, skipHint: "outbound or Domestic, already stamped, or without a draft receipt" },
   {
     kind: "impRelease",
     label: TERMS.whRelease,
     primary: true,
-    skipHint: "inbound (not Domestic), already released, not gated in yet, or release gates blocked",
+    skipHint: "inbound (not Domestic), already released, not gated in yet, release gates blocked, or loose import cargo not received yet",
     shipment: "released date and plate",
   },
   { kind: "gateOut", label: TERMS.gateOut, skipHint: "already gated out, or an earlier step is not stamped yet" },

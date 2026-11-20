@@ -25,3 +25,35 @@ export function customerIssueWarnings(customer: IssueCustomerFacts | null): stri
   }
   return warnings;
 }
+
+/**
+ * The hint when the job has no Customer Reference (mock council R2, B17 kept as built): the invoice prints "Your ref."
+ * from the Customer Reference only - the Personal Reference stays internal - so a PO typed there would be lost from
+ * the invoice without a word. Never a block; null when there is a reference.
+ */
+export function customerReferenceHint(customerReference: string | null | undefined): string | null {
+  if ((customerReference ?? "").trim()) return null;
+  return "The job has no Customer Reference: the invoice prints no \"Your ref.\" (the Personal Reference stays internal). If the customer gave an order number, type it in the job's Customer Reference first";
+}
+
+/** A line of the invoice as the duty warning reads it: its charge code and its printed text. */
+export interface DutyLineFacts {
+  category: string;
+  description: string;
+}
+
+// A duty or import VAT line: the duty-advancement charge, or a text naming the duty ("duty", "duties", Czech "clo",
+// "cla") or the import VAT ("import VAT", "DPH z dovozu"). Not a bare "VAT" or "DPH": every invoice line's VAT is
+// named so, and a freight line "incl. VAT" is no duty (system-21 mock council review).
+const DUTY_TEXT = /\b(duty|duties|clo|cla|import\s+vat|dph\s+z\s+dovozu)\b/i;
+const isDutyLine = (l: DutyLineFacts) => l.category === "duty_advancement" || DUTY_TEXT.test(l.description);
+
+/**
+ * The warning when the job's approved Import Instructions say we pay the duty and VAT and invoice them to the
+ * customer, and the invoice has no duty or VAT line (mock council R3: the Customs tab shows it, Billing has to see
+ * it too). Never a block - the duty may be billed on an invoice of its own; null otherwise.
+ */
+export function dutyVatWarning(dutyPaidBy: string, lines: readonly DutyLineFacts[]): string | null {
+  if (dutyPaidBy !== "us" || lines.some(isDutyLine)) return null;
+  return "The Import Instructions say we pay the duty and VAT and invoice them to the customer, but this invoice has no duty or VAT line";
+}

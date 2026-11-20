@@ -32,21 +32,27 @@ export function invoicedLineCount(
 /**
  * The queue's Lines Invoiced cell: "invoiced/all" of the job's charges, and whether the job owes its customer a credit
  * (M3: a line below nothing on no open invoice - not counted among the charges, so a job can read 2/2 and still owe
- * one; the check "Invoiced, charges or credits open" lists it). Null when there is neither.
+ * one; the check "Invoiced, charges or credits open" lists it). Null when there is neither. `notTicked`: "1 line not
+ * ticked for Invoice" when charges on no invoice are not ticked (mock council S5-3: the job sat in To bill with 0 to
+ * bill and no word why - issuing skips such a line); "" otherwise.
  */
 export function linesInvoicedCell(
-  r: Pick<interfaces.BillingQueueItem, "sellingLines" | "invoicedLines"> & { creditsOwed?: number },
-): { count: string; done: boolean; creditOwed: boolean; title: string } | null {
+  r: Pick<interfaces.BillingQueueItem, "sellingLines" | "invoicedLines"> & { creditsOwed?: number; notTickedLines?: number },
+): { count: string; done: boolean; creditOwed: boolean; notTicked: string; title: string } | null {
   const owed = r.creditsOwed ?? 0;
+  const unticked = r.notTickedLines ?? 0;
   if (!r.sellingLines && !owed) return null;
+  const notTicked = unticked ? `${unticked} line${unticked !== 1 ? "s" : ""} not ticked for Invoice` : "";
   const parts = [
     r.sellingLines ? `${r.invoicedLines} of ${r.sellingLines} selling lines invoiced` : "",
+    notTicked ? `${notTicked}: tick ${unticked !== 1 ? "them" : "it"} on the job's Costs tab to bill ${unticked !== 1 ? "them" : "it"}` : "",
     owed ? `${owed === 1 ? "a credit" : `${owed} credits`} owed to the customer - give it on a credit note` : "",
   ].filter(Boolean);
   return {
     count: r.sellingLines ? `${r.invoicedLines}/${r.sellingLines}` : "",
     done: r.invoicedLines === r.sellingLines,
     creditOwed: owed > 0,
+    notTicked,
     title: parts.join("; "),
   };
 }

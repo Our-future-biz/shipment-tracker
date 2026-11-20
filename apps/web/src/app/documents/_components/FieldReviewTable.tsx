@@ -20,6 +20,11 @@ interface FieldReviewTableProps {
   accent?: "indigo" | "amber";
   /** The shipment's container numbers (containerNumbersOnFile): a seal read without a container number goes on them. */
   containersOnFile?: string[];
+  /**
+   * The record's Freight Mode where the reading names none: a master job's (its own, else its houses'), so a
+   * booking or pre-alert read onto a sea master job lists the seaports first too (mock council S4-Q3 / R18).
+   */
+  freightMode?: string;
 }
 
 /**
@@ -45,6 +50,7 @@ export function FieldReviewTable({
   showExisting = true,
   accent = "indigo",
   containersOnFile = [],
+  freightMode: recordFreightMode = "",
 }: FieldReviewTableProps) {
   const valueClass = accent === "amber" ? "text-amber-600" : "text-indigo-600";
   const rows = fields.map((f, index) => ({ ...f, index, key: `${f.column}-${index}` }));
@@ -54,7 +60,7 @@ export function FieldReviewTable({
   const sealsByRowOrder = parseContainerNumbers(containerRow?.extractedValue).length === 0 && containersOnFile.length > 0;
   // A seal goes on a container: one that is neither on file nor ticked to be added leaves it nowhere.
   const sealStranded = !!containerRow && !containerRow.approved && parseContainerNumbers(containerRow.extractedValue).some((n) => !containersOnFile.includes(n));
-  const freightMode = readingFreightMode(fields);
+  const freightMode = readingFreightMode(fields) || recordFreightMode;
 
   type Row = (typeof rows)[number];
 

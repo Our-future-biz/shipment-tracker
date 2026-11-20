@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asCompanyDetails, quoteSender } from "./companyDetails";
-import { quoteDocument, routeEnds } from "./printQuote";
+import { quoteDocument, routeEnds, sellingLineLabel } from "./printQuote";
 
 // Only what decides whether the quotation waits for the users: nothing else is looked at here.
 const exchange: Parameters<typeof quoteDocument>[2] = { rates: { CZK: 1 }, isError: false, isLoading: false, roePct: 100, fixingDate: "" };
@@ -97,5 +97,21 @@ describe("who a quote is from", () => {
     expect(quoteSender(stored(), { profile: undefined, isLoading: true }).status).toBe("loading");
     expect(quoteSender(stored(), { profile: undefined, isLoading: false })).toEqual(stored());
     expect(quoteSender({ status: "error", details: asCompanyDetails({}) }, { profile: issuer, isLoading: false }).status).toBe("error");
+  });
+});
+
+describe("a selling line on the customer document", () => {
+  const kg = { type: "Air freight", description: "Air freight PRG → ORD", currency: "EUR", amount: 1344, basis: "kg" as const, qty: 640, unit: "chargeable kg", unitPrice: 2.1 };
+
+  it("names the rate per chargeable kg and the weight on a kg line in the quote's currency (R6)", () => {
+    expect(sellingLineLabel(kg, "EUR")).toBe("Air freight PRG → ORD (2.10 EUR per chargeable kg × 640 kg)");
+    expect(sellingLineLabel({ ...kg, qty: 640.5, amount: 1345.05 }, "EUR")).toBe("Air freight PRG → ORD (2.10 EUR per chargeable kg × 640.5 kg)");
+  });
+
+  it("keeps the text alone in another currency, as a lump sum, or with no rate yet", () => {
+    expect(sellingLineLabel(kg, "CZK")).toBe("Air freight PRG → ORD");
+    expect(sellingLineLabel({ ...kg, basis: "lumpsum" }, "EUR")).toBe("Air freight PRG → ORD");
+    expect(sellingLineLabel({ ...kg, unitPrice: 0 }, "EUR")).toBe("Air freight PRG → ORD");
+    expect(sellingLineLabel({ ...kg, description: "" }, "EUR")).toBe("Air freight (2.10 EUR per chargeable kg × 640 kg)");
   });
 });

@@ -34,6 +34,8 @@ import { customsTabGroups, documentGroupOf, isReviewedDocumentType, receivedDocu
 import { LABEL, ROW } from "../_components/detailStyles";
 import { NOT_FOR_CUSTOMS, RequiredMilestones } from "./RequiredMilestones";
 import { CountChip } from "@/components/SectionCard";
+import { useImportInstructions } from "@/hooks/useImportInstructions";
+import { dutyVatLine } from "./dutyVat";
 import { BTN, BTN_DANGER, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, TH } from "@/styles/ui";
 
 // Statuses the server derives from the paperwork; while one of them shows, the field is locked.
@@ -333,6 +335,10 @@ export function CustomsTab({
   // Cargo Origin reads as text for whoever the edit rule doesn't let change the shipment's details.
   const leftColumn = detailsEditable ? leftFields : leftFields.map((f) => (f.key === "cargoOrigin" ? { ...f, ro: true } : f));
   const rightColumn = customsRightColumn(canReview, civOnLeft);
+  // Who pays the duty and VAT, from the approved Import Instructions: "paid by us" is invoiced to
+  // the customer, so customs and billing read it here (R3). Only an import is asked.
+  const importInstructions = useImportInstructions(shipment.id, { enabled: section !== "documents" && /^(imp|$)/i.test((shipment.tradeDirection ?? "").trim()) });
+  const dutyVat = dutyVatLine(importInstructions.state);
 
   const { attachments, isLoading: documentsLoading, refresh: refreshDocuments, previewSource } = useShipmentAttachments(shipment.id);
   // The required documents, as on the shipment's Documents tab: on the Customs section's Documents tab.
@@ -377,8 +383,9 @@ export function CustomsTab({
         // The Customs section calls its card Customs Overview; in the shipment it is the Customs tab's card.
         title={canReview ? "Customs Overview" : "Customs"}
         columns={[leftColumn, rightColumn]}
-        renderAfter={
-          canReview
+        renderAfter={{
+          ...(dutyVat ? { customsProcedure: <RoRow label="Duty and VAT" value={dutyVat} wrap /> } : {}),
+          ...(canReview
             ? {
                 jobNumber: (
                   <>
@@ -397,8 +404,8 @@ export function CustomsTab({
                   </>
                 ),
               }
-            : undefined
-        }
+            : {}),
+        }}
         shipment={cardShipment}
         onCommit={onCommit}
         styleFor={styleFor}

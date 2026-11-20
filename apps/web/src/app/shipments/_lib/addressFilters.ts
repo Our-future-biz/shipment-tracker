@@ -1,3 +1,5 @@
+import { NO_NAMES, nameOf, type PeopleNames } from "./personNames";
+
 // Filters the Shipments list takes from its address alone. The page has no control for them: a
 // link sets them (the tiles of Shipments → Managers), so each one shows as a chip over the table,
 // with a × that drops it - or the list would be short with nothing on the page saying why.
@@ -51,9 +53,10 @@ const known = <T extends Record<string, string>>(labels: T, value: string): valu
 /**
  * The filters the list's address holds. A value the list does not know (`mode=ship`,
  * `direction=inbound`, `customs=later`) is ignored: no chip, and nothing sent for it. Handled By
- * takes any text - a person nobody is, is simply found on no job, and the chip says who was asked for.
+ * takes any text - a person nobody is, is simply found on no job, and the chip says who was asked for,
+ * by name when `names` knows the e-mail.
  */
-export function addressFiltersOf(params: Pick<URLSearchParams, "get">): AddressFilters {
+export function addressFiltersOf(params: Pick<URLSearchParams, "get">, names: PeopleNames = NO_NAMES): AddressFilters {
   const request: AddressFilters["request"] = {};
   const chips: AddressFilterChip[] = [];
   const value = (param: AddressFilterParam) => (params.get(param) ?? "").trim();
@@ -62,7 +65,8 @@ export function addressFiltersOf(params: Pick<URLSearchParams, "get">): AddressF
   if (handledBy) {
     const nobody = handledBy.toLowerCase() === HANDLED_BY_NOBODY;
     request.handledBy = nobody ? HANDLED_BY_NOBODY : handledBy;
-    chips.push({ param: "handledBy", label: `Handled By: ${nobody ? HANDLED_BY_NOBODY : handledBy}` });
+    // Said by the user's name, as the list shows Handled By (user council x4, mock council S7-5).
+    chips.push({ param: "handledBy", label: `Handled By: ${nobody ? HANDLED_BY_NOBODY : nameOf(handledBy, names)}` });
   }
 
   const mode = value("mode").toLowerCase();

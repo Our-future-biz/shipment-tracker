@@ -75,6 +75,20 @@ export function legStamp(leg: Leg, m: StampFields): string {
 
 const CHECK_CYCLE = ["n", "g", "a", "r"] as const;
 
+/**
+ * The checklist icons still shown from the screen's own clicks, once the server's checklist came
+ * back: a click is dropped when the server shows the same state, or when no save of that icon is
+ * still waiting. Clearing every click on each answer made the answer to the first of quick clicks
+ * show for a moment and the next click cycle from it, ending one step short (mock council S10-7).
+ */
+export function settledChecks<K extends string>(draft: Partial<Record<K, string>>, server: Partial<Record<K, string>>, pending: Partial<Record<K, number>>): Partial<Record<K, string>> {
+  const kept: Partial<Record<K, string>> = {};
+  for (const key of Object.keys(draft) as K[]) {
+    if (draft[key] !== server[key] && (pending[key] ?? 0) > 0) kept[key] = draft[key];
+  }
+  return kept;
+}
+
 /** The next state of a checklist icon on a click: n/a → done → pending → problem. */
 export const nextCheck = (state: string | undefined): GateCheckChange["state"] =>
   CHECK_CYCLE[(CHECK_CYCLE.indexOf((state ?? "n") as (typeof CHECK_CYCLE)[number]) + 1) % CHECK_CYCLE.length]!;

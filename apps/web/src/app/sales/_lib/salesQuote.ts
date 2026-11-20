@@ -395,8 +395,11 @@ export function withRate(line: CostLine, rate: number, units: number): CostLine 
 // A line back from W/M, per chargeable kg or per container to a lump sum: it keeps its total (rate ×
 // quantity becomes the lump sum), and nothing is priced per unit. Not its rate: a line of 640 kg at
 // 2.10 would fall from 1,344.00 to 2.10 without a word (User Council, chair's finding, 20 Nov 2026).
+// Nor its quantity: the units it was counted in (640 kg) would stand beside the kept total and read
+// as 640 × 1,344.00, while a lump sum goes to the job as one (mock council S2-2).
 function asLumpsum(line: CostLine): CostLine {
   const lumpsum: CostLine = { ...line, amount: Number(line.amount) || 0 };
+  delete lumpsum.value;
   delete lumpsum.qty;
   delete lumpsum.unit;
   delete lumpsum.unitPrice;

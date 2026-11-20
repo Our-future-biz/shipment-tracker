@@ -23,6 +23,7 @@ export function ColumnPicker({
   onSaveTemplate,
   onDeleteTemplate,
   onResetWidths,
+  onResetColumns,
 }: {
   visible: string[];
   onChange: (keys: string[]) => void;
@@ -36,6 +37,8 @@ export function ColumnPicker({
   onDeleteTemplate: (id: string) => void;
   /** Set while the user has columns at a width of their own: puts them all back to their own widths. */
   onResetWidths?: () => void;
+  /** Puts the list back on its default columns (and off any template); left out, there is no button. */
+  onResetColumns?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [templateName, setTemplateName] = useState("");
@@ -158,7 +161,7 @@ export function ColumnPicker({
         })}
       </div>
 
-      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-slate-100">
+      <div className="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-slate-100">
         <button
           onClick={() => onChange(ALL_KEYS)}
           className={`${BTN_GHOST} ${BTN_SM}`}
@@ -171,6 +174,16 @@ export function ColumnPicker({
         >
           Clear
         </button>
+        {/* The way back to the defaults a saved set keeps from showing (mock council S9-2). */}
+        {onResetColumns && (
+          <button
+            onClick={onResetColumns}
+            title="Show the default columns, in their order"
+            className={`${BTN_GHOST} ${BTN_SM}`}
+          >
+            Default columns
+          </button>
+        )}
         {onResetWidths && (
           <button
             onClick={onResetWidths}

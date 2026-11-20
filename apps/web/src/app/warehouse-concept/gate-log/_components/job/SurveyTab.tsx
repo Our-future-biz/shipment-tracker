@@ -15,7 +15,6 @@ import type { interfaces } from "@/lib/api/client";
 import { Badge } from "@/components/Badge";
 import { HINT, LABEL_TEXT, REF, TD, TH } from "@/styles/ui";
 import {
-  CONTAINER_TYPES,
   EXPECTED_FILE_BYTES,
   INNER_FLAGS,
   OUTER_PACKINGS,
@@ -28,6 +27,9 @@ import {
 } from "../../_lib/gate";
 import { blankLine, blankSurvey, lineFilled, pickInput, surveyPhotoCheck, type SurveyInput, type SurveyLine } from "../../_lib/survey";
 import { fmtSize, Section } from "./fields";
+// The equipment types the container form and the Containers filter use, reefer, 40' OT and 20' FR
+// among them (mock council S11-4).
+import { EQUIPMENT_TYPES } from "@/app/warehouse-concept/_lib/containerPlan";
 import { ExceptionsPanel } from "./ExceptionsPanel";
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -613,7 +615,7 @@ function ContainerDialog({
 }) {
   const [picked, setPicked] = useState(current);
   const [number, setNumber] = useState("");
-  const [type, setType] = useState(CONTAINER_TYPES[2]!);
+  const [type, setType] = useState<string>(EQUIPMENT_TYPES[2]!);
   useEffect(() => {
     if (open) setPicked(current);
   }, [open, current]);
@@ -659,7 +661,7 @@ function ContainerDialog({
       </div>
       <div className="flex gap-2 pt-3 mt-2 border-t border-slate-100">
         <Input size="small" placeholder="MSKU1234567" value={number} onChange={(e) => setNumber(containerNumberInput(e.target.value))} onPressEnter={add} />
-        <Select size="small" className="w-[110px] shrink-0" value={type} onChange={setType} options={CONTAINER_TYPES.map((t) => ({ value: t, label: t }))} />
+        <Select size="small" className="w-[110px] shrink-0" value={type} onChange={setType} options={EQUIPMENT_TYPES.map((t) => ({ value: t, label: t }))} />
         <Button size="small" onClick={add} disabled={!complete}>
           Add
         </Button>

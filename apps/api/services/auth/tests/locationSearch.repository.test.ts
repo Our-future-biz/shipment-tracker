@@ -69,6 +69,22 @@ describe("locationRepository.search", () => {
     expect(params).toContain("carrier code for Ningbo port CNNBO");
   });
 
+  it("by air or road keeps the release's names and asks no carrier code by its port's name (mock council S4-2)", async () => {
+    await locationRepository.search("Shanghai", null, 30);
+    const { sql, params } = lastQuery();
+    expect(sql).not.toContain("CASE \"location\".\"code\"");
+    expect(sql).toContain("SELECT DISTINCT ON (code) code, country_code, name AS name, name_ascii AS name_ascii, subdivision_name AS subdivision_name FROM location");
+    expect(sql).not.toContain("OR code IN");
+    expect(params).not.toContain("carrier code for Shanghai port CNSGH");
+  });
+
+  it("by sea lists a carrier code before its port's own code (mock council S4-Q1 / R16)", async () => {
+    await locationRepository.search("Shanghai", null, 30, { companyId: "c", userId: "u" }, true);
+    const { sql, params } = lastQuery();
+    expect(sql).toMatch(/ORDER BY p\.is_seaport DESC, CASE WHEN p\.code IN \(\$\d+\) THEN 0 ELSE 1 END, COALESCE\(lp\.picks, 0\) DESC/);
+    expect(params.filter((p) => p === "CNSHA").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("asks no carrier code for a text no port name of theirs starts with", async () => {
     await locationRepository.search("Hamburg", null, 30);
     expect(lastQuery().sql).not.toContain("OR code IN");

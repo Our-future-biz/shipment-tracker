@@ -154,6 +154,45 @@ describe("stock line from the gate", () => {
     expect(back.movements[0]).toMatchObject({ reference: "Received in warehouse" });
   });
 
+  // Mock council S11-2: a receipt voided and done again at another rack.
+  it("a voided receipt clears the line's location; the receipt done again puts the new one on it", () => {
+    const receipt = (at: Date, location: string) => ({ kind: "positionReceived", label: "Received", at: at.toISOString(), by: "Eva", receipt: { pieces: 8, condition: "Good", location } });
+    const voided = { kind: "positionReceiptVoided", label: "Receipt voided", at: T1.toISOString(), by: "Ota" };
+    const m = movement({ visit: "výdej", handling: "Import", receivedAt: T0, loadInDate: "", events: [receipt(T0, "a-03-2")] });
+    const line = lineFrom(planStockSync(state(m), by));
+    expect(line.location).toBe("A-03-2");
+    const voidedState = state({ ...m, receivedAt: null, events: [receipt(T0, "a-03-2"), voided] }, { line });
+    const voidPlan = planStockSync(voidedState, { ...by, why: "receipt voided: wrong rack", countVoided: true });
+    expect(voidPlan.line?.update).toMatchObject({ status: "Voided", location: "", closedReason: "receipt voided: wrong rack" });
+    const voidedLine = lineFrom(voidPlan, line);
+    const T2 = new Date("2026-10-06T09:00:00Z");
+    const redone = planStockSync(state({ ...m, receivedAt: T2, events: [receipt(T0, "a-03-2"), voided, receipt(T2, "b-02")] }, { line: voidedLine }), by);
+    expect(redone.line?.update).toMatchObject({ status: "Available", location: "B-02" });
+    // A line voided before this fix still holds the old location: the count done again replaces it.
+    const old = planStockSync(state({ ...m, receivedAt: T2, events: [receipt(T0, "a-03-2"), voided, receipt(T2, "b-02")] }, { line: { ...voidedLine, location: "A-03-2" } }), by);
+    expect(old.line?.update).toMatchObject({ location: "B-02" });
+    // An archived position keeps its line's location for a restore.
+    expect(planStockSync(state({ ...m, deletedAt: T1 }, { line }), by).line?.update).not.toHaveProperty("location");
+  });
+
+  // Review of S11-2: only the void of the count that set the location clears it.
+  it("another void keeps the line's location, and the line reopens where it was", () => {
+    const receipt = { kind: "positionReceived", label: "Received", at: T0.toISOString(), by: "Eva", receipt: { pieces: 8, condition: "Good", location: "a-03-2" } };
+    const m = movement({ visit: "výdej", handling: "Import", receivedAt: T0, loadInDate: "", events: [receipt] });
+    // A person moved the cargo to C-01 since the count.
+    const line = { ...lineFrom(planStockSync(state(m), by)), location: "C-01" };
+    // The line voided by something else than its count (here a changed gate record takes the receipt away).
+    const voidPlan = planStockSync(state({ ...m, receivedAt: null, events: [] }, { line }), { ...by, why: "gate record changed" });
+    expect(voidPlan.line?.update).toMatchObject({ status: "Voided", closedReason: "gate record changed" });
+    expect(voidPlan.line?.update).not.toHaveProperty("location");
+    // Back in stock: where the person put it, not the count's location.
+    const back = planStockSync(state(m, { line: lineFrom(voidPlan, line) }), by);
+    expect(back.line?.update).toMatchObject({ status: "Available" });
+    expect(back.line?.update).not.toHaveProperty("location");
+    // A tally void that was not of a received tick (countVoided false) keeps it too.
+    expect(planStockSync(state({ ...m, receivedAt: null, events: [] }, { line }), { ...by, why: "tally voided: wrong house", countVoided: false }).line?.update).not.toHaveProperty("location");
+  });
+
   // User council c7: import cargo waiting for its paperwork read "Free circulation".
   it("import cargo customs has not cleared is 'Not cleared' under SCP, free circulation once cleared", () => {
     const m = movement({ visit: "výdej", handling: "Import", receivedAt: T0, loadInDate: "2026-10-01" });

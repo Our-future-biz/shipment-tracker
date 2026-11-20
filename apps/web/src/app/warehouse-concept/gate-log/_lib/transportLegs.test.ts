@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { inOnPickupRun, legStamp, nextCheck, saveQueue } from "./transportLegs";
+import { inOnPickupRun, legStamp, nextCheck, saveQueue, settledChecks } from "./transportLegs";
+
+describe("checklist clicks shown until the server agrees (mock council S10-7)", () => {
+  it("keeps three quick clicks' end state through the answers to the first two", () => {
+    // n → g → a → r clicked quickly: three saves wait; the answers come one by one.
+    let draft: Partial<Record<"photos", string>> = { photos: "r" };
+    draft = settledChecks(draft, { photos: "g" }, { photos: 3 });
+    expect(draft).toEqual({ photos: "r" });
+    draft = settledChecks(draft, { photos: "a" }, { photos: 2 });
+    expect(draft).toEqual({ photos: "r" });
+    draft = settledChecks(draft, { photos: "r" }, { photos: 1 });
+    expect(draft).toEqual({});
+  });
+
+  it("drops a click no save of that icon waits for any more, whatever the server says", () => {
+    expect(settledChecks({ ht: "g", photos: "r" }, { ht: "n", photos: "n" }, { photos: 1 })).toEqual({ photos: "r" });
+  });
+});
 
 const IN = "2026-11-20T08:00:00.000Z";
 const OUT = "2026-11-20T10:00:00.000Z";

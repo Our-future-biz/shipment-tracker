@@ -14,7 +14,7 @@ const EMAILS = vi.hoisted((): Record<string, string> => ({
 vi.mock("../../../../lib/companyUsers", () => ({ userEmailOf: vi.fn(async (id: string) => EMAILS[id] ?? "") }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { getByIdForCompany: vi.fn() } }));
 vi.mock("../../repositories/shipmentImportInstruction.repository", () => ({
-  shipmentImportInstructionRepository: { latest: vi.fn(), byHash: vi.fn(), replaceOpen: vi.fn(), cancelOpen: vi.fn(), submit: vi.fn(), decide: vi.fn(), reopen: vi.fn(), waitingFor: vi.fn() },
+  shipmentImportInstructionRepository: { latest: vi.fn(), latestApproved: vi.fn(), byHash: vi.fn(), replaceOpen: vi.fn(), cancelOpen: vi.fn(), submit: vi.fn(), decide: vi.fn(), reopen: vi.fn(), waitingFor: vi.fn() },
 }));
 vi.mock("../../services/attachment.service", () => ({ attachmentService: { addFromModule: vi.fn() } }));
 // The shipment edit rule as the shipment service applies it (lib/shipmentEditRule).
@@ -149,8 +149,16 @@ describe("the customer's page", () => {
   });
 
   it("shows whose form it is, the reference and what is known, nothing else", async () => {
-    await expect(service.publicForm(token, NOW)).resolves.toEqual({ companyName: "Austromar s.r.o.", reference: "CZ00000041", prefill: { description: "Parts" } });
+    await expect(service.publicForm(token, NOW)).resolves.toEqual({ companyName: "Austromar s.r.o.", ourPhone: "", ourEmail: "", reference: "CZ00000041", prefill: { description: "Parts" } });
     expect(invoicing.invoiceProfileGet).toHaveBeenCalledWith({ authData: expect.objectContaining({ companyID: COMPANY }) });
+  });
+
+  it("gives the company's phone and e-mail, as the tracking page does, also for a used link (mock council S3-2)", async () => {
+    vi.mocked(invoicing.invoiceProfileGet).mockResolvedValue({ profile: { companyName: "Austromar s.r.o.", phone: " +420 222 333 444 ", email: "ops@austromar.test" } } as never);
+    await expect(service.publicForm(token, NOW)).resolves.toMatchObject({ companyName: "Austromar s.r.o.", ourPhone: "+420 222 333 444", ourEmail: "ops@austromar.test" });
+    repository.byHash.mockResolvedValue(row({ status: "submitted" }));
+    const err = await service.publicForm(token, NOW).catch((e: unknown) => e);
+    expect(err).toMatchObject({ details: { companyName: "Austromar s.r.o.", ourPhone: "+420 222 333 444", ourEmail: "ops@austromar.test" } });
   });
 
   it("still opens when the company's name can't be read", async () => {
@@ -322,5 +330,24 @@ describe("the bell", () => {
   it("lists everything it found for a manager", async () => {
     repository.waitingFor.mockResolvedValue([waiting("pic@firm.cz"), waiting("x@firm.cz")] as never);
     await expect(service.waitingFor(manager)).resolves.toHaveLength(2);
+  });
+});
+
+// System-21 mock council review: Billing's duty warning reads who pays the duty from the latest approved form, so a
+// newer link still open or a newer form rejected does not make it say nothing.
+describe("who pays the duty, for Billing", () => {
+  it("is read from the latest approved form, whatever came after it", async () => {
+    repository.latest.mockResolvedValue(row({ status: "open" }));
+    repository.latestApproved.mockResolvedValue(row({ status: "approved", approvedAnswers: { ...(answers as object), dutyPaidBy: "us" } }));
+    await expect(service.dutyPaidBy(ID, COMPANY)).resolves.toBe("us");
+    expect(repository.latestApproved).toHaveBeenCalledWith(ID, COMPANY);
+    expect(repository.latest).not.toHaveBeenCalled();
+  });
+
+  it("is nobody when no form was approved, or for an id that is no shipment's", async () => {
+    repository.latestApproved.mockResolvedValue(null as never);
+    await expect(service.dutyPaidBy(ID, COMPANY)).resolves.toBe("");
+    await expect(service.dutyPaidBy("not-an-id", COMPANY)).resolves.toBe("");
+    expect(repository.latestApproved).toHaveBeenCalledTimes(1);
   });
 });

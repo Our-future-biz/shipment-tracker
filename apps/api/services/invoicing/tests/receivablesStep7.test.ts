@@ -87,9 +87,35 @@ describe("what counts toward the invoice", () => {
   });
 
   it("what is left takes confirmed write-offs off too, and the customer's list is told it is settled", () => {
-    expect(leftToPayOf({ invoiceStatus: "issued", gross: 1210, credited: 0, paid: 1000, settledOther: 210 })).toBe(0);
-    expect(customerListStateOf({ invoiceStatus: "issued", gross: 1210, credited: 0, paid: 1000, settledOther: 210 })).toEqual({ leftToPay: 0, settled: true });
+    expect(leftToPayOf({ invoiceStatus: "issued", gross: 1210, credited: 0, paid: 1000, writtenOff: 210 })).toBe(0);
+    expect(leftToPayOf({ invoiceStatus: "issued", gross: 1210, credited: 0, paid: 1000, writtenOff: 200, bankCharges: 10 })).toBe(0);
+    expect(customerListStateOf({ invoiceStatus: "issued", gross: 1210, credited: 0, paid: 1000, writtenOff: 210 })).toEqual({ leftToPay: 0, settled: true });
     expect(customerListStateOf({ invoiceStatus: "issued", gross: 1210, credited: 0, paid: 1000 })).toEqual({ leftToPay: 210, settled: false });
+  });
+
+  // Mock test council R1 (S8-Q3, as M3 on the credit note's PDF): a write-off is not paid. It closes the rest down to 0;
+  // a credit note after it cancels it up to its amount, so "To refund" is only money really sent beyond the new total.
+  it("never turns a write-off into money to refund", () => {
+    // Written off in full (a dispute), then credited in full: nothing was paid, nothing to refund.
+    expect(leftToPayOf({ invoiceStatus: "credited", gross: 1000, credited: 1000, paid: 0, writtenOff: 1000 })).toBe(0);
+    // 100, paid 80, 20 written off, credited in full: only the 80 paid goes back.
+    expect(leftToPayOf({ invoiceStatus: "credited", gross: 100, credited: 100, paid: 80, writtenOff: 20 })).toBe(-80);
+    // A partial credit of 10 after a write-off of 20: the write-off still closes what is left.
+    expect(leftToPayOf({ invoiceStatus: "issued", gross: 100, credited: 10, paid: 80, writtenOff: 20 })).toBe(0);
+    // A bank charge is money the customer sent: it counts toward a refund.
+    expect(leftToPayOf({ invoiceStatus: "credited", gross: 100, credited: 100, paid: 90, bankCharges: 10 })).toBe(-100);
+    // Still owed after a part write-off: the write-off counts in full.
+    expect(leftToPayOf({ invoiceStatus: "issued", gross: 1000, credited: 0, paid: 500, writtenOff: 100 })).toBe(400);
+    expect(customerListStateOf({ invoiceStatus: "credited", gross: 1000, credited: 1000, paid: 0, writtenOff: 1000 })).toEqual({ leftToPay: 0, settled: true });
+  });
+
+  it("the row has no To refund mark for a written-off invoice credited later", () => {
+    const s = receivableStateOf(
+      { invoiceStatus: "credited", gross: 1000, credited: 1000, paid: 0, writtenOff: 1000, dueDate: "2026-10-01", paymentTerms: "", promisedOn: null, disputed: false, reminderLevel: 0, customerListFailed: false },
+      "2026-11-20",
+    );
+    expect(s.leftToPay).toBe(0);
+    expect(s.marks).not.toContain("to_refund");
   });
 });
 

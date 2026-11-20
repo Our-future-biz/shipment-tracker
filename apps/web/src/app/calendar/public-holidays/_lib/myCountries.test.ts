@@ -29,9 +29,11 @@ describe("my countries on the holiday list", () => {
     expect(listedCountries(ITEMS)).toEqual(["Austria", "Germany", "SK"]);
   });
 
-  it("keeps only the user's countries, and all of them while none is picked", () => {
+  it("keeps only the user's countries, every row for every country, the Czech rows for no other country", () => {
     expect(ofMyCountries(ITEMS, ["Germany", "SK"]).map(rowCountry)).toEqual(["Germany", "SK", "Germany"]);
-    expect(ofMyCountries(ITEMS, [])).toHaveLength(4);
+    expect(ofMyCountries(ITEMS, null)).toHaveLength(4);
     expect(ofMyCountries(ITEMS, ["France"])).toEqual([]);
+    // Mock council R21: "no other country" is the Czech holidays, as the year calendar shows them.
+    expect(ofMyCountries([...ITEMS, row("Czech Republic", " cz")], []).map(rowCountry)).toEqual(["Czech Republic"]);
   });
 });

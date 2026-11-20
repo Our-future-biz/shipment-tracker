@@ -13,10 +13,10 @@ interface ConsignmentTilesProps {
   onSelect: (id: ConsignmentTileId | null) => void;
 }
 
-// The three tiles over the Consignments grid (same tiles as the Hauliers and Warehouse lists):
+// The four tiles over the Consignments grid (same tiles as the Hauliers and Warehouse lists):
 // click to filter, again to clear. Counts come from the server; the chosen tile shows in its indigo frame.
 export const ConsignmentTiles = ({ active, counts, onSelect }: ConsignmentTilesProps) => (
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mt-4">
     {CONSIGNMENT_TILES.map((tile) => {
       const on = active === tile.id;
       return (

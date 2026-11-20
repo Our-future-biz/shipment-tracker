@@ -349,12 +349,16 @@ describe("time passed (step 2)", () => {
     expect(texts(exp({ eta: "2026-10-20", subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }))).toEqual(["U Not arrived: expected 22.10.2026"]);
   });
 
-  it("says a wait in whole hours below 48 h and in days (rounded) from 48 h on", () => {
+  it("says a wait in whole hours below 48 h and in whole days (floored) from 48 h on", () => {
     expect(hoursText(5.9)).toBe("5 h");
     expect(hoursText(47.9)).toBe("47 h");
     expect(hoursText(48)).toBe("2 d");
-    expect(hoursText(880)).toBe("37 d");
+    expect(hoursText(880)).toBe("36 d");
     expect(hoursText(59)).toBe("2 d");
+    // Floored like the hours, not rounded (mock council S9-4): 60 h is 2 days and a half, not 3 days.
+    expect(hoursText(60)).toBe("2 d");
+    expect(hoursText(71.9)).toBe("2 d");
+    expect(hoursText(84)).toBe("3 d");
   });
 
   it("a release request still blocked after 2 h, naming the waiting gates", () => {
@@ -371,7 +375,7 @@ describe("time passed (step 2)", () => {
     expect(texts(arrived(5))).toEqual([`A Arrived ${stampText(hoursAgo(5))}, not received (5 h)`]);
     expect(texts(arrived(9, { needsReweigh: true, reweigh: null }))).toEqual([`U Arrived ${stampText(hoursAgo(9))}, not received (9 h) · waiting for re-weigh`]);
     // From two days on the wait reads in days, not in hundreds of hours (User Council).
-    expect(texts(arrived(880))).toEqual([`U Arrived ${stampText(hoursAgo(880))}, not received (37 d)`]);
+    expect(texts(arrived(880))).toEqual([`U Arrived ${stampText(hoursAgo(880))}, not received (36 d)`]);
     expect(texts(arrived(9, { handling: "Domestic" }))).toEqual([]);
     expect(texts(arrived(9, { expReceipt: hoursAgo(1) }))).toEqual([]);
   });

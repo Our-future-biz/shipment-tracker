@@ -18,6 +18,7 @@ import {
   containersFromHouses,
   houseContainerLines,
   isLoadTypeChange,
+  linkedHouseData,
   legacyContainerGroups,
   syncedShipmentData,
   type MasterContainer,
@@ -48,6 +49,7 @@ import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { companyUsers, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { requireUserEmail } from "../../../lib/personPick";
 import { billOfLadingKey } from "../../../lib/billOfLading";
+import { seaPortText } from "../../../lib/geo/carrierPorts";
 
 /** The person saving a master job, held to who may change each house's details (lib/shipmentEditRule). */
 export interface MasterJobEditor {
@@ -116,13 +118,18 @@ function toItem(
   shipmentCount: number,
   houses: readonly HouseKind[] = [],
 ): MasterJobItem {
+  const houseFreightMode = masterJobMode("", houses);
+  const mode = fields.freightMode || houseFreightMode;
   return {
     ...fields,
+    // An old carrier code's place text, as a sea job shows it ("Shanghai (CNSHA)"); stored as it is (mock council S4-1).
+    pol: seaPortText(fields.pol, mode),
+    pod: seaPortText(fields.pod, mode),
     shipmentCount,
     // A plain MCZ's filling is its houses' (n32), and a master job with no Freight Mode goes by theirs (n31) - the ones
     // not cancelled: a cancelled house's Load Type still counts, its mode never decides (lib/masterJobKind masterJobMode).
     houseLoadTypes: loadTypesOf(houses.map((h) => ({ jobNumber: "", loadType: h.loadType }))),
-    houseFreightMode: masterJobMode("", houses),
+    houseFreightMode,
     createdAt: fields.createdAt.toISOString(),
     updatedAt: fields.updatedAt.toISOString(),
   };
@@ -541,7 +548,8 @@ class MasterJobService {
     // A person links it (the Master Jobs page, the Shipments grid's Master Job dialog), so the values it
     // takes are theirs, as a master job's save is: the gate and Trucking get the fields they keep - an
     // ETA Warehouse/HUB copied from the new master job reaches the gate record (shipmentService.update's pushes).
-    await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers, "master_job");
+    // A place the house has by the master job's code keeps its own text (mock council S4-7).
+    await this.applyToHouse(shipmentId, companyId, userId, linkedHouseData(syncedShipmentData(row), shipment), containers, "master_job");
   }
 
   /** The job numbers of the shipments that are invoiced and whose tax date (ATA / ATD) `synced` would change. */

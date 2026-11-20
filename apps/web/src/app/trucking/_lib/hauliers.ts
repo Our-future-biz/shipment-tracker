@@ -22,6 +22,20 @@ export function sortIssues(issues: readonly HaulierIssue[]): HaulierIssue[] {
   return [...issues.filter((i) => i.severity === "block"), ...issues.filter((i) => i.severity !== "block")];
 }
 
+// Kept in the Customer Database (Council Outlay 7, step 6b): the VAT register check and the bank
+// accounts are changed on the customer's Finance tab, not on the haulier page.
+const CUSTOMER_FINANCE_ISSUES: ReadonlySet<interfaces.HaulierIssueCode> = new Set(["vat_unreliable", "vat_check_due", "no_bank_account"]);
+
+/**
+ * Where an issue of the haulier is put right: the Customer Database's Finance tab for the VAT
+ * register and bank account, else the haulier page (insurance, licence, blocked). Plan trip links
+ * each warning there (User Council T10: "with a direct link to the field"; mock council S6-4).
+ */
+export function issueFixHref(customerId: string, code: interfaces.HaulierIssueCode): string {
+  const id = encodeURIComponent(customerId);
+  return CUSTOMER_FINANCE_ISSUES.has(code) ? `/customers/${id}?tab=finance` : `/trucking/hauliers/${id}`;
+}
+
 /** "Carrier liability insurance expired … +2": the first issue (block first) and how many more. */
 export function issueSummary(issues: readonly HaulierIssue[]): { first: string; more: number } | null {
   const sorted = sortIssues(issues);

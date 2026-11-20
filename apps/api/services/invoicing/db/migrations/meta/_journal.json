@@ -288,6 +288,13 @@
       "when": 1795068000000,
       "tag": "0040_receivable_reminders_skipped",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795071600000,
+      "tag": "0041_invoice_cost_real_cost_at",
+      "breakpoints": true
     }
   ]
 }

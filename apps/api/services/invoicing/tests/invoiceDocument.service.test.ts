@@ -65,7 +65,8 @@ const outbox = vi.hoisted(() => {
 });
 const clients = vi.hoisted(() => ({
   shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
-  invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(), addressList: vi.fn(), invoiceReceivable: vi.fn(),
+  invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(), addressList: vi.fn(), invoiceReceivable: vi.fn(), customerActivate: vi.fn(),
+  importInstructionsDuty: vi.fn(),
 }));
 // What the receivable_state follow-up reads when it is sent (Accounts Receivable): an invoice's figures, credit notes, payments.
 const receivables = vi.hoisted(() => ({ figuresOne: vi.fn(), creditNotesOf: vi.fn(), paymentsOf: vi.fn() }));
@@ -78,6 +79,12 @@ vi.mock("../db/db", () => ({ db: { transaction: async (work: (tx: unknown) => Pr
 vi.mock("../../../lib/companyUsers", () => ({ userEmailOf: async (id: string) => `${id}@test.cz` }));
 vi.mock("../repositories/invoiceFollowupOutbox.repository", () => ({ invoiceFollowupOutboxRepository: outbox }));
 vi.mock("../repositories/receivable.repository", () => ({ receivableRepository: receivables }));
+// Carrying an old Paid over before a credit note (mock council S8-2): only what a test says it does.
+const carry = vi.hoisted(() => ({ beforeTelling: vi.fn(async () => undefined) }));
+vi.mock("../services/receivableCarryOver", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../services/receivableCarryOver")>()),
+  carryOverBeforeTelling: carry.beforeTelling,
+}));
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
   truckingLinesLock: trucking.lock,
@@ -97,6 +104,7 @@ vi.mock("~encore/clients", () => ({
     shipmentUpdate: clients.shipmentUpdate,
     shipmentList: clients.shipmentList,
     _internalShipmentReferenceFinal: clients.shipmentReferenceFinal,
+    _internalImportInstructionsDuty: clients.importInstructionsDuty,
   },
   customers: {
     customerGet: clients.customerGet,
@@ -104,6 +112,7 @@ vi.mock("~encore/clients", () => ({
     _internalCustomerInvoicePost: clients.invoiceCreate,
     invoiceMarkCredited: clients.invoiceMarkCredited,
     _internalCustomerInvoiceReceivable: clients.invoiceReceivable,
+    customerActivate: clients.customerActivate,
   },
   fx: fxClient,
 }));
@@ -139,6 +148,7 @@ const shipment = {
   status: "Billing [IMP]", invoicingStatus: "Not Invoiced",
   estimatedArrival: "10/14/26", estimatedDeparture: "09/20/26", customerId: CUSTOMER,
   shipper: "Shipper Ltd", consignee: "Consignee s.r.o.", bookingNumber: "BK1", containerNumber: "MSCU1234567", personalReference: "PO-9",
+  customerReference: "ORDER-4711",
 };
 const customer = {
   id: CUSTOMER, companyName: "Zákazník a.s.", registeredAddress: "Dlouhá 5", city: "Brno", country: "CZ",
@@ -171,6 +181,8 @@ beforeEach(() => {
   trucking.retireNettedSets.mockImplementation(async () => []);
   clients.shipmentGet.mockResolvedValue({ shipment });
   clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: shipment.jobNumber });
+  // No approved Import Instructions say who pays the duty and VAT, unless a test says so.
+  clients.importInstructionsDuty.mockResolvedValue({ dutyPaidBy: "" });
   clients.customerGet.mockResolvedValue({ customer });
   // The customer's addresses: only its seat, so the invoice is addressed there.
   clients.addressList.mockResolvedValue({ data: [{ id: "addr-seat", types: ["Registered"], label: "", street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00", country: "CZ" }] });
@@ -262,6 +274,33 @@ describe("preview", () => {
     clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, creditCheck: "Red" } });
     const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
     expect(p.warnings).toEqual(["The customer has no DIČ in the Customer Database", "The customer is still a Prospect"]);
+    expect(p.problems).toEqual([]);
+  });
+
+  // Mock council R2 (B17 kept as built): no "Your ref." without a Customer Reference, said before issuing.
+  it("hints, without blocking, when the job has no Customer Reference", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, customerReference: " " } });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(p.warnings).toEqual([expect.stringMatching(/^The job has no Customer Reference: the invoice prints no "Your ref."/)]);
+    expect(p.problems).toEqual([]);
+  });
+
+  // Mock council R3: duty and VAT we pay by the approved Import Instructions reach Billing.
+  it("warns, without blocking, when we pay the duty and VAT and the invoice has no line for them", async () => {
+    clients.importInstructionsDuty.mockResolvedValue({ dutyPaidBy: "us" });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(clients.importInstructionsDuty).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+    expect(p.warnings).toEqual([expect.stringMatching(/^The Import Instructions say we pay the duty and VAT/)]);
+    expect(p.problems).toEqual([]);
+    // A duty line on the invoice: nothing to say.
+    selling.listByShipmentId.mockResolvedValue([sellRow({}), sellRow({ id: "s2", category: "duty_advancement", amount: "4999.50", currency: "CZK" })]);
+    expect((await invoiceDocumentService.preview(SHIPMENT, COMPANY, {})).warnings).toEqual([]);
+  });
+
+  it("issues as before when who pays the duty cannot be read", async () => {
+    clients.importInstructionsDuty.mockRejectedValue(new Error("shipments is down"));
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(p.warnings).toEqual([]);
     expect(p.problems).toEqual([]);
   });
 });
@@ -386,6 +425,25 @@ describe("issue", () => {
     // Both follow-ups were written with the invoice (its transaction) and are sent.
     expect(outbox.enqueue).toHaveBeenCalledTimes(1);
     expect(outbox.rows.map((r) => [r.kind, r.status])).toEqual([["customer_invoice", "sent"], ["status_after_issue", "sent"]]);
+  });
+
+  // Mock council R11 (S5-5): a Prospect's first issued invoice makes it Active; the invoice stands if that fails.
+  it("makes a Prospect customer Active once its invoice is issued, and only a Prospect", async () => {
+    clients.customerGet.mockResolvedValue({ customer: { ...customer, status: "Prospect" } });
+    clients.customerActivate.mockResolvedValue({ changed: true });
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k-prospect" });
+    expect(clients.customerActivate).toHaveBeenCalledWith({ id: CUSTOMER, companyId: COMPANY, onlyProspect: true });
+
+    clients.customerActivate.mockClear();
+    clients.customerActivate.mockRejectedValue(new Error("customers down"));
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k-prospect-2" })).resolves.toMatchObject({ number: "INV2026CZ00000028-001" });
+
+    clients.customerActivate.mockClear();
+    for (const status of ["Active", "Inactive"]) {
+      clients.customerGet.mockResolvedValue({ customer: { ...customer, status } });
+      await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: `k-${status}` });
+    }
+    expect(clients.customerActivate).not.toHaveBeenCalled();
   });
 
   it("leaves the job Not Invoiced and in Billing while a charge is left to bill", async () => {
@@ -817,6 +875,55 @@ describe("credit", () => {
     });
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toThrow(/already been credited/);
   });
+
+  const issuesWithHooks = () =>
+    repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[], hooks?: { afterInsert?: (tx: unknown, invoice: unknown) => Promise<void> }) => {
+      const invoice = { ...header, id: "cn1", number: `${prefix}001`, pdfKey: "", createdAt: new Date() };
+      await hooks?.afterInsert?.({}, invoice);
+      return { invoice, lines };
+    });
+
+  // Mock council S8-2: an invoice paid before Accounts Receivable is carried over before its credit note is issued.
+  it("carries an old Paid over before the credit note, so its PDF reads as a refund", async () => {
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue([line]);
+    repo.markCredited.mockResolvedValue(true);
+    issuesWithHooks();
+    receivables.figuresOne.mockResolvedValueOnce({ invoice: original, receivable: { carriedChecked: false } }).mockResolvedValueOnce({ invoice: original, receivable: { carriedChecked: true } });
+    await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
+    expect(carry.beforeTelling).toHaveBeenCalledWith(COMPANY, "inv1");
+    expect(carry.beforeTelling.mock.invocationCallOrder[0]).toBeLessThan(repo.issue.mock.invocationCallOrder[0]!);
+  });
+
+  it("refuses the credit note, to try again, while the customer's list can't say whether it was paid", async () => {
+    repo.getByIdForCompany.mockResolvedValue(original);
+    receivables.figuresOne.mockResolvedValue({ invoice: original, receivable: { carriedChecked: false } });
+    await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toMatchObject({ code: "unavailable", message: expect.stringMatching(/could not be read just now/) });
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
+  it("asks nothing for an invoice already checked", async () => {
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue([line]);
+    repo.markCredited.mockResolvedValue(true);
+    issuesWithHooks();
+    receivables.figuresOne.mockResolvedValue({ invoice: original, receivable: { carriedChecked: true } });
+    await invoiceDocumentService.credit("inv1", COMPANY, USER, "x");
+    expect(carry.beforeTelling).not.toHaveBeenCalled();
+  });
+
+  // Mock council S8-3: a PDF guessing "To be refunded" was stored for good when the read failed.
+  it("stores no PDF when what the credit note did can't be read: the first download makes it", async () => {
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue([line]);
+    repo.markCredited.mockResolvedValue(true);
+    issuesWithHooks();
+    receivables.paymentsOf.mockRejectedValue(new Error("connection reset"));
+    const cn = await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
+    expect(cn.hasPdf).toBe(false);
+    expect(pdf.render).not.toHaveBeenCalled();
+    expect(repo.setPdfIfMissing).not.toHaveBeenCalled();
+  });
 });
 
 describe("partial credit notes", () => {
@@ -967,6 +1074,17 @@ describe("partial credit notes", () => {
     await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toThrow(/credited in full since/);
   });
 
+  // Mock council S8-2: carried over first; refused, to try again, while the customer's list can't be asked.
+  it("carries an old Paid over first, and refuses while it can't be checked", async () => {
+    receivables.figuresOne.mockResolvedValueOnce({ invoice: original, receivable: { carriedChecked: false } }).mockResolvedValueOnce({ invoice: original, receivable: { carriedChecked: true } });
+    await invoiceDocumentService.issuePartialCredit(request as never, approver);
+    expect(carry.beforeTelling).toHaveBeenCalledWith(COMPANY, "inv1");
+    repo.issue.mockClear();
+    receivables.figuresOne.mockResolvedValue({ invoice: original, receivable: { carriedChecked: false } });
+    await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toMatchObject({ code: "unavailable" });
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
   it("refuses when another credit note of the invoice was issued while this one was worked out", async () => {
     repo.creditNotesOf.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "cnA", number: "CN2026CZ00000028-001", gross: "-10.00" }]);
     await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toThrow(/credited a moment ago/);
@@ -1067,6 +1185,21 @@ describe("queue", () => {
     for (const read of [selling.listLiveByShipments, repo.listOpenInvoicesWithSources, settings.listByShipments]) {
       expect(read).toHaveBeenCalledWith([SHIPMENT, "s2"], COMPANY);
     }
+  });
+
+  // Mock council S5-3 / S5-2.
+  it("names a charge not ticked for Invoice, and says when the late charges could not be read", async () => {
+    mockQueue();
+    selling.listLiveByShipments.mockResolvedValue([
+      { id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true },
+      { id: "r2", shipmentId: SHIPMENT, qty: "1.00", amount: "150.00", currency: "EUR", invoice: false },
+    ]);
+    const r = await invoiceDocumentService.queue(COMPANY, "to_bill");
+    expect(r.queue.map((x) => [x.jobNumber, x.notTickedLines])).toEqual([["CZ00000028", 1], ["CZ00000030", 0]]);
+    expect(r.lateChargesNotRead).toBe(false);
+    const listing = clients.shipmentList.getMockImplementation()!;
+    clients.shipmentList.mockImplementation(async (req: { invoicing: string; limit: number }) => ({ ...(await listing(req)), ...(req.invoicing === "billing" ? { lateChargesNotRead: true } : {}) }));
+    expect((await invoiceDocumentService.queue(COMPANY, "to_bill")).lateChargesNotRead).toBe(true);
   });
 
   it("the All shipments view lists every shipment but cancelled ones through the list filter 'all'", async () => {

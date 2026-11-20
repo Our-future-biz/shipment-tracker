@@ -145,7 +145,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   }, [urlQuery]);
   // search runs on the server (across all shipments), so wait until typing pauses
   const debounced = useDebounced(urlQuery.trim(), 300);
-  const { rows, counts, truncated, hasData, isFetching, isError } = useInvoiceQueue(view, debounced);
+  const { rows, counts, truncated, lateChargesNotRead, hasData, isFetching, isError } = useInvoiceQueue(view, debounced);
   const [createOpen, setCreateOpen] = useState(false);
   // The row's Documents and Chat drawers, as on Shipments
   const [docsJob, setDocsJob] = useState<{ id: string; jobNumber: string } | null>(null);
@@ -278,7 +278,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
       : view === "unbilled_arrivals"
         ? "No unbilled jobs past their tax date — a job appears here once its tax date has happened (it arrived, departed or was delivered) and operations hasn't set its Shipment Status to Billing yet."
       : view === "all"
-        ? "No shipments here — a job appears once operations set its Shipment Status to Billing, once it is invoiced, or once a charge is added to a job that has an invoice. Cancelled jobs are left out."
+        ? "No shipments here — a job appears once operations set its Shipment Status to Billing, once it is invoiced, or once a charge is added to a job that has an invoice. Cancelled jobs are left out, unless a charge added after their invoice waits."
         : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing, or once a charge is added to a job that has an invoice.";
   if (debounced || hasListFilters) emptyText = "No shipments match these filters.";
   if (isFetching) emptyText = "Loading the queue…";
@@ -408,6 +408,14 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
         )}
 
         {isError && <Alert type="error" showIcon message="Could not load the invoicing queue." />}
+        {/* Mock council S5-2: without this the late-charge jobs dropped from To bill and All without a word. */}
+        {!isError && lateChargesNotRead && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Jobs with a charge added after their invoice could not be read: they are missing from To bill and All, and from the counts. Try again in a moment."
+          />
+        )}
         {truncated && viewCount !== undefined && (
           // The selects narrow only the rows loaded here; only the server search reaches older jobs.
           <ListCapNotice

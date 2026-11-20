@@ -169,10 +169,13 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
       {excluded.length > 0 && (
         <div className="mt-3 rounded-lg border border-red-100 bg-red-50/50 px-3 py-2">
           <div className={`mb-1 ${LABEL_TEXT} !text-red-700`}>Not offered — blocked</div>
+          {/* Each name and issue links to where it is put right (User Council T10, mock council S6-4). */}
           {excluded.map((x) => (
             <div key={x.customerId} className="py-1">
-              <div className="text-[13px] font-semibold text-slate-900">{x.name}</div>
-              <HaulierIssueList issues={x.issues} limit={2} />
+              <Link href={`/trucking/hauliers/${x.customerId}`} className={`${LINK} text-[13px] font-semibold`}>
+                {x.name}
+              </Link>
+              <HaulierIssueList issues={x.issues} limit={2} linkFor={x.customerId} />
             </div>
           ))}
         </div>
@@ -212,7 +215,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
                   <Link href={`/trucking/hauliers/${h.customerId}`} className={`${LINK} text-[13px] font-semibold`}>
                     {pickName(h)}
                   </Link>
-                  <HaulierIssueList issues={h.issues} limit={2} />
+                  <HaulierIssueList issues={h.issues} limit={2} linkFor={h.customerId} />
                 </div>
               ))}
               {blocked.length > BLOCKED_SHOWN && (
@@ -225,9 +228,9 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
         </div>
       )}
 
-      {pickedWarnings.length > 0 && (
+      {pickedWarnings.length > 0 && pickedHaulier && (
         <div className="mt-3">
-          <HaulierIssueList issues={pickedWarnings} />
+          <HaulierIssueList issues={pickedWarnings} linkFor={pickedHaulier} />
         </div>
       )}
 

@@ -99,13 +99,19 @@ describe("customs status follows the shipment", () => {
     expect(shipmentGet).not.toHaveBeenCalled();
   });
 
-  it("leaves released records as they were released", async () => {
+  it("leaves released records as they were released, but for the job's number when the record is opened (mock council S11-6)", async () => {
     const { c, s, id } = await linked();
     await gateMovementRepository.update(id, c, { impRelease: new Date(), status: "Released" });
-    shipmentData.set(s, { customsStatus: "Customs Cleared/Released" });
+    shipmentData.set(s, { customsStatus: "Customs Cleared/Released", etaWarehouse: "2026-11-18", jobNumber: "CZLCL00000077" });
+    const before = await gateMovementService.get(id, c);
+    // The list and the cron never read it.
+    await gateMovementService.followShipments(c);
+    expect(shipmentGet).not.toHaveBeenCalled();
     const m = (await gateMovementService.followShipments(c, { id, force: true }), await gateMovementService.get(id, c));
     expect(m.customsStatus).toBe("Paperwork Verified");
-    expect(shipmentGet).not.toHaveBeenCalled();
+    expect(m.etaWarehouse).toBe(before.etaWarehouse);
+    expect(m.jobNumber).toBe("CZLCL00000077");
+    expect(m.events.at(-1)).toMatchObject({ kind: "jobNumberFromShipment", detail: `was ${before.jobNumber}` });
   });
 
   it("leaves the record unchanged when the shipment cannot be read", async () => {

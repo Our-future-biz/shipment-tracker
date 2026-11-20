@@ -52,7 +52,6 @@ export const hasSurvey = (m: SurveyState, container: string, phase: SurveyPhaseK
 export const OUTER_PACKINGS = ["Cartons", "Case", "Barrel", "Sack", "Pallets", "Unpacked"];
 export const VISUAL_FLAGS = ["Broken", "Dented", "Hole in", "Torn", "Wet", "Bad loose", "Open"];
 export const INNER_FLAGS = ["Soiled", "Pour out", "Unidentified", "Not visible", "Accessible"];
-export const CONTAINER_TYPES = ["20' DV", "40' DV", "40' HC", "45' HC", "20' OT", "40' FR"];
 export const MAX_DROPS = 10;
 export const EXPECTED_FILE_BYTES = 20 * 1000 * 1000;
 // The movement's own status. It moves only through the stamps, Refuse and the supervisor override.

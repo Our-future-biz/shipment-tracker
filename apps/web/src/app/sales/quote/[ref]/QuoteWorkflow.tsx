@@ -164,6 +164,7 @@ import {
   oceanOffersRequest,
   oceanRouteOf,
   oceanVersionId,
+  sellingAfterOceanPick,
   withOceanOffer,
   type OceanOffer,
   type OceanRoute,
@@ -1009,7 +1010,9 @@ export function QuoteWorkflow() {
     if (quoteClosed || oceanLine === null) return;
     const before = buyingLines[oceanLine];
     const pick = withOceanOffer(buyingLines, oceanLine, offer, route, draft);
-    putPick(pick);
+    // Its selling line drops the old text with the shipping line's name too (mock council S2-4).
+    const selling = sellingAfterOceanPick(sellingLines, before, pick.lines[pick.at]);
+    putPick(pick, selling ? { sellingLines: selling } : {});
     setOceanLine(null);
     const surcharges = offer.surcharges.length ? ` and ${offer.surcharges.length} ${offer.surcharges.length === 1 ? "surcharge" : "surcharges"}` : "";
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.freight, offer.currency)} freight${surcharges}`);

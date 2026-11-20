@@ -91,11 +91,19 @@ const totalsOf = (loads: LoadInput[]) => {
   return { pieces: s.pieces, palletPlaces: s.palletPlaces, ldm: s.ldm, weightKg: s.weightKg };
 };
 
-/** "13.6 LDM / 24 000 kg — 82 % LDM, 41 % kg" in the figures of the manifest's language, "" without a vehicle. */
+/**
+ * "13.6 LDM / 24 000 kg / 33 pallet places — 82 % LDM, 41 % kg, 50 % pallet places" in the figures of
+ * the manifest's language, "" without a vehicle. The pallet places are there when the vehicle has
+ * any, as tripFill counts them and the screens show them (mock council S6-1); a vehicle with none
+ * reads "13.6 LDM / 24 000 kg — 82 % LDM, 41 % kg" as before.
+ */
 export function capacityText(cap: TripCapacity | null, fill: TripFill, lang: DocLanguage): string {
   if (!cap) return "";
   const n = (v: number) => formatNumber(v, lang);
-  return `${n(cap.ldm)} LDM / ${n(cap.kg)} kg — ${n(fill.ldmPercent ?? 0)} % LDM, ${n(fill.kgPercent ?? 0)} % kg`;
+  const text = `${n(cap.ldm)} LDM / ${n(cap.kg)} kg — ${n(fill.ldmPercent ?? 0)} % LDM, ${n(fill.kgPercent ?? 0)} % kg`;
+  if (!(cap.palletPlaces > 0) || fill.palletPlacesPercent == null) return text;
+  const places = say(lang, "pal. míst", "pallet places");
+  return `${n(cap.ldm)} LDM / ${n(cap.kg)} kg / ${n(cap.palletPlaces)} ${places} — ${n(fill.ldmPercent ?? 0)} % LDM, ${n(fill.kgPercent ?? 0)} % kg, ${n(fill.palletPlacesPercent)} % ${places}`;
 }
 
 /** Where a trip starts and ends: a pick-up run ends at our warehouse, a line haul ends at the depot, a delivery run has many ends. */

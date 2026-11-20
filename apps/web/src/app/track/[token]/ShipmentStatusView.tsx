@@ -4,11 +4,11 @@ import { Spin } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { SectionCard } from "@/components/SectionCard";
 import { isNotFound, publicApi } from "@/lib/api";
-import { businessDateTime, formatDate } from "@/lib/date";
+import { businessDateTime, businessDayOf, businessToday, formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { BTN, EMPTY, HINT, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { Bi } from "@/app/haulier/_components/Bi";
-import { LEG_TITLES, TEXT, asOfText, cargoText, contactText, kindText, routeText, stateText, stepText } from "./statusText";
+import { LEG_TITLES, TEXT, asOfText, cargoText, contactText, kindText, plannedPassed, routeText, stateText, stepText } from "./statusText";
 
 type State = interfaces.PublicMilestone["state"];
 
@@ -26,7 +26,9 @@ const STATE_TEXT: Record<State, string> = {
   unconfirmed: "text-amber-700",
 };
 
-function Row({ m }: { m: interfaces.PublicMilestone }) {
+function Row({ m, today }: { m: interfaces.PublicMilestone; today: string }) {
+  // A passed cut-off (or an earlier step nobody noted) is no longer "Planned" (mock council S3-3).
+  const passed = plannedPassed(m, today);
   return (
     <li className="flex items-start gap-3 px-4 py-3">
       <span aria-hidden className={`mt-1 size-3 shrink-0 rounded-full border-2 ${DOT[m.state]}`} />
@@ -37,7 +39,7 @@ function Row({ m }: { m: interfaces.PublicMilestone }) {
         {/* Printed beside the dot, so a phone shows it too, in the words the staff's customer-view preview uses
             (User Council E2): never "late", and "Still to come" for a step with no planned day yet (Q15). */}
         <div className={`text-[12px] font-medium ${STATE_TEXT[m.state]}`}>
-          <Bi text={stateText(m.state, !!m.planned)} />
+          <Bi text={stateText(m.state, !!m.planned, passed)} />
         </div>
         {m.place && <div className={HINT}>{m.place}</div>}
         {m.detail && <div className={HINT}>{m.detail}</div>}
@@ -45,6 +47,8 @@ function Row({ m }: { m: interfaces.PublicMilestone }) {
       <div className="shrink-0 text-right text-[13px] tabular-nums">
         {m.actual ? (
           <span className="font-medium text-slate-900">{formatDate(m.actual)}</span>
+        ) : m.planned && passed ? (
+          <span className="text-slate-700">{formatDate(m.planned)}</span>
         ) : m.planned ? (
           <span className="text-slate-700">
             <Bi text={TEXT.planned} /> {formatDate(m.planned)}
@@ -136,7 +140,7 @@ export function ShipmentStatusView({ token }: { token: string }) {
             <SectionCard key={leg.key} title={`${leg.text.cs} · ${leg.text.en}`} bodyClassName="p-0">
               <ul className="m-0 p-0 list-none divide-y divide-slate-100">
                 {rows.map((m) => (
-                  <Row key={m.key} m={m} />
+                  <Row key={m.key} m={m} today={businessDayOf(status.asOf) || businessToday()} />
                 ))}
               </ul>
             </SectionCard>

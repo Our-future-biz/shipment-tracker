@@ -39,6 +39,8 @@ export function useInvoiceQueue(view: BillingQueueView, search: string) {
     rows: query.data?.queue ?? ([] as interfaces.BillingQueueItem[]),
     counts: query.data?.counts,
     truncated: query.data?.truncated ?? false,
+    // To bill / All went without the jobs with a charge added after their invoice (mock council S5-2).
+    lateChargesNotRead: query.data?.lateChargesNotRead ?? false,
     hasData: query.data !== undefined,
     isFetching: query.isFetching,
     isError: query.isError,

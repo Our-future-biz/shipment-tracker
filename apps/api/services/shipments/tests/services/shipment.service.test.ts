@@ -13,6 +13,9 @@ vi.mock("~encore/clients", () => ({
   warehouse: { _internalPickupPlates: vi.fn(), warehouseSectionGet: vi.fn() },
   holidays: { _internalHolidaysCzNational: vi.fn() },
 }));
+// The signed-in user, when there is one: the role decides whether the Warehouse Concept's plate is asked for.
+const signedIn = vi.hoisted(() => ({ role: null as string | null }));
+vi.mock("~encore/auth", () => ({ getAuthData: () => (signedIn.role ? { userID: "u1", companyID: "c1", role: signedIn.role } : null) }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
 const TX = vi.hoisted(() => ({ fake: "tx" }));
 vi.mock("../../repositories/shipment.repository", () => ({
@@ -506,6 +509,13 @@ describe("create without a quote", () => {
     expect(result).toEqual({ shipment: expect.objectContaining({ id: SHIPMENT, salesNumber: REF }) });
   });
 
+  it("marks the reference final when the job is created with a Booking Number, and not without (mock council R13)", async () => {
+    await create({ bookingNumber: " MAEU123456 " });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ jobNumberFinal: true });
+    await create({ bookingNumber: "" });
+    expect(repository.createWithJobNumber.mock.calls[1]![1]).not.toHaveProperty("jobNumberFinal");
+  });
+
   it("is created also when the quote could not be told: logged, and left to the reconcile", async () => {
     links.syncReference.mockRejectedValue(new Error("quotes is unreachable"));
     await expect(create({ salesNumber: REF })).resolves.toMatchObject({ shipment: { id: SHIPMENT } });
@@ -791,11 +801,22 @@ describe("update", () => {
       expect(stored.get(SHIPMENT)).toMatchObject({ jobNumber: "CZFCL00000101", loadType: "Consolidation" });
     });
 
-    it("follow again once the Booking Number is cleared", async () => {
-      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", bookingNumber: "MAEU123456" }));
+    it("stay when the Booking Number is cleared: the first booking marked the reference final (mock council R13)", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZ00000101", freightMode: "Sea Freight", loadType: "Full Load" }));
+      await update({ bookingNumber: "MAEU123456" });
+      expect(stored.get(SHIPMENT)!.jobNumberFinal).toBe(true);
       await update({ bookingNumber: "" });
       await update({ loadType: "Consolidation" });
-      expect(renamedTo()).toEqual(["CZLCL00000101"]);
+      expect(renamedTo()).toEqual([]);
+      expect(stored.get(SHIPMENT)!.jobNumber).toBe("CZ00000101");
+    });
+
+    it("stay on a job booked before the flag counted, once its Booking Number is cleared (mock council R13)", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", bookingNumber: "MAEU123456" }));
+      await update({ bookingNumber: "" });
+      expect(stored.get(SHIPMENT)!.jobNumberFinal).toBe(true);
+      await update({ loadType: "Consolidation" });
+      expect(renamedTo()).toEqual([]);
     });
 
     it("stay on a job marked Invoiced by hand in the same edit", async () => {
@@ -1078,6 +1099,28 @@ describe("a shipper or consignee picked from the Customer Database", () => {
       deliveryPhone: "",
       deliveryNotes: "",
     });
+  });
+
+  it("clears the old Delivery Phone and Notes on any consignee change: one with no address, unlinked, or sent with its own address (mock council S3-6)", async () => {
+    const old = { deliveryPhone: "+420 602", deliveryNotes: "Mon-Fri 8-14" };
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "X", registeredAddress: "", country: "CZ" } } as never);
+    const writes: Record<string, unknown>[] = [
+      { consigneeId: "8d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5d" },
+      { consignee: "Typed s.r.o.", consigneeId: null },
+      { consigneeId: "8d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5d", deliveryAddress: "typed by hand" },
+      // The same consignee, or a write that sends the phone itself, keeps them.
+      { consigneeId: PARTY },
+      { consigneeId: null, deliveryPhone: "+420 777" },
+    ];
+    for (const data of writes) {
+      stored.set(SHIPMENT, row({ consigneeId: PARTY, ...old }));
+      await update(data);
+    }
+    const calls = repository.updateForCompany.mock.calls.map((c) => c[2] as Record<string, unknown>);
+    for (const data of calls.slice(0, 3)) expect(data).toMatchObject({ deliveryPhone: "", deliveryNotes: "" });
+    expect(calls[3]).not.toHaveProperty("deliveryPhone");
+    expect(calls[4]).toMatchObject({ deliveryPhone: "+420 777", deliveryNotes: "" });
   });
 
   it("fills the shipper's pick-up from the Registered address when there is no Pickup one", async () => {
@@ -2286,7 +2329,21 @@ describe("the Pick-up tab's License Plate", () => {
     vi.mocked(warehouse._internalPickupPlates).mockResolvedValue({ plates: [{ shipmentId: SHIPMENT, licensePlate: "1AB 2345, 3CD 4567" }] });
     const shipment = await shipmentService.getById(SHIPMENT, COMPANY);
     expect(shipment?.licensePlate).toBe("1AB 2345, 3CD 4567");
-    expect(warehouse._internalPickupPlates).toHaveBeenCalledWith({ companyId: COMPANY, shipmentIds: [SHIPMENT] });
+    expect(warehouse._internalPickupPlates).toHaveBeenCalledWith({ companyId: COMPANY, shipmentIds: [SHIPMENT], seesConcepts: false });
+  });
+
+  it("asks for the Warehouse Concept's plate only for a user who sees the Concept (review of mock council C2)", async () => {
+    stored.set(SHIPMENT, row());
+    try {
+      signedIn.role = "superadmin";
+      await shipmentService.getById(SHIPMENT, COMPANY);
+      expect(warehouse._internalPickupPlates).toHaveBeenLastCalledWith({ companyId: COMPANY, shipmentIds: [SHIPMENT], seesConcepts: true });
+      signedIn.role = "admin";
+      await shipmentService.getById(SHIPMENT, COMPANY);
+      expect(warehouse._internalPickupPlates).toHaveBeenLastCalledWith({ companyId: COMPANY, shipmentIds: [SHIPMENT], seesConcepts: false });
+    } finally {
+      signedIn.role = null;
+    }
   });
 
   it("is empty for a shipment without one", async () => {
@@ -2529,6 +2586,26 @@ describe("Needs Attention: the two cards, the Overview tile and the list it open
 
   // The most pressing first: the earliest date, then the reference.
   const URGENT = ["s-missed", "s-overdue", "s-today", "s-both", "s-timed", "s-next"];
+
+  it("searches Handled By and Holiday Cover also by the users' names, and asks for no names for any other search (mock council S7-5)", async () => {
+    await shipmentService.list(COMPANY, { ...LIST, search: "Koubek", searchColumns: ["personInCharge", "pol"] }, NOW);
+    expect(repository.listFiltered.mock.lastCall![1].searchPeopleNames).toEqual(
+      new Map([["jan@firma.cz", "Jan Novák"], ["martin@firma.cz", "Martin Koubek"], ["jana@firma.cz", "Jana Nováková"]]),
+    );
+    await shipmentService.list(COMPANY, { ...LIST, search: "Koubek", searchColumns: ["pol"] }, NOW);
+    expect(repository.listFiltered.mock.lastCall![1].searchPeopleNames).toBeUndefined();
+    // All fields take Handled By and Holiday Cover in: the names too (review of S7-5).
+    await shipmentService.list(COMPANY, { ...LIST, search: "Koubek" }, NOW);
+    expect(repository.listFiltered.mock.lastCall![1].searchPeopleNames).toEqual(
+      new Map([["jan@firma.cz", "Jan Novák"], ["martin@firma.cz", "Martin Koubek"], ["jana@firma.cz", "Jana Nováková"]]),
+    );
+    await shipmentService.list(COMPANY, { ...LIST, search: "  " }, NOW);
+    expect(repository.listFiltered.mock.lastCall![1].searchPeopleNames).toBeUndefined();
+    // The users could not be read: the e-mails are still searched.
+    vi.mocked(auth.usersList).mockRejectedValueOnce(new Error("auth is unreachable"));
+    await shipmentService.list(COMPANY, { ...LIST, search: "Koubek", searchColumns: ["holidayCover"] }, NOW);
+    expect(repository.listFiltered.mock.lastCall![1].searchPeopleNames).toEqual(new Map());
+  });
 
   it("agree: the URGENT card's jobs are the jobs the tile counts and the jobs tile=attention asks the list for", async () => {
     const cards = await shipmentService.needsAttention(COMPANY, NOW);
@@ -3807,11 +3884,17 @@ describe("the Invoicing lists' jobs with a charge added after their invoice", ()
   it("when invoicing doesn't answer, To bill and All list without them - not failing - and it is logged", async () => {
     lateCharges.mockRejectedValueOnce(new Error("invoicing restarting"));
     vi.mocked(log.warn).mockClear();
-    await expect(listOf("billing")).resolves.toMatchObject({ data: [] });
+    // ...and says so (mock council S5-2), so the queue warns above itself.
+    await expect(listOf("billing")).resolves.toMatchObject({ data: [], lateChargesNotRead: true });
     expect(repository.listFiltered).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ invoicing: "billing", lateChargeIds: undefined }));
     expect(log.warn).toHaveBeenCalledWith(expect.any(Error), expect.stringContaining("not read"));
     // The same load's other lists agree: none of them adds a late-charge job either.
-    await listOf("all");
+    await expect(listOf("all")).resolves.toMatchObject({ lateChargesNotRead: true });
     expect(repository.listFiltered).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ invoicing: "all", lateChargeIds: undefined }));
+  });
+
+  it("says nothing of late charges when they were read, or for a list that does not take them in (S5-2)", async () => {
+    expect(await listOf("billing")).not.toHaveProperty("lateChargesNotRead");
+    expect(await listOf("invoiced")).not.toHaveProperty("lateChargesNotRead");
   });
 });

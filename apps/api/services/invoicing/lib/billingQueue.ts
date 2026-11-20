@@ -70,6 +70,25 @@ export function countInvoicedLines(
 }
 
 /**
+ * Per shipment: how many of its charges on no open invoice are not ticked for Invoice (mock council S5-3). Such a
+ * line keeps the job Not Invoiced and brings it to To bill (countInvoicedLines counts it), but issuing skips it and
+ * the queue's amount leaves it out - so the row reads "1 line not ticked for Invoice" instead of 0 to bill.
+ */
+export function countNotTicked(
+  rows: (Pick<QueueSellingRow, "id" | "shipmentId" | "qty" | "amount"> & { invoice?: boolean | null; sourceCreditNoteId?: string | null })[],
+  openInvoices: Pick<QueueOpenInvoice, "sourceSellingCostIds">[],
+): Map<string, number> {
+  const invoicedRowIds = new Set(openInvoices.flatMap((i) => i.sourceSellingCostIds).filter((x): x is string => !!x));
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    if (r.invoice || r.sourceCreditNoteId || invoicedRowIds.has(r.id)) continue;
+    if (!(Number(r.amount ?? 0) * qtyOrOne(r.qty) > 0)) continue;
+    counts.set(r.shipmentId, (counts.get(r.shipmentId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
  * Per shipment with an open invoice: how many of its selling lines are a credit owed - below nothing and on no open
  * invoice (nor a partial credit note of one), the lines countInvoicedLines leaves out. Such a job reads Invoiced
  * (a credit owed is no charge to bill), so the check of invoiced jobs lists it by this count (M3): the customer is

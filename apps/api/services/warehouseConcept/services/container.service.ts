@@ -35,6 +35,7 @@ import { openExceptionInTx, resolveTallyExceptionsInTx } from "./gateException.s
 import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
 import { syncStockForMovement } from "./warehouseStockSync";
+import { COUNT_VOIDED } from "./warehouseStockPlan";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { conditionNotGood, countedText, damageNotice } from "./positionReceipt";
 
@@ -919,7 +920,7 @@ class ContainerService {
       // A voided short / not arrived takes back the Short exception that tally opened.
       if (link.tallyOutcome !== "received") await resolveTallyExceptionsInTx(tx, m.id, companyId, by, c.number, `Tally voided: ${why}`);
       // A voided tick-off voids the stock line (and bonded entry); a new tick opens the same rows.
-      await syncStockForMovement(tx, companyId, m.id, { by, why: `tally voided: ${why}` });
+      await syncStockForMovement(tx, companyId, m.id, { by, why: `${COUNT_VOIDED.tally}: ${why}`, countVoided: link.tallyOutcome === "received" });
       await this.log(tx, c, companyId, [{ kind: "tallyVoided", label: `Tally voided: ${ref(m)}`, at, by, detail: `${why} · was ${was}` }]);
     });
     return { container: await this.detail(id, companyId), notice };

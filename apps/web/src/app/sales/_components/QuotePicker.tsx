@@ -5,6 +5,7 @@ import { Select } from "antd";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useSalesQuoteList } from "@/hooks/useSalesQuoteList";
 import type { SalesQuote } from "../_lib/salesQuote";
+import { routeEnds } from "../_lib/printQuote";
 import { QuoteRoute } from "./QuoteRoute";
 
 // How many quotes the picker lists at a time: the newest ones that match what was typed.
@@ -17,7 +18,9 @@ export type PickedQuote = Pick<SalesQuote, "quoteNumber"> & Partial<Pick<SalesQu
 // fit, as its tooltip.
 function quoteText(quote: PickedQuote): string {
   if (!quote.data) return quote.quoteNumber;
-  const { customerName, origin, destination } = quote.data;
+  const { customerName } = quote.data;
+  // A blank end reads as the port or airport, as the quote's document says it (mock council S2-5).
+  const [origin, destination] = routeEnds(quote.data);
   const route = origin || destination ? ` · ${origin || "—"} → ${destination || "—"}` : "";
   return `${quote.quoteNumber}${customerName ? ` — ${customerName}` : ""}${route}`;
 }
@@ -25,14 +28,15 @@ function quoteText(quote: PickedQuote): string {
 // A quote as the picker shows it, in its list and in its box: the reference as the app prints
 // references, then whose quote it is and where it goes.
 function quoteLabel(quote: PickedQuote): ReactNode {
-  const { customerName, origin, destination } = quote.data ?? {};
+  const { customerName } = quote.data ?? {};
+  const [origin, destination] = routeEnds(quote.data ?? {});
   return (
     <>
       <span className="tabular-nums font-semibold">{quote.quoteNumber}</span>
       {customerName && <span className="ml-2">{customerName}</span>}
       {(origin || destination) && (
         <span className="ml-2">
-          <QuoteRoute origin={origin} destination={destination} />
+          <QuoteRoute data={quote.data ?? {}} />
         </span>
       )}
     </>

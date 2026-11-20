@@ -125,6 +125,16 @@ describe("margin, gates and attention", () => {
     expect(attentionReasons({ ...base, cancelledAt: now }, "2026-10-15", now)).toEqual([]);
   });
 
+  it("names an Express fixed date one without its agreed day until the pick-up (mock council R24)", () => {
+    const now = t("2026-10-15T10:00:00Z");
+    const fixed = { ...none, status: "ORDERED" as const, serviceLevel: "EXP_FIXED", pickupDate: "2026-10-20", promisedDate: null, belowFloor: false, marginApproved: false, marginCzk: 1000, tripRejectedAt: null };
+    expect(attentionReasons(fixed, "2026-10-15", now)).toEqual(["Express fixed date without the agreed delivery day: give it in Edit"]);
+    expect(attentionReasons({ ...fixed, promisedDate: "2026-10-22" }, "2026-10-15", now)).toEqual([]);
+    expect(attentionReasons({ ...fixed, serviceLevel: "D1" }, "2026-10-15", now)).toEqual([]);
+    // Picked up: the day can no longer be given, so it is not asked for.
+    expect(attentionReasons({ ...fixed, status: "PICKED_UP", pickedUpAt: now }, "2026-10-15", now)).toEqual([]);
+  });
+
   it("shows notices (also on a cancelled consignment) and fallback findings until the job is billed", () => {
     const now = t("2026-10-15T10:00:00Z");
     const quiet = { ...none, status: "BOOKED" as const, pickupDate: "2026-10-20", promisedDate: null, belowFloor: false, marginApproved: false, marginCzk: 1000, tripRejectedAt: null };

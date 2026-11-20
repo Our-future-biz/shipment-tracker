@@ -135,7 +135,7 @@ describe("compareFigure / checkConsistency", () => {
     expect(compareFigure(1.2346, 1.2355, 3).ok).toBe(false);
     expect(compareFigure(0, 0, 0)).toMatchObject({ empty: true, ok: true });
   });
-  it("takes weight and volume within 1 % for a match, pieces only when equal (user council O22)", () => {
+  it("takes the volume within 1 % for a match, weight and pieces only when equal (user council O22, mock council R19)", () => {
     expect(compareFigure(58.08, 58, 3, FIGURE_TOLERANCE)).toMatchObject({ ok: true, near: true });
     expect(compareFigure(58.7, 58, 3, FIGURE_TOLERANCE)).toMatchObject({ ok: false });
     expect(compareFigure(58, 58, 3, FIGURE_TOLERANCE).near).toBeUndefined();
@@ -146,6 +146,11 @@ describe("compareFigure / checkConsistency", () => {
     const check = checkConsistency(c, [line]);
     expect(check.m3).toMatchObject({ ok: true, near: true });
     expect(check.pcs.ok).toBe(false);
+    // A 28,000 kg box whose lines add up to 28,270 kg is no match: the weight goes into the VGM and the B/L.
+    const box = { ...c, packages: "1", grossWeight: "28000", volume: "1" };
+    const heavy = { pieces: "1", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "28270", packageType: "", stackable: "" };
+    expect(checkConsistency(box, [heavy]).kg).toMatchObject({ ok: false });
+    expect(checkConsistency(box, [heavy]).kg.near).toBeFalsy();
   });
   it("says which Invoice Value the job's card shows: the commercial invoices', else the Cargo Details lines' (user council c4)", () => {
     const item = { containerId: null, cargoDescription: "PARTS", hsCode: "", pieces: "1", packageType: "", grossWeight: "", commercialInvoiceValue: "5000", currency: "EUR" };
@@ -181,9 +186,9 @@ describe("shipmentDeclaredFigures", () => {
     const check = checkConsistency(shipmentDeclaredFigures({ pcs: "7", totalWeightTons: "0.0928", totalVolumeCbm: "0.007" }), [line]);
     expect(check.kg).toMatchObject({ ok: true, decimals: 1 });
     expect(check.matched).toBe(true);
-    // A container's own Gross Weight is still checked to 2 decimals: apart there, within 1 % (O22).
+    // A container's own Gross Weight is still checked to 2 decimals: 92.75 kg is not its 92.8 kg (no tolerance on weight, R19).
     const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "7", packageType: "", grossWeight: "92.8", volume: "0.007" };
-    expect(checkConsistency(c, [line]).kg).toMatchObject({ ok: true, near: true, decimals: 2 });
+    expect(checkConsistency(c, [line]).kg).toMatchObject({ ok: false, decimals: 2 });
   });
   // Review: rounded as the server rounds what an acceptance stores (Math.round of x · 10ⁿ), not as the
   // browser formats - 3 × 1.15 kg is 3.4499… kg, stored 3.5; 56×125×72.5 cm is 0.5075 m³, stored 0.507.

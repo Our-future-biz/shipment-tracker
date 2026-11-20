@@ -9,7 +9,7 @@ import type { interfaces } from "@/lib/api/client";
 import { businessDateTime } from "@/lib/date";
 import { ImportInstructionsFields, REQUIRED_MARK, completeAnswers, type ImportAnswers } from "@/components/ImportInstructionsFields";
 import { CARD, HINT, LABEL_TEXT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
-import { answerSummary, usedLinkText } from "./summary";
+import { answerSummary, askForNewLink, questionsText, usedLinkText, type OurContact } from "./summary";
 
 // The Import Instructions a customer fills in through its link: the paper form, section by section. Only
 // when it is confirmed can it be sent; a colleague then checks it before anything reaches the shipment.
@@ -34,14 +34,17 @@ function Message({ title, text, done }: { title: string; text: string; done?: bo
   );
 }
 
-/** The company a used link names (the server's not-found answer carries it for a link that once was). */
-const companyOfUsedLink = (err: unknown): string | null => {
+/** The company a used link names, with its phone and e-mail (the server's not-found answer carries them for a link that once was). */
+const contactOfUsedLink = (err: unknown): OurContact | null => {
   if (!isAPIError(err)) return null;
-  const name: unknown = err.details?.companyName;
-  return typeof name === "string" ? name : null;
+  const text = (key: string): string => {
+    const value: unknown = err.details?.[key];
+    return typeof value === "string" ? value : "";
+  };
+  return text("companyName") ? { companyName: text("companyName"), ourPhone: text("ourPhone"), ourEmail: text("ourEmail") } : null;
 };
 
-interface Sent {
+interface Sent extends OurContact {
   answers: ImportAnswers;
   reference: string;
   companyName: string;
@@ -64,6 +67,7 @@ function SentSummary({ sent }: { sent: Sent }) {
               We have received your Import Instructions for {sent.reference}, sent {businessDateTime(sent.at)}. A colleague checks them; if
               anything is unclear, {sent.companyName || "we"} will contact you.
             </p>
+            <p className={`${PAGE_SUBTITLE} m-0`}>{questionsText(sent)}</p>
           </div>
           <Button icon={<PrinterOutlined />} className="print:hidden" onClick={() => window.print()}>
             Print
@@ -101,13 +105,13 @@ export function ImportInstructionsForm({ token }: { token: string }) {
   }
   if (!form.data) {
     return isNotFound(form.error) ? (
-      <Message title="This link is no longer valid" text={usedLinkText(companyOfUsedLink(form.error))} />
+      <Message title="This link is no longer valid" text={usedLinkText(contactOfUsedLink(form.error))} />
     ) : (
       <Message title="The form could not be opened" text="Please try again in a moment." />
     );
   }
   const data = form.data.form;
-  return <Filling token={token} data={data} onDone={(answers) => setSent({ answers, reference: data.reference, companyName: data.companyName, at: new Date().toISOString() })} />;
+  return <Filling token={token} data={data} onDone={(answers) => setSent({ answers, reference: data.reference, companyName: data.companyName, ourPhone: data.ourPhone, ourEmail: data.ourEmail, at: new Date().toISOString() })} />;
 }
 
 function Filling({ token, data, onDone }: { token: string; data: interfaces.PublicImportInstructionForm; onDone: (answers: ImportAnswers) => void }) {
@@ -132,7 +136,7 @@ function Filling({ token, data, onDone }: { token: string; data: interfaces.Publ
       await publicApi.shipments.publicImportInstructionsSubmit(token, { confirmed, answers });
       onDone(answers);
     } catch (err) {
-      setError(isNotFound(err) ? `This link is no longer valid. Please ask ${companyOfUsedLink(err) || data.companyName || "your contact"} for a new one.` : apiErrorMessage(err));
+      setError(isNotFound(err) ? `This link is no longer valid. ${askForNewLink(contactOfUsedLink(err) ?? data)}` : apiErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
@@ -140,13 +144,13 @@ function Filling({ token, data, onDone }: { token: string; data: interfaces.Publ
 
   return (
     <Page>
-      {/* Whose form it is and whom to ask: the company's name only, as the tracking page shows it (no staff
-          names or e-mails on a public page; owner, User Council Q16). */}
+      {/* Whose form it is and whom to ask: the company's name, phone and e-mail, as the tracking page shows
+          them (no staff names or e-mails on a public page; owner, User Council Q16; mock council S3-2). */}
       <header className="mb-4">
         {data.companyName && <p className={`${LABEL_TEXT} m-0 mb-1`}>{data.companyName}</p>}
         <h1 className={PAGE_TITLE}>Import Instructions</h1>
         <p className={`${PAGE_SUBTITLE} m-0`}>To be completed by the recipient of the arrival notice.</p>
-        <p className={`${PAGE_SUBTITLE} m-0`}>Questions: contact {data.companyName || "whoever sent you this link"}.</p>
+        <p className={`${PAGE_SUBTITLE} m-0`}>{questionsText(data)}</p>
         <p className={`${PAGE_SUBTITLE} m-0`}>
           <span className="text-red-500">{REQUIRED_MARK}</span> marks what must be filled in.
         </p>

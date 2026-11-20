@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { billedRealCostOpen, closesRow, ownDirectionFirst } from "./costRowRules";
+import { billedRealCostOpen, closesRow, curBoxAfter, ownDirectionFirst } from "./costRowRules";
 import { chargeOptions } from "@/lib/chargeCodes";
 
 // A stand-in for an element: its tag, its type and the selectors it sits inside.
@@ -60,6 +60,34 @@ describe("a billed shipment's buying row (User Council Q1)", () => {
 
   it("not on a line of an invoice marked paid", () => {
     expect(billedRealCostOpen(line("TESTUC-AP-001"), true)).toBe(false);
+  });
+
+  it("on a late real cost still waiting for approval, as the server keeps it open (mock council M1)", () => {
+    const late = { invoiceNumber: "DHL-7781", realAmount: "1450.00", lateRealCostOpen: true };
+    expect(billedRealCostOpen(late, false)).toBe(true);
+    // Not without its number, nor once paid; approved, the server stops naming it late-open.
+    expect(billedRealCostOpen(late, false, "")).toBe(false);
+    expect(billedRealCostOpen(late, true)).toBe(false);
+    expect(billedRealCostOpen({ ...late, lateRealCostOpen: false }, false)).toBe(false);
+  });
+});
+
+describe("an Enter in an amount box (mock council R4)", () => {
+  // A stand-in for an amount box in its cell, and the next cell holding the picker's input or not.
+  const boxBefore = (next: { input: unknown } | null) => ({
+    closest: (selector: string) =>
+      selector === "td" ? { nextElementSibling: next && { querySelector: (s: string) => (s.includes(".ant-select") ? next.input : null) } } : null,
+  });
+
+  it("goes on to the Cur box in the next cell", () => {
+    const cur = { focus: () => undefined };
+    expect(curBoxAfter(boxBefore({ input: cur }))).toBe(cur);
+  });
+
+  it("does what it did where the next cell has no open currency box, or there is none", () => {
+    expect(curBoxAfter(boxBefore({ input: null }))).toBeNull();
+    expect(curBoxAfter(boxBefore(null))).toBeNull();
+    expect(curBoxAfter({ closest: () => null })).toBeNull();
   });
 });
 

@@ -41,7 +41,6 @@ import {
   withoutTypedVolumeWhenSized,
   checkConsistency,
   compareFigure,
-  FIGURE_TOLERANCE,
   civByCurrency,
   shipmentDeclaredFigures,
   cargoContainers,
@@ -531,7 +530,7 @@ export function CargoDetailsTab({
     const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
-    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2, FIGURE_TOLERANCE) };
+    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2) };
     const hasDesc = filledItems > 0;
     const hasLines = filledDims > 0 || hasDesc;
     const matched = check.matched && (!hasDesc || (descCheck.pcs.ok && descCheck.kg.ok));

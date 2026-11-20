@@ -20,7 +20,7 @@ interface CheckPillProps {
 }
 
 /** One figure: what the lines add up to / what the container declares - green when they
- * agree (weight and volume within 1 %, FIGURE_TOLERANCE), red when not (also lines with a figure
+ * agree (the volume within 1 %, FIGURE_TOLERANCE; the weight exactly, mock council R19), red when not (also lines with a figure
  * the container does not declare, as the tab's Matched / Mismatch dot counts it), grey when neither
  * has one - and grey when there is nothing to compare with: a shipment with no container that
  * doesn't declare the figure, or lines outside the containers (user council O22). Hovering says

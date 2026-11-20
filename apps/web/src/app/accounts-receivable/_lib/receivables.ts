@@ -1,6 +1,6 @@
 import type { interfaces } from "@/lib/api/client";
 import { AGING_LABEL, markChips, REMINDER_LEVEL_LABEL, statusLabel } from "@/lib/accountsReceivable";
-import { addDays, formatDate } from "@/lib/date";
+import { addDays, businessDayOf, formatDate } from "@/lib/date";
 import { fold } from "@/lib/fold";
 import { convert, type Rates } from "@/lib/fx";
 import { formatAmount, money, parseMoney, round2 } from "@/lib/money";
@@ -311,16 +311,26 @@ export function amountText(amount: number | null | undefined, currency: string):
 }
 
 /**
- * "36,300.00 − 476.00 credited − 20,000.00 paid − 12.00 bank charges": how Left to pay comes about (the drawer). Only
- * confirmed write-offs and bank charges count; one waiting for a second manager is not in it.
+ * "36,300.00 − 476.00 credited − 20,000.00 paid − 12.00 bank charges − 100.00 written off": how Left to pay comes
+ * about (the drawer). Only confirmed write-offs and bank charges count; one waiting for a second manager is not in it.
  */
 export function leftToPaySum(r: Pick<ReceivableRow, "status" | "gross" | "credited" | "paid"> & Partial<Pick<ReceivableRow, "writtenOff" | "bankCharges">>): string {
-  const parts = [money(r.status === "cancelled" ? 0 : r.gross)];
+  const owed = r.status === "cancelled" ? 0 : r.gross;
+  const parts = [money(owed)];
   if (r.credited) parts.push(`${money(r.credited)} credited`);
   if (r.paid) parts.push(`${money(r.paid)} paid`);
-  if (r.writtenOff) parts.push(`${money(r.writtenOff)} written off`);
+  // A write-off is not paid (mock council R1, as the server's leftToPayOf): it closes the rest down to 0 only, so a
+  // credit note after it cancels it up to its amount. Name what of it still counts.
+  let covered = "";
+  if (r.writtenOff) {
+    const before = round2(owed - r.credited - r.paid - (r.bankCharges ?? 0));
+    const counts = round2(Math.min(r.writtenOff, Math.max(0, before)));
+    if (counts === round2(r.writtenOff)) parts.push(`${money(r.writtenOff)} written off`);
+    else if (counts > 0) parts.push(`${money(counts)} written off (of ${money(r.writtenOff)}; the credit covers the rest)`);
+    else covered = ` (the ${money(r.writtenOff)} written off is covered by the credit)`;
+  }
   if (r.bankCharges) parts.push(`${money(r.bankCharges)} bank charges`);
-  return parts.join(" − ");
+  return parts.join(" − ") + covered;
 }
 
 /** The Paid column: the amount paid so far and its last day; "day not known" for a payment carried over (D15). */
@@ -858,7 +868,8 @@ export type HistoryEntry =
 /**
  * The invoice's history in one time order, the oldest first (user council A13: the issue first, then the events newest
  * first, did not read in order). The issue and a credit note carry only their day, so they come before what happened
- * later that day; entries at the same moment keep the order given.
+ * later that day; entries at the same moment keep the order given. An event is placed by its Prague day (mock council
+ * S8-5: compared as a UTC time, a payment noted at 00:30 Prague sorted before that day's "Issued").
  */
 export function historyEntries(
   issueDate: string,
@@ -870,7 +881,9 @@ export function historyEntries(
     ...creditNotes.map((note): HistoryEntry => ({ kind: "credit_note", at: note.issueDate, note })),
     ...events.map((event): HistoryEntry => ({ kind: "event", at: event.at, event })),
   ];
-  return all.map((e, i) => ({ e, i })).sort((a, b) => a.e.at.localeCompare(b.e.at) || a.i - b.i).map(({ e }) => e);
+  // The day it belongs to on the company's calendar; the issue and a credit note (a day only) come first on it.
+  const keyed = all.map((e, i) => ({ e, i, day: e.kind === "event" ? businessDayOf(e.at) || e.at.slice(0, 10) : e.at, rank: e.kind === "event" ? 1 : 0 }));
+  return keyed.sort((a, b) => a.day.localeCompare(b.day) || a.rank - b.rank || a.e.at.localeCompare(b.e.at) || a.i - b.i).map(({ e }) => e);
 }
 
 /** Whether the drawer shows "Promised to pay by": only while something is left to pay (A13: a paid invoice kept it). */

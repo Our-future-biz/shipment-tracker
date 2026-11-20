@@ -64,10 +64,39 @@ describe("a job's history", () => {
 
   it("rounds a figure nobody typed to three decimals, in a list and alone (x5)", () => {
     expect(historyValue('[{"pieces":"11","lengthCm":"","weightPerPcKg":"745.454545455"}]')).toBe("11 pcs, 745.455 kg/pc");
-    expect(historyValue("745.454545455")).toBe("745.455");
-    expect(historyValue("12.5000")).toBe("12.5");
-    expect(historyValue("24.335")).toBe("24.335");
+    expect(historyValue("745.454545455", "totalWeightTons")).toBe("745.455");
+    expect(historyValue("12.5000", "totalVolumeCbm")).toBe("12.5");
+    expect(historyValue("24.335", "totalVolumeCbm")).toBe("24.335");
     expect(historyValue("CZ00000053")).toBe("CZ00000053");
+  });
+
+  it("rounds only the computed weights and volumes, never an HS code, a rate or text (mock council S7-2)", () => {
+    expect(historyValue("8708.9997", "hsCode")).toBe("8708.9997");
+    expect(historyValue("8471.3000", "hsCode")).toBe("8471.3000");
+    expect(historyValue("0.1234", "customsDutyRate")).toBe("0.1234");
+    expect(historyValue("745.454545455")).toBe("745.454545455");
+    expect(historyValue('[{"pieces":"10","packageType":"Pallet(s)","cargoDescription":"PARTS","hsCode":"8708.9997","grossWeight":"1442.123456"}]')).toBe(
+      "10 Pallet(s) PARTS, HS 8708.9997, 1442.123 kg",
+    );
+  });
+
+  it("keeps a row per save of a dropdown, a status or a date; merges a typed text field (mock council S7-3)", () => {
+    const at = (min: number) => new Date(Date.UTC(2026, 10, 19, 13, min)).toISOString();
+    const rows = historyRows([
+      {
+        entries: [
+          entry({ id: "s2", field: "status", oldValue: "Cancelled Shipment", newValue: "Booking Confirmation Pending [IMP]", changedAt: at(3) }),
+          entry({ id: "s1", field: "status", oldValue: "Booking Confirmation Pending [IMP]", newValue: "Cancelled Shipment", changedAt: at(1) }),
+          entry({ id: "e2", field: "estimatedArrival", oldValue: "2026-11-21", newValue: "2026-11-22", changedAt: at(0) }),
+          entry({ id: "e1", field: "estimatedArrival", oldValue: "2026-11-20", newValue: "2026-11-21", changedAt: at(0) }),
+          entry({ id: "v2", field: "vessel", oldValue: "MSC AN", newValue: "MSC ANNA", changedAt: at(0) }),
+          entry({ id: "v1", field: "vessel", oldValue: "", newValue: "MSC AN", changedAt: at(0) }),
+        ],
+        namesKnown: true,
+      },
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(["s2", "s1", "e2", "e1", "v2"]);
+    expect(rows.at(-1)).toMatchObject({ from: "", to: "MSC ANNA" });
   });
 
   it("leaves out an entry that only says a linked record's id changed (x5)", () => {

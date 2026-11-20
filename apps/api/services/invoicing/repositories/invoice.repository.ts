@@ -15,6 +15,15 @@ import { nextSequence } from "../lib/invoiceNumber";
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Reader = typeof db | Tx;
 
+/**
+ * Locks the invoice's row for the rest of the transaction (mock council S5-4 / X-3): a change on the issue day and a
+ * partial credit note asked a second apart both passed the "one request waits per invoice" check, which reads the
+ * other table and then inserts. Both create paths take this lock first, so the second waits and then sees the first.
+ */
+export async function lockInvoiceRow(tx: Tx, companyId: string, invoiceId: string): Promise<void> {
+  await tx.select({ id: t.id }).from(t).where(and(eq(t.id, invoiceId), eq(t.companyId, companyId))).for("update");
+}
+
 export type InvoiceHeaderInput = Omit<NewInvoiceRecord, "number" | "id" | "createdAt" | "updatedAt">;
 export type InvoiceLineInput = Omit<NewInvoiceLineRecord, "invoiceId" | "companyId" | "id" | "createdAt" | "updatedAt">;
 
@@ -269,6 +278,20 @@ class InvoiceRepository extends TenantRepository<typeof t> {
       .where(and(openInvoice(companyId), inArray(t.shipmentId, shipmentIds)))
       .groupBy(t.shipmentId);
     return new Map(rows.filter((r) => r.shipmentId && r.first).map((r) => [r.shipmentId as string, r.first]));
+  }
+
+  /**
+   * When the shipment was first billed by an invoice that stands (an invoice is made issued, so its creation);
+   * null when it has none. A billed line's real cost booked after it is a late one (lib/billedLock, mock council M1).
+   */
+  async firstBilledAt(shipmentId: string, companyId: string): Promise<Date | null> {
+    const [row] = await this.db
+      .select({ at: t.createdAt })
+      .from(t)
+      .where(and(openInvoice(companyId), eq(t.shipmentId, shipmentId)))
+      .orderBy(asc(t.createdAt))
+      .limit(1);
+    return row?.at ?? null;
   }
 
   /** The shipment's newest open invoice (issued, not credited, not cancelled); null when it has none. */

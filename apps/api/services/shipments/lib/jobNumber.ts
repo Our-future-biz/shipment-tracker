@@ -53,3 +53,13 @@ export interface ReferenceState {
 export function referenceIsFinal(row: ReferenceState): boolean {
   return row.jobNumberFinal || same(row.invoicingStatus, INVOICED_STATUS) || row.bookingNumber.trim() !== "";
 }
+
+/**
+ * Whether a write leaves a job that is or was booked with its reference not yet marked final: it is
+ * marked so then (jobNumberFinal), and stays final when the Booking Number is cleared or changed
+ * for another carrier - the reference went out with the first booking (mock council S7-Q1 / X-Q2,
+ * R13). A job booked before the flag counted is marked by its next write.
+ */
+export function bookingMakesFinal(before: Pick<ReferenceState, "bookingNumber">, after: ReferenceState): boolean {
+  return !after.jobNumberFinal && (before.bookingNumber.trim() !== "" || after.bookingNumber.trim() !== "");
+}

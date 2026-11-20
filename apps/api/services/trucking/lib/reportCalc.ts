@@ -89,9 +89,10 @@ export interface PodOpen {
 export interface FillTrip {
   kind: Extract<LtlTripKind, "LINEHAUL" | "DELIVERY_RUN">;
   /** null when no vehicle type is set (or it is no longer in the settings) */
-  capacity: { ldm: number; kg: number } | null;
+  capacity: { ldm: number; kg: number; palletPlaces: number } | null;
   ldm: number;
   kg: number;
+  palletPlaces: number;
 }
 
 export interface ExceptionGroup {
@@ -337,12 +338,16 @@ export function podMissingKpi(open: PodOpen[], today: string, holidays: readonly
 
 const KIND_LABELS = { LINEHAUL: "Line haul", DELIVERY_RUN: "Delivery run" } as const;
 
-/** How full a trip left: the fuller of LDM and kg against the vehicle's capacity (%). */
+/**
+ * How full a trip left: the fullest of LDM, kg and pallet places against the vehicle's capacity (%),
+ * as tripFill (ltlRules) and the planning screens count it (mock council S6-1).
+ */
 export const tripFillPercent = (t: FillTrip): number | null => {
   if (!t.capacity) return null;
   const ldm = t.capacity.ldm > 0 ? (t.ldm / t.capacity.ldm) * 100 : null;
   const kg = t.capacity.kg > 0 ? (t.kg / t.capacity.kg) * 100 : null;
-  return ldm == null && kg == null ? null : Math.max(ldm ?? 0, kg ?? 0);
+  const places = t.capacity.palletPlaces > 0 ? (t.palletPlaces / t.capacity.palletPlaces) * 100 : null;
+  return ldm == null && kg == null && places == null ? null : Math.max(ldm ?? 0, kg ?? 0, places ?? 0);
 };
 
 export function lineHaulFillKpi(trips: FillTrip[]): TruckingKpi {
@@ -357,7 +362,7 @@ export function lineHaulFillKpi(trips: FillTrip[]): TruckingKpi {
     unit: "%",
     n: all.length,
     measured:
-      "Average fill of the LTL line hauls and delivery runs that departed in the period: per trip the fuller of loading metres and weight of the consignments on it, against the capacity of its vehicle type (Trucking settings).",
+      "Average fill of the LTL line hauls and delivery runs that departed in the period: per trip the fullest of loading metres, weight and pallet places of the consignments on it, against the capacity of its vehicle type (Trucking settings).",
     notMeasured: notes(!trips.length && "No line haul or delivery run departed in this period", trips.length > 0 && !all.length && "No departed trip has a vehicle type", all.length > 0 && noVehicle > 0 && `${noVehicle} trip(s) without a vehicle type are not counted`),
     breakdown: (["LINEHAUL", "DELIVERY_RUN"] as const).map((k) => {
       const f = fills(trips.filter((t) => t.kind === k));

@@ -633,6 +633,16 @@ describe("save", () => {
     await expect(salesQuoteService.save(martin, REF, {}, 1)).rejects.toMatchObject({ code: "not_found" });
   });
 
+  // Mock council S2-6 / M4, system-21 review: the night's note of a tariff's last valid day makes no new version, so
+  // a page loaded before it saves on the same version - and its lines keep the day the night noted.
+  it("keeps the last valid day the night noted on a tariff line the page sends without one", async () => {
+    const line = { type: "Ocean freight", description: "Ocean freight", currency: "USD", amount: 1200, tariffRef: "ocean:v1:r1", pairId: "p1" };
+    stored = quote({ data: { ...(quote().data as object), buyingLines: [{ ...line, tariffValidTo: "2026-12-31" }] } });
+    repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4 }));
+    await salesQuoteService.save(martin, REF, { origin: "Brno", buyingLines: [{ ...line, amount: 1300 }] }, 3);
+    expect(repository.saveDocument.mock.lastCall![2].data).toEqual({ origin: "Brno", buyingLines: [{ ...line, amount: 1300, tariffValidTo: "2026-12-31" }] });
+  });
+
   it("keeps the whole document of a quote that went out as stored, its details as well as its prices", async () => {
     for (const status of ["quoted", "feedback", "won", "lost", "replaced"]) {
       stored = quote({ status });

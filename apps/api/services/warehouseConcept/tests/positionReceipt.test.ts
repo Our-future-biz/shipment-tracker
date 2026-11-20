@@ -9,6 +9,7 @@ import { containerService } from "../services/container.service";
 import { warehouseRecordsService as records } from "../services/warehouseRecords.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { pragueDate } from "../services/storage";
 import { shipmentOutboxTable } from "../schemas/shipmentOutbox.schema";
 import { warehouseStockLineTable } from "../schemas/warehouseStock.schema";
 
@@ -73,7 +74,7 @@ describe("receipt of loose import cargo (Q19)", () => {
     const res = await positionReceiptService.record(id, c, user, "user", { pieces: 9, condition: "Good", location: "b-1" });
     expect(res.movement.storage.startSource).toBe("receipt");
     expect((await lineOf(c, id))[0]).toMatchObject({ pieces: 9, location: "B-1" });
-    await expect(gateMovementService.update(id, c, user, { loadInDate: "2026-01-02" })).rejects.toThrow(/set by the receipt — a manager voids it/);
+    await expect(gateMovementService.update(id, c, user, { loadInDate: "2026-01-02" })).rejects.toThrow(/set by the receipt — a manager moves it earlier \(with a reason\) or voids the receipt/);
     // Received: its gate-in is named "Pick-up truck in" (Q19).
     const truck = await gateMovementService.stamp(id, c, user, "gateIn");
     expect(truck.events.at(-1)).toMatchObject({ kind: "gateIn", label: "Pick-up truck in" });
@@ -97,7 +98,7 @@ describe("receipt of loose import cargo (Q19)", () => {
     for (const over of [{ operationType: "FCL stripping" as const }, { containerNumber: "MSKU6119027" }]) {
       const { c, id } = await loosePosition();
       await gateMovementRepository.update(id, c, over);
-      await expect(positionReceiptService.record(id, c, user, "user", { pieces: 10 })).rejects.toThrow(/comes in a container/);
+      await expect(positionReceiptService.record(id, c, user, "user", { pieces: 10 })).rejects.toThrow(/comes in a container|has container number MSKU6119027/);
       const m = await gateMovementService.get(id, c);
       await gateMovementRepository.update(id, c, { releaseGates: m.releaseGates.map((g) => ({ ...g, s: "OK" as const })) });
       expect((await gateMovementService.stamp(id, c, user, "gateIn")).gateIn).not.toBeNull();
@@ -155,6 +156,50 @@ describe("receipt of loose import cargo (Q19)", () => {
     expect(res.notice).toMatch(/not changed back/);
     // Not received any more: the WH release waits for a receipt or the typed date again — here the typed date is back.
     expect(res.movement.storage).toMatchObject({ startDate: "2026-01-02", startSource: "loadInDate" });
+  });
+
+  // Mock council R29: nothing counted is not a receipt.
+  it("refuses a receipt of 0 pieces and points to a Short exception", async () => {
+    const { c, id } = await loosePosition();
+    await reweighService.record(id, c, user, { weighedKg: 1000 });
+    await expect(positionReceiptService.record(id, c, user, "user", { pieces: 0 })).rejects.toThrow(/Short exception/);
+    expect((await gateMovementService.get(id, c)).receivedAt).toBeNull();
+  });
+
+  // Mock council R28: a manager may move the receipt's day earlier, with a reason.
+  it("lets a manager move the receipt's day earlier with a reason: clock, log and shipment follow", async () => {
+    const { c, id } = await loosePosition();
+    await reweighService.record(id, c, user, { weighedKg: 1000 });
+    const received = (await positionReceiptService.record(id, c, user, "user", { pieces: 10 })).movement;
+    const day = received.loadInDate;
+    const earlier = pragueDate(new Date(Date.parse(`${day}T12:00:00Z`) - 2 * 86_400_000));
+    await expect(gateMovementService.update(id, c, user, { loadInDate: earlier }, "user", "", "came on Monday")).rejects.toThrow(/a manager moves it earlier/);
+    await expect(gateMovementService.update(id, c, user, { loadInDate: earlier }, "manager")).rejects.toThrow(/Give a reason/);
+    await expect(gateMovementService.update(id, c, user, { loadInDate: "" }, "manager", "", "typo")).rejects.toThrow(/can't be cleared/);
+    shipmentUpdate.mockClear();
+    const moved = await gateMovementService.update(id, c, user, { loadInDate: earlier }, "manager", "", "came on Monday");
+    expect(moved.loadInDate).toBe(earlier);
+    expect(moved.receivedAt).not.toBeNull();
+    expect(pragueDate(new Date(moved.receivedAt!))).toBe(earlier);
+    expect(moved.storage).toMatchObject({ startDate: earlier });
+    // Logged; the shipment's "Shipment updated" follows it once told.
+    expect(moved.events.map((e) => e.kind).slice(-2)).toEqual(["storageClockChanged", "shipmentUpdated"]);
+    expect(moved.events.at(-2)).toMatchObject({ kind: "storageClockChanged", detail: `was ${day} · reason: came on Monday` });
+    expect(await outboxOf(id)).toContainEqual(expect.objectContaining({ kind: "received", stamp: "receipt", payload: expect.objectContaining({ warehouseReceivedDate: earlier }) }));
+    // Later again is voiding the receipt.
+    await expect(gateMovementService.update(id, c, user, { loadInDate: day }, "manager", "", "back")).rejects.toThrow(/only earlier/);
+  });
+
+  // Mock council S11-2: the receipt voided and done again at another rack.
+  it("a receipt done again after a void puts its new location on the stock line", async () => {
+    const { c, id } = await loosePosition();
+    await reweighService.record(id, c, user, { weighedKg: 1000 });
+    await positionReceiptService.record(id, c, user, "user", { pieces: 10, location: "a-03-2" });
+    await positionReceiptService.voidReceipt(id, c, user, "manager", "wrong rack");
+    await positionReceiptService.record(id, c, user, "user", { pieces: 10, location: "b-02" });
+    const lines = await lineOf(c, id);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ location: "B-02", status: "Available" });
   });
 
   // Review of step 7: a second void looks only at the update of the receipt it voids.

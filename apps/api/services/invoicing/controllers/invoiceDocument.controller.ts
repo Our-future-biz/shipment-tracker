@@ -131,6 +131,11 @@ interface QueueResponse {
   counts: BillingQueueCounts;
   /** More shipments match than are listed - narrow it with the search */
   truncated: boolean;
+  /**
+   * The jobs with a charge added after their invoice could not be read just now: To bill and All (and their counts)
+   * are without them (mock council S5-2). The page warns above the queue.
+   */
+  lateChargesNotRead: boolean;
 }
 
 /** The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, or both together, with the amounts to bill. */

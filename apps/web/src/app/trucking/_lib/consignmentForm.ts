@@ -5,6 +5,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { isValidPsc, pscDigits } from "./hauliers";
 import type { ServiceLevelCode } from "./tariffs";
+import type { TariffListItem } from "@/hooks/useTrucking";
 
 // The Create / Edit consignment form: an order taken from a job, a quote or typed new, its checks
 // and the request it sends. Pure (tested in consignmentForm.test.ts).
@@ -294,9 +295,10 @@ export function withWindowDay<S extends StopInput>(s: S, day: string | null): S 
   return withWindowTimes(s, day, windowTime(s.windowFrom), windowTime(s.windowTo));
 }
 
-function fixedDateProblems(f: ConsignmentForm): string[] {
+function fixedDateProblems(f: ConsignmentForm, missingAllowed: boolean): string[] {
   if (f.serviceLevel !== FIXED_LEVEL) return [];
   const day = f.fixedDeliveryDate;
+  if (!day && missingAllowed) return [];
   if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return ["Express fixed date: the fixed delivery date agreed with the customer"];
   if (day < f.pickupDate) return ["The fixed delivery date cannot be before the pick-up"];
   const { windowFrom, windowTo } = f.delivery;
@@ -318,8 +320,13 @@ function stopProblems(label: string, s: StopInput): string[] {
   return out;
 }
 
-/** Why the order cannot be saved yet, one line per problem. `limited`: picked up, only notes and references change. */
-export function consignmentFormProblems(f: ConsignmentForm, opts: { limited?: boolean } = {}): string[] {
+/**
+ * Why the order cannot be saved yet, one line per problem. `limited`: picked up, only notes and
+ * references change. `fixedDateMissingAllowed`: an Express fixed date consignment booked before the
+ * agreed day was asked - its edit saves while the day is still missing, as the server takes it
+ * (mock council R24); a day typed is checked.
+ */
+export function consignmentFormProblems(f: ConsignmentForm, opts: { limited?: boolean; fixedDateMissingAllowed?: boolean } = {}): string[] {
   const out: string[] = [];
   if (f.source === "job" && !f.shipmentId) out.push("Pick the job");
   if (f.source === "quote" && !f.quoteNumber) out.push("Pick the quote");
@@ -329,7 +336,7 @@ export function consignmentFormProblems(f: ConsignmentForm, opts: { limited?: bo
   if (!/^\d{4}-\d{2}-\d{2}$/.test(f.pickupDate)) out.push("Pick-up date is required");
   if (f.pickupTime != null && !isTime(f.pickupTime)) out.push("Pick-up time must be HH:MM");
   // After the pick-up the date stays as stored (an older consignment may have none).
-  if (!opts.limited) out.push(...fixedDateProblems(f));
+  if (!opts.limited) out.push(...fixedDateProblems(f, !!opts.fixedDateMissingAllowed));
   out.push(...stopProblems("Pick-up", f.pickup), ...stopProblems("Delivery", f.delivery));
   const l = f.load;
   if (![l.pieces, l.palletPlaces, l.ldm, l.weightKg, l.cbm].every(notNegative)) out.push("Quantities cannot be negative");
@@ -342,6 +349,25 @@ export function consignmentFormProblems(f: ConsignmentForm, opts: { limited?: bo
     if (f.manualReason.trim().length < 3) out.push("Agreed price: why the tariff is not used");
   }
   return out;
+}
+
+/** An Express fixed date consignment stored without its agreed day (booked before it was asked; mock council R24). */
+export const fixedDayMissing = (c: Pick<ConsignmentDetail, "serviceLevel" | "promisedDate">): boolean => c.serviceLevel === FIXED_LEVEL && !c.promisedDate;
+
+/** What of a tariff the form needs to know whether one can price it. */
+export type SellListFacts = Pick<TariffListItem, "side" | "scope" | "ownerCustomerId">;
+
+/**
+ * Said while the form is filled, not first on Create (User Council T2, mock council S6-5): a tariff
+ * price with no sell list to take it from - neither the Standard list of the scope nor the
+ * customer's own - is refused by the server ("No Standard FTL sell list"). Null while the tariffs
+ * are not known (not read, or failed): nothing is guessed then.
+ */
+export function missingSellListNote(f: Pick<ConsignmentForm, "priceSource" | "scope" | "customerId">, tariffs: readonly SellListFacts[] | null): string | null {
+  if (f.priceSource !== "TARIFF" || !tariffs) return null;
+  const sell = tariffs.filter((t) => t.side === "SELL" && t.scope === f.scope);
+  if (sell.some((t) => !t.ownerCustomerId || (!!f.customerId && t.ownerCustomerId === f.customerId))) return null;
+  return `No Standard ${f.scope} sell tariff: add one under Tariffs or pick Agreed price.`;
 }
 
 /** The price the request carries. */

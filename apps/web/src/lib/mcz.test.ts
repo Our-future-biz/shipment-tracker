@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareMczNumbers, existingMczNumbers, matchesMczSearch, nextMczNumber, sameMczNumber } from "./mcz";
+import { compareMczNumbers, existingMczNumbers, matchesMczSearch, newMasterJobNumber, nextMczNumber, sameMczNumber } from "./mcz";
 
 describe("master job references with letters", () => {
   it("goes on from the highest number, whatever its letters", () => {
@@ -40,5 +40,20 @@ describe("finding a master job by its reference (the Master Job dialog's Link to
 
   it("lists every master job while nothing is typed", () => {
     expect(matchesMczSearch("MCZ00000001", "  ")).toBe(true);
+  });
+});
+
+// Mock council S4-6: the dialog says the number the new master job really gets.
+describe("newMasterJobNumber", () => {
+  it("takes the letters of the Load Type the chosen shipments share", () => {
+    expect(newMasterJobNumber("MCZ00000010", ["Consolidation", "Consolidation"])).toBe("MCZCONSOL00000010");
+    expect(newMasterJobNumber("MCZ00000010", ["Full Load"])).toBe("MCZFULL00000010");
+    expect(newMasterJobNumber("MCZ00000010", ["Project Shipment"])).toBe("MCZPROJECT00000010");
+  });
+
+  it("stays plain while they differ, one has none, or none is chosen", () => {
+    expect(newMasterJobNumber("MCZ00000010", ["Consolidation", "Full Load"])).toBe("MCZ00000010");
+    expect(newMasterJobNumber("MCZ00000010", ["Consolidation", ""])).toBe("MCZ00000010");
+    expect(newMasterJobNumber("MCZ00000010", [])).toBe("MCZ00000010");
   });
 });

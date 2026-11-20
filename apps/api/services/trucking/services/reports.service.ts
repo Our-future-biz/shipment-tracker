@@ -60,7 +60,7 @@ class ReportsService {
     const [holidays, hauliers, eur] = await Promise.all([czHolidays(companyId, firstDay, today), this.hauliers(companyId, haulierIds, today), this.eurRates([...claims, ...invoiceDifferences, ...charged])]);
 
     const levelLabels = new Map(settings.serviceLevels.map((l) => [l.code as string, l.label]));
-    const fillTrips: FillTrip[] = fillRows.map((t) => ({ kind: t.kind, ldm: t.ldm, kg: t.kg, capacity: capacityOf(settings, t.vehicleTypeCode) }));
+    const fillTrips: FillTrip[] = fillRows.map((t) => ({ kind: t.kind, ldm: t.ldm, kg: t.kg, palletPlaces: t.palletPlaces, capacity: capacityOf(settings, t.vehicleTypeCode) }));
     return {
       from: period.from,
       to: period.to,
@@ -119,7 +119,7 @@ class ReportsService {
 /** A vehicle type's capacity from the settings; null without one. */
 const capacityOf = (settings: TruckingSettings, code: string | null) => {
   const v = code ? settings.vehicleTypes.find((x) => x.code === code) : undefined;
-  return v ? { ldm: v.capacityLdm, kg: v.capacityKg } : null;
+  return v ? { ldm: v.capacityLdm, kg: v.capacityKg, palletPlaces: v.palletPlaces } : null;
 };
 
 export const reportsService = new ReportsService();

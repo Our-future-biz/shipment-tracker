@@ -32,6 +32,38 @@ export interface ReceiptFacts {
  */
 export type ReceiptEvent = GateEvent & { receipt?: ReceiptFacts; outboxId?: string };
 
+/**
+ * Nothing counted is not a receipt (owner's answer R29, mock council 20 Nov 2026): a receipt of
+ * 0 pieces is refused — cargo that did not come is a Short exception. The web's FloorReceipt says
+ * the same.
+ */
+export const ZERO_PIECES = "0 pieces counted is not a receipt — if the cargo did not come, record a Short exception instead";
+
+/** Why these counted pieces are not a receipt, or null (null = not counted, the expected pieces count). */
+export function receiptPiecesRefusal(pieces: number | null): string | null {
+  if (pieces === null) return null;
+  if (!Number.isInteger(pieces) || pieces < 0 || pieces > MAX_RECEIPT_PIECES) return "Pieces counted must be a whole number from 1";
+  return pieces === 0 ? ZERO_PIECES : null;
+}
+
+const MANAGER_ROLES = ["manager", "admin", "superadmin"];
+
+/**
+ * Why `role` may not move the "Received in warehouse" day a receipt set from `before` to `after`
+ * (YYYY-MM-DD), or null. A manager may move it earlier, with a reason (owner's answer R28, mock
+ * council 20 Nov 2026) — the same storage rule as the typed date, and the counted facts stay. Later
+ * or cleared is storage given away and the count's own day: that is voiding the receipt.
+ */
+export function receiptDateMoveRefusal(before: string, after: string, role: string, reason: string): string | null {
+  if (!MANAGER_ROLES.includes(role)) return "Received in warehouse is set by the receipt — a manager moves it earlier (with a reason) or voids the receipt";
+  if (!after) return "Received in warehouse is set by the receipt — it can't be cleared; void the receipt instead";
+  if (before && after > before) return "A manager moves the receipt's date only earlier — to move it later, void the receipt";
+  const why = reason.trim();
+  if (why.length < 3) return "Give a reason (at least 3 characters) to move the receipt's date earlier";
+  if (why.length > 500) return "The reason is too long (at most 500 characters)";
+  return null;
+}
+
 /** "6 of 6 pcs counted · Damaged packaging · at A-03-2" — the tally's words, for History. */
 export function countedText(pieces: number | null, expected: number, condition: string, location: string): string {
   return [pieces !== null ? `${pieces} of ${expected} pcs counted` : "", condition, location ? `at ${location}` : ""].filter(Boolean).join(" · ");
@@ -122,7 +154,14 @@ export interface ReceiptMovement {
 export function receiptBlocked(m: ReceiptMovement, container: string | null): string | null {
   if (m.visit !== "výdej") return "Only outbound (import) cargo has a receipt here — inbound cargo is received by the WH receipt stamp";
   if (container !== null) return `It is a house of container ${container} — it is received at that container's stripping tally`;
-  if (!isLooseImport(m, false)) return "It comes in a container (FCL / container yard) — it is not loose cargo, so it has no receipt here";
+  if (!isLooseImport(m, false)) {
+    // A sea LCL import carries its consol container's number too: name the number, not FCL (mock council S11-3).
+    const number = (m.containerNumber ?? "").trim();
+    if (number && !CONTAINER_OPERATION.test(m.operationType ?? "")) {
+      return `It has container number ${number} — it is received at that container's stripping tally, or by the Received in warehouse date`;
+    }
+    return "It comes in a container (FCL / container yard) — it is not loose cargo, so it has no receipt here";
+  }
   if (m.impRelease) return "The cargo is already released";
   if (m.receivedAt) return "The cargo is already received";
   if (m.status === "Refused") return "The position is refused";

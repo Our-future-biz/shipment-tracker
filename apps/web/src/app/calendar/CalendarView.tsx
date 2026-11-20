@@ -5,12 +5,10 @@ import { Button, Select, Tooltip } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { CARD, CARD_BAR, CARD_TITLE, PAGE_TITLE } from "@/styles/ui";
 import { usePublicHolidays } from "@/hooks/usePublicHolidays";
-import { useMyCountries } from "@/hooks/useMyCountries";
-import { useCountries } from "@/hooks/useOrgUnits";
-import { apiErrorMessage } from "@/lib/api";
-import { useToast } from "@/lib/toast";
+import { useMyCountryChoice } from "@/hooks/useMyCountries";
 import { MONTHS, WEEKDAYS, holidayKey, monthWeeks } from "./_lib/calendar";
-import { countryOf, defaultCountries, flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
+import { ALL_COUNTRIES_MARK, pickerPlaceholder, pickerValue } from "./_lib/countryChoice";
+import { countryOf, flagOf, isCzechHoliday, listCountries, shownHolidays, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
 
 const YEARS = Array.from({ length: 100 }, (_, i) => 1951 + i);
 
@@ -43,16 +41,14 @@ export function CalendarView() {
   const { holidays: listed } = usePublicHolidays();
   const days = useMemo(() => yearHolidays(year, listed), [year, listed]);
   const countryOptions = useMemo(() => listCountries(listed), [listed]);
-  // The user's countries, kept on their account and shared with the Public Holidays page.
-  const toast = useToast();
-  const { myCountries: saved, saveMyCountries } = useMyCountries();
-  // None picked: the company's countries (else Germany) beside the Czech Republic, not every country
-  // (user council M19). Shown as the picks, so the user sees whose holidays these are.
-  const { countries: companyCountries } = useCountries();
-  const fallback = useMemo(() => defaultCountries(companyCountries.map((c) => c.code), listed), [companyCountries, listed]);
-  const countries = saved.length ? saved : fallback;
-  const pickCountries = (next: string[]) =>
-    void saveMyCountries(withUnofferedPicks(saved, countryOptions, next)).catch((err) => toast.error(`Could not save your countries: ${apiErrorMessage(err)}`));
+  // The user's countries, kept on their account and read as the Public Holidays page reads them: the
+  // countries picked, every country, or no other country - and for a user who never picked, the
+  // company's countries (else Germany) beside the Czech Republic, shown as the picks so the user sees
+  // whose holidays these are (user council M19). Taking the last one out keeps "Czech holidays only"
+  // instead of bringing that default back (mock council R21).
+  const { choice, countries, pick } = useMyCountryChoice(listed);
+  const pickerCountries = pickerValue(choice).filter((c) => c === ALL_COUNTRIES_MARK || countryOptions.includes(c));
+  const pickCountries = (next: string[]) => void pick(countryOptions, next);
 
   const isToday = (m: number, d: number) =>
     year === today.getFullYear() && m === today.getMonth() && d === today.getDate();
@@ -75,11 +71,11 @@ export function CalendarView() {
             mode="multiple"
             allowClear
             maxTagCount="responsive"
-            value={countries.filter((c) => countryOptions.includes(c))}
+            value={pickerCountries}
             onChange={pickCountries}
-            placeholder={countries.length ? `My countries: ${countries.join(", ")}` : "My countries"}
+            placeholder={countries?.length ? `My countries: ${countries.join(", ")}` : pickerPlaceholder(choice)}
             className="min-w-[220px] max-w-[420px] flex-1"
-            options={countryOptions.map((c) => ({ value: c, label: c }))}
+            options={[{ value: ALL_COUNTRIES_MARK, label: "All countries" }, ...countryOptions.map((c) => ({ value: c, label: c }))]}
             aria-label="My countries (whose holidays are shown)"
           />
         )}

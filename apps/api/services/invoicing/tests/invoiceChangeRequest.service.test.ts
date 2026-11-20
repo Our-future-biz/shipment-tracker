@@ -62,6 +62,8 @@ describe("asking to change an invoice", () => {
         // in the list's order, each once
         fixes: ["lines", "duzp"], reason: "Wrong DUZP and THC amount", requestedById: "u-rep", requestedByName: "u-rep@test.cz",
       }),
+      // the check run again under the invoice's lock (S5-4)
+      expect.any(Function),
     );
     expect(asked.status).toBe("pending");
     expect(docs.cancelOnIssueDay).not.toHaveBeenCalled();
@@ -98,6 +100,18 @@ describe("asking to change an invoice", () => {
     });
     expect(creditRequests.pendingFor).toHaveBeenCalledWith(COMPANY, INVOICE);
     expect(requests.create).not.toHaveBeenCalled();
+  });
+
+  // Mock council S5-4 / X-3: a partial credit asked a second earlier is seen again under the invoice's row lock.
+  it("checks again under the invoice's lock, with the insert, so two requests a second apart never both wait", async () => {
+    const tx = { tx: true };
+    requests.create.mockImplementation(async (values: Record<string, unknown>, guard?: (t: unknown) => Promise<void>) => {
+      await guard?.(tx);
+      return row(values);
+    });
+    creditRequests.pendingFor.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "cr1", requestedAt: new Date("2026-11-17T08:13:00Z") });
+    await expect(invoiceChangeRequestService.ask(user, INVOICE, { fixes: ["duzp"], reason: "Wrong" })).rejects.toThrow(/partial credit note for this invoice is waiting/);
+    expect(creditRequests.pendingFor).toHaveBeenLastCalledWith(COMPANY, INVOICE, tx);
   });
 });
 

@@ -28,10 +28,12 @@ import { ListCapNotice } from "@/components/ListCapNotice";
 import Link from "next/link";
 import { canChangeShipmentDetails, canChangeShipmentField, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
 import { CUSTOMS_PROCEDURE_LOCKED_HINT, customsProcedureLocked } from "@/lib/customsOffices";
-import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
+import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, withFixedColumns, type CellStyle } from "@/lib/columnConfig";
 import { useAuth, useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
-import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
+import { DEFAULT_SHIPMENT_COLUMNS, SHIPMENT_DEFAULTS_VERSION } from "@/hooks/useColumnPrefs";
+import { NewDefaultColumnsNotice } from "@/components/NewDefaultColumnsNotice";
+import { MY_JOBS_PARAM, asksMyJobs, withMyJobs } from "@/app/shipments/_lib/myJobs";
 import { resizableColumns, useColumnWidths } from "@/hooks/useColumnWidths";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useMessages, useToast } from "@/lib/toast";
@@ -154,6 +156,17 @@ function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
 
 const MAX_RECENT_SEARCHES = 5;
 
+// The default columns as a saved set is drawn (Internal Reference first), to tell a set of one's own from them.
+const DEFAULT_COLUMNS_DRAWN = withFixedColumns(DEFAULT_SHIPMENT_COLUMNS);
+
+// What the Internal Reference's colour says, for the legend: its department's, as the conditional
+// formatting gives it (columnConfig getCellConditionalStyle). It stays on a red (OBL waiting) row,
+// so the legend is true there too (mock council S9-3).
+const DEPARTMENT_COLOURS = (COLUMN_MAP.get("department")?.options ?? []).flatMap((department) => {
+  const color = getCellConditionalStyle("jobNumber", "", { department })?.color;
+  return color ? [{ label: department.replace(/\s+Department$/i, ""), color }] : [];
+});
+
 // The warning triangle's colours: the class, and the same colour for a row whose text is forced red.
 const TRIANGLE_TONES = {
   critical: { className: "text-red-500", color: "var(--color-red-500)" },
@@ -192,7 +205,7 @@ export const ShipmentsTable = ({
     () => (viewKey ? { scope: viewKey, defaults: viewDefaults ?? DEFAULT_SHIPMENT_COLUMNS } : undefined),
     [viewKey, viewDefaults],
   );
-  const { visible: chosen, setVisible, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
+  const { visible: chosen, setVisible, resetColumns, ownColumns, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token, columnScope);
   // Column widths the user dragged, kept per user in this browser; a view on another page
   // (Customs, Warehouse) keeps its own.
@@ -273,6 +286,16 @@ export const ShipmentsTable = ({
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
+  // "My jobs" (?mine=1, _lib/myJobs): the Shipments list narrowed to the jobs the signed-in user
+  // handles or covers, by the server over every job (ShipmentsView sends it), and remembered with
+  // the Status. Only on the list itself, not on a view of another page (mock council S9-1).
+  const myJobs = !viewKey && asksMyJobs(searchParams);
+  const setMyJobs = (on: boolean) => {
+    persist({ mine: on });
+    const qs = withMyJobs(searchParams, on).toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
   // The view's quick filter (?quick=), applied here over the rows the page was given.
   const quickColumn = view?.quickFilter?.column;
   const quick = searchParams.get("quick") ?? "all";
@@ -341,7 +364,7 @@ export const ShipmentsTable = ({
   const persist = (next: RememberedFilters) => {
     // Entered by such a link, the filters on screen are the link's: they are not remembered, and
     // what was remembered before stays for the next plain arrival.
-    const entry = rememberedAfter({ status: statusFilter, filters }, next, enteredByLink);
+    const entry = rememberedAfter({ status: statusFilter, filters, mine: myJobs }, next, enteredByLink);
     if (!entry) return;
     try {
       localStorage.setItem(storageKey, JSON.stringify(entry));
@@ -375,6 +398,11 @@ export const ShipmentsTable = ({
       params.set("status", stored.status);
       changed = true;
     }
+    // "My jobs" only on the Shipments list itself: the views have no such button.
+    if (!viewKey && stored.mine && !asksMyJobs(params)) {
+      params.set(MY_JOBS_PARAM, "1");
+      changed = true;
+    }
     const urlHasColumnFilters = Array.from(params.keys()).some((k) => k.startsWith("f."));
     const storedFilters = (stored.filters ?? []).filter((f) => f.key);
     if (!urlHasColumnFilters && storedFilters.length > 0) {
@@ -387,7 +415,7 @@ export const ShipmentsTable = ({
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     }
     // Runs once (the `restored` guard): restoring is what happens when the page is entered.
-  }, [searchParams, storageKey, router, pathname, enteredByLink]);
+  }, [searchParams, storageKey, router, pathname, enteredByLink, viewKey]);
 
   const applyFilters = (next: ColFilter[]) => {
     setFilters(next);
@@ -519,9 +547,11 @@ export const ShipmentsTable = ({
             <ShipmentHoverCard shipment={record} jobNumberColor={cellStyle?.color}>
               <span
                 onClick={() => router.push(detailHref.replace(":id", record.id))}
-                className={`tabular-nums cursor-pointer ${cellLinkClass(cellStyle?.color)} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
+                // cf-own-color: the department's colour is the legend's meaning, so a red (OBL waiting)
+                // row doesn't turn it red (mock council S9-3), as the deadline triangle keeps its own (c2).
+                className={`tabular-nums cursor-pointer ${cellLinkClass(cellStyle?.color)} ${cellStyle?.fontWeight ? "" : "font-bold"} ${cellStyle?.color ? "cf-own-color" : ""}`}
                 // Conditional formatting rules set these per row; without one the classes apply.
-                style={{ color: cellStyle?.color, fontWeight: cellStyle?.fontWeight }}
+                style={{ color: cellStyle?.color, fontWeight: cellStyle?.fontWeight, ...(cellStyle?.color ? { "--cf-own-color": cellStyle.color } : {}) } as React.CSSProperties}
               >
                 {record.jobNumber || "\u2014"}
               </span>
@@ -794,7 +824,7 @@ export const ShipmentsTable = ({
   const linkFilters = addressFiltersKey(searchParams);
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, statusFilter, quick, activeFilters, pageSize, activeTile, linkFilters]);
+  }, [search, statusFilter, quick, activeFilters, pageSize, activeTile, linkFilters, myJobs]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -865,6 +895,17 @@ export const ShipmentsTable = ({
             />
           </AutoComplete>
           <div className="w-px h-6 bg-slate-200 shrink-0" />
+          {!viewKey && (
+            <button
+              type="button"
+              aria-pressed={myJobs}
+              onClick={() => setMyJobs(!myJobs)}
+              title={myJobs ? "Showing your jobs only: press to show everybody's" : "Show only your jobs: you in Handled By or in Holiday Cover"}
+              className={myJobs ? BTN_PRIMARY : BTN}
+            >
+              My jobs
+            </button>
+          )}
           {quickColumn ? (
             <Select
               value={quick}
@@ -1022,6 +1063,7 @@ export const ShipmentsTable = ({
             onSaveTemplate={saveAsTemplate}
             onDeleteTemplate={deleteTemplate}
             onResetWidths={hasWidths ? resetWidths : undefined}
+            onResetColumns={resetColumns}
           />
           <button
             onClick={() => exportShipmentsCsv(filtered, visible)}
@@ -1054,6 +1096,20 @@ export const ShipmentsTable = ({
         </div>
       )}
 
+      {/* A saved column set keeps the new defaults (S9-1) from showing: its user is told once (mock council S9-2). */}
+      {!viewKey && (
+        <NewDefaultColumnsNotice
+          scope="shipmentColumns"
+          version={SHIPMENT_DEFAULTS_VERSION}
+          own={ownColumns ? withFixedColumns(ownColumns) : null}
+          defaults={DEFAULT_COLUMNS_DRAWN}
+          onReset={resetColumns}
+        >
+          The ports, Closing, ETD, ETA and Shipment Status now come right after Customer, so the morning check fits the first screen;
+          Shipments Month, Year and Department are no longer shown at first. You have columns of your own, so nothing moved for you.
+          Columns → Default columns takes the new ones at any time.
+        </NewDefaultColumnsNotice>
+      )}
       {notice}
       {cap && <ListCapNotice shown={cap.shown} total={cap.total} noun="shipments" />}
 
@@ -1106,9 +1162,19 @@ export const ShipmentsTable = ({
                 size="small"
               />
             </span>
-            {/* The row colours read as the trade direction without it (user council O15). */}
+            {/* The row colours read as the trade direction without it (user council O15). The Internal
+                Reference keeps its department's colour on a red row (cf-own-color), so both halves are
+                true on every row (mock council S9-3). */}
             <span className="text-xs">
-              <span className="text-red-700">Red text</span> = original B/L not in hand · job number colour = department
+              <span className="text-red-700">Red text</span> = an import waiting for its original B/L · Internal Reference colour = department:{" "}
+              {DEPARTMENT_COLOURS.map((d, i) => (
+                <span key={d.label}>
+                  {i > 0 && ", "}
+                  <span className="font-semibold" style={{ color: d.color }}>
+                    {d.label}
+                  </span>
+                </span>
+              ))}
             </span>
           </div>
           <Pagination

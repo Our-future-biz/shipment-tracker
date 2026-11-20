@@ -1,11 +1,9 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { invoicing } from "~encore/clients";
-import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { appUrl } from "../../../lib/appUrl";
 import { businessDay } from "../../../lib/businessDate";
 import type { PublicShipmentStatus, ShipmentCustomerLink } from "../interfaces/interfaces";
-import { LINK_INVALID, type OurContact, customerLinkUrl, hashLinkToken, linkMayOpen, linkOpenUntil, looksLikeLinkToken, newLinkToken, publicStatusOf } from "../lib/customerLink";
+import { LINK_INVALID, customerLinkUrl, hashLinkToken, linkMayOpen, linkOpenUntil, looksLikeLinkToken, newLinkToken, publicStatusOf } from "../lib/customerLink";
 import { buildTracking } from "../lib/trackingTimeline";
 import { userEmails } from "../lib/userEmails";
 import { containerRepository } from "../repositories/container.repository";
@@ -15,17 +13,7 @@ import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackin
 import { DETAILS_REFUSAL } from "../lib/shipmentEditRule";
 import { TRACKING_EVENTS_LIMIT, type TrackingActor } from "./tracking.service";
 import { shipmentService } from "./shipment.service";
-
-/** Whose page it is and how to reach it (the invoicing details). Not knowing isn't worth failing the customer's page for. */
-async function ourContact(companyId: string): Promise<OurContact> {
-  try {
-    const { profile } = await invoicing.invoiceProfileGet({ authData: await serviceActor(companyId) });
-    return { name: profile.companyName ?? "", phone: profile.phone ?? "", email: profile.email ?? "" };
-  } catch (err) {
-    log.warn(err, "customer link: the company's name not read");
-    return { name: "", phone: "", email: "" };
-  }
-}
+import { ourContact } from "./ourContact";
 
 class CustomerLinkService {
   private async requireShipment(shipmentId: string, companyId: string) {

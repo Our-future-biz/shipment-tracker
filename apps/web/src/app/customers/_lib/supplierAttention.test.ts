@@ -113,5 +113,14 @@ describe("a supplier's Needs attention", () => {
       expect(keys({ customer: company({ supplierTerms: { ...company().supplierTerms, bankAccountsChangedAt: "2026-10-20T08:00:00Z", bankAccountsChangedBy: "jana@x.cz" } }) })).toEqual(["bank-account-added"]);
       expect(keys({ customer: company({ supplierTerms: { ...company().supplierTerms, bankAccountsChangedAt: "2026-10-01T08:00:00Z" } }) })).toEqual([]);
     });
+
+    it("warn a haulier once about its bank account, not again as Trucking's (mock council S6-2)", () => {
+      const noAccount = { code: "no_bank_account" as const, severity: "warn" as const, message: "No bank account from the VAT register listed — its invoices will be blocked" };
+      const haulier = (over: Partial<CustomerItem["supplierTerms"]>) => company({ supplierTerms: { ...company().supplierTerms, ...over } });
+      expect(keys({ customer: haulier({ bankAccounts: [] }), haulierIssues: [noAccount] })).toEqual(["no-published-account"]);
+      expect(keys({ customer: haulier({ bankAccountPublished: false }), haulierIssues: [noAccount] })).toEqual(["no-published-account"]);
+      // Never checked: the card says nothing of the account, so Trucking's warning is the one left.
+      expect(keys({ customer: haulier({ vatCheckedAt: "", bankAccounts: [] }), haulierIssues: [noAccount] })).toEqual(["haulier-no_bank_account"]);
+    });
   });
 });

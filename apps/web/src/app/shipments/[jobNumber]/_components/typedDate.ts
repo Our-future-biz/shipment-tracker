@@ -11,10 +11,32 @@ import { joinDateTime } from "@/lib/columnConfig";
  */
 export const DATE_INPUT_FORMATS = ["DD.MM.YYYY", "D.M.YYYY", "YYYY-MM-DD"];
 
-export const TYPE_DATE_HINT = "Type the date as 26.11.2026";
-export const TYPE_TIME_HINT = "Type the time as 16:00";
+// Every message of a date box that can't be read says how to leave it as it was (mock council R5): an emptied box
+// is saved as no date, so one emptied to start over loses the date unless Escape is pressed.
+const ESC_KEEPS_DATE = "Esc keeps the old date";
+export const TYPE_DATE_HINT = `Type the date as 26.11.2026. ${ESC_KEEPS_DATE}`;
+export const TYPE_TIME_HINT = "Type the time as 16:00. Esc keeps the old date and time";
 /** A typed day the field doesn't allow, as its picker greys out (EditableCell dayBlocked). */
-export const FUTURE_DAY_ERROR = "This date can't be in the future";
+export const FUTURE_DAY_ERROR = `This date can't be in the future. ${ESC_KEEPS_DATE}`;
+
+/**
+ * How many years from this one a date may be (mock council S1-05). Any four-digit year was taken, so a slip such
+ * as 11.12.2062 or 11.12.0026 was saved without a word. A shipment's dates (an ETA, a closing, a customs or
+ * payment day) are a few years at most from today; 20 either way still takes an old job typed in late and a long
+ * contract's end, and refuses the slips: a year out of order (2062), cut short (0026), or "99" (2099).
+ */
+export const YEAR_SPAN = 20;
+
+/** Whether a day (YYYY-MM-DD) is more than YEAR_SPAN years from this year. */
+export function yearOutOfReach(day: string, now: Date = new Date()): boolean {
+  const year = Number(day.slice(0, 4));
+  const thisYear = now.getFullYear();
+  return year < thisYear - YEAR_SPAN || year > thisYear + YEAR_SPAN;
+}
+
+/** Why a typed day far from today is not taken. */
+export const yearOutOfReachError = (day: string) =>
+  `${Number(day.slice(0, 4))} is more than ${YEAR_SPAN} years from today. ${TYPE_DATE_HINT}`;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -22,7 +44,8 @@ const pad = (n: number) => String(n).padStart(2, "0");
  * A typed day as stored (YYYY-MM-DD), or null when it isn't one: DD.MM.YYYY, D.M.YYYY, DD.MM.YY
  * (and D.M.YY) or YYYY-MM-DD. The Czech way of writing it, with a space after each dot
  * ("26. 11. 2026") and often a dot after the year ("26.11.2026."), is read too. A two-digit year is
- * in this century. A day the calendar hasn't (31.02.2026) is no day.
+ * in this century. A day the calendar hasn't (31.02.2026) is no day. Whether its year is near enough to today is
+ * readTypedDay's (yearOutOfReach): "99" is read as 2099, and then refused there.
  */
 export function parseTypedDay(text: string): string | null {
   const t = text.trim();
@@ -54,10 +77,11 @@ export function parseTypedTime(text: string): string | null {
 /** What a typed date box says once Enter reads it: the day ("" for a box emptied), or why not. */
 export type TypedDay = { day: string } | { error: string };
 
-export function readTypedDay(text: string, blocked?: (day: string) => boolean): TypedDay {
+export function readTypedDay(text: string, blocked?: (day: string) => boolean, now: Date = new Date()): TypedDay {
   if (text.trim() === "") return { day: "" };
   const day = parseTypedDay(text);
   if (!day) return { error: TYPE_DATE_HINT };
+  if (yearOutOfReach(day, now)) return { error: yearOutOfReachError(day) };
   if (blocked?.(day)) return { error: FUTURE_DAY_ERROR };
   return { day };
 }
@@ -76,6 +100,16 @@ export function leaveTypedDay(typed: string | null, escaped: boolean, blocked?: 
 }
 
 /**
+ * Whether the focus going on to `next` leaves a date + time editor, so it saves (mock council S1-04): to an element
+ * outside it and outside every picker's panel (rendered elsewhere in the page). The focus going nowhere - a click on
+ * the page, another window - is not a leave here: a click elsewhere saves by its own (DateTimeEditor's mousedown).
+ */
+export function leavesEditor(next: Element | null, editor: Element | null): boolean {
+  if (!next || !editor) return false;
+  return !editor.contains(next) && !next.closest(".ant-picker-dropdown");
+}
+
+/**
  * The value a date + time editor saves ("YYYY-MM-DD HH:MM", "YYYY-MM-DD" or ""), or the box that
  * can't be read and why. `picked` is what the pickers hold; `typed` is what was typed into each box
  * since its picker last set it (null: nothing), which counts over the picked value.
@@ -83,10 +117,11 @@ export function leaveTypedDay(typed: string | null, escaped: boolean, blocked?: 
 export function resolveDateTime(
   picked: { date: string; time: string },
   typed: { date?: string | null; time?: string | null },
+  now: Date = new Date(),
 ): { value: string } | { error: string; box: "date" | "time" } {
   let { date, time } = picked;
   if (typed.date != null) {
-    const read = readTypedDay(typed.date);
+    const read = readTypedDay(typed.date, undefined, now);
     if ("error" in read) return { error: read.error, box: "date" };
     date = read.day;
   }

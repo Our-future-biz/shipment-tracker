@@ -87,17 +87,19 @@ export function dueForListFollow(companyId: string, now = new Date()): Promise<G
 /**
  * Brings the customs status of linked, unreleased records up to date with their shipments.
  * Only records not read within `maxAgeMs` (all of them with `force`), at most `limit`.
+ * `releasedToo` (the record opened on its own): a released or departed record still follows its
+ * job's number, and only that - a job renumbered after the release (mock council S11-6).
  * Returns the records it changed, as stored now.
  */
 export async function followCustoms(
   rows: GateMovementRow[],
   companyId: string,
-  opts: { maxAgeMs: number; limit: number; force?: boolean; budgetMs?: number; authData?: ServiceActor },
+  opts: { maxAgeMs: number; limit: number; force?: boolean; budgetMs?: number; authData?: ServiceActor; releasedToo?: boolean },
 ): Promise<Map<string, GateMovementRecord>> {
   const changed = new Map<string, GateMovementRecord>();
   const now = Date.now();
   const due = rows
-    .filter((m) => m.shipmentId && !m.impRelease && !m.leftAt && !m.events.some((e) => e.kind === SHIPMENT_GONE))
+    .filter((m) => m.shipmentId && (opts.releasedToo || (!m.impRelease && !m.leftAt)) && !m.events.some((e) => e.kind === SHIPMENT_GONE))
     .filter((m) => opts.force || !m.shipmentCheckedAt || now - m.shipmentCheckedAt.getTime() >= opts.maxAgeMs)
     .sort((a, b) => (a.shipmentCheckedAt?.getTime() ?? 0) - (b.shipmentCheckedAt?.getTime() ?? 0))
     .slice(0, opts.limit);
@@ -110,9 +112,10 @@ export async function followCustoms(
   for (const m of due) {
     const f = fetched.get(m.shipmentId!);
     if (!f) continue; // not answered in time: read again next time
+    const settled = !!m.impRelease || !!m.leftAt;
     // Other names than the shipment's: its records follow it (read again under the shipment's
     // turn, so this read being older than an event applied meanwhile does no harm). Once per shipment.
-    if (f.ok && !partiesFollowed.has(m.shipmentId!) && partiesChange(m, { customer: f.customer, customerContact: f.customerPic })) {
+    if (f.ok && !settled && !partiesFollowed.has(m.shipmentId!) && partiesChange(m, { customer: f.customer, customerContact: f.customerPic })) {
       partiesFollowed.add(m.shipmentId!);
       try {
         const { changed: rows } = await gatePartiesService.follow(companyId, m.shipmentId!, opts.authData);
@@ -136,6 +139,11 @@ export async function followCustoms(
         changed.set(m.id, row);
         m.jobNumber = row.jobNumber;
       }
+    }
+    // A released or departed record takes nothing else from its shipment.
+    if (settled) {
+      if (!changed.has(m.id)) checkedOnly.push(m.id);
+      continue;
     }
     // The shipment's ETA Warehouse/HUB comes with it too ("Expected today" goes by it): a record
     // imported before it was kept, or whose change from Shipments went missing, catches up here.

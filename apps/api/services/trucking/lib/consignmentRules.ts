@@ -328,6 +328,8 @@ export interface AttentionFacts extends ConsignmentFacts {
   status: ConsignmentStatus;
   pickupDate: string;
   promisedDate: string | null;
+  /** Its service level: an Express fixed date one without its agreed day is named (mock council R24) */
+  serviceLevel?: string | null;
   belowFloor: boolean;
   marginApproved: boolean;
   marginCzk: number | null;
@@ -340,6 +342,9 @@ export interface AttentionFacts extends ConsignmentFacts {
 
 /** Days after the delivery when a missing POD needs attention. */
 export const POD_OVERDUE_DAYS = 2;
+
+/** An Express fixed date consignment with no agreed day (one booked before it was asked). */
+export const FIXED_DAY_MISSING = "Express fixed date without the agreed delivery day: give it in Edit";
 
 /** Plain-English reasons the consignment needs someone now ([] when none). `today` is the Prague day. */
 export function attentionReasons(c: AttentionFacts, today: string, now: Date): string[] {
@@ -358,6 +363,10 @@ export function attentionReasons(c: AttentionFacts, today: string, now: Date): s
   if (c.belowFloor && !c.marginApproved) reasons.push("Margin below the floor: needs a manager's approval");
   if (c.marginCzk !== null && c.marginCzk < 0) reasons.push("Negative margin");
   if ((c.status === "ORDERED" || c.status === "CONFIRMED") && c.pickupDate < today) reasons.push("Pick-up date passed and no pick-up stamped");
+  // One booked before the agreed day was asked (User Council Q13) has none; its edits pass without
+  // it, so it is found here before its delivery day (mock council R24, X-4). After the pick-up the
+  // day can no longer be given, so it is not asked for then.
+  if (c.serviceLevel === "EXP_FIXED" && !c.promisedDate && BEFORE_PICKUP.includes(c.status)) reasons.push(FIXED_DAY_MISSING);
   if (c.deliveredAt && !c.podReceivedAt && now.getTime() - c.deliveredAt.getTime() > POD_OVERDUE_DAYS * 86_400_000) {
     reasons.push(`POD missing for more than ${POD_OVERDUE_DAYS} days`);
   }

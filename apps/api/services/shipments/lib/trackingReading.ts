@@ -4,6 +4,7 @@
 // while the actual date is empty, and the day is the one it prints (D5). Pure, so it is unit-tested.
 
 import { isRealYmd } from "../../../lib/businessDate";
+import { seaPortText } from "../../../lib/geo/carrierPorts";
 import { effectChanges, effectOf, labelOfKind, recordRefusal, setsWord, type EventEffect, type TrackingKind } from "./trackingEvents";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
 
@@ -81,7 +82,8 @@ function vesselChangeOf(vessel: string, voyage: string, shipment: ShipmentRecord
 export function readingPreview(extracted: Record<string, string>, shipment: ShipmentRecord, shipmentContainers: readonly string[], keptIds: ReadonlySet<string>, today: string): ReadingPreview {
   const value = (field: string) => (extracted[field] ?? "").trim();
   const vessel = [value("Vessel"), value("Voyage")].filter(Boolean).join(" ");
-  const placeOf = { pol: shipment.pol, pod: shipment.pod, transhipment: value("Transhipment Port") };
+  // A sea job's old carrier code by its port's name, as the job shows it (mock council S4-1).
+  const placeOf = { pol: seaPortText(shipment.pol, shipment.freightMode), pod: seaPortText(shipment.pod, shipment.freightMode), transhipment: value("Transhipment Port") };
 
   const facts: ReadFact[] = [];
   const add = (kind: TrackingKind, occurredOn: string, place: string, note: string, withVessel = "") => {

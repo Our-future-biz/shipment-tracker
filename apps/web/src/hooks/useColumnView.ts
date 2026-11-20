@@ -118,9 +118,20 @@ export function useColumnView(userId: string | undefined, token: string | null, 
     [deleteTemplate, activeTemplateId, persistActive],
   );
 
+  // Back to the view's default columns: off any template, and the default view's own set replaced.
+  const { reset: resetPrefs } = prefs;
+  const resetColumns = useCallback(() => {
+    setWorkingColumns(null);
+    persistActive(null);
+    resetPrefs();
+  }, [persistActive, resetPrefs]);
+
   return {
     visible,
     setVisible,
+    resetColumns,
+    // The user's own saved set while no template is active (a template is a set chosen on purpose); null with none.
+    ownColumns: activeTemplate ? null : prefs.own,
     templates,
     activeTemplateId,
     isDirty,

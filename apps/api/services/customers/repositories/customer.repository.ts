@@ -101,9 +101,10 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
 
   /**
    * Active when it is not already, live, of this company and a customer: a supplier only keeps its "In use" /
-   * "Not in use" as it was set. True when a row changed.
+   * "Not in use" as it was set. True when a row changed. `onlyProspect`: only from Prospect (an issued invoice, mock
+   * council R11), an Inactive one stays so.
    */
-  async activate(id: string, companyId: string): Promise<boolean> {
+  async activate(id: string, companyId: string, opts: { onlyProspect?: boolean } = {}): Promise<boolean> {
     const rows = await this.db
       .update(customerTable)
       .set({ status: "Active", updatedAt: new Date() })
@@ -112,7 +113,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
           eq(customerTable.id, id),
           eq(customerTable.companyId, companyId),
           isNull(customerTable.deletedAt),
-          ne(customerTable.status, "Active"),
+          opts.onlyProspect ? eq(customerTable.status, "Prospect") : ne(customerTable.status, "Active"),
           arrayContains(customerTable.roles, ["customer"]),
         ),
       )

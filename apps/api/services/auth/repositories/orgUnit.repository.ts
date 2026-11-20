@@ -137,7 +137,10 @@ class LocationRepository {
    * With `pickedBy`, the places that user picked most come first (location_pick); then the exact
    * code, then names that start with the text. The carrier codes the release gives an airport are
    * named, found and ranked by their port's name (CNSHA as "Shanghai"), and say where they are as
-   * "carrier code for Shanghai port CNSGH" (the subdivision the pickers show at the side).
+   * "carrier code for Shanghai port CNSGH" (the subdivision the pickers show at the side) - by sea
+   * only: by air or road CNSHA is the Hongqiao airport, and keeps the release's name and place
+   * (mock council S4-2). By sea a carrier code also comes before its port's own code, as the one
+   * B/Ls and carriers use (mock council S4-Q1 / R16: "Shanghai" offers CNSHA first, then CNSGH).
    * `query` is ASCII-folded by the caller, matching `name_ascii`.
    */
   async search(query: string, countryCode: string | null, limit: number, pickedBy?: { companyId: string; userId: string }, seaports = false) {
@@ -149,24 +152,33 @@ class LocationRepository {
     // Read only when asked, so the other pickers never depend on the column (migration 0024).
     const seaportColumn = seaports ? sql`, is_seaport` : sql``;
     const portsFirst = seaports ? sql`p.is_seaport DESC,` : sql``;
-    // The typed text without the caller's LIKE escapes, for the port names of the carrier codes.
-    const carrierCodes = carrierPortsNamed(query.replace(/\\([\\%_])/g, "$1"));
-    const carrierPorts = carrierCodes.length ? sql` OR code IN (${sql.join(carrierCodes.map((c) => sql`${c}`), sql`, `)})` : sql``;
+    // The typed text without the caller's LIKE escapes, for the port names of the carrier codes (by sea only).
+    const carrierCodes = seaports ? carrierPortsNamed(query.replace(/\\([\\%_])/g, "$1")) : [];
+    const carrierList = sql.join(carrierCodes.map((c) => sql`${c}`), sql`, `);
+    const carrierPorts = carrierCodes.length ? sql` OR code IN (${carrierList})` : sql``;
+    const carrierFirst = carrierCodes.length ? sql` CASE WHEN p.code IN (${carrierList}) THEN 0 ELSE 1 END,` : sql``;
+    const name = seaports ? shownName("name") : sql`name`;
+    const nameAscii = seaports ? shownName("name_ascii") : sql`name_ascii`;
+    const subdivision = seaports ? shownSubdivision() : sql`subdivision_name`;
     const result = await db.execute<Place & Record<string, unknown>>(sql`
       SELECT p.code, p.country_code AS "countryCode", p.name, p.subdivision_name AS "subdivisionName" FROM (
-        SELECT DISTINCT ON (code) code, country_code, ${shownName("name")} AS name, ${shownName("name_ascii")} AS name_ascii, ${shownSubdivision()} AS subdivision_name${seaportColumn} FROM location
+        SELECT DISTINCT ON (code) code, country_code, ${name} AS name, ${nameAscii} AS name_ascii, ${subdivision} AS subdivision_name${seaportColumn} FROM location
         WHERE (code ILIKE ${prefix} OR name_ascii ILIKE ${prefix} OR name_ascii ILIKE ${`% ${query}%`} OR name_ascii ILIKE ${`%(${query}%`}${carrierPorts}) ${inCountry}
         ORDER BY code, id
       ) p
       ${picks}
-      ORDER BY ${portsFirst} COALESCE(lp.picks, 0) DESC,
+      ORDER BY ${portsFirst}${carrierFirst} COALESCE(lp.picks, 0) DESC,
         CASE WHEN p.code ILIKE ${query} THEN 0 WHEN p.name_ascii ILIKE ${query} THEN 1 WHEN p.name_ascii ILIKE ${prefix} THEN 2 ELSE 3 END,
         length(p.name), p.name, p.code
       LIMIT ${limit}`);
     return result.rows;
   }
 
-  /** One row per known code (the first-listed name where a code has several), named as the pickers show it. */
+  /**
+   * One row per known code (the first-listed name where a code has several), a carrier code named as
+   * its port. Asked by the ocean tariffs' ports and by document reading (which reads an air job's
+   * airports as IATA codes), never by a picker: an air or road job's pickers search (mock council S4-2).
+   */
   async findByCodes(codes: string[]) {
     if (codes.length === 0) return [];
     return db

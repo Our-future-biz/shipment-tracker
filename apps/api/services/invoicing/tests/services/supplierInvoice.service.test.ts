@@ -254,8 +254,12 @@ describe("approve", () => {
     repo.costLinesOf.mockResolvedValue([costLine({ realAmount: null })]);
     await expect(service.approve(manager, INV, 3)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/no amount yet/) });
     expect(repo.decide).not.toHaveBeenCalled();
-    // A master job's line with a real cost is an amount too.
+    // Mock council M2: one line with an amount is not enough while another has none - named by job and line.
     repo.masterLinesOf.mockResolvedValue([costLine({ realAmount: "250.00" })]);
+    await expect(service.approve(manager, INV, 3)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/^The real cost of CZFCL00000023 · .* is not in yet/) });
+    expect(repo.decide).not.toHaveBeenCalled();
+    // Every line with a real cost: approved.
+    repo.costLinesOf.mockResolvedValue([costLine({ realAmount: "100.00" })]);
     await service.approve(manager, INV, 3);
     expect(repo.decide).toHaveBeenCalledTimes(1);
   });
@@ -386,6 +390,10 @@ describe("markPaid", () => {
   it("does not pay an invoice none of whose lines has a real cost (User Council A1)", async () => {
     repo.costLinesOf.mockResolvedValue([costLine({ realAmount: null })]);
     await expect(service.markPaid(manager, INV, 3, "2026-11-15")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/no amount yet/) });
+    expect(repo.setLinesPaid).not.toHaveBeenCalled();
+    // Mock council M2: paid short no more - one of two lines still without its amount.
+    repo.costLinesOf.mockResolvedValue([costLine({ realAmount: "100.00" }), costLine({ id: "l-2", realAmount: null })]);
+    await expect(service.markPaid(manager, INV, 3, "2026-11-15")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/is not in yet/) });
     expect(repo.setLinesPaid).not.toHaveBeenCalled();
   });
 
@@ -669,6 +677,21 @@ describe("beforeLineChange", () => {
     expect(lastDecision().event).toMatchObject({ action: "line_changed", fromStatus: "approved", toStatus: "booked", byUserId: "u-clerk", by: "u-clerk@test.cz", payload: { line: LINE, changed: ["realAmount"] } });
   });
 
+  // System-21 mock council review: a billed job's late real cost put right while its invoice waited - approved since
+  // the rule read it, the approval stands and the change is refused, never sent back to be approved by it.
+  it("keeps an approved invoice approved and refuses the change when the line's late real cost is put right (keepDecided)", async () => {
+    repo.byId.mockResolvedValue(header({ status: "approved", decidedByUserId: "u-boss" }));
+    await expect(service.beforeLineChange(actor, line(), { realAmount: "1100.00" }, { keepDecided: true })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringMatching(/approved or paid, so the real cost stays as it is/),
+    });
+    expect(repo.decide).not.toHaveBeenCalled();
+    // Still booked: it goes on as before.
+    repo.byId.mockResolvedValue(header({ status: "booked" }));
+    await service.beforeLineChange(actor, line(), { realAmount: "1100.00" }, { keepDecided: true });
+    expect(repo.decide).not.toHaveBeenCalled();
+  });
+
   it("sends it back when a line goes, and still when who changed it can't be read", async () => {
     repo.byId.mockResolvedValue(header({ status: "approved" }));
     users.userEmailOf.mockRejectedValue(new Error("auth down"));
@@ -833,6 +856,9 @@ describe("payables (the page)", () => {
     expect(row(H(2)).claims).toEqual([expect.objectContaining({ id: "claim-1", linked: true, status: "open" })]);
     // A refused invoice shows what it billed when refused; its lines are off the jobs.
     expect(row(H(3))).toMatchObject({ amounts: [{ currency: "EUR", amount: 50 }], daysOverdue: 0 });
+    // Every line has its amount (mock council M2: the page greys Approve / Mark paid by this); a refused one says nothing.
+    expect(row(H(1)).missingAmount).toBe("");
+    expect(row(H(3)).missingAmount).toBe("");
     expect(row(H(4))).toMatchObject({ paidOn: "2026-11-12", daysOverdue: 0 });
     expect(row(H(5))).toMatchObject({ due: null, dueSource: "none", amounts: [{ currency: "EUR", amount: -30 }] });
     // The same number from two suppliers among the live invoices: both marked; the unlinked one has no terms.

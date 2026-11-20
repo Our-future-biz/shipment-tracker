@@ -131,3 +131,37 @@ describe("computeCosts", () => {
     expect(t.unconvertibleRowCount).toBe(1);
   });
 });
+
+describe("the CZK figures, as the server's job profit has them (mock council S7-1)", () => {
+  const r = { CZK: 1, EUR: 25.3, USD: 22.1 };
+
+  it("keeps a 1,000 CZK cost at 1,000.00 on a EUR-billed job, though its row reads 39.53 EUR", () => {
+    const t = computeCosts([buy({ category: "thc", realAmount: "1000", realCurrency: "CZK" })], [], "EUR", r);
+    expect(t.buyRowTotals.b1).toBe(39.53);
+    expect(t.buyCZK).toBe(1000);
+    // A job sold at what it cost shows no profit at all, not -0.11 or +0.11.
+    const even = computeCosts(
+      [buy({ realAmount: "1000", realCurrency: "CZK" })],
+      [sell({ amount: "1000", currency: "CZK" })],
+      "EUR",
+      r,
+    );
+    expect(even.profitCZK).toBe(0);
+  });
+
+  it("adds each row's own CZK value and rounds the sum to haléř, as jobCostTotals does", () => {
+    const buying = [
+      buy({ id: "a", realAmount: "1000", realCurrency: "CZK" }),
+      buy({ id: "b", estAmount: "123.45", estCurrency: "USD" }),
+      buy({ id: "c", realAmount: "77.77", realQty: "3", realCurrency: "EUR", estAmount: "1", estCurrency: "EUR" }),
+    ];
+    const selling = [sell({ id: "x", amount: "2000.01", currency: "EUR" }), sell({ id: "y", amount: "999", currency: "CZK", invoice: false })];
+    const t = computeCosts(buying, selling, "EUR", r);
+    const cost = 1000 + 123.45 * 22.1 + 77.77 * 3 * 25.3;
+    const revenue = 2000.01 * 25.3;
+    expect(t.buyCZK).toBe(Math.round(cost * 100) / 100);
+    expect(t.sellCZK).toBe(Math.round(revenue * 100) / 100);
+    expect(t.sellTotalCZK).toBe(t.sellCZK);
+    expect(t.profitCZK).toBe(Math.round((revenue - cost) * 100) / 100);
+  });
+});

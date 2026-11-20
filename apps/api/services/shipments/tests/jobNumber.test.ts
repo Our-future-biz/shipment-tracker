@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jobNumberFor, jobNumberLetters, referenceIsFinal } from "../lib/jobNumber";
+import { bookingMakesFinal, jobNumberFor, jobNumberLetters, referenceIsFinal } from "../lib/jobNumber";
 
 describe("jobNumberLetters", () => {
   it("names the job by its Freight Mode and Load Type", () => {
@@ -63,5 +63,19 @@ describe("referenceIsFinal", () => {
   it("is not otherwise", () => {
     expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Not Invoiced", bookingNumber: "" })).toBe(false);
     expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "", bookingNumber: "  " })).toBe(false);
+  });
+});
+
+// Mock council R13 (S7-Q1, X-Q2): a reference that went out with a booking stays final.
+describe("bookingMakesFinal", () => {
+  const after = (bookingNumber: string, jobNumberFinal = false) => ({ jobNumberFinal, invoicingStatus: "Not Invoiced", bookingNumber });
+  it("marks the reference final at the first booking, and on a write that clears a booking", () => {
+    expect(bookingMakesFinal({ bookingNumber: "" }, after("MAEU123456"))).toBe(true);
+    expect(bookingMakesFinal({ bookingNumber: "MAEU123456" }, after(""))).toBe(true);
+  });
+
+  it("does nothing on a job never booked, or one already final", () => {
+    expect(bookingMakesFinal({ bookingNumber: "" }, after(" "))).toBe(false);
+    expect(bookingMakesFinal({ bookingNumber: "MAEU123456" }, after("", true))).toBe(false);
   });
 });

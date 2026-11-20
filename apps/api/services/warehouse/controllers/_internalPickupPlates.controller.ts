@@ -5,6 +5,11 @@ interface PickupPlatesRequest {
   /** The company, as a shipment can also be read without a login (a subscription, a cron). */
   companyId: string;
   shipmentIds: string[];
+  /**
+   * Whether the user the plates are for sees the Warehouse Concept (superadmins today): only then
+   * does a job with a live Concept position take the Concept's plate. Left out = no.
+   */
+  seesConcepts?: boolean;
 }
 
 interface PickupPlatesResponse {
@@ -19,6 +24,6 @@ interface PickupPlatesResponse {
 export const _internalPickupPlates = api(
   { expose: false, auth: false, method: "POST", path: "/internal/warehouse/pickup-plates" },
   async (req: PickupPlatesRequest): Promise<PickupPlatesResponse> => {
-    return { plates: await warehouseService.pickupPlates(req.shipmentIds, req.companyId) };
+    return { plates: await warehouseService.pickupPlates(req.shipmentIds, req.companyId, req.seesConcepts === true) };
   },
 );

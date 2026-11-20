@@ -83,7 +83,7 @@ export function queueCellText(r: QueueRow, key: string, flagMissingLines: boolea
     case "invoicedLines": {
       // The cell's own text, "credit owed" too (M3), so a filter on it finds the jobs owing one.
       const cell = linesInvoicedCell(r);
-      return cell ? [cell.count, cell.creditOwed ? "credit owed" : ""].filter(Boolean).join(" ") : "";
+      return cell ? [cell.count, cell.creditOwed ? "credit owed" : "", cell.notTicked].filter(Boolean).join(" ") : "";
     }
     case "invoicingStatus":
       return invoicingStatusOf(r);

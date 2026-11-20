@@ -5,6 +5,7 @@ import {
   isLoadTypeChange,
   houseContainerLines,
   legacyContainerGroups,
+  linkedHouseData,
   syncedShipmentData,
 } from "../lib/masterJobSync";
 import type { ContainerLine } from "../interfaces/interfaces";
@@ -230,5 +231,26 @@ describe("agreedHouseValues", () => {
     const onLink = syncedShipmentData(agreedHouseValues(houses));
     expect(Object.keys(onLink).length).toBeGreaterThan(0);
     for (const h of houses) for (const [key, value] of Object.entries(onLink)) expect((h as Record<string, unknown>)[key]).toBe(value);
+  });
+});
+
+// Mock council S4-7: linking a house never rewrites the text of a place it has by the same code.
+describe("linkedHouseData", () => {
+  it("keeps a house's place text that has the master job's code", () => {
+    const synced = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", vessel: "MSC ANNA" };
+    const house = { pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "" };
+    expect(linkedHouseData(synced, house)).toEqual({ pod: "Hamburg (DEHAM)", vessel: "MSC ANNA" });
+  });
+
+  it("still writes a place of another code, and a text with no code", () => {
+    const synced = { pol: "Ningbo (CNNGB)", pod: "Bremerhaven" };
+    const house = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)" };
+    expect(linkedHouseData(synced, house)).toEqual(synced);
+  });
+
+  it("leaves the values it was given as they were", () => {
+    const synced = { pol: "Shanghai (CNSHA)" };
+    linkedHouseData(synced, { pol: "Shanghai Hongqiao International Apt (CNSHA)" });
+    expect(synced).toEqual({ pol: "Shanghai (CNSHA)" });
   });
 });

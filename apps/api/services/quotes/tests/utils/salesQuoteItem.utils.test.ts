@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
-import { STATES_UNAVAILABLE, toItem } from "../../utils/salesQuoteItem.utils";
+import { shownDocument, STATES_UNAVAILABLE, toItem } from "../../utils/salesQuoteItem.utils";
 import { SHIPPING_TERMS_FIRST, shippingTermsGateMessage } from "../../utils/shippingTerms.utils";
 
 // 10 October 2026, noon in Prague.
@@ -369,5 +369,27 @@ describe("toItem's sendBlocked: the gates the sending is refused by, said before
     expect(toItem(row({ data }), emails, manager, NOW, undefined, STATES_UNAVAILABLE).sendBlocked).toMatch(/could not be read/);
     // A linked company missing from the answer (the quote changed since it was read) is no pass either.
     expect(toItem(row({ data }), emails, manager, NOW, undefined, new Map()).sendBlocked).toMatch(/could not be read/);
+  });
+});
+
+describe("shownDocument (mock council S4-1)", () => {
+  const OLD_POL = "Shanghai Hongqiao International Apt (CNSHA)";
+
+  it("shows a sea quote's carrier-code port by its port name, leaving the stored row as it is", () => {
+    const data = { serviceType: "Sea FCL", pol: OLD_POL, pod: "Hamburg (DEHAM)" };
+    const item = toItem(row({ data }), emails, manager, NOW);
+    expect(item.data).toMatchObject({ serviceType: "Sea FCL", pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)" });
+    expect(data.pol).toBe(OLD_POL);
+  });
+
+  it("keeps the airport by air and an unset mode, and hands out an unchanged document as it is", () => {
+    const air = { serviceType: "Air", pol: OLD_POL };
+    expect(shownDocument(air)).toBe(air);
+    const none = { pol: OLD_POL };
+    expect(shownDocument(none)).toBe(none);
+    const sea = { serviceType: "Sea LCL", pol: "Shanghai (CNSHA)", pod: 7 };
+    expect(shownDocument(sea)).toBe(sea);
+    expect(shownDocument(null)).toBe(null);
+    expect(shownDocument({ serviceType: "Sea LCL", pod: OLD_POL })).toEqual({ serviceType: "Sea LCL", pod: "Shanghai (CNSHA)" });
   });
 });

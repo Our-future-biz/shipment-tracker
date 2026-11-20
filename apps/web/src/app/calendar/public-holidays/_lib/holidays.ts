@@ -57,5 +57,13 @@ export const rowCountry = (h: Pick<HolidayItem, "country" | "countryCode">) => h
 /** The list's countries, each once, in alphabetical order. */
 export const listedCountries = (items: HolidayItem[]) => [...new Set(items.map(rowCountry).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
-/** The rows of the countries the user cares about; all of them while none is picked. */
-export const ofMyCountries = (items: HolidayItem[], mine: readonly string[]) => (mine.length ? items.filter((h) => mine.includes(rowCountry(h))) : items);
+/**
+ * The rows of the countries the user cares about (calendar/_lib/countryChoice chosenCountries): every
+ * row for null; for [] - no country besides the Czech Republic, whose holidays the year calendar
+ * always shows - the Czech rows (mock council R21).
+ */
+export const ofMyCountries = (items: HolidayItem[], mine: readonly string[] | null) => {
+  if (mine === null) return items;
+  if (!mine.length) return items.filter((h) => h.countryCode.trim().toUpperCase() === "CZ");
+  return items.filter((h) => mine.includes(rowCountry(h)));
+};

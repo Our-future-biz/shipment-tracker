@@ -46,6 +46,7 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
     realQty: null,
     realAmount: null,
     realCurrency: "CZK",
+    realCostAt: null,
     unit: "",
     invoiceNumber: "",
     received: false,

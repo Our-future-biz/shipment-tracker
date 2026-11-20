@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/date";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { BTN_GHOST, BTN_SM, EMPTY_STATE, HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 import { readFactWords } from "./trackingText";
+import { atdWarning } from "./milestoneFollowUp";
 
 const MAX_TEXT = 6000;
 /** The server reads no shorter message (extractText: MinLen<10>). */
@@ -171,6 +172,10 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
                   </Checkbox>
                   <div className={`${HINT} ml-6`}>{[fact.place, fact.vessel, fact.note].filter(Boolean).join(" · ")}</div>
                   <div className={`${HINT} ml-6 ${fact.refusal ? "!text-amber-700" : ""}`}>{readFactWords(fact)}</div>
+                  {/* A read ATD is checked as one recorded by hand (mock council S7-4). */}
+                  {fact.kind === "departed" && atdWarning(fact.occurredOn.slice(0, 10), shipment) && (
+                    <div className={`${HINT} ml-6 !text-amber-700`}>{atdWarning(fact.occurredOn.slice(0, 10), shipment)}</div>
+                  )}
                 </li>
               ))}
             </ul>
