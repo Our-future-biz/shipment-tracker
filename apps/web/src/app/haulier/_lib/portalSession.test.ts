@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PORTAL_SESSION_KEY, clearPortalSession, readPortalSession, savePortalSession } from "./portalSession";
+import { PORTAL_LOGIN_HINT_KEY, PORTAL_SESSION_KEY, clearPortalSession, readPortalLoginHint, readPortalSession, savePortalLoginHint, savePortalSession } from "./portalSession";
 
 const memoryStore = () => {
   const data = new Map<string, string>();
@@ -46,5 +46,26 @@ describe("portal session storage", () => {
     expect(() => clearPortalSession(brokenStore)).not.toThrow();
     expect(readPortalSession(null)).toBeNull();
     expect(savePortalSession("tok", null)).toBe(false);
+  });
+});
+
+describe("the sign-in's note of whose account it is (user council E15)", () => {
+  it("keeps the forwarder and the account's e-mail for the sign-in of this tab, nothing else", () => {
+    const store = memoryStore();
+    expect(readPortalLoginHint(store)).toBeNull();
+    savePortalLoginHint({ ourCompany: "Austromar", email: "radek@hopi.test", ...{ password: "never" } } as never, store);
+    expect(JSON.parse(store.data.get(PORTAL_LOGIN_HINT_KEY)!)).toEqual({ ourCompany: "Austromar", email: "radek@hopi.test" });
+    expect(readPortalLoginHint(store)).toEqual({ ourCompany: "Austromar", email: "radek@hopi.test" });
+  });
+
+  it("reads nothing from a broken, missing or foreign note", () => {
+    const store = memoryStore();
+    store.setItem(PORTAL_LOGIN_HINT_KEY, "{not json");
+    expect(readPortalLoginHint(store)).toBeNull();
+    store.setItem(PORTAL_LOGIN_HINT_KEY, JSON.stringify({ ourCompany: 1, email: "x" }));
+    expect(readPortalLoginHint(store)).toBeNull();
+    expect(readPortalLoginHint(brokenStore)).toBeNull();
+    expect(() => savePortalLoginHint({ ourCompany: "A", email: "b" }, brokenStore)).not.toThrow();
+    expect(readPortalLoginHint(null)).toBeNull();
   });
 });

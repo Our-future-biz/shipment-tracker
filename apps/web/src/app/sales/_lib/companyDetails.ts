@@ -28,3 +28,45 @@ export function asCompanyDetails(stored: unknown): CompanyDetails {
 export function hasCompanyDetails(details: CompanyDetails): boolean {
   return COMPANY_DETAIL_FIELDS.some((field) => details[field]);
 }
+
+/** What the quote needs of the issuer details invoices print (Settings → Organization → Invoicing details). */
+export interface InvoiceIssuer {
+  companyName: string;
+  street: string;
+  city: string;
+  postalCode: string;
+  country: string;
+  ico: string;
+  dic: string;
+  email: string;
+  phone: string;
+  web: string;
+}
+
+// The company's invoicing details in the form a quote prints its sender in: the address one line
+// of it per line, as typed in Sales Settings.
+export function companyDetailsFromIssuer(issuer: InvoiceIssuer): CompanyDetails {
+  const town = [issuer.postalCode, issuer.city].map((part) => part.trim()).filter(Boolean).join(" ");
+  return asCompanyDetails({
+    name: issuer.companyName,
+    address: [issuer.street.trim(), town, issuer.country.trim()].filter(Boolean).join("\n"),
+    companyId: issuer.ico,
+    vatId: issuer.dic,
+    phone: issuer.phone,
+    email: issuer.email,
+    website: issuer.web,
+  });
+}
+
+/**
+ * Who a quote is from: the details stored in Sales Settings, and where none are stored there the
+ * company's invoicing details, which name the same company (User Council S24: a company with its
+ * invoicing details filled in was told its quotes say nobody). Not known while the invoicing
+ * details are still loading; with neither, none - and the preview says so.
+ */
+export function quoteSender(stored: StoredCompanyDetails, issuer: { profile: InvoiceIssuer | undefined; isLoading: boolean }): StoredCompanyDetails {
+  if (stored.status !== "ready" || hasCompanyDetails(stored.details)) return stored;
+  if (issuer.isLoading) return { status: "loading", details: stored.details };
+  const fromIssuer = issuer.profile ? companyDetailsFromIssuer(issuer.profile) : null;
+  return fromIssuer && hasCompanyDetails(fromIssuer) ? { status: "ready", details: fromIssuer } : stored;
+}

@@ -1,6 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { GLOSSARY, TERMS } from "./glossary";
-import { TRUCKING_TABS, tabSearch } from "./tabs";
+import { TAB_COUNT_LABELS, TAB_QUEUES, TRUCKING_TABS, haulierInvoicesWaiting, tabSearch } from "./tabs";
+import { CONSIGNMENT_STATUS_CHIP, TRIP_STATUS_CHIP, jobCostsHref } from "./consignments";
+import { TRIP_TILES } from "./trips";
+
+describe("the counts on the tabs (user council T13)", () => {
+  it("say what every count is: a work queue or a plain count", () => {
+    expect(TAB_QUEUES).toEqual({ consignments: "need attention", trips: "ordered, not confirmed", haulierInvoices: "need approval or blocked" });
+    expect(TAB_COUNT_LABELS).toEqual({ hauliers: "hauliers on file", tariffs: "tariffs" });
+    for (const key of Object.keys(TAB_COUNT_LABELS)) expect(TAB_QUEUES).not.toHaveProperty(key);
+  });
+
+  it("count the haulier invoices waiting for a manager or blocked", () => {
+    expect(haulierInvoicesWaiting({ NEEDS_APPROVAL: 2, BLOCKED: 1 })).toBe(3);
+    expect(haulierInvoicesWaiting({ NEEDS_APPROVAL: 0, BLOCKED: 0 })).toBe(0);
+  });
+});
+
+describe("one word for one state (user council T15)", () => {
+  it("names a trip with its haulier chosen and no order sent as its consignment is named", () => {
+    expect(TRIP_STATUS_CHIP.DRAFT.label).toBe(CONSIGNMENT_STATUS_CHIP.PLANNED.label);
+    expect(TRIP_TILES.find((t) => t.id === "draft")?.label).toBe("Planned");
+  });
+});
+
+describe("the job of a consignment (user council T12)", () => {
+  it("opens on its Costs Breakdown: the job page has no Trucking tab", () => {
+    expect(jobCostsHref("abc-1")).toBe("/shipments/abc-1?tab=costs");
+    expect(jobCostsHref("a b/c")).toBe("/shipments/a%20b%2Fc?tab=costs");
+  });
+});
 
 describe("trucking glossary", () => {
   it("explains every term once", () => {

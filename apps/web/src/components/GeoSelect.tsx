@@ -38,6 +38,11 @@ interface GeoSelectProps {
   showWhere?: boolean;
   /** List the seaports first, the other places after them (the Port of Loading / Discharge of a sea quote or job). */
   seaports?: boolean;
+  /**
+   * List the places (UN/LOCODE) before the airports and terminals: a door pick-up or delivery place is a
+   * city more often than an airport (a quote's Origin / Destination, User Council S22).
+   */
+  placesFirst?: boolean;
 }
 
 interface GeoOption {
@@ -64,6 +69,24 @@ export const codedOption = (code: string, name: string, where: string): GeoOptio
 });
 
 /**
+ * The list's groups, the empty ones left out: airports, container yards, inland terminals, then the
+ * places - or the places first with `placesFirst`.
+ */
+export function optionGroups<T>(
+  lists: { airports: T[]; terminals: T[]; inland: T[]; places: T[] },
+  placesFirst: boolean,
+): { label: string; options: T[] }[] {
+  const places = { label: "Places (UN/LOCODE)", options: lists.places };
+  return [
+    ...(placesFirst ? [places] : []),
+    { label: "Airports (IATA)", options: lists.airports },
+    { label: "Container yards (CY)", options: lists.terminals },
+    { label: "Inland terminals", options: lists.inland },
+    ...(placesFirst ? [] : [places]),
+  ].filter((g) => g.options.length > 0);
+}
+
+/**
  * Picks a place (UN/LOCODE, searched worldwide; with `airports`, also an IATA airport; with
  * `terminals`, also an ocean or inland terminal) or a country from the database. Places, airports
  * and terminals are listed with the ones the user picks most first; with `seaports`, the seaports
@@ -86,6 +109,7 @@ export function GeoSelect({
   terminals = false,
   showWhere = false,
   seaports = false,
+  placesFirst = false,
 }: GeoSelectProps) {
   const current = (value ?? "").trim();
   const unmatched = isUnmatched(kind, current);
@@ -139,14 +163,8 @@ export function GeoSelect({
     const pinned: GeoOption[] = !debounced && current && !unmatched && !listed ? [{ value: current, label: <>{current}</> }] : [];
     if (!airports && !terminals) return [...pinned, ...found];
     // By air airports, by sea container yards, and places in groups, so either kind of code can be picked.
-    const groups = [
-      { label: "Airports (IATA)", options: airportOptions },
-      { label: "Container yards (CY)", options: terminalOptions },
-      { label: "Inland terminals", options: inlandOptions },
-      { label: "Places (UN/LOCODE)", options: found },
-    ].filter((g) => g.options.length > 0);
-    return [...pinned, ...groups];
-  }, [kind, places.data, airportList.data, terminalList.data, airports, terminals, current, unmatched, debounced]);
+    return [...pinned, ...optionGroups({ airports: airportOptions, terminals: terminalOptions, inland: inlandOptions, places: found }, placesFirst)];
+  }, [kind, places.data, airportList.data, terminalList.data, airports, terminals, current, unmatched, debounced, placesFirst]);
 
   const selected = current && !unmatched ? (kind === "place" ? current : countryValue(countryCodeOf(current, kind)!, kind)) : undefined;
 

@@ -36,7 +36,6 @@ import type { SupplierValue } from "@/components/SupplierPicker";
 import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/lib/documentTypes";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
-import { useNextJobNumber } from "@/hooks/useNextJobNumber";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { AppCard } from "@/components/AppCard";
 import { Pill } from "@/components/Pill";
@@ -335,8 +334,6 @@ export function DocumentReadingWorkflow() {
   const targetShipmentId = targetShipment?.id ?? "";
   const customsShipmentId = customsShipment?.id ?? "";
   const invoiceTargetShipmentId = invoiceShipment?.id ?? "";
-  // Only a preview: the server gives the number out when the shipment is stored.
-  const { nextJobNumber: newShipmentPreview } = useNextJobNumber(true);
   const { masterJobs } = useMasterJobs();
   const createMasterJob = useCreateMasterJob();
   const updateMasterJob = useUpdateMasterJob();
@@ -1589,9 +1586,9 @@ export function DocumentReadingWorkflow() {
               {shipmentMode === "existing" ? (
                 <ShipmentPicker value={targetShipment} onChange={setTargetShipment} />
               ) : (
-                <Pill tone="slate" className={REF}>
-                  {newShipmentPreview} (will be assigned)
-                </Pill>
+                // No number shown: the server gives it when the job is stored, and it can still change with
+                // the mode / load type until a booking or an invoice freezes it (owner's answer Q33).
+                <Pill tone="slate">A new job (its number is given when it is saved)</Pill>
               )}
             </div>
           )}
@@ -1941,7 +1938,7 @@ export function DocumentReadingWorkflow() {
                 : destination === "customs"
                   ? customsShipment?.jobNumber || "shipment"
                   : shipmentMode === "new"
-                    ? newShipmentPreview
+                    ? "a new job"
                     : "shipment"}
             </Button>
           </div>

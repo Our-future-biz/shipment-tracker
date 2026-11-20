@@ -89,6 +89,13 @@ describe("countInvoicedLines", () => {
     expect(counts.get("s2")).toEqual({ invoiced: 2, total: 2 });
   });
 
+  it("leaves out the row a partial credit note put on the job: 5 charges, 4 invoiced read 4/5, not 5/6 (B19)", () => {
+    const charges = ["a", "b", "c", "d", "e"].map((id) => row(id, "s1"));
+    const credit = { ...row("cn-row", "s1", "-100.00"), sourceCreditNoteId: "cn1" };
+    const counts = countInvoicedLines([...charges, credit], [{ sourceSellingCostIds: ["a", "b", "c", "d"] }, { sourceSellingCostIds: ["cn-row"] }]);
+    expect(counts.get("s1")).toEqual({ invoiced: 4, total: 5 });
+  });
+
   it("has no entry for a job without lines", () => {
     expect(countInvoicedLines([], []).get("s1")).toBeUndefined();
   });

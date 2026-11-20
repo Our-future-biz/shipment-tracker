@@ -21,34 +21,60 @@ const ACCOUNT_RULES = [
 const OFFICE_OPTIONS = CUSTOMS_OFFICES.map((office) => ({ value: office, label: office }));
 const filterOffice = (input: string, option?: { label?: string }) => foldIncludes(option?.label ?? "", input);
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+/** The mark of a required answer, as antd puts it before a label. */
+export const REQUIRED_MARK = "*";
+
+function Section({ title, hint, required = false, children }: { title: string; hint?: string; required?: boolean; children: React.ReactNode }) {
   return (
     <section className="border-t border-slate-200 pt-3 mt-3 first:border-t-0 first:pt-0 first:mt-0">
-      <h2 className={`m-0 mb-2 ${LABEL_TEXT}`}>{title}</h2>
+      <h2 className={`m-0 mb-2 ${LABEL_TEXT}`}>
+        {required && (
+          <span aria-hidden className="mr-1 text-red-500">
+            {REQUIRED_MARK}
+          </span>
+        )}
+        {title}
+        {required && <span className="sr-only"> (required)</span>}
+      </h2>
       {hint && <p className={`${HINT} mt-0 mb-2`}>{hint}</p>}
       {children}
     </section>
   );
 }
 
+/**
+ * Whether the three classification questions must be answered: we classify the goods from them when
+ * no tariff code is given, unless the customer clears customs itself or through its own broker (as the
+ * server's answersProblem holds to).
+ */
+export const needsClassification = (procedure: ImportAnswers["procedure"] | undefined, tariffCode: string | undefined): boolean =>
+  !tariffCode?.trim() && procedure !== "own_broker";
+
 // Sections 2-6 of the paper form, inside an antd Form: the customer's page and the preview in Warehouse.
-export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAnswers> }) {
+// `markRequired`: the section titles of required answers carry the mark the labelled ones get from
+// the form (the customer's page; user council E11: required fields carried no mark).
+export function ImportInstructionsFields({ form, markRequired = false }: { form: FormInstance<ImportAnswers>; markRequired?: boolean }) {
   const procedure = Form.useWatch("procedure", form);
   const dutyPaidBy = Form.useWatch("dutyPaidBy", form);
   const bank = Form.useWatch("bank", form);
   const accountNumber = Form.useWatch("accountNumber", form);
   const tariffCode = Form.useWatch("tariffCode", form);
-  const needsAnswers = !tariffCode?.trim();
+  const needsAnswers = needsClassification(procedure, tariffCode);
   const { asksAccount, mustSayWhoPays } = accountQuestions(dutyPaidBy, bank, accountNumber);
+  // Checked again whenever the tariff code or the procedure changes: an error shown while both were
+  // empty goes once a code is typed (user council E11).
+  const classifyRules = needsAnswers ? need("Without a tariff code this is needed") : [];
+  const classifyDependencies = ["tariffCode", "procedure"];
 
   return (
     <>
-      <Section title="2. Please clear the goods through customs under the following procedure">
+      <Section title="2. Please clear the goods through customs under the following procedure" required={markRequired}>
         <Form.Item name="procedure" rules={[{ required: true, message: "Choose the customs procedure" }]} className="!mb-2">
           <Radio.Group className="flex flex-col gap-1">
             <Radio value="free_circulation">a) Release for free circulation (SAD)</Radio>
             <Radio value="t1">b) T1 transit</Radio>
             <Radio value="other">c) Customs warehousing (SAD) or another procedure</Radio>
+            <Radio value="own_broker">d) We clear the goods through customs ourselves or through our own broker</Radio>
           </Radio.Group>
         </Form.Item>
         {procedure === "free_circulation" && (
@@ -84,6 +110,11 @@ export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAn
             <Input maxLength={300} />
           </Form.Item>
         )}
+        {procedure === "own_broker" && (
+          <Form.Item name="otherProcedure" label="Your customs broker (optional)" extra="We hand the goods over for clearance; the tariff code and the questions in section 4 are not needed.">
+            <Input maxLength={300} placeholder="Company name and contact" />
+          </Form.Item>
+        )}
       </Section>
 
       <Section
@@ -95,18 +126,18 @@ export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAn
         </Form.Item>
       </Section>
 
-      <Section title="4. Detailed description of the goods">
+      <Section title="4. Detailed description of the goods" required={markRequired}>
         <Form.Item name="description" rules={need("Describe the goods")}>
           <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} maxLength={2000} />
         </Form.Item>
         <p className={`${HINT} mt-0 mb-2`}>If you do not know the Combined Nomenclature code, the goods will be classified using your description. Please answer the following questions to enable correct classification:</p>
-        <Form.Item name="whatIsIt" label="What is it? (basic characteristics of the goods)" rules={needsAnswers ? need("Without a tariff code this is needed") : undefined}>
+        <Form.Item name="whatIsIt" label="What is it? (basic characteristics of the goods)" dependencies={classifyDependencies} rules={classifyRules}>
           <Input maxLength={500} />
         </Form.Item>
-        <Form.Item name="madeOf" label="What is it made of? (material from which the goods are manufactured)" rules={needsAnswers ? need("Without a tariff code this is needed") : undefined}>
+        <Form.Item name="madeOf" label="What is it made of? (material from which the goods are manufactured)" dependencies={classifyDependencies} rules={classifyRules}>
           <Input maxLength={500} />
         </Form.Item>
-        <Form.Item name="usedFor" label="What is it used for? (purpose and function of the goods)" rules={needsAnswers ? need("Without a tariff code this is needed") : undefined}>
+        <Form.Item name="usedFor" label="What is it used for? (purpose and function of the goods)" dependencies={classifyDependencies} rules={classifyRules}>
           <Input maxLength={500} />
         </Form.Item>
       </Section>
@@ -128,7 +159,7 @@ export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAn
         </Form.Item>
       </Section>
 
-      <Section title="6. Billing address">
+      <Section title="6. Billing address" required={markRequired}>
         <Form.Item name="billingAddress" rules={need("Fill in the billing address")}>
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={500} />
         </Form.Item>

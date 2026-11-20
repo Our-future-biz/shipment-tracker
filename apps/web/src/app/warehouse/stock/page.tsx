@@ -26,7 +26,7 @@ export default function StockPage() {
   };
   // One taken in by mistake goes back to In Warehouse.
   const backToIn = useWarehouseMove({ warehouseReceivedDate: "clear" }, "In Warehouse");
-  // Shipments waiting for the truck to be chosen (Vyskladnit pressed).
+  // Shipments waiting for the truck to be chosen (Release from Stock pressed).
   const [toRelease, setToRelease] = useState<string[] | null>(null);
 
   return (
@@ -34,8 +34,8 @@ export default function StockPage() {
       <WarehouseShipmentsView
         section="stock"
         selectionActions={[
-          { label: "Vyskladnit", onClick: (ids) => (ids.length ? setToRelease(ids) : toast.error(NOTHING_TICKED)) },
-          { label: "Vrátit do In Warehouse", secondary: true, onClick: backToIn },
+          { label: "Release from Stock", onClick: (ids) => (ids.length ? setToRelease(ids) : toast.error(NOTHING_TICKED)) },
+          { label: "Back to In Warehouse", secondary: true, onClick: backToIn },
         ]}
       />
       <ReleaseToTruckModal shipmentIds={toRelease} onClose={() => setToRelease(null)} onRelease={release} />

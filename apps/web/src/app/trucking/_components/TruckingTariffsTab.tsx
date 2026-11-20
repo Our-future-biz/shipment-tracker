@@ -15,7 +15,7 @@ import { BTN_PRIMARY, EMPTY, LINK } from "@/styles/ui";
 import { isTruckingManager, managerOnlyReason } from "../_lib/roles";
 import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, modeLabel, ownerLabel, tariffListStatus, validityLabel, versionLabel } from "../_lib/tariffs";
 import { TariffCreateModal } from "./TariffCreateModal";
-import { byText } from "../_lib/format";
+import { LOADING_TEXT, byText } from "../_lib/format";
 
 export const tariffHref = (id: string) => `/trucking/tariffs/${id}`;
 
@@ -136,7 +136,7 @@ export const TruckingTariffsTab = () => {
         onRowClick={(t) => router.push(tariffHref(t.id))}
         storageKey="trucking:tariffs:v1"
         exportFilePrefix={`tariffs-${side.toLowerCase()}`}
-        emptyText={`No ${sideInfo.label.toLowerCase()} tariffs yet.${isTruckingManager(user) ? " Create one with “New tariff”." : ""}`}
+        emptyText={isLoading ? LOADING_TEXT : `No ${sideInfo.label.toLowerCase()} tariffs yet.${isTruckingManager(user) ? " Create one with “New tariff”." : ""}`}
         resetKey={side}
         actions={
           <Tooltip title={createReason || undefined}>

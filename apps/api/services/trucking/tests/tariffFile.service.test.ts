@@ -100,7 +100,7 @@ describe("template", () => {
     expect(file).toMatchObject({ fileName: "standard-ltl-v2.xlsx", contentType: XLSX_CONTENT_TYPE });
     const tables = await loadWorkbookTables(Buffer.from(file.fileBase64, "base64"));
     expect(tables.map((t) => t.name)).toEqual(["Read me", "Meta", "Zones", "D1", "D2", "D3", "D4", "EXP_1000", "Surcharges"]);
-    expect(tables[3].rows[0][0]).toBe("D1: +1 day");
+    expect(tables[3].rows[0][0]).toBe("D1: +1 working day");
   });
 
   it("exports the chosen version, which must belong to the tariff", async () => {

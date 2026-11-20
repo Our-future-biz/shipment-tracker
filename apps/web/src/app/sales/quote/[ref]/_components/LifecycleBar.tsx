@@ -12,10 +12,11 @@ import {
   QUOTE_STATUS_MAP,
   SETTABLE_QUOTE_STATUSES,
   LOST_REASONS,
+  UNSENT_QUOTE_STATUSES,
   winProbClass,
 } from "../../../_lib/types";
 import { asData, businessToday, statusLines, validUntilAfter } from "../../../_lib/salesQuote";
-import { DEFAULT_VALIDITY_DAYS, asksValidity, type StatusChange } from "../../../_lib/statusChange";
+import { DEFAULT_VALIDITY_DAYS, SENT_BY_OPTIONS, asksValidity, withSentBy, type StatusChange } from "../../../_lib/statusChange";
 import { SalesDialog } from "../../../_components/SalesDialog";
 import { ValidUntilField } from "../../../_components/ValidUntilField";
 import { toolbarButtonClass } from "../../../_components/ToolbarButton";
@@ -105,6 +106,8 @@ export function LifecycleBar({ quote, sendBlocked, validityWarning, onChange, hr
   const [lostCategory, setLostCategory] = useState<string>(Object.keys(LOST_REASONS)[0] ?? "Pricing");
   const [lostReason, setLostReason] = useState<string>("");
   const [comment, setComment] = useState<string>("");
+  // How a quote not sent yet reached the customer, asked as it is set to Quoted here by hand.
+  const [sentBy, setSentBy] = useState<string | null>(null);
   // The request is on its way: the dialog waits for the server's answer.
   const [applying, setApplying] = useState(false);
   // Why the server refused the change asked for in the open dialog.
@@ -114,6 +117,7 @@ export function LifecycleBar({ quote, sendBlocked, validityWarning, onChange, hr
   const openTransition = (next: SettableQuoteStatus) => {
     setTarget(next);
     setComment("");
+    setSentBy(null);
     setRefusal(null);
     if (next === "quoted") setValidUntil(validUntilAfter(today, DEFAULT_VALIDITY_DAYS) ?? today);
     if (next === "lost") {
@@ -131,7 +135,7 @@ export function LifecycleBar({ quote, sendBlocked, validityWarning, onChange, hr
     setRefusal(null);
     const refused = await onChange({
       status: target,
-      comment,
+      comment: asksSentBy ? withSentBy(comment, sentBy) : comment,
       validUntil: target === "quoted" && askValidity ? validUntil : undefined,
       lostReason: target === "lost" ? `${lostCategory}: ${lostReason}` : undefined,
     });
@@ -139,6 +143,10 @@ export function LifecycleBar({ quote, sendBlocked, validityWarning, onChange, hr
     if (refused) setRefusal(refused);
     else setTarget(null);
   };
+
+  // Set to Quoted by hand while the quote as it stands never went out: how the customer got it is
+  // asked, never required (User Council S21).
+  const asksSentBy = target === "quoted" && UNSENT_QUOTE_STATUSES.includes(current);
 
   // The status the quote already has is not offered: there is nothing to say anew about it.
   // A move the margin floor stops is still offered - the server has the last word - with the reason beside it.
@@ -303,6 +311,25 @@ export function LifecycleBar({ quote, sendBlocked, validityWarning, onChange, hr
                 </div>
               </Form.Item>
             ))}
+          {asksSentBy && (
+            <Form.Item
+              label="How did the customer get it?"
+              extra={
+                sentBy
+                  ? "Kept in the quote's history with the comment."
+                  : "Quoted means the customer has the quote. The app sends nothing by itself: E-mail and Export PDF are in the quote's toolbar."
+              }
+            >
+              <Select
+                aria-label="How did the customer get it?"
+                allowClear
+                placeholder="Not said"
+                value={sentBy ?? undefined}
+                onChange={(v?: string) => setSentBy(v ?? null)}
+                options={SENT_BY_OPTIONS.map((o) => ({ value: o, label: o }))}
+              />
+            </Form.Item>
+          )}
           {target === "lost" && (
             <>
               <Form.Item label="Reason category">

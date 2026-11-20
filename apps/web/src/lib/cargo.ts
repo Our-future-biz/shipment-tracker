@@ -121,7 +121,10 @@ export const adrSummary = (l: interfaces.CargoDimensionLine): string =>
     .filter(Boolean)
     .join(" / ");
 
+// The home currency first: the lists (Costs Breakdown, Cargo Details, Claims) had it eighth, after
+// INR, CNY and JPY (user council O25).
 export const CURRENCIES: { code: string; name: string }[] = [
+  { code: "CZK", name: "Czech Koruna" },
   { code: "USD", name: "US Dollar" },
   { code: "EUR", name: "Euro" },
   { code: "INR", name: "Indian Rupee" },
@@ -129,7 +132,6 @@ export const CURRENCIES: { code: string; name: string }[] = [
   { code: "GBP", name: "British Pound" },
   { code: "JPY", name: "Japanese Yen" },
   { code: "CHF", name: "Swiss Franc" },
-  { code: "CZK", name: "Czech Koruna" },
   { code: "PLN", name: "Polish Zloty" },
   { code: "HUF", name: "Hungarian Forint" },
   { code: "SEK", name: "Swedish Krona" },
@@ -352,7 +354,17 @@ export interface FigureCheck {
   ok: boolean;
   /** The decimals the two were compared at, which the pill shows them in. */
   decimals: number;
+  /** They differ, but by no more than FIGURE_TOLERANCE: a match, said so on hover. */
+  near?: boolean;
 }
+
+/**
+ * How far the lines' weight or volume may be from what is declared and still match: 1 %. Lines of
+ * 58.080 m³ against a declared 58.000 m³ are the same cargo, measured or rounded apart, not a
+ * mistake (user council O22) - a tolerance as the remeasurement rules keep one (Warehouse Concept's
+ * 5 %), smaller here, as both figures come from paperwork. Pieces are counted, so they must agree.
+ */
+export const FIGURE_TOLERANCE = 0.01;
 
 export interface ConsistencyCheck {
   matched: boolean;
@@ -361,9 +373,13 @@ export interface ConsistencyCheck {
   m3: FigureCheck;
 }
 
-export function compareFigure(sum: number, declared: number, decimals: number): FigureCheck {
+/** `tolerance`: the share of the declared figure the lines may be off by (FIGURE_TOLERANCE for kg and m³; none for pieces). */
+export function compareFigure(sum: number, declared: number, decimals: number, tolerance = 0): FigureCheck {
   const empty = !sum && !declared;
-  return { sum, declared, empty, ok: empty || roundFigure(sum, decimals) === roundFigure(declared, decimals), decimals };
+  const [a, b] = [roundFigure(sum, decimals), roundFigure(declared, decimals)];
+  const equal = empty || a === b;
+  const near = !equal && b > 0 && a > 0 && Math.abs(a - b) <= b * tolerance + 1e-9;
+  return { sum, declared, empty, ok: equal || near, decimals, ...(near ? { near } : {}) };
 }
 
 /** A container's figures, or a shipment's own as one (shipmentDeclaredFigures), with the decimals its weight is known to. */
@@ -408,8 +424,8 @@ export function shipmentDeclaredFigures(s: { pcs?: string | null; totalWeightTon
 export function checkConsistency(container: DeclaredFigures, dims: CargoDimensionLine[]): ConsistencyCheck {
   const t = dimensionTotals(dims);
   const pcs = compareFigure(t.pcs, num(container.packages), 0);
-  const kg = compareFigure(t.kg, num(container.grossWeight), container.kgDecimals ?? 2);
-  const m3 = compareFigure(t.m3, num(container.volume), 3);
+  const kg = compareFigure(t.kg, num(container.grossWeight), container.kgDecimals ?? 2, FIGURE_TOLERANCE);
+  const m3 = compareFigure(t.m3, num(container.volume), 3, FIGURE_TOLERANCE);
   return { matched: pcs.ok && kg.ok && m3.ok, pcs, kg, m3 };
 }
 
@@ -424,4 +440,21 @@ export function civByCurrency(items: CargoItemLine[]): string {
     byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + value);
   }
   return [...byCurrency.entries()].map(([c, v]) => `${fmtNum(v)} ${c}`).join(", ");
+}
+
+/**
+ * The job's Invoice Value as its cards show it (Cargo / Commercial, Customs), with where it comes
+ * from: its commercial invoices' total (civByCurrency), else the value stored on the job - both
+ * "invoices" - else, with neither, the total of the Cargo Details lines' own values ("lines"). The
+ * two were unlinked figures under one name (user council c4), so the card says which it shows.
+ */
+export function jobInvoiceValue(s: {
+  civByCurrency?: string | null;
+  commercialInvoiceValue?: string | null;
+  cargoItems?: CargoItemLine[] | null;
+}): { value: string; from: "invoices" | "lines" | null } {
+  const own = (s.civByCurrency || s.commercialInvoiceValue || "").trim();
+  if (own) return { value: own, from: "invoices" };
+  const lines = civByCurrency(s.cargoItems ?? []);
+  return lines ? { value: lines, from: "lines" } : { value: "", from: null };
 }

@@ -109,7 +109,7 @@ export function CustomerAddressDialog({ open, address, defaultCountry, saving, o
         <Form.Item
           name="types"
           label="Types"
-          extra="One address can be several types, e.g. Registered, Billing, Pickup and Delivery. Billing is where invoices are addressed, instead of the Registered address; a customer has one. A Pickup or Delivery address is also a site (Sites tab), where its opening hours, avizace and tail lift are kept."
+          extra="One address can be several types, e.g. Registered, Billing, Pickup and Delivery. Billing is where invoices are addressed, instead of the Registered address; a customer has one. A Pickup or Delivery address is also a site (Sites tab), where its opening hours, delivery notice contact and tail lift are kept."
           rules={[{ required: true, type: "array", min: 1, message: "Choose at least one type" }]}
         >
           <Select mode="multiple" aria-label="Types" placeholder="Choose the types" options={typeOptions} />

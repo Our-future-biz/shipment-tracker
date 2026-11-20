@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-// Default visible columns (columnConfig keys) — matches the original table.
+// Default visible columns (columnConfig keys) for a user with no saved set: the original table's,
+// then what an operator's morning check asks of each job - its ports, its Closing, ETD and ETA, and
+// its Shipment Status (user council O15). A saved set or template is kept as it is.
 export const DEFAULT_SHIPMENT_COLUMNS = [
   "jobNumber",
   "masterJob",
@@ -13,6 +15,12 @@ export const DEFAULT_SHIPMENT_COLUMNS = [
   "holidayCover",
   "customer",
   "customerPic",
+  "pol",
+  "pod",
+  "closingDate",
+  "estimatedDeparture",
+  "estimatedArrival",
+  "status",
 ];
 
 /**

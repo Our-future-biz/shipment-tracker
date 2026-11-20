@@ -16,7 +16,7 @@ import { fetchInternalMonthExport, fetchInternalStatementPdf, useInternalCharges
 import { btnDefault, btnPrimary } from "@/components/buttons";
 import { LINK, MODAL_TITLE, REF } from "@/styles/ui";
 import { LINK_ICON_BTN_GHOST } from "../_lib/linkButtons";
-import { consignmentHref } from "../_lib/consignments";
+import { consignmentHref, jobCostsHref } from "../_lib/consignments";
 import { TERMS } from "../_lib/glossary";
 import { CHARGE_KIND_LABELS, MONTH_STATUS_CHIP, closeMonthState, isNotPriced, monthLabel, monthTotal } from "../_lib/internalBilling";
 import { savePdf } from "../_lib/pdfFile";
@@ -24,7 +24,7 @@ import { isTruckingManager } from "../_lib/roles";
 import { formatMoney, formatQty } from "../_lib/tariffs";
 import { fileDataUrl } from "../_lib/tariffUpload";
 import { TruckingStatusChip } from "./TruckingStatusChip";
-import { byText } from "../_lib/format";
+import { LOADING_TEXT, byText } from "../_lib/format";
 
 const stop = (e: React.MouseEvent) => e.stopPropagation();
 
@@ -47,7 +47,7 @@ const COLUMNS: AppGridColumn<InternalCharge>[] = [
     // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
     sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
-      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className={`${LINK} ${REF}`}>
+      <Link href={jobCostsHref(c.shipmentId)} onClick={stop} className={`${LINK} ${REF}`}>
         {c.jobNumber}
       </Link>
     ),
@@ -158,7 +158,7 @@ export const InternalMonthDetail = ({ month }: InternalMonthDetailProps) => {
         storageKey="trucking:internal-charges:v1"
         exportFilePrefix={`internal-charges-${month.month}`}
         resetKey={month.month}
-        emptyText={isError ? "The charges could not be loaded." : "No internal charges in this month."}
+        emptyText={isLoading ? LOADING_TEXT : isError ? "The charges could not be loaded." : "No internal charges in this month."}
       />
 
       <ConfirmModal

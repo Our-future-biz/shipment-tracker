@@ -25,14 +25,15 @@ export const PortalOrderList = () => {
 
   return (
     <>
-      <div className="flex items-center gap-2">
+      {/* The chips keep their words on one line and wrap as a whole on a narrow phone (user council E15). */}
+      <div className="flex flex-wrap items-center gap-2">
         {VIEWS.map((v) => (
           <button
             key={v.key}
             type="button"
             aria-pressed={view === v.key}
             onClick={() => setView(v.key)}
-            className={`${CHIP} ${view === v.key ? CHIP_ON : ""}`}
+            className={`${CHIP} whitespace-nowrap ${view === v.key ? CHIP_ON : ""}`}
           >
             <span>
               <Bi text={v.label} />
@@ -40,7 +41,7 @@ export const PortalOrderList = () => {
             {v.key === "open" && view === "open" && needing > 0 && <span className="font-bold tabular-nums text-red-600">{needing}</span>}
           </button>
         ))}
-        <button type="button" disabled={isFetching} onClick={() => reload()} className={`${BTN_GHOST} ml-auto`}>
+        <button type="button" disabled={isFetching} onClick={() => reload()} className={`${BTN_GHOST} ml-auto whitespace-nowrap`}>
           <Bi text={{ cs: "Obnovit", en: "Refresh" }} />
         </button>
       </div>

@@ -84,6 +84,11 @@ export interface TruckingSettings {
   updatedAt: string | null;
   /** Display name */
   updatedBy: string | null;
+  /**
+   * The server can e-mail (it has a Resend key): Record as sent then e-mails the order to the
+   * addresses in To; without it every send is recorded only. Read only, never saved.
+   */
+  emailConfigured: boolean;
 }
 
 export type CostSplitBasis = "chargeable_weight" | "ldm" | "pallet_places";
@@ -713,6 +718,8 @@ export interface ConsignmentListItem {
   jobNumber: string;
   customerId: string;
   customerName: string;
+  /** The pick-up stop's reference: the customer's order number (the road job's customer reference); "" when none (user council E20) */
+  reference: string;
   scope: ConsignmentScope;
   serviceLevel: ServiceLevelCode | null;
   status: ConsignmentStatus;

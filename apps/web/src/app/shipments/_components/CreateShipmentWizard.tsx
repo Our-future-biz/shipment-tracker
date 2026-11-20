@@ -12,7 +12,6 @@ import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { COLUMN_MAP } from "@/lib/columnConfig";
 import { loadTypeLabel } from "@/lib/enums";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
-import { useNextJobNumber } from "@/hooks/useNextJobNumber";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { invalidateQuoteLists } from "@/hooks/useSalesQuotes";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -46,7 +45,7 @@ interface CreateShipmentWizardProps {
 
 // "created": a shipment was made from a quote, but a step after it did not work - the wizard
 // stays to say which, instead of opening the shipment as if all was done.
-type WizardStep = "ask-copy" | "select-fields" | "confirm-costs" | "created";
+export type WizardStep = "ask-copy" | "select-fields" | "confirm-costs" | "created";
 
 // Ordered field keys offered on the "Select Fields to Copy" step. No people: the copy's Person In
 // Charge is whoever creates it, never the source's (which may still be an old free-text name).
@@ -125,6 +124,20 @@ function costsOutcome(costs: interfaces.CostImportOutcome | undefined): string |
   return lines ? `${lines} cost line${lines === 1 ? "" : "s"} copied` : "no cost lines to copy";
 }
 
+export const NUMBER_GIVEN_ON_CREATE = "The job number is given when the job is created";
+
+/**
+ * The dialog's subtitle. No job number before the job exists: the server gives the number out when
+ * it stores the job (and its letters by the mode and load type it is created with), so a number
+ * shown in advance was often not the one the job got (User Council O20/E17, owner's answer Q33).
+ */
+export function wizardSubtitle(step: WizardStep, sourceJob: string, createdJob: string): string {
+  if (step === "ask-copy") return NUMBER_GIVEN_ON_CREATE;
+  if (step === "select-fields") return `From ${sourceJob} to a new job`;
+  if (step === "confirm-costs") return `From ${sourceJob} to Costs Breakdown`;
+  return `Job Number: ${createdJob}`;
+}
+
 export const CreateShipmentWizard = ({
   open,
   onClose,
@@ -157,10 +170,6 @@ export const CreateShipmentWizard = ({
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set(DEFAULT_COPY_FIELDS));
   const [copyEstimatedCosts, setCopyEstimatedCosts] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // The next job number is generated on the server so it accounts for archived
-  // (soft-deleted) shipments and never reuses a reference.
-  const { nextJobNumber } = useNextJobNumber(open);
 
   // Opened for one quote: it is read as it is stored now and picked, as if found in the picker.
   const presetQuery = useSalesQuoteByRef(fromQuote, { enabled: open });
@@ -221,8 +230,8 @@ export const CreateShipmentWizard = ({
   };
 
   const baseRequest = (): controllers.ShipmentCreateRequest => {
-    // No job number: the server gives the shipment the next free one when it is stored, so the
-    // number shown above is a preview and a parallel create may take it first. No Created By
+    // No job number: the server gives the shipment the next free one when it is stored (none is
+    // shown before - wizardSubtitle). No Created By
     // either: the server stamps it from the signed-in user, who is also its Person In Charge
     // (a person is kept by e-mail, in lower case).
     return {
@@ -378,14 +387,7 @@ export const CreateShipmentWizard = ({
           ? "Copy Estimated Costs?"
           : "Shipment Created";
 
-  const subtitle =
-    step === "ask-copy"
-      ? `Job Number: ${nextJobNumber}`
-      : step === "select-fields"
-        ? `From ${sourceJob} → ${nextJobNumber}`
-        : step === "confirm-costs"
-          ? `From ${sourceJob} to Costs Breakdown`
-          : `Job Number: ${created?.shipment.jobNumber ?? ""}`;
+  const subtitle = wizardSubtitle(step, sourceJob, created?.shipment.jobNumber ?? "");
 
   // What worked of a create from a quote; the result step lists the rest.
   const createdQuote = quoteOutcome(created?.quoteLink);

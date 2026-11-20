@@ -8,6 +8,7 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 import type { ChargeBasis, CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
+import { chargeMatches } from "@/app/sales/_lib/chargeSearch";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -16,6 +17,7 @@ import {
   basisOffered,
   basisUnits,
   convertLine,
+  isDraftQuote,
   lineRate,
   perUnitBasis,
   quoteContainerCount,
@@ -267,9 +269,10 @@ export function CostLinesEditor({
                       size="small"
                       className="w-full"
                       aria-label="Service"
-                      // Typing narrows the list ("oce" → Ocean freight), so nobody has to scroll for it.
+                      // Typing narrows the list ("oce" → Ocean freight), so nobody has to scroll for it;
+                      // a charge is also found by what the trade calls it ("trucking" → haulage).
                       showSearch
-                      optionFilterProp="label"
+                      filterOption={chargeMatches}
                       // The charges of the quote's freight mode, whose names are longer than the column.
                       popupMatchSelectWidth={380}
                       value={l.chargeCode || toChargeCode(l.type)}
@@ -314,6 +317,7 @@ export function CostLinesEditor({
                       aria-label="Amount"
                       value={lineRate(l)}
                       currency={l.currency}
+                      askFirst={!isDraftQuote(quote)}
                       onChange={(amount) => onChange(lines.map((x, j) => (j === i ? priced(x, amount) : x)))}
                       onCommit={(amount, before) => {
                         if (!before && amount > 0) onAmountSet?.(priced(l, amount), i);

@@ -66,6 +66,40 @@ export function settledOtherOf(lines: readonly CountedLine[]): { writtenOff: num
   };
 }
 
+/** A line as it stood at a moment: noted by then and not taken back yet; a write-off or bank charge confirmed by then. */
+const countedAt = (line: CountedLine & { createdAt: Date | string }, at: Date): boolean =>
+  new Date(line.createdAt).getTime() <= at.getTime() &&
+  (!line.takenBackAt || new Date(line.takenBackAt).getTime() > at.getTime()) &&
+  (isMoneyKind(line.kind) || (!!line.confirmedAt && new Date(line.confirmedAt).getTime() <= at.getTime()));
+
+/**
+ * What a credit note does to the invoice it corrects, as it stood when the credit note was issued (`at`: its creation),
+ * for its PDF (user council B15: a credit note of an unpaid invoice said "To be refunded"): the invoice's total after
+ * its credit notes up to this one (`reducedTo`), and what of this credit note is money back (`refund`) - only what was
+ * paid (or closed) beyond that total; 0 when the invoice was not paid that far, so the credit only lowers what is due.
+ * Read as at the moment, so the PDF made again later says the same.
+ */
+export function creditNoteEffect(input: {
+  /** The corrected invoice's gross */
+  invoiceGross: number | string;
+  /** The gross (negative) of its credit notes issued up to and including this one */
+  creditNoteGross: readonly (number | string)[];
+  /** This credit note's gross (negative) */
+  thisGross: number | string;
+  /** The corrected invoice's payment lines, taken back ones too */
+  lines: readonly (CountedLine & { createdAt: Date | string })[];
+  at: Date;
+}): { reducedTo: number; refund: number } {
+  const lines = input.lines.filter((l) => countedAt(l, input.at));
+  const paid = sumOf(lines.filter((l) => isMoneyKind(l.kind)));
+  const other = sumOf(lines.filter((l) => isWriteOffKind(l.kind)));
+  const gross = Number(input.invoiceGross);
+  const credited = creditedOf(input.creditNoteGross);
+  const left = money(gross - credited - paid - other);
+  const credit = money(-Number(input.thisGross));
+  return { reducedTo: money(gross - credited), refund: left < 0 ? money(Math.min(credit, -left)) : 0 };
+}
+
 /** The confirmed write-offs and bank charges together (missing ones read 0). */
 export const settledOther = (f: { writtenOff?: number | null; bankCharges?: number | null }): number => money((f.writtenOff ?? 0) + (f.bankCharges ?? 0));
 

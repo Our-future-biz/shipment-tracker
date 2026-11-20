@@ -48,8 +48,8 @@ describe("avizace warning on a trip", () => {
   ]);
 
   it("names the consignments of a delivering trip still waiting for avizace", () => {
-    expect(avizaceWarning({ kind: "DELIVERY_RUN", consignmentIds: ids, warnings: [] }, pending)).toBe("Avizace not recorded: TCZ2");
-    expect(avizaceWarning({ kind: "FTL", consignmentIds: ids, warnings: [] }, pending)).toBe("Avizace not recorded: TCZ2");
+    expect(avizaceWarning({ kind: "DELIVERY_RUN", consignmentIds: ids, warnings: [] }, pending)).toBe("Delivery notice not recorded: TCZ2");
+    expect(avizaceWarning({ kind: "FTL", consignmentIds: ids, warnings: [] }, pending)).toBe("Delivery notice not recorded: TCZ2");
   });
 
   it("says nothing for pick-up runs and line hauls, when none is pending, or when the server already warns", () => {

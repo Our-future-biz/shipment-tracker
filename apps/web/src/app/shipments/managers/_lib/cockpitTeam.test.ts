@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
+import { namesOf } from "@/app/shipments/_lib/personNames";
 import { handledByOf, modeOf, reportsOf, tabOf } from "./cockpitAddress";
 import { awayText, coversText, modeSplit, shortDay, teamFigure, teamRowHref, teamRows } from "./cockpitTeam";
 
@@ -117,6 +118,17 @@ describe("Shipments → Managers, Team: the rows", () => {
   it("keeps the server's order: nothing is sorted, nobody is ranked", () => {
     expect(teamRows(PEOPLE, everyone).map((r) => r.name)).toEqual(["jana@cto.cz", "Nobody", "petr@old.cz", "eva@cto.cz"]);
     expect(teamRows([...PEOPLE].reverse(), everyone).map((r) => r.name)).toEqual(["eva@cto.cz", "petr@old.cz", "Nobody", "jana@cto.cz"]);
+  });
+
+  it("names a user by name where the users list has one, keeping the e-mail as the row's key (x4)", () => {
+    const names = namesOf([{ email: "jana@cto.cz", displayName: "Jana Nováková" }]);
+    const rows = teamRows(PEOPLE, everyone, names);
+    expect(rows.map((r) => [r.key, r.name])).toEqual([
+      ["jana@cto.cz", "Jana Nováková"],
+      ["nobody", "Nobody"],
+      ["petr@old.cz", "petr@old.cz"],
+      ["eva@cto.cz", "eva@cto.cz"],
+    ]);
   });
 
   it("gives a person their figures, their split by mode, their covers and their load", () => {

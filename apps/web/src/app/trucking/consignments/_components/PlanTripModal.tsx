@@ -23,7 +23,7 @@ import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
 import { HaulierListError } from "../../_components/HaulierListError";
 import { HaulierRatingNote } from "../../_components/HaulierRatingNote";
 import { bestFirst, needsConfirmation, notInUseOf, pickable, pickName, ratingsOf, reasonsOf } from "../../_lib/haulierRating";
-import { BLOCKED_SHOWN, blockedLeftOut, warningsOf } from "../../_lib/planTrip";
+import { BLOCKED_SHOWN, blockedLeftOut, vehicleOptions, vehicleWarning, warningsOf } from "../../_lib/planTrip";
 
 /** The lane of a consignment as the rate engine prices it: FTL, its level, buy side only. */
 export const planRateRequest = (c: ConsignmentDetail): RateRequest => ({
@@ -100,6 +100,9 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
   const blocked = blockedLeftOut(hauliers, excluded);
   // T10: what the picked haulier should have fixed (no bank account from the VAT register, …) - said, never in the way.
   const pickedWarnings = warningsOf(hauliers, pickedHaulier);
+  // T16: the picked haulier's own vehicle types first; another type is warned about, not refused.
+  const haulierTypes = hauliers.find((h) => h.customerId === pickedHaulier)?.vehicleTypes;
+  const vehicleNote = vehicleWarning(vehicles, haulierTypes, vehicle);
   // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24),
   // nor while they could not be read.
   const confirmed = !hauliersLoading && !hauliersError && (!needsConfirmation(pickedRating) || confirmedFor === pickedHaulier);
@@ -230,8 +233,9 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
 
       <div className="mt-3">
         <TruckingField label={TERMS.vehicleType}>
-          <Select allowClear aria-label={TERMS.vehicleType} placeholder="Any" value={vehicle ?? undefined} options={vehicles.map((v) => ({ value: v.code, label: v.label }))} onChange={(v) => setVehicle(v ?? null)} />
+          <Select allowClear aria-label={TERMS.vehicleType} placeholder="Any" value={vehicle ?? undefined} options={vehicleOptions(vehicles, haulierTypes)} onChange={(v) => setVehicle(v ?? null)} />
         </TruckingField>
+        {vehicleNote && <div className="mt-1 text-[13px] text-amber-700">{vehicleNote}</div>}
       </div>
 
       {hauliersError && <HaulierListError onRetry={() => refetchHauliers()} />}

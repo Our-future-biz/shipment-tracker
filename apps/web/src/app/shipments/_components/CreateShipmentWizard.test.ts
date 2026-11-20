@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { COPYABLE_FIELDS, DEFAULT_COPY_FIELDS, copyRequest } from "./CreateShipmentWizard";
+import { COPYABLE_FIELDS, DEFAULT_COPY_FIELDS, NUMBER_GIVEN_ON_CREATE, copyRequest, wizardSubtitle } from "./CreateShipmentWizard";
 
 // "Copy from Shipment" (User Council O9/M1, owner's answer Q5): the customer and what the job is come along.
 const base = {
@@ -80,5 +80,21 @@ describe("copyRequest", () => {
   it("leaves the base request as it was", () => {
     copyRequest(base, source, DEFAULT_COPY_FIELDS);
     expect(base.tradeDirection).toBe("Import");
+  });
+});
+
+// No number before the job exists (User Council O20/E17, owner's answer Q33): the one shown in advance was often not the one given.
+describe("wizardSubtitle", () => {
+  it("names no job number before the job is created", () => {
+    expect(wizardSubtitle("ask-copy", "", "")).toBe(NUMBER_GIVEN_ON_CREATE);
+    expect(wizardSubtitle("select-fields", "CZFCL00000059", "")).toBe("From CZFCL00000059 to a new job");
+    expect(wizardSubtitle("confirm-costs", "CZFCL00000059", "")).toBe("From CZFCL00000059 to Costs Breakdown");
+    for (const step of ["ask-copy", "select-fields", "confirm-costs"] as const) {
+      expect(wizardSubtitle(step, "CZFCL00000059", "")).not.toMatch(/Job Number/);
+    }
+  });
+
+  it("names the number the job was given once it is created", () => {
+    expect(wizardSubtitle("created", "", "CZFCL00000060")).toBe("Job Number: CZFCL00000060");
   });
 });

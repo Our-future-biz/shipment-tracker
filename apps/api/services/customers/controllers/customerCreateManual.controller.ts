@@ -36,6 +36,6 @@ export const customerCreateManual = api(
   { expose: true, auth: true, method: "POST", path: "/customers/manual" },
   async (req: CustomerCreateManualRequest): Promise<CustomerCreateManualResponse> => {
     const { companyID, role, userID } = getAuthData()!;
-    return { customer: await customerService.createManual(companyID, role, req, supplierRequestOf(userID, req.fromQuote)) };
+    return { customer: await customerService.createManual(companyID, role, req, supplierRequestOf(userID, req.fromQuote), userID) };
   },
 );

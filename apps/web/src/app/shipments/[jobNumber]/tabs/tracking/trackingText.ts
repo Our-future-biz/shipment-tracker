@@ -3,6 +3,19 @@ import { formatDate } from "@/lib/date";
 
 // The Tracking tab's sentences. Pure, so they are unit-tested.
 
+/** The longest place the server keeps for an event. */
+export const PLACE_MAX = 200;
+const PLACE_SEPARATOR = " · ";
+
+/**
+ * The event's stored place: the port (prefilled, editable) and what was typed beside it (a terminal,
+ * a depot) kept apart by a separator, so "Hamburg (DEHAM)" and "Hamburg CTA" never run together
+ * (User Council O23). Either part alone is the place; cut to what the server keeps.
+ */
+export function composePlace(port: string, detail: string): string {
+  return [port.trim(), detail.trim()].filter(Boolean).join(PLACE_SEPARATOR).slice(0, PLACE_MAX);
+}
+
 /** "ETA moved 7 days later", as a mark. */
 export const movedDaysLabel = (days: number): string => `${days > 0 ? "+" : "−"}${Math.abs(days)} d`;
 

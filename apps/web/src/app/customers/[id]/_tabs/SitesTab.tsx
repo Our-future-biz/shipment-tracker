@@ -104,7 +104,7 @@ export function SitesTab({ customerId }: { customerId: string }) {
     { title: "Address", key: "address", render: (_: unknown, r) => siteAddressLine(r) || EMPTY_CELL },
     { title: "Opening hours", dataIndex: "openingHours", render: (v: string) => v || EMPTY_CELL },
     {
-      title: "Avizace",
+      title: "Delivery notice",
       key: "avizace",
       render: (_: unknown, r) => {
         const parts = [r.avizaceName, r.avizacePhone].filter(Boolean);

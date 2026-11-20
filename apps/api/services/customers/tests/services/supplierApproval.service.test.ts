@@ -60,6 +60,18 @@ describe("a company registered through a link", () => {
     expect(item).toMatchObject({ customerId: ID, threadId: ID, registered: true, alreadyInDatabase: false, termsName: "Austromar Terms and Conditions" });
   });
 
+  it("shows the link's \"Who it is for\" note beside a new company and one already in the database; none for a quote's supplier (E13)", async () => {
+    repository.list.mockResolvedValue([row({ approvalQuoteNumber: "" }), row({ id: "other" })]);
+    registrations.forApprovals.mockResolvedValue([
+      registration({ customerId: ID, alreadyInDatabase: false, linkLabel: "Hana's new customer" }),
+      registration({ linkLabel: "for the Brno tender" }),
+    ]);
+    const items = await supplierApprovalService.list(COMPANY);
+    expect(items.find((i) => i.threadId === ID)?.linkNote).toBe("Hana's new customer");
+    expect(items.find((i) => i.threadId === REG)?.linkNote).toBe("for the Brno tender");
+    expect(items.find((i) => i.threadId === "other")?.linkNote).toBe("");
+  });
+
   it("lists one already in the database on its own, without marking the company as waiting", async () => {
     repository.list.mockResolvedValue([]);
     registrations.forApprovals.mockResolvedValue([registration()]);

@@ -145,7 +145,8 @@ const outLegEmpty = (m: Item) => {
   return !leg || (!leg.company.trim() && !leg.plate.trim() && !leg.gateTime.trim());
 };
 
-const hoursText = (h: number) => `${Math.floor(h)} h`;
+/** How long something has waited: whole hours below two days, days (rounded) from 48 h on — "37 d", not "880 h" (User Council). */
+export const hoursText = (h: number) => (h >= 48 ? `${Math.round(h / 24)} d` : `${Math.floor(h)} h`);
 const daysAgo = (iso: string | null | undefined, now: Date) => {
   const h = hoursSince(iso, now);
   return h === null ? null : h / 24;

@@ -8,7 +8,7 @@ import { Pill } from "@/components/Pill";
 import { formatDate } from "@/lib/date";
 import { shownColumns } from "@/lib/tableModel";
 import { EMPTY, LINK } from "@/styles/ui";
-import { amountText, customerHref, isOverLimit, overLimitTip } from "../_lib/receivables";
+import { amountText, customerHref, isOverLimit, limitText, limitUsedPct, overLimitTip } from "../_lib/receivables";
 import type { CustomerRow } from "../_lib/receivableColumns";
 import { StatementMenu } from "./StatementMenu";
 
@@ -50,6 +50,29 @@ function columnsFor(fixingLabel: string): ColumnsType<CustomerRow> {
     { title: "Sales Owner", key: "salesOwner", sorter: (a, b) => a.salesOwner.localeCompare(b.salesOwner), render: (_, c) => (c.salesOwner ? <span className="block max-w-[200px] truncate">{c.salesOwner}</span> : none) },
     { title: "Currency", key: "currency", sorter: (a, b) => a.currency.localeCompare(b.currency), render: (_, c) => <span className="tabular-nums">{c.currency}</span> },
     { title: "Unpaid", key: "unpaid", align: "right", sorter: (a, b) => a.unpaid - b.unpaid, render: (_, c) => figure(c.unpaid, c.currency, true) },
+    {
+      // The customer's limit (in its own currency, for all its currencies together) and how much of it is used, so who
+      // is close shows before "Over limit" (user council A15). Sorted by the share used.
+      title: "Credit limit",
+      key: "creditLimit",
+      align: "right",
+      sorter: (a, b) => (a.limit ? limitUsedPct(a.limit) : -1) - (b.limit ? limitUsedPct(b.limit) : -1),
+      render: (_, c) => {
+        if (!c.limit || !(c.limit.limit > 0)) return none;
+        const pct = limitUsedPct(c.limit);
+        const tone = pct > 100 ? "text-red-600 font-medium" : pct >= 80 ? "text-amber-700" : "text-slate-500";
+        return (
+          <Tooltip title={c.limit.unconverted.length ? limitText(c.limit) : undefined}>
+            <div className="tabular-nums whitespace-nowrap">
+              <div>{amountText(c.limit.limit, c.limit.currency)}</div>
+              <div className={`text-[12px] ${tone}`}>
+                {pct} % used{c.limit.unconverted.length ? " +" : ""}
+              </div>
+            </div>
+          </Tooltip>
+        );
+      },
+    },
     bucket("Current", "current"),
     bucket("1–30", "d1to30", true),
     bucket("31–60", "d31to60", true),

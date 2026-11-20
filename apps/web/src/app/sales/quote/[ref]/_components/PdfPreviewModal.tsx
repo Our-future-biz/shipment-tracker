@@ -8,7 +8,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useRouteWhere } from "@/hooks/usePlaceSearch";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
-import { useCompanyDetails } from "@/hooks/useSalesPrefs";
+import { useQuoteSender } from "@/app/sales/_lib/useQuoteSender";
 import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
@@ -45,7 +45,7 @@ export function PdfPreviewModal({
   onClose,
 }: PdfPreviewModalProps) {
   const exchange = useCurrentExchangeRates();
-  const company = useCompanyDetails();
+  const company = useQuoteSender();
   // The company's users: the quotation names its sales owner for the customer.
   const people = useUsers();
   const permissions = useSalesPermissions();

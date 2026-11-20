@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { billedRealCostOpen, closesRow } from "./costRowRules";
+import { billedRealCostOpen, closesRow, ownDirectionFirst } from "./costRowRules";
+import { chargeOptions } from "@/lib/chargeCodes";
 
 // A stand-in for an element: its tag, its type and the selectors it sits inside.
 const field = (tagName: string, inside: string[] = [], type = "text") => ({
@@ -59,5 +60,25 @@ describe("a billed shipment's buying row (User Council Q1)", () => {
 
   it("not on a line of an invoice marked paid", () => {
     expect(billedRealCostOpen(line("TESTUC-AP-001"), true)).toBe(false);
+  });
+});
+
+describe("the cost categories in the job's direction (user council O25)", () => {
+  const customs = (dir: string) =>
+    ownDirectionFirst(chargeOptions(undefined, "Sea Freight"), dir)
+      .filter((o) => o.label.toLowerCase().includes("customs"))
+      .map((o) => o.value);
+  it("lists the export customs fee first on an export, the import one on an import", () => {
+    expect(customs("Export").indexOf("customs_export")).toBeLessThan(customs("Export").indexOf("customs_import"));
+    expect(customs("Import").indexOf("customs_import")).toBeLessThan(customs("Import").indexOf("customs_export"));
+  });
+  it("moves only the twin: every other category keeps its place, and no direction keeps the list", () => {
+    const all = chargeOptions(undefined, "Air");
+    const exp = ownDirectionFirst(all, "Export");
+    expect(exp.map((o) => o.value).sort()).toEqual(all.map((o) => o.value).sort());
+    expect(exp.findIndex((o) => o.value === "air_export_handling")).toBeLessThan(exp.findIndex((o) => o.value === "air_import_handling"));
+    const imp = ownDirectionFirst(all, "Import");
+    expect(imp.findIndex((o) => o.value === "air_import_handling")).toBeLessThan(imp.findIndex((o) => o.value === "air_export_handling"));
+    expect(ownDirectionFirst(all, "")).toBe(all);
   });
 });

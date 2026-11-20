@@ -16,7 +16,7 @@ import { buyRowsOf, jobFxDates, ratesOf, sellRowsOf } from "./costsRows";
 
 export function useCostsData(shipment: ShipmentItem | undefined) {
   // The one shared invoicing query, so the data is already in memory when a tab opens.
-  const { data } = useInvoicing(shipment?.id ?? null);
+  const { data, isLoading: costsLoading } = useInvoicing(shipment?.id ?? null);
 
   const billingCur = data?.billingSettings?.billingCurrency || "CZK";
 
@@ -31,5 +31,5 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
 
   const totals = useMemo(() => computeCosts(buyRows, sellRows, billingCur, rates), [buyRows, sellRows, billingCur, rates]);
 
-  return { data, billingCur, fx, rates, ratesLoading: ratesQuery.isLoading, ratesError: ratesQuery.isError, buyRows, sellRows, totals };
+  return { data, costsLoading, billingCur, fx, rates, ratesLoading: ratesQuery.isLoading, ratesError: ratesQuery.isError, buyRows, sellRows, totals };
 }

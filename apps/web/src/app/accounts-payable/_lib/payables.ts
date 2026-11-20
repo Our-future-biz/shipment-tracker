@@ -151,11 +151,11 @@ export const MARK_CHIPS: Record<PayableMark, Chip> = {
 export function rowMarks(i: PayableInvoice): (Chip & { key: string })[] {
   const out: (Chip & { key: string })[] = [];
   if (i.daysOverdue > 0) out.push({ key: "overdue", label: `${i.daysOverdue} ${i.daysOverdue === 1 ? "day" : "days"} overdue`, tone: "red", tip: `Due on ${formatDate(i.due)} and not paid` });
-  if (i.claimed) out.push({ key: "claimed", label: "Claimed", tone: "red", tip: "An open cost claim disputes it: its payment is held until the claim is settled or withdrawn (D15)" });
+  if (i.claimed) out.push({ key: "claimed", label: "Claimed", tone: "red", tip: "An open cost claim disputes it: its payment is held until the claim is settled or withdrawn" });
   for (const m of i.marks) out.push({ key: m, ...(MARK_CHIPS[m] ?? { label: m, tone: "slate", tip: "" }) });
   if (i.aboveEstimate) out.push({ key: "above", label: "Above estimate", tone: "amber", tip: "A line bills more than its job estimated" });
   if (i.jobBilled) out.push({ key: "billed", label: "Job billed", tone: "slate", tip: "One of its jobs is invoiced to the customer already: a late cost changes the job's profit" });
-  if (i.selfDecision) out.push({ key: "self", label: "Self-approval", tone: "slate", tip: "Approved by the manager who entered it: no other manager could (D9)" });
+  if (i.selfDecision) out.push({ key: "self", label: "Self-approval", tone: "slate", tip: "Approved by the manager who entered it: no other manager could" });
   return out;
 }
 
@@ -331,6 +331,23 @@ export function totalVsLines(i: Pick<PayableInvoice, "totalNet" | "currency" | "
   return { total, currency, lines: i.amounts };
 }
 
+// As the server words it (lib/supplierInvoices approvalProblem): four eyes (D8).
+export const OWN_ENTRY = "You entered this invoice: another manager approves it";
+
+/**
+ * Who is looking, for the four-eyes rule (D8): their e-mail, and whether the company has another manager (a sole
+ * manager approves what they entered, marked as their own decision). Unknown (the users not read): nothing is greyed,
+ * the server still refuses.
+ */
+export interface Viewer {
+  email: string;
+  anotherManager: boolean;
+}
+
+/** Whether the viewer entered this invoice and another manager is there to approve it (the server's four eyes). */
+export const ownEntryBlocked = (i: Pick<PayableInvoice, "enteredBy">, viewer: Viewer | null | undefined): boolean =>
+  !!viewer?.anotherManager && !!i.enteredBy.trim() && i.enteredBy.trim().toLowerCase() === viewer.email.trim().toLowerCase();
+
 const off: ActionState = { shown: false, blocked: "" };
 const on = (blocked = ""): ActionState => ({ shown: true, blocked });
 
@@ -339,7 +356,7 @@ const on = (blocked = ""): ActionState => ({ shown: true, blocked });
  * (D5, D8, D11, D13); the details are anyone's while the invoice waits for approval and a manager's once approved,
  * never once paid or refused.
  */
-export function actionsFor(i: PayableInvoice, canDecide: boolean): PayableActions {
+export function actionsFor(i: PayableInvoice, canDecide: boolean, viewer?: Viewer | null): PayableActions {
   const paid = !!i.paidOn;
   const notLinked = !i.supplierCustomerId && !i.haulierId;
   const vatStop = i.marks.includes("vat_unreliable")
@@ -349,14 +366,16 @@ export function actionsFor(i: PayableInvoice, canDecide: boolean): PayableAction
       : "";
   // No line has a real cost: there is nothing to approve or pay yet (the server's NO_AMOUNT, User Council A1).
   const noAmount = hasNoAmount(i) ? NO_AMOUNT : "";
+  // The four-eyes refusal greyed in advance, as the other reasons are (user council A8: it came only after the click).
+  const ownEntry = ownEntryBlocked(i, viewer) ? OWN_ENTRY : "";
   return {
     approve:
       canDecide && i.status === "booked"
-        ? on(noAmount || (notLinked ? "Link the supplier first: an invoice is approved only for a supplier of the Customer Database (D13)" : vatStop))
+        ? on(noAmount || (notLinked ? "Link the supplier first: an invoice is approved only for a supplier of the Customer Database" : vatStop || ownEntry))
         : off,
     refuse: canDecide && i.status !== "refused" && !paid ? on() : off,
     takeBackApproval: canDecide && i.status === "approved" && !paid ? on() : off,
-    markPaid: canDecide && i.status === "approved" && !paid ? on(noAmount || (i.claimed ? "A claim on this invoice is open: settle or withdraw it before paying (D15)" : "")) : off,
+    markPaid: canDecide && i.status === "approved" && !paid ? on(noAmount || (i.claimed ? "A claim on this invoice is open: settle or withdraw it before paying" : "")) : off,
     takeBackPayment: canDecide && paid ? on() : off,
     linkSupplier: canDecide && i.status === "booked" ? on() : off,
     editDetails: i.status !== "refused" && !paid && (i.status === "booked" || canDecide) ? on() : off,

@@ -15,6 +15,12 @@ export const byNumber = (a: number | null, b: number | null) => (a ?? -Infinity)
 /** "110 00 Praha": a five-digit postcode spaced, then the city; "" when neither is known. */
 export const place = (psc: string, city: string) => [psc ? formatPsc(psc) : "", city].filter(Boolean).join(" ");
 
+/**
+ * A list's empty text while its rows are still being read: the grid's spinner alone sat over
+ * "No trips yet" (user council x2), which read as an empty list.
+ */
+export const LOADING_TEXT = "Loading…";
+
 /** The grey dash of an empty cell (EMPTY). */
 export const dash = createElement("span", { className: EMPTY }, "—");
 

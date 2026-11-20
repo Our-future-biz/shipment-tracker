@@ -11,8 +11,8 @@ import { VAT_CODE_INFO, isVatCode, legalTextOf } from "./invoiceCalc";
  * diacritics; the built-in PDF fonts do not).
  */
 
-/** Bump when the layout changes; stored with every PDF. */
-export const PDF_TEMPLATE_VERSION = "2";
+/** Bump when the layout changes; stored with every PDF. 3: a credit note says whether it refunds or lowers what is due (B15). */
+export const PDF_TEMPLATE_VERSION = "3";
 
 export interface InvoicePdfLine {
   description: string;
@@ -49,6 +49,11 @@ export interface InvoiceForPdf {
   creditReason: string;
   /** Number of the invoice a credit note corrects */
   correctsNumber: string;
+  /**
+   * A credit note: what it did to the invoice it corrects when it was issued (lib/receivables creditNoteEffect) - its
+   * total after the credit notes up to this one, and what of this one is money back. Absent: "To be refunded", as before.
+   */
+  creditEffect?: { reducedTo: number; refund: number } | null;
   lines: InvoicePdfLine[];
 }
 
@@ -77,6 +82,17 @@ export function docMoney(v: string | number): string {
 /** A line's quantity: whole ones without decimals ("1", "1 000"), others as money ("2.50"). */
 export function docQty(v: string | number): string {
   return docMoney(v).replace(/\.00$/, "");
+}
+
+/**
+ * What "Your ref." prints: the customer's own reference, the job's Customer Reference only (user council B17: it was
+ * only in the e-mail's subject). A newer invoice without one prints no "Your ref.", never the Personal Reference, which
+ * may be internal. An invoice issued before the Customer Reference was kept (no such key in its snapshot) prints the
+ * Personal Reference there, as it did, so a stored invoice always gives the same document.
+ */
+export function yourReference(s: Pick<ShipmentSnapshot, "personalReference" | "customerReference">): string {
+  if (s.customerReference === undefined) return s.personalReference.trim();
+  return s.customerReference.trim();
 }
 
 /** Exchange rate with 3 decimals: 25.12345 -> "25.123" */
@@ -356,7 +372,8 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   }
   if (inv.shipment.containerNumber) rightCol.push(["Kontejner / Container", inv.shipment.containerNumber]);
   if (inv.shipment.bookingNumber) rightCol.push(["Booking", inv.shipment.bookingNumber]);
-  if (inv.shipment.personalReference) rightCol.push(["Vaše ref. / Your ref.", inv.shipment.personalReference]);
+  const yourRef = yourReference(inv.shipment);
+  if (yourRef) rightCol.push(["Vaše ref. / Your ref.", yourRef]);
   if (isCredit && inv.correctsNumber) rightCol.unshift(["K faktuře / Corrects invoice", inv.correctsNumber]);
 
   const infoTop = w.y;
@@ -498,9 +515,16 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   totalRow("DPH / VAT", `${docMoney(inv.vat)} ${inv.currency}`);
   ty -= 4;
   w.rect(tx - 8, ty - 26, right - tx + 8, 34, rgb(0.93, 0.94, 0.99));
-  w.text(isCredit ? "K VRÁCENÍ / TO BE REFUNDED" : "K ÚHRADĚ / TOTAL DUE", tx, ty - 4, 8, { bold: true, color: MUTED });
-  w.text(`${docMoney(isCredit ? -Number(inv.gross) : inv.gross)} ${inv.currency}`, right - 4, ty - 19, 14, { bold: true, align: "right" });
+  // A credit note refunds only what was paid beyond the invoice's new total; of an invoice not paid that far it lowers
+  // what is due (user council B15: an unpaid invoice's credit note said "To be refunded").
+  const effect = isCredit ? inv.creditEffect ?? null : null;
+  const lowersDue = !!effect && effect.refund <= 0;
+  const boxLabel = !isCredit ? "K ÚHRADĚ / TOTAL DUE" : lowersDue ? "SNIŽUJE ÚHRADU / REDUCES THE AMOUNT DUE" : "K VRÁCENÍ / TO BE REFUNDED";
+  const boxValue = !isCredit ? Number(inv.gross) : effect && !lowersDue ? effect.refund : -Number(inv.gross);
+  w.text(boxLabel, tx, ty - 4, 8, { bold: true, color: MUTED });
+  w.text(`${docMoney(boxValue)} ${inv.currency}`, right - 4, ty - 19, 14, { bold: true, align: "right" });
   ty -= 40;
+  if (effect && inv.correctsNumber) totalRow(`Faktura ${inv.correctsNumber} nově / Invoice now`, `${docMoney(effect.reducedTo)} ${inv.currency}`);
   if (foreign) {
     totalRow("Celkem CZK / Total CZK", `${docMoney(inv.grossCzk)} CZK`);
     totalRow("DPH CZK / VAT CZK", `${docMoney(inv.vatCzk)} CZK`);

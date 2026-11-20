@@ -304,6 +304,18 @@ describe("actions", () => {
     expect(actionsFor(invoice({ marks: ["account_not_published"] }), true).approve.blocked).toMatch(/not published/);
   });
 
+  it("greys Approve on an invoice the manager entered while another manager can approve it (four eyes, A8)", () => {
+    // invoice() was entered by libor@example.com
+    const own = actionsFor(invoice(), true, { email: "Libor@Example.com ", anotherManager: true });
+    expect(own.approve).toEqual({ shown: true, blocked: "You entered this invoice: another manager approves it" });
+    // the sole manager approves it (marked as their own decision), someone else's entry is open, users unknown: not greyed
+    expect(actionsFor(invoice(), true, { email: "libor@example.com", anotherManager: false }).approve.blocked).toBe("");
+    expect(actionsFor(invoice(), true, { email: "eva@example.com", anotherManager: true }).approve.blocked).toBe("");
+    expect(actionsFor(invoice(), true, null).approve.blocked).toBe("");
+    // an invoice gathered from lines has no enterer
+    expect(actionsFor(invoice({ enteredBy: "" }), true, { email: "", anotherManager: true }).approve.blocked).toBe("");
+  });
+
   it("pays only an approved, unpaid invoice with no open claim (D11, D15)", () => {
     expect(actionsFor(invoice({ status: "approved" }), true).markPaid).toEqual({ shown: true, blocked: "" });
     expect(actionsFor(invoice({ status: "approved", claimed: true }), true).markPaid.blocked).toMatch(/claim/);

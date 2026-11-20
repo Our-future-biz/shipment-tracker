@@ -83,12 +83,14 @@ export const SIGNAL_FAMILIES: readonly SignalFamily[] = [
     hint: "A cargo claim open for 14 days or longer; with the claim time limits switched on, also the carrier not notified and a notice deadline or suit time bar coming close",
     note: "The claim time limits are switched on or off on the Settings tab.",
   },
+  // Counted in jobs, and only once a request has waited: the Approvals tab's count is every request
+  // waiting, so the two units are said (user council M21).
   {
     key: "request",
     kinds: ["request"],
-    label: "Waiting for approval",
-    hint: "A change of Customs Office or of an approved document waiting for approval for more than a working day (or at all on a Customs urgent job), or a request to release a job before payment waiting for more than a working day",
-    note: "They are answered on the Approvals tab.",
+    label: "Jobs waiting for approval",
+    hint: "Jobs with a change of Customs Office or of an approved document waiting for approval for more than a working day (or at all on a Customs urgent job), or a request to release the job before payment waiting for more than a working day",
+    note: "They are answered on the Approvals tab, whose count is every request waiting, however new.",
   },
   // Its own kind: "Nobody in Handled By" is `owner`, and has the list tile that opens those jobs.
   {

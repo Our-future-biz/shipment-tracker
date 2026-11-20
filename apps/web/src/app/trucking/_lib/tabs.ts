@@ -59,6 +59,19 @@ export const TRUCKING_TABS = [
 
 export type TruckingTab = (typeof TRUCKING_TABS)[number]["key"];
 
+/** The work-queue tabs: what their count is (read out, shown on hover), red while above zero. */
+export const TAB_QUEUES: Partial<Record<TruckingTab, string>> = {
+  consignments: "need attention",
+  trips: "ordered, not confirmed",
+  haulierInvoices: "need approval or blocked",
+};
+
+/** The other counted tabs: what the plain count is (user council T13: a bare "Hauliers 2" said nothing). */
+export const TAB_COUNT_LABELS: Partial<Record<TruckingTab, string>> = { hauliers: "hauliers on file", tariffs: "tariffs" };
+
+/** The haulier invoices that wait for someone: a difference for a manager, or blocked by the VAT-register check. */
+export const haulierInvoicesWaiting = (counts: { NEEDS_APPROVAL: number; BLOCKED: number }) => counts.NEEDS_APPROVAL + counts.BLOCKED;
+
 /**
  * A tab's own filters: the Consignments ?status=, ?view= and ?job=, the Trips ?view=, the Planning
  * ?kind= and ?date=, the Tariffs ?side=, the Internal billing ?month= and the Reports ?period=,

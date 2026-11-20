@@ -16,7 +16,14 @@ interface TileDef {
 // Mirrors DASH_TILES from the approved mockup.
 const TILES: TileDef[] = [
   { id: "active", label: "Active Shipments", hint: "Everything except invoiced shipments" },
-  { id: "attention", label: "Needs Attention", hint: "A deadline today or the next working day, a missed Closing, or an overdue VGM / SI / AMS / ISF — the URGENT shipments", danger: true },
+  // Named as the card it counts (NeedsAttentionTable), deadlines only: Shipments → Managers' URGENT
+  // counts every signal, so it can be larger (user council M3 / M14).
+  {
+    id: "attention",
+    label: "Urgent deadlines",
+    hint: "A deadline today or the next working day, a missed Closing, or an overdue VGM / SI / AMS / ISF — the jobs on the Urgent deadlines card. Shipments → Managers' URGENT also counts late departures, jobs nobody handles and its other signals.",
+    danger: true,
+  },
   { id: "etamoved", label: "ETA Moved", hint: "An ETD or ETA moved in the last 7 days", danger: true },
   { id: "import", label: "Imports", hint: "Import shipments" },
   { id: "export", label: "Exports", hint: "Export shipments" },

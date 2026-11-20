@@ -75,6 +75,23 @@ export function shownHolidays(list: readonly DayHoliday[] | undefined, countries
   return list.filter((h) => isCzech(h.countryCode) || countries.includes(countryOf(h)));
 }
 
+/**
+ * The countries the calendar shows for a user who has picked none: the company's own countries
+ * (Settings → Countries) as the list names them, else Germany - beside the Czech Republic, always
+ * shown. "All" put a dot on almost every day and a hover list taller than the screen (user council M19).
+ */
+export function defaultCountries(companyCodes: readonly string[], items: HolidayItem[]): string[] {
+  const named = (codes: readonly string[]) => {
+    const wanted = new Set(codes.map((c) => c.trim().toUpperCase()).filter((c) => c && c !== CZECH.code));
+    return [...new Set(items.filter((h) => wanted.has(h.countryCode.trim().toUpperCase())).map(rowCountry).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  };
+  const company = named(companyCodes);
+  if (company.length) return company;
+  const germany = named(["DE"]);
+  // Not on the list either: a name that matches nothing, so only the Czech holidays show rather than all.
+  return germany.length ? germany : ["Germany"];
+}
+
 /** The countries of the list, for the filter (the Czech Republic is always shown, so not offered). */
 export function listCountries(items: HolidayItem[]): string[] {
   return [...new Set(items.filter((h) => !isCzech(h.countryCode)).map(rowCountry).filter(Boolean))].sort((a, b) => a.localeCompare(b));

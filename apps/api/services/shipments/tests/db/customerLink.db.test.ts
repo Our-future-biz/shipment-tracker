@@ -29,13 +29,13 @@ const tokenOf = (url: string) => url.split("/track/")[1]!;
 
 describe("the customer's link", () => {
   it("opens the job's dates and stores only a hash", async () => {
-    const s = await newJob({ estimatedArrival: "2026-11-20", freeComments: "margin is thin" });
+    const s = await newJob({ estimatedArrival: "2026-11-20", freeComments: "margin is thin", destination: "Praha", pcs: "3", totalWeightTons: "1.2" });
     const { url, link } = await customerLinkService.create(s.id, s.actor, NOW);
     expect(link).toMatchObject({ open: true, openUntil: null, lastOpenedAt: null });
     const [row] = await db.select().from(shipmentCustomerLinkTable).where(eq(shipmentCustomerLinkTable.shipmentId, s.id));
     expect(row!.tokenHash).not.toBe(tokenOf(url));
     const status = await customerLinkService.publicStatus(tokenOf(url), NOW);
-    expect(status).toMatchObject({ reference: expect.stringMatching(/^CZ/), pol: "Shanghai", pod: "Hamburg" });
+    expect(status).toMatchObject({ reference: expect.stringMatching(/^CZ/), pol: "Shanghai", pod: "Hamburg", destination: "Praha", pieces: "3", weightKg: "1,200" });
     expect(status.milestones.find((m) => m.key === "arrived")).toMatchObject({ planned: "2026-11-20", actual: null });
     expect(JSON.stringify(status)).not.toContain("margin");
     expect((await customerLinkService.get(s.id, s.companyId, NOW))!.lastOpenedAt).not.toBeNull();

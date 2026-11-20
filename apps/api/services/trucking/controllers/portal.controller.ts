@@ -4,7 +4,7 @@ import { portalAuthService } from "../services/portalAuth.service";
 import { clientIp, TRUSTED_PROXY_HOPS } from "../../../lib/loginRules";
 import { portalOrderService } from "../services/portalOrder.service";
 import type { FileDownload } from "../interfaces/interfaces";
-import type { PortalMe, PortalOrder, PortalOrderItem } from "../interfaces/portal.interfaces";
+import type { PortalMe, PortalOrder, PortalOrderItem, PortalSetPasswordLink } from "../interfaces/portal.interfaces";
 
 // The haulier portal: its own login (e-mail + password), separate from the app's. Every endpoint is
 // `auth: false` and checks the portal session itself (header X-Portal-Session); a missing, expired
@@ -37,6 +37,17 @@ export const portalSetPassword = api(
     await portalAuthService.setPassword({ token, password });
     return { ok: true };
   },
+);
+
+interface PortalSetPasswordLinkResponse {
+  link: PortalSetPasswordLink;
+}
+
+// Whose account a live invitation or reset link is for (the forwarder, the haulier, the e-mail), for
+// its page to say so; the same 404 as the set-password for any link that can't be used. Does not use it.
+export const portalSetPasswordLink = api(
+  { expose: true, auth: false, method: "GET", path: "/portal/set-password/:token", sensitive: true },
+  async ({ token }: { token: string }): Promise<PortalSetPasswordLinkResponse> => ({ link: await portalAuthService.setPasswordLink(token) }),
 );
 
 interface PortalLoginRequest {

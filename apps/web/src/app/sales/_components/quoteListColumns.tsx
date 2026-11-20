@@ -93,6 +93,18 @@ const dayOf = (at: string | null) => formatDate(isoDayOf(at)) || EMPTY_CELL;
 // stated "0 kg".
 const withUnit = (figure: number, unit: string) => (figure ? `${figure} ${unit}` : EMPTY_CELL);
 
+// A port or place in the list: a long name ("Shanghai Hongqiao International Apt (CNSHA)") is cut
+// with "…", whole on hover, so the columns after it - Status, Valid until, Selling total - stay in
+// view at 1440 px (User Council S23).
+function PlaceText({ place }: { place: string }) {
+  if (!place) return EMPTY_CELL;
+  return (
+    <span className="inline-block max-w-[180px] truncate align-bottom" title={place}>
+      {place}
+    </span>
+  );
+}
+
 // Every column the list can show, in the order of the Columns panel. A width is the least a
 // column gets: the table gives a longer value its room.
 export const QUOTE_COLUMNS: QuoteColumn[] = [
@@ -113,8 +125,8 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
   },
   // A quote without ports (Road, door to door) shows its Origin and Destination here, as its preview
   // and its invoice do, so a row never loses where the cargo goes.
-  { key: "pol", title: "Port of Loading", width: 140, render: (q) => loadingPlace(q) || EMPTY_CELL },
-  { key: "pod", title: "Port of Discharge", width: 150, render: (q) => dischargePlace(q) || EMPTY_CELL },
+  { key: "pol", title: "Port of Loading", width: 140, render: (q) => <PlaceText place={loadingPlace(q)} /> },
+  { key: "pod", title: "Port of Discharge", width: 150, render: (q) => <PlaceText place={dischargePlace(q)} /> },
   { key: "status", title: "Status", width: 110, sortBy: "status", render: (q) => <QuoteStatusPill status={q.status} /> },
   { key: "validity", title: "Valid until", width: 104, sortBy: "validUntil", render: (q) => <ValidUntil quote={q} /> },
   { key: "owner", title: "Quoted By", width: 110, sortBy: "owner", render: (q) => q.ownerName || EMPTY_CELL },
@@ -160,16 +172,17 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
 ];
 
 // The columns a list starts with, in their order: at a usual window the first eight are in view
-// and the rest is reached by scrolling the table sideways.
+// and the rest is reached by scrolling the table sideways. Status, Valid until and Selling total
+// come before the ports, so at 1440 px they are not under the pinned icons (User Council S23).
 export const DEFAULT_QUOTE_COLUMNS = [
   "reference",
   "customer",
-  "pol",
-  "pod",
   "status",
   "validity",
-  "owner",
   "selling",
+  "pol",
+  "pod",
+  "owner",
   "shipment",
   "service",
   "incoterm",

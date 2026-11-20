@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpsMoneyPerson, OpsMoneyRow, OpsMoneyTiles, ShipmentsManagersMoney } from "@/hooks/useShipmentsManagersMoney";
+import { namesOf } from "@/app/shipments/_lib/personNames";
 import { handledByOf, tabOf } from "./cockpitAddress";
 import {
   MONEY_CAPPED,
@@ -344,6 +345,12 @@ describe("Shipments → Managers, Money: the people", () => {
   it("keeps the server's order: nobody is ranked", () => {
     const worstLast = [person("a@cto.cz"), person("z@cto.cz", { jobsAtLoss: 9 }), person("m@cto.cz", { jobsAtLoss: 4 })];
     expect(moneyPersonRows(worstLast, everyone).map((r) => r.key)).toEqual(["a@cto.cz", "z@cto.cz", "m@cto.cz"]);
+  });
+
+  it("names a user by name where the users list has one, in the rows and the Handled By select (x4)", () => {
+    const names = namesOf([{ email: "jana@cto.cz", displayName: "Jana Nováková" }]);
+    expect(moneyPersonRows(people, everyone, names)[0]).toMatchObject({ key: "jana@cto.cz", name: "Jana Nováková" });
+    expect(moneyHandledByOptions(people, null, names).find((o) => o.value === "jana@cto.cz")?.label).toMatch(/^Jana Nováková/);
   });
 
   it("names each person as the Team tab does: the e-mail, Nobody for the jobs nobody handles, and who is no longer a user", () => {

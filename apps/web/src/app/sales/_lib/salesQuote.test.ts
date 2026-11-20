@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CostLine, SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
 import { chargeBasis } from "@/lib/chargeBasis";
-import { baseRef, computeCargo, cyAtDestination, cyAtOrigin, cyTermsOf, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, routingMissing, routingNeeds, withLineBasis, withRate, withBasis, basisChangeNote, basisMismatches, basisOffered, basisUnits, computeTotals, isAirQuote, perBasisText, CONTAINER_UNIT, KG_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, cyAtDestination, cyAtOrigin, cyTermsOf, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, routingMissing, routingNeeds, withLineBasis, withRate, withBasis, basisChangeNote, basisMismatches, basisOffered, basisUnits, computeTotals, isAirQuote, perBasisText, CONTAINER_UNIT, KG_UNIT, WM_UNIT, type SalesQuote, isDraftQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -451,5 +451,15 @@ describe("basisMismatches", () => {
     expect(basisMismatches(data)).toHaveLength(2);
     expect(basisMismatches(data)[1]).toMatch(/^Selling line "Own"/);
     expect(basisMismatches({ ...data, serviceType: "Air" })).toEqual([]);
+  });
+});
+
+describe("isDraftQuote (User Council S20)", () => {
+  it("is a quote never made Ready to Send nor sent, or a revision being worked on", () => {
+    expect(isDraftQuote({})).toBe(true);
+    expect(isDraftQuote({ quoteStatus: "draft" })).toBe(true);
+    expect(isDraftQuote({ quoteStatus: "revised" })).toBe(true);
+    expect(isDraftQuote({ quoteStatus: "ready_to_send" })).toBe(false);
+    expect(isDraftQuote({ quoteStatus: "won" })).toBe(false);
   });
 });

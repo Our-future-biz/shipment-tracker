@@ -5,7 +5,7 @@ import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { appUrl } from "../../../lib/appUrl";
 import { businessDay } from "../../../lib/businessDate";
 import type { PublicShipmentStatus, ShipmentCustomerLink } from "../interfaces/interfaces";
-import { LINK_INVALID, customerLinkUrl, hashLinkToken, linkMayOpen, linkOpenUntil, looksLikeLinkToken, newLinkToken, publicStatusOf } from "../lib/customerLink";
+import { LINK_INVALID, type OurContact, customerLinkUrl, hashLinkToken, linkMayOpen, linkOpenUntil, looksLikeLinkToken, newLinkToken, publicStatusOf } from "../lib/customerLink";
 import { buildTracking } from "../lib/trackingTimeline";
 import { userEmails } from "../lib/userEmails";
 import { containerRepository } from "../repositories/container.repository";
@@ -16,14 +16,14 @@ import { DETAILS_REFUSAL } from "../lib/shipmentEditRule";
 import { TRACKING_EVENTS_LIMIT, type TrackingActor } from "./tracking.service";
 import { shipmentService } from "./shipment.service";
 
-/** Whose page it is. Not knowing isn't worth failing the customer's page for. */
-async function ourCompanyName(companyId: string): Promise<string> {
+/** Whose page it is and how to reach it (the invoicing details). Not knowing isn't worth failing the customer's page for. */
+async function ourContact(companyId: string): Promise<OurContact> {
   try {
     const { profile } = await invoicing.invoiceProfileGet({ authData: await serviceActor(companyId) });
-    return profile.companyName ?? "";
+    return { name: profile.companyName ?? "", phone: profile.phone ?? "", email: profile.email ?? "" };
   } catch (err) {
     log.warn(err, "customer link: the company's name not read");
-    return "";
+    return { name: "", phone: "", email: "" };
   }
 }
 
@@ -81,17 +81,20 @@ class CustomerLinkService {
     const { companyId, shipmentId } = link;
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment || !linkMayOpen(shipment, businessDay(now))) throw invalid();
-    const [events, customsStatus, containers, ourCompany] = await Promise.all([
+    const [events, customsStatus, containers, our, shown] = await Promise.all([
       shipmentTrackingEventRepository.listByShipmentId(shipmentId, companyId, TRACKING_EVENTS_LIMIT),
       shipmentService.customsStatusOf(shipment, companyId),
       containerRepository.listByShipmentId(shipmentId, companyId),
-      ourCompanyName(companyId),
+      ourContact(companyId),
+      // The pieces and weight as the job page shows them (the cargo lines' totals win over typed values).
+      shipmentService.getById(shipmentId, companyId),
     ]);
     // No names, audit or ticks go in, so none can come out.
     const { milestones } = buildTracking({ shipment, customsStatus, audit: [], changesCapped: false, events, notices: [], mayChangeDetails: false, tasks: [], names: new Map(), invoiced: null, now });
     // Knowing it was opened isn't worth failing the customer's page for.
     await shipmentCustomerLinkRepository.touchOpened(link.id, now).catch((err: unknown) => log.warn(err, "customer link: could not note the opening", { shipmentId }));
-    return publicStatusOf(shipment, milestones, containers.map((c) => c.containerNumber).filter(Boolean), ourCompany, now);
+    const cargo = { pcs: shown?.pcs ?? shipment.pcs, typeOfPackages: shown?.typeOfPackages ?? shipment.typeOfPackages, totalGrossWeightKg: shown?.totalGrossWeightKg ?? "" };
+    return publicStatusOf({ ...shipment, ...cargo }, milestones, containers.map((c) => c.containerNumber).filter(Boolean), our, now);
   }
 }
 

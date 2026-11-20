@@ -22,6 +22,8 @@ import { statusLabel } from "@/lib/shipmentStatus";
 import { BILLING_HINT, isBillingStatus } from "../../_components/billingRelease";
 import { loadTypeLabel } from "@/lib/enums";
 import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
+import { personShown } from "@/app/shipments/_lib/personNames";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { contactLinks, type ContactLinks } from "@/app/shipments/_lib/parties";
 import { DateTimeEditor } from "./DateTimeEditor";
 import { DATE_INPUT_FORMATS, leaveTypedDay, readTypedDay } from "./typedDate";
@@ -253,6 +255,17 @@ interface EditableCellProps {
   emailSubject?: string;
 }
 
+// A person cell (Handled By, Holiday Cover, Approved By…) shows the user's name, the stored e-mail on hover
+// (user council x4); it is still picked and kept by e-mail. Its own component, so only person cells read the users.
+function PersonText({ value, className, style, hint }: { value: string; className?: string; style?: React.CSSProperties; hint: string }) {
+  const { text, email } = personShown(value, usePeopleNames());
+  return (
+    <FadeText className={className} style={style} title={[email, hint].filter(Boolean).join(" · ") || undefined}>
+      {text}
+    </FadeText>
+  );
+}
+
 export function EditableCell(props: EditableCellProps) {
   const editable = useContext(ShipmentDetailsEditableContext);
   const approvedByLocked = useContext(ApprovedByLockedContext);
@@ -399,6 +412,8 @@ function EditableCellBody({
             // A date with a time keeps its two boxes, locked, when it isn't being edited (the detail
             // cards; a grid row keeps one text).
             <DateTimeBoxes value={original} style={textStyle} title={locked ? undefined : "Double-click to edit"} />
+          ) : isUser && hasValue ? (
+            <PersonText value={original} className={textClass} style={textStyle} hint={locked ? "" : "Double-click to edit"} />
           ) : (
             <FadeText className={textClass} style={textStyle} title={locked ? undefined : "Double-click to edit"}>
               {shown}

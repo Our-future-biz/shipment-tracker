@@ -108,7 +108,7 @@ describe("Shipments → Managers: the signal tiles", () => {
       "Delivery, warehouse and road",
       "Departure and arrival late",
       "Cargo claims",
-      "Waiting for approval",
+      "Jobs waiting for approval",
       "Handled By is not a user",
       "Away",
       "To-dos and @mentions",
@@ -137,10 +137,12 @@ describe("Shipments → Managers: the signal tiles", () => {
     expect(family("away").hint).toMatch(/no Holiday Cover.*both away.*Holiday Cover away/);
   });
 
-  it("says Waiting for approval counts a request to release before payment too - and not what approving one does", () => {
+  it("says Jobs waiting for approval counts a request to release before payment too - and not what approving one does", () => {
     const request = family("request");
-    expect(request.hint).toContain("a request to release a job before payment");
-    expect(request.note).toBe("They are answered on the Approvals tab.");
+    expect(request.hint).toContain("a request to release the job before payment");
+    // Jobs here, requests on the Approvals tab: the unit of each count is said (M21).
+    expect(request.label).toMatch(/^Jobs /);
+    expect(request.note).toBe("They are answered on the Approvals tab, whose count is every request waiting, however new.");
     // Approving gives the job a pass; the release is made afterwards. Nothing here says otherwise.
     for (const text of [request.hint, request.note ?? ""]) expect(text).not.toMatch(/approving|releases the job/i);
   });

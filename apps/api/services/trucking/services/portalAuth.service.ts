@@ -7,7 +7,7 @@ import { portalRepository } from "../repositories/portal.repository";
 import { haulierRepository } from "../repositories/haulier.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { PortalSessionRecord, PortalUserRecord } from "../schemas/portal.schema";
-import type { PortalMe } from "../interfaces/portal.interfaces";
+import type { PortalMe, PortalSetPasswordLink } from "../interfaces/portal.interfaces";
 import { hashToken, looksLikeToken, newToken, tokenMatches } from "../lib/haulierToken";
 import { throttleKey,
   ACCOUNT_RULE,
@@ -231,6 +231,26 @@ class PortalAuthService {
     return { userName: u.name, email: u.email, haulierName, ourCompany: ourName };
   }
 
+  /** A one-time link that can still set a password, and its user; anything else is the same 404. */
+  private async usableLink(token: unknown, now: Date) {
+    const invalid = () => APIError.notFound(SET_PASSWORD_LINK_INVALID);
+    if (!looksLikeToken(token)) throw invalid();
+    const link = await portalRepository.tokenByHash(hashToken(token));
+    if (!link || !tokenMatches(link.tokenHash, token) || link.usedAt || link.expiresAt.getTime() <= now.getTime()) throw invalid();
+    const user = await portalRepository.findUser(link.companyId, link.userId);
+    if (!user || user.status !== "ACTIVE") throw invalid();
+    return { link, user };
+  }
+
+  /**
+   * Whose account a live link is for - the forwarder, the haulier and the account's e-mail - so its
+   * page says what is being set (user council E15: it named neither). Reading it does not use the link.
+   */
+  async setPasswordLink(token: unknown): Promise<PortalSetPasswordLink> {
+    const { link, user } = await this.usableLink(token, new Date());
+    return { ...(await this.me(user)), kind: link.kind };
+  }
+
   /**
    * Sets the password through a one-time link (invitation or reset): the link must be live, not
    * used and of a user who is not disabled - else the same 404. A password that breaks the rules
@@ -238,13 +258,8 @@ class PortalAuthService {
    */
   async setPassword(input: { token: unknown; password: unknown }): Promise<void> {
     const invalid = () => APIError.notFound(SET_PASSWORD_LINK_INVALID);
-    const token = input.token;
-    if (!looksLikeToken(token)) throw invalid();
-    const link = await portalRepository.tokenByHash(hashToken(token));
     const now = new Date();
-    if (!link || !tokenMatches(link.tokenHash, token) || link.usedAt || link.expiresAt.getTime() <= now.getTime()) throw invalid();
-    const user = await portalRepository.findUser(link.companyId, link.userId);
-    if (!user || user.status !== "ACTIVE") throw invalid();
+    const { link, user } = await this.usableLink(input.token, now);
     const refusal = passwordRefusal(input.password, user.email);
     if (refusal) throw APIError.invalidArgument(refusal);
     const passwordHash = await hash(input.password as string);

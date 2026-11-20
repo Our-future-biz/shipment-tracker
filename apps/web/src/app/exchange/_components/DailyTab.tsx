@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { formatDate } from "@/lib/date";
 import { useFxDaily } from "@/hooks/useFx";
 import { HINT } from "@/styles/ui";
-import { fmtQuoted, type DailyResponse, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
+import { dailySource, fmtQuoted, type DailyResponse, FX_AFTER_NUM, FX_KEY, FX_NUM, FX_TABLE_WRAP, FX_TD, FX_TH } from "./fxShared";
 
 type Day = DailyResponse["days"][number];
 
@@ -20,11 +20,6 @@ const KIND: Record<Day["kind"], { label: string; cell: string }> = {
   future: { label: "Future", cell: "bg-white border border-slate-200" },
 };
 
-function sourceText(day: Day): string {
-  if (day.kind === "fixing") return day.fixingNo ? `ČNB no. ${day.fixingNo}` : "ČNB";
-  const carried = day.rates[0]?.fixingDate;
-  return carried ? `Carried from ${formatDate(carried)}` : "";
-}
 
 export function DailyTab({ initialMonth }: { initialMonth: string }) {
   const [month, setMonth] = useState(initialMonth);
@@ -111,8 +106,11 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                         </td>
                       );
                     })}
-                    <td className={`${FX_TD} ${FX_AFTER_NUM} ${d.kind === "missing" ? "!text-red-600 font-semibold" : "!text-slate-500"}`}>
-                      {d.kind === "missing" || d.kind === "pending" ? KIND[d.kind].label : sourceText(d)}
+                    <td
+                      className={`${FX_TD} ${FX_AFTER_NUM} ${d.kind === "missing" ? "!text-red-600 font-semibold" : "!text-slate-500"}`}
+                      title={d.kind === "missing" || d.kind === "pending" ? undefined : dailySource(d).title}
+                    >
+                      {d.kind === "missing" || d.kind === "pending" ? KIND[d.kind].label : dailySource(d).text}
                     </td>
                   </tr>
                 );

@@ -62,6 +62,8 @@ import {
 } from "../lib/partialCredit";
 import { creditNoteRequestRepository } from "../repositories/creditNoteRequest.repository";
 import { invoiceChangeRequestRepository } from "../repositories/invoiceChangeRequest.repository";
+import { receivableRepository } from "../repositories/receivable.repository";
+import { creditNoteEffect } from "../lib/receivables";
 import type { InvoiceChangeRequestRecord } from "../schemas/invoiceChangeRequest.schema";
 import { db } from "../db/db";
 import type { CreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
@@ -458,8 +460,30 @@ export interface InvoicePdfFile {
   sha256: string;
 }
 
+/**
+ * A credit note's effect on the invoice it corrects, as it stood when the credit note was issued (B15): its credit notes
+ * up to this one and its payments then. null when it can't be read: the PDF then says "To be refunded", as before.
+ */
+async function creditEffectOf(inv: InvoiceRecord, corrected: InvoiceRecord | null, companyId: string): Promise<InvoiceForPdf["creditEffect"]> {
+  if (inv.kind !== "credit_note" || !corrected) return null;
+  try {
+    const [credits, lines] = await Promise.all([
+      invoiceRepository.creditNotesOf(corrected.id, companyId),
+      receivableRepository.paymentsOf(companyId, [corrected.id]),
+    ]);
+    const at = inv.createdAt;
+    const upToThis = credits.filter((c) => c.id === inv.id || c.createdAt.getTime() <= at.getTime());
+    if (!upToThis.some((c) => c.id === inv.id)) upToThis.push(inv);
+    return creditNoteEffect({ invoiceGross: corrected.gross, creditNoteGross: upToThis.map((c) => c.gross), thisGross: inv.gross, lines, at });
+  } catch (err) {
+    log.warn("could not read what a credit note did to its invoice; its PDF says to be refunded", { number: inv.number, error: String(err) });
+    return null;
+  }
+}
+
 async function pdfInput(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyId: string): Promise<InvoiceForPdf> {
   const corrected = inv.correctsInvoiceId ? await invoiceRepository.getByIdForCompany(inv.correctsInvoiceId, companyId) : null;
+  const creditEffect = await creditEffectOf(inv, corrected, companyId);
   return {
     kind: inv.kind,
     number: inv.number,
@@ -484,6 +508,7 @@ async function pdfInput(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyI
     note: inv.note,
     creditReason: inv.creditReason,
     correctsNumber: corrected?.number ?? "",
+    creditEffect,
     lines: lines.map((l) => ({
       id: l.id,
       correctsLineId: l.correctsLineId ?? null,
@@ -642,6 +667,7 @@ class InvoiceDocumentService {
         bookingNumber: ctx.shipment.bookingNumber,
         containerNumber: ctx.shipment.containerNumber,
         personalReference: ctx.shipment.personalReference,
+        customerReference: ctx.shipment.customerReference ?? "",
         routeFrom: ctx.routeFrom,
         routeTo: ctx.routeTo,
         quoteNumber: ctx.quoteNumber,

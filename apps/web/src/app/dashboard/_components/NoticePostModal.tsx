@@ -31,8 +31,6 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 // Each audience field is one of the organization's own entries, or ALL for every one of them.
 const ALL = "all";
-const AUDIENCE_FIELDS = ["countryCode", "branchId", "departmentId"] as const;
-type AudienceField = (typeof AUDIENCE_FIELDS)[number];
 
 interface NoticeFormValues {
   countryCode?: string;
@@ -41,6 +39,13 @@ interface NoticeFormValues {
   severity: string;
   title: string;
   body?: string;
+}
+
+/** The audience a new post names: a chosen country, branch or department each, nothing for "All". */
+export function noticeAudience(v: Pick<NoticeFormValues, "countryCode" | "branchId" | "departmentId">) {
+  const chosen = (value?: string) => (value && value !== ALL ? value : undefined);
+  const audience = { countryCode: chosen(v.countryCode), branchId: chosen(v.branchId), departmentId: chosen(v.departmentId) };
+  return { ...audience, forAll: !audience.countryCode && !audience.branchId && !audience.departmentId };
 }
 
 // The priority pills: tinted like the pills on the board (slate, amber, red), with their icon. The
@@ -159,8 +164,9 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
   const [dragOver, setDragOver] = useState(false);
   // Whom a new post went to, shown once its audience can no longer be changed.
   const [createdFor, setCreatedFor] = useState<string | null>(null);
-  // The audience field whose choice of "All" made all three "All", while that is being confirmed.
-  const [confirmAll, setConfirmAll] = useState<AudienceField | null>(null);
+  // A new post to everyone waits for a yes, asked at Post: asked the moment the last "All" was
+  // picked, it came before anything was written (user council M11).
+  const [confirmAll, setConfirmAll] = useState(false);
 
   // The dialog is mounted anew for every opening (an antd form instance would otherwise
   // carry the previous opening's values over), so what it was opened with is fixed here;
@@ -192,7 +198,8 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
     setNewFiles((files) => [...files, ...picked.filter((f) => f.size > 0 && f.size <= MAX_FILE_SIZE)]);
   };
 
-  const handleSubmit = async () => {
+  // `toAllConfirmed`: the yes to "Send to all?" is given.
+  const handleSubmit = async (toAllConfirmed = false) => {
     if (submitting.current) return;
     submitting.current = true;
     let v: NoticeFormValues;
@@ -201,6 +208,11 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
     } catch {
       // The form marks the fields that need attention.
       submitting.current = false;
+      return;
+    }
+    if (!toAllConfirmed && !(editing?.id ?? createdId) && noticeAudience(v).forAll) {
+      submitting.current = false;
+      setConfirmAll(true);
       return;
     }
     setSaving(true);
@@ -212,9 +224,7 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
         // Also a retry after the notice was posted without its documents: send what the form says now.
         await onUpdate({ id, input: { severity: v.severity, title: v.title, body: v.body ?? "" } });
       } else {
-        const chosen = (value?: string) => (value && value !== ALL ? value : undefined);
-        const audience = { countryCode: chosen(v.countryCode), branchId: chosen(v.branchId), departmentId: chosen(v.departmentId) };
-        const forAll = !audience.countryCode && !audience.branchId && !audience.departmentId;
+        const { forAll, ...audience } = noticeAudience(v);
         const created = await onCreate({ scope: forAll ? "company" : "audience", ...audience, severity: v.severity, title: v.title, body: v.body ?? "" });
         id = created.id;
         setCreatedId(id);
@@ -270,9 +280,6 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
     if (changed.countryCode && changed.countryCode !== ALL && all.branchId !== ALL) {
       if (!branchFitsCountry(branches, all.branchId, changed.countryCode)) form.setFieldValue("branchId", undefined);
     }
-    // The choice that makes it every country, branch and department is confirmed first.
-    const field = AUDIENCE_FIELDS.find((f) => f in changed);
-    if (field && changed[field] === ALL && AUDIENCE_FIELDS.every((f) => all[f] === ALL)) setConfirmAll(field);
   };
 
   return (
@@ -325,7 +332,7 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
             <Button disabled={saving} onClick={handleClose}>
               Cancel
             </Button>
-            <Button type="primary" loading={saving} onClick={handleSubmit}>
+            <Button type="primary" loading={saving} onClick={() => void handleSubmit()}>
               {editing ? "Save" : "Post"}
             </Button>
           </div>
@@ -412,16 +419,16 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
         )}
       </Form>
       <ConfirmModal
-        open={!!confirmAll}
+        open={confirmAll}
         title="Send to all?"
         description="The notice will be shown to all."
-        confirmLabel="Confirm"
-        onConfirm={() => setConfirmAll(null)}
-        // Not confirmed: the "All" that tipped it is taken back.
-        onClose={() => {
-          if (confirmAll) form.setFieldValue(confirmAll, undefined);
-          setConfirmAll(null);
+        confirmLabel="Post"
+        onConfirm={() => {
+          setConfirmAll(false);
+          void handleSubmit(true);
         }}
+        // Not confirmed: nothing is posted, and the dialog stays as it was written.
+        onClose={() => setConfirmAll(false)}
       />
     </Modal>
   );

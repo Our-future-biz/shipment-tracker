@@ -245,7 +245,7 @@ describe("round trip", () => {
     expect(d1.getCell("D4").dataValidation).toMatchObject({ type: "list", formulae: ['"FLAT,PER_UNIT,PER_100KG"'] });
     expect(wb.getWorksheet("Zones")!.getCell("E2").dataValidation).toMatchObject({ formulae: ['"Y,N"'] });
     expect(wb.getWorksheet("Surcharges")!.getCell("B2").dataValidation.formulae?.[0]).toContain("FUEL_INDEX");
-    expect(d1.getCell("A1").value).toBe("D1: +1 day");
+    expect(d1.getCell("A1").value).toBe("D1: +1 working day");
   });
 });
 

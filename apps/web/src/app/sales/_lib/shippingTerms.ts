@@ -54,3 +54,29 @@ export function termsDifferFromTemplate(data: SalesQuoteData, templates: readonl
     (data.shippingSubjectTo ?? "") !== now.shippingSubjectTo
   );
 }
+
+// The words a template's name gives its freight mode by ("FCL EXPORT", "Air import"). Templates
+// have a name and their texts only, so the name is all that says which quotes one is for.
+const MODE_WORDS: Record<string, RegExp> = {
+  "Sea FCL": /\bFCL\b/i,
+  "Sea LCL": /\bLCL\b/i,
+  "Sea Break Bulk": /\bbreak[\s-]?bulk\b|\bBB\b/i,
+  Air: /\bair\b/i,
+  Rail: /\brail\b/i,
+  Road: /\broad\b|\btruck/i,
+};
+const DIRECTION_WORDS: Record<string, RegExp> = { Export: /\bexport\b/i, Import: /\bimport\b/i };
+
+/**
+ * The template made for the quote's freight mode, where there is exactly one: its name names the
+ * mode, and the quote's direction or none ("FCL EXPORT" for a Sea FCL export). Chosen for a quote
+ * with no Shipping terms yet (User Council S19), so the usual template need not be looked for;
+ * null with none or several that fit, or before the freight mode is known - then one is picked.
+ */
+export function fittingTemplate(data: Pick<SalesQuoteData, "serviceType" | "direction">, templates: readonly TermsTemplate[]): string | null {
+  const mode = data.serviceType ? MODE_WORDS[data.serviceType] : undefined;
+  if (!mode) return null;
+  const otherDirections = Object.entries(DIRECTION_WORDS).filter(([direction]) => direction !== data.direction);
+  const fitting = templates.filter((t) => mode.test(t.name) && (!data.direction || !otherDirections.some(([, words]) => words.test(t.name))));
+  return fitting.length === 1 ? fitting[0]!.name : null;
+}

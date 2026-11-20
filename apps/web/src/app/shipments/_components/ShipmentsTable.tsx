@@ -52,6 +52,7 @@ import { typedSearchParams } from "@/app/shipments/_lib/allFieldsSearch";
 import { addressFiltersKey } from "@/app/shipments/_lib/addressFilters";
 import { keepsToItsAddress, rememberedAfter, type RememberedFilters } from "@/app/shipments/_lib/rememberedFilters";
 import { CustomerCell } from "./CustomerCell";
+import { PersonCell } from "./PersonCell";
 import { CancelReasonDialog } from "./CancelReasonDialog";
 import { asksCancelReason, cancelOffered, cancelUpdate } from "./cancelReason";
 import { asksBillingRelease } from "./billingRelease";
@@ -152,6 +153,13 @@ function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
 }
 
 const MAX_RECENT_SEARCHES = 5;
+
+// The warning triangle's colours: the class, and the same colour for a row whose text is forced red.
+const TRIANGLE_TONES = {
+  critical: { className: "text-red-500", color: "var(--color-red-500)" },
+  warning: { className: "text-amber-500", color: "var(--color-amber-500)" },
+  none: { className: "text-slate-400", color: "var(--color-slate-400)" },
+} as const;
 
 // A cell that leads somewhere is a link (LINK) - unless a conditional-format rule colours it: then
 // its own colour (an inline style) shows, which LINK's "!" colour would beat.
@@ -615,6 +623,19 @@ export const ShipmentsTable = ({
             </button>
           );
         }
+        // Handled By and Holiday Cover read as the person's name, not the e-mail kept (user council x4);
+        // a view that keeps them read-only shows the name too.
+        if (col.key === "personInCharge" || col.key === "holidayCover") {
+          return (
+            <PersonCell
+              value={val}
+              label={col.title}
+              editable={!viewReadonly?.includes(col.key) && canChangeShipmentField(user, record, col.key)}
+              style={textStyle}
+              onCommit={(value) => updateField(record.id, col.key, value, record)}
+            />
+          );
+        }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
         if (col.readonly || viewReadonly?.includes(col.key)) {
           const shown = col.key === "loadType" ? loadTypeLabel(val, record.freightMode) : val;
@@ -736,10 +757,17 @@ export const ShipmentsTable = ({
       onCell: () => ({ className: "!pl-0 !pr-1.5" }),
       render: (_: unknown, record: ShipmentItem) => {
         const { level, reason, readyStatus } = getShipmentUrgency(buildRowData(record));
-        const tone = level === "critical" ? "text-red-500" : level === "warning" ? "text-amber-500" : "text-slate-400";
+        const tone = level === "critical" ? TRIANGLE_TONES.critical : level === "warning" ? TRIANGLE_TONES.warning : TRIANGLE_TONES.none;
         return (
           <Tooltip title={reason ? <>{reason} <strong>{readyStatus}</strong></> : "No deadline warning"}>
-            <span role="img" aria-label={reason ? `${reason} ${readyStatus}` : "No deadline warning"} className={`inline-flex p-1 ${tone}`}>
+            {/* cf-own-color: the triangle's colour is its meaning, so a red (OBL waiting) row doesn't turn
+                a grey "No deadline warning" or an amber one red (user council c2). */}
+            <span
+              role="img"
+              aria-label={reason ? `${reason} ${readyStatus}` : "No deadline warning"}
+              className={`cf-own-color inline-flex p-1 ${tone.className}`}
+              style={{ "--cf-own-color": tone.color } as React.CSSProperties}
+            >
               <WarningFilled />
             </span>
           </Tooltip>
@@ -1001,7 +1029,7 @@ export const ShipmentsTable = ({
             className={BTN}
           >
             <DownloadOutlined />
-            Export
+            Export CSV
           </button>
         </div>
       </div>
@@ -1065,17 +1093,23 @@ export const ShipmentsTable = ({
           </SortableContext>
         </DndContext>
 
-        {/* Bottom bar: rows-per-page on the left, pagination on the right */}
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
-          <div className="flex items-center gap-2 text-[13px] text-slate-500">
-            <span>Rows per page</span>
-            <Select
-              value={pageSize}
-              onChange={setPageSize}
-              options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: String(n) }))}
-              className="w-20"
-              size="small"
-            />
+        {/* Bottom bar: rows-per-page and what the colours mean on the left, pagination on the right */}
+        <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-t border-slate-100">
+          <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[13px] text-slate-500">
+            <span className="flex items-center gap-2">
+              <span>Rows per page</span>
+              <Select
+                value={pageSize}
+                onChange={setPageSize}
+                options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: String(n) }))}
+                className="w-20"
+                size="small"
+              />
+            </span>
+            {/* The row colours read as the trade direction without it (user council O15). */}
+            <span className="text-xs">
+              <span className="text-red-700">Red text</span> = original B/L not in hand · job number colour = department
+            </span>
           </div>
           <Pagination
             size="small"

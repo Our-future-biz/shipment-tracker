@@ -46,6 +46,8 @@ import { Pill } from "@/components/Pill";
 import { CARD, HINT, ICON_BTN, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
+import { fxRateText } from "../_lib/fxRateText";
+import { invoiceRecipient } from "../_lib/invoiceRecipient";
 import { billingCurrencyOptions, billToCurrencies } from "../_lib/billToCurrencies";
 import { IssuedInvoiceEmailModal, type IssuedInvoiceEmail } from "./IssuedInvoiceEmailModal";
 import { CreditNoteModal } from "./CreditNoteModal";
@@ -264,6 +266,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   // from the Customer Database: its default, then up to two secondary ones (billing in one of those asks
   // to confirm). Without a customer: CZK, EUR, USD.
   const billToId = customerId ?? shipment.customerId ?? undefined;
+  // Its contacts, for the invoice e-mail's recipient when the shipment names none (user council B20).
+  const { contacts: billToContacts } = useCustomerContacts(billToId ?? "");
   const billTo = billToCurrencies(preview, billToId);
   // Until the preview is the bill-to customer's, its currencies are not known: none is offered to switch to.
   const currenciesKnown = !billToId || preview?.customerId === billToId;
@@ -321,7 +325,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
       toast.success(`Invoice ${invoice.number} issued`);
       await download(invoice);
       // The PDF first, then the email to put it in. The issued invoice stands whatever happens here.
-      const to = invoiceEmailTo(shipment, invoice.customerId, picContacts);
+      const to = invoiceRecipient(invoiceEmailTo(shipment, invoice.customerId, picContacts), {
+        customerId: invoice.customerId,
+        contactsOf: billToId ?? "",
+        contacts: billToContacts,
+      });
       const subject = shipmentEmailSubject(shipment);
       const href = mailtoLink({ to, subject });
       setIssuedEmail({ id: invoice.id, number: invoice.number, to, subject, href });
@@ -897,8 +905,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
             />
             {/* status and button wrap together, so the button stays on the right */}
             <div className="flex-[3_1_360px] flex items-center justify-end gap-3 min-w-0">
-              {/* what blocks issuing, or that nothing does */}
-              <span className={`min-w-0 max-w-[480px] truncate text-[13px] ${problems.length ? "text-slate-500" : "text-ok font-medium"}`}>
+              {/* what blocks issuing, or that nothing does: the whole sentence, on two lines if need be
+                  (user council O18: cut at 1440 px, the end only in the button's tooltip) */}
+              <span className={`min-w-0 max-w-[560px] text-[13px] leading-[18px] text-right ${problems.length ? "text-slate-500" : "text-ok font-medium"}`}>
                 {problems[0] ?? (canIssue ? "Ready to issue" : "")}
               </span>
               <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
@@ -923,7 +932,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                     <th className={`${TH} text-left`}>Invoice</th>
                     <th className={`${TH} text-left`}>Date</th>
                     <th className={`${TH} !text-right`}>Items</th>
-                    <th className={`${TH} !text-right`}>Total (CZK)</th>
+                    <th className={`${TH} !text-right`}>Total</th>
                     <th className={`${TH} text-left !pl-6 !pr-4`}>Status</th>
                   </tr>
                 </thead>
@@ -984,7 +993,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                           </td>
                           <td className={`${TD} tabular-nums`}>{czDate(d.issueDate)}</td>
                           <td className={`${TD} text-right tabular-nums`}>{d.lines.length}</td>
-                          <td className={`${TD} text-right tabular-nums font-medium`}>{money(Number(d.grossCzk))}</td>
+                          {/* In the invoice's own currency, the CZK beside it for a foreign one (user council B13). */}
+                          <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
+                            <div className="font-medium">
+                              {money(Number(d.gross))} {d.currency}
+                            </div>
+                            {d.currency !== "CZK" && <div className="text-[12px] text-slate-500">{money(Number(d.grossCzk))} CZK</div>}
+                          </td>
                           <td className={`${TD} !pl-6 !pr-4`}>
                             <span className="inline-flex flex-wrap items-center gap-1.5">
                               <Pill tone={status.tone}>{status.label}</Pill>
@@ -1050,9 +1065,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                 <tbody>
                   {docs.map((d) => (
                     <tr key={d.id}>
-                      <td className={`${TD} ${REF} font-medium`}>{d.number}</td>
+                      <td className={`${TD} ${REF} font-medium whitespace-nowrap`}>{d.number}</td>
                       <td className={TD}>
-                        <span className="inline-flex gap-2">
+                        {/* The marks wrap among themselves, so the customer beside them keeps its line (user council B21). */}
+                        <span className="inline-flex flex-wrap gap-1.5">
                           <Pill tone="slate">{d.kind === "credit_note" ? "Credit note" : "Invoice"}</Pill>
                           {d.status === "credited" && <Pill tone="amber">Credited</Pill>}
                           {d.status === "cancelled" && (
@@ -1068,9 +1084,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                           {paymentChip(d)}
                         </span>
                       </td>
-                      <td className={`${TD} !text-slate-500`}>{czDate(d.issueDate)}</td>
-                      <td className={TD}>{d.customer.companyName}</td>
-                      <td className={`${TD} text-right tabular-nums font-medium`}>{money(Number(d.gross))} {d.currency}</td>
+                      <td className={`${TD} !text-slate-500 whitespace-nowrap`}>{czDate(d.issueDate)}</td>
+                      <td className={TD}>
+                        <span className="block max-w-[260px] truncate" title={d.customer.companyName}>
+                          {d.customer.companyName}
+                        </span>
+                      </td>
+                      <td className={`${TD} text-right tabular-nums font-medium whitespace-nowrap`}>{money(Number(d.gross))} {d.currency}</td>
                       <td className={`${TD} text-right whitespace-nowrap`}>
                         <span className="inline-flex items-center">
                           <PreviewButton fileName={`${d.number}.pdf`} onClick={() => void filePreview.open(invoicePdfSource(d))} />
@@ -1117,6 +1137,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
               <strong className="tabular-nums">{money(p.gross)} {p.currency}</strong>
               {foreign && <> (= {money(p.grossCzk)} CZK)</>}, DUZP {czDate(p.duzp)}, due {czDate(p.dueDate)}.
             </p>
+            {/* The rate the CZK amounts are counted at, and its fixing, before it is final (user council B16). */}
+            {fxRateText(p) && <p className="m-0 tabular-nums">{fxRateText(p)}</p>}
             {/* What the card warned of, once more where the decision is made (user council B7): never a stop. */}
             {warnings.length > 0 && (
               <Alert

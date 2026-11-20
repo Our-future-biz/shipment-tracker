@@ -127,9 +127,9 @@ export function avizaceTemplate(c: Pick<TruckingConsignmentRecord, "ref" | "deli
   return { cs, en, subject: `Avizace doručení / Delivery notice ${c.ref}`, to: d.contactPhone };
 }
 
-/** The warning a delivery run / FTL trip shows while one of its deliveries needs an avizace not recorded (never blocks). */
+/** The warning a delivery run / FTL trip shows while one of its deliveries needs a delivery notice not recorded (never blocks). */
 export function avizaceWarnings(consignments: Pick<TruckingConsignmentRecord, "ref" | "delivery" | "load" | "avizace" | "cancelledAt" | "deliveredAt">[]): string[] {
-  return consignments.filter(avizacePending).map((c) => `${c.ref}: avizace needed and not recorded yet`);
+  return consignments.filter(avizacePending).map((c) => `${c.ref}: delivery notice needed and not recorded yet`);
 }
 
 // ---- POD missing ---------------------------------------------------------------------------------

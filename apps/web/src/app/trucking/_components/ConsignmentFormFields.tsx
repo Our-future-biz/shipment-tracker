@@ -7,7 +7,7 @@ import { useCustomerSites } from "@/hooks/useCustomerSites";
 import { useHauliers, useTruckingSettings } from "@/hooks/useTrucking";
 import type { ConsignmentScope } from "@/hooks/useTruckingConsignments";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { FIXED_LEVEL, LAST_MILE_OPTIONS, SCOPE_OPTIONS, fixedDeliveryTime, withFixedDelivery, type ConsignmentForm, type PriceSource } from "../_lib/consignmentForm";
+import { FIXED_LEVEL, LAST_MILE_OPTIONS, SCOPE_OPTIONS, fixedDeliveryTime, withFixedDelivery, withWindowDay, type ConsignmentForm, type PriceSource } from "../_lib/consignmentForm";
 import { CURRENCIES } from "../_lib/hauliers";
 import { TERMS } from "../_lib/glossary";
 import { ConsignmentLoadFields } from "./ConsignmentLoadFields";
@@ -106,7 +106,8 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
             allowClear={false}
             disabled={limited}
             value={form.pickupDate ? dayjs(form.pickupDate) : null}
-            onChange={(d) => d && set("pickupDate", d.format("YYYY-MM-DD"))}
+            // The pick-up's time window is on this day: it moves with it.
+            onChange={(d) => d && onChange({ ...form, pickupDate: d.format("YYYY-MM-DD"), pickup: withWindowDay(form.pickup, d.format("YYYY-MM-DD")) })}
           />
         </TruckingField>
         <TruckingField label="Pick-up time" hint={`Empty = before the ${TERMS.cutoff.toLowerCase()}`}>
@@ -151,8 +152,8 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <ConsignmentStopFields title="Pick-up" stop={form.pickup} sites={sites} limited={limited} onChange={(s) => set("pickup", s)} />
-        <ConsignmentStopFields title="Delivery" stop={form.delivery} sites={sites} limited={limited} onChange={(s) => set("delivery", s)} />
+        <ConsignmentStopFields title="Pick-up" stop={form.pickup} sites={sites} limited={limited} day={form.pickupDate || null} onChange={(s) => set("pickup", s)} />
+        <ConsignmentStopFields title="Delivery" stop={form.delivery} sites={sites} limited={limited} day={fixed ? form.fixedDeliveryDate : null} onChange={(s) => set("delivery", s)} />
       </div>
 
       <ConsignmentLoadFields load={form.load} disabled={limited} onChange={(l) => set("load", l)} />

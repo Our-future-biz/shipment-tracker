@@ -13,16 +13,19 @@ interface LockedAmountInputProps {
   currency?: string;
   // Once an edit is done (left or Enter; not Esc): the amount it ended with and the one before it.
   onCommit?: (value: number, before: number) => void;
+  // Whether an amount already there is changed only after "Change this amount?". Not on a draft
+  // (User Council S20: every change of a draft's amount asked): it opens as a 0.00 does.
+  askFirst?: boolean;
 }
 
 // An amount that a stray click and typing cannot change. Locked, it is shown, not an input; a
 // double-click (or Enter, Tab to a 0.00, or a figure typed after Tab) puts a fresh input there,
 // focused with the amount selected, which goes back to the locked view once it is left or Enter
 // pressed; Esc puts the old amount back. An amount already there is changed only after the user
-// confirms it.
+// confirms it - unless `askFirst` is off, on a draft.
 // The locked view is no read-only input on purpose: switching an input that has the caret between
 // read-only and editable was unreliable (antd sometimes rebuilt it, which reads as leaving it).
-export function LockedAmountInput({ value, onChange, "aria-label": label, currency, onCommit }: LockedAmountInputProps) {
+export function LockedAmountInput({ value, onChange, "aria-label": label, currency, onCommit, askFirst = true }: LockedAmountInputProps) {
   // Disabled with the form around it (a quote whose prices are closed): shown, never opened.
   const { componentDisabled: disabled } = ConfigProvider.useConfig();
   const [editing, setEditing] = useState(false);
@@ -61,7 +64,7 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
 
   const requestEdit = () => {
     if (disabled || editing || confirming) return;
-    if (value) setConfirming(true);
+    if (value && askFirst) setConfirming(true);
     else startEditing();
   };
 
@@ -115,13 +118,13 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
           disabled ? "bg-slate-50 text-slate-400" : "bg-white hover:border-slate-300"
         }`}
         onDoubleClick={requestEdit}
-        // Tabbed to (a keyboard focus, not a click), a 0.00 opens at once with the amount selected,
-        // so it is typed over like the fields beside it.
+        // Tabbed to (a keyboard focus, not a click), a 0.00 - or any amount of a draft - opens at
+        // once with the amount selected, so it is typed over like the fields beside it.
         onPointerDown={() => {
           clicked.current = true;
         }}
         onFocus={() => {
-          if (!value && !returning.current && !clicked.current) requestEdit();
+          if ((!value || !askFirst) && !returning.current && !clicked.current) requestEdit();
         }}
         onBlur={() => {
           clicked.current = false;

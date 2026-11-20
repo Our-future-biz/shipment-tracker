@@ -460,7 +460,7 @@ export const eventModule = {
   ),
 };
 
-export const settings = (): TruckingSettings => ({ ...structuredClone(DEFAULT_SETTINGS), version: 0, updatedAt: null, updatedBy: null });
+export const settings = (): TruckingSettings => ({ ...structuredClone(DEFAULT_SETTINGS), version: 0, updatedAt: null, updatedBy: null, emailConfigured: false });
 
 export const stop = (over: Partial<StopInput> = {}): StopInput => ({
   siteId: null,

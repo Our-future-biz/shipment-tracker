@@ -50,6 +50,9 @@ export interface ShipmentSnapshot {
   bookingNumber: string;
   containerNumber: string;
   personalReference: string;
+  /** The customer's own reference (the job's Customer Reference), printed as "Your ref." (user council B17). Absent on
+   * invoices issued before 20 Nov 2026: they print the Personal Reference there, as they always did. */
+  customerReference?: string;
   /** From where to where: the port of loading (else the origin) and the port of discharge (else the
    * destination). Absent on invoices issued before 10 Nov 2026. */
   routeFrom?: string;

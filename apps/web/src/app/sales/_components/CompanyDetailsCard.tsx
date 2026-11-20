@@ -62,7 +62,9 @@ export function CompanyDetailsCard() {
 
   return (
     <SectionCard title="Company details">
-      <p className="text-xs text-slate-500 mb-3">Printed on every quote, so the customer sees who it is from.</p>
+      <p className="text-xs text-slate-500 mb-3">
+        Printed on every quote, so the customer sees who it is from. While all are empty, quotes print the company&apos;s invoicing details (Settings → Organization).
+      </p>
 
       {status === "error" ? (
         <Alert

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import {
   companyApprovalMessageTable,
@@ -114,11 +114,12 @@ class CompanyRegistrationRepository {
     return row!;
   }
 
-  /** What waits, and what was answered since `since`. */
-  async forApprovals(companyId: string, since: Date): Promise<CompanyRegistrationRecord[]> {
+  /** What waits, and what was answered since `since`, each with its link's "Who it is for" note ("" when none). */
+  async forApprovals(companyId: string, since: Date): Promise<(CompanyRegistrationRecord & { linkLabel: string })[]> {
     return db
-      .select()
+      .select({ ...getTableColumns(companyRegistrationTable), linkLabel: sql<string>`coalesce(${companyRegistrationLinkTable.label}, '')` })
       .from(companyRegistrationTable)
+      .leftJoin(companyRegistrationLinkTable, eq(companyRegistrationLinkTable.id, companyRegistrationTable.linkId))
       .where(and(eq(companyRegistrationTable.companyId, companyId), or(eq(companyRegistrationTable.status, "pending"), gte(companyRegistrationTable.decidedAt, since))))
       .orderBy(desc(companyRegistrationTable.createdAt))
       .limit(500);

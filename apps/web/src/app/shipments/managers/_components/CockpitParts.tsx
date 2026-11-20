@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { Tooltip } from "antd";
 import { XIcon } from "@phosphor-icons/react";
 import { Pill } from "@/components/Pill";
+import { emailBehind, nameOf } from "@/app/shipments/_lib/personNames";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { BTN, EMPTY, HINT, LABEL_TEXT } from "@/styles/ui";
 import { modeLabel } from "../_lib/cockpitAddress";
 import { showingLabel, tagsShown, type SignalFamily } from "../_lib/cockpitSignals";
@@ -15,6 +17,17 @@ import { teamFigure } from "../_lib/cockpitTeam";
 
 export const dash = <span className={EMPTY}>—</span>;
 export const NOBODY_TEXT = "text-red-600 font-medium";
+
+/**
+ * A person a job names (Handled By, Holiday Cover) as people know them: the user's name, the
+ * e-mail kept on hover (user council x4). An e-mail no user has reads as it is; nobody reads
+ * "Nobody" in red.
+ */
+export function PersonText({ value }: { value: string }) {
+  const names = usePeopleNames();
+  if (!value) return <span className={NOBODY_TEXT}>Nobody</span>;
+  return <span title={emailBehind(value, names) || undefined}>{nameOf(value, names)}</span>;
+}
 
 /** The company's clock, wherever the manager sits: "14:05". */
 export const PRAGUE_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });

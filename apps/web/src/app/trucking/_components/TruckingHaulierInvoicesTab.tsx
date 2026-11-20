@@ -15,7 +15,7 @@ import { INVOICE_STATUS_CHIP, INVOICE_STATUS_ORDER, differenceText, haulierInvoi
 import { formatMoney } from "../_lib/tariffs";
 import { HaulierInvoiceEntryModal } from "../haulier-invoices/_components/HaulierInvoiceEntryModal";
 import { TruckingStatusChip } from "./TruckingStatusChip";
-import { byText, dash, pragueDate } from "../_lib/format";
+import { LOADING_TEXT, byText, dash, pragueDate } from "../_lib/format";
 
 
 const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
@@ -126,7 +126,7 @@ export const TruckingHaulierInvoicesTab = () => {
         storageKey="trucking:haulier-invoices:v1"
         exportFilePrefix="haulier-invoices"
         resetKey={status ?? ""}
-        emptyText={isError ? "The haulier invoices could not be loaded." : status ? "No invoices with this status." : "No haulier invoices yet. Enter one when it arrives."}
+        emptyText={isLoading ? LOADING_TEXT : isError ? "The haulier invoices could not be loaded." : status ? "No invoices with this status." : "No haulier invoices yet. Enter one when it arrives."}
         actions={
           <Tooltip title="Enter an invoice a haulier sent: tick its trips and partner deliveries, type the amounts — any difference waits for a manager">
             <button

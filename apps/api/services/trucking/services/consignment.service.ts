@@ -413,7 +413,7 @@ class ConsignmentService {
       .filter(
         (i) =>
           !search ||
-          [i.ref, i.jobNumber, i.customerName, i.pickupCity, i.pickupPostcode, i.deliveryCity, i.deliveryPostcode, i.tripRef ?? "", i.haulierName ?? ""].some((v) =>
+          [i.ref, i.jobNumber, i.customerName, i.reference, i.pickupCity, i.pickupPostcode, i.deliveryCity, i.deliveryPostcode, i.tripRef ?? "", i.haulierName ?? ""].some((v) =>
             v.toLowerCase().includes(search),
           ) ||
           // A consignment keeps the job reference it copied, while the job's letters follow its

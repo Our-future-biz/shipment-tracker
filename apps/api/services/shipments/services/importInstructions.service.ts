@@ -215,7 +215,11 @@ class ImportInstructionsService {
   private async openRow(token: string, now: Date): Promise<ShipmentImportInstructionRecord> {
     if (!looksLikeLinkToken(token)) throw invalid();
     const row = await repository.byHash(hashLinkToken(token));
-    if (!row || row.status !== "open" || row.expiresAt.getTime() <= now.getTime()) throw invalid();
+    if (!row) throw invalid();
+    // A link that was used, ran out or was stopped still names whose it was, so the customer knows whom
+    // to ask (user council E12). The token is 32 random bytes nobody guesses: only who was sent the
+    // link learns the name, which that message already gave. An unknown token answers with nothing.
+    if (row.status !== "open" || row.expiresAt.getTime() <= now.getTime()) throw invalid().withDetails({ companyName: await ourCompanyName(row.companyId) });
     return row;
   }
 

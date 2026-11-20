@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { blockedLeftOut, warningsOf } from "./planTrip";
+import { blockedLeftOut, vehicleOptions, vehicleWarning, warningsOf } from "./planTrip";
 
 const issue = (code: interfaces.HaulierIssueCode, severity: "block" | "warn", message: string = code): interfaces.HaulierIssue => ({ code, severity, message });
 
@@ -40,5 +40,35 @@ describe("Plan trip: the picked haulier's warnings (T10)", () => {
   it("gives none when nobody or an unknown haulier is picked", () => {
     expect(warningsOf(list, null)).toEqual([]);
     expect(warningsOf(list, "nobody")).toEqual([]);
+  });
+});
+
+describe("Plan trip: the vehicle types of the haulier picked (user council T16)", () => {
+  const vehicles = [
+    { code: "van", label: "Van" },
+    { code: "solo_72", label: "Solo truck 7.2 m" },
+    { code: "tautliner_136", label: "Tautliner 13.6 m" },
+  ];
+
+  it("offers the haulier's own types first, the others under their own heading", () => {
+    expect(vehicleOptions(vehicles, ["tautliner_136", "van"])).toEqual([
+      { label: "This haulier's vehicles", options: [{ value: "van", label: "Van" }, { value: "tautliner_136", label: "Tautliner 13.6 m" }] },
+      { label: "Other types", options: [{ value: "solo_72", label: "Solo truck 7.2 m" }] },
+    ]);
+    expect(vehicleOptions(vehicles, ["van", "solo_72", "tautliner_136"])).toEqual([{ label: "This haulier's vehicles", options: vehicles.map((v) => ({ value: v.code, label: v.label })) }]);
+  });
+
+  it("offers them all as one list when the haulier lists none, or only types no longer offered", () => {
+    const all = vehicles.map((v) => ({ value: v.code, label: v.label }));
+    expect(vehicleOptions(vehicles, undefined)).toEqual(all);
+    expect(vehicleOptions(vehicles, [])).toEqual(all);
+    expect(vehicleOptions(vehicles, ["mega_136"])).toEqual(all);
+  });
+
+  it("warns, never refuses, when the type picked is not the haulier's", () => {
+    expect(vehicleWarning(vehicles, ["van"], "solo_72")).toBe("Solo truck 7.2 m is not among the haulier's vehicles on its Trucking profile — check it can send one.");
+    expect(vehicleWarning(vehicles, ["van"], "van")).toBe("");
+    expect(vehicleWarning(vehicles, [], "solo_72")).toBe("");
+    expect(vehicleWarning(vehicles, ["van"], null)).toBe("");
   });
 });

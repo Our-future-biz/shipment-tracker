@@ -28,6 +28,21 @@ export function monthEndDayOf(raw: string | null | undefined, today: string): st
   return day > today ? today : day;
 }
 
+export const FUTURE_DAY = "A day after today can't be shown";
+
+/**
+ * What the day field says of a day typed into it ("30.11.2026", as the field writes days): FUTURE_DAY for one after
+ * today, which the field does not take (user council A9: it snapped back to the month-end with no word), else "".
+ */
+export function typedDayProblem(typed: string, today: string): string {
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(typed.trim());
+  if (!m) return "";
+  const [, d = "", mo = "", y = ""] = m;
+  const day = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  if (Number.isNaN(Date.parse(`${day}T00:00:00Z`)) || new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day) return "";
+  return day > today ? FUTURE_DAY : "";
+}
+
 /** What a CSV line needs from a row. */
 export interface MonthEndCsvRow {
   number: string;

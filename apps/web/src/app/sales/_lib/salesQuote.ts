@@ -152,6 +152,16 @@ export function quoteFamily(quotes: SalesQuote[], ref: string): SalesQuote[] {
 }
 
 /**
+ * Whether the quote is a draft: never made Ready to Send nor sent, or a revision being worked on.
+ * Its prices are still being put together, so an amount is changed without "Change this amount?"
+ * (User Council S20).
+ */
+export function isDraftQuote(data: Pick<SalesQuoteData, "quoteStatus">): boolean {
+  const status = data.quoteStatus ?? "draft";
+  return status === "draft" || status === "revised";
+}
+
+/**
  * Whether a Won quote is the revision of a Won quote (`wonRevisionOf`, set by the server as it is
  * made): Won, yet its validity and its buying and selling stay open to change - as the server has
  * it (quoteDocument.utils isWonRevision).

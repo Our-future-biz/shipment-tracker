@@ -13,15 +13,19 @@ export const hasLineValue = (r: Pick<interfaces.SellingCostItem, "qty" | "amount
 
 /**
  * How many of a job's selling lines are on an open (issued, not credited) invoice, of all of
- * them. A line with no value is left out, as it is never invoiced. The same count as the queue's
- * Lines Invoiced column (API lib/billingQueue countInvoicedLines).
+ * them. The same count as the queue's Lines Invoiced column (API lib/billingQueue countInvoicedLines):
+ * a line with no value is left out, as it is never invoiced; so is a line below nothing on no open
+ * invoice (a credit owed, not a charge) and the row a partial credit note put on the job (user council
+ * B19: 5 charges and that row read "5/6").
  */
 export function invoicedLineCount(
-  sellingCosts: readonly Pick<interfaces.SellingCostItem, "id" | "qty" | "amount">[],
-  docs: readonly Pick<interfaces.InvoiceDocItem, "kind" | "status" | "lines">[],
+  sellingCosts: readonly (Pick<interfaces.SellingCostItem, "id" | "qty" | "amount"> & { sourceCreditNoteId?: string | null })[],
+  docs: readonly (Pick<interfaces.InvoiceDocItem, "kind" | "status" | "lines"> & Partial<Pick<interfaces.InvoiceDocItem, "id" | "correctsInvoiceId">>)[],
 ): { invoiced: number; total: number } {
   const onOpenInvoice = openInvoiceRowIds(docs);
-  const lines = sellingCosts.filter(hasLineValue);
+  const lines = sellingCosts.filter(
+    (r) => hasLineValue(r) && !r.sourceCreditNoteId && (onOpenInvoice.has(r.id) || Number(r.amount ?? 0) * qtyOrOne(r.qty) > 0),
+  );
   return { invoiced: lines.filter((r) => onOpenInvoice.has(r.id)).length, total: lines.length };
 }
 

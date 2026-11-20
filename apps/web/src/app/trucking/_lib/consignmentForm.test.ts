@@ -14,7 +14,11 @@ import {
   stopFromSite,
   toCreateRequest,
   toUpdateRequest,
+  windowDay,
+  windowTime,
   withFixedDelivery,
+  withWindowDay,
+  withWindowTimes,
   type ConsignmentForm,
 } from "./consignmentForm";
 
@@ -135,10 +139,26 @@ describe("Express fixed date", () => {
     expect(f.delivery.windowTo).toBe(at("2026-10-23", "14:00"));
     f = withFixedDelivery(f, "2026-10-23", null);
     expect(f.delivery.windowTo).toBeNull();
-    // A window typed for another day is not taken for the agreed time, nor cleared by it.
-    const typed = withFixedDelivery(fixed({ delivery: { ...valid().delivery, windowTo: at("2026-10-25", "10:00") } }), "2026-10-21", null);
-    expect(fixedDeliveryTime(typed)).toBeNull();
-    expect(typed.delivery.windowTo).toBe(at("2026-10-25", "10:00"));
+    // The delivery's window is a from–to on the fixed date (user council T17): one typed for another
+    // day moves onto it, its times kept, and is not cleared by a date without a time.
+    const typed = withFixedDelivery(fixed({ delivery: { ...valid().delivery, windowFrom: at("2026-10-25", "08:00"), windowTo: at("2026-10-25", "10:00") } }), "2026-10-21", null);
+    expect(typed.delivery.windowFrom).toBe(at("2026-10-21", "08:00"));
+    expect(typed.delivery.windowTo).toBe(at("2026-10-21", "10:00"));
+  });
+
+  it("keeps a stop's time window as from–to times on the stop's day (user council T17)", () => {
+    const stop = valid().pickup;
+    expect(windowDay(stop)).toBeNull();
+    const set = withWindowTimes(stop, "2026-10-20", "08:00", "12:30");
+    expect(set).toMatchObject({ windowFrom: at("2026-10-20", "08:00"), windowTo: at("2026-10-20", "12:30") });
+    expect(windowDay(set)).toBe("2026-10-20");
+    expect([windowTime(set.windowFrom), windowTime(set.windowTo)]).toEqual(["08:00", "12:30"]);
+    // An open end stays open; the day moves with the pick-up date, the times kept.
+    expect(withWindowTimes(stop, "2026-10-20", null, "16:00")).toMatchObject({ windowFrom: null, windowTo: at("2026-10-20", "16:00") });
+    expect(withWindowDay(set, "2026-10-22")).toMatchObject({ windowFrom: at("2026-10-22", "08:00"), windowTo: at("2026-10-22", "12:30") });
+    expect(withWindowDay(set, "2026-10-20")).toBe(set);
+    expect(withWindowDay(stop, "2026-10-22")).toBe(stop);
+    expect(withWindowDay(set, null)).toBe(set);
   });
 
   it("sends the date only for Express fixed date, and reads it back from the promised date for Edit", () => {

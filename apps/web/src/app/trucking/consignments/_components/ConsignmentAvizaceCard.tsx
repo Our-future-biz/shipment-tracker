@@ -50,10 +50,10 @@ export const ConsignmentAvizaceCard = ({ c, onTemplate, onRecord }: ConsignmentA
       {!closed && (
         <span className="flex gap-2">
           <button type="button" className={btnDefault} onClick={onTemplate}>
-            Avizace text…
+            Delivery notice text…
           </button>
           <button type="button" className={state === "pending" ? btnPrimary : btnDefault} onClick={onRecord}>
-            {a ? "Record again…" : "Record avizace…"}
+            {a ? "Record again…" : "Record delivery notice…"}
           </button>
         </span>
       )}

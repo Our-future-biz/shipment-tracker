@@ -31,9 +31,21 @@ export const ConsignmentLoadFields = ({ load, onChange, disabled = false }: Cons
     <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 p-3">
       <legend className={`px-1 ${LABEL_TEXT}`}>Load</legend>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {/* The figure is selected on focus, so typing replaces the default: "3" typed into Pieces "1" made 13 (user council T14). */}
         {MEASURES.map((m) => (
           <TruckingField key={m.key} label={m.label}>
-            <DecimalInput aria-label={m.label} className="w-full" min={0} step={m.step} disabled={disabled} value={load[m.key]} onChange={(v) => set(m.key, v ?? 0)} />
+            <DecimalInput
+              aria-label={m.label}
+              className="w-full"
+              min={0}
+              step={m.step}
+              disabled={disabled}
+              value={load[m.key]}
+              onFocus={(e) => e.target.select()}
+              // The click that focused the field would put the caret back and drop the selection.
+              onMouseUp={(e) => e.preventDefault()}
+              onChange={(v) => set(m.key, v ?? 0)}
+            />
           </TruckingField>
         ))}
       </div>

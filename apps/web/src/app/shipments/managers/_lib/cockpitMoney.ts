@@ -3,6 +3,7 @@ import type { MoneyAmount, OpsMoneyPerson, OpsMoneyTiles, ShipmentsManagersMoney
 import { salesManagersHref } from "@/app/sales/_lib/tabs";
 import { formatAmount } from "@/lib/money";
 import { EVERYONE, NOBODY, shipmentsManagersHref } from "./cockpitAddress";
+import { NO_NAMES, type PeopleNames } from "@/app/shipments/_lib/personNames";
 import { filterValueOf, isNotUser, personName } from "./cockpitPeople";
 import { cardWithSignal, familyOf, notKnownText, type ShownList, type SignalFamily, type SignalFigure } from "./cockpitSignals";
 
@@ -226,12 +227,12 @@ export type MoneyPage = OpsCockpitFilter & { signal?: string | null; msignal?: s
  * longer a user is the answer's own word (`isUser`): while the users could not be read (null, or
  * an answer without the field) nobody is marked - not known is not "no".
  */
-export function moneyPersonRows(people: readonly OpsMoneyPerson[], page: MoneyPage): MoneyPersonRow[] {
+export function moneyPersonRows(people: readonly OpsMoneyPerson[], page: MoneyPage, names: PeopleNames = NO_NAMES): MoneyPersonRow[] {
   return people.map((p) => {
     const key = filterValueOf(p);
     return {
       key,
-      name: personName(p.handledBy),
+      name: personName(p.handledBy, names),
       nobody: p.handledBy === "",
       notUser: isNotUser({ handledBy: p.handledBy, isUser: p.isUser ?? null }),
       picked: page.handledBy === key,
@@ -253,16 +254,16 @@ export function moneyPersonRows(people: readonly OpsMoneyPerson[], page: MoneyPa
  * names who is not among them (no job of this mode and direction, or the answer is not there
  * yet) is listed too, so the select always shows who the tab is narrowed to.
  */
-export function moneyHandledByOptions(people: readonly OpsMoneyPerson[], handledBy: string | null): { value: string; label: string }[] {
+export function moneyHandledByOptions(people: readonly OpsMoneyPerson[], handledBy: string | null, names: PeopleNames = NO_NAMES): { value: string; label: string }[] {
   const active = (p: OpsMoneyPerson) => p.active ?? 0;
   const named = people.filter((p) => p.handledBy !== "");
   const nobody = people.find((p) => p.handledBy === "");
   const listed = new Set([EVERYONE, NOBODY, ...named.map((p) => p.handledBy)]);
-  const missing = handledBy && !listed.has(handledBy) ? [{ value: handledBy, label: handledBy }] : [];
+  const missing = handledBy && !listed.has(handledBy) ? [{ value: handledBy, label: personName(handledBy, names) }] : [];
   const marks = (p: OpsMoneyPerson) => `${active(p) > 0 ? ` · ${active(p)} active` : ""}${isNotUser({ handledBy: p.handledBy, isUser: p.isUser ?? null }) ? " · not a user" : ""}`;
   return [
     { value: EVERYONE, label: "Everyone" },
-    ...named.map((p) => ({ value: p.handledBy, label: `${p.handledBy}${marks(p)}` })),
+    ...named.map((p) => ({ value: p.handledBy, label: `${personName(p.handledBy, names)}${marks(p)}` })),
     ...missing,
     { value: NOBODY, label: nobody && active(nobody) > 0 ? `Nobody · ${active(nobody)} active` : "Nobody" },
   ];

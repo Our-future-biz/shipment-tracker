@@ -49,6 +49,7 @@ import {
   LifecycleError,
   OPEN,
   PRICING_CLOSED,
+  SENT_EVIDENCE,
   isShownStatus,
   applyFollowUp,
   applyRevision,
@@ -469,8 +470,12 @@ async function todaysFx(): Promise<StoredFx> {
 
 // A quote's reference carries the letters of its Freight Mode while the quote is open: Draft, Ready
 // to Send, Quoted, Feedback or Revised, not Expired by its validity (lib/salesReference). Won, Lost,
-// Expired and Replaced quotes keep the reference they closed with.
+// Expired and Replaced quotes keep the reference they closed with - and so does one that went out
+// (owner's answer Q33, User Council 20 Nov 2026): the customer has it under that reference, also when
+// it is reopened as a Draft or revised in place and given another Freight Mode. A revision (-R1) is a
+// new quote not sent yet: its letters follow until it goes out.
 function lettersFollow(quote: SalesQuoteRecord, today: string): boolean {
+  if (quote.firstSentAt !== null || SENT_EVIDENCE.includes(quote.status)) return false;
   return OPEN.includes(effectiveStatus(quote.status, quote.validUntil, today));
 }
 

@@ -185,9 +185,12 @@ export function supplierRequestOf(userId: string, fromQuote: string | undefined)
  * for a manager (Sales → Managers → Company approval); a manager's own is approved at once, as adding a
  * supplier is already a manager's right. Anything else needs no approval.
  */
-async function approvalOf(actorRole: string, request: NewSupplierRequest | undefined): Promise<Partial<NewCustomerRecord>> {
+async function approvalOf(actorRole: string, request: NewSupplierRequest | undefined, roles: readonly CustomerRole[]): Promise<Partial<NewCustomerRecord>> {
   if (request?.viaLink) {
-    return { approvalStatus: "pending", approvalRequestedBy: request.viaLink.requestedBy, approvalRequestedByUserId: request.userId, approvalRequestedAt: new Date() };
+    // A customer that registered through a colleague's link has that colleague as its sales owner until
+    // someone else is picked, so it is in their "My customers" from the start (User Council E13).
+    const owner = roles.includes("customer") ? { salesOwner: request.viaLink.requestedBy, salesOwnerUserId: request.userId } : {};
+    return { approvalStatus: "pending", approvalRequestedBy: request.viaLink.requestedBy, approvalRequestedByUserId: request.userId, approvalRequestedAt: new Date(), ...owner };
   }
   if (!request || canManageSales(actorRole)) return {};
   const quoteNumber = request.quoteNumber.trim();
@@ -276,15 +279,38 @@ export function managerFieldsIn(patch: CustomerPatch): string[] {
   return MANAGER_FIELDS.filter((key) => patch[key] !== undefined);
 }
 
-// The owner columns for a picked user (its id and e-mail - a person is recorded by e-mail), or for nobody.
-async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerRecord, "salesOwner" | "salesOwnerUserId">> {
-  if (userId === null) return { salesOwner: "", salesOwnerUserId: null };
-  if (!isUuid(userId)) throw APIError.invalidArgument("salesOwnerUserId must be the id of a user");
-  // Only that user, of the caller's company and not deleted (auth looks it up by id).
+type SalesOwnerColumns = Pick<NewCustomerRecord, "salesOwner" | "salesOwnerUserId">;
+
+// The owner columns of a user of the caller's company, not deleted (auth looks it up by id); null when there is none.
+async function userAsOwner(userId: string): Promise<SalesOwnerColumns | null> {
   const { users } = await auth.userLookup({ ids: [userId] });
   const user = users.find((u) => u.id === userId);
-  if (!user) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
-  return { salesOwner: storedEmail(user.email), salesOwnerUserId: user.id };
+  return user ? { salesOwner: storedEmail(user.email), salesOwnerUserId: user.id } : null;
+}
+
+// The owner columns for a picked user (its id and e-mail - a person is recorded by e-mail), or for nobody.
+async function salesOwnerOf(userId: string | null): Promise<SalesOwnerColumns> {
+  if (userId === null) return { salesOwner: "", salesOwnerUserId: null };
+  if (!isUuid(userId)) throw APIError.invalidArgument("salesOwnerUserId must be the id of a user");
+  const owner = await userAsOwner(userId);
+  if (!owner) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
+  return owner;
+}
+
+/**
+ * A customer added in the Customer Database has whoever added it as its sales owner until someone else
+ * is picked, so it is in their "My customers" from the start (User Council S16). Only a customer (a
+ * supplier has no sales owner) and only a real user of the company; a company registered through a link
+ * keeps the link's rule (approvalOf). Nobody, never a refusal, when the user can't be found or read.
+ */
+async function creatorAsOwner(creatorUserId: string | undefined, roles: readonly CustomerRole[], request: NewSupplierRequest | undefined): Promise<Partial<SalesOwnerColumns>> {
+  if (!creatorUserId || !isUuid(creatorUserId) || request?.viaLink || !roles.includes("customer")) return {};
+  try {
+    return (await userAsOwner(creatorUserId)) ?? {};
+  } catch (err) {
+    log.warn("the new customer's creator not read: no sales owner set", { userId: creatorUserId, err: String(err) });
+    return {};
+  }
 }
 
 /**
@@ -442,6 +468,8 @@ class CustomerService {
     contact: NewCustomerContact,
     roles: CustomerRole[] = ["customer"],
     supplierRequest?: NewSupplierRequest,
+    /** The user adding it, who becomes its sales owner (creatorAsOwner). */
+    creatorUserId?: string,
   ): Promise<CustomerItem> {
     // The roles of a company registered through a link were given when the link was created.
     if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, roles, !!supplierRequest);
@@ -453,8 +481,9 @@ class CustomerService {
     await assertNotInDatabase(companyId, ico, "CZ", "IČO", viaLink);
     const ares = await aresService.lookup(ico);
     if (registerCountry(ares.country) !== "CZ") await assertNotInDatabase(companyId, ares.ico, ares.country, "IČO", viaLink);
-    const approval = await approvalOf(actorRole, supplierRequest);
+    const approval = await approvalOf(actorRole, supplierRequest, checkedRoles);
     const values: Omit<NewCustomerRecord, "companyId"> = {
+      ...(await creatorAsOwner(creatorUserId, checkedRoles, supplierRequest)),
       ...approval,
       ico: ares.ico,
       dic: ares.dic,
@@ -480,7 +509,7 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async createManual(companyId: string, actorRole: string, input: ManualCustomerInput, supplierRequest?: NewSupplierRequest): Promise<CustomerItem> {
+  async createManual(companyId: string, actorRole: string, input: ManualCustomerInput, supplierRequest?: NewSupplierRequest, creatorUserId?: string): Promise<CustomerItem> {
     if (!supplierRequest?.viaLink) assertMayGiveRoles(actorRole, input.roles, !!supplierRequest);
     const mainContact = firstContact(input.contact);
     const checkedRoles = requireRoles(input.roles ?? ["customer"]);
@@ -494,8 +523,9 @@ class CustomerService {
     const street = input.street.trim();
     const city = input.city.trim();
     const postalCode = input.postalCode.trim();
-    const approval = await approvalOf(actorRole, supplierRequest);
+    const approval = await approvalOf(actorRole, supplierRequest, checkedRoles);
     const values: Omit<NewCustomerRecord, "companyId"> = {
+      ...(await creatorAsOwner(creatorUserId, checkedRoles, supplierRequest)),
       ...approval,
       // The column holds the IČO of a Czech customer and the registration number of a foreign one.
       ico: registrationNumber,

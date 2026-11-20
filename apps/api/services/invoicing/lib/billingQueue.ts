@@ -45,15 +45,18 @@ export interface QueueEntry {
  * A line below nothing on no open invoice (or partial credit note of one) is left out too: it is a
  * credit owed to the customer, not a charge to bill (lib/shipmentStatus), so it never keeps a job
  * from reading Invoiced. On an invoice - a discount billed with the rest, or settled by a partial
- * credit note - it counts as invoiced.
+ * credit note - it counts as invoiced. The row a partial credit note put on the job ("Credited on CN…") is
+ * no charge either, and is left out (user council B19: 5 charges and one such row read "5/6"): it is
+ * always on its credit note, so leaving it out changes no job's Invoiced.
  */
 export function countInvoicedLines(
-  rows: Pick<QueueSellingRow, "id" | "shipmentId" | "qty" | "amount">[],
+  rows: (Pick<QueueSellingRow, "id" | "shipmentId" | "qty" | "amount"> & { sourceCreditNoteId?: string | null })[],
   openInvoices: Pick<QueueOpenInvoice, "sourceSellingCostIds">[],
 ): Map<string, { invoiced: number; total: number }> {
   const invoicedRowIds = new Set(openInvoices.flatMap((i) => i.sourceSellingCostIds).filter((x): x is string => !!x));
   const counts = new Map<string, { invoiced: number; total: number }>();
   for (const r of rows) {
+    if (r.sourceCreditNoteId) continue;
     const value = Number(r.amount ?? 0) * qtyOrOne(r.qty);
     if (!value) continue;
     const invoiced = invoicedRowIds.has(r.id);

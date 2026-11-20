@@ -721,7 +721,7 @@ describe("the reference writes", () => {
     await shipmentRepository.referencesOf(COMPANY);
     await inTurn((tx) => shipmentRepository.referenceInTurn(tx, ID, COMPANY));
     const [all, one] = fake.state.plainReads;
-    expect(Object.keys(all!.fields)).toEqual(["id", "jobNumber", "freightMode", "loadType", "salesNumber", "jobNumberFinal", "invoicingStatus"]);
+    expect(Object.keys(all!.fields)).toEqual(["id", "jobNumber", "freightMode", "loadType", "salesNumber", "jobNumberFinal", "invoicingStatus", "bookingNumber"]);
     expect(sent(all!.where)).toEqual({ sql: `(${LIVE})`, params: [COMPANY] });
     expect(sent(one!.where)).toEqual({ sql: `("shipment"."id" = $1 and "shipment"."company_id" = $2 and "shipment"."deleted_at" is null)`, params: [ID, COMPANY] });
     expect(fake.state.steps).toEqual(["db count", "begin", "tx count", "commit"]);

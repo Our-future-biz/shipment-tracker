@@ -104,6 +104,41 @@ export function afterRecordedSend(showLink: () => void, download: () => void): b
 export const pdfNotDownloadedText = (hasLink: boolean) =>
   `Recorded as sent; the PDF did not download — ${hasLink ? "copy the link below, or " : ""}Record as sent again for a new PDF`;
 
+/**
+ * The words of Record as sent… before it is pressed. The server e-mails the order when it can
+ * (`emailConfigured`, the check that makes a send "recorded only" in the link view) and To has an
+ * address; "E-mail sending is off" is said only when it really is (user council, step 6). null while
+ * the settings are read: nothing is claimed either way.
+ */
+export function sendDialogText(
+  emailConfigured: boolean | null,
+  recipients: number,
+  ftl: boolean,
+): { banner: { message: string; description: string } | null; toHint: string; button: string } {
+  const link = ftl
+    ? " The PDF carries the haulier's link to confirm the order and upload the POD, and the link is shown here once to copy; recording it as sent again renews the link."
+    : "";
+  if (emailConfigured === null) return { banner: null, toHint: "The haulier's addresses, recorded with the order", button: "Record as sent and download PDF" };
+  if (!emailConfigured) {
+    return {
+      banner: {
+        message: "E-mail sending is off in this app",
+        description: `The order is recorded as sent — nothing is e-mailed — and its PDF downloads for you to send to the haulier.${link}`,
+      },
+      toHint: "The haulier's addresses, recorded with the order (not e-mailed)",
+      button: "Record as sent and download PDF",
+    };
+  }
+  if (!recipients) {
+    return {
+      banner: { message: "No address in To", description: `Without one the order is only recorded as sent — nothing is e-mailed — and its PDF downloads for you to send to the haulier.${link}` },
+      toHint: "The haulier's addresses: the order is e-mailed to them",
+      button: "Record as sent and download PDF",
+    };
+  }
+  return { banner: null, toHint: "The haulier's addresses: the order is e-mailed to them with its PDF", button: "Send and download PDF" };
+}
+
 /** The haulier's link view: whether the order was e-mailed (with the link in it) or only recorded, and whether the PDF downloaded. */
 export function linkViewText(orderNumber: string, recordedOnly: boolean, downloaded: boolean): { message: string; description: string } {
   const pdf = downloaded ? " — the PDF is downloaded" : "";

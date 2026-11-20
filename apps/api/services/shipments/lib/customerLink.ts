@@ -5,6 +5,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { addDays } from "../../../lib/businessDate";
 import type { PublicShipmentStatus, TrackingMilestone } from "../interfaces/interfaces";
+import { fmtNum } from "./cargoProjection";
 import { CANCELLED_STATUS } from "./fieldDefaults";
 
 /** Days after the delivery the link stays open. */
@@ -43,6 +44,29 @@ interface StatusShipment {
   pod: string;
   vessel: string;
   voyage: string;
+  origin: string;
+  destination: string;
+  /** As the job page shows them: the cargo lines' figures, else the typed ones. */
+  pcs: string;
+  typeOfPackages: string;
+  /** "1,200" from the cargo lines; "" when they give none */
+  totalGrossWeightKg: string;
+  /** Typed on the job, in tons */
+  totalWeightTons: string | null;
+}
+
+/** Whose page it is, and how the customer reaches us: the company's own details, never a person's. */
+export interface OurContact {
+  name: string;
+  phone: string;
+  email: string;
+}
+
+/** The weight a customer sees: the cargo lines' gross kg, else the tons typed on the job in kg; "" when neither. */
+export function publicWeightKg(s: Pick<StatusShipment, "totalGrossWeightKg" | "totalWeightTons">): string {
+  if (s.totalGrossWeightKg) return s.totalGrossWeightKg;
+  const tons = Number(s.totalWeightTons);
+  return s.totalWeightTons && Number.isFinite(tons) && tons > 0 ? fmtNum(Math.round(tons * 1000 * 100) / 100) : "";
 }
 
 type PublicState = PublicShipmentStatus["milestones"][number]["state"];
@@ -64,10 +88,10 @@ function publicStates(milestones: readonly TrackingMilestone[]): PublicState[] {
 }
 
 /** What a customer sees of a shipment: nothing that isn't named here. */
-export function publicStatusOf(shipment: StatusShipment, milestones: readonly TrackingMilestone[], containers: readonly string[], ourCompany: string, now: Date): PublicShipmentStatus {
+export function publicStatusOf(shipment: StatusShipment, milestones: readonly TrackingMilestone[], containers: readonly string[], our: OurContact, now: Date): PublicShipmentStatus {
   const states = publicStates(milestones);
   return {
-    ourCompany,
+    ourCompany: our.name,
     reference: shipment.jobNumber,
     customerReference: shipment.customerReference,
     direction: shipment.tradeDirection,
@@ -76,6 +100,14 @@ export function publicStatusOf(shipment: StatusShipment, milestones: readonly Tr
     pod: shipment.pod,
     vessel: [shipment.vessel, shipment.voyage].filter(Boolean).join(" "),
     containers: [...containers],
+    // User council E10: the whole route, what travels and whom to ask.
+    origin: shipment.origin.trim(),
+    destination: shipment.destination.trim(),
+    pieces: shipment.pcs.trim(),
+    packageType: shipment.typeOfPackages.trim(),
+    weightKg: publicWeightKg(shipment),
+    ourPhone: our.phone.trim(),
+    ourEmail: our.email.trim(),
     milestones: milestones.map((m, i) => ({
       key: m.key,
       label: m.label,

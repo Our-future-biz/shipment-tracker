@@ -43,11 +43,11 @@ export const AvizaceRecordModal = ({ defaultContact, onClose, onSave }: AvizaceR
   };
 
   return (
-    <Modal open title="Record avizace" okText="Record" okButtonProps={{ disabled: problems.length > 0 }} confirmLoading={busy} onOk={handleOk} onCancel={onClose} destroyOnHidden>
+    <Modal open title="Record delivery notice" okText="Record" okButtonProps={{ disabled: problems.length > 0 }} confirmLoading={busy} onOk={handleOk} onCancel={onClose} destroyOnHidden>
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
           <TruckingField label="How">
-            <Select aria-label="Avizace channel" value={channel} options={CHANNEL_OPTIONS} onChange={setChannel} />
+            <Select aria-label="Delivery notice channel" value={channel} options={CHANNEL_OPTIONS} onChange={setChannel} />
           </TruckingField>
           <TruckingField label="Who was reached">
             <Input aria-label="Contact reached" value={contact} placeholder="Name, phone or e-mail" onChange={(e) => setContact(e.target.value)} />
@@ -68,7 +68,7 @@ export const AvizaceRecordModal = ({ defaultContact, onClose, onSave }: AvizaceR
           </TruckingField>
         </div>
         <TruckingField label="Note">
-          <Input.TextArea aria-label="Avizace note" autoSize={{ minRows: 2, maxRows: 5 }} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+          <Input.TextArea aria-label="Delivery notice note" autoSize={{ minRows: 2, maxRows: 5 }} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
         </TruckingField>
         {problems.length > 0 && contact.trim() && <div className="text-[12px] text-red-600">{problems.join(" · ")}</div>}
       </div>

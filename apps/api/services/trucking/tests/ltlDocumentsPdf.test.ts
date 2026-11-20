@@ -124,7 +124,7 @@ describe("LTL transport order PDF", () => {
       "Vykládka / Delivery",
       "Železářství Kutná Hora",
       "16. 10. 2026, 07:00–09:00",
-      "Avízo nutné / Avizace required",
+      "Avízo nutné / Delivery notice required",
       "ADR UN 1263, 3",
       "Celkem / Total",
       "1 320 kg",

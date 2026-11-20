@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrivalDay, arrivalPassedReason, buildAudit, buildCockpit, containerSignals, dayText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
+import { arrivalDay, arrivalPassedReason, buildAudit, buildCockpit, containerSignals, dayText, hoursText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
 import type { GateMovementItem, GateStorageInfo } from "../interfaces/gate.interfaces";
 import type { WarehouseContainerItem } from "../interfaces/records.interfaces";
 
@@ -344,6 +344,14 @@ describe("time passed (step 2)", () => {
     expect(texts(exp({ eta: "2026-10-20", subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }))).toEqual(["U Not arrived: expected 22.10.2026"]);
   });
 
+  it("says a wait in whole hours below 48 h and in days (rounded) from 48 h on", () => {
+    expect(hoursText(5.9)).toBe("5 h");
+    expect(hoursText(47.9)).toBe("47 h");
+    expect(hoursText(48)).toBe("2 d");
+    expect(hoursText(880)).toBe("37 d");
+    expect(hoursText(59)).toBe("2 d");
+  });
+
   it("a release request still blocked after 2 h, naming the waiting gates", () => {
     const req = (h: number, armed = false) =>
       item({ armed, releaseGates: [{ g: "B/L / release order", s: "Pending", note: "" }], events: [{ kind: "releaseRequested", label: "Release requested", at: hoursAgo(h), by: "Eva" }] });
@@ -357,6 +365,8 @@ describe("time passed (step 2)", () => {
     expect(texts(arrived(2))).toEqual([]);
     expect(texts(arrived(5))).toEqual([`A Arrived ${stampText(hoursAgo(5))}, not received (5 h)`]);
     expect(texts(arrived(9, { needsReweigh: true, reweigh: null }))).toEqual([`U Arrived ${stampText(hoursAgo(9))}, not received (9 h) · waiting for re-weigh`]);
+    // From two days on the wait reads in days, not in hundreds of hours (User Council).
+    expect(texts(arrived(880))).toEqual([`U Arrived ${stampText(hoursAgo(880))}, not received (37 d)`]);
     expect(texts(arrived(9, { handling: "Domestic" }))).toEqual([]);
     expect(texts(arrived(9, { expReceipt: hoursAgo(1) }))).toEqual([]);
   });

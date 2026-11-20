@@ -34,7 +34,7 @@ import { useSalesQuoteDraft } from "@/hooks/useSalesQuoteDraft";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
-import { useCompanyDetails } from "@/hooks/useSalesPrefs";
+import { useQuoteSender } from "@/app/sales/_lib/useQuoteSender";
 import { useCustomer, useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useTermsConditions } from "@/hooks/useTermsConditions";
@@ -52,7 +52,9 @@ import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
 import { customerSendBlock, supplierSendBlock } from "../../_lib/supplierApproval";
 import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine, TariffUpdate } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, serviceTypeLabel } from "../../_lib/types";
+import { SERVICE_TYPES, DIRECTIONS, serviceTypeLabel } from "../../_lib/types";
+import { quoteIncoterms } from "../../_lib/quoteIncoterms";
+import { SECTIONS } from "../../_lib/quoteSections";
 import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
@@ -91,7 +93,7 @@ import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
 import { fclChanges, fclProfitBlock, usesFclPricing, withContainerTypes, withFclPricing } from "../../_lib/fclPricing";
-import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
+import { fittingTemplate, templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
 import {
   linesForOtherDirection,
   linesToRecheck,
@@ -277,7 +279,7 @@ export function QuoteWorkflow() {
   }, [marginAsk.loaded, marginAsk.inquiry, act, ref]);
   const { deleteQuote } = useSalesQuotes();
   const exchange = useCurrentExchangeRates();
-  const company = useCompanyDetails();
+  const company = useQuoteSender();
   // The company's users: the quotation names its sales owner for the customer.
   const people = useUsers();
   // Only the variants of this quote are asked for - the page never loads the list of all quotes.
@@ -341,14 +343,8 @@ export function QuoteWorkflow() {
   const { customerContactFields } = useQuoteCustomerFields();
   // The steps that are unfolded. Each folds on its own; a new quote starts at the first.
   // The step of the form that is on screen; the others wait behind their tiles. Null until the
-  // quote is here: a quote opens on Pricing, a new one without a customer yet on Customer.
+  // quote is here: an open quote opens on its first step not complete (startSection, below).
   const [activeSection, setActiveSection] = useState<SectionKey | null>(null);
-  const startSection: SectionKey = draft.customerName ? "pricing" : "customer";
-  // The step is chosen once, as the quote arrives, so typing the customer of a new quote does
-  // not move the form on to Pricing.
-  useEffect(() => {
-    if (quote && activeSection === null) setActiveSection(startSection);
-  }, [quote, activeSection, startSection]);
   // The date picked as "Valid until" while the server is storing it; undefined when none is on
   // its way. The field shows it meanwhile, so the picker does not hand the same date in again.
   const [pendingValidity, setPendingValidity] = useState<string | null>();
@@ -761,6 +757,26 @@ export function QuoteWorkflow() {
     pricing: !!(draft.sellingLines?.length),
     terms: !!draft.shippingTerms,
   };
+
+  // An open quote opens on its first step that is not complete (User Council S19: a new quote
+  // opened on Pricing with the steps before it empty), one complete throughout on Pricing; a
+  // closed quote on Pricing, what the customer was given.
+  const firstOpen = quoteClosed ? undefined : SECTIONS.find((s) => !done[s.key])?.key;
+  const startSection: SectionKey = firstOpen ?? "pricing";
+  // The step is chosen once, as the quote arrives, so typing the customer of a new quote does
+  // not move the form on by itself.
+  useEffect(() => {
+    if (quote && activeSection === null) setActiveSection(startSection);
+  }, [quote, activeSection, startSection]);
+  // The Shipping terms step of an open quote with no template yet takes the one made for its
+  // freight mode, where exactly one is (User Council S19); another can be picked as before, and
+  // with none or several that fit, one is picked.
+  const fittingTerms = quoteClosed || draft.shippingTerms?.trim() ? null : fittingTemplate(draft, terms);
+  useEffect(() => {
+    if (activeSection === "terms" && fittingTerms) set(templateTerms(fittingTerms, terms));
+    // Once as the step opens with a template that fits, not on every render while the change is on its way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, fittingTerms]);
 
   if (load.status === "notFound") {
     return (
@@ -1311,6 +1327,9 @@ export function QuoteWorkflow() {
                 size="small"
                 className="w-full"
                 aria-label="Trade Direction"
+                // Typing picks, as in every list of the quote: "imp" + Enter is Import.
+                showSearch
+                optionFilterProp="label"
                 value={draft.direction}
                 onChange={(v) => set({ direction: v })}
                 options={DIRECTIONS.map((d) => ({ value: d, label: d }))}
@@ -1321,6 +1340,10 @@ export function QuoteWorkflow() {
                 size="small"
                 className="w-full"
                 aria-label="Freight Mode"
+                // Typing narrows the list: "Sea FCL" + Enter is Sea FCL, not the first mode of the list
+                // (User Council S18).
+                showSearch
+                optionFilterProp="label"
                 value={draft.serviceType}
                 onChange={(v) => set({ serviceType: v })}
                 options={SERVICE_TYPES.map((d) => ({ value: d, label: serviceTypeLabel(d) }))}
@@ -1332,6 +1355,8 @@ export function QuoteWorkflow() {
                   size="small"
                   className="w-full"
                   aria-label="CY"
+                  showSearch
+                  optionFilterProp="label"
                   placeholder="CY or store door, origin / destination"
                   value={cyTerms}
                   onChange={(v: CyTerms) => set({ cy: v })}
@@ -1346,9 +1371,12 @@ export function QuoteWorkflow() {
                 size="small"
                 className="w-full"
                 aria-label="Incoterms"
+                showSearch
+                optionFilterProp="label"
                 value={draft.incoterm}
                 onChange={(v) => set({ incoterm: v })}
-                options={INCOTERMS.map((d) => ({ value: d, label: d }))}
+                // In the order of the rules, and on an air, rail or road quote without the terms of a ship.
+                options={quoteIncoterms(draft).map((d) => ({ value: d, label: d }))}
               />
             </InfoRow>
             <InfoRow label="Cargo Readiness Date">
@@ -1375,7 +1403,8 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Place of Loading">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} terminals={originTerminals} showWhere size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
+                {/* A pick-up place is a city more often than an airport: the places first (user council S22). */}
+                <GeoSelect kind="place" airports={airFreight} terminals={originTerminals} placesFirst showWhere size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
                 <GeoFlag kind="place" value={draft.origin} />
               </span>
             </InfoRow>
@@ -1394,7 +1423,7 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Place of Delivery">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} terminals={destinationTerminals} showWhere size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
+                <GeoSelect kind="place" airports={airFreight} terminals={destinationTerminals} placesFirst showWhere size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
                 <GeoFlag kind="place" value={draft.destination} />
               </span>
             </InfoRow>
@@ -1872,6 +1901,11 @@ export function QuoteWorkflow() {
               }}
             />
           </InfoRow>
+          {/* Sales Settings keeps no validity to start from, so none is put on by itself (User
+              Council S19): an open quote without one says what that means. */}
+          {!shownValidity && !quoteClosed && (
+            <div className="text-[12px] text-slate-500 -mt-1 mb-2">No validity yet: the quote promises none until a date is picked here or when it is sent.</div>
+          )}
           {tariffValidityAlert}
         </div>
       ),

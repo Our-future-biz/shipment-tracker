@@ -25,6 +25,7 @@ import {
   EVENT_LABELS,
   eventDetail,
   eventLabel,
+  historyEntries,
   invoicingHref,
   isWriteOffKind,
   issuerName,
@@ -37,6 +38,7 @@ import {
   REMINDERS_CANNOT_GO_OUT,
   remindersBlocked,
   shipmentHref,
+  showsPromise,
   takenBackText,
   waitingTotal,
   type ReceivableMail,
@@ -142,7 +144,7 @@ function Facts({ detail, preview }: { detail: ReceivableDetail; preview: ReturnT
         <PdfLink id={r.id} number={r.number} preview={preview} />
         <div className={HINT}>{r.issuedBy ? `issued by ${r.issuedBy}` : "who issued it is not known"}</div>
       </Fact>
-      {r.promisedOn && (
+      {showsPromise(r) && (
         <Fact label="Promised to pay by">
           <span className={`tabular-nums ${r.marks.includes("promise_broken") ? "text-red-600 font-medium" : ""}`}>{formatDate(r.promisedOn)}</span>
           {r.marks.includes("promise_broken") && <span className="text-red-600"> · passed</span>}
@@ -237,7 +239,7 @@ function Payments({ detail, actions }: { detail: ReceivableDetail; actions: Acti
               <span className={`tabular-nums font-semibold ${p.takenBack ? "text-slate-400 line-through" : "text-slate-900"}`}>{amountText(p.amount, r.currency)}</span>
               <span className="tabular-nums text-slate-700">{p.paidOn ? formatDate(p.paidOn) : "Paid before Accounts Receivable, day not known"}</span>
               {p.kind === "carried_over" && (
-                <Tooltip title="The invoice was marked Paid on the customer's page before this page kept payments (D15)">
+                <Tooltip title="The invoice was marked Paid on the customer's page before this page kept payments">
                   <Pill tone="slate">Carried over</Pill>
                 </Tooltip>
               )}
@@ -247,7 +249,7 @@ function Payments({ detail, actions }: { detail: ReceivableDetail; actions: Acti
                 </Tooltip>
               )}
               {p.waiting && !p.takenBack && (
-                <Tooltip title="It counts only once another manager confirms it (D13)">
+                <Tooltip title="It counts only once another manager confirms it">
                   <Pill tone="amber">Waiting for a second manager</Pill>
                 </Tooltip>
               )}
@@ -357,33 +359,41 @@ function CustomerFacts({ detail, autoRemindersSince }: { detail: ReceivableDetai
 }
 
 function History({ row, creditNotes, events }: { row: ReceivableRow; creditNotes: interfaces.ReceivableCreditNoteItem[]; events: interfaces.ReceivableEventItem[] }) {
-  // The issue itself is the invoice's own record, not an event of its receivable: shown first, from the invoice; then
-  // each credit note's issue (its own record too), on its day, with who issued it (D25).
+  // The issue itself is the invoice's own record, not an event of its receivable, and each credit note's issue is its
+  // own record too, on its day, with who issued it (D25): all with the events, in one time order (A13).
   return (
     <ol className="m-0 p-0 list-none flex flex-col gap-2 border-l-2 border-slate-200 pl-3">
-      <li className="text-[13px]">
-        <span className="font-semibold text-slate-900">{EVENT_LABELS.issued}</span>
-        <div className="text-[12px] text-slate-500 tabular-nums">
-          {formatDate(row.issueDate)}
-          {row.issuedBy ? ` · ${row.issuedBy}` : ""}
-        </div>
-      </li>
-      {creditNotes.map((c) => (
-        <li key={c.id} className="text-[13px]">
-          <span className="font-semibold text-slate-900">
-            Credit note <span className={REF}>{c.number}</span>
-          </span>
-          <span className="text-slate-700">
-            {" "}
-            issued by <IssuedBy note={c} />
-          </span>
-          {c.reason && <span className="whitespace-pre-wrap text-slate-700"> — “{c.reason}”</span>}
-          <div className="text-[12px] text-slate-500 tabular-nums">
-            {formatDate(c.issueDate)} · {amountText(c.gross, row.currency)}
-          </div>
-        </li>
-      ))}
-      {events.map((e) => {
+      {historyEntries(row.issueDate, creditNotes, events).map((h) => {
+        if (h.kind === "issued") {
+          return (
+            <li key="issued" className="text-[13px]">
+              <span className="font-semibold text-slate-900">{EVENT_LABELS.issued}</span>
+              <div className="text-[12px] text-slate-500 tabular-nums">
+                {formatDate(row.issueDate)}
+                {row.issuedBy ? ` · ${row.issuedBy}` : ""}
+              </div>
+            </li>
+          );
+        }
+        if (h.kind === "credit_note") {
+          const c = h.note;
+          return (
+            <li key={c.id} className="text-[13px]">
+              <span className="font-semibold text-slate-900">
+                Credit note <span className={REF}>{c.number}</span>
+              </span>
+              <span className="text-slate-700">
+                {" "}
+                issued by <IssuedBy note={c} />
+              </span>
+              {c.reason && <span className="whitespace-pre-wrap text-slate-700"> — “{c.reason}”</span>}
+              <div className="text-[12px] text-slate-500 tabular-nums">
+                {formatDate(c.issueDate)} · {amountText(c.gross, row.currency)}
+              </div>
+            </li>
+          );
+        }
+        const e = h.event;
         const detail = eventDetail(e, row.currency);
         return (
           <li key={e.id} className="text-[13px]">

@@ -151,8 +151,8 @@ export const useReceivableActions = () => {
   const settle = (data: ReceivableDetail | undefined, vars: Target, paymentChanged = false) => settleReceivableWrite(queryClient, data, vars.row.customerId, paymentChanged);
   // Settled, not only on success: a refusal for a changed version means what the user saw is stale.
   const notePayment = useMutation({
-    mutationFn: ({ row, paidOn, amount, note, idempotencyKey }: Target & { paidOn: string; amount: number; note?: string; idempotencyKey?: string }) =>
-      api.invoicing.receivablePayment(row.id, { version: row.version, paidOn, amount, note, idempotencyKey }),
+    mutationFn: ({ row, paidOn, amount, bankRef, note, idempotencyKey }: Target & { paidOn: string; amount: number; bankRef?: string; note?: string; idempotencyKey?: string }) =>
+      api.invoicing.receivablePayment(row.id, { version: row.version, paidOn, amount, bankRef, note, idempotencyKey }),
     onSettled: (data, _e, vars) => settle(data, vars, true),
   });
   // How it is taken back (mock test council P8): by mistake (the server's default) or reversed on a day.

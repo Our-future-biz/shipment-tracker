@@ -521,12 +521,71 @@ describe("adding a company the Customer Database has as deleted", () => {
     expect(customers.createWithContact).not.toHaveBeenCalled();
   });
 
+  it("gives a customer registered by link the link's creator as its sales owner; a supplier none (E13)", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.findDeletedByIco.mockResolvedValue(null);
+    customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
+    const viaLink = { userId: "u1", quoteNumber: "", viaLink: { requestedBy: "rep@firm.cz" } };
+    await customerService.createManual(COMPANY, "", { ...SIEMENS, roles: ["customer"] }, viaLink);
+    expect(customers.createWithContact).toHaveBeenLastCalledWith(
+      COMPANY,
+      expect.objectContaining({ salesOwner: "rep@firm.cz", salesOwnerUserId: "u1", approvalStatus: "pending" }),
+      expect.anything(),
+      expect.anything(),
+    );
+    await customerService.createManual(COMPANY, "", { ...SIEMENS, roles: ["haulier"] }, viaLink);
+    expect(customers.createWithContact.mock.lastCall?.[1]).not.toHaveProperty("salesOwner");
+  });
+
   it("goes ahead when only another country's register has the number deleted", async () => {
     customers.findByIco.mockResolvedValue(null);
     customers.findDeletedByIco.mockResolvedValue(null);
     customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
     await customerService.createManual(COMPANY, "user", SIEMENS);
     expect(customers.createWithContact).toHaveBeenCalled();
+  });
+});
+
+describe("a new customer's sales owner (S16)", () => {
+  const ME = "7a1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11";
+  const CONTACT = { firstName: "Hans", lastName: "Müller", email: "hans@example.de" };
+  const SIEMENS = { country: "DE", companyName: "Siemens AG", street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333", contact: CONTACT };
+  const created = () => customers.createWithContact.mock.lastCall?.[1];
+
+  beforeEach(() => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.findDeletedByIco.mockResolvedValue(null);
+    customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
+  });
+
+  it("is whoever added it, stored with their e-mail", async () => {
+    userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "Eva@Firm.cz", role: "user" }] });
+    await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
+    expect(userLookup).toHaveBeenCalledWith({ ids: [ME] });
+    expect(created()).toMatchObject({ salesOwner: "eva@firm.cz", salesOwnerUserId: ME });
+  });
+
+  it("is nobody for a supplier, a creator who is no user of the company, or a lookup that fails — never a refusal", async () => {
+    userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "eva@firm.cz", role: "manager" }] });
+    await customerService.createManual(COMPANY, "manager", { ...SIEMENS, roles: ["haulier"] }, undefined, ME);
+    expect(created()).not.toHaveProperty("salesOwner");
+    userLookup.mockResolvedValue({ users: [] });
+    await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
+    expect(created()).not.toHaveProperty("salesOwner");
+    await customerService.createManual(COMPANY, "user", SIEMENS, undefined, "not-a-user");
+    expect(created()).not.toHaveProperty("salesOwner");
+    userLookup.mockRejectedValue(new Error("auth down"));
+    await customerService.createManual(COMPANY, "user", SIEMENS, undefined, ME);
+    expect(created()).not.toHaveProperty("salesOwner");
+    expect(customers.createWithContact).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps the link's creator for a customer registered by link", async () => {
+    userLookup.mockResolvedValue({ users: [{ id: ME, name: "Eva Malá", email: "eva@firm.cz", role: "user" }] });
+    const viaLink = { userId: "u1", quoteNumber: "", viaLink: { requestedBy: "rep@firm.cz" } };
+    await customerService.createManual(COMPANY, "", SIEMENS, viaLink, ME);
+    expect(created()).toMatchObject({ salesOwner: "rep@firm.cz", salesOwnerUserId: "u1" });
+    expect(userLookup).not.toHaveBeenCalled();
   });
 });
 

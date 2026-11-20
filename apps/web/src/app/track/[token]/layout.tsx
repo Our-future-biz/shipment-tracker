@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 // browser tells any site opened from here.
 export const metadata: Metadata = {
   // Absolute: the customer sees no app name the root layout's template would add.
-  title: { absolute: "Shipment status" },
+  title: { absolute: "Stav zásilky · Shipment status" },
   robots: { index: false, follow: false },
   referrer: "no-referrer",
 };

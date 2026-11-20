@@ -10,16 +10,16 @@ import { useToast } from "@/lib/toast";
 import { todayIso } from "@/lib/date";
 
 // A shipment moves through the warehouse pages by two dates it carries itself:
-//   In Warehouse → (Naskladnit, warehouseReceivedDate) → Stock
+//   In Warehouse → (Receive into Stock, warehouseReceivedDate) → Stock
 //     Taking a shipment in also gives it its warehouse reference (WHCZ + year + a running
 //     number), once: it keeps the same one if it is returned and taken in again.
-//   Stock → (Vyskladnit, warehouseReleasedDate) → Out Warehouse
+//   Stock → (Release from Stock, warehouseReleasedDate) → Out Warehouse
 //     A shipment leaves on a truck and carries the truck's reference (warehouseTruck,
 //     TCZ + year + a running number); stepping back from Out Warehouse takes it off again.
 //     The plate number is the truck's: the server keeps it the same on all its shipments.
-//   Stock → (Vrátit do In Warehouse, warehouseReceivedDate cleared) → In Warehouse
-//   Out Warehouse → (Vrátit do In Warehouse, both dates cleared) → In Warehouse
-//   Out Warehouse → (Vrátit do Stock, warehouseReleasedDate cleared) → Stock
+//   Stock → (Back to In Warehouse, warehouseReceivedDate cleared) → In Warehouse
+//   Out Warehouse → (Back to In Warehouse, both dates cleared) → In Warehouse
+//   Out Warehouse → (Back to Stock, warehouseReleasedDate cleared) → Stock
 // Nothing is copied between the pages; each one lists the shipments at its step.
 
 

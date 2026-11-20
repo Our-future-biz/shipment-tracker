@@ -10,6 +10,7 @@ import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
 import type { OpsCockpitFilter, OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
 import { CARD, CARD_BAR, CARD_TITLE, HINT, LINK } from "@/styles/ui";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { teamRows, type TeamRow } from "../_lib/cockpitTeam";
 import { columnHead as head, figure } from "./CockpitParts";
 
@@ -59,11 +60,13 @@ const COLUMNS: ColumnsType<TeamRow> = [
     render: (_: unknown, r) => (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
         {r.href ? (
-          <Link href={r.href} title={r.nobody ? "Show the jobs nobody handles on the Cockpit tab" : `Show the jobs of ${r.name} on the Cockpit tab`} className={`font-semibold ${r.nobody ? "!text-red-600 hover:!underline" : LINK}`}>
+          <Link href={r.href} title={r.nobody ? "Show the jobs nobody handles on the Cockpit tab" : `Show the jobs of ${r.name}${r.name !== r.key ? ` (${r.key})` : ""} on the Cockpit tab`} className={`font-semibold ${r.nobody ? "!text-red-600 hover:!underline" : LINK}`}>
             {r.name}
           </Link>
         ) : (
-          <span className="font-semibold text-slate-900">{r.name}</span>
+          <span className="font-semibold text-slate-900" title={r.nobody || r.name === r.key ? undefined : r.key}>
+            {r.name}
+          </span>
         )}
         {r.notUser && <Pill tone="red">not a user</Pill>}
         {r.away && (
@@ -120,7 +123,8 @@ const COLUMNS: ColumnsType<TeamRow> = [
 // the person; the name is a link, so the keyboard reaches it too.
 export function TeamTable({ people, filter, scope, isLoading, isError, loadFailed, onHandOverAll, onReplaceCover }: TeamTableProps) {
   const router = useRouter();
-  const rows = people ? teamRows(people, filter) : [];
+  const names = usePeopleNames();
+  const rows = people ? teamRows(people, filter, names) : [];
   const columns: ColumnsType<TeamRow> =
     onHandOverAll || onReplaceCover
       ? [...COLUMNS, { title: MENU_TITLE, key: "menu", width: 48, align: "right", render: (_: unknown, r) => <TeamRowMenu row={r} onHandOverAll={onHandOverAll} onReplaceCover={onReplaceCover} /> }]

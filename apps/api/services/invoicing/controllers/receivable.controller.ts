@@ -144,6 +144,8 @@ interface PaymentRequest {
   /** In the invoice's currency, at most 2 decimals */
   amount: number;
   note?: string & MaxLen<1000>;
+  /** The bank's reference, as the dialog for several invoices takes it (user council A11) */
+  bankRef?: string & MaxLen<200>;
   /** The same key twice (a double click, a retry) notes one payment */
   idempotencyKey?: string & MaxLen<200>;
 }

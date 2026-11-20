@@ -1566,9 +1566,12 @@ class ShipmentService {
 
     // The Internal Reference's letters follow the Freight Mode and Load Type, the number kept
     // (CZFCL00000023 → CZLCL00000023) - until the reference is final: invoice numbers carry it
-    // (owner decision, 3 Nov 2026). Invoicing is asked here, before the write turn, about a job it
-    // invoiced before the shipment kept its own flag; the letters are worked out in the turn, from
-    // the row as this write leaves it (followLetters).
+    // (owner decision, 3 Nov 2026), and so does a booking (Q33, 20 Nov 2026). Invoicing is asked
+    // here, before the write turn, about a job it invoiced before the shipment kept its own flag;
+    // the letters are worked out in the turn, from the row as this write leaves it (followLetters).
+    // The write that gives the job its first Booking Number still names it by the Freight Mode and
+    // Load Type it saves along: the booking goes out with that reference.
+    const booksNow = !existing.bookingNumber.trim() && (shipmentData.bookingNumber ?? "").trim() !== "";
     const lettersMayFollow =
       ("freightMode" in shipmentData || "loadType" in shipmentData) &&
       jobNumberDigits(existing.jobNumber) !== null &&
@@ -1710,7 +1713,7 @@ class ShipmentService {
       for (const h of extras.history ?? []) await audit(h.field, h.oldValue, h.newValue);
       if (saved && extras.alongside) await extras.alongside(tx);
       if (saved) pushesOwed = await owePushes(tx, { companyId, shipmentId: id, userId, role }, existing, saved, Object.keys(shipmentData), byPerson);
-      return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
+      return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved, booksNow) : saved;
     });
     // Sent after the commit; what can't go now is retried by the push outbox's cron. Never throws.
     if (pushesOwed) await deliverShipmentPushes(id);
@@ -1748,9 +1751,10 @@ class ShipmentService {
 
   // The letters of the reference as the row in the write turn reads after the write: its Freight
   // Mode and Load Type as they are now, an edit of the other one saved meanwhile included - unless
-  // the row says the reference is final (Invoicing took it while the edit was on its way).
-  private async followLetters(tx: Tx, companyId: string, userId: string, row: ShipmentRecord): Promise<ShipmentRecord> {
-    if (referenceIsFinal(row)) return row;
+  // the row says the reference is final (Invoicing took it, or a booking was saved, while the edit
+  // was on its way). `booksNow`: this very write gave the first Booking Number, which doesn't stop it.
+  private async followLetters(tx: Tx, companyId: string, userId: string, row: ShipmentRecord, booksNow: boolean): Promise<ShipmentRecord> {
+    if (referenceIsFinal(booksNow ? { ...row, bookingNumber: "" } : row)) return row;
     const next = jobNumberFor(row.jobNumber, row.freightMode, row.loadType);
     if (next === row.jobNumber) return row;
     return (await this.renameInTurn(tx, companyId, userId, row, next)) ?? row;
@@ -2274,8 +2278,8 @@ class ShipmentService {
    * The one-off rename after references got the letters of their freight mode (owner decision,
    * 3 Nov 2026): each live shipment of the company takes the letters of its Freight Mode and Load
    * Type, the number kept - except one whose reference is final: Invoicing has taken it for an
-   * invoice number, the job is marked Invoiced, or an invoice was issued for it before the shipment
-   * kept its own flag. Invoicing is asked a few shipments at a time, right before they are renamed;
+   * invoice number, the job is marked Invoiced, it has a Booking Number (Q33), or an invoice was
+   * issued for it before the shipment kept its own flag. Invoicing is asked a few shipments at a time, right before they are renamed;
    * each rename is worked out again under the shipment's write turn, from the row as it is then.
    * Each rename is audited as the user who ran it; the quote follows (Trucking and the warehouse
    * keep the reference they copied). Safe to run again.

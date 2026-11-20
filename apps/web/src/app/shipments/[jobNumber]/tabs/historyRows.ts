@@ -20,15 +20,49 @@ const FIELD_TITLES: ReadonlyMap<string, string> = (() => {
   return titles;
 })();
 
-/** What changed, in words: the server's own label (a claim, a hand-over…), else the column's title, else the key. */
-export const historyLabel = (entry: Pick<Entry, "field" | "label">): string => entry.label?.trim() || FIELD_TITLES.get(entry.field) || entry.field;
+// The job's lists of detail rows, which the history keeps under the list's key (the API's
+// lib/detailRowsAudit) and no column names (User Council x5: "cargoItems", "containers").
+const LIST_TITLES: Readonly<Record<string, string>> = {
+  containers: "Containers",
+  cargoItems: "Cargo lines",
+  cargoDimensions: "Cargo dimensions",
+  commercialInvoices: "Commercial invoices",
+};
+
+/** A key nothing names, in words: "pickupSiteNote" → "Pickup site note"; a key of another form as it is. */
+const keyInWords = (field: string): string =>
+  /^[a-z][a-zA-Z0-9]*$/.test(field)
+    ? field
+        .replace(/([A-Z])/g, (c) => ` ${c.toLowerCase()}`)
+        .replace(/^./, (c) => c.toUpperCase())
+    : field;
+
+/** What changed, in words: the server's own label (a claim, a hand-over…), else the column's or list's title, else the key in words. */
+export const historyLabel = (entry: Pick<Entry, "field" | "label">): string =>
+  entry.label?.trim() || FIELD_TITLES.get(entry.field) || LIST_TITLES[entry.field] || keyInWords(entry.field);
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * An entry that only says a record's id changed ("customerId — → 5519…"): the job's link to a Customer
+ * Database company, contact or site, whose name has an entry of its own in the same save. Left out (x5).
+ */
+export const idOnly = (entry: Pick<Entry, "field" | "oldValue" | "newValue">): boolean =>
+  /Id$/.test(entry.field) && [entry.oldValue, entry.newValue].every((v) => !(v ?? "").trim() || UUID.test((v ?? "").trim()));
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MOMENT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
 type Item = Record<string, unknown>;
 
-const text = (v: unknown): string => (v === null || v === undefined || typeof v === "object" ? "" : String(v).trim());
+/**
+ * A figure with more decimals than anyone types - a weight a piece worked out by dividing, 745.454545455 -
+ * to three at most, trailing zeros dropped (745.455); any other value as it is (x5).
+ */
+const DECIMALS = /^-?\d+\.\d{4,}$/;
+export const figure = (v: string): string => (DECIMALS.test(v) ? String(Number(Number(v).toFixed(3))) : v);
+
+const text = (v: unknown): string => (v === null || v === undefined || typeof v === "object" ? "" : figure(String(v).trim()));
 const join = (parts: readonly string[]): string => parts.filter(Boolean).join(", ");
 
 /** A Cargo Details dimension line: "1 × 120×80×100 cm, 300 kg/pc, Pallets, ADR UN1203 cl. 3". */
@@ -116,7 +150,7 @@ export function historyValue(value: string | null | undefined): string {
   const v = (value ?? "").trim();
   if (DAY.test(v)) return formatDate(v);
   if (MOMENT.test(v)) return businessDateTime(v) || v;
-  return recordValue(v) ?? value ?? "";
+  return recordValue(v) ?? (DECIMALS.test(v) ? figure(v) : (value ?? ""));
 }
 
 /** Who made the change: their name with their e-mail beside it; the user id when the names could not be read. */
@@ -141,12 +175,41 @@ export interface HistoryRow {
   when: string;
 }
 
-/** The rows of the pages read so far, newest first, each page's entries with what it says of the names. */
+/**
+ * Saves of one field by one person this close together are one change: the job page saves a field as
+ * it is typed, so one dimensions line typed box by box made a row per box (User Council x5, E16).
+ */
+export const ONE_EDIT_MS = 5 * 60 * 1000;
+
+/**
+ * The rows of the pages read so far, newest first, each page's entries with what it says of the names.
+ * An id-only entry is left out; a run of saves of the same field by the same person, each within
+ * ONE_EDIT_MS of the next, is one row: what it was before the first, what it became after the last.
+ */
 export function historyRows(pages: readonly Pick<interfaces.ShipmentHistoryPage, "entries" | "namesKnown">[]): HistoryRow[] {
-  return pages.flatMap((page) =>
-    page.entries.map((e) => {
+  const rows: HistoryRow[] = [];
+  let newer: { entry: Entry; row: HistoryRow } | null = null;
+  for (const page of pages) {
+    for (const e of page.entries) {
+      if (idOnly(e)) continue;
+      // Newest first, so `e` is the older one: the same field by the same person just before the row above joins it.
+      // Only typed fields merge: an entry the server labels is an event of its own (a claim, a struck tracking
+      // event, a task tick, a nudge…) and keeps its row.
+      if (
+        newer &&
+        !e.label?.trim() &&
+        !newer.entry.label?.trim() &&
+        newer.entry.field === e.field &&
+        newer.entry.userId === e.userId &&
+        Date.parse(newer.entry.changedAt) - Date.parse(e.changedAt) <= ONE_EDIT_MS
+      ) {
+        newer.row.from = historyValue(e.oldValue);
+        newer.row.cut = newer.row.cut || e.cut;
+        newer = { entry: e, row: newer.row };
+        continue;
+      }
       const { who, hint } = historyWho(e, page.namesKnown);
-      return {
+      const row: HistoryRow = {
         id: e.id,
         label: historyLabel(e),
         from: historyValue(e.oldValue),
@@ -156,6 +219,9 @@ export function historyRows(pages: readonly Pick<interfaces.ShipmentHistoryPage,
         whoHint: hint,
         when: businessDateTime(e.changedAt),
       };
-    }),
-  );
+      rows.push(row);
+      newer = { entry: e, row };
+    }
+  }
+  return rows;
 }

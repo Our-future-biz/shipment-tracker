@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asksValidity, transitionRequest } from "./statusChange";
+import { asksValidity, transitionRequest, withSentBy } from "./statusChange";
 
 describe("asksValidity", () => {
   it("asks for days when the quote has no validity, or one that has passed", () => {
@@ -40,5 +40,17 @@ describe("transitionRequest", () => {
 
   it("never carries rates: the server stamps them", () => {
     expect(Object.keys(transitionRequest({ status: "quoted" }))).not.toContain("exchange");
+  });
+});
+
+describe("how a quote set to Quoted by hand was sent (User Council S21)", () => {
+  it("goes into the history in front of the comment", () => {
+    expect(withSentBy(" Called Petr ", "Phone")).toBe("How it was sent: Phone. Called Petr");
+    expect(withSentBy("", "PDF handed over")).toBe("How it was sent: PDF handed over.");
+  });
+
+  it("leaves the comment as it is when nobody said", () => {
+    expect(withSentBy("As agreed", null)).toBe("As agreed");
+    expect(withSentBy("", undefined)).toBe("");
   });
 });

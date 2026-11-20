@@ -436,12 +436,12 @@ export function ContainerDetailsTab({
                     onChange={(e) => patch(i, { packages: numberInput(e.target.value, false) })}
                     onBlur={persist}
                   />
-                  {/* Picked from the list only (typing filters it); free text is not taken. */}
+                  {/* Picked from the list only (typing filters it); free text is not taken. Its empty box says "Select...": a grey "Pallet(s)" looked picked but saved nothing (user council O22). */}
                   <Select
                     ref={setInputRef(`${i}:packageType`)}
                     size="small"
                     value={c.packageType || undefined}
-                    placeholder="Pallet(s)"
+                    placeholder="Select..."
                     showSearch
                     allowClear
                     options={PACK_TYPE_OPTIONS}

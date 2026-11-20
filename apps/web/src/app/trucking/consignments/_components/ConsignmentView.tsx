@@ -19,7 +19,7 @@ import { useUrlParam } from "@/hooks/useUrlParam";
 import { btnDefault, btnPrimary } from "@/components/buttons";
 import { CARD, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { LINK_BTN, LINK_BTN_PRIMARY } from "../../_lib/linkButtons";
-import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, reasonsBesideNotices, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
+import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, jobCostsHref, reasonsBesideNotices, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
 import { isExceptionOpen } from "../../_lib/exceptions";
 import { consignmentInternalAmount, monthOf } from "../../_lib/internalBilling";
 import { podWait } from "../../_lib/podMissing";
@@ -218,7 +218,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
                 </span>
                 <span>
                   Job{" "}
-                  <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className={`${LINK} ${REF} font-semibold`}>
+                  <Link href={jobCostsHref(c.shipmentId)} className={`${LINK} ${REF} font-semibold`}>
                     {c.jobNumber}
                   </Link>
                 </span>
@@ -493,8 +493,8 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
           onClose={close}
           onSave={(req) =>
             recordAvizace(req)
-              .then(() => toast.success("Avizace recorded"))
-              .catch(fail("Could not record the avizace"))
+              .then(() => toast.success("Delivery notice recorded"))
+              .catch(fail("Could not record the delivery notice"))
           }
         />
       )}

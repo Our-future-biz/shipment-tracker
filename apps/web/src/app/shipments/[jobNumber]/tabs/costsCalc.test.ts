@@ -90,6 +90,39 @@ describe("computeCosts", () => {
     expect(t.sellNotInvoicedCount).toBe(1);
   });
 
+  it("adds up the rows as they are shown, rounded to cents (User Council O19)", () => {
+    // Three CZK lines billed in EUR at 24.335: each row shows its EUR figure rounded to cents,
+    // and the total is their sum, not the sum of the unrounded conversions.
+    const r = { CZK: 1, EUR: 24.335 };
+    const t = computeCosts(
+      [],
+      [
+        sell({ id: "a", amount: "38739.86" }),
+        sell({ id: "b", amount: "7543.85" }),
+        sell({ id: "c", amount: "31882.01" }),
+      ],
+      "EUR",
+      r,
+    );
+    const rows = ["a", "b", "c"].map((id) => t.sellRowTotals[id]!);
+    rows.forEach((v) => expect(Math.round(v * 100) / 100).toBe(v));
+    expect(t.sellTotal).toBe(Math.round(rows.reduce((s, v) => s + v, 0) * 100) / 100);
+  });
+
+  it("gives the Report bar and the CZK line under Total selling one figure", () => {
+    const r = { CZK: 1, EUR: 24.335 };
+    const t = computeCosts(
+      [buy({ estAmount: "1000.01", estCurrency: "EUR" })],
+      [sell({ id: "a", amount: "1591.94", currency: "EUR" }), sell({ id: "b", amount: "1310.13", currency: "EUR" })],
+      "EUR",
+      r,
+    );
+    expect(t.sellTotal).toBe(2902.07);
+    expect(t.sellTotalCZK).toBe(t.sellCZK);
+    expect(t.sellCZK).toBe(Math.round(2902.07 * 24.335 * 100) / 100);
+    expect(t.profitCZK).toBe(Math.round((t.sellCZK - t.buyCZK) * 100) / 100);
+  });
+
   it("never converts a currency without a rate at 1 - it reports it instead", () => {
     const t = computeCosts([], [sell({ id: "a", amount: "100", currency: "GBP" }), sell({ id: "b", amount: "50" })], "CZK", rates);
     expect(t.sellTotal).toBe(50);

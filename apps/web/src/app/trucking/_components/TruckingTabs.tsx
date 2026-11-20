@@ -13,13 +13,15 @@ interface TruckingTabsProps {
   counts: Partial<Record<TruckingTab, number>>;
   /** Work-queue tabs: what their count is (read out), shown red while above zero. */
   queues?: Partial<Record<TruckingTab, string>>;
+  /** Other counted tabs: what the plain count is (shown on hover, read out). */
+  labels?: Partial<Record<TruckingTab, string>>;
   onChange: (tab: TruckingTab) => void;
   onHelp: () => void;
 }
 
 // Real tabs (keyboard: Tab to the bar, arrow keys between tabs), used as the tab bar only — each
 // tab's content renders below it. Same bar as the Warehouse module; settings and help are the app's frameless icon buttons.
-export const TruckingTabs = ({ active, counts, queues = {}, onChange, onHelp }: TruckingTabsProps) => (
+export const TruckingTabs = ({ active, counts, queues = {}, labels = {}, onChange, onHelp }:TruckingTabsProps) => (
   <Tabs
     activeKey={active}
     onChange={(k) => onChange(k as TruckingTab)}
@@ -44,6 +46,7 @@ export const TruckingTabs = ({ active, counts, queues = {}, onChange, onHelp }: 
       const count = counts[t.key];
       const on = active === t.key;
       const queue = queues[t.key];
+      const what = queue ?? labels[t.key];
       let tone = on ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500";
       if (queue && count) tone = "bg-red-50 text-red-600";
       return {
@@ -52,9 +55,9 @@ export const TruckingTabs = ({ active, counts, queues = {}, onChange, onHelp }: 
           <span className="whitespace-nowrap">
             {t.label}
             {count != null && (
-              <span title={queue ? `${count} ${queue}` : undefined} className={`ml-1.5 rounded-full px-1.5 py-px text-[11px] font-semibold ${tone}`}>
+              <span title={what ? `${count} ${what}` : undefined} className={`ml-1.5 rounded-full px-1.5 py-px text-[11px] font-semibold ${tone}`}>
                 {count}
-                {queue && <span className="sr-only"> {queue}</span>}
+                {what && <span className="sr-only"> {what}</span>}
               </span>
             )}
           </span>

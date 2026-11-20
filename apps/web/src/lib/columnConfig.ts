@@ -317,7 +317,7 @@ export const COLUMNS: ColumnDef[] = [
 
   // Quote
   { key: "salesNumber", title: "Sales Reference", width: 140, type: "text", apiField: "salesNumber" },
-  { key: "selling", title: "Total Selling Costs", width: 140, type: "text", apiField: "selling" },
+  { key: "selling", title: "Selling total", width: 140, type: "text", apiField: "selling" },
   { key: "buying", title: "Total Buying Costs", width: 140, type: "text", apiField: "buying" },
   { key: "profit", title: "Profit", width: 120, type: "computed", readonly: true },
   { key: "quoteValidity", title: "Quote Validity", width: 120, type: "date", apiField: "quoteValidity" },

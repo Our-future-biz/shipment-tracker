@@ -21,6 +21,7 @@ import {
   type HandOverTarget,
 } from "@/lib/managerActions";
 import { BTN, BTN_PRIMARY, HINT, LABEL_TEXT, REF, TD, TH } from "@/styles/ui";
+import { PersonText } from "./CockpitParts";
 
 // Handing jobs over (Council Outlay 11, D11): a manager gives the jobs of somebody who is ill, on holiday or gone
 // a new Handled By, a Holiday Cover, or both - one job from its row, or the ticked ones together. The dialog shows
@@ -105,10 +106,11 @@ function Dialog({ jobs, people, note, title: named, onClose, onDone, coverOnly =
     onClose();
   };
 
+  // By name where the user has one, the e-mail on hover (user council x4).
   const person = (value: string) =>
     value ? (
       <>
-        {value}
+        <PersonText value={value} />
         {notUsers.has(value.toLowerCase()) && <span className="text-amber-700"> (not a user)</span>}
       </>
     ) : (
@@ -117,7 +119,7 @@ function Dialog({ jobs, people, note, title: named, onClose, onDone, coverOnly =
   const field = (change: HandOverFieldChange | null, now: string) =>
     change ? (
       <>
-        <span className="text-slate-500">{person(change.from)}</span> → <span className="font-semibold text-slate-900">{change.to || "nobody"}</span>
+        <span className="text-slate-500">{person(change.from)}</span> → <span className="font-semibold text-slate-900">{change.to ? <PersonText value={change.to} /> : "nobody"}</span>
       </>
     ) : (
       <span className="text-slate-400">{person(now.trim())}</span>

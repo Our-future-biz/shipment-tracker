@@ -179,6 +179,16 @@ export function marginState(m: Pick<RoadMargin, "belowFloor" | "approvalValid" |
   return "ok";
 }
 
+/**
+ * The margin as Pricing shows it. While no line has a price (a line just added, still at 0) there
+ * is no margin to judge, so it is not called below the floor until one has (User Council S20:
+ * "Below margin floor" at 0 EUR). The server still holds such a quote back from being sent.
+ */
+export function shownMarginState(m: Pick<RoadMargin, "belowFloor" | "approvalValid" | "needsApproval" | "sellingCzk" | "buyingCzk" | "problem">): MarginState {
+  if (!m.sellingCzk && !m.buyingCzk && !m.problem) return "ok";
+  return marginState(m);
+}
+
 export const APPROVAL_REASON_MIN = 3;
 export const APPROVAL_REASON_MAX = 500;
 

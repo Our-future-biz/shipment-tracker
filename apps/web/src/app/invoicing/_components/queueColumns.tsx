@@ -138,17 +138,19 @@ interface QueueColumnsArgs {
 // Widths: Internal Reference and Invoicing Status as on Shipments (lib/columnConfig.ts); the rest
 // trimmed to their headers and usual values, so every column fits a 1440px screen with the sidebar
 // open (a card of about 1114px) without scrolling sideways. Longer names and statuses are cut
-// with an ellipsis and keep the full text as their title.
+// with an ellipsis and keep the full text as their title. Invoicing Status is as wide as its title with
+// the sort arrow, and Invoices holds an amount (user council B14: "INVOICING STATU…", "INV2026CZ…" with no
+// amount at 1440 px); DUZP gave up what a date doesn't use.
 const W = {
   // CZPROJECT00000023 in bold monospace, as on Shipments.
   job: 170,
   customer: 150,
   direction: 105,
   date: 110,
-  duzp: 100,
-  invoices: 105,
+  duzp: 96,
+  invoices: 120,
   lines: 122,
-  invoicing: 130,
+  invoicing: 150,
   open: 88,
 };
 
@@ -260,13 +262,10 @@ export function queueColumns({
               }
               trigger={["hover", "focus"]}
             >
-              <span
-                tabIndex={0}
-                className="block truncate tabular-nums text-slate-700"
-                style={capped(W.invoices)}
-              >
-                {r.invoiceNumbers.join(", ")}
-                {amounts && <span className="sr-only">{`, issued for ${amounts}`}</span>}
+              <span tabIndex={0} className="block tabular-nums text-slate-700" style={capped(W.invoices)}>
+                <span className="block truncate">{r.invoiceNumbers.join(", ")}</span>
+                {/* what they were issued for, under the numbers (user council B14) */}
+                {amounts && <span className="block truncate text-xs text-slate-500">{amounts}</span>}
               </span>
             </Tooltip>
           );

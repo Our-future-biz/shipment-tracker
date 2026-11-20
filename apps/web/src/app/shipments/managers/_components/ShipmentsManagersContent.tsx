@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Alert, Select, Spin, Switch, Tabs, Tooltip } from "antd";
@@ -29,6 +29,7 @@ import { SellingAmountRequests } from "@/app/sales/managers/_components/SellingA
 import { useAuth } from "@/lib/auth/AuthContext";
 import { HAND_OVER_MAX_JOBS, type CutoffKey } from "@/lib/managerActions";
 import { useToast } from "@/lib/toast";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { BTN_PRIMARY, BTN_SM, HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { approvalsBadge } from "../_lib/approvalsBadge";
 import { cutoffsToast, handOverJob, handOverToast, hasActions, nudgeToast, type ActionToast, type CutoffsChange } from "../_lib/cockpitActions";
@@ -58,7 +59,7 @@ import { CARD_TAG_LIMIT, SIGNAL_FAMILIES, cardWithSignal, figureText, loadFailed
 import { ApprovalLinks } from "./ApprovalLinks";
 import { AuditLine } from "./AuditLine";
 import { ClaimTimeLimitsPanel } from "./ClaimTimeLimitsPanel";
-import { NOBODY_TEXT, PRAGUE_TIME, SignalChip, SignalTile, TileGroup, dash, modeChip, tagList } from "./CockpitParts";
+import { PRAGUE_TIME, PersonText, SignalChip, SignalTile, TileGroup, dash, modeChip, tagList } from "./CockpitParts";
 import { CustomsOfficeApprovals } from "./CustomsOfficeApprovals";
 import { DismissCutoffDialog } from "./DismissCutoffDialog";
 import { HandOverDialog } from "./HandOverDialog";
@@ -140,7 +141,7 @@ const cardColumns = (signal: SignalFamily | null, menu: RowMenuOf): ColumnsType<
         <div className="text-[12px] text-slate-500 truncate">
           {r.customer && `${r.customer} · `}
           {/* The row's tag already says "Nobody in Handled By". */}
-          {r.handledBy || <span className={NOBODY_TEXT}>Nobody</span>}
+          <PersonText value={r.handledBy} />
         </div>
       </div>
     ),
@@ -163,8 +164,12 @@ const dialogColumns = (signal: SignalFamily | null, menu: RowMenuOf): ColumnsTyp
     width: 230,
     render: (_: unknown, r) => (
       <div className="min-w-0">
-        {r.handledBy || <span className={NOBODY_TEXT}>Nobody</span>}
-        {r.holidayCover && <div className={HINT}>Holiday Cover: {r.holidayCover}</div>}
+        <PersonText value={r.handledBy} />
+        {r.holidayCover && (
+          <div className={HINT}>
+            Holiday Cover: <PersonText value={r.holidayCover} />
+          </div>
+        )}
       </div>
     ),
   },
@@ -237,6 +242,7 @@ const scopeOf = (filter: OpsCockpitFilter): string[] =>
 // direction on screen (not narrowed by the Handled By filter - a name here sets it). The jobs
 // nobody handles come last, in red. Who only stands in as a Holiday Cover is on the Team tab.
 function TeamLine({ people, filter, onPick }: { people: OpsCockpitPerson[]; filter: OpsCockpitFilter; onPick: (handledBy: string) => void }) {
+  const names = usePeopleNames();
   const team = teamOf(people);
   if (team.length === 0) return null;
   return (
@@ -249,9 +255,10 @@ function TeamLine({ people, filter, onPick }: { people: OpsCockpitPerson[]; filt
               type="button"
               onClick={() => onPick(filterValueOf(p))}
               title={`Show only ${nobody ? "the jobs nobody handles" : `the jobs of ${p.handledBy}`}`}
+              // By name where the user has one (user council x4); the e-mail is in the hover above.
               className={`p-0 border-none bg-transparent cursor-pointer font-semibold hover:underline ${nobody ? "text-red-600" : "text-slate-900"}`}
             >
-              {personName(p.handledBy)}
+              {personName(p.handledBy, names)}
             </button>{" "}
             {personFigures(p)}
             {isNotUser(p) && <span className="text-red-600"> · not a user</span>}
@@ -302,7 +309,7 @@ function HealthLine({ cockpit }: { cockpit: Cockpit }) {
       {/* The server reads the newest 2,000 active jobs (COCKPIT_JOB_LIMIT). */}
       {cockpit.capped && <span>More than 2,000 active jobs: the counts cover the 2,000 newest, older jobs are left out</span>}
       {usersUnknown && <span>Users could not be read: who is no longer a user is not known</span>}
-      {/* The words of the Shipments list's Needs Attention card (NeedsAttentionTable). */}
+      {/* The words of the Shipments list's deadline cards (NeedsAttentionTable). */}
       {holidaysUnknown && <span>The company&apos;s holidays could not be read: working days skip weekends and public holidays only</span>}
       {notKnown.length > 0 && <span>Not known right now: {notKnownText(notKnown)}</span>}
     </CockpitNote>
@@ -390,8 +397,15 @@ function ShipmentsManagersCockpit() {
   };
   const signal = signalOf(searchParams.get("signal"));
   const moneySignal = moneySignalOf(searchParams.get("msignal"));
-  const go = (next: Partial<OpsCockpitFilter> & { tab?: ShipmentsManagersTab; signal?: string | null; msignal?: string | null }) =>
-    router.replace(shipmentsManagersHref({ tab, ...filter, signal: signal?.key ?? null, msignal: moneySignal?.key ?? null, ...next }), { scroll: false });
+  // A change of the address asks the server for the page again, which on a slow line takes a while:
+  // the tab clicked is shown at once and the page says it is loading until the new one is there,
+  // so nobody clicks again at a page that looks dead (user council x2 / M22).
+  const [switching, startSwitch] = useTransition();
+  const [pendingTab, setPendingTab] = useState<ShipmentsManagersTab | null>(null);
+  const go = (next: Partial<OpsCockpitFilter> & { tab?: ShipmentsManagersTab; signal?: string | null; msignal?: string | null }) => {
+    setPendingTab(next.tab ?? null);
+    startSwitch(() => router.replace(shipmentsManagersHref({ tab, ...filter, signal: signal?.key ?? null, msignal: moneySignal?.key ?? null, ...next }), { scroll: false }));
+  };
   const setSignal = (family: SignalFamily | null) => go({ signal: family?.key ?? null });
   // The Cockpit and the Team tab read the same answer: changing between them asks nothing new. The
   // signal is asked of the server, which narrows the cards before it cuts them at their limit.
@@ -410,6 +424,8 @@ function ShipmentsManagersCockpit() {
   const approvalsWaiting = approvalsBadge([releases, offices, documents, sellingAmounts]);
   const [openCard, setOpenCard] = useState<CockpitCardKey | null>(null);
   const [action, setAction] = useState<RowAction | null>(null);
+  // People by name in the Handled By filter and the Team line (user council x4).
+  const names = usePeopleNames();
   // The rows ticked in the open dialog, by their keys.
   const [ticked, setTicked] = useState<string[]>([]);
 
@@ -481,9 +497,16 @@ function ShipmentsManagersCockpit() {
   return (
     <Page extra={asOf && <span className="text-xs text-slate-500">Updated {PRAGUE_TIME.format(new Date(asOf))} · Prague time</span>}>
       <Tabs
-        activeKey={tab}
+        activeKey={(switching && pendingTab) || tab}
         onChange={(k) => go({ tab: k as ShipmentsManagersTab })}
         className="[&>.ant-tabs-nav]:!mb-0"
+        tabBarExtraContent={
+          switching ? (
+            <span role="status" className={`${HINT} flex items-center gap-2`}>
+              <Spin size="small" /> Loading…
+            </span>
+          ) : null
+        }
         items={[
           { key: "cockpit", label: "Cockpit" },
           { key: "team", label: "Team" },
@@ -493,8 +516,14 @@ function ShipmentsManagersCockpit() {
             label: (
               <span className="whitespace-nowrap">
                 Approvals
+                {/* Requests, where the Cockpit's tile counts jobs (user council M21): said on hover. */}
                 {approvalsWaiting !== null && (
-                  <Pill tone="amber" aria-label={approvalsWaiting === "–" ? "Count unavailable" : `${approvalsWaiting} waiting`} className="ml-1.5 tabular-nums">
+                  <Pill
+                    tone="amber"
+                    aria-label={approvalsWaiting === "–" ? "Count unavailable" : `${approvalsWaiting} requests waiting`}
+                    title={approvalsWaiting === "–" ? "The requests could not be counted" : `${approvalsWaiting} ${approvalsWaiting === "1" ? "request" : "requests"} waiting for approval`}
+                    className="ml-1.5 tabular-nums"
+                  >
                     {approvalsWaiting}
                   </Pill>
                 )}
@@ -540,7 +569,7 @@ function ShipmentsManagersCockpit() {
                   optionFilterProp="label"
                   value={filter.handledBy ?? EVERYONE}
                   onChange={(value) => go({ handledBy: value === EVERYONE ? null : value })}
-                  options={tab === "money" ? moneyHandledByOptions(money.people, filter.handledBy) : handledByOptions(people, filter.handledBy)}
+                  options={tab === "money" ? moneyHandledByOptions(money.people, filter.handledBy, names) : handledByOptions(people, filter.handledBy, names)}
                 />
               </span>
             )}
@@ -584,6 +613,10 @@ function ShipmentsManagersCockpit() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {renderCard("urgent")}
                 {renderCard("attention")}
+                {/* Why these counts are larger than the Shipments list's deadline cards (user council M3). */}
+                <p className={`${HINT} lg:col-span-2 m-0`}>
+                  URGENT and ATTENTION count every signal: deadlines, and also late departures and arrivals, jobs nobody handles, customs, paperwork and the rest. The Shipments list&apos;s cards count deadlines only.
+                </p>
               </div>
             </>
           )}

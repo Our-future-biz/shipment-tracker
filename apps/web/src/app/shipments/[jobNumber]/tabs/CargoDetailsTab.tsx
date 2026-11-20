@@ -41,6 +41,7 @@ import {
   withoutTypedVolumeWhenSized,
   checkConsistency,
   compareFigure,
+  FIGURE_TOLERANCE,
   civByCurrency,
   shipmentDeclaredFigures,
   cargoContainers,
@@ -530,7 +531,7 @@ export function CargoDetailsTab({
     const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
-    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2) };
+    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2, FIGURE_TOLERANCE) };
     const hasDesc = filledItems > 0;
     const hasLines = filledDims > 0 || hasDesc;
     const matched = check.matched && (!hasDesc || (descCheck.pcs.ok && descCheck.kg.ok));
@@ -908,7 +909,7 @@ export function CargoDetailsTab({
                 <span className="text-center truncate">Pcs</span>
                 <span className="text-center truncate">Packages</span>
                 <span className="text-center truncate">Gross Weight (kg)</span>
-                <span className="text-center truncate">Invoice Value</span>
+                <span className="text-center truncate" title="The line's own invoice value. The job's Invoice Value in Shipment Details and Customs is the total of its commercial invoices.">Line Value</span>
                 <span className="text-center truncate">Currency</span>
                 <span />
               </div>
@@ -951,13 +952,13 @@ export function CargoDetailsTab({
                       onBlur={persistItems}
                     />
                     <Input size="small" className="text-center" aria-label="Pieces" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
-                    {/* Picked from the list only (typing filters it); free text is not taken. */}
+                    {/* Picked from the list only (typing filters it); free text is not taken. Its empty box says "Select...": a grey "Pallet(s)" looked picked but saved nothing (user council O22). */}
                     <Select
                       size="small"
                       className={CENTERED_SELECT}
                       aria-label="Package type"
                       value={l.packageType || undefined}
-                      placeholder="Pallet(s)"
+                      placeholder="Select..."
                       showSearch
                       allowClear
                       options={PACK_TYPE_OPTIONS}
@@ -969,7 +970,7 @@ export function CargoDetailsTab({
                     />
                     {/* Numbers only: digits and one decimal point. */}
                     <Input size="small" className="text-center" aria-label="Gross weight (kg)" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
-                    <Input size="small" className="text-center" aria-label="Invoice value" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
+                    <Input size="small" className="text-center" aria-label="Line value" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
                     <AutoComplete
                       size="small"
                       className="w-full [&_input]:!text-center"
@@ -992,11 +993,12 @@ export function CargoDetailsTab({
                 <>
                   <CheckPill against={against} label="Pcs" m={descCheck.pcs} decimals={0} />
                   <CheckPill against={against} label="Weight" m={descCheck.kg} decimals={descCheck.kg.decimals} unit="kg" />
-                  {/* The invoice value total, which nothing declares: a plain pill. */}
+                  {/* The lines' invoice value total, which nothing declares: a plain pill. Named apart
+                      from the job's Invoice Value, the commercial invoices' total (user council c4). */}
                   {descCiv && (
-                    <Tooltip title={`Lines: ${descCiv} · no invoice value is declared to check against`}>
+                    <Tooltip title={`Lines: ${descCiv} · the lines' own values, not checked against anything. The job's Invoice Value is the total of its commercial invoices.`}>
                       <span className={`${CHECK_PILL_CLASS} ring-slate-200 bg-slate-50 text-slate-700`}>
-                        <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
+                        <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Line value</span>
                         <span className="font-semibold">{descCiv}</span>
                       </span>
                     </Tooltip>

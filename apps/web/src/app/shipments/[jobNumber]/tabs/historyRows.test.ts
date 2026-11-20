@@ -54,6 +54,69 @@ describe("a job's history", () => {
     expect(historyValue('[{"pieces":"1","lengthCm":"12')).toBe('[{"pieces":"1","lengthCm":"12');
   });
 
+  it("names the detail-row lists and any other key in words, never as code (x5)", () => {
+    expect(historyLabel(entry({ field: "cargoItems" }))).toBe("Cargo lines");
+    expect(historyLabel(entry({ field: "containers" }))).toBe("Containers");
+    expect(historyLabel(entry({ field: "cargoDimensions" }))).toBe("Dimensions");
+    expect(historyLabel(entry({ field: "commercialInvoices" }))).toBe("Commercial invoices");
+    expect(historyLabel(entry({ field: "pickupSiteNote" }))).toBe("Pickup site note");
+  });
+
+  it("rounds a figure nobody typed to three decimals, in a list and alone (x5)", () => {
+    expect(historyValue('[{"pieces":"11","lengthCm":"","weightPerPcKg":"745.454545455"}]')).toBe("11 pcs, 745.455 kg/pc");
+    expect(historyValue("745.454545455")).toBe("745.455");
+    expect(historyValue("12.5000")).toBe("12.5");
+    expect(historyValue("24.335")).toBe("24.335");
+    expect(historyValue("CZ00000053")).toBe("CZ00000053");
+  });
+
+  it("leaves out an entry that only says a linked record's id changed (x5)", () => {
+    const rows = historyRows([
+      {
+        entries: [
+          entry({ id: "a", field: "customerId", oldValue: null, newValue: "55199341-55b9-4b33-bf26-d9491b17daa8" }),
+          entry({ id: "b", field: "customer", oldValue: null, newValue: "Fubar s.r.o." }),
+        ],
+        namesKnown: true,
+      },
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(["b"]);
+  });
+
+  it("makes a field typed save by save one row: before the first, after the last (x5, E16)", () => {
+    const at = (min: number) => new Date(Date.UTC(2026, 10, 19, 13, min)).toISOString();
+    const dims = (w: string) => `[{"pieces":"1","lengthCm":"120","widthCm":"${w}","heightCm":"","weightPerPcKg":""}]`;
+    const rows = historyRows([
+      {
+        entries: [
+          entry({ id: "3", field: "cargoDimensions", oldValue: dims("80"), newValue: dims("800"), changedAt: at(4) }),
+          entry({ id: "2", field: "cargoDimensions", oldValue: dims("8"), newValue: dims("80"), changedAt: at(2) }),
+          entry({ id: "1", field: "cargoDimensions", oldValue: "[]", newValue: dims("8"), changedAt: at(0) }),
+          // the same field by someone else, and by the same person long before: rows of their own
+          entry({ id: "0", field: "cargoDimensions", userId: "u2", oldValue: "[]", newValue: "[]", changedAt: at(0) }),
+        ],
+        namesKnown: true,
+      },
+      { entries: [entry({ id: "-1", field: "cargoDimensions", oldValue: "[]", newValue: "[]", changedAt: at(-30) })], namesKnown: true },
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(["3", "0", "-1"]);
+    expect(rows[0]).toMatchObject({ label: "Dimensions", from: "none", to: "1 × 120×800×? cm", when: "19.11.2026 14:04" });
+  });
+
+  it("never merges events the server labels: two claims raised within minutes keep a row each", () => {
+    const at = (min: number) => new Date(Date.UTC(2026, 10, 19, 13, min)).toISOString();
+    const rows = historyRows([
+      {
+        entries: [
+          entry({ id: "2", field: "claimCreated", label: "Cargo claim raised", oldValue: "", newValue: "Damaged", changedAt: at(3) }),
+          entry({ id: "1", field: "claimCreated", label: "Cargo claim raised", oldValue: "", newValue: "Short", changedAt: at(1) }),
+        ],
+        namesKnown: true,
+      },
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(["2", "1"]);
+  });
+
   it("says who by name and e-mail; by id when the names could not be read", () => {
     expect(historyWho(entry(), true)).toEqual({ who: "Jana Nováková", hint: "jana@cto.cz" });
     expect(historyWho(entry({ userName: "" }), true)).toEqual({ who: "jana@cto.cz", hint: "" });

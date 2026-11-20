@@ -96,7 +96,8 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
       >
         <CardBar
           icon={<LineChartOutlined />}
-          title={againstCzk ? "Today's ČNB rate" : `Today's rate in ${data.base}`}
+          // "Latest": before ČNB publishes at about 14:30 the rate shown is the last fixing, not today's (user council B22).
+          title={againstCzk ? "Latest ČNB rate" : `Latest rate in ${data.base}`}
           // Not a button of its own: the whole card opens the list.
           tool={
             <span className={BTN_BAR}>

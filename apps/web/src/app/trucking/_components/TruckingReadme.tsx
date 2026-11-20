@@ -92,7 +92,7 @@ export const TruckingReadme = () => (
         A manager can <b>cancel</b> a consignment (with a reason) until it is picked up — its Trucking cost lines leave the job — or cancel a trip, which
         sends its consignment back to Booked. The Consignments tab tiles count open FTL consignments without a haulier and today&apos;s pick-ups and
         deliveries, and each opens exactly the consignments it counts; its chips show what needs attention, POD missing and ready to bill. The Trips tab
-        lists every trip with its haulier, vehicle and order, with tiles for <b>Draft</b>, <b>Ordered, not confirmed</b> and <b>In transit today</b>. The
+        lists every trip with its haulier, vehicle and order, with tiles for <b>Planned</b> (the transport order not recorded as sent yet), <b>Ordered, not confirmed</b> and <b>In transit today</b>. The
         tab bar counts the work waiting: consignments that need attention and trips not confirmed yet. A margin below the floor says{" "}
         <b>Needs approval</b> or <b>Approved</b> in words. Times are shown in Prague time everywhere.
       </p>
@@ -329,10 +329,10 @@ export const TruckingReadme = () => (
       <ul>
         <li>
           <b>{TERMS.avizace}</b> — needed for B2C deliveries and for delivery stops that ask for it. The consignment page shows whether it is needed;{" "}
-          <b>Avizace text…</b> prepares the message in Czech and English (consignee, address, date and window, ref, pieces / pallets / kg, tail-lift and B2C
-          notes — never the {TERMS.pickupPin}) with Copy buttons; nothing is e-mailed. <b>Record avizace…</b> keeps the{" "}
+          <b>Delivery notice text…</b> prepares the message in Czech and English (consignee, address, date and window, ref, pieces / pallets / kg, tail-lift and B2C
+          notes — never the {TERMS.pickupPin}) with Copy buttons; nothing is e-mailed. <b>Record delivery notice…</b> keeps the{" "}
           <b>{TERMS.avizaceRecord.toLowerCase()}</b>: how, who, the agreed window and a note. Until it is recorded, the {TERMS.deliveryRun.toLowerCase()} or{" "}
-          {TERMS.ftl} trip shows a warning on the Trips and Planning tabs — never a block. Consignments → <b>Avizace pending</b> lists them.
+          {TERMS.ftl} trip shows a warning on the Trips and Planning tabs — never a block. Consignments → <b>Delivery notice pending</b> lists them.
         </li>
         <li>
           <b>{TERMS.pod} missing</b> — a consignment delivered more than 2 working days ago without its {TERMS.pod} is on the <b>POD missing</b> chip, and its page

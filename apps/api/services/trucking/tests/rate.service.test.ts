@@ -160,7 +160,7 @@ describe("rate calculator", () => {
     expect(tariffs.list).toHaveBeenCalledWith(C, { scope: "LTL" });
     expect(tariffs.bindingOn.mock.calls[0][2]).toBe("2026-10-15");
     const [d1] = res.results;
-    expect(d1).toMatchObject({ serviceLevel: "D1", label: "+1 day", promisedDate: "2026-10-16" });
+    expect(d1).toMatchObject({ serviceLevel: "D1", label: "+1 working day", promisedDate: "2026-10-16" });
     expect(isPriced(d1.sell) && d1.sell).toMatchObject({ tariffName: "Standard LTL", total: 3000, totalCzk: 3000 });
     // Bravo: 300 kg × 0.20 EUR = 60 EUR = 1 500 CZK; Alfa: 300 × 6 = 1 800 CZK
     expect(d1.buy.map((b) => [b.ownerName, b.total, b.totalCzk, b.preferred])).toEqual([

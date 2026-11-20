@@ -3,7 +3,8 @@ import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/components/DataTable";
 import type { SalesQuoteFilter } from "@/hooks/salesQueryKeys";
 import { addDays, businessToday } from "@/lib/date";
 import { isUuid } from "@/lib/uuid";
-import { INCOTERMS, OPEN_QUOTE_STATUSES, QUOTE_STATUSES } from "./types";
+import { OPEN_QUOTE_STATUSES, QUOTE_STATUSES } from "./types";
+import { INCOTERMS_2020 } from "./quoteIncoterms";
 
 // What narrows the Quotes list. Saved views store this object as it is, so its shape stays: the
 // server's filters are made from it (filtersToQuery), not the other way round.
@@ -47,7 +48,7 @@ export const QUOTE_FILTER_COLUMNS: { key: string; title: string; options?: reado
   { key: "destination", title: "Place of Delivery" },
   { key: "validity", title: "Valid until" },
   { key: "shipment", title: "Shipment (job no.)" },
-  { key: "incoterm", title: "Incoterms", options: INCOTERMS },
+  { key: "incoterm", title: "Incoterms", options: INCOTERMS_2020 },
   { key: "cargoReady", title: "Cargo ready" },
   { key: "commodity", title: "Cargo Description" },
   { key: "method", title: "Method" },

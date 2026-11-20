@@ -210,7 +210,7 @@ export const SURCHARGE_LABEL: Record<SurchargeCode, string> = {
   TOLL: "Toll",
   ADR: "ADR (dangerous goods)",
   TAIL_LIFT: "Tail lift",
-  AVIZACE: "Delivery notice (avizace)",
+  AVIZACE: "Delivery notice",
   TIME_WINDOW: "Time window delivery",
   B2C: "B2C delivery",
   WAITING_TIME: "Waiting time",

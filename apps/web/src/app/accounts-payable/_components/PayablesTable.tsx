@@ -48,12 +48,12 @@ const columns: ColumnsType<PayableRow> = [
           {supplierOf(r) || "—"}
         </span>
         {r.source === "ap" && !r.invoice.supplierCustomerId && !r.invoice.haulierId && (
-          <Tooltip title="The supplier is only typed: link it to a company of the Customer Database before it is approved (D13)">
+          <Tooltip title="The supplier is only typed: link it to a company of the Customer Database before it is approved">
             <Pill tone="amber">Not linked</Pill>
           </Tooltip>
         )}
         {r.source === "haulier" && (
-          <Tooltip title="A haulier invoice from Trucking: approved, rejected and paid there (D17)">
+          <Tooltip title="A haulier invoice from Trucking: approved, rejected and paid there">
             <Pill tone="indigo">Trucking</Pill>
           </Tooltip>
         )}

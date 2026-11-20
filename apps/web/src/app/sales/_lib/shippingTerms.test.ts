@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { templateTerms, termsDifferFromTemplate, withTemplateTerms } from "./shippingTerms";
+import { fittingTemplate, templateTerms, termsDifferFromTemplate, withTemplateTerms } from "./shippingTerms";
 
 const TEMPLATES = [
   { name: "Standard", includes: "Ocean freight", excludes: "Duties", subjectTo: "Space" },
@@ -39,5 +39,24 @@ describe("termsDifferFromTemplate", () => {
   it("is false without a template, or for one no longer kept", () => {
     expect(termsDifferFromTemplate({ shippingIncludes: "x" }, TEMPLATES)).toBe(false);
     expect(termsDifferFromTemplate({ shippingTerms: "Gone", shippingIncludes: "x" }, TEMPLATES)).toBe(false);
+  });
+});
+
+describe("fittingTemplate (User Council S19)", () => {
+  const named = (...names: string[]) => names.map((name) => ({ name, includes: "", excludes: "", subjectTo: "" }));
+
+  it("is the one template whose name names the quote's freight mode and its direction or none", () => {
+    const templates = named("FCL EXPORT", "FCL IMPORT", "LCL", "Air export", "Standard");
+    expect(fittingTemplate({ serviceType: "Sea FCL", direction: "Export" }, templates)).toBe("FCL EXPORT");
+    expect(fittingTemplate({ serviceType: "Sea LCL", direction: "Import" }, templates)).toBe("LCL");
+    expect(fittingTemplate({ serviceType: "Air", direction: "Export" }, templates)).toBe("Air export");
+  });
+
+  it("is none with several or none that fit, or before the freight mode is known", () => {
+    const templates = named("FCL EXPORT", "FCL IMPORT", "FCL Export Asia", "Repair terms");
+    expect(fittingTemplate({ serviceType: "Sea FCL", direction: "Export" }, templates)).toBeNull();
+    expect(fittingTemplate({ serviceType: "Sea FCL" }, named("FCL EXPORT", "FCL IMPORT"))).toBeNull();
+    expect(fittingTemplate({ serviceType: "Air", direction: "Import" }, templates)).toBeNull();
+    expect(fittingTemplate({ direction: "Export" }, templates)).toBeNull();
   });
 });

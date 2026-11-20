@@ -6,10 +6,11 @@ import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { CARD, CARD_BAR, CARD_TITLE, PAGE_TITLE } from "@/styles/ui";
 import { usePublicHolidays } from "@/hooks/usePublicHolidays";
 import { useMyCountries } from "@/hooks/useMyCountries";
+import { useCountries } from "@/hooks/useOrgUnits";
 import { apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { MONTHS, WEEKDAYS, holidayKey, monthWeeks } from "./_lib/calendar";
-import { countryOf, flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
+import { countryOf, defaultCountries, flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays, type DayHoliday } from "./_lib/dayHolidays";
 
 const YEARS = Array.from({ length: 100 }, (_, i) => 1951 + i);
 
@@ -44,9 +45,14 @@ export function CalendarView() {
   const countryOptions = useMemo(() => listCountries(listed), [listed]);
   // The user's countries, kept on their account and shared with the Public Holidays page.
   const toast = useToast();
-  const { myCountries: countries, saveMyCountries } = useMyCountries();
+  const { myCountries: saved, saveMyCountries } = useMyCountries();
+  // None picked: the company's countries (else Germany) beside the Czech Republic, not every country
+  // (user council M19). Shown as the picks, so the user sees whose holidays these are.
+  const { countries: companyCountries } = useCountries();
+  const fallback = useMemo(() => defaultCountries(companyCountries.map((c) => c.code), listed), [companyCountries, listed]);
+  const countries = saved.length ? saved : fallback;
   const pickCountries = (next: string[]) =>
-    void saveMyCountries(withUnofferedPicks(countries, countryOptions, next)).catch((err) => toast.error(`Could not save your countries: ${apiErrorMessage(err)}`));
+    void saveMyCountries(withUnofferedPicks(saved, countryOptions, next)).catch((err) => toast.error(`Could not save your countries: ${apiErrorMessage(err)}`));
 
   const isToday = (m: number, d: number) =>
     year === today.getFullYear() && m === today.getMonth() && d === today.getDate();
@@ -71,7 +77,7 @@ export function CalendarView() {
             maxTagCount="responsive"
             value={countries.filter((c) => countryOptions.includes(c))}
             onChange={pickCountries}
-            placeholder={countries.length ? `My countries: ${countries.join(", ")}` : "My countries: all"}
+            placeholder={countries.length ? `My countries: ${countries.join(", ")}` : "My countries"}
             className="min-w-[220px] max-w-[420px] flex-1"
             options={countryOptions.map((c) => ({ value: c, label: c }))}
             aria-label="My countries (whose holidays are shown)"
@@ -147,6 +153,9 @@ export function CalendarView() {
                             <td key={i} className="py-0.5">
                               {shown.length ? (
                                 <Tooltip
+                                  // A long day (many countries picked) scrolls inside the tooltip
+                                  // instead of running off the top of the screen (user council M19).
+                                  styles={{ body: { maxHeight: "60vh", overflowY: "auto" } }}
                                   title={
                                     <div className="flex flex-col divide-y divide-white/15">
                                       {shown.map((h) => (

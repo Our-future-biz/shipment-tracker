@@ -135,6 +135,19 @@ describe("the customer's page", () => {
     }
   });
 
+  it("names whose a used or run-out link was, so the customer knows whom to ask (user council E12)", async () => {
+    for (const over of [{ status: "submitted" }, { expiresAt: NOW }]) {
+      repository.byHash.mockResolvedValue(row(over));
+      const err = await service.publicForm(token, NOW).catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: "not_found", message: "This link is no longer valid", details: { companyName: "Austromar s.r.o." } });
+    }
+    // A link that never was says nothing more.
+    repository.byHash.mockResolvedValue(null as never);
+    const unknown = (await service.publicForm(token, NOW).catch((e: unknown) => e)) as { details?: unknown };
+    expect(unknown).toMatchObject({ code: "not_found" });
+    expect(unknown.details ?? null).toBeNull();
+  });
+
   it("shows whose form it is, the reference and what is known, nothing else", async () => {
     await expect(service.publicForm(token, NOW)).resolves.toEqual({ companyName: "Austromar s.r.o.", reference: "CZ00000041", prefill: { description: "Parts" } });
     expect(invoicing.invoiceProfileGet).toHaveBeenCalledWith({ authData: expect.objectContaining({ companyID: COMPANY }) });

@@ -45,7 +45,7 @@ describe("avizace", () => {
     expect(avizacePending(marked)).toBe(true);
     expect(avizacePending({ ...marked, avizace: cleanAvizace({ channel: "PHONE", contact: "Eva", agreedFrom: null, agreedTo: null, note: "" }, new Date(), "Jana") })).toBe(false);
     expect(avizacePending({ ...marked, deliveredAt: new Date() })).toBe(false);
-    expect(avizaceWarnings([marked, b2c, consignment()])).toEqual(["TCZ2026000007: avizace needed and not recorded yet", "TCZ2026000007: avizace needed and not recorded yet"]);
+    expect(avizaceWarnings([marked, b2c, consignment()])).toEqual(["TCZ2026000007: delivery notice needed and not recorded yet", "TCZ2026000007: delivery notice needed and not recorded yet"]);
   });
 
   it("prepares the text in Czech and English with the consignee, address, day and window, ref, goods and notes - never a PIN", () => {

@@ -35,7 +35,7 @@ export const SURCHARGE_LABELS: Record<interfaces.SurchargeCode, string> = {
   TOLL: "Toll",
   ADR: "ADR",
   TAIL_LIFT: "Tail-lift",
-  AVIZACE: "Avizace",
+  AVIZACE: "Delivery notice",
   TIME_WINDOW: "Time window",
   B2C: "B2C delivery",
   WAITING_TIME: "Waiting time",

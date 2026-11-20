@@ -11,7 +11,7 @@ import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { computeTotals, fmtByCurrency, newestFirst, type CurrencyAmount, type QuoteTotals, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { isSentQuote, QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
-import { hitRate, inMonthRange, percentText, reportMonthOf, weightedMargin, type CzkFigures } from "@/app/sales/_lib/salesReport";
+import { hitRate, inMonthRange, percentText, reportMonthOf, tileCzk, weightedMargin, type CzkFigures } from "@/app/sales/_lib/salesReport";
 import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
 import { ExchangeRatesError } from "./ExchangeRatesError";
 import { QuotesLoadError } from "./QuotesLoadError";
@@ -25,6 +25,8 @@ import { CARD, LINK } from "@/styles/ui";
 interface Kpi {
   label: string;
   value: string;
+  // The value in full, on hover, where the tile shows it shorter.
+  exact?: string;
   hint?: string;
 }
 
@@ -161,12 +163,13 @@ export function SalesReportTab() {
     const total = sent.length;
     const won = sent.filter((q) => q.status === "won");
     const lost = sent.filter((q) => q.status === "lost");
-    const wonRevenue = fmtByCurrency(won.flatMap((q): CurrencyAmount[] => (q.czk ? [["CZK", q.czk.selling]] : [])));
+    // Every figure is in CZK here (q.czk): in whole crowns, so the tile holds it.
+    const wonRevenue = tileCzk(won.reduce((sum, q) => sum + (q.czk?.selling ?? 0), 0));
     return [
       { label: "Quotes Sent", value: String(total) },
       { label: "Won", value: String(won.length) },
       { label: "Lost", value: String(lost.length) },
-      { label: "Revenue (Won)", value: wonRevenue || "—" },
+      { label: "Revenue (Won)", value: wonRevenue.value, exact: wonRevenue.exact },
       // Money-weighted (S6 / Q11): profit over selling of the quotes sent, in CZK.
       { label: "Margin", value: percentText(weightedMargin(sent.map((q) => q.czk))), hint: "profit ÷ selling" },
       // Named and counted as on the Managers page: won over won + lost, never over every quote sent.
@@ -330,7 +333,7 @@ export function SalesReportTab() {
       )}
       <div className={`${KPI_GRID_CLASS} mb-4`}>
         {kpis.map((k) => (
-          <KpiTile key={k.label} label={k.label} value={k.value} hint={k.hint} />
+          <KpiTile key={k.label} label={k.label} value={k.exact ? <span title={k.exact}>{k.value}</span> : k.value} hint={k.hint} />
         ))}
       </div>
 

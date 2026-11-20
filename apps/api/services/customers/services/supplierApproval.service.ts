@@ -29,6 +29,7 @@ export const toApprovalItem = (r: SupplierApprovalRow): SupplierApprovalItem => 
   registered: false,
   alreadyInDatabase: false,
   matchedCompanyName: "",
+  linkNote: "",
   termsName: "",
   termsUrl: "",
   termsAcceptedAt: null,
@@ -57,12 +58,14 @@ export const toApprovalItem = (r: SupplierApprovalRow): SupplierApprovalItem => 
 
 // A registration of a company already in the Customer Database: it is answered on its own, the company stays as it is.
 // `matchedCompanyName` is that company's own name: what was typed on the form may name another.
-const duplicateItem = (r: CompanyRegistrationRecord, matchedCompanyName: string): SupplierApprovalItem => ({
+// `linkLabel` is its link's "Who it is for" note, read with it on the list; "" where it is not read (an answer's reply).
+const duplicateItem = (r: CompanyRegistrationRecord & { linkLabel?: string }, matchedCompanyName: string): SupplierApprovalItem => ({
   customerId: r.customerId ?? "",
   threadId: r.id,
   registered: true,
   alreadyInDatabase: true,
   matchedCompanyName,
+  linkNote: r.linkLabel ?? "",
   termsName: r.termsName,
   termsUrl: r.termsUrl,
   termsAcceptedAt: iso(r.termsAcceptedAt),
@@ -104,7 +107,8 @@ class SupplierApprovalService {
     const items = rows.map((row) => {
       const registration = registrationOf.get(row.id);
       if (!registration) return toApprovalItem(row);
-      return { ...toApprovalItem(row), registered: true, termsName: registration.termsName, termsUrl: registration.termsUrl, termsAcceptedAt: iso(registration.termsAcceptedAt) };
+      // The link's "Who it is for" note goes with it, so the manager knows whom it was sent to (User Council E13).
+      return { ...toApprovalItem(row), registered: true, linkNote: registration.linkLabel, termsName: registration.termsName, termsUrl: registration.termsUrl, termsAcceptedAt: iso(registration.termsAcceptedAt) };
     });
     const duplicates = registrations.filter((r) => r.alreadyInDatabase);
     const matchedIds = [...new Set(duplicates.flatMap((r) => (r.customerId ? [r.customerId] : [])))];

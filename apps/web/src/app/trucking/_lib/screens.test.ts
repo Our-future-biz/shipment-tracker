@@ -15,3 +15,10 @@ describe("Trucking times", () => {
     expect(local).toEqual([]);
   });
 });
+
+describe("Trucking's links to a job", () => {
+  it("never ask for a tab the job page doesn't have (user council T12)", () => {
+    const wrong = ROOTS.flatMap(filesOf).filter((f) => /\?tab=trucking/.test(readFileSync(f, "utf8").replace(/\/\/.*|\/\*[\s\S]*?\*\//g, "")));
+    expect(wrong).toEqual([]);
+  });
+});

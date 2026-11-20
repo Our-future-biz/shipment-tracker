@@ -39,14 +39,17 @@ export function jobNumberFor(jobNumber: string, freightMode: string | null | und
 export interface ReferenceState {
   jobNumberFinal: boolean;
   invoicingStatus: string;
+  bookingNumber: string;
 }
 
 /**
  * Whether the shipment row says its reference is final, so its letters no longer follow the
- * Freight Mode and Load Type: Invoicing took it for an invoice number (jobNumberFinal), or the job
- * is marked Invoiced (by hand too - a job invoiced outside the system). A job invoiced before the
- * flag existed is known to Invoicing alone (ShipmentService.hasHadInvoice).
+ * Freight Mode and Load Type: Invoicing took it for an invoice number (jobNumberFinal), the job
+ * is marked Invoiced (by hand too - a job invoiced outside the system), or it has a Booking Number:
+ * the reference has gone out to the carrier and the customer with the booking (owner decision Q33,
+ * User Council 20 Nov 2026). A job invoiced before the flag existed is known to Invoicing alone
+ * (ShipmentService.hasHadInvoice).
  */
 export function referenceIsFinal(row: ReferenceState): boolean {
-  return row.jobNumberFinal || same(row.invoicingStatus, INVOICED_STATUS);
+  return row.jobNumberFinal || same(row.invoicingStatus, INVOICED_STATUS) || row.bookingNumber.trim() !== "";
 }

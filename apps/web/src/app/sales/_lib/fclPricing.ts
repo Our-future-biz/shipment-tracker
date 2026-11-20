@@ -372,6 +372,19 @@ export function fclLines(data: SalesQuoteData, sheet: ExchangeRates, live?: Live
 export interface OfferRow {
   label: string;
   amount: number | null;
+  /**
+   * In a section of one container type with more than one box: the price of one box, so the
+   * customer reads "1,670.00 EUR per container × 2" and not only the sum of both. Left off when
+   * the sum does not split into equal boxes to the cent, so no figure stands that does not add up.
+   */
+  each?: { amount: number; count: number };
+}
+
+// A row of a container type's section, with its price per box where that says more than the sum.
+function perBox(row: OfferRow, boxes: number): OfferRow {
+  if (boxes < 2 || row.amount === null) return row;
+  const amount = roundCents(row.amount / boxes);
+  return roundCents(amount * boxes) === roundCents(row.amount) ? { ...row, each: { amount, count: boxes } } : row;
 }
 
 /** One section of the rate offer: a container type, or the charges per shipment, as in Pricing. */
@@ -418,7 +431,9 @@ export function fclOfferGroups(data: SalesQuoteData, lines: readonly CostLine[],
     const amounts = inAllIn.map(amountOf);
     const allInRow: OfferRow[] = inAllIn.length ? [{ label: "All-in rate", amount: amounts.some((a) => a === null) ? null : roundCents(amounts.reduce((s: number, a) => s + a!, 0)) }] : [];
     const rest = block.filter((l) => !inAllIn.includes(l)).map((l) => ({ label: chargeName(l), amount: amountOf(l) }));
-    return [{ label: offerGroupLabel(key, data), rows: [...allInRow, ...rest] }];
+    // A container type's section is priced per box: the customer is shown what one costs (User Council S13).
+    const boxes = types.includes(key) ? quoteContainerCount(data, key) : 0;
+    return [{ label: offerGroupLabel(key, data), rows: [...allInRow, ...rest].map((r) => perBox(r, boxes)) }];
   });
 }
 

@@ -24,27 +24,30 @@ function initialsOf(name: string): string {
 }
 
 interface OwnerNameProps {
-  /** What is shown: the owner's e-mail. */
+  /** The e-mail the owner is recorded by: shown on hover, and in place of a name they don't have. */
   email: string;
-  /** The display name, for the initials; the e-mail gives them when there is none. */
+  /** The display name: what is shown, and the initials. */
   name?: string;
 }
 
+// The owner by name, as people are shown wherever the app has the name (owner decision, User
+// Council x4/S16); the e-mail on hover.
 function OwnerName({ email, name }: OwnerNameProps) {
+  const shown = name?.trim() || email;
   return (
-    <span className="flex items-center gap-2 min-w-0">
+    <span className="flex items-center gap-2 min-w-0" title={shown !== email ? email : undefined}>
       <span
         aria-hidden
         className="flex shrink-0 items-center justify-center w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold"
       >
-        {initialsOf(name || email)}
+        {initialsOf(shown)}
       </span>
-      <span className="truncate font-medium text-slate-900">{email}</span>
+      <span className="truncate font-medium text-slate-900">{shown}</span>
     </span>
   );
 }
 
-// Who owns the customer: one of the company's users, picked in the page header and shown by e-mail (typing a
+// Who owns the customer: one of the company's users, picked in the page header and shown by name (typing a
 // name or an e-mail finds them); the customer stores the user. Locked against a stray click:
 // a double click (or Enter) opens the list, and picking or leaving it locks the field again. The choice shows
 // at once and is saved straight away; a failed save puts the previous owner back.
@@ -63,8 +66,8 @@ export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectP
   const [editing, setEditing] = useState(false);
   const ownerId = picked !== undefined ? picked : customer.salesOwnerUserId;
 
-  // Shown by e-mail as everywhere else; the owner stays shown as stored while the users load, or once it is no
-  // longer one of them.
+  // Shown by name, the e-mail where there is none; the owner stays shown as stored while the users load, or once
+  // it is no longer one of them.
   const options: UserIdOption[] = userIdOptions(users);
   if (customer.salesOwnerUserId && !users.some((user) => user.id === customer.salesOwnerUserId)) {
     options.unshift({ value: customer.salesOwnerUserId, label: customer.salesOwner });
@@ -74,6 +77,7 @@ export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectP
 
   const owner = options.find((option) => option.value === ownerId);
   const ownerEmail = owner?.label ?? "";
+  const ownerShown = owner?.name?.trim() || ownerEmail;
   const placeholder = unlinked ? `${unlinked} (not linked)` : "Select a user";
 
   const handleUnlockKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -108,8 +112,8 @@ export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectP
           tabIndex={0}
           aria-label={
             canChange
-              ? `Sales owner: ${ownerEmail || "none"}. Double-click or press Enter to change.`
-              : `Sales owner: ${ownerEmail || "none"}.`
+              ? `Sales owner: ${ownerShown || "none"}. Double-click or press Enter to change.`
+              : `Sales owner: ${ownerShown || "none"}.`
           }
           title={canChange ? "Double-click to change" : "Only a manager can change the sales owner"}
           onDoubleClick={() => canChange && setEditing(true)}

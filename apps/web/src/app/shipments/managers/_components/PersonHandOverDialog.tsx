@@ -4,7 +4,9 @@ import { useState } from "react";
 import { Modal } from "antd";
 import { useHandOverJobs, type HandOverResult } from "@/hooks/useShipmentManagerActions";
 import { handOverAllNote, type HandOverTarget } from "@/lib/managerActions";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { BTN, HINT } from "@/styles/ui";
+import { personName } from "../_lib/cockpitPeople";
 import { HandOverDialog } from "./HandOverDialog";
 
 // "Hand over all N active jobs…" on a Team row (Council Outlay 11, D11; X9): somebody is ill, on holiday or gone,
@@ -38,12 +40,15 @@ function Loaded({ handledBy, as, filter, scope, people, onClose, onDone }: Omit<
   const [target, setTarget] = useState<HandOverTarget | null>(null);
   const { listed, isLoading, isRelisting, isError } = useHandOverJobs(handledBy, filter, { as, to: target });
   const cover = as === "holidayCover";
-  const title = cover ? `Replace ${handledBy} as Holiday Cover` : `Hand over the jobs of ${handledBy}`;
+  // By name where the user has one (user council x4).
+  const names = usePeopleNames();
+  const who = personName(handledBy, names);
+  const title = cover ? `Replace ${who} as Holiday Cover` : `Hand over the jobs of ${who}`;
 
   // Before anything is chosen: still reading, could not read, or nothing left (handed over meanwhile). Once a choice
   // is made the dialog stays, with the jobs it changes - none, when they are all so already.
   if (!target && (!listed || listed.jobs.length === 0)) {
-    const none = cover ? `No active job has ${handledBy} as Holiday Cover` : `No active job has ${handledBy} in Handled By`;
+    const none = cover ? `No active job has ${who} as Holiday Cover` : `No active job has ${who} in Handled By`;
     const said = isLoading ? "Loading the jobs…" : isError ? "The jobs could not be loaded. Close and try again." : `${none}${scope ? ` (${scope})` : ""} any more.`;
     return (
       <Modal
@@ -74,7 +79,7 @@ function Loaded({ handledBy, as, filter, scope, people, onClose, onDone }: Omit<
       title={title}
       jobs={shown.jobs}
       people={people}
-      note={isError ? "The jobs this changes could not be listed. Close and try again." : handOverAllNote(shown, handledBy, scope, { as, changing: !!target })}
+      note={isError ? "The jobs this changes could not be listed. Close and try again." : handOverAllNote(shown, who, scope, { as, changing: !!target })}
       coverOnly={cover}
       onTargetChange={setTarget}
       relisting={isRelisting || (!!target && isError)}

@@ -12,7 +12,7 @@ import { isUniqueViolation } from "../../../lib/db/errors";
 import { assertCzechPhone } from "../../../lib/phone";
 
 const checkedAvizacePhone = (phone: string): string => {
-  assertCzechPhone(phone, "Avizace phone");
+  assertCzechPhone(phone, "Delivery notice phone");
   return phone;
 };
 

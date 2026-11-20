@@ -42,3 +42,18 @@ export function transitionRequest(change: StatusChange, seen?: string): controll
     ...(seen ? { expectedStatus: seen } : {}),
   };
 }
+
+/**
+ * How a quote set to Quoted by hand reached the customer. Quoted means the customer has it, yet
+ * the app sends nothing itself (E-mail and Export PDF hand it to the mail program or the printer),
+ * so a Draft could be made Quoted with nothing sent and nothing said (User Council S21). The
+ * status-change dialog asks; the answer goes into the history with the comment. Not answering is
+ * no stop: the dialog then says what Quoted means.
+ */
+export const SENT_BY_OPTIONS = ["E-mail from my mail program", "PDF handed over", "Phone", "In person", "Other"] as const;
+
+/** The comment a status change goes with, with how the quote was sent in front of it. */
+export function withSentBy(comment: string, sentBy: string | null | undefined): string {
+  const how = sentBy?.trim();
+  return [how && `How it was sent: ${how}.`, comment.trim()].filter(Boolean).join(" ");
+}

@@ -55,7 +55,7 @@ export const FAILED_REASON_LABEL: Record<FailedReason, string> = {
   REFUSED: "Refused",
   WRONG_ADDRESS: "Wrong address",
   REFUSED_DAMAGED: "Refused — damaged",
-  NO_AVIZACE: "No avizace",
+  NO_AVIZACE: "No delivery notice",
   OTHER: "Other",
 };
 

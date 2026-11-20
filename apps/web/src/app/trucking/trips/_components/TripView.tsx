@@ -8,7 +8,7 @@ import { LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useConsignment, useConsignmentDocuments, useTrip } from "@/hooks/useTruckingConsignments";
-import { CONSIGNMENT_STATUS_CHIP, TRIP_STATUS_CHIP, consignmentActions, consignmentHref } from "../../_lib/consignments";
+import { CONSIGNMENT_STATUS_CHIP, TRIP_STATUS_CHIP, consignmentActions, consignmentHref, jobCostsHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
 import { TRIP_KIND_LABEL, ltlTripOrderActions, type TripOrderActions } from "../../_lib/planning";
 import { isTruckingManager } from "../../_lib/roles";
@@ -97,7 +97,7 @@ export const TripView = ({ tripId }: TripViewProps) => {
                 <span className="text-slate-500">
                   {consignment.pickupCity} → {consignment.deliveryCity}
                 </span>
-                <Link href={`/shipments/${consignment.shipmentId}?tab=trucking`} className={`${LINK} ${REF}`}>
+                <Link href={jobCostsHref(consignment.shipmentId)} className={`${LINK} ${REF}`}>
                   {consignment.jobNumber}
                 </Link>
               </div>

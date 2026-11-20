@@ -3,8 +3,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Alert, Badge, ConfigProvider, Spin, Dropdown, Select, TimePicker, Button } from "antd";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Alert, Badge, ConfigProvider, Spin, Dropdown, Select, Tabs, TimePicker, Button } from "antd";
+import { replaceSearchParams } from "@/lib/urlParams";
 import { useToast } from "@/lib/toast";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -28,20 +29,22 @@ import {
   HomeOutlined,
 } from "@ant-design/icons";
 import { useShipment } from "@/hooks/useShipment";
-import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE_OPTIONS, jobInvoiceValue, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
 import { canChangeShipmentDetails, isDetailsManager, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
 import { isOpenInvoice } from "@/app/invoicing/_lib/openInvoices";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
-import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
+import { getCellConditionalStyle, getRowConditionalStyle, waitsForOriginalBl } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
 import { useCardFields } from "./useCardFields";
 import { CardFieldTools } from "./_components/CardFieldTools";
 import { UserPicker } from "@/components/UserPicker";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
 import { isPersonField, personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
+import { nameOf, emailBehind, personShown } from "@/app/shipments/_lib/personNames";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import Link from "next/link";
@@ -390,6 +393,10 @@ function MemberRow({
   labelW = LABEL_W,
 }: MemberRowProps) {
   const { person, when } = splitPersonStamp(value);
+  // Shown by name, the stored e-mail on hover (user council x4); picked and kept by e-mail as before.
+  const names = usePeopleNames();
+  const name = nameOf(person, names);
+  const email = emailBehind(person, names);
   const approvedByLocked = React.useContext(ApprovedByLockedContext);
   const editable = React.useContext(ShipmentDetailsEditableContext);
   // Like every field of the page: read as text, picked after a double click, closed by a click elsewhere.
@@ -398,8 +405,11 @@ function MemberRow({
     <div className={ROW}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       {fieldKey === "approvedBy" && approvedByLocked ? (
-        <span className="flex-1 min-w-0 truncate text-[13px] text-slate-900" title="The credit check is approved: only a manager can change or delete this">
-          {person || "—"}
+        <span
+          className="flex-1 min-w-0 truncate text-[13px] text-slate-900"
+          title={[email, "The credit check is approved: only a manager can change or delete this"].filter(Boolean).join(" · ")}
+        >
+          {name || "—"}
         </span>
       ) : editing ? (
         <div
@@ -430,7 +440,7 @@ function MemberRow({
           className={`flex-1 min-w-0 flex items-center rounded px-1 -mx-1 transition-colors text-[13px] ${
             editable ? "cursor-pointer hover:bg-slate-100" : ""
           }`}
-          title={editable ? "Double-click to edit" : undefined}
+          title={[email, editable ? "Double-click to edit" : ""].filter(Boolean).join(" · ") || undefined}
           onDoubleClick={editable ? () => setEditing(true) : undefined}
           // Reached with the keyboard too, as the Invoice rows are: Enter opens the picker.
           {...(editable
@@ -443,7 +453,7 @@ function MemberRow({
               }
             : {})}
         >
-          {person ? <FadeText className="text-slate-900">{person}</FadeText> : <span className={EMPTY}>—</span>}
+          {name ? <FadeText className="text-slate-900">{name}</FadeText> : <span className={EMPTY}>—</span>}
           <UnlinkedPersonMark value={person} hint={editable ? "double-click to pick one" : "only a user can be picked"} />
         </span>
       )}
@@ -474,10 +484,11 @@ function InvoiceRow({
   const toast = useToast();
   const { updateShipment } = useShipmentMutations();
   const [open, setOpen] = useState(false);
-  const value =
-    fieldKey === "commercialInvoiceValue"
-      ? shipment.civByCurrency || getFieldValue(shipment, "commercialInvoiceValue")
-      : getFieldValue(shipment, fieldKey);
+  // Invoice Value says which figure it is: the commercial invoices', or - with none - the Cargo
+  // Details lines' total (user council c4). The lines' own column is a figure of its own.
+  const civ = fieldKey === "commercialInvoiceValue" ? jobInvoiceValue({ ...shipment, commercialInvoiceValue: getFieldValue(shipment, "commercialInvoiceValue") }) : null;
+  const value = civ ? civ.value : getFieldValue(shipment, fieldKey);
+  const source = civ?.from === "invoices" ? "commercial invoices" : civ?.from === "lines" ? "Cargo Details lines" : "";
   return (
     // Customs' own field (the server leaves it open to everyone): its dialog is not disabled with a
     // read-only card around it.
@@ -500,6 +511,18 @@ function InvoiceRow({
       >
         {value || "—"}
       </span>
+      {source && (
+        <span
+          className={`${HINT} shrink-0 whitespace-nowrap`}
+          title={
+            civ?.from === "lines"
+              ? "No commercial invoice is entered: this is the total of the lines' values in Cargo Details. A double-click enters the invoices."
+              : "The total of the job's commercial invoices. The lines in Cargo Details carry values of their own."
+          }
+        >
+          {source}
+        </span>
+      )}
       <CommercialInvoicesModal
         shipment={open ? shipment : null}
         onClose={() => setOpen(false)}
@@ -523,24 +546,32 @@ interface RoRowProps {
   wrap?: boolean;
   /** Shown after the value, e.g. the mark of a person who is no user. */
   mark?: React.ReactNode;
+  /** The value's hover, e.g. the e-mail of a person shown by name. */
+  title?: string;
 }
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
-export function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: RoRowProps) {
+export function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark, title }: RoRowProps) {
   const lbl = LABEL.replace(LABEL_W, labelW);
   return (
     <div className={wrap ? ROW_TOP : ROW}>
       <span className={wrap ? `${lbl} pt-[3px]` : lbl}>{label}</span>
       {value && wrap ? (
-        <span className={`${VALUE} break-words`}>{value}</span>
+        <span className={`${VALUE} break-words`} title={title}>{value}</span>
       ) : value ? (
-        <FadeText className="flex-1 text-slate-900 tabular-nums">{value}</FadeText>
+        <FadeText className="flex-1 text-slate-900 tabular-nums" title={title}>{value}</FadeText>
       ) : (
         <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>
       )}
       {value && mark}
     </div>
   );
+}
+
+// A read-only person (Sales Person, Created By): by name, with the stored e-mail on hover (user council x4).
+function PersonRoRow({ value, ...row }: Omit<RoRowProps, "value" | "title"> & { value?: string | null }) {
+  const shown = personShown(value, usePeopleNames());
+  return <RoRow {...row} value={shown.text} title={shown.email || undefined} />;
 }
 
 // Container Number as a link: a click opens the job's Container Details tab, where each
@@ -896,7 +927,7 @@ const QUOTE_L: FieldDef[] = [
   { key: "salesPerson", label: "Sales Person", ro: true },
 ];
 const QUOTE_R: FieldDef[] = [
-  { key: "selling", label: "Total Selling Costs", ro: true },
+  { key: "selling", label: "Selling total", ro: true },
   { key: "buying", label: "Total Buying Costs", ro: true },
   { key: "profit", label: "Profit", ro: true },
 ];
@@ -1124,6 +1155,7 @@ export function ShipmentDetailContent() {
   const toast = useToast();
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipmentMutations();
   const [assignOpen, setAssignOpen] = useState(false);
@@ -1218,17 +1250,11 @@ export function ShipmentDetailContent() {
     if (activeTab === "alerts" && newAlerts > 0) markAlertsRead();
   }, [activeTab, newAlerts, markAlertsRead]);
 
-  const setActiveTab = (key: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    // The container marked on Container Details belongs to the opening from the main search.
-    params.delete(CONTAINER_PARAM);
-    if (key === "details") {
-      params.delete("tab");
-    } else {
-      params.set("tab", key);
-    }
-    router.replace(`?${params.toString()}`, { scroll: false });
-  };
+  // history.replaceState changes the URL at once (Next keeps useSearchParams in step), as on
+  // Invoicing: the tab opens on the click, with no server round trip first - a router.replace left
+  // the old tab underlined and its content shown for as long as the server took (user council O24, x2).
+  // The container marked on Container Details belongs to the opening from the main search.
+  const setActiveTab = (key: string) => replaceSearchParams(pathname, { tab: key === "details" ? null : key, [CONTAINER_PARAM]: null });
 
   // From a Container Number link: the Container Details tab, seen from the top of the page.
   // The page glides up first (easing in and out) and the tab then fades in, so the shorter
@@ -1371,6 +1397,8 @@ export function ShipmentDetailContent() {
   const commitContact = (field: ContactField, name: string, contactId: string | null) => saveShipment(contactUpdate(field, name, contactId));
 
   const styleFor = makeStyleFor(shipment);
+  // The list's red row text, which colours every value on the cards too: an original B/L not in hand.
+  const oblWaiting = waitsForOriginalBl(buildRowData(shipment));
   // The quote the shipment was sold from is the one its Sales Number names, when that is the
   // reference of a sales quote.
   const salesNumber = (shipment.salesNumber ?? "").trim();
@@ -1511,26 +1539,24 @@ export function ShipmentDetailContent() {
           <ShipmentFacts shipment={shipment} />
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-0 mt-3.5 -mb-px overflow-x-auto">
-          {visibleTabs.map((tab) => (
-            <div
-              key={tab.key}
-              // A plain tab click forgets an earlier jump to a container, so Cargo Details
-              // opens at the top like every other tab.
-              onClick={() => {
-                stopGlide();
-                setCargoFocusId(null);
-                setActiveTab(tab.key);
-              }}
-              // RecordTabs' look; its own strip for the Alerts count and the Cargo jump reset.
-              className={`px-[9px] min-[1400px]:px-3.5 2xl:px-4 py-2.5 text-[13px] whitespace-nowrap cursor-pointer transition-colors border-b-2 ${
-                activeTab === tab.key
-                  ? "font-semibold text-indigo-600 border-indigo-600"
-                  : "font-medium text-slate-500 border-transparent hover:text-slate-900"
-              }`}
-            >
-              {tab.key === "alerts" && newAlerts > 0 ? (
+        {/* Tabs: the app's tab bar (antd Tabs, as Trucking and Warehouse), on the band's bottom
+            line. Tabs that don't fit the width (12 at 1440 px) go under its "…" menu, so History is
+            always reachable (user council O24). A plain tab click forgets an earlier jump to a
+            container, so Cargo Details opens at the top like every other tab. */}
+        <Tabs
+          activeKey={activeTab}
+          // Every click, the open tab's too (onChange skips that): it still resets a jump to a container.
+          onTabClick={(key) => {
+            stopGlide();
+            setCargoFocusId(null);
+            setActiveTab(key);
+          }}
+          tabBarGutter={22}
+          className="mt-3.5 -mb-px [&_.ant-tabs-nav::before]:!border-b-0 [&>.ant-tabs-nav]:!mb-0 [&_.ant-tabs-tab]:!text-[13px] [&_.ant-tabs-tab]:!py-2.5"
+          items={visibleTabs.map((tab) => ({
+            key: tab.key,
+            label:
+              tab.key === "alerts" && newAlerts > 0 ? (
                 <Badge count={newAlerts} size="small" color="#ef4444" offset={[8, -2]} title={`${newAlerts} new`}>
                   <span className="text-inherit">{tab.label}</span>
                 </Badge>
@@ -1546,10 +1572,9 @@ export function ShipmentDetailContent() {
                 </Badge>
               ) : (
                 tab.label
-              )}
-            </div>
-          ))}
-        </div>
+              ),
+          }))}
+        />
       </div>
 
       {/* ── Tab content ── */}
@@ -1581,6 +1606,13 @@ export function ShipmentDetailContent() {
           <div className="space-y-4">
             {/* The shipment's progress through its stages */}
             <ShipmentProgress shipment={shipment} />
+            {/* What the red values mean, said once above the cards (user council M23). */}
+            {oblWaiting && (
+              <div className={HINT}>
+                <span className="font-semibold text-[#b91c1c]">Values in red</span>: this job waits for an original B/L. Its House or Master BoL Type is OBL and
+                neither Originals Received nor Telex Release Received has a day yet, as the red rows of the Shipments list.
+              </div>
+            )}
 
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_296px] 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
             {/* ── MAIN COLUMN ── the cards in the order a shipment is worked: overview, commercial parties, dates,
@@ -1626,7 +1658,10 @@ export function ShipmentDetailContent() {
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
                     { key: "freightPayableAt", label: "Freight Payable At" },
-                  ], shipment, (k) => getFieldValue(shipment, k));
+                  ], shipment, (k) => getFieldValue(shipment, k))
+                    // Left out of the card's fields, and so of "Show all (N)", on a job that is not
+                    // cancelled: its row shows nothing there ("Show all (19)" listed 18, user council O25).
+                    .filter((f) => f.key !== "cancelReason" || isCancelled(shipment.status));
 
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
@@ -1688,7 +1723,7 @@ export function ShipmentDetailContent() {
                     // from the shipment itself. It is changed in the Quote card below, so an old
                     // name here is only marked.
                     salesPerson: (
-                      <RoRow
+                      <PersonRoRow
                         label="Sales Person"
                         value={shipment.salesPerson}
                         mark={<UnlinkedPersonMark value={shipment.salesPerson} hint="pick one in the Quote card" />}
@@ -1932,7 +1967,7 @@ export function ShipmentDetailContent() {
                   const custom: Record<string, React.ReactNode> = {
                     // The shipment's own Sales Reference, edited here as in the grid; without one, the quote its costs were copied from.
                     salesNumber: <SalesReferenceRow key="salesNumber" shipment={shipment} costsQuoteRef={costsQuoteRef} onCommit={handleCommit} styleFor={styleFor} />,
-                    selling: <RoRow key="selling" label="Total Selling Costs" value={amount(costs.totals.sellTotal)} />,
+                    selling: <RoRow key="selling" label="Selling total" value={amount(costs.totals.sellTotal)} />,
                     buying: <RoRow key="buying" label="Total Buying Costs" value={amount(costs.totals.buyTotal)} />,
                     profit: <RoRow key="profit" label="Profit" value={amount(costs.totals.sellTotal - costs.totals.buyTotal)} />,
                     quoteValidity: <RoRow key="quoteValidity" label="Quote Validity" value={validUntil && formatDate(validUntil)} />,
@@ -1979,7 +2014,9 @@ export function ShipmentDetailContent() {
                   const shown = new Set(visibleCardKeys("basic", allKeys));
                   const renderCol = (col: FieldDef[]) =>
                     col.filter((f) => shown.has(f.key)).map((f) =>
-                      f.ro ? (
+                      f.key === "createdBy" ? (
+                        <PersonRoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
+                      ) : f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
                         <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} shipmentId={shipment.id} onCommit={handleCommit} styleFor={styleFor} />

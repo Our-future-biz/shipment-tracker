@@ -9,7 +9,8 @@ export type TripView = "draft" | "notConfirmed" | "inTransitToday";
 type TripFacts = Pick<TripListItem, "status" | "plannedPickupDate">;
 
 export const TRIP_TILES: { id: TripView; label: string; hint: string; danger?: boolean }[] = [
-  { id: "draft", label: "Draft", hint: "Haulier chosen; the transport order is not recorded as sent yet" },
+  // The trip state is DRAFT; it reads "Planned", as its consignment does (user council T15).
+  { id: "draft", label: "Planned", hint: "Haulier chosen; the transport order is not recorded as sent yet" },
   { id: "notConfirmed", label: "Ordered, not confirmed", hint: "Transport order recorded as sent; the haulier has not confirmed it (or rejected it)", danger: true },
   { id: "inTransitToday", label: "In transit today", hint: "On the road today: picked up and not delivered yet, or ordered for pick-up today (Prague)" },
 ];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
+import { namesOf } from "@/app/shipments/_lib/personNames";
 import { EVERYONE } from "./cockpitAddress";
 import { filterValueOf, handledByOptions, isNotUser, personFigures, personName, teamOf } from "./cockpitPeople";
 
@@ -27,6 +28,16 @@ describe("Shipments → Managers: people", () => {
   it("calls a person by the e-mail and the jobs nobody handles Nobody", () => {
     expect(personName("jana@cto.cz")).toBe("jana@cto.cz");
     expect(personName("")).toBe("Nobody");
+  });
+
+  it("calls a user by name where the users list has one, with the e-mail as the filter's value (x4)", () => {
+    const names = namesOf([{ email: "Jana@cto.cz", displayName: "Jana Nováková" }]);
+    expect(personName("jana@cto.cz", names)).toBe("Jana Nováková");
+    expect(personName("petr@old.cz", names)).toBe("petr@old.cz");
+    expect(personName("", names)).toBe("Nobody");
+    const options = handledByOptions(PEOPLE, "eva@cto.cz", names);
+    expect(options).toContainEqual({ value: "jana@cto.cz", label: "Jana Nováková · 12 active" });
+    expect(options).toContainEqual({ value: "petr@old.cz", label: "petr@old.cz · 2 active · not a user" });
   });
 
   it("marks who is not a user - never nobody, and nobody at all while the users are not known", () => {

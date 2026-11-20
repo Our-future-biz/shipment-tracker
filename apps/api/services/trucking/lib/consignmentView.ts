@@ -85,6 +85,7 @@ export function listItem(
     jobNumber: c.jobNumber,
     customerId: c.customerId,
     customerName: c.customerName,
+    reference: c.pickup.reference ?? "",
     scope: c.scope,
     serviceLevel: c.serviceLevel,
     status: c.status,

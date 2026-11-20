@@ -263,7 +263,35 @@ export function withFixedDelivery(f: ConsignmentForm, date: string | null, time:
   let windowTo = f.delivery.windowTo;
   if (date && time) windowTo = dayjs(`${date}T${time}`).toISOString();
   else if (date && ours) windowTo = null;
-  return { ...f, fixedDeliveryDate: date, delivery: { ...f.delivery, windowTo } };
+  // The delivery's time window is on the fixed date: a start typed for another day moves with it.
+  return { ...f, fixedDeliveryDate: date, delivery: withWindowDay({ ...f.delivery, windowTo }, date) };
+}
+
+// A stop's time window is a from–to time on the stop's day (user council T17: a date-range picker
+// offered days, not hours, and dropped a clicked day until OK was pressed). The pick-up's day is the
+// planned pick-up, an Express fixed date's delivery day is that date; any other delivery day is picked.
+
+/** The day (YYYY-MM-DD) the stop's window is on, or null when it has none. */
+export function windowDay(s: Pick<StopInput, "windowFrom" | "windowTo">): string | null {
+  const at = s.windowFrom ?? s.windowTo;
+  return at ? dayjs(at).format("YYYY-MM-DD") : null;
+}
+
+/** "HH:mm" of a window end, or null. */
+export const windowTime = (at: string | null): string | null => (at ? dayjs(at).format("HH:mm") : null);
+
+const atDay = (day: string, time: string | null) => (time ? dayjs(`${day}T${time}`).toISOString() : null);
+
+/** The stop with its window set to these times on `day` (a missing time leaves that end open). */
+export function withWindowTimes<S extends StopInput>(s: S, day: string, from: string | null, to: string | null): S {
+  return { ...s, windowFrom: atDay(day, from), windowTo: atDay(day, to) };
+}
+
+/** The stop with its window moved to another day, the times kept (the pick-up date or fixed date changed). */
+export function withWindowDay<S extends StopInput>(s: S, day: string | null): S {
+  const on = windowDay(s);
+  if (!day || !on || on === day) return s;
+  return withWindowTimes(s, day, windowTime(s.windowFrom), windowTime(s.windowTo));
 }
 
 function fixedDateProblems(f: ConsignmentForm): string[] {
@@ -286,7 +314,7 @@ function stopProblems(label: string, s: StopInput): string[] {
   if (s.country === "CZ" && !isValidPsc(s.postcode)) out.push(`${label}: postcode (PSČ) has 5 digits`);
   if (s.country !== "CZ" && !s.postcode.trim()) out.push(`${label}: postcode`);
   if (s.windowFrom && s.windowTo && s.windowFrom > s.windowTo) out.push(`${label}: the time window ends before it starts`);
-  if (s.avizaceRequired && !s.contactPhone.trim()) out.push(`${label}: a phone for the avizace`);
+  if (s.avizaceRequired && !s.contactPhone.trim()) out.push(`${label}: a phone for the delivery notice`);
   return out;
 }
 

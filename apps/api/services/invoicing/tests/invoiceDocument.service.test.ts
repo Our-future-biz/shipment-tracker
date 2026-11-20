@@ -454,6 +454,13 @@ describe("issue", () => {
     expect(header).toMatchObject({ shipment: { quoteNumber: "QCZ20261011004-2", routeFrom: "Shanghai (CNSHA)", routeTo: "Praha" } });
   });
 
+  it("keeps the customer's own reference on the issued invoice, for its Your ref. (B17)", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, customerReference: "TEST UC-BILL" } });
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
+    const [, header] = repo.issue.mock.calls[0]!;
+    expect(header).toMatchObject({ shipment: { customerReference: "TEST UC-BILL", personalReference: "PO-9" } });
+  });
+
   it("numbers the invoice by the reference Shipments marks final under the shipment's write turn - with the letters an edit gave it meanwhile", async () => {
     // Read as CZ00000028 when the invoice was prepared; a Load Type edit made it CZFCL… since.
     clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: "CZFCL00000028" });
@@ -728,6 +735,26 @@ describe("credit", () => {
     expect(outbox.rows.at(-1)).toMatchObject({ invoiceId: "cn1", shipmentId: SHIPMENT, payload: { invoiceId: "inv1" } });
     // no open invoice left: the job goes back to Billing / Not Invoiced
     expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]"  }, { authData: expect.objectContaining({ appWrite: true }) });
+  });
+
+  it("tells the credit note's PDF what it did to the invoice as it stood then: unpaid, it lowers what is due (B15)", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
+    repo.countOpenInvoices.mockResolvedValue(0);
+    repo.listOpenInvoicesWithSources.mockResolvedValue([]);
+    repo.getByIdForCompany.mockResolvedValue(original);
+    repo.getLines.mockResolvedValue([line]);
+    repo.markCredited.mockResolvedValue(true);
+    repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[], hooks?: { afterInsert?: (tx: unknown, invoice: unknown) => Promise<void> }) => {
+      const invoice = { ...header, id: "cn1", number: `${prefix}001`, pdfKey: "", createdAt: new Date() };
+      await hooks?.afterInsert?.({}, invoice);
+      return { invoice, lines };
+    });
+    // the credit note is not read back yet; a payment noted after it does not count
+    repo.creditNotesOf.mockResolvedValue([]);
+    receivables.paymentsOf.mockResolvedValue([{ kind: "payment", amount: "121.00", createdAt: new Date(Date.now() + 60_000), takenBackAt: null, confirmedAt: new Date() }]);
+    await invoiceDocumentService.credit("inv1", COMPANY, USER, "Wrong customer");
+    expect(receivables.paymentsOf).toHaveBeenCalledWith(COMPANY, ["inv1"]);
+    expect(pdf.render).toHaveBeenCalledWith(expect.objectContaining({ kind: "credit_note", correctsNumber: "INV2026CZ00000028-001", creditEffect: { reducedTo: 0, refund: 0 } }), expect.anything());
   });
 
   it("puts the job back to bill when another invoice is still open but a charge is no longer invoiced", async () => {

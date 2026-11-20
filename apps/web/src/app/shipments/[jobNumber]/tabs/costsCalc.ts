@@ -10,10 +10,16 @@
  * A currency without a rate is NEVER converted at 1 — such a row would be added silently at
  * the wrong amount. It is left out of the totals instead and reported in missingCurrencies,
  * so the user can be told.
+ *
+ * Each row's total in the billing currency is rounded to cents, as the row shows it, and the totals
+ * add up those rounded rows, so a total is always the sum of the figures printed above it. The CZK
+ * figures (the Report bar, the "… CZK" line under Total selling) come from those totals through the
+ * billing currency's rate, once, so the bar and the line under the total read the same haléř
+ * (User Council O19, A17, B23).
  */
 
 import { chargeLabel } from "@/lib/chargeCodes";
-import { money, num } from "@/lib/money";
+import { money, num, round2 } from "@/lib/money";
 
 // num() and money() live in the shared @/lib/money; re-exported so existing imports keep working.
 export { num, money } from "@/lib/money";
@@ -142,15 +148,6 @@ export function computeCosts(
     return (value * from) / billingRate;
   };
 
-  /** Converts to CZK. null = the rate is missing. */
-  const toCZK = (value: number, currency: string): number | null => {
-    const from = rateOf(currency, rates);
-    if (from === null) {
-      missing.add(currency);
-      return null;
-    }
-    return value * from;
-  };
 
   const buyRowTotals: Record<string, number | null> = {};
   const buyRowOver: Record<string, boolean> = {};
@@ -167,8 +164,10 @@ export function computeCosts(
     // a row = quantity × unit price, an empty quantity = 1
     const est = num(r.estAmount) * (num(r.estQty) || 1);
     const real = num(r.realAmount) * (num(r.realQty) || 1);
-    const estC = conv(est, r.estCurrency);
-    const realC = real ? conv(real, r.realCurrency) : 0;
+    const estRaw = conv(est, r.estCurrency);
+    const realRaw = real ? conv(real, r.realCurrency) : 0;
+    const estC = estRaw === null ? null : round2(estRaw);
+    const realC = realRaw === null ? null : round2(realRaw);
 
     // A row whose side in use can't be converted stays out of the totals.
     if (estC === null || realC === null) {
@@ -206,16 +205,15 @@ export function computeCosts(
 
   const sellRowTotals: Record<string, number | null> = {};
   let sellTotal = 0;
-  let sellTotalCZK = 0;
   let sellNotInvoicedTotal = 0;
   let sellNotInvoicedCount = 0;
 
   for (const r of selling) {
     const raw = num(r.amount) * (num(r.qty) || 1);
-    const inBilling = conv(raw, r.currency);
-    const inCZK = toCZK(raw, r.currency);
+    const converted = conv(raw, r.currency);
+    const inBilling = converted === null ? null : round2(converted);
 
-    if (inBilling === null || inCZK === null) {
+    if (inBilling === null) {
       sellRowTotals[r.id] = null;
       unconvertibleRowCount += 1;
       continue;
@@ -227,15 +225,21 @@ export function computeCosts(
     // An unticked row doesn't count in revenue (and so not in profit either).
     if (r.invoice) {
       sellTotal += inBilling;
-      sellTotalCZK += inCZK;
     } else {
       sellNotInvoicedTotal += inBilling;
       sellNotInvoicedCount += 1;
     }
   }
 
-  // Totals in CZK: from the billing currency back through its rate.
-  const bcToCZK = (v: number) => (billingRate === null ? 0 : v * billingRate);
+  // The sums of rounded rows, rid of the float residue of adding them up (0.1 + 0.2).
+  buyTotal = round2(buyTotal);
+  estTotal = round2(estTotal);
+  realStrictTotal = round2(realStrictTotal);
+  sellTotal = round2(sellTotal);
+  sellNotInvoicedTotal = round2(sellNotInvoicedTotal);
+
+  // Totals in CZK: from the billing currency's totals through its rate, rounded to haléř.
+  const bcToCZK = (v: number) => (billingRate === null ? 0 : round2(v * billingRate));
   const buyCZK = bcToCZK(buyTotal);
   const sellCZK = bcToCZK(sellTotal);
 
@@ -248,12 +252,13 @@ export function computeCosts(
     buyTotal,
     sellRowTotals,
     sellTotal,
-    sellTotalCZK,
+    // the same figure as the Report bar's selling total, so the two never differ by a haléř
+    sellTotalCZK: sellCZK,
     sellNotInvoicedTotal,
     sellNotInvoicedCount,
     buyCZK,
     sellCZK,
-    profitCZK: sellCZK - buyCZK,
+    profitCZK: round2(sellCZK - buyCZK),
     hasAny: buyCZK !== 0 || sellCZK !== 0,
     rxeTotal,
     rxeRows,

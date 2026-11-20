@@ -27,6 +27,6 @@ export const customerCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers" },
   async (req: CustomerCreateRequest): Promise<CustomerCreateResponse> => {
     const { companyID, role, userID } = getAuthData()!;
-    return { customer: await customerService.createFromAres(companyID, role, req.ico, req.contact, req.roles, supplierRequestOf(userID, req.fromQuote)) };
+    return { customer: await customerService.createFromAres(companyID, role, req.ico, req.contact, req.roles, supplierRequestOf(userID, req.fromQuote), userID) };
   },
 );

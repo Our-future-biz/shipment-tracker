@@ -1,5 +1,6 @@
 import type { OpsCockpitFilter, OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
 import { OPS_MODES, shipmentsManagersHref } from "./cockpitAddress";
+import { NO_NAMES, type PeopleNames } from "@/app/shipments/_lib/personNames";
 import { filterValueOf, isNotUser, personName } from "./cockpitPeople";
 
 // The Team tab of Shipments → Managers: one row per person of the server's `people` - who is named
@@ -88,12 +89,12 @@ export interface TeamRow {
 }
 
 /** The Team table's rows, in the server's order. */
-export function teamRows(people: readonly OpsCockpitPerson[], page: TeamPage): TeamRow[] {
+export function teamRows(people: readonly OpsCockpitPerson[], page: TeamPage, names: PeopleNames = NO_NAMES): TeamRow[] {
   return people.map((p) => {
     const nobody = p.handledBy === "";
     return {
       key: filterValueOf(p),
-      name: personName(p.handledBy),
+      name: personName(p.handledBy, names),
       nobody,
       notUser: isNotUser(p),
       coverOnly: !nobody && p.active <= 0,

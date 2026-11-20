@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dayjs from "dayjs";
@@ -18,7 +19,7 @@ import { businessToday, formatDate } from "@/lib/date";
 import { replaceSearchParams } from "@/lib/urlParams";
 import { BTN, CARD, EMPTY, HINT, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { amountText } from "../../_lib/receivables";
-import { CZK_TOTAL_LABEL, defaultMonthEndDay, monthEndCsv, monthEndDayOf, monthEndFileName, TAKEN_BACK_RULE } from "../_lib/monthEnd";
+import { CZK_TOTAL_LABEL, defaultMonthEndDay, monthEndCsv, monthEndDayOf, monthEndFileName, TAKEN_BACK_RULE, typedDayProblem } from "../_lib/monthEnd";
 
 // Finance → Accounts Receivable → Month-end (step 7): what customers owed at the end of a day - every invoice issued
 // on or before it, not cancelled, with something left to pay then. Per invoice in its own currency and in CZK at the
@@ -103,7 +104,16 @@ export function MonthEndView() {
   const searchParams = useSearchParams();
   const today = businessToday();
   const day = monthEndDayOf(searchParams.get("day"), today);
-  const setDay = (next: string) => replaceSearchParams(pathname, { day: next === defaultMonthEndDay(today) ? null : next });
+  // A day after today typed into the field: it isn't taken, and that is said (user council A9).
+  const [dayProblem, setDayProblem] = useState("");
+  const setDay = (next: string) => {
+    setDayProblem("");
+    replaceSearchParams(pathname, { day: next === defaultMonthEndDay(today) ? null : next });
+  };
+  const checkTyped = (e: { target: EventTarget | null }) => {
+    const typed = e.target instanceof HTMLInputElement ? e.target.value : "";
+    setDayProblem(typedDayProblem(typed, today));
+  };
 
   const query = useReceivablesAsAt(day);
   const data = query.data;
@@ -132,8 +142,19 @@ export function MonthEndView() {
                 value={dayjs(day)}
                 disabledDate={(d) => d.format("YYYY-MM-DD") > today}
                 onChange={(d) => d && setDay(d.format("YYYY-MM-DD"))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") checkTyped(e);
+                }}
+                onBlur={checkTyped}
+                status={dayProblem ? "warning" : undefined}
                 aria-label="The day"
+                aria-describedby={dayProblem ? "month-end-day-problem" : undefined}
               />
+              {dayProblem && (
+                <span id="month-end-day-problem" role="status" className="text-[12px] text-amber-700">
+                  {dayProblem}
+                </span>
+              )}
             </label>
             <button type="button" onClick={() => setDay(defaultMonthEndDay(today))} className={BTN} disabled={day === defaultMonthEndDay(today)}>
               Last month-end

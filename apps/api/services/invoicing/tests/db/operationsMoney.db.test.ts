@@ -370,3 +370,17 @@ describe("the jobs with a charge added after their invoice (lateChargeShipmentId
     expect(await snapshot(a)).toBe(before);
   });
 });
+
+describe("the selling rows an Invoicing queue view reads (listLiveByShipments)", () => {
+  it("carry the partial credit note a row came from, so 'Lines invoiced' leaves it out (user council B19)", async () => {
+    const companyId = randomUUID();
+    const shipmentId = randomUUID();
+    const charge = await sellLine(companyId, shipmentId);
+    const creditNoteId = randomUUID();
+    const creditRow = await sellLine(companyId, shipmentId, { amount: "-20.00", sourceCreditNoteId: creditNoteId });
+    const rows = await sellingCostRepository.listLiveByShipments([shipmentId], companyId);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(charge.id)?.sourceCreditNoteId ?? null).toBeNull();
+    expect(byId.get(creditRow.id)?.sourceCreditNoteId).toBe(creditNoteId);
+  });
+});

@@ -33,3 +33,29 @@ export const billedRealCostOpen = (
   invoicePaid: boolean,
   number: string = row.invoiceNumber,
 ): boolean => !invoicePaid && !!number.trim() && !row.realAmount.trim();
+
+/** The codes that come as an import and an export twin, the import's first. */
+const DIRECTION_TWINS: readonly (readonly [string, string])[] = [
+  ["customs_import", "customs_export"],
+  ["air_import_handling", "air_export_handling"],
+];
+
+/**
+ * A category list with the job's own direction first in each import / export twin: "customs" typed
+ * on an export listed the import customs-clearance fee first (user council O25). Everything else
+ * keeps its place; a job with no direction keeps the list as it is.
+ */
+export function ownDirectionFirst<T extends { value: string }>(options: T[], tradeDirection: string | null | undefined): T[] {
+  const dir = (tradeDirection ?? "").trim().toLowerCase();
+  if (dir !== "import" && dir !== "export") return options;
+  const out = [...options];
+  for (const [imp, exp] of DIRECTION_TWINS) {
+    const [own, other] = dir === "export" ? [exp, imp] : [imp, exp];
+    const o = out.findIndex((x) => x.value === own);
+    const t = out.findIndex((x) => x.value === other);
+    if (o < 0 || t < 0 || o < t) continue;
+    const [moved] = out.splice(o, 1);
+    out.splice(t, 0, moved!);
+  }
+  return out;
+}

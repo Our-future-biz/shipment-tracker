@@ -5,6 +5,7 @@ import type { TruckingSettings, TruckingSettingsInput } from "../interfaces/inte
 import { cleanSettings, readSettings, settingsChanges } from "../lib/settingsRules";
 import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
+import { emailConfigured } from "../../../lib/email";
 
 export const SETTINGS_CONFLICT = "Settings were changed by someone else. Reload and try again.";
 
@@ -13,6 +14,8 @@ const toSettings = (row: TruckingSettingsRecord | null): TruckingSettings => ({
   version: row?.version ?? 0,
   updatedAt: row ? row.updatedAt.toISOString() : null,
   updatedBy: row ? row.updatedBy || null : null,
+  // The same check that makes a transport order "recorded only": the send dialog says e-mail is off only when it is.
+  emailConfigured: emailConfigured(),
 });
 
 class SettingsService {

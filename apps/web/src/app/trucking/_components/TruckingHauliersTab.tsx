@@ -20,7 +20,7 @@ import { HAULIER_CHIPS, HAULIER_STATUS_CHIP, issueSummary, type HaulierChipId, t
 import { HaulierFilterBubbles } from "./HaulierFilterBubbles";
 import { HaulierQuickChips } from "./HaulierQuickChips";
 import { HaulierStatusChip } from "./HaulierStatusChip";
-import { byText } from "../_lib/format";
+import { LOADING_TEXT, byText } from "../_lib/format";
 
 const HAULIER_ROLE: interfaces.CustomerRole[] = ["haulier"];
 const STATUSES: HaulierStatus[] = ["blocked", "warning", "ok"];
@@ -163,7 +163,7 @@ export const TruckingHauliersTab = () => {
         onRowClick={(h) => router.push(haulierHref(h.customerId))}
         storageKey="trucking:hauliers:v1"
         exportFilePrefix="hauliers"
-        emptyText={hauliers.length ? "No hauliers match this filter." : "No hauliers yet. Add one, or give a company the Haulier role in the Customer Database."}
+        emptyText={isLoading ? LOADING_TEXT : hauliers.length ? "No hauliers match this filter." : "No hauliers yet. Add one, or give a company the Haulier role in the Customer Database."}
         resetKey={`${activeStatus ?? ""}|${activeChip?.id ?? ""}`}
         actions={
           <Tooltip title="Adds a company to the Customer Database with the Haulier role. A company already there gets the Haulier role in the CRM card of its Customer Database page.">

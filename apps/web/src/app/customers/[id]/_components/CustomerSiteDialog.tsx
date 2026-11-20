@@ -177,7 +177,7 @@ export function CustomerSiteDialog({ open, site, saving, onCancel, onSubmit }: C
           <Input placeholder="e.g. Mon–Fri 7:00–15:00" onPressEnter={handleSubmit} />
         </Form.Item>
 
-        <div className={`${LABEL_TEXT} mb-2`}>Avizace (call before arrival)</div>
+        <div className={`${LABEL_TEXT} mb-2`}>Delivery notice (call before arrival)</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
           <Form.Item name="avizaceName" label="Name">
             <Input onPressEnter={handleSubmit} />

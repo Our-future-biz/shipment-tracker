@@ -22,11 +22,12 @@ import { TruckingStatusChip } from "./TruckingStatusChip";
 import { TripTiles } from "./TripTiles";
 import { inTripView, tripViewOf, tripViewStatus, type TripView } from "../_lib/trips";
 import { RECORDED_AS_SENT } from "../_lib/transportOrder";
-import { byText, dash } from "../_lib/format";
+import { LOADING_TEXT, byText, dash } from "../_lib/format";
 
 const STATUSES = Object.keys(TRIP_STATUS_CHIP) as TripStatus[];
 
-const tripsEmptyText = (isError: boolean, filtered: boolean) => {
+const tripsEmptyText = (isLoading: boolean, isError: boolean, filtered: boolean) => {
+  if (isLoading) return LOADING_TEXT;
   if (isError) return "The trips could not be loaded.";
   if (filtered) return "No trips in this queue.";
   return "No trips yet. An FTL trip is made from its consignment (Plan trip), LTL trips on the Planning tab.";
@@ -171,7 +172,7 @@ export const TruckingTripsTab = () => {
       onRowClick={(t) => router.push(tripHref(t.id))}
       storageKey="trucking:trips:v1"
       exportFilePrefix="trips"
-      emptyText={tripsEmptyText(isError, !!view)}
+      emptyText={tripsEmptyText(isLoading, isError, !!view)}
       resetKey={view ?? ""}
     />
   );

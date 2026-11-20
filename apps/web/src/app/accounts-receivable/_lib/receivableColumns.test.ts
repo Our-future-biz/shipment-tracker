@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { CHECK_KEY, knownFilters, matchesTableFilters, normalizeColumns } from "@/lib/tableModel";
 import { CUSTOMER_TABLE, customerCellText, customerRowsOf, RECEIVABLE_DEFAULT_COLUMNS, receivableCellText, receivableTable } from "./receivableColumns";
-import { limitStates, type ReceivableCustomer, type ReceivableRow } from "./receivables";
+import { limitStates, limitUsedPct, type ReceivableCustomer, type ReceivableRow } from "./receivables";
+import { formatAmount } from "@/lib/money";
 
 const row = (over: Partial<ReceivableRow> = {}): ReceivableRow => ({
   id: "inv-1",
@@ -133,5 +134,20 @@ describe("By customer's Filter panel", () => {
     expect(matchesTableFilters(CUSTOMER_TABLE, { ...under!, d61to90: 0 }, [check("Owes over 60 days")])).toBe(false);
     expect(customerCellText(over!, "customer")).toBe("Zeta Logistik s.r.o. Over limit");
     expect(over!.key).toBe("c-zeta|CZK");
+  });
+
+  it("shows the credit limit and the share of it used, for who is close (A15)", () => {
+    const [over] = customerRowsOf([zeta], limitStates([zeta], { CZK: 1 }));
+    const [under] = customerRowsOf([{ ...zeta, creditLimit: 200000 }], limitStates([{ ...zeta, creditLimit: 200000 }], { CZK: 1 }));
+    expect(customerCellText(over!, "creditLimit")).toBe(`${formatAmount(150000, "CZK")} · 123 % used`);
+    expect(customerCellText(under!, "creditLimit")).toBe(`${formatAmount(200000, "CZK")} · 92 % used`);
+    expect(limitUsedPct(under!.limit!)).toBe(92);
+    // no limit: nothing to show
+    const [none] = customerRowsOf([{ ...zeta, creditLimit: 0 }], limitStates([{ ...zeta, creditLimit: 0 }], { CZK: 1 }));
+    expect(customerCellText(none!, "creditLimit")).toBe("");
+    // what has no rate today is named, not counted
+    const eur = { ...zeta, currency: "EUR", unpaid: 1000 };
+    const [part] = customerRowsOf([zeta, eur], limitStates([{ ...zeta, creditLimit: 200000 }, { ...eur, creditLimit: 200000 }], { CZK: 1 }));
+    expect(customerCellText(part!, "creditLimit")).toBe(`${formatAmount(200000, "CZK")} · 92 % used (without ${formatAmount(1000, "EUR")})`);
   });
 });

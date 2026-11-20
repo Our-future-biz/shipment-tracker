@@ -21,6 +21,7 @@ import {
   buySource,
   consignmentHref,
   consignmentViewOf,
+  jobCostsHref,
   marginBlocks,
   marginState,
   marginText,
@@ -33,7 +34,8 @@ import { ConsignmentQuickChips } from "./ConsignmentQuickChips";
 import { ConsignmentTiles, type ConsignmentTileId } from "./ConsignmentTiles";
 import { LabelsModal } from "./LabelsModal";
 import { TruckingStatusChip } from "./TruckingStatusChip";
-import { byNumber, byText, dash, place, pragueDate } from "../_lib/format";
+import { LOADING_TEXT, byNumber, byText, dash, place, pragueDate } from "../_lib/format";
+import { TERMS } from "../_lib/glossary";
 
 const STATUSES = Object.keys(CONSIGNMENT_STATUS_CHIP) as ConsignmentStatus[];
 const stop = (e: React.MouseEvent) => e.stopPropagation();
@@ -82,12 +84,17 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
     sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
-      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className={`${LINK} ${REF}`}>
+      <Link href={jobCostsHref(c.shipmentId)} onClick={stop} className={`${LINK} ${REF}`}>
         {c.jobNumber}
       </Link>
     ),
   },
   { key: "customer", title: "Customer", text: (c) => c.customerName, sorter: (a, b) => byText(a.customerName, b.customerName) },
+  // The customer's order number (the pick-up reference, also the road job's customer reference):
+  // what the customer asks by (user council E20).
+  { key: "reference", title: "Reference", text: (c) => c.reference, sorter: (a, b) => byText(a.reference, b.reference), render: (_, c) => c.reference || dash },
+  // FTL or LTL at a glance, so a 2-pallet order booked as a whole truck shows (user council T14).
+  { key: "scope", title: TERMS.scope, text: (c) => c.scope, filterOptions: ["FTL", "LTL"], sorter: (a, b) => byText(a.scope, b.scope) },
   {
     key: "internal",
     title: "Billing",
@@ -97,7 +104,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
   },
   {
     key: "avizace",
-    title: "Avizace",
+    title: "Delivery notice",
     text: (c) => (c.avizaceNeeded ? (c.avizaceDone ? "Recorded" : "Needed") : ""),
     filterOptions: ["Needed", "Recorded"],
     render: (_, c) => (c.avizaceNeeded ? <Badge tone={c.avizaceDone ? "g" : "a"}>{c.avizaceDone ? "Recorded" : "Needed"}</Badge> : dash),
@@ -219,7 +226,8 @@ export const TruckingConsignmentsTab = () => {
   }, [settings]);
 
   let emptyText = "No consignments yet. Create one from a job, a quote or as a new domestic order.";
-  if (isError) emptyText = "The consignments could not be loaded.";
+  if (isLoading) emptyText = LOADING_TEXT;
+  else if (isError) emptyText = "The consignments could not be loaded.";
   else if (view || status || job) emptyText = "No consignments match this filter.";
 
   return (
@@ -251,7 +259,7 @@ export const TruckingConsignmentsTab = () => {
             )}
           </>
         }
-        searchPlaceholder="Search consignment, job, customer, city, haulier…"
+        searchPlaceholder="Search consignment, job, customer, reference, city, haulier…"
         columns={columns}
         rows={consignments}
         rowKey={(c) => c.id}

@@ -10,6 +10,7 @@ import {
   lineTariffTag,
   marginState,
   marginText,
+  shownMarginState,
   pscOf,
   rateFormToRoad,
   roadInputDefaults,
@@ -162,6 +163,15 @@ describe("margin", () => {
     expect(marginState(margin())).toBe("needsApproval");
     expect(marginState(margin({ needsApproval: false, approvalValid: true }))).toBe("approved");
     expect(marginState(margin({ belowFloor: false, needsApproval: false }))).toBe("ok");
+  });
+
+  it("is not called below the floor while no line has a price (User Council S20)", () => {
+    const unpriced = margin({ sellingCzk: 0, buyingCzk: 0, marginCzk: 0, marginPercent: null });
+    expect(shownMarginState(unpriced)).toBe("ok");
+    expect(shownMarginState(margin())).toBe("needsApproval");
+    // Bought but not sold yet, or not worked out: said.
+    expect(shownMarginState(margin({ sellingCzk: 0 }))).toBe("needsApproval");
+    expect(shownMarginState({ ...unpriced, problem: "No ČNB rate for EUR" })).toBe("needsApproval");
   });
 
   it("asks for a reason of 3 to 500 characters", () => {

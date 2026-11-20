@@ -13,7 +13,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
 import { amountInBox, normaliseAmount } from "@/lib/money";
 import { onAmountBlur } from "./amountBox";
-import { billedRealCostOpen, closesRow } from "./costRowRules";
+import { billedRealCostOpen, closesRow, ownDirectionFirst } from "./costRowRules";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
@@ -219,7 +219,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   // Rows, rates and totals come from the shared hook, so the Quote card on the detail page
   // shows exactly the same figures as this tab.
-  const { data, billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
+  const { data, costsLoading, billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
   const canSeeConcepts = useCanSeeConcepts();
 
   // Rows Trucking writes (a consignment's sell, its trips' buy, …) are kept by Trucking: shown
@@ -880,7 +880,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       placeholder="—"
                       variant="borderless"
                       className={`${CATEGORY_SELECT}${locked || fromQuote ? ` ${CATEGORY_SELECT_LOCKED}` : ""}`}
-                      options={chargeOptions(r.category, shipment.freightMode)}
+                      options={ownDirectionFirst(chargeOptions(r.category, shipment.freightMode), shipment.tradeDirection)}
                       showSearch
                       optionFilterProp="label"
                       popupMatchSelectWidth={380}
@@ -1028,7 +1028,15 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 </tr>
                 );
               })}
-              {!buyRows.length && (
+              {/* While the costs are on their way, not "No buying costs yet" (user council x2). */}
+              {!buyRows.length && costsLoading && (
+                <tr>
+                  <td colSpan={13} className={`px-4 py-8 text-center ${HINT}`}>
+                    Loading costs…
+                  </td>
+                </tr>
+              )}
+              {!buyRows.length && !costsLoading && (
                 <tr>
                   <td colSpan={13} className="px-4 py-8 text-center">
                     <button
@@ -1220,7 +1228,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       placeholder="—"
                       variant="borderless"
                       className={`${CATEGORY_SELECT}${locked ? ` ${CATEGORY_SELECT_LOCKED}` : ""}`}
-                      options={chargeOptions(r.category, shipment.freightMode)}
+                      options={ownDirectionFirst(chargeOptions(r.category, shipment.freightMode), shipment.tradeDirection)}
                       showSearch
                       optionFilterProp="label"
                       popupMatchSelectWidth={380}
@@ -1309,7 +1317,14 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 </tr>
                 );
               })}
-              {!sellRows.length && (
+              {!sellRows.length && costsLoading && (
+                <tr>
+                  <td colSpan={8} className={`px-4 py-8 text-center ${HINT}`}>
+                    Loading costs…
+                  </td>
+                </tr>
+              )}
+              {!sellRows.length && !costsLoading && (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center">
                     <button
@@ -1458,11 +1473,13 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         >
           <span>Report</span>
           <DownOutlined className={`text-[10px] transition-transform ${reportOpen ? "rotate-180" : ""}`} />
+          {/* The bar's figures are in CZK whatever the billing currency, so it says so. Selling is the
+              job's revenue, so "Selling total", not "costs" (User Council x6). */}
           <span className="ml-auto flex items-center gap-5 normal-case tracking-normal">
             {[
-              { k: "Buying costs", v: t.hasAny ? money(t.buyCZK) : "—" },
-              { k: "Selling costs", v: t.hasAny ? money(t.sellCZK) : "—" },
-              { k: "Profit", v: t.hasAny ? signed(t.profitCZK) : "—", profit: true },
+              { k: "Buying costs", v: t.hasAny ? `${money(t.buyCZK)} CZK` : "—" },
+              { k: "Selling total", v: t.hasAny ? `${money(t.sellCZK)} CZK` : "—" },
+              { k: "Profit", v: t.hasAny ? `${signed(t.profitCZK)} CZK` : "—", profit: true },
             ].map((x) => (
               <span key={x.k} className="flex items-center gap-2">
                 <span className="text-[12px] font-semibold text-slate-400">{x.k}</span>
@@ -1485,7 +1502,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     vsQuoteCZK > 0.004 ? "text-emerald-400" : vsQuoteCZK < -0.004 ? "text-red-400" : "text-slate-300"
                   }`}
                 >
-                  {signed(vsQuoteCZK)}
+                  {signed(vsQuoteCZK)} CZK
                 </span>
               </span>
             )}
@@ -1507,7 +1524,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
               <tbody>
                 {[
                   { label: "Buying costs", czk: t.buyCZK, signed: false },
-                  { label: "Selling costs", czk: t.sellCZK, signed: false },
+                  { label: "Selling total", czk: t.sellCZK, signed: false },
                   { label: "Profit", czk: t.profitCZK, signed: true },
                 ].map((row) => (
                   <tr key={row.label} className={row.signed ? "font-bold" : ""}>

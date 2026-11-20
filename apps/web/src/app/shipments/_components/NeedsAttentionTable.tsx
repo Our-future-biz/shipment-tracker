@@ -19,6 +19,10 @@ const VISIBLE_ROWS = 3;
 type CardKey = "within24h" | "within48h";
 
 interface CardDef {
+  /** What the card counts: deadlines only, so it isn't read as Shipments → Managers' URGENT, which counts every signal (user council M3 / M14). */
+  title: string;
+  /** The dialog's title. */
+  dialog: string;
   /** When it is due, said after the count: the windows are working days, as on Shipments → Managers. */
   window: string;
   /** The same inside a sentence: "Nothing due …", "3 to finish …". */
@@ -29,15 +33,19 @@ interface CardDef {
 
 const CARDS: Record<CardKey, CardDef> = {
   within24h: {
+    title: "Urgent deadlines",
+    dialog: "Urgent deadlines",
     window: "today or the next working day",
     due: "today or the next working day",
-    linkLabel: "Click here to show URGENT shipment",
+    linkLabel: "Click here to show the urgent deadlines",
     tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" },
   },
   within48h: {
+    title: "Deadlines coming",
+    dialog: "Deadlines coming",
     window: "the two working days after",
     due: "in the two working days after",
-    linkLabel: "Click here to show Needs Attention shipment",
+    linkLabel: "Click here to show the deadlines coming",
     tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" },
   },
 };
@@ -81,7 +89,9 @@ const DIALOG_COLUMNS: Record<CardKey, ColumnsType<ShipmentDueItem>> = { within24
 
 // Shipments with a deadline coming up, shown above the grid so they cannot be missed: one card
 // for what is due today or the next working day (and every cut-off missed or overdue), one for
-// the two working days after - the windows and the rules of Shipments → Managers. Each card
+// the two working days after - the windows and the deadline rules of Shipments → Managers. They
+// count deadlines only, and say so: the cockpit's URGENT and ATTENTION count every signal (a late
+// departure, nobody in Handled By, …), so its numbers are larger (user council M3 / M14). Each card
 // previews its soonest shipments; its link opens the full list in a dialog.
 export function NeedsAttentionTable() {
   const router = useRouter();
@@ -91,7 +101,7 @@ export function NeedsAttentionTable() {
   const rowProps = (r: ShipmentDueItem) => ({ onClick: () => router.push(`/shipments/${r.id}`) });
 
   const renderCard = (key: CardKey) => {
-    const { window, due, linkLabel, tone } = CARDS[key];
+    const { title, window, due, linkLabel, tone } = CARDS[key];
     const shipments = lists[key];
     const urgent = shipments.length > 0;
     const showAllLink = (
@@ -109,7 +119,7 @@ export function NeedsAttentionTable() {
       <section className={`bg-white border rounded-xl shadow-sm overflow-clip ${urgent ? tone.border : "border-slate-200"}`}>
         <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${urgent ? tone.header : "bg-slate-50"}`}>
           <WarningFilled className={urgent ? tone.icon : "text-slate-300"} />
-          <h3 className={CARD_TITLE}>Needs Attention</h3>
+          <h3 className={CARD_TITLE}>{title}</h3>
           <span
             aria-label={lists.isError ? "Count unavailable" : `${shipments.length} shipments`}
             className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${
@@ -170,7 +180,7 @@ export function NeedsAttentionTable() {
         onCancel={() => setOpenCard(null)}
         title={
           <div>
-            <div className={MODAL_TITLE}>{openCard === "within24h" ? "URGENT shipments" : "Needs Attention shipments"}</div>
+            <div className={MODAL_TITLE}>{openCard ? CARDS[openCard].dialog : ""}</div>
             {openCard && (
               <div className={`${HINT} font-normal mt-0.5`}>
                 {openList.length} to finish {CARDS[openCard].due}

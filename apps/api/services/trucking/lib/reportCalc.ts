@@ -268,7 +268,7 @@ const FAILED_REASON_LABELS: Record<string, string> = {
   REFUSED: "Refused",
   WRONG_ADDRESS: "Wrong address",
   REFUSED_DAMAGED: "Refused, damaged",
-  NO_AVIZACE: "No avizace",
+  NO_AVIZACE: "No delivery notice",
   OTHER: "Other",
 };
 
@@ -481,12 +481,12 @@ export function avizaceDoneKpi(groups: DeliveredGroup[]): TruckingKpi {
   const before = sum(groups, (g) => g.avizaceBefore);
   return {
     key: "avizaceDone",
-    label: "Avizace done",
+    label: "Delivery notice done",
     value: needed ? round(pct(before, needed)!) : null,
     unit: "%",
     n: needed,
-    measured: "Of the consignments delivered in the period that needed an avizace (B2C, or the delivery stop asks for one): the share with an avizace recorded before the delivery.",
-    notMeasured: needed ? "" : "No consignment delivered in this period needed an avizace",
+    measured: "Of the consignments delivered in the period that needed a delivery notice (B2C, or the delivery stop asks for one): the share with a delivery notice recorded before the delivery.",
+    notMeasured: needed ? "" : "No consignment delivered in this period needed a delivery notice",
     breakdown: [part("Recorded before delivery", before, "consignments", needed, 0), part("Missing or late", needed - before, "consignments", needed, 0)],
   };
 }

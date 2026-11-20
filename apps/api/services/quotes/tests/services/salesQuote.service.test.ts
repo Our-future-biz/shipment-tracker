@@ -562,6 +562,28 @@ describe("the reference takes the letters of the Freight Mode", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  it("not once the quote went out (Q33): Quoted or Feedback, also reopened as a Draft or revised in place after it was sent", async () => {
+    const SENT_ON = new Date("2026-10-08T09:00:00Z");
+    for (const sent of [
+      { status: "quoted" },
+      { status: "feedback" },
+      { status: "draft", sentAt: SENT_ON, firstSentAt: SENT_ON },
+      { status: "revised", sentAt: SENT_ON, firstSentAt: SENT_ON },
+    ]) {
+      repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, ...sent, data: withMode("Air") }));
+      await expect(salesQuoteService.save(martin, REF, {}, 3)).resolves.toMatchObject({ quoteNumber: REF });
+    }
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it("on a revision not sent yet, and on a quote Ready to Send", async () => {
+    for (const open of [{ status: "revised" }, { status: "ready_to_send" }]) {
+      repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, ...open, data: withMode("Air") }));
+      await salesQuoteService.save(martin, REF, {}, 3);
+    }
+    expect(rename.mock.calls.map((call) => call[2])).toEqual([`QCZAIR${REF.slice(3)}`, `QCZAIR${REF.slice(3)}`]);
+  });
+
   it("not when it already has them, nor when the quote went away in the same moment", async () => {
     repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, quoteNumber: LCL, data: withMode("Sea LCL") }));
     await salesQuoteService.save(martin, REF, {}, 3);

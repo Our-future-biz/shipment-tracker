@@ -20,8 +20,25 @@ export function quoteAddressText(address: AddressParts): string {
   return [address.label.trim(), address.street.trim(), place, countryName(address.country.trim())].filter(Boolean).join(", ");
 }
 
-/** The customer's addresses of a type (among others) as the field offers them, each once, in the Customer Database's order. */
-export function quoteAddressOptions(addresses: readonly interfaces.AddressItem[], type: QuoteAddressType): { value: string; label: string }[] {
-  const texts = addresses.filter((a) => a.types.includes(type)).map(quoteAddressText);
-  return [...new Set(texts)].filter(Boolean).map((text) => ({ value: text, label: text }));
+/** One address the field offers; `registered` when it is offered as the customer's registered address only. */
+export interface QuoteAddressOption {
+  value: string;
+  label: string;
+  registered: boolean;
+}
+
+/**
+ * The customer's addresses of a type (among others) as the field offers them, each once, in the
+ * Customer Database's order; then its registered address, where that is not one of them already.
+ * A customer found in the register comes with its registered address only, and its pickup is
+ * often there: the field offers it rather than nothing (User Council S14). The quote keeps the
+ * address's text alone, without the "(registered address)" the list names it by.
+ */
+export function quoteAddressOptions(addresses: readonly interfaces.AddressItem[], type: QuoteAddressType): QuoteAddressOption[] {
+  const own = [...new Set(addresses.filter((a) => a.types.includes(type)).map(quoteAddressText))].filter(Boolean);
+  const registered = [...new Set(addresses.filter((a) => a.types.includes("Registered")).map(quoteAddressText))].filter((text) => text && !own.includes(text));
+  return [
+    ...own.map((text) => ({ value: text, label: text, registered: false })),
+    ...registered.map((text) => ({ value: text, label: `${text} (registered address)`, registered: true })),
+  ];
 }

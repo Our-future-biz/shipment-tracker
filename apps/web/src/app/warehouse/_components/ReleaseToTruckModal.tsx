@@ -19,7 +19,7 @@ import { overrideReasonOk, PASS_CHECKING, RELEASE_ON_APPROVAL_LABEL, RELEASE_ON_
 import type { MoveOutcome } from "../_lib/moveOutcome";
 import { everyHeldOnApproval, mayBeStopped, overrideReasons, releaseBlocked, releaseStanding, type ReleaseJob } from "../_lib/releaseReasons";
 
-// Asked when shipments are released from Stock (Vyskladnit): do they leave on a new truck
+// Asked when shipments are released from Stock (Release from Stock): do they leave on a new truck
 // or on one that is already being loaded? A new truck gets the next TCZ reference when the
 // release is confirmed; the trucks on offer are the ones shipments in Out Warehouse are on.
 // The plate number is not asked for here; it is filled in on the truck's shipments.

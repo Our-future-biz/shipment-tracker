@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The service runs for real against a stand-in repository (no database under vitest).
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 const repo = vi.hoisted(() => ({ find: vi.fn(), save: vi.fn() }));
 vi.mock("../repositories/settings.repository", () => ({ settingsRepository: repo }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
@@ -22,7 +23,8 @@ beforeEach(() => {
 
 describe("trucking settings", () => {
   it("gives the defaults at version 0 before anything is saved", async () => {
-    expect(await settingsService.get(C)).toEqual({ ...DEFAULT_SETTINGS, version: 0, updatedAt: null, updatedBy: null });
+    // emailConfigured: the server has no e-mail key (lib/email), so a transport order is recorded only.
+    expect(await settingsService.get(C)).toEqual({ ...DEFAULT_SETTINGS, version: 0, updatedAt: null, updatedBy: null, emailConfigured: false });
   });
 
   it("lets only a manager, admin or superadmin save", async () => {

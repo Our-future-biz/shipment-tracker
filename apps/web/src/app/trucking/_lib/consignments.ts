@@ -14,6 +14,12 @@ import { formatMoney, formatPercent, formatQty } from "./tariffs";
 import { consignmentHref, jobConsignmentsHref, tripHref } from "@/lib/truckingLinks";
 export { consignmentHref, jobConsignmentsHref, tripHref };
 
+/**
+ * The job of a consignment, opened on its Costs Breakdown, where Trucking's selling and buying lines
+ * land. The job page has no Trucking tab: "?tab=trucking" fell back to Shipment Details (user council T12).
+ */
+export const jobCostsHref = (shipmentId: string) => `/shipments/${encodeURIComponent(shipmentId)}?tab=costs`;
+
 // Pure helpers of the consignment and trip screens: status words and colours, the lifecycle, what
 // needs attention, and which actions a consignment allows now (and why not). Tested in
 // consignments.test.ts.
@@ -40,7 +46,8 @@ export const CONSIGNMENT_STATUS_CHIP: Record<ConsignmentStatus, StatusChip> = {
 };
 
 export const TRIP_STATUS_CHIP: Record<TripStatus, StatusChip> = {
-  DRAFT: { label: "Draft", tone: "", hint: "Haulier chosen; the transport order is not recorded as sent yet" },
+  // "Planned", as its consignment reads in this state (user council T15: "Draft" beside "Planned" read as two states).
+  DRAFT: { label: "Planned", tone: "", hint: "Haulier chosen; the transport order is not recorded as sent yet" },
   ORDERED: { label: "Ordered", tone: "a", hint: "Transport order recorded as sent (you send the PDF to the haulier); waiting for the haulier to confirm" },
   CONFIRMED: { label: "Confirmed", tone: "i", hint: "The haulier confirmed the transport order" },
   IN_TRANSIT: { label: "In transit", tone: "b", hint: "Picked up, not yet delivered" },
@@ -159,7 +166,7 @@ export const CONSIGNMENT_CHIPS: { id: ChipView; label: string; hint: string; dan
   { id: "attention", label: "Needs attention", hint: "Something is late or missing: no trip close to the pick-up, no confirmation, no POD, a margin waiting for approval", danger: true },
   { id: "pickupToday", label: "Pick-up today", hint: "Planned to be picked up today (Prague)" },
   { id: "deliveryToday", label: "Delivery today", hint: "Promised for delivery today (Prague)" },
-  { id: "avizacePending", label: "Avizace pending", hint: "B2C or the delivery stop asks for avizace, and none is recorded yet" },
+  { id: "avizacePending", label: "Delivery notice pending", hint: "B2C or the delivery stop asks for a delivery notice, and none is recorded yet" },
   { id: "openExceptions", label: "Open exceptions", hint: "A delivery exception not yet decided and closed — keeps the consignment from Ready to bill", danger: true },
   { id: "podMissing", label: "POD missing", hint: "Delivered more than 2 working days ago, and the proof of delivery is not in yet", danger: true },
   { id: "readyToBill", label: "Ready to bill", hint: "Every consignment of the job has its POD" },

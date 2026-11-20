@@ -7,6 +7,8 @@ import { useNudge, type NudgeResult } from "@/hooks/useShipmentManagerActions";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday, formatDate } from "@/lib/date";
 import { nextWorkingDay, NUDGE_MAX_TEXT, nudgeProblem, nudgeToldText } from "@/lib/managerActions";
+import { nameOf } from "@/app/shipments/_lib/personNames";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { BTN, BTN_PRIMARY, HINT, LABEL_TEXT, REF } from "@/styles/ui";
 
 // A manager's nudge (Council Outlay 11, D17): a to-do on the job with a due date, and a line in the job's chat
@@ -45,6 +47,8 @@ function Dialog({ job, onClose, onDone }: { job: NudgeJob; onClose(): void; onDo
   const textId = useId();
   const dueId = useId();
 
+  // By name where the user has one (user council x4).
+  const names = usePeopleNames();
   const problem = nudgeProblem({ text, dueDate, handledBy: job.handledBy }, today);
   const nobody = !job.handledBy.trim();
   const sending = nudge.isPending;
@@ -119,7 +123,7 @@ function Dialog({ job, onClose, onDone }: { job: NudgeJob; onClose(): void; onDo
         <div className={nobody ? "text-[13px] font-medium text-red-700" : HINT}>
           {nobody
             ? "Nobody is in Handled By on this job: name somebody in Handled By first."
-            : `A to-do on the job and a line in its chat that tags ${job.handledBy.trim()} and the Holiday Cover, if there is one. No e-mail.`}
+            : `A to-do on the job and a line in its chat that tags ${nameOf(job.handledBy, names)} and the Holiday Cover, if there is one. No e-mail.`}
         </div>
         <div>
           <label htmlFor={textId} className={`block mb-1 ${LABEL_TEXT}`}>

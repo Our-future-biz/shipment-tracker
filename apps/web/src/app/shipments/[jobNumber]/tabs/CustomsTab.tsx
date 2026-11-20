@@ -307,8 +307,8 @@ export function CustomsTab({
   const filePreview = useFilePreview();
   const [search, setSearch] = useState("");
   const { updateShipment } = useShipmentMutations();
-  // Invoice Value is the total of the cargo lines per currency whenever they
-  // carry values; the shipment's own field is only the fallback.
+  // Invoice Value is the total of the commercial invoices per currency whenever there are
+  // some; the shipment's own field is the fallback, then the Cargo Details lines' total (InvoiceRow, c4).
   const cardShipment = useMemo(
     () => (shipment.civByCurrency ? { ...shipment, commercialInvoiceValue: shipment.civByCurrency } : shipment),
     [shipment],
@@ -713,7 +713,10 @@ export function CustomsTab({
               {/* .empty */}
               {filtered.length === 0 && (
                 <div className="px-4 py-9 text-center text-slate-400 text-[13px]">
-                  {documents.length === 0
+                  {/* While the files are on their way, not "No … yet" (user council x2). */}
+                  {documents.length === 0 && documentsLoading
+                    ? "Loading documents…"
+                    : documents.length === 0
                     ? `No ${group.title.toLowerCase()} yet — files marked ${group.types.join(" or ")} in the Documents tab show up here.`
                     : `No file matches “${search}”.`}
                 </div>

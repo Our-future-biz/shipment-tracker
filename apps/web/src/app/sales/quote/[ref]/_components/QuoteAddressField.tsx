@@ -37,7 +37,7 @@ function addressPlaceholder({ linked, isLoading, isError, kind, offered }: Addre
 }
 
 // The quote's Pickup or Delivery Address: one of the customer's Pickup (Delivery) addresses in the
-// Customer Database, nothing typed by hand. An address the quote already has that is not one of
+// Customer Database, or its registered address, nothing typed by hand. An address the quote already has that is not one of
 // them (typed before, copied from a shipment, or of another customer) stays shown until another
 // is picked or it is cleared, and says so.
 export function QuoteAddressField({ label, type, customerId, value, onChange }: QuoteAddressFieldProps) {
@@ -48,6 +48,8 @@ export function QuoteAddressField({ label, type, customerId, value, onChange }: 
   // not be read, nothing is known to set the value apart from.
   const stray = !!value && !!customerId && !isLoading && !isError && !options.some((o) => o.value === value);
   const placeholder = addressPlaceholder({ linked: !!customerId, isLoading, isError, kind, offered: options.length > 0 });
+  // Only the registered address to offer: the link to add a real pickup (delivery) address stays.
+  const noneOfKind = !options.some((o) => !o.registered);
   const addHere = customerId ? `/customers/${customerId}?tab=addresses` : null;
 
   return (
@@ -64,11 +66,11 @@ export function QuoteAddressField({ label, type, customerId, value, onChange }: 
         optionFilterProp="label"
         value={value || undefined}
         onChange={(v?: string) => onChange(v ?? "")}
-        options={stray ? [{ value, label: value }, ...options] : options}
+        options={[...(stray ? [{ value, label: value }] : []), ...options.map(({ value: text, label: name }) => ({ value: text, label: name }))]}
         notFoundContent={<span className="text-slate-500">No {kind} address of the customer matches</span>}
       />
       {stray && <span className="text-[11px] text-amber-700">Not one of the customer&apos;s {kind} addresses in the Customer Database: pick one of them.</span>}
-      {addHere && !isLoading && !isError && (stray || !options.length) && (
+      {addHere && !isLoading && !isError && (stray || noneOfKind) && (
         // A new tab: the quote's unsaved changes stay where they are.
         <a href={addHere} target="_blank" rel="noreferrer" className={`text-[11px] ${LINK_CLASS}`}>
           Add a {kind} address in the Customer Database

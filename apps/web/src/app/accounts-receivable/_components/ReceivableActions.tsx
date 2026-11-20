@@ -37,7 +37,7 @@ import {
   reminderMailOf,
   type ReminderDraft,
   waitingTotal,
-  writeOffPrefill,
+  writeOffStart,
   writeOffProblem,
   writeOffRoom,
   type ActionState,
@@ -197,11 +197,13 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
   row: ReceivableRow;
   today: string;
   saving: boolean;
-  onSave: (input: { paidOn: string; amount: number; note: string; idempotencyKey: string }) => void;
+  onSave: (input: { paidOn: string; amount: number; bankRef: string; note: string; idempotencyKey: string }) => void;
   onCancel: () => void;
 }) {
   const [paidOn, setPaidOn] = useState(today < row.issueDate ? row.issueDate : today);
   const [amount, setAmount] = useState(fullAmountText(row.leftToPay));
+  // The bank's reference, as the dialog for several invoices takes it (user council A11).
+  const [bankRef, setBankRef] = useState("");
   const [note, setNote] = useState("");
   // One key per day and amount while the form is open: a double click or a retry after a lost answer notes one
   // payment, never two, and a payment changed after a lost answer is a new one, never a replay of the first.
@@ -218,8 +220,8 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
   return (
     <FormBox>
       <div className={HINT}>
-        Notes what the customer paid, as the bank statement or the accounting system shows it (D11). If you read the bank statement, confirm the payment there instead.
-        It starts with the whole of what is left to pay; a part payment leaves the rest unpaid (D12).
+        Notes what the customer paid, as the bank statement or the accounting system shows it. If you read the bank statement, confirm the payment there instead.
+        It starts with the whole of what is left to pay; a part payment leaves the rest unpaid.
       </div>
       <div className="flex flex-wrap gap-3">
         <label className="flex flex-col">
@@ -257,6 +259,12 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
           />
           <span className="text-[12px] text-slate-500 mt-1">Left to pay {amountText(row.leftToPay, row.currency)}</span>
         </label>
+        <label className="flex flex-col flex-1 min-w-[200px]">
+          <span className={`${LABEL_TEXT} mb-1`}>
+            Bank reference <span className="font-normal normal-case text-slate-500">(optional)</span>
+          </span>
+          <Input value={bankRef} onChange={(e) => setBankRef(e.target.value)} maxLength={140} aria-label="Bank reference" placeholder="As on the bank statement" />
+        </label>
       </div>
       <TextField label="Note" value={note} onChange={setNote} maxLength={MAX_REASON} optional />
       <FieldProblem id={problemId} text={problem} />
@@ -266,7 +274,7 @@ function PaymentForm({ row, today, saving, onSave, onCancel }: {
         onSave={() => {
           if (value === null) return;
           const paid = round2(value);
-          onSave({ paidOn, amount: paid, note: note.trim(), idempotencyKey: paymentIdempotencyKey(keys.current, paidOn, paid) });
+          onSave({ paidOn, amount: paid, bankRef: bankRef.trim(), note: note.trim(), idempotencyKey: paymentIdempotencyKey(keys.current, paidOn, paid) });
         }}
         onCancel={onCancel}
       />
@@ -292,7 +300,7 @@ function WriteOffForm({ kind, row, waiting, today, saving, onSave, onCancel }: {
   onCancel: () => void;
 }) {
   const word = kind === "write_off" ? "write-off" : "bank charge";
-  const [amount, setAmount] = useState(writeOffPrefill(row.leftToPay, waiting));
+  const [amount, setAmount] = useState(writeOffStart(kind, row.leftToPay, waiting));
   const [reason, setReason] = useState("");
   const problem = writeOffProblem({ kind, amountText: amount, reason, leftToPay: row.leftToPay, waiting, currency: row.currency });
   const value = parseMoney(amount);
@@ -352,7 +360,7 @@ function PromiseForm({ today, canAct, saving, onSave, onCancel }: { today: strin
   return (
     <FormBox>
       <div className={HINT}>
-        The due day stays as invoiced: the promised day stands beside it, and the row says when it has passed (D16).
+        The due day stays as invoiced: the promised day stands beside it, and the row says when it has passed.
         {!canAct && ` At most ${PROMISE_MAX_DAYS} days ahead: a manager notes a later one.`}
       </div>
       <label className="flex flex-col">
@@ -415,7 +423,7 @@ function ReminderForm({ row, canAct, reminderTo, drafts, paymentWaiting, saving,
   return (
     <FormBox>
       <div className={HINT}>
-        Write and send the reminder from your own mail program, then record it here: the app sends nothing (D17).
+        Write and send the reminder from your own mail program, then record it here: the app sends nothing.
         {!canAct && " The final notice (reminder 3) is sent by a manager."}
       </div>
       {paymentWaiting && <Alert type="warning" showIcon message={`${paymentWaiting.text}. The customer may have paid: check it before you send a reminder.`} />}
@@ -533,14 +541,14 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
         )}
       </div>
       <BlockedReasons reasons={reasons} idOf={reasonId} />
-      {!canAct && (row.status === "unpaid" || row.status === "part_paid") && <div className={`mt-2 ${HINT}`}>A manager notes payments, write-offs and bank charges, and takes them back (D5, D13).</div>}
+      {!canAct && (row.status === "unpaid" || row.status === "part_paid") && <div className={`mt-2 ${HINT}`}>A manager notes payments, write-offs and bank charges, and takes them back.</div>}
 
       {form === "payment" && (
         <PaymentForm
           row={row}
           today={today}
           saving={saving}
-          onSave={(p) => void run(actions.notePayment.mutateAsync({ ...target, ...p, note: p.note || undefined }), `Payment of ${amountText(p.amount, row.currency)} noted on ${number}`)}
+          onSave={(p) => void run(actions.notePayment.mutateAsync({ ...target, ...p, bankRef: p.bankRef || undefined, note: p.note || undefined }), `Payment of ${amountText(p.amount, row.currency)} noted on ${number}`)}
           onCancel={() => setForm(null)}
         />
       )}
@@ -589,7 +597,7 @@ export function ReceivableActions({ detail, actions }: { detail: ReceivableDetai
       {form === "dispute" && (
         <ReasonForm
           label="What the customer disputes"
-          explain="It stays owed and overdue, and no reminder goes out while it is disputed (D16). The amount changes only through a credit note, issued in Invoicing."
+          explain="It stays owed and overdue, and no reminder goes out while it is disputed. The amount changes only through a credit note, issued in Invoicing."
           saveLabel={`Mark ${number} disputed`}
           maxLength={MAX_NOTE}
           saving={saving}

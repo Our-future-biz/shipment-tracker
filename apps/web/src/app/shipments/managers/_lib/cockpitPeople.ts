@@ -1,4 +1,5 @@
 import type { OpsCockpitPerson } from "@/hooks/useShipmentsManagersCockpit";
+import { NO_NAMES, nameOf, type PeopleNames } from "@/app/shipments/_lib/personNames";
 import { EVERYONE, NOBODY } from "./cockpitAddress";
 
 // The people of Shipments → Managers: who the Handled By filter is picked from, and the Team line.
@@ -11,8 +12,11 @@ import { EVERYONE, NOBODY } from "./cockpitAddress";
 /** Whether a person handles a job here: the Handled By filter and the Team line are for those. */
 const handlesJobs = (person: Pick<OpsCockpitPerson, "active">): boolean => person.active > 0;
 
-/** How a person is called: the e-mail, as Handled By stores it. */
-export const personName = (handledBy: string): string => handledBy || "Nobody";
+/**
+ * How a person is called: their name when they are a user who has one (user council x4), else the
+ * e-mail as Handled By stores it.
+ */
+export const personName = (handledBy: string, names: PeopleNames = NO_NAMES): string => nameOf(handledBy, names) || "Nobody";
 
 /**
  * Whether Handled By names somebody who is no longer a user. Never for "" (nobody is not a
@@ -41,14 +45,14 @@ export const filterValueOf = (person: Pick<OpsCockpitPerson, "handledBy">): stri
  * address names who is not among them (no active job of this mode and direction, or the answer
  * is not there yet) is listed too, so the select always shows who the page is narrowed to.
  */
-export function handledByOptions(people: readonly OpsCockpitPerson[], handledBy: string | null): { value: string; label: string }[] {
+export function handledByOptions(people: readonly OpsCockpitPerson[], handledBy: string | null, names: PeopleNames = NO_NAMES): { value: string; label: string }[] {
   const named = people.filter((p) => p.handledBy !== "" && handlesJobs(p));
   const nobody = people.find((p) => p.handledBy === "" && handlesJobs(p));
   const listed = new Set([EVERYONE, NOBODY, ...named.map((p) => p.handledBy)]);
-  const missing = handledBy && !listed.has(handledBy) ? [{ value: handledBy, label: handledBy }] : [];
+  const missing = handledBy && !listed.has(handledBy) ? [{ value: handledBy, label: personName(handledBy, names) }] : [];
   return [
     { value: EVERYONE, label: "Everyone" },
-    ...named.map((p) => ({ value: p.handledBy, label: `${p.handledBy} · ${p.active} active${isNotUser(p) ? " · not a user" : ""}` })),
+    ...named.map((p) => ({ value: p.handledBy, label: `${personName(p.handledBy, names)} · ${p.active} active${isNotUser(p) ? " · not a user" : ""}` })),
     ...missing,
     { value: NOBODY, label: nobody ? `Nobody · ${nobody.active} active` : "Nobody" },
   ];

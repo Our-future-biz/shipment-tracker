@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { ImportInstructionAnswers, ImportInstructionChange } from "../interfaces/importInstructions";
-import { DUTY_PAID_BY_TEXT } from "./importInstructions";
+import { DUTY_PAID_BY_TEXT, otherProcedureLabel, procedureText } from "./importInstructions";
 
 // The approved Import Instructions as a page like the paper form, for the shipment's Documents: what the
 // customer confirmed, as sent, and after it every answer the reviewer changed before approving, with who
@@ -87,21 +87,17 @@ export async function importInstructionsPdf(a: ImportInstructionAnswers, meta: M
   heading("1. Job / shipment reference number");
   text(meta.reference, 10, regular, DARK, M + 10);
   heading("2. Customs procedure");
-  text(
-    a.procedure === "free_circulation" ? "a) Release for free circulation (SAD)" : a.procedure === "t1" ? "b) T1 transit" : "c) Customs warehousing (SAD) or another procedure",
-    10,
-    regular,
-    DARK,
-    M + 10,
-  );
+  // A form always names its procedure; one without reads as c), as it always has.
+  text(procedureText(a.procedure || "other"), 10, regular, DARK, M + 10);
   gap(3);
   field("Duty and VAT paid by", DUTY_PAID_BY_TEXT[a.dutyPaidBy]);
   field("Bank", a.bank);
   field("Account number", a.accountNumber);
   field("Customs office of destination where the goods will be presented", a.t1Office);
-  field("Procedure", a.otherProcedure);
+  field(otherProcedureLabel(a.procedure), a.otherProcedure);
   heading("3. Customs tariff code (Combined Nomenclature)");
-  text(a.tariffCode || "Not given: classified from the description, without any guarantee", 10, regular, a.tariffCode ? DARK : MUTED, M + 10);
+  const noCode = a.procedure === "own_broker" ? "Not given: the goods are cleared by the customer or its broker" : "Not given: classified from the description, without any guarantee";
+  text(a.tariffCode || noCode, 10, regular, a.tariffCode ? DARK : MUTED, M + 10);
   heading("4. Detailed description of the goods");
   text(a.description, 10, regular, DARK, M + 10);
   gap(3);

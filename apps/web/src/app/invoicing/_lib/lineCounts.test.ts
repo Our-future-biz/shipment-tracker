@@ -20,6 +20,15 @@ describe("invoicedLineCount", () => {
     expect(invoicedLineCount(rows, docs)).toEqual({ invoiced: 0, total: 2 });
   });
 
+  it("leaves out a credit owed on no invoice and the row a partial credit note put on the job (B19)", () => {
+    const rows = [row("a"), row("b"), row("owed", "-20.00"), { ...row("cn-row", "-100.00"), sourceCreditNoteId: "cn1" }];
+    const docs = [
+      { ...doc("invoice", "issued", ["a"]), id: "i1" },
+      { ...doc("credit_note", "issued", ["cn-row"]), id: "cn1", correctsInvoiceId: "i1" },
+    ];
+    expect(invoicedLineCount(rows, docs)).toEqual({ invoiced: 1, total: 2 });
+  });
+
   it("is 0 of 0 for a job without lines", () => {
     expect(invoicedLineCount([], [])).toEqual({ invoiced: 0, total: 0 });
   });

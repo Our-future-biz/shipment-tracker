@@ -24,7 +24,9 @@ import {
   pdfNotDownloadedText,
   pinProblem,
   pinValue,
+  sendDialogText,
 } from "../../_lib/transportOrder";
+import { useTruckingSettings } from "@/hooks/useTrucking";
 import { savePdf } from "../../_lib/pdfFile";
 import { TruckingField } from "../../_components/TruckingField";
 
@@ -39,7 +41,7 @@ interface TransportOrderModalProps {
 
 // Print… and Record as sent… of a transport order. The pick-up PIN is typed here because Shipments
 // shows it only once: it travels with this one request, is printed on the PDF and is never stored or logged.
-// E-mail is off in this app, so Record as sent records the order as sent (recorded only) and hands over the
+// While e-mail is off (the settings' emailConfigured), Record as sent records the order as sent (recorded only) and hands over the
 // PDF — with the haulier's link to confirm it and upload the POD — to send by hand. The link is also shown
 // here once to copy (T8/E1, owner's answer Q25): the server keeps only its hash, so it is gone once the
 // dialog closes. "To" starts with the haulier's dispatch contacts from the Customer Database.
@@ -66,6 +68,9 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
   const badRecipients = invalidRecipients(recipients);
   const resend = !!trip.transportOrder?.sentAt;
   const ftl = trip.kind === "FTL";
+  // "E-mail sending is off" only when the server really cannot e-mail (the settings say so).
+  const { settings } = useTruckingSettings();
+  const sendText = sendDialogText(settings ? settings.emailConfigured : null, recipients.length, ftl);
 
   const handleSubmit = async () => {
     setBusy(true);
@@ -150,18 +155,7 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
   return (
     <Modal open title={`${title} · ${trip.haulierName}`} width={560} onCancel={busy ? undefined : onClose} maskClosable={false} footer={null} destroyOnHidden>
       <div className="flex flex-col gap-3">
-        {mode === "send" && (
-          <Alert
-            type="info"
-            showIcon
-            message="E-mail sending is off in this app"
-            description={
-              ftl
-                ? "The order is recorded as sent — nothing is e-mailed — and its PDF downloads for you to send to the haulier. The PDF carries the haulier's link to confirm the order and upload the POD, and the link is shown here once to copy; recording it as sent again renews the link."
-                : "The order is recorded as sent — nothing is e-mailed — and its PDF downloads for you to send to the haulier."
-            }
-          />
-        )}
+        {mode === "send" && sendText.banner && <Alert type="info" showIcon message={sendText.banner.message} description={sendText.banner.description} />}
         <TruckingField label="Pick-up PIN" hint={PIN_EXPLANATION}>
           <Input
             aria-label="Pick-up PIN"
@@ -182,7 +176,7 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
           <>
             <TruckingField
               label="To"
-              hint={`The haulier's addresses, recorded with the order (not e-mailed)${toText === null && suggestedTo ? ` — filled in from its contacts in the Customer Database (${DISPATCH_ROLE} first)` : ""}`}
+              hint={`${sendText.toHint}${toText === null && suggestedTo ? ` — filled in from its contacts in the Customer Database (${DISPATCH_ROLE} first)` : ""}`}
             >
               <Input.TextArea aria-label="Recipients" autoSize={{ minRows: 1, maxRows: 3 }} placeholder="dispatch@haulier.cz" value={to} onChange={(e) => setToText(e.target.value)} />
             </TruckingField>
@@ -199,7 +193,7 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
             Cancel
           </Button>
           <Button type="primary" onClick={handleSubmit} loading={busy} disabled={!!pinError || badRecipients.length > 0}>
-            {mode === "print" ? "Download PDF" : "Record as sent and download PDF"}
+            {mode === "print" ? "Download PDF" : sendText.button}
           </Button>
         </div>
       </div>

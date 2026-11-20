@@ -4,9 +4,10 @@ import type { SalesQuoteData, PackageLine, CostLine } from "./types";
 import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
+import { formatDate } from "@/lib/date";
 import type { RouteWhere } from "@/lib/placeWhere";
 import { unpricedOverweight } from "./overweight";
-import { fclOfferGroups } from "./fclPricing";
+import { fclOfferGroups, type OfferRow } from "./fclPricing";
 import type { PickableUser } from "@/lib/people";
 import { ownerNameForCustomer, ownerNameLoading } from "./ownerName";
 import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, isContainerQuote, quoteValidUntil, ratesNeeded } from "./salesQuote";
@@ -80,6 +81,8 @@ export function quoteDocument(
   const num = (v: unknown) => Number(v) || 0;
   // Every amount on the document shows its cents, so the lines and the total read as one column.
   const money = (amount: number | null) => esc(fmtMoney(amount, currency, true));
+  // Days stand on the document as on every screen, DD.MM.YYYY (User Council S24: "Issued
+  // 2026-11-20" beside "valid to 04.12.2026" elsewhere).
   // The day the quote was sent, so printing it again later does not date the offer anew; today for
   // a quote that is not sent as it stands - never sent, or revised or reopened since. The sent date
   // such a quote still carries belongs to the document the customer already holds: this one has
@@ -189,8 +192,11 @@ export function quoteDocument(
   // type or the charges per shipment, each with a heading (fclOfferGroups).
   const groupHead = (label: string) => `<tr class="group"><td colspan="2">${esc(label)}</td></tr>`;
   const fclGroups = data.fclPricing && isContainerQuote(data) ? fclOfferGroups(data, sellingLines, sellingAmount) : null;
+  // A row of a section with several boxes of one type names the price of one, so "2 containers -
+  // All-in rate 3,340.00 EUR" reads "All-in rate (1,670.00 EUR per container × 2)".
+  const offerLabel = (r: OfferRow) => (r.each ? `${r.label} (${fmtMoney(r.each.amount, currency, true)} per container × ${r.each.count})` : r.label);
   const lineRows = fclGroups
-    ? fclGroups.map((g) => groupHead(g.label) + g.rows.map((r) => row(r.label, r.amount)).join("")).join("")
+    ? fclGroups.map((g) => groupHead(g.label) + g.rows.map((r) => row(offerLabel(r), r.amount)).join("")).join("")
     : sellingLines.map((l) => row(l.description?.trim() || l.type, sellingAmount(l))).join("");
   // Any other all-in quote offers the total as one price.
   const sellingRows = lineRows && data.allIn && !fclGroups ? row("All-in rate", totals.selling) : lineRows;
@@ -268,8 +274,8 @@ export function quoteDocument(
         <div class="meta">${esc([data.serviceType, data.incoterm].filter(Boolean).join(" · "))}</div>
       </div>
       <div class="right">
-        <div class="svc">Issued ${esc(issueDate)}</div>
-        ${validUntil ? `<div class="meta">Valid until ${esc(validUntil)}</div>` : ""}
+        <div class="svc">Issued ${esc(formatDate(issueDate))}</div>
+        ${validUntil ? `<div class="meta">Valid until ${esc(formatDate(validUntil))}</div>` : ""}
         ${preparedBy ? `<div class="meta">Prepared by: ${esc(preparedBy)}</div>` : ""}
       </div>
     </div>
@@ -289,7 +295,7 @@ export function quoteDocument(
     <div class="grid">
       <div><span>Direction</span>${esc(data.direction) || "—"}</div>
       <div><span>Incoterms</span>${esc(data.incoterm) || "—"}</div>
-      <div><span>Cargo ready</span>${esc(cargoReady) || "—"}</div>
+      <div><span>Cargo ready</span>${esc(formatDate(cargoReady)) || "—"}</div>
       <div><span>Port of Loading</span>${esc(data.pol) || "—"}</div>
       <div><span>Port of Discharge</span>${esc(data.pod) || "—"}</div>
     </div>

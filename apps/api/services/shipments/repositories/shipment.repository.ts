@@ -35,7 +35,7 @@ export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">
 /** What decides a shipment's reference letters (lib/jobNumber), whether they are final, and the quote it names. */
 export type ShipmentReference = Pick<
   ShipmentRecord,
-  "id" | "jobNumber" | "freightMode" | "loadType" | "salesNumber" | "jobNumberFinal" | "invoicingStatus"
+  "id" | "jobNumber" | "freightMode" | "loadType" | "salesNumber" | "jobNumberFinal" | "invoicingStatus" | "bookingNumber"
 >;
 
 /**
@@ -457,6 +457,7 @@ const REFERENCE_FIELDS = {
   salesNumber: shipmentTable.salesNumber,
   jobNumberFinal: shipmentTable.jobNumberFinal,
   invoicingStatus: shipmentTable.invoicingStatus,
+  bookingNumber: shipmentTable.bookingNumber,
 };
 
 // The company's next CZ number, with the letters of the new job's Freight Mode and Load Type

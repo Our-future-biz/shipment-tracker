@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays } from "./dayHolidays";
+import { defaultCountries, flagOf, isCzechHoliday, listCountries, shownHolidays, withUnofferedPicks, yearHolidays } from "./dayHolidays";
 import { holidayKey } from "./calendar";
 import type { HolidayItem } from "../public-holidays/_lib/holidays";
 
@@ -108,5 +108,19 @@ describe("flagOf", () => {
   it("makes a flag from a two-letter code, and nothing from anything else", () => {
     expect(flagOf("cz")).toBe("🇨🇿");
     expect(flagOf("DEU")).toBe("");
+  });
+});
+
+describe("the countries shown when none is picked (user council M19)", () => {
+  const list = [row({ country: "Germany", countryCode: "DE" }), row({ country: "Austria", countryCode: "AT" }), row({ country: "Tanzania", countryCode: "TZ" }), row({ country: "Czech Republic", countryCode: "CZ" })];
+  it("takes the company's countries as the list names them, the Czech Republic left out as it always shows", () => {
+    expect(defaultCountries(["CZ", "AT", "DE"], list)).toEqual(["Austria", "Germany"]);
+  });
+  it("falls back to Germany, and never to every country", () => {
+    expect(defaultCountries([], list)).toEqual(["Germany"]);
+    expect(defaultCountries(["CZ"], list)).toEqual(["Germany"]);
+    const fallback = defaultCountries([], [row({ country: "Tanzania", countryCode: "TZ" })]);
+    expect(fallback).toEqual(["Germany"]);
+    expect(shownHolidays([{ countryCode: "TZ", country: "Tanzania", name: "Karume Day", kind: "National", regions: "" }], fallback)).toEqual([]);
   });
 });

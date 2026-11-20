@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hitRate, inMonthRange, percentText, reportMonthOf, weightedMargin } from "./salesReport";
+import { hitRate, inMonthRange, percentText, reportMonthOf, tileCzk, weightedMargin } from "./salesReport";
 
 describe("weightedMargin", () => {
   it("is the profit over the selling of all quotes, not the mean of their margins", () => {
@@ -72,5 +72,12 @@ describe("reportMonthOf", () => {
 
   it("is nothing for a quote without either", () => {
     expect(reportMonthOf({ data: {}, createdAt: "" })).toBe("");
+  });
+});
+
+describe("tileCzk", () => {
+  it("is whole crowns in the tile, the exact sum on hover (User Council S23)", () => {
+    expect(tileCzk(181969.03)).toEqual({ value: "181,969 CZK", exact: "181,969.03 CZK" });
+    expect(tileCzk(0)).toEqual({ value: "—" });
   });
 });

@@ -20,6 +20,12 @@ export interface PortalMe {
   ourCompany: string;
 }
 
+/** Whose account a live set-password link is for, shown on its page (user council E15). */
+export interface PortalSetPasswordLink extends PortalMe {
+  /** INVITE: a new account; RESET: a new password for an existing one */
+  kind: "INVITE" | "RESET";
+}
+
 export type PortalOrderKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN" | "PARTNER_DELIVERY";
 
 export interface PortalOrderItem {

@@ -4512,7 +4512,8 @@ export namespace shipments {
         /**
          * The one-off rename after Internal References got the letters of their Freight Mode and Load Type
          * (owner decision, 3 Nov 2026): CZ00000023 by sea, full load → CZFCL00000023, the number kept.
-         * Shipments that have had an invoice keep their reference. Safe to run again. Superadmins only.
+         * Shipments that are invoiced or booked (an invoice, or a booking number: owner's answer Q33) keep
+         * their reference. Safe to run again. Superadmins only.
          */
         public async shipmentReferencesNormalize(): Promise<interfaces.ReferenceNormalizeResult> {
             // Now make the actual call to the API
@@ -5209,6 +5210,7 @@ export namespace trucking {
             this.portalOrders = this.portalOrders.bind(this)
             this.portalPodUpload = this.portalPodUpload.bind(this)
             this.portalSetPassword = this.portalSetPassword.bind(this)
+            this.portalSetPasswordLink = this.portalSetPasswordLink.bind(this)
             this.portalStopDelivered = this.portalStopDelivered.bind(this)
             this.portalTransportOrderPdf = this.portalTransportOrderPdf.bind(this)
             this.publicTransportOrderGet = this.publicTransportOrderGet.bind(this)
@@ -5445,6 +5447,16 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/portal/set-password`, JSON.stringify(params))
             return await resp.json() as controllers.PortalOk
+        }
+
+        /**
+         * Whose account a live invitation or reset link is for (the forwarder, the haulier, the e-mail), for
+         * its page to say so; the same 404 as the set-password for any link that can't be used. Does not use it.
+         */
+        public async portalSetPasswordLink(token: string): Promise<controllers.PortalSetPasswordLinkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/portal/set-password/${encodeURIComponent(token)}`)
+            return await resp.json() as controllers.PortalSetPasswordLinkResponse
         }
 
         public async portalStopDelivered(id: string, consignmentId: string, params: controllers.PortalStopDeliveredRequest): Promise<controllers.PortalOrderResponse> {
@@ -10707,6 +10719,11 @@ export namespace controllers {
 
         note?: string
         /**
+         * The bank's reference, as the dialog for several invoices takes it (user council A11)
+         */
+        bankRef?: string
+
+        /**
          * The same key twice (a double click, a retry) notes one payment
          */
         idempotencyKey?: string
@@ -10884,6 +10901,10 @@ export namespace controllers {
 
     export interface PortalSession {
         session?: string
+    }
+
+    export interface PortalSetPasswordLinkResponse {
+        link: interfaces.PortalSetPasswordLink
     }
 
     export interface PortalSetPasswordRequest {
@@ -15981,6 +16002,11 @@ export namespace interfaces {
         jobNumber: string
         customerId: string
         customerName: string
+        /**
+         * The pick-up stop's reference: the customer's order number (the road job's customer reference); "" when none (user council E20)
+         */
+        reference: string
+
         scope: ConsignmentScope
         serviceLevel: ServiceLevelCode | null
         status: ConsignmentStatus
@@ -16072,6 +16098,11 @@ export namespace interfaces {
         jobNumber: string
         customerId: string
         customerName: string
+        /**
+         * The pick-up stop's reference: the customer's order number (the road job's customer reference); "" when none (user council E20)
+         */
+        reference: string
+
         scope: ConsignmentScope
         serviceLevel: ServiceLevelCode | null
         status: ConsignmentStatus
@@ -18698,9 +18729,11 @@ export namespace interfaces {
      */
     export interface ImportInstructionAnswers {
         /**
-         * 2 a) release for free circulation, b) T1 transit, c) customs warehousing or another procedure.
+         * 2 a) release for free circulation, b) T1 transit, c) customs warehousing or another procedure, d) the
+         * customer clears the goods itself or through its own broker (user council E11; the broker's name, if
+         * given, is in otherProcedure).
          */
-        procedure: "" | "free_circulation" | "t1" | "other"
+        procedure: "" | "free_circulation" | "t1" | "other" | "own_broker"
 
         /**
          * Under a): who pays the duty and VAT - we do and invoice them, or they are paid from the customer's own
@@ -21678,6 +21711,21 @@ export namespace interfaces {
 
     export type PortalOrderKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN" | "PARTNER_DELIVERY"
 
+    /**
+     * Whose account a live set-password link is for, shown on its page (user council E15).
+     */
+    export interface PortalSetPasswordLink {
+        /**
+         * INVITE: a new account; RESET: a new password for an existing one
+         */
+        kind: "INVITE" | "RESET"
+
+        userName: string
+        email: string
+        haulierName: string
+        ourCompany: string
+    }
+
     export interface PortalStop {
         consignmentRef: string
         consignmentId: string
@@ -21870,7 +21918,7 @@ export namespace interfaces {
 
         reference: string
         prefill: {
-            procedure?: "" | "free_circulation" | "t1" | "other"
+            procedure?: "" | "free_circulation" | "t1" | "other" | "own_broker"
             dutyPaidBy?: "" | "us" | "own_account"
             bank?: string
             accountNumber?: string
@@ -21936,6 +21984,29 @@ export namespace interfaces {
         pod: string
         vessel: string
         containers: string[]
+        /**
+         * Where the goods start and end when that is not the port (user council E10: "Ningbo → Hamburg" left out Praha); "" when not known.
+         */
+        origin: string
+
+        destination: string
+        /**
+         * The pieces, their package type and the gross weight as the job page shows them (the cargo lines', else the typed values); "" when not known.
+         */
+        pieces: string
+
+        packageType: string
+        /**
+         * "1,200" (kg)
+         */
+        weightKg: string
+
+        /**
+         * Our company's general phone and e-mail (the invoicing details), for the page's contact line; never a person's. "" when not set.
+         */
+        ourPhone: string
+
+        ourEmail: string
         milestones: PublicMilestone[]
         asOf: string
     }
@@ -23708,8 +23779,9 @@ export namespace interfaces {
         renamed: number
 
         /**
-         * References kept as they are because they are final (they would need letters): the shipment has
-         * had an invoice, Invoicing is numbering one, or it is marked Invoiced.
+         * References kept as they are because they are final (they would need letters): the shipment is
+         * invoiced or booked — it has had an invoice, Invoicing is numbering one, it is marked Invoiced, or
+         * it has a booking number (owner's answer Q33). The field keeps its old name.
          */
         keptInvoiced: string[]
     }
@@ -26107,6 +26179,11 @@ export namespace interfaces {
         matchedCompanyName: string
 
         /**
+         * The registration link's "Who it is for" note, as its creator typed it; "" when none, or not registered.
+         */
+        linkNote: string
+
+        /**
          * What it accepted on the registration form; "" and null when it did not register.
          */
         termsName: string
@@ -27660,6 +27737,12 @@ export namespace interfaces {
          * Display name
          */
         updatedBy: string | null
+
+        /**
+         * The server can e-mail (it has a Resend key): Record as sent then e-mails the order to the
+         * addresses in To; without it every send is recorded only. Read only, never saved.
+         */
+        emailConfigured: boolean
     }
 
     /**

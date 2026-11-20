@@ -22,8 +22,8 @@ export function avizaceState(c: Pick<ConsignmentDetail, "avizaceNeeded" | "aviza
 }
 
 export const AVIZACE_BADGE: Record<AvizaceState, { label: string; tone: Tone; hint: string }> = {
-  notNeeded: { label: "Not needed", tone: "", hint: "Not B2C and the delivery stop does not ask for avizace" },
-  pending: { label: "Needed", tone: "a", hint: "B2C or the delivery stop asks for avizace, and none is recorded yet — the delivery run shows a warning" },
+  notNeeded: { label: "Not needed", tone: "", hint: "Not B2C and the delivery stop does not ask for a delivery notice" },
+  pending: { label: "Needed", tone: "a", hint: "B2C or the delivery stop asks for a delivery notice, and none is recorded yet — the delivery run shows a warning" },
   done: { label: "Recorded", tone: "g", hint: "The delivery was agreed with the consignee" },
 };
 
@@ -66,7 +66,7 @@ const DELIVERING_TRIPS: readonly TripKind[] = ["DELIVERY_RUN", "FTL"];
 
 /**
  * The avizace warning of a trip (shown, never blocking): its consignments that still need avizace,
- * from the Consignments "Avizace pending" view (id → ref). Null when none, when the trip does not
+ * from the Consignments "Delivery notice pending" view (id → ref). Null when none, when the trip does not
  * deliver, or when the server already lists an avizace warning on the trip.
  */
 export function avizaceWarning(trip: { kind: TripKind; consignmentIds: readonly string[]; warnings: readonly string[] }, pending: ReadonlyMap<string, string>): string | null {
@@ -74,5 +74,5 @@ export function avizaceWarning(trip: { kind: TripKind; consignmentIds: readonly 
   if (trip.warnings.some((w) => /aviz/i.test(w))) return null;
   const refs = [...new Set(trip.consignmentIds)].filter((id) => pending.has(id)).map((id) => pending.get(id)!);
   if (!refs.length) return null;
-  return `Avizace not recorded: ${refs.join(", ")}`;
+  return `Delivery notice not recorded: ${refs.join(", ")}`;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CZK_TOTAL_LABEL, defaultMonthEndDay, monthEndCsv, monthEndDayOf, monthEndFileName, type MonthEndCsvRow } from "./monthEnd";
+import { CZK_TOTAL_LABEL, defaultMonthEndDay, FUTURE_DAY, monthEndCsv, monthEndDayOf, monthEndFileName, typedDayProblem, type MonthEndCsvRow } from "./monthEnd";
 
 describe("the day", () => {
   it("opens on the last day of the previous month", () => {
@@ -14,6 +14,14 @@ describe("the day", () => {
     expect(monthEndDayOf("2026-02-30", "2026-11-18")).toBe("2026-10-31");
     expect(monthEndDayOf("soon", "2026-11-18")).toBe("2026-10-31");
     expect(monthEndDayOf(null, "2026-11-18")).toBe("2026-10-31");
+  });
+  it("says a typed day after today can't be shown, and nothing of any other text (A9)", () => {
+    expect(typedDayProblem("30.11.2026", "2026-11-20")).toBe(FUTURE_DAY);
+    expect(typedDayProblem("1.1.2027", "2026-11-20")).toBe(FUTURE_DAY);
+    expect(typedDayProblem("20.11.2026", "2026-11-20")).toBe("");
+    expect(typedDayProblem("31.10.2026", "2026-11-20")).toBe("");
+    expect(typedDayProblem("31.11.2026", "2026-11-20")).toBe("");
+    expect(typedDayProblem("30.11", "2026-11-20")).toBe("");
   });
 });
 

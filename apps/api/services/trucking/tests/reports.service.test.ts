@@ -170,7 +170,7 @@ describe("Trucking report", () => {
     expect(k("avizaceDone")).toMatchObject({ value: 100 });
 
     expect(r.marginByLane[0]).toMatchObject({ label: "110 00 → 602 00 (zones 1 → 4)", marginCzk: 2000, marginPercent: 20, belowFloor: 1 });
-    expect(r.marginByServiceLevel[0]!.label).toBe("+1 day");
+    expect(r.marginByServiceLevel[0]!.label).toBe("+1 working day");
     expect(r.marginByCustomer[0]!.label).toBe("TEST Odběratel Ostrava");
 
     expect(r.hauliers).toEqual([

@@ -28,15 +28,25 @@ describe("a Customer Database address on a quote", () => {
     expect(addressPostcode(quoteAddressText(address({ street: "Jankovcova 1522/53", postalCode: "170 00" })))).toBe("170 00");
   });
 
-  it("offers the customer's addresses of the field's type only, each once", () => {
+  it("offers the customer's addresses of the field's type, each once, then its registered address", () => {
     const list = [
       address({ id: "1" }),
       address({ id: "2", types: ["Delivery"], label: "Alza (vykladka)", street: "Dopravni", city: "Praha 11", postalCode: "18000" }),
       address({ id: "3", types: ["Registered"], label: "" }),
       address({ id: "4" }),
+      address({ id: "5", types: ["Billing"], label: "Fakturace" }),
     ];
-    expect(quoteAddressOptions(list, "Pickup")).toEqual([{ value: "Alza (nakladka), V jame, 16000 Praha 6, Czechia", label: "Alza (nakladka), V jame, 16000 Praha 6, Czechia" }]);
-    expect(quoteAddressOptions(list, "Delivery").map((o) => o.value)).toEqual(["Alza (vykladka), Dopravni, 18000 Praha 11, Czechia"]);
+    expect(quoteAddressOptions(list, "Pickup")).toEqual([
+      { value: "Alza (nakladka), V jame, 16000 Praha 6, Czechia", label: "Alza (nakladka), V jame, 16000 Praha 6, Czechia", registered: false },
+      { value: "V jame, 16000 Praha 6, Czechia", label: "V jame, 16000 Praha 6, Czechia (registered address)", registered: true },
+    ]);
+    expect(quoteAddressOptions(list, "Delivery").map((o) => o.value)).toEqual(["Alza (vykladka), Dopravni, 18000 Praha 11, Czechia", "V jame, 16000 Praha 6, Czechia"]);
+  });
+
+  it("offers a customer from the register its registered address rather than nothing (User Council S14)", () => {
+    const registered = address({ types: ["Registered"], label: "", street: "Hudcova 76", city: "Brno", postalCode: "61200" });
+    expect(quoteAddressOptions([registered], "Pickup")).toEqual([{ value: "Hudcova 76, 61200 Brno, Czechia", label: "Hudcova 76, 61200 Brno, Czechia (registered address)", registered: true }]);
+    expect(quoteAddressOptions([], "Pickup")).toEqual([]);
   });
 
   it("offers an address that is several types in each of its fields", () => {

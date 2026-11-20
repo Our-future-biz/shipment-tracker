@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerLinkUrl, hashLinkToken, linkMayOpen, linkOpenUntil, looksLikeLinkToken, newLinkToken, publicStatusOf } from "../lib/customerLink";
+import { customerLinkUrl, hashLinkToken, linkMayOpen, linkOpenUntil, looksLikeLinkToken, newLinkToken, publicStatusOf, publicWeightKg } from "../lib/customerLink";
 import type { TrackingMilestone } from "../interfaces/interfaces";
 
 const job = { status: "Arrived [IMP]", actualDeliveryDate: null as string | null };
@@ -25,7 +25,24 @@ const milestone = (over: Partial<TrackingMilestone> = {}) =>
     proposed: { day: "2026-11-09", source: "Document read" },
     ...over,
   }) as unknown as TrackingMilestone;
-const shipment = { jobNumber: "CZFCL1", customerReference: "PO-7", tradeDirection: "Import", freightMode: "Sea Freight", pol: "Shanghai", pod: "Hamburg", vessel: "EVER TEST", voyage: "123E" };
+const shipment = {
+  jobNumber: "CZFCL1",
+  customerReference: "PO-7",
+  tradeDirection: "Import",
+  freightMode: "Sea Freight",
+  pol: "Shanghai",
+  pod: "Hamburg",
+  vessel: "EVER TEST",
+  voyage: "123E",
+  origin: "",
+  destination: " Praha ",
+  pcs: "3",
+  typeOfPackages: "Pallets",
+  totalGrossWeightKg: "1,200",
+  totalWeightTons: null as string | null,
+};
+const NOBODY = { name: "", phone: "", email: "" };
+const OUR = { name: "Our Firm s.r.o.", phone: " +420 222 333 444 ", email: "ops@firma.test" };
 
 describe("the token", () => {
   it("is long, random, and only its hash is kept", () => {
@@ -59,11 +76,23 @@ describe("how long a link opens", () => {
 });
 
 describe("what a customer sees", () => {
-  const status = publicStatusOf({ ...shipment, internalNote: "margin 40%" } as typeof shipment, [milestone()], ["CSQU3054383"], "Our Firm s.r.o.", new Date("2026-11-06T12:00:00Z"));
+  const status = publicStatusOf({ ...shipment, internalNote: "margin 40%" } as typeof shipment, [milestone()], ["CSQU3054383"], OUR, new Date("2026-11-06T12:00:00Z"));
 
   it("shows the job's route and dates", () => {
     expect(status).toMatchObject({ ourCompany: "Our Firm s.r.o.", reference: "CZFCL1", customerReference: "PO-7", pol: "Shanghai", pod: "Hamburg", vessel: "EVER TEST 123E", containers: ["CSQU3054383"] });
     expect(status.milestones[0]).toEqual({ key: "arrived", label: "Arrived", leg: "main", place: "Hamburg", planned: "2026-11-10", actual: null, detail: "", state: "open" });
+  });
+
+  it("names the final destination, what travels and how to reach us (user council E10)", () => {
+    expect(status).toMatchObject({ origin: "", destination: "Praha", pieces: "3", packageType: "Pallets", weightKg: "1,200", ourPhone: "+420 222 333 444", ourEmail: "ops@firma.test" });
+  });
+
+  it("gives the typed tons in kg when the cargo lines give no weight", () => {
+    expect(publicWeightKg({ totalGrossWeightKg: "", totalWeightTons: "1.2" })).toBe("1,200");
+    expect(publicWeightKg({ totalGrossWeightKg: "", totalWeightTons: "0.4555" })).toBe("455.5");
+    expect(publicWeightKg({ totalGrossWeightKg: "", totalWeightTons: null })).toBe("");
+    expect(publicWeightKg({ totalGrossWeightKg: "", totalWeightTons: "0" })).toBe("");
+    expect(publicWeightKg({ totalGrossWeightKg: "800", totalWeightTons: "1.2" })).toBe("800");
   });
 
   it("lets out no name, mark, proposal or unnamed field", () => {
@@ -72,10 +101,10 @@ describe("what a customer sees", () => {
   });
 
   const statesOf = (states: TrackingMilestone["state"][]) =>
-    publicStatusOf(shipment, states.map((state, i) => milestone({ key: `k${i}`, state })), [], "", new Date()).milestones.map((m) => m.state);
+    publicStatusOf(shipment, states.map((state, i) => milestone({ key: `k${i}`, state })), [], NOBODY, new Date()).milestones.map((m) => m.state);
 
   it("shows a step whose planned day passed with no actual as not yet confirmed, never late", () => {
-    const row = publicStatusOf(shipment, [milestone({ state: "late", lateDays: 18 })], [], "", new Date()).milestones[0]!;
+    const row = publicStatusOf(shipment, [milestone({ state: "late", lateDays: 18 })], [], NOBODY, new Date()).milestones[0]!;
     expect(row.state).toBe("unconfirmed");
     expect(JSON.stringify(row)).not.toMatch(/late|18/i);
   });
@@ -96,7 +125,7 @@ describe("what a customer sees", () => {
   });
 
   it("keeps a detail only on the customs row: others can hold a person's note", () => {
-    const rows = publicStatusOf(shipment, [milestone({ key: "pod", detail: "Left with the guard, ring Jana" }), milestone({ key: "customs", detail: "Under Customs Clearance" })], [], "", new Date()).milestones;
+    const rows = publicStatusOf(shipment, [milestone({ key: "pod", detail: "Left with the guard, ring Jana" }), milestone({ key: "customs", detail: "Under Customs Clearance" })], [], NOBODY, new Date()).milestones;
     expect(rows.map((r) => r.detail)).toEqual(["", "Under Customs Clearance"]);
   });
 });

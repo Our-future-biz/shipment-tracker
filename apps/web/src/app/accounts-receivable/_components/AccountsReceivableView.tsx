@@ -64,9 +64,12 @@ import { CUSTOMER_CHECKS, CUSTOMER_TABLE, customerRowsOf, receivableTable } from
 // take them back in the drawer (D5, D11). The tab, the period and the open invoice are kept in the URL (?tab, ?period,
 // ?invoice), so the customer's page, the job and the bell can link to an invoice (arInvoiceHref). Step 7: a manager
 // ticks invoices in Unpaid or Overdue and notes one bank payment over them; By customer has each customer's statement;
-// Tools leads to the bank statements, month-end, the Pohoda export and the settings.
+// Bank statements and Month-end are on the bar; Tools leads to the Pohoda export and the settings.
 
 type Param = "tab" | "invoice" | "period";
+
+// Why "Note one payment…" is grey, said on the button too, not only on hover (user council A16).
+const NOTE_ONE_PAYMENT_HINT = "Tick the invoices one bank payment pays, then note it once";
 
 export function AccountsReceivableView() {
   const router = useRouter();
@@ -234,16 +237,16 @@ export function AccountsReceivableView() {
                 Export
               </button>
             </Tooltip>
-            {/* Bank statements, month-end, the Pohoda export and the settings (step 7). */}
+            {/* Bank statements and month-end as buttons, the Pohoda export and the settings under Tools (step 7, A16). */}
             <ReceivableTools canAct={!!data?.canAct} />
             {canBatch && (
-              <Tooltip title={selectedIds.length ? `Note one bank payment over the ${selectedIds.length} ticked ${selectedIds.length === 1 ? "invoice" : "invoices"}` : "Tick the invoices one bank payment pays, then note it once"}>
+              <Tooltip title={selectedIds.length ? `Note one bank payment over the ${selectedIds.length} ticked ${selectedIds.length === 1 ? "invoice" : "invoices"}` : NOTE_ONE_PAYMENT_HINT}>
                 <span className="inline-flex">
                   <button type="button" onClick={() => {
                       if (selectedRows.length) setBatchRows(frozenBatchRows(selectedRows));
                     }} disabled={!selectedRows.length} className={BTN}>
                     <DollarOutlined />
-                    Note one payment…{selectedIds.length ? ` (${selectedIds.length})` : ""}
+                    Note one payment…{selectedIds.length ? ` (${selectedIds.length})` : <span className="font-normal"> (tick invoices first)</span>}
                   </button>
                 </span>
               </Tooltip>

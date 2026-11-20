@@ -4,7 +4,7 @@ import { Popconfirm } from "antd";
 import { CheckCircleFilled, ClockCircleFilled, CloseCircleFilled, WarningFilled } from "@ant-design/icons";
 import { businessDateTime } from "@/lib/date";
 import { formatAmount as formatMoney } from "@/lib/money";
-import { floorText, marginState, marginText, type RoadMargin } from "../../../_lib/roadQuote";
+import { floorText, marginText, shownMarginState, type RoadMargin } from "../../../_lib/roadQuote";
 import { MiniButton } from "./QuoteButtons";
 import type { MarginInquiryItem } from "@/hooks/useMarginInquiries";
 import { LABEL_TEXT } from "@/styles/ui";
@@ -32,7 +32,7 @@ const Figure = ({ label, value }: { label: string; value: string }) => (
 // stored lines: above the floor; below it and approved by a manager; or below it and waiting for
 // one - then the quote cannot be sent or marked Ready to send.
 export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk, onWithdraw }: QuoteMarginPanelProps) => {
-  const state = marginState(margin);
+  const state = shownMarginState(margin);
   const waiting = inquiry?.status === "pending" ? inquiry : null;
   // A rejection still matters while the margin waits for an approval.
   const rejected = state === "needsApproval" && inquiry?.status === "rejected" ? inquiry : null;

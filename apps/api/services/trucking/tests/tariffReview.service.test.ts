@@ -152,10 +152,10 @@ describe("test lane", () => {
   it("prices every level the version offers, sell-style, with the fuel index and surcharges", async () => {
     const levels = await tariffReviewService.testLane(C, V, lane());
     expect(levels.map((l) => [l.serviceLevel, l.label])).toEqual([
-      ["D1", "+1 day"],
-      ["D2", "+2 days"],
-      ["D3", "+3 days"],
-      ["D4", "+4 days"],
+      ["D1", "+1 working day"],
+      ["D2", "+2 working days"],
+      ["D3", "+3 working days"],
+      ["D4", "+4 working days"],
       ["EXP_1000", "Express by 10:00"],
     ]);
     const d2 = levels[1].result as PricedSide;

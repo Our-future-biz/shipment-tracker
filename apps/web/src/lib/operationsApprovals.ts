@@ -21,12 +21,13 @@ export interface OperationsApprovalsLine {
 
 /**
  * The line, or null for none: it is shown only while something is known to wait. With a queue unread the count is
- * what the others hold, marked "+" ("3+ operations approvals waiting").
+ * what the others hold, marked "+" ("3+ operations approval requests waiting"). It counts requests, so it says
+ * "requests": "N operations approvals waiting" read as N approvals already given (User Council).
  */
 export function operationsApprovalsLine(queues: readonly ApprovalQueueCount[]): OperationsApprovalsLine | null {
   const read = queues.filter((q) => !q.isError);
   const count = read.reduce((sum, q) => sum + Math.max(0, q.waiting), 0);
   if (count <= 0) return null;
   const atLeast = read.length < queues.length;
-  return { count, atLeast, title: `${count}${atLeast ? "+" : ""} operations approval${count === 1 && !atLeast ? "" : "s"} waiting` };
+  return { count, atLeast, title: `${count}${atLeast ? "+" : ""} operations approval request${count === 1 && !atLeast ? "" : "s"} waiting` };
 }

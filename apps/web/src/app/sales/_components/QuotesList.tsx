@@ -36,7 +36,8 @@ import { useSalesQuoteList } from "@/hooks/useSalesQuoteList";
 import { useQuoteShipments } from "@/hooks/useQuoteShipments";
 import { QuoteShipmentsContext } from "./QuoteShipmentsCell";
 import { useSalesQuotes, type QuoteCall } from "@/hooks/useSalesQuotes";
-import { useSalesPref, useCompanyDetails } from "@/hooks/useSalesPrefs";
+import { useSalesPref } from "@/hooks/useSalesPrefs";
+import { useQuoteSender } from "../_lib/useQuoteSender";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useUsers } from "@/hooks/useUsers";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -212,7 +213,7 @@ export function QuotesList() {
   const views = useSalesPref<SavedView[]>("saved_views", NO_SAVED_VIEWS, { guard: isSavedViews });
   const savedViews = views.value;
   const exchange = useCurrentExchangeRates();
-  const company = useCompanyDetails();
+  const company = useQuoteSender();
   const people = useUsers();
   const fetchRouteWhere = useFetchRouteWhere();
   const { users } = people;

@@ -251,7 +251,7 @@ describe("surcharges", () => {
   it("respects each surcharge's minimum", () => {
     const surcharges = [surcharge({ code: "AVIZACE", calc: "PER_KG", value: 0.1, min: 50 })];
     const r = priced(rate({ weightKg: 200, extras: { ...NO_EXTRAS, avizace: true } }, { surcharges }));
-    expect(line(r, "AVIZACE")).toMatchObject({ amount: 50, label: "Delivery notice (avizace) — minimum" });
+    expect(line(r, "AVIZACE")).toMatchObject({ amount: 50, label: "Delivery notice — minimum" });
   });
 
   it("charges insurance as a % of the declared value only when a value is declared", () => {

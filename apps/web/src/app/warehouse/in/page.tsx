@@ -5,5 +5,5 @@ import { useWarehouseMove } from "../_components/useWarehouseMove";
 
 export default function InWarehousePage() {
   const receive = useWarehouseMove({ warehouseReceivedDate: "today" }, "Stock", { assignReference: true });
-  return <WarehouseShipmentsView section="in" selectionActions={[{ label: "Naskladnit", onClick: receive }]} />;
+  return <WarehouseShipmentsView section="in" selectionActions={[{ label: "Receive into Stock", onClick: receive }]} />;
 }

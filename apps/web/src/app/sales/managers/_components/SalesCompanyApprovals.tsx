@@ -73,7 +73,8 @@ export function SalesCompanyApprovals() {
       })
       .catch((e) => toast.error(apiErrorMessage(e)));
 
-  const empty = isError ? "Could not load the new suppliers." : isLoading ? "Loading…" : view === "waiting" ? "No new supplier waiting for a manager." : "No answers in the last 30 days.";
+  // The tab answers companies registered by link too, customers among them, not only suppliers (User Council E13).
+  const empty = isError ? "Could not load the new companies." : isLoading ? "Loading…" : view === "waiting" ? "No new company waiting for a manager." : "No answers in the last 30 days.";
 
   return (
     <div className="flex flex-col gap-3">
@@ -152,6 +153,12 @@ export function SalesCompanyApprovals() {
                             <a href={a.termsUrl} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
                               the terms
                             </a>
+                          </div>
+                        )}
+                        {/* Whom the link was made for, as its creator noted it: says who the company is meant to be (E13). */}
+                        {a.registered && a.linkNote && (
+                          <div className="text-[11px] text-slate-500 max-w-[260px] whitespace-normal break-words" title="The link's note: who it is for">
+                            Link for: <span className="text-slate-700">{a.linkNote}</span>
                           </div>
                         )}
                         {a.quoteNumber && (
@@ -248,7 +255,7 @@ export function SalesCompanyApprovals() {
                                 onClick={() => void answer(a, "decline")}
                                 className={BTN_DANGER}
                               >
-                                Decline supplier
+                                {a.registered ? "Decline company" : "Decline supplier"}
                               </button>
                               <button type="button" onClick={() => setDeclining(null)} className={BTN}>
                                 Cancel
@@ -304,7 +311,7 @@ function EditSupplierModal({ item, onClose }: { item: SupplierApprovalItem; onCl
     <Modal
       open
       onCancel={onClose}
-      title={<span className={MODAL_TITLE}>Edit new supplier</span>}
+      title={<span className={MODAL_TITLE}>{item.registered ? "Edit new company" : "Edit new supplier"}</span>}
       okText="Save"
       onOk={() => void save()}
       okButtonProps={{ disabled: !companyName.trim() || !rolesAreFine, loading: saving }}

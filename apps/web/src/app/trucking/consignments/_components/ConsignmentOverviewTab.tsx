@@ -6,6 +6,7 @@ import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import { businessDateTime } from "@/lib/date";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { EMPTY, LABEL_TEXT, LINK, REF } from "@/styles/ui";
+import { jobCostsHref } from "../../_lib/consignments";
 import { formatPsc } from "../../_lib/hauliers";
 import { PriceSnapshotTable } from "../../_components/PriceSnapshotTable";
 import { TERMS } from "../../_lib/glossary";
@@ -30,7 +31,7 @@ const StopCard = ({ title, stop }: { title: string; stop: Stop }) => (
     <Line k="Address" v={[stop.street, [stop.country === "CZ" ? formatPsc(stop.postcode) : stop.postcode, stop.city].filter(Boolean).join(" "), stop.country].filter(Boolean).join(", ")} />
     <Line k="Time window" v={stop.windowFrom || stop.windowTo ? `${businessDateTime(stop.windowFrom) || "…"} – ${businessDateTime(stop.windowTo) || "…"}` : ""} />
     <Line k="Contact" v={[stop.contactName, stop.contactPhone].filter(Boolean).join(" · ")} />
-    <Line k="Avizace" v={stop.avizaceRequired ? "Call before arriving" : "Not needed"} />
+    <Line k="Delivery notice" v={stop.avizaceRequired ? "Call before arriving" : "Not needed"} />
     <Line k="Reference" v={stop.reference} />
     <Line k="Notes" v={stop.notes} />
     <Line k="Arrived / left" v={[businessDateTime(stop.actualArrival), businessDateTime(stop.actualDeparture)].filter(Boolean).join(" → ")} />
@@ -53,7 +54,7 @@ export const ConsignmentOverviewTab = ({ c }: ConsignmentOverviewTabProps) => (
         <Line k="Customer" v={c.customerName} />
         <div className={ROW}>
           <span className={LABEL}>Job</span>
-          <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className={`${LINK} ${REF} font-semibold`}>
+          <Link href={jobCostsHref(c.shipmentId)} className={`${LINK} ${REF} font-semibold`}>
             {c.jobNumber}
           </Link>
         </div>

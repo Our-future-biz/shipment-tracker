@@ -88,6 +88,8 @@ export interface SupplierApprovalItem {
   alreadyInDatabase: boolean;
   /** That company's own name in the Customer Database (what was typed on the form may name another); "" otherwise. */
   matchedCompanyName: string;
+  /** The registration link's "Who it is for" note, as its creator typed it; "" when none, or not registered. */
+  linkNote: string;
   /** What it accepted on the registration form; "" and null when it did not register. */
   termsName: string;
   termsUrl: string;

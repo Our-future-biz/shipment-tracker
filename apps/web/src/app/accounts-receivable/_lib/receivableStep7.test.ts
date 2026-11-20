@@ -311,7 +311,7 @@ describe("review fixes (step 7)", () => {
       ]),
     ).toEqual([
       { text: ALL_WAITS, labels: ["Write off…", "Bank charge…"] },
-      { text: "The customer disputes it: close the dispute before sending a reminder (D16)", labels: ["Send a reminder…"] },
+      { text: "The customer disputes it: close the dispute before sending a reminder", labels: ["Send a reminder…"] },
     ]);
   });
 

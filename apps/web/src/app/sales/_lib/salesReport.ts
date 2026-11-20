@@ -1,4 +1,5 @@
 import { businessDayOf } from "@/lib/date";
+import { fmtMoney, roundCents } from "@/lib/money";
 import type { SalesQuote } from "./salesQuote";
 
 /**
@@ -47,4 +48,13 @@ export const percentText = (v: number | null) => (v === null ? "—" : `${v}%`);
 /** Whether a report month (YYYY-MM) is within a range of months, both ends included. */
 export function inMonthRange(month: string, [from, to]: [string, string]): boolean {
   return month !== "" && month >= from && month <= to;
+}
+
+/**
+ * A sum of CZK as a report tile shows it: in whole crowns, the exact sum with its haléře on hover
+ * (User Council S23: "181,969.03 CZK" was cut off in its tile at 1440 px). "—" for none.
+ */
+export function tileCzk(amount: number): { value: string; exact?: string } {
+  if (!roundCents(amount)) return { value: "—" };
+  return { value: fmtMoney(Math.round(amount), "CZK"), exact: fmtMoney(amount, "CZK", true) };
 }

@@ -12,8 +12,8 @@ export default function OutWarehousePage() {
     <WarehouseShipmentsView
       section="out"
       selectionActions={[
-        { label: "Vrátit do In Warehouse", secondary: true, onClick: backToIn },
-        { label: "Vrátit do Stock", secondary: true, onClick: backToStock },
+        { label: "Back to In Warehouse", secondary: true, onClick: backToIn },
+        { label: "Back to Stock", secondary: true, onClick: backToStock },
       ]}
     />
   );

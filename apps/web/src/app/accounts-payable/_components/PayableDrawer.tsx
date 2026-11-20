@@ -246,7 +246,7 @@ function RefusedLines({ lines }: { lines: interfaces.PayableDetailResponse["refu
   if (!lines.length) return null;
   return (
     <Section title="Lines when refused">
-      <div className={HINT}>Taken off the jobs on refusal and kept here for the record (D12).</div>
+      <div className={HINT}>Taken off the jobs on refusal and kept here for the record.</div>
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr>

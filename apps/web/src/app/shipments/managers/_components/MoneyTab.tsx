@@ -15,6 +15,7 @@ import { Amounts } from "@/components/finance/Amounts";
 import type { OpsMoneyRow, ShipmentsManagersMoney as Money } from "@/hooks/useShipmentsManagersMoney";
 import type { interfaces } from "@/lib/api";
 import { CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { moneyRowHref } from "../_lib/cockpitAddress";
 import {
   MONEY_FAMILIES,
@@ -34,7 +35,7 @@ import {
   type MoneyPersonRow,
 } from "../_lib/cockpitMoney";
 import { CARD_TAG_LIMIT, figureText, listWithSignal, type ShownList, type SignalFamily } from "../_lib/cockpitSignals";
-import { NOBODY_TEXT, SignalChip, SignalTile, TileGroup, columnHead as head, dash, figure, modeChip, tagList } from "./CockpitParts";
+import { PersonText, SignalChip, SignalTile, TileGroup, columnHead as head, dash, figure, modeChip, tagList } from "./CockpitParts";
 
 // The Money tab of Shipments → Managers (Council Outlay 11, step 4): what the money of the active
 // jobs - and of the jobs invoiced in the last 90 days whose money still asks for a look - asks of a manager. Top to bottom: the work not yet invoiced (per currency, never added
@@ -72,7 +73,7 @@ const jobLink = (r: Pick<OpsMoneyRow, "id" | "jobNumber">) => (
 const invoicedChip = <Pill tone="slate">Invoiced</Pill>;
 const statusChip = (r: Pick<OpsMoneyRow, "invoiced" | "status">, className?: string) => (r.invoiced ? invoicedChip : r.status ? <StatusBadge status={r.status} className={className} /> : null);
 
-const handledBy = (r: Pick<OpsMoneyRow, "handledBy">) => r.handledBy || <span className={NOBODY_TEXT}>Nobody</span>;
+const handledBy = (r: Pick<OpsMoneyRow, "handledBy">) => <PersonText value={r.handledBy} />;
 
 // As the Cockpit's cards: the mode and the status under the job number, the customer and Handled
 // By under the signals; the dialog gives them columns. A Money row has no actions.
@@ -120,7 +121,7 @@ const dialogColumns = (signal: SignalFamily | null): ColumnsType<OpsMoneyRow> =>
     render: (_: unknown, r) => (
       <div className="min-w-0">
         {handledBy(r)}
-        {r.holidayCover && <div className={HINT}>Holiday Cover: {r.holidayCover}</div>}
+        {r.holidayCover && <div className={HINT}>Holiday Cover: <PersonText value={r.holidayCover} /></div>}
       </div>
     ),
   },
@@ -204,7 +205,7 @@ const UNBILLED_COLUMNS: ColumnsType<UnbilledJob> = [
     render: (_: unknown, r) => (
       <div className="min-w-0">
         {handledBy(r)}
-        {r.holidayCover && <div className={HINT}>Holiday Cover: {r.holidayCover}</div>}
+        {r.holidayCover && <div className={HINT}>Holiday Cover: <PersonText value={r.holidayCover} /></div>}
       </div>
     ),
   },
@@ -374,6 +375,7 @@ export function MoneyTab({ money, isLoading, isError, loadFailed, page, scope, s
   const router = useRouter();
   const [openCard, setOpenCard] = useState<CockpitCardKey | null>(null);
   const [jobsOpen, setJobsOpen] = useState(false);
+  const names = usePeopleNames();
   const state = { isLoading, isError };
 
   // The cards as shown: whole, or narrowed to the signal over the rows the server sent. The tiles
@@ -466,7 +468,7 @@ export function MoneyTab({ money, isLoading, isError, loadFailed, page, scope, s
       </div>
 
       <MoneyPeople
-        rows={money ? moneyPersonRows(money.people, page) : []}
+        rows={money ? moneyPersonRows(money.people, page, names) : []}
         scope={scope}
         isLoading={isLoading}
         isError={isError}

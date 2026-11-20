@@ -134,7 +134,8 @@ const TILE_LOOK: CockpitTileLook = { link: `${TILE} hover:border-slate-300 hover
 
 function Tiles({ cockpit, isLoading, isError, linked }: { cockpit: Cockpit | null; isLoading: boolean; isError: boolean; linked: boolean }) {
   const valueOf = (key: TileKey): string =>
-    tileValue(cockpit, { isLoading, isError }, ({ tiles: t }) => (key === "chargeable" ? `${t.chargeable}${t.chargeable ? ` · est. CZK ${nf(t.chargeableCzk)}` : ""}` : String(t[key])));
+    // The money as Shipments → Managers writes it: "20,350 CZK" (user council M17).
+    tileValue(cockpit, { isLoading, isError }, ({ tiles: t }) => (key === "chargeable" ? `${t.chargeable}${t.chargeable ? ` · est. ${nf(t.chargeableCzk)} CZK` : ""}` : String(t[key])));
   return (
     <CockpitTiles
       look={TILE_LOOK}
@@ -340,19 +341,9 @@ export function ManagersCockpit() {
                 </span>
               ),
             },
-            {
-              key: "approvals",
-              label: (
-                <span className="whitespace-nowrap">
-                  Approvals
-                  {approvalsWaiting > 0 && (
-                    <Badge tone="a" className="ml-1.5">
-                      {approvalsWaiting}
-                    </Badge>
-                  )}
-                </span>
-              ),
-            },
+            // No count on the tab: nothing there is for the warehouse manager to decide - they are
+            // decided on Shipments → Managers, which the tab says and leads to (user council M16).
+            { key: "approvals", label: "Approvals" },
           ]}
         />
 

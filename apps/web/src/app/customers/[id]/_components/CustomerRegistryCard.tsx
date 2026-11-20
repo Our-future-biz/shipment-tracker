@@ -31,13 +31,10 @@ export function CustomerRegistryCard({ customer }: CustomerRegistryCardProps) {
           <CustomerInfoRow label={czech ? "IČO" : "Registration number"}>{customer.ico}</CustomerInfoRow>
           <CustomerInfoRow label={czech ? "DIČ" : "VAT ID"}>{customer.dic}</CustomerInfoRow>
           <CustomerInfoRow label="Legal form">
-            {customer.legalForm ? (
-              <>
-                {legalForm}
-                {/* A known code follows its name in grey; an unknown code is already the whole value. */}
-                {legalForm !== customer.legalForm && <span className="ml-1.5 font-normal text-slate-400">{customer.legalForm}</span>}
-              </>
-            ) : null}
+            {/* A known code reads as its name, with the registry's code on hover only: printed after
+                the name it read as part of it ("Akciová společnost (a.s.)121", User Council S24).
+                An unknown code is already the whole value. */}
+            {customer.legalForm ? <span title={legalForm !== customer.legalForm ? `ARES code ${customer.legalForm}` : undefined}>{legalForm}</span> : null}
           </CustomerInfoRow>
           <CustomerInfoRow label="Registration date">{formatDate(customer.registrationDate)}</CustomerInfoRow>
           <CustomerInfoRow label="NACE codes">

@@ -35,16 +35,25 @@ const level = (code: ServiceLevelCode, label: string, cutoff: string): ServiceLe
   active: true,
 });
 
+// The D levels count working days (weekends and Czech holidays skipped), and say so: "+2 days" read
+// as calendar days (user council T15).
 export const DEFAULT_SERVICE_LEVELS: ServiceLevelSetting[] = [
-  level("D1", "+1 day", "12:00"),
-  level("D2", "+2 days", "12:00"),
-  level("D3", "+3 days", "12:00"),
-  level("D4", "+4 days", "12:00"),
+  level("D1", "+1 working day", "12:00"),
+  level("D2", "+2 working days", "12:00"),
+  level("D3", "+3 working days", "12:00"),
+  level("D4", "+4 working days", "12:00"),
   level("EXP_SAMEDAY", "Express same day", "10:00"),
   level("EXP_1000", "Express by 10:00", "15:00"),
   level("EXP_1200", "Express by 12:00", "15:00"),
   level("EXP_FIXED", "Express fixed date", "15:00"),
 ];
+
+/** The labels the D levels had by default before; a saved row still holding one reads with today's default. */
+const OLD_DEFAULT_LABELS: Partial<Record<ServiceLevelCode, string>> = { D1: "+1 day", D2: "+2 days", D3: "+3 days", D4: "+4 days" };
+
+/** A saved level, its label brought up to the default when it is still the old default (a label set by hand stays). */
+const withCurrentLabel = (saved: ServiceLevelSetting, d: ServiceLevelSetting): ServiceLevelSetting =>
+  OLD_DEFAULT_LABELS[d.code] === saved.label ? { ...saved, label: d.label } : saved;
 
 const vehicle = (code: string, label: string, capacityLdm: number, capacityKg: number, palletPlaces: number, tailLift: boolean): VehicleTypeSetting => ({
   code,
@@ -211,7 +220,10 @@ export function readSettings(stored: Partial<TruckingSettingsInput> | null): Tru
   if (!stored) return DEFAULT_SETTINGS;
   const levels = Array.isArray(stored.serviceLevels) ? stored.serviceLevels : [];
   return {
-    serviceLevels: DEFAULT_SERVICE_LEVELS.map((d) => levels.find((l) => l.code === d.code) ?? d),
+    serviceLevels: DEFAULT_SERVICE_LEVELS.map((d) => {
+      const saved = levels.find((l) => l.code === d.code);
+      return saved ? withCurrentLabel(saved, d) : d;
+    }),
     vehicleTypes: Array.isArray(stored.vehicleTypes) ? stored.vehicleTypes : DEFAULT_VEHICLE_TYPES,
     factors: stored.factors ?? DEFAULT_FACTORS,
     marginFloor: stored.marginFloor ?? DEFAULT_MARGIN_FLOOR,

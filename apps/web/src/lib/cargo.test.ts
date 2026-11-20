@@ -9,6 +9,10 @@ import {
   plainDecimal,
   checkConsistency,
   compareFigure,
+  CURRENCIES,
+  civByCurrency,
+  jobInvoiceValue,
+  FIGURE_TOLERANCE,
   fmtFixed,
   dimensionLineIsEmpty,
   hasAdr,
@@ -131,6 +135,29 @@ describe("compareFigure / checkConsistency", () => {
     expect(compareFigure(1.2346, 1.2355, 3).ok).toBe(false);
     expect(compareFigure(0, 0, 0)).toMatchObject({ empty: true, ok: true });
   });
+  it("takes weight and volume within 1 % for a match, pieces only when equal (user council O22)", () => {
+    expect(compareFigure(58.08, 58, 3, FIGURE_TOLERANCE)).toMatchObject({ ok: true, near: true });
+    expect(compareFigure(58.7, 58, 3, FIGURE_TOLERANCE)).toMatchObject({ ok: false });
+    expect(compareFigure(58, 58, 3, FIGURE_TOLERANCE).near).toBeUndefined();
+    // Nothing declared is not "near": the lines' figure has nothing to be near to.
+    expect(compareFigure(850, 0, 1, FIGURE_TOLERANCE).ok).toBe(false);
+    const line = { pieces: "11", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "10", packageType: "", stackable: "" };
+    const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "10", packageType: "", grossWeight: "110", volume: "11.05" };
+    const check = checkConsistency(c, [line]);
+    expect(check.m3).toMatchObject({ ok: true, near: true });
+    expect(check.pcs.ok).toBe(false);
+  });
+  it("says which Invoice Value the job's card shows: the commercial invoices', else the Cargo Details lines' (user council c4)", () => {
+    const item = { containerId: null, cargoDescription: "PARTS", hsCode: "", pieces: "1", packageType: "", grossWeight: "", commercialInvoiceValue: "5000", currency: "EUR" };
+    expect(jobInvoiceValue({ civByCurrency: "12 500 USD", commercialInvoiceValue: "", cargoItems: [item] })).toEqual({ value: "12 500 USD", from: "invoices" });
+    expect(jobInvoiceValue({ civByCurrency: "", commercialInvoiceValue: "800 EUR", cargoItems: [item] })).toEqual({ value: "800 EUR", from: "invoices" });
+    expect(jobInvoiceValue({ civByCurrency: "", commercialInvoiceValue: "", cargoItems: [item] })).toEqual({ value: civByCurrency([item]), from: "lines" });
+    expect(jobInvoiceValue({ civByCurrency: "", commercialInvoiceValue: null, cargoItems: [] })).toEqual({ value: "", from: null });
+  });
+  it("lists the home currency first (user council O25)", () => {
+    expect(CURRENCIES[0]?.code).toBe("CZK");
+    expect(CURRENCIES.filter((c) => c.code === "CZK")).toHaveLength(1);
+  });
   it("matches a container whose dimension rows add up to what it declares", () => {
     const line = { pieces: "3", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "33.333", packageType: "", stackable: "" };
     const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "3", packageType: "", grossWeight: "100", volume: "3" };
@@ -154,9 +181,9 @@ describe("shipmentDeclaredFigures", () => {
     const check = checkConsistency(shipmentDeclaredFigures({ pcs: "7", totalWeightTons: "0.0928", totalVolumeCbm: "0.007" }), [line]);
     expect(check.kg).toMatchObject({ ok: true, decimals: 1 });
     expect(check.matched).toBe(true);
-    // A container's own Gross Weight is still checked to 2 decimals.
+    // A container's own Gross Weight is still checked to 2 decimals: apart there, within 1 % (O22).
     const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "7", packageType: "", grossWeight: "92.8", volume: "0.007" };
-    expect(checkConsistency(c, [line]).kg).toMatchObject({ ok: false, decimals: 2 });
+    expect(checkConsistency(c, [line]).kg).toMatchObject({ ok: true, near: true, decimals: 2 });
   });
   // Review: rounded as the server rounds what an acceptance stores (Math.round of x · 10ⁿ), not as the
   // browser formats - 3 × 1.15 kg is 3.4499… kg, stored 3.5; 56×125×72.5 cm is 0.5075 m³, stored 0.507.

@@ -47,3 +47,36 @@ export function clearPortalSession(store: SessionStore | null = browserStore()):
     // Nothing stored that could be read either.
   }
 }
+
+/** The tab's note of whose account a password was just set for, for the sign-in to name it (user council E15). */
+export const PORTAL_LOGIN_HINT_KEY = "haulier_portal_login_hint";
+
+export interface PortalLoginHint {
+  /** The forwarder whose portal it is */
+  ourCompany: string;
+  /** The account's e-mail, filled in on the sign-in */
+  email: string;
+}
+
+/** Keeps whose account it is for the sign-in of this tab; nothing happens when storage refuses. */
+export function savePortalLoginHint(hint: PortalLoginHint, store: SessionStore | null = browserStore()): void {
+  try {
+    store?.setItem(PORTAL_LOGIN_HINT_KEY, JSON.stringify({ ourCompany: hint.ourCompany, email: hint.email }));
+  } catch {
+    // The sign-in then just asks for the e-mail.
+  }
+}
+
+/** The note kept by the set-password page of this tab, or null (none, unreadable or not one). */
+export function readPortalLoginHint(store: SessionStore | null = browserStore()): PortalLoginHint | null {
+  try {
+    const raw = store?.getItem(PORTAL_LOGIN_HINT_KEY);
+    if (!raw) return null;
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== "object") return null;
+    const { ourCompany, email } = v as Record<string, unknown>;
+    return typeof ourCompany === "string" && typeof email === "string" ? { ourCompany, email } : null;
+  } catch {
+    return null;
+  }
+}

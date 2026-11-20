@@ -11,8 +11,11 @@ import { businessToday, formatDate } from "@/lib/date";
 import { normalizeMoneyInput } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { useSupplierInvoiceActions, type SupplierInvoiceDetails } from "@/hooks/useSupplierInvoices";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { useUsers } from "@/hooks/useUsers";
+import { isDetailsManager } from "@/lib/shipmentEditRule";
 import { BTN, BTN_DANGER, BTN_PRIMARY, HINT, LABEL_TEXT, TEXTAREA } from "@/styles/ui";
-import { actionsFor, MIN_REASON, paidDayProblem, reasonOk, type ActionState, type PayableInvoice } from "../_lib/payables";
+import { actionsFor, MIN_REASON, paidDayProblem, reasonOk, type ActionState, type PayableInvoice, type Viewer } from "../_lib/payables";
 
 // What can be done to a supplier invoice, in its drawer. Approve, refuse, take back, paid and the supplier link
 // are for managers (D5, D8, D11, D13); the details are anyone's while it waits for approval. Each sends the
@@ -85,7 +88,7 @@ function PaidForm({ invoice, saving, onSave, onCancel }: { invoice: PayableInvoi
   return (
     <FormBox>
       <div className={HINT}>
-        Notes the day the accounting system paid it, for the whole invoice (D11). Nothing is sent to the bank: the app mirrors what was paid. Its lines on the jobs are
+        Notes the day the accounting system paid it, for the whole invoice. Nothing is sent to the bank: the app mirrors what was paid. Its lines on the jobs are
         marked paid with it.
       </div>
       <label className="flex flex-col">
@@ -122,7 +125,7 @@ function LinkForm({ invoice, saving, onSave, onCancel }: { invoice: PayableInvoi
   return (
     <FormBox>
       <div className={HINT}>
-        Pick the supplier from the Customer Database (D13): its payment terms, VAT checks and the duplicate check then apply. The invoice&apos;s lines on the jobs are linked
+        Pick the supplier from the Customer Database: its payment terms, VAT checks and the duplicate check then apply. The invoice&apos;s lines on the jobs are linked
         with it.
       </div>
       <div className="max-w-[360px]">
@@ -222,7 +225,12 @@ function DetailsForm({ invoice, saving, onSave, onCancel }: { invoice: PayableIn
 export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice; canDecide: boolean }) {
   const toast = useToast();
   const actions = useSupplierInvoiceActions();
-  const can = actionsFor(invoice, canDecide);
+  // Who is looking, and whether another manager could approve what they entered (four eyes, D8).
+  const { user } = useAuth();
+  const { users, loaded } = useUsers();
+  const viewer: Viewer | null =
+    user && loaded ? { email: user.email, anotherManager: users.some((u) => isDetailsManager(u.role) && u.id !== user.id) } : null;
+  const can = actionsFor(invoice, canDecide, viewer);
   const [form, setForm] = useState<Form>(null);
   const toggle = (f: Exclude<Form, null>) => setForm((now) => (now === f ? null : f));
 
@@ -245,7 +253,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
           ? "Refused: it stays as it was. The corrected invoice is booked as a new one."
           : invoice.paidOn
             ? "Paid: it stays as it was paid."
-            : "Only a manager approves, refuses and marks supplier invoices paid (D5)."}
+            : "Only a manager approves, refuses and marks supplier invoices paid."}
       </div>
     );
   }
@@ -275,7 +283,7 @@ export function PayableActions({ invoice, canDecide }: { invoice: PayableInvoice
       {form === "refuse" && (
         <ReasonForm
           label="Why it is refused"
-          explain="Refusing takes its lines off the jobs: an estimated line goes back to its estimate, any other line goes, and they are kept on the invoice for the record (D12). Its number is free again for the corrected invoice. The supplier is told the reason."
+          explain="Refusing takes its lines off the jobs: an estimated line goes back to its estimate, any other line goes, and they are kept on the invoice for the record. Its number is free again for the corrected invoice. The supplier is told the reason."
           saveLabel={`Refuse ${number}`}
           danger
           saving={actions.pending}

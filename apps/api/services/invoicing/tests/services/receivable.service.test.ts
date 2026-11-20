@@ -469,7 +469,7 @@ describe("noting a payment (D11, D12)", () => {
   });
 
   it("notes it under the version read, with its follow-up in the same transaction, then sends it", async () => {
-    const answer = await service.notePayment(manager, INV, { ...pay, note: " bank 14.11. ", idempotencyKey: " k-1 " });
+    const answer = await service.notePayment(manager, INV, { ...pay, note: " bank 14.11. ", bankRef: " VS 31 / 2611 ", idempotencyKey: " k-1 " });
     expect(lastDecision().current).toMatchObject({ invoiceId: INV, version: 3 });
     expect(lastDecision().event).toMatchObject({ action: "payment_noted", fromStatus: "unpaid", byUserId: "u-boss", by: "u-boss@test.cz", payload: { paidOn: "2026-11-14", amount: 100 } });
     expect(repo.insertPayment).toHaveBeenCalledWith(TX, {
@@ -479,6 +479,8 @@ describe("noting a payment (D11, D12)", () => {
       paidOn: "2026-11-14",
       amount: "100.00",
       note: "bank 14.11.",
+      // the bank's reference, as a payment over several invoices keeps it (A11)
+      bankRef: "VS 31 / 2611",
       byUserId: "u-boss",
       by: "u-boss@test.cz",
       idempotencyKey: "k-1",

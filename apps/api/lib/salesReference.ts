@@ -6,8 +6,9 @@
 //
 // The letters (owner decision, 10 Nov 2026) say what the quote is, as a shipment's Internal Reference
 // does (CZLCL…): QCZAIR, QCZLCL, QCZFCL, QCZBB, QCZRAIL, QCZROAD; none while it has no Freight Mode
-// (QCZ20261109001). They follow the Freight Mode while the quote is open and stay once it is Won,
-// Lost, Expired or Replaced. So the letters are only a label: a number is counted, grouped (variants,
+// (QCZ20261109001). The Freight Mode is asked when a quote is created, so it has them from the start;
+// they follow a change of it while the quote is open and not sent yet, and stay once it went out
+// (owner's answer Q33) or is Won, Lost, Expired or Replaced. So the letters are only a label: a number is counted, grouped (variants,
 // revisions, its chat) and looked up without them (plainSalesReference) - a copy of the number kept
 // elsewhere, or a page still showing the old one, names the same quote.
 

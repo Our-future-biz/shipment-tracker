@@ -32,16 +32,17 @@ export const PortalFrame = ({ children }: PortalFrameProps) => {
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white px-4 py-3">
-        <div className="mx-auto flex max-w-xl items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <div className={`truncate ${HINT}`}>
-              {me?.ourCompany ? `${me.ourCompany} · ` : ""}
+        {/* At a phone's 390 px the lines wrap instead of being cut ("Austromar · Portál dopravce · Hauli…", user council E15). */}
+        <div className="mx-auto flex max-w-xl items-start gap-3">
+          <div className="min-w-0 flex-1 break-words">
+            {me?.ourCompany && <div className={`${HINT} font-semibold`}>{me.ourCompany}</div>}
+            <div className={HINT}>
               <Bi text={{ cs: "Portál dopravce", en: "Haulier portal" }} />
             </div>
-            <div className="truncate text-[14px] font-semibold text-slate-900">{me?.haulierName ?? "…"}</div>
-            {me && <div className={`truncate ${HINT}`}>{me.userName}</div>}
+            <div className="text-[14px] font-semibold text-slate-900">{me?.haulierName ?? "…"}</div>
+            {me && <div className={`break-all ${HINT}`}>{[me.userName, me.email].filter(Boolean).join(" · ")}</div>}
           </div>
-          <button type="button" disabled={leaving} onClick={handleLogout} className={BTN}>
+          <button type="button" disabled={leaving} onClick={handleLogout} className={`${BTN} shrink-0`}>
             <Bi text={{ cs: "Odhlásit", en: "Log out" }} />
           </button>
         </div>

@@ -48,16 +48,20 @@ describe("jobNumberFor", () => {
 
 describe("referenceIsFinal", () => {
   it("is final once Invoicing took the reference for an invoice number", () => {
-    expect(referenceIsFinal({ jobNumberFinal: true, invoicingStatus: "Not Invoiced" })).toBe(true);
+    expect(referenceIsFinal({ jobNumberFinal: true, invoicingStatus: "Not Invoiced", bookingNumber: "" })).toBe(true);
   });
 
   it("is final for a job marked Invoiced, by hand too", () => {
-    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Invoiced" })).toBe(true);
-    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: " invoiced " })).toBe(true);
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Invoiced", bookingNumber: "" })).toBe(true);
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: " invoiced ", bookingNumber: "" })).toBe(true);
+  });
+
+  it("is final once the job has a Booking Number (Q33)", () => {
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Not Invoiced", bookingNumber: "MAEU123456" })).toBe(true);
   });
 
   it("is not otherwise", () => {
-    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Not Invoiced" })).toBe(false);
-    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "" })).toBe(false);
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Not Invoiced", bookingNumber: "" })).toBe(false);
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "", bookingNumber: "  " })).toBe(false);
   });
 });

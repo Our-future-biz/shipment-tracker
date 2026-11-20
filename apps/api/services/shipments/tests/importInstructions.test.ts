@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACCOUNT_FORMAT_PROBLEM, answersProblem, changedAnswers, fieldsToFill, importInstructionsUrl, isAccountNumber, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
+import { ACCOUNT_FORMAT_PROBLEM, answerText, answersProblem, changedAnswers, needsClassification, otherProcedureLabel, fieldsToFill, importInstructionsUrl, isAccountNumber, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
 import { importInstructionsPdf } from "../lib/importInstructionsPdf";
 import type { ImportInstructionAnswers } from "../interfaces/importInstructions";
 
@@ -74,6 +74,25 @@ describe("an account number", () => {
   it("needs the three questions only without a tariff code", () => {
     expect(answersProblem(answers({ tariffCode: "" }), listed)).toMatch(/what the goods are/);
     expect(answersProblem(answers({ tariffCode: "", whatIsIt: "a", madeOf: "b", usedFor: "c" }), listed)).toBeNull();
+  });
+
+  it("lets a customer clear the goods itself or through its own broker, without the classification questions (user council E11)", () => {
+    const own = answers({ procedure: "own_broker", dutyPaidBy: "", bank: "", accountNumber: "", tariffCode: "", otherProcedure: "Broker s.r.o." });
+    expect(own.procedure).toBe("own_broker");
+    expect(answersProblem(own, listed)).toBeNull();
+    expect(answersProblem({ ...own, description: "" }, listed)).toMatch(/Describe/);
+    expect(needsClassification(own)).toBe(false);
+    expect(needsClassification({ procedure: "t1", tariffCode: "" })).toBe(true);
+    expect(answerText("procedure", own)).toMatch(/^d\) We clear the goods through customs ourselves/);
+    expect(otherProcedureLabel("own_broker")).toBe("Customs broker");
+    expect(otherProcedureLabel("other")).toBe("Procedure");
+    // The job has no Customs Procedure value for it: nothing is written there.
+    expect(shipmentProcedureOf("own_broker")).toBe("");
+  });
+
+  it("makes the PDF of a form cleared by the customer's own broker", async () => {
+    const bytes = await importInstructionsPdf(answers({ procedure: "own_broker", tariffCode: "", otherProcedure: "Broker s.r.o." }), { reference: "CZ00000041", confirmedAt: "2026-11-09 10:00", approvedBy: "", changes: [] });
+    expect(Buffer.from(bytes.subarray(0, 5)).toString()).toBe("%PDF-");
   });
 
   it("needs a description, a billing address, a name and a telephone; delivery is optional", () => {

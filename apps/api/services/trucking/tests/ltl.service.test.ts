@@ -740,7 +740,7 @@ describe("manifest and labels", () => {
     expect(file.fileName).toBe(`${a.ref}-labels.pdf`);
     const labels = vi.mocked(buildLabelsPdf).mock.calls[0]![0];
     expect(labels.map((l) => `${l.pieceNo}/${l.pieceCount}`)).toEqual(["1/2", "2/2"]);
-    expect(labels[0]).toMatchObject({ serviceLabel: "+1 day", toPostcode: "602 00" });
+    expect(labels[0]).toMatchObject({ serviceLabel: "+1 working day", toPostcode: "602 00" });
     await expect(ltlDocumentService.labels(user, [], false)).rejects.toMatchObject({ code: "invalid_argument" });
   });
 });

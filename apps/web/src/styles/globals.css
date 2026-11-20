@@ -98,8 +98,10 @@
 .ant-table-tbody > tr.cf-row-fg > td.ant-table-cell * {
   color: var(--cf-row-fg) !important;
 }
-/* …except a value whose colour is its meaning (Invoicing's Lines Invoiced: green done, red not) */
-.ant-table-tbody > tr.cf-row-fg > td.ant-table-cell .cf-own-color.cf-own-color {
+/* …except a value whose colour is its meaning (Invoicing's Lines Invoiced: green done, red not; the
+   Shipments list's deadline triangle: grey, amber or red), with what is inside it (an icon's svg). */
+.ant-table-tbody > tr.cf-row-fg > td.ant-table-cell .cf-own-color.cf-own-color,
+.ant-table-tbody > tr.cf-row-fg > td.ant-table-cell .cf-own-color.cf-own-color * {
   color: var(--cf-own-color) !important;
 }
 

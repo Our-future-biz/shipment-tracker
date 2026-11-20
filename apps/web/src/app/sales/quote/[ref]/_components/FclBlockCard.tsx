@@ -6,12 +6,13 @@ import { SupplierPicker } from "@/components/SupplierPicker";
 import { EditOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { chargeOptions, toChargeCode } from "@/lib/chargeCodes";
+import { chargeMatches } from "@/app/sales/_lib/chargeSearch";
 import { CURRENCIES } from "@/lib/enums";
 import { fmtMoney, roundCents } from "@/lib/money";
 import { formatNumber } from "@/lib/number";
 import { fmtQuantity } from "../_lib/fmtQuantity";
 import { isInAllIn, priceFclBlock, type FclBlock } from "@/app/sales/_lib/fclPricing";
-import { lineRate, perUnitBasis, type LivePricing } from "@/app/sales/_lib/salesQuote";
+import { isDraftQuote, lineRate, perUnitBasis, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
 import { LABEL_TEXT, TD_TOTAL } from "@/styles/ui";
 import { LockedAmountInput } from "./LockedAmountInput";
@@ -145,7 +146,8 @@ export function FclBlockCard({
                       className="w-full"
                       aria-label="Charge"
                       showSearch
-                      optionFilterProp="label"
+                      // Found by its name or by what the trade calls it ("trucking" → haulage).
+                      filterOption={chargeMatches}
                       popupMatchSelectWidth={380}
                       value={l.chargeCode || toChargeCode(l.type)}
                       onChange={(v) => onChooseService(c.index, v)}
@@ -188,6 +190,7 @@ export function FclBlockCard({
                       // among the charges per shipment), else the whole line.
                       value={block.perContainer || perUnitBasis(l.basis) ? lineRate(l) : Number(l.amount) || 0}
                       currency={l.currency}
+                      askFirst={!isDraftQuote(quote)}
                       onChange={(rate) => onRate(c.index, rate)}
                     />
                   </td>

@@ -19,6 +19,7 @@ import type { LtlTripKind, PlanningLeg, TripCreateLtl } from "@/hooks/useTruckin
 import { TERMS } from "../_lib/glossary";
 import { TRIP_KIND_LABEL, addLegsWarnings, emptyPriceForm, ltlTripRateRequest, priceInput, priceProblems, vehicleCapacity, type PriceForm } from "../_lib/planning";
 import { formatMoney, formatQty, versionLabel } from "../_lib/tariffs";
+import { vehicleOptions, vehicleWarning } from "../_lib/planTrip";
 import { HaulierIssueList } from "./HaulierIssueList";
 import { TruckingField } from "./TruckingField";
 import { TruckingPriceFields } from "./TruckingPriceFields";
@@ -69,12 +70,16 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
   const vehicles = (settings?.vehicleTypes ?? []).filter((v) => v.active);
   const vehicleType = vehicles.find((v) => v.code === vehicle) ?? null;
   const haulier = hauliers.find((h) => h.customerId === haulierId) ?? null;
-  const warnings = addLegsWarnings({ ldm: 0, kg: 0, palletPlaces: 0 }, legs, {
-    capacity: vehicleCapacity(vehicles, vehicle),
-    vehicleTailLift: vehicleType ? vehicleType.tailLift : null,
-    haulierAdr: haulier ? haulier.adrCapable : null,
-    tripDate: date,
-  });
+  const vehicleNote = vehicleWarning(vehicles, haulier?.vehicleTypes, vehicle);
+  const warnings = [
+    ...addLegsWarnings({ ldm: 0, kg: 0, palletPlaces: 0 }, legs, {
+      capacity: vehicleCapacity(vehicles, vehicle),
+      vehicleTailLift: vehicleType ? vehicleType.tailLift : null,
+      haulierAdr: haulier ? haulier.adrCapable : null,
+      tripDate: date,
+    }),
+    ...(vehicleNote ? [vehicleNote] : []),
+  ];
   const problems = [
     ...(haulierId ? [] : [`Pick the ${TERMS.haulier.toLowerCase()}`]),
     // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24).
@@ -172,7 +177,11 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
           <Select
             aria-label={TERMS.vehicleType}
             value={vehicle ?? undefined}
-            options={vehicles.map((v) => ({ value: v.code, label: `${v.label} · ${formatQty(v.capacityLdm)} ${TERMS.ldm} · ${formatQty(v.capacityKg)} kg${v.tailLift ? ` · ${TERMS.tailLift.toLowerCase()}` : ""}` }))}
+            // The haulier's own types first (user council T16); another one is warned about below.
+            options={vehicleOptions(
+              vehicles.map((v) => ({ code: v.code, label: `${v.label} · ${formatQty(v.capacityLdm)} ${TERMS.ldm} · ${formatQty(v.capacityKg)} kg${v.tailLift ? ` · ${TERMS.tailLift.toLowerCase()}` : ""}` })),
+              haulier?.vehicleTypes,
+            )}
             onChange={setVehicle}
           />
         </TruckingField>

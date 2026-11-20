@@ -35,6 +35,14 @@ describe("getActiveStageFromTasks", () => {
     const allButOne = IMPORT_TASKS.map((t) => t.key).filter((k) => k !== "imp_extra_costs");
     expect(getActiveStageFromTasks(IMPORT_TASKS, doneSet(allButOne))).toBe(5);
   });
+
+  it("doesn't move the bar on for an invoice: a prepaid export still at booking stays there (user council B18)", () => {
+    expect(getActiveStageFromTasks(EXPORT_TASKS, doneSet(["exp_billed"]))).toBe(0);
+    expect(getActiveStageFromTasks(IMPORT_TASKS, doneSet(["imp_booking_to_agent", "imp_billed"]))).toBe(0);
+    // Once the bar reaches its stage, Billed counts as done there.
+    const exportDone = EXPORT_TASKS.map((t) => t.key);
+    expect(getActiveStageFromTasks(EXPORT_TASKS, doneSet(exportDone))).toBe(6);
+  });
 });
 
 describe("getStageFromFacts", () => {

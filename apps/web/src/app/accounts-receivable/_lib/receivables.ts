@@ -186,8 +186,8 @@ export type ReceivableCheck = "due_week" | "over_60" | "prepayment" | "to_refund
 export const RECEIVABLE_CHECKS: CheckDef<ReceivableCheck>[] = [
   { key: "due_week", label: "Due this week", tip: "Still owed, due today or in the next 7 days" },
   { key: "over_60", label: "Over 60 days overdue", tip: "Still owed, more than 60 days past its due day" },
-  { key: "prepayment", label: "Prepayment", tip: "The customer's terms are prepayment: due on the day it was issued (D22)" },
-  { key: "to_refund", label: "To refund", tip: "Credited after it was paid: we owe the customer the difference (D14)" },
+  { key: "prepayment", label: "Prepayment", tip: "The customer's terms are prepayment: due on the day it was issued" },
+  { key: "to_refund", label: "To refund", tip: "Credited after it was paid: we owe the customer the difference" },
   // Mock test council m6: the broken promises, to chase again.
   { key: "promise_passed", label: "Promise passed", tip: "Still owed after the day the customer promised to pay by" },
   // Mock test council P18: what the automatic reminders never take, to chase by hand.
@@ -282,6 +282,19 @@ export function limitStates(customers: readonly ReceivableCustomer[], rates: Rat
  */
 export const isOverLimit = (s: LimitState | undefined): boolean => !!s && s.limit > 0 && s.owed > s.limit;
 
+/**
+ * How much of its credit limit the customer uses: what it owes in all (converted, as the mark counts it) as a whole
+ * per cent of the limit (user council A15: "Over limit" was only a filter, so who is close could not be seen).
+ */
+export const limitUsedPct = (s: LimitState): number => (s.limit > 0 ? Math.round((s.owed / s.limit) * 100) : 0);
+
+/** The By customer's Credit limit cell as text: "100,000.00 EUR · 87 % used", and what has no rate left out. */
+export function limitText(s: LimitState | null | undefined): string {
+  if (!s || !(s.limit > 0)) return "";
+  const left = s.unconverted.length ? ` (without ${s.unconverted.map((u) => formatAmount(u.amount, u.currency)).join(" + ")})` : "";
+  return `${formatAmount(s.limit, s.currency)} · ${limitUsedPct(s)} % used${left}`;
+}
+
 /** The mark's tooltip: the figures behind it. */
 export function overLimitTip(s: LimitState, fixingLabel: string): string {
   const left = s.unconverted.length ? `, without ${s.unconverted.map((u) => formatAmount(u.amount, u.currency)).join(" + ")} that has no rate today` : "";
@@ -370,7 +383,7 @@ export function actionsFor(r: Pick<ReceivableRow, "status" | "leftToPay" | "disp
     promise: owed ? on() : off,
     dispute: owed && !r.disputed ? on() : off,
     closeDispute: r.disputed ? on() : off,
-    reminder: owed ? on(r.disputed ? "The customer disputes it: close the dispute before sending a reminder (D16)" : "") : off,
+    reminder: owed ? on(r.disputed ? "The customer disputes it: close the dispute before sending a reminder" : "") : off,
     sendAgain: canAct && sendAgain ? on() : off,
   };
 }
@@ -500,6 +513,13 @@ export const writeOffPrefill = (leftToPay: number, waiting: number): string => {
   const room = writeOffRoom(leftToPay, waiting);
   return room > 0 ? room.toFixed(2) : "";
 };
+
+/**
+ * The amount a write-off or bank charge form starts with: a write-off all that may still be closed (writeOffPrefill);
+ * a bank charge nothing - it is the few euros the bank kept, not the rest of the invoice (user council A14).
+ */
+export const writeOffStart = (kind: WriteOffKind, leftToPay: number, waiting: number): string =>
+  kind === "bank_charge" ? "" : writeOffPrefill(leftToPay, waiting);
 
 /** Why the write-off or bank charge can't be written as typed, or "" (the server's writeOffProblem, for the form). */
 export function writeOffProblem(input: { kind: WriteOffKind; amountText: string; reason: string; leftToPay: number; waiting: number; currency: string }): string {
@@ -829,6 +849,33 @@ export function reminderMail(r: Pick<ReceivableRow, "number" | "jobNumber" | "is
 
 // ── History ──
 
+/** One entry of an invoice's history: the issue, a credit note's issue (on their days) or an event (at its moment). */
+export type HistoryEntry =
+  | { kind: "issued"; at: string }
+  | { kind: "credit_note"; at: string; note: interfaces.ReceivableCreditNoteItem }
+  | { kind: "event"; at: string; event: interfaces.ReceivableEventItem };
+
+/**
+ * The invoice's history in one time order, the oldest first (user council A13: the issue first, then the events newest
+ * first, did not read in order). The issue and a credit note carry only their day, so they come before what happened
+ * later that day; entries at the same moment keep the order given.
+ */
+export function historyEntries(
+  issueDate: string,
+  creditNotes: readonly interfaces.ReceivableCreditNoteItem[],
+  events: readonly interfaces.ReceivableEventItem[],
+): HistoryEntry[] {
+  const all: HistoryEntry[] = [
+    { kind: "issued", at: issueDate },
+    ...creditNotes.map((note): HistoryEntry => ({ kind: "credit_note", at: note.issueDate, note })),
+    ...events.map((event): HistoryEntry => ({ kind: "event", at: event.at, event })),
+  ];
+  return all.map((e, i) => ({ e, i })).sort((a, b) => a.e.at.localeCompare(b.e.at) || a.i - b.i).map(({ e }) => e);
+}
+
+/** Whether the drawer shows "Promised to pay by": only while something is left to pay (A13: a paid invoice kept it). */
+export const showsPromise = (r: Pick<interfaces.ReceivableItem, "promisedOn" | "leftToPay">): boolean => !!r.promisedOn && r.leftToPay > 0;
+
 export const EVENT_LABELS: Record<string, string> = {
   issued: "Issued",
   payment_noted: "Payment noted",
@@ -1038,6 +1085,15 @@ export function receivableTools(canAct: boolean): { key: string; label: string }
     ...(canAct ? [{ key: "/accounts-receivable/export", label: "Export to Pohoda" }] : []),
     { key: "/accounts-receivable/settings", label: "Reminder settings" },
   ];
+}
+
+/** The pages that are buttons of their own on the bar, not only in Tools (user council A16: month-end was hunted for). */
+const BAR_PAGES = new Set(["/accounts-receivable/bank", "/accounts-receivable/month-end"]);
+
+/** The bar's split of the pages: Bank statements and Month-end as buttons, the rest in the Tools menu. */
+export function receivableBarTools(canAct: boolean): { buttons: { key: string; label: string }[]; menu: { key: string; label: string }[] } {
+  const all = receivableTools(canAct);
+  return { buttons: all.filter((t) => BAR_PAGES.has(t.key)), menu: all.filter((t) => !BAR_PAGES.has(t.key)) };
 }
 
 /** A bank statement opened on the Bank statements page (managers only). */

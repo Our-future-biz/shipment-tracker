@@ -2,7 +2,7 @@ import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { parseDateMMDDYY } from "@/lib/columnConfig";
 
 // Which shipments each warehouse page lists. A shipment carries two dates of its own and
-// moves by them: In Warehouse → (Naskladnit) → Stock → (Vyskladnit) → Out Warehouse.
+// moves by them: In Warehouse → (Receive into Stock) → Stock → (Release from Stock) → Out Warehouse.
 
 const DAY = 86_400_000;
 const ETA_WITHIN_DAYS = 7;

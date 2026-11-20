@@ -285,7 +285,7 @@ describe("exceptions and avizace", () => {
     const k = avizaceDoneKpi([group({ delivered: 10, avizaceNeeded: 4, avizaceBefore: 3 })]);
     expect(k).toMatchObject({ value: 75, n: 4 });
     expect(part(k, "Missing or late")).toMatchObject({ value: 1 });
-    expect(avizaceDoneKpi([group({ delivered: 3 })])).toMatchObject({ value: null, notMeasured: "No consignment delivered in this period needed an avizace" });
+    expect(avizaceDoneKpi([group({ delivered: 3 })])).toMatchObject({ value: null, notMeasured: "No consignment delivered in this period needed a delivery notice" });
   });
 
   it("gives the ten KPIs in the contract's order", () => {

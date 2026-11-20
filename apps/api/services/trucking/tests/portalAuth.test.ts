@@ -106,6 +106,18 @@ describe("set the password through the one-time link", () => {
     expect(eventsOf("portal_password_set")).toHaveLength(1);
   });
 
+  it("names the forwarder, the haulier and the account a live link is for, without using it (user council E15)", async () => {
+    const created = await portalUserService.create(manager, HAULIER, { email: "eva@bravo.cz", name: "Eva", phone: "" });
+    const token = tokenOf(created.inviteLink);
+    await expect(portalAuthService.setPasswordLink(token)).resolves.toEqual({ userName: "Eva", email: "eva@bravo.cz", haulierName: "Bravo Trans", ourCompany: "SSL Forwarding s.r.o.", kind: "INVITE" });
+    // Read twice and the link still sets the password; once used it names nobody.
+    await expect(portalAuthService.setPasswordLink(token)).resolves.toMatchObject({ kind: "INVITE" });
+    await portalAuthService.setPassword({ token, password: PASSWORD });
+    const invalid = { code: "not_found", message: SET_PASSWORD_LINK_INVALID };
+    await expect(portalAuthService.setPasswordLink(token)).rejects.toMatchObject(invalid);
+    await expect(portalAuthService.setPasswordLink("short")).rejects.toMatchObject(invalid);
+  });
+
   it("refuses an expired link (72 hours) and a link of a disabled user", async () => {
     const created = await portalUserService.create(manager, HAULIER, { email: "eva@bravo.cz", name: "Eva", phone: "" });
     vi.setSystemTime(new Date("2026-10-18T10:00:01Z"));

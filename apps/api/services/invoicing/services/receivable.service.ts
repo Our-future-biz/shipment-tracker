@@ -693,7 +693,7 @@ class ReceivableService {
   async notePayment(
     actor: Actor,
     invoiceId: string,
-    input: { version: number; paidOn: string; amount: number; note?: string; idempotencyKey?: string },
+    input: { version: number; paidOn: string; amount: number; note?: string; bankRef?: string; idempotencyKey?: string },
   ): Promise<ReceivableDetailResponse> {
     this.requireManager(actor);
     const paidOn = String(input.paidOn ?? "").trim();
@@ -754,6 +754,8 @@ class ReceivableService {
             paidOn,
             amount: amount.toFixed(2),
             note: (input.note ?? "").trim(),
+            // as a payment over several invoices keeps it (user council A11)
+            bankRef: String(input.bankRef ?? "").trim(),
             byUserId: actor.userID,
             by,
             idempotencyKey: key,

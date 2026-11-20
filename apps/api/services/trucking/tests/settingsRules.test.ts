@@ -96,6 +96,19 @@ describe("trucking settings checks", () => {
     next.factors.kgPerLdm = 1850;
     expect(settingsChanges(clone(), next)).toEqual({ factors: { before: DEFAULT_SETTINGS.factors, after: next.factors } });
   });
+
+  it("says the D levels count working days, also on a row saved with the old default labels (user council T15)", () => {
+    expect(DEFAULT_SETTINGS.serviceLevels.slice(0, 4).map((l) => l.label)).toEqual(["+1 working day", "+2 working days", "+3 working days", "+4 working days"]);
+    const stored = clone();
+    stored.serviceLevels[0]!.label = "+1 day";
+    stored.serviceLevels[1]!.label = "+2 days";
+    stored.serviceLevels[1]!.cutoff = "11:00";
+    stored.serviceLevels[2]!.label = "Do tří dnů";
+    const read = readSettings(stored).serviceLevels;
+    expect(read.slice(0, 3).map((l) => l.label)).toEqual(["+1 working day", "+2 working days", "Do tří dnů"]);
+    // Only the old default label is brought up; the rest of the saved level stays as saved.
+    expect(read[1]).toMatchObject({ code: "D2", cutoff: "11:00" });
+  });
 });
 
 describe("our warehouse (hub) in the settings", () => {

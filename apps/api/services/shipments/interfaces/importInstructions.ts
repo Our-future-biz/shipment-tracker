@@ -1,7 +1,11 @@
 /** What the customer filled in; the sections of the paper form. Every text "" when left empty. */
 export interface ImportInstructionAnswers {
-  /** 2 a) release for free circulation, b) T1 transit, c) customs warehousing or another procedure. */
-  procedure: "" | "free_circulation" | "t1" | "other";
+  /**
+   * 2 a) release for free circulation, b) T1 transit, c) customs warehousing or another procedure, d) the
+   * customer clears the goods itself or through its own broker (user council E11; the broker's name, if
+   * given, is in otherProcedure).
+   */
+  procedure: "" | "free_circulation" | "t1" | "other" | "own_broker";
   /**
    * Under a): who pays the duty and VAT - we do and invoice them, or they are paid from the customer's own
    * account. Only then are the bank and the account asked (owner, User Council Q16). "" on forms sent before

@@ -36,7 +36,7 @@ describe("transport order PDF", () => {
       "MÍSTONAKLÁDKY/LOADINGPLACE",
       "Šťastný Transport a.s.",
       "Žižkova845",
-      "Avízonutné/Avizacerequired",
+      "Avízonutné/Deliverynoticerequired",
       "1 250.5 kg",
       "42.125 m³",
       "UN1263",

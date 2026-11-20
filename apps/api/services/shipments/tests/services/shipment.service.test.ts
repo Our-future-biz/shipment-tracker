@@ -129,6 +129,7 @@ const row = (over: Record<string, unknown> = {}) =>
     jobNumber: "CZ00000101",
     salesNumber: "",
     salesPerson: "",
+    bookingNumber: "",
     customerId: null,
     masterJobId: null,
     customsStatus: "",
@@ -767,6 +768,36 @@ describe("update", () => {
       expect(invoicing._internalInvoicedShipments).not.toHaveBeenCalled();
     });
 
+    it("stay once the job has a Booking Number (Q33), also one saved while the edit was on its way, without asking Invoicing", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", bookingNumber: "MAEU123456" }));
+      await update({ loadType: "Consolidation" });
+      await update({ freightMode: "Air Freight" });
+      expect(invoicing._internalInvoicedShipments).not.toHaveBeenCalled();
+
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", salesNumber: REF }));
+      savedMeanwhile({ bookingNumber: "MAEU123456" });
+      await update({ loadType: "Consolidation" });
+      expect(repository.renameJobNumber).not.toHaveBeenCalled();
+      expect(stored.get(SHIPMENT)!.jobNumber).toBe("CZFCL00000101");
+      expect(links.syncReference).not.toHaveBeenCalled();
+    });
+
+    it("still follow the Freight Mode and Load Type saved with the job's first Booking Number, and stay from then on", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZ00000101", freightMode: "Sea Freight", loadType: "" }));
+      await update({ loadType: "Full Load", bookingNumber: "MAEU123456" });
+      expect(renamedTo()).toEqual(["CZFCL00000101"]);
+      await update({ loadType: "Consolidation" });
+      expect(renamedTo()).toEqual(["CZFCL00000101"]);
+      expect(stored.get(SHIPMENT)).toMatchObject({ jobNumber: "CZFCL00000101", loadType: "Consolidation" });
+    });
+
+    it("follow again once the Booking Number is cleared", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", bookingNumber: "MAEU123456" }));
+      await update({ bookingNumber: "" });
+      await update({ loadType: "Consolidation" });
+      expect(renamedTo()).toEqual(["CZLCL00000101"]);
+    });
+
     it("stay on a job marked Invoiced by hand in the same edit", async () => {
       stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", invoicingStatus: "Not Invoiced" }));
       await update({ loadType: "Consolidation", invoicingStatus: "Invoiced" });
@@ -1310,13 +1341,14 @@ describe("normalizeReferences", () => {
     expect(asked()).toEqual([["s-1", "s-2"]]);
   });
 
-  it("keeps the reference of a job that is final: one Invoicing numbered, one marked Invoiced (by hand too), one with an invoice", async () => {
+  it("keeps the reference of a job that is final: one Invoicing numbered, one marked Invoiced (by hand too), one booked, one with an invoice", async () => {
     put("s-1", { jobNumber: "CZ00000001", freightMode: "Air Freight", jobNumberFinal: true });
     put("s-2", { jobNumber: "CZ00000002", freightMode: "Air Freight", invoicingStatus: "Invoiced" });
     put("s-3", { jobNumber: "CZ00000003", freightMode: "Air Freight" });
     put("s-4", { jobNumber: "CZ00000004", freightMode: "Air Freight" });
+    put("s-5", { jobNumber: "CZ00000005", freightMode: "Air Freight", bookingNumber: "176-12345675" });
     vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: ["s-3"] });
-    await expect(normalize()).resolves.toEqual({ checked: 4, renamed: 1, keptInvoiced: ["CZ00000001", "CZ00000002", "CZ00000003"] });
+    await expect(normalize()).resolves.toEqual({ checked: 5, renamed: 1, keptInvoiced: ["CZ00000001", "CZ00000002", "CZ00000005", "CZ00000003"] });
     // What the shipment row already says is final is not asked about.
     expect(asked()).toEqual([["s-3", "s-4"]]);
     expect(renamedJobs()).toEqual(["CZAIR00000004"]);

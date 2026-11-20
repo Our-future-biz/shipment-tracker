@@ -95,11 +95,13 @@ class SellingCostRepository extends TenantRepository<typeof t> {
   async listLiveByShipments(
     shipmentIds: string[],
     companyId: string,
-  ): Promise<Pick<InvoiceSellingCostRecord, "id" | "shipmentId" | "qty" | "amount" | "currency" | "invoice">[]> {
+  ): Promise<Pick<InvoiceSellingCostRecord, "id" | "shipmentId" | "qty" | "amount" | "currency" | "invoice" | "sourceCreditNoteId">[]> {
     const ids = [...new Set(shipmentIds)];
     if (!ids.length) return [];
+    // sourceCreditNoteId too: the row a partial credit note puts on the job is no line of its own in
+    // "Lines invoiced" (user council B19, billingQueue countInvoicedLines), as the job's header counts it.
     return this.db
-      .select({ id: t.id, shipmentId: t.shipmentId, qty: t.qty, amount: t.amount, currency: t.currency, invoice: t.invoice })
+      .select({ id: t.id, shipmentId: t.shipmentId, qty: t.qty, amount: t.amount, currency: t.currency, invoice: t.invoice, sourceCreditNoteId: t.sourceCreditNoteId })
       .from(t)
       .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, ids), isNull(t.deletedAt)));
   }

@@ -5,8 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Drawer } from "antd";
 import { useHauliers, useTariffs } from "@/hooks/useTrucking";
 import { useConsignments, useTrips } from "@/hooks/useTruckingConsignments";
+import { useHaulierInvoices } from "@/hooks/useTruckingMoney";
 import { PAGE_TITLE } from "@/styles/ui";
-import { TRUCKING_TABS, tabSearch, type TruckingTab } from "../_lib/tabs";
+import { TAB_COUNT_LABELS, TAB_QUEUES, TRUCKING_TABS, haulierInvoicesWaiting, tabSearch, type TruckingTab } from "../_lib/tabs";
 import { TruckingConsignmentsTab } from "./TruckingConsignmentsTab";
 import { TruckingHaulierInvoicesTab } from "./TruckingHaulierInvoicesTab";
 import { TruckingHauliersTab } from "./TruckingHauliersTab";
@@ -34,9 +35,13 @@ export const TruckingView = () => {
   // (counted by the server over every trip, not the newest listed).
   const { counts: consignmentCounts } = useConsignments();
   const { counts: tripCounts } = useTrips();
+  // Haulier invoices waiting for a manager or blocked (user council T13): the tab's own list read,
+  // so the count is the one its status chips show.
+  const { counts: invoiceCounts } = useHaulierInvoices();
   const tabCounts: Partial<Record<TruckingTab, number>> = {
     ...(consignmentCounts ? { consignments: consignmentCounts.attention } : {}),
     ...(tripCounts ? { trips: tripCounts.notConfirmed } : {}),
+    ...(invoiceCounts ? { haulierInvoices: haulierInvoicesWaiting(invoiceCounts) } : {}),
     ...(hauliersLoading ? {} : { hauliers: hauliers.length }),
     ...(tariffsLoading ? {} : { tariffs: tariffs.length }),
   };
@@ -54,7 +59,8 @@ export const TruckingView = () => {
           <TruckingTabs
             active={activeTab.key}
             counts={tabCounts}
-            queues={{ consignments: "need attention", trips: "ordered, not confirmed" }}
+            queues={TAB_QUEUES}
+            labels={TAB_COUNT_LABELS}
             onChange={handleTabChange}
             onHelp={() => setHelpOpen(true)}
           />

@@ -262,7 +262,7 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
                     ref={queryInputRef}
                     id="registration-ico"
                     className="flex-1 min-w-0"
-                    placeholder="e.g. Alza.cz or 27082440"
+                    placeholder="e.g. Example s.r.o. or 12345678"
                     value={query}
                     options={nameOptions}
                     onChange={handleQueryChange}

@@ -40,7 +40,7 @@ const LIMITS: Record<Exclude<keyof ImportInstructionAnswers, "procedure" | "duty
 /** The answers in the form they are kept: every text trimmed and within its limit, whatever was sent. */
 export function normalizeAnswers(raw: Partial<ImportInstructionAnswers>): ImportInstructionAnswers {
   const text = (key: keyof typeof LIMITS) => String(raw[key] ?? "").trim().slice(0, LIMITS[key]);
-  const procedure = raw.procedure === "free_circulation" || raw.procedure === "t1" || raw.procedure === "other" ? raw.procedure : "";
+  const procedure = raw.procedure === "free_circulation" || raw.procedure === "t1" || raw.procedure === "other" || raw.procedure === "own_broker" ? raw.procedure : "";
   const dutyPaidBy = raw.dutyPaidBy === "us" || raw.dutyPaidBy === "own_account" ? raw.dutyPaidBy : "";
   // Paid by us, the customer's bank isn't asked, so none sent anyway (a direct call, an old page) is kept.
   const paidByUs = dutyPaidBy === "us";
@@ -87,6 +87,9 @@ export function isAccountNumber(value: string): boolean {
   return rest === 1;
 }
 
+/** We classify the goods from the three questions: when no tariff code is given and we clear them. */
+export const needsClassification = (a: Pick<ImportInstructionAnswers, "procedure" | "tariffCode">): boolean => !a.tariffCode && a.procedure !== "own_broker";
+
 /**
  * What is still missing from the form; null when it is complete. `fromCustomer` is the public submit: what a
  * customer sends now is checked in full, while a form already sent is answered as it was sent.
@@ -106,8 +109,9 @@ export function answersProblem(a: ImportInstructionAnswers, isListedOffice: (off
   }
   if (a.procedure === "t1" && !isListedOffice(a.t1Office)) return "Choose the customs office of destination from the list";
   if (!a.description) return "Describe the goods";
-  // Without a code the goods are classified from these.
-  if (!a.tariffCode && (!a.whatIsIt || !a.madeOf || !a.usedFor)) return "Without a customs tariff code, say what the goods are, what they are made of and what they are used for";
+  // Without a code the goods are classified from these - by us; a customer who clears them itself (or
+  // through its own broker) classifies them there.
+  if (needsClassification(a) && (!a.whatIsIt || !a.madeOf || !a.usedFor)) return "Without a customs tariff code, say what the goods are, what they are made of and what they are used for";
   if (!a.billingAddress) return "Fill in the billing address";
   if (!a.name || !a.telephone) return "Fill in your name and telephone";
   return null;
@@ -143,7 +147,14 @@ const PROCEDURE_TEXT: Record<ImportInstructionAnswers["procedure"], string> = {
   free_circulation: "a) Release for free circulation (SAD)",
   t1: "b) T1 transit",
   other: "c) Customs warehousing (SAD) or another procedure",
+  own_broker: "d) We clear the goods through customs ourselves or through our own broker",
 };
+
+/** The procedure as the form and the PDF say it. */
+export const procedureText = (procedure: ImportInstructionAnswers["procedure"]): string => PROCEDURE_TEXT[procedure];
+
+/** What otherProcedure holds, by the procedure: the other procedure's name, or the customer's own broker. */
+export const otherProcedureLabel = (procedure: ImportInstructionAnswers["procedure"]): string => (procedure === "own_broker" ? "Customs broker" : ANSWER_LABELS.otherProcedure);
 
 export const DUTY_PAID_BY_TEXT: Record<ImportInstructionAnswers["dutyPaidBy"], string> = {
   "": "",

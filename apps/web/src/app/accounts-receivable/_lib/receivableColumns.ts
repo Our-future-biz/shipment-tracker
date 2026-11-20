@@ -4,6 +4,7 @@ import { tableModel, type TableModel } from "@/lib/tableModel";
 import {
   amountText,
   isOverLimit,
+  limitText,
   paidText,
   passesCheck,
   RECEIVABLE_CHECKS,
@@ -147,6 +148,8 @@ export function customerCellText(c: CustomerRow, key: string): string {
       return c.currency;
     case "unpaid":
       return figure(c.unpaid);
+    case "creditLimit":
+      return limitText(c.limit);
     case "current":
       return figure(c.current);
     case "d1to30":
@@ -173,6 +176,7 @@ export const CUSTOMER_TABLE = tableModel<CustomerRow, CustomerCheck>({
     { key: "salesOwner", title: "Sales Owner" },
     { key: "currency", title: "Currency" },
     { key: "unpaid", title: "Unpaid" },
+    { key: "creditLimit", title: "Credit limit" },
     { key: "current", title: AGING_LABEL.current },
     { key: "d1to30", title: AGING_LABEL["1-30"] },
     { key: "d31to60", title: AGING_LABEL["31-60"] },

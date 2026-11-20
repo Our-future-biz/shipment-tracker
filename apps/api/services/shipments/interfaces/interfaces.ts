@@ -1066,8 +1066,9 @@ export interface ReferenceNormalizeResult {
   /** References that took the letters of their Freight Mode and Load Type. */
   renamed: number;
   /**
-   * References kept as they are because they are final (they would need letters): the shipment has
-   * had an invoice, Invoicing is numbering one, or it is marked Invoiced.
+   * References kept as they are because they are final (they would need letters): the shipment is
+   * invoiced or booked — it has had an invoice, Invoicing is numbering one, it is marked Invoiced, or
+   * it has a booking number (owner's answer Q33). The field keeps its old name.
    */
   keptInvoiced: string[];
 }
@@ -1586,6 +1587,17 @@ export interface PublicShipmentStatus {
   pod: string;
   vessel: string;
   containers: string[];
+  /** Where the goods start and end when that is not the port (user council E10: "Ningbo → Hamburg" left out Praha); "" when not known. */
+  origin: string;
+  destination: string;
+  /** The pieces, their package type and the gross weight as the job page shows them (the cargo lines', else the typed values); "" when not known. */
+  pieces: string;
+  packageType: string;
+  /** "1,200" (kg) */
+  weightKg: string;
+  /** Our company's general phone and e-mail (the invoicing details), for the page's contact line; never a person's. "" when not set. */
+  ourPhone: string;
+  ourEmail: string;
   milestones: PublicMilestone[];
   asOf: string;
 }

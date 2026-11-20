@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Alert, Button, DatePicker, Input, Select, TimePicker } from "antd";
+import { Alert, Button, Checkbox, DatePicker, Input, Select, TimePicker } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { AppModal } from "@/components/AppModal";
-import type { ShipmentItem } from "@/hooks/useShipments";
+import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useTrackingActions, type ShipmentTracking, type TrackingRecordableKind } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
+import { statusLabel } from "@/lib/shipmentStatus";
 import { addDays, businessToday } from "@/lib/date";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { mayLieAhead } from "./trackingText";
+import { atdWarning, billingHintAfter, statusOfferAfter } from "./milestoneFollowUp";
+import { composePlace, mayLieAhead } from "./trackingText";
 
 const GROUPS: { key: TrackingRecordableKind["group"]; label: string }[] = [
   { key: "milestone", label: "Milestones" },
@@ -45,9 +49,18 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
   const [day, setDay] = useState<Dayjs | null>(dayjs(today));
   const [time, setTime] = useState<Dayjs | null>(null);
   const [place, setPlace] = useState(placeOf(firstKind, shipment));
+  // A terminal or depot is typed in its own box, not after the prefilled port (User Council O23).
+  const [placeDetail, setPlaceDetail] = useState("");
   const [container, setContainer] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The Shipment Status that usually follows the milestone, offered unticked (user council O3, Q4 (a)):
+  // it is set only when the box is ticked or a status is picked, by whoever may change the details.
+  const { user } = useAuth();
+  const { updateField } = useShipmentMutations();
+  const mayChangeStatus = canChangeShipmentDetails(user, shipment);
+  const [statusTicked, setStatusTicked] = useState(false);
+  const [nextStatus, setNextStatus] = useState(() => statusOfferAfter(firstKind, shipment)?.suggested ?? "");
 
   // What has happened can't be in the future; the server lets it be tomorrow, as a port ahead of
   // Prague can already be. A new ETD or ETA is a plan, and may lie ahead.
@@ -57,7 +70,10 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
   const setKind = (next: string) => {
     setKindState(next);
     setPlace(placeOf(next, shipment));
+    setPlaceDetail("");
     if (tooLate(day, next)) setDay(dayjs(today));
+    setStatusTicked(false);
+    setNextStatus(statusOfferAfter(next, shipment)?.suggested ?? "");
   };
 
   const def = tracking.recordable.find((r) => r.kind === kind);
@@ -65,6 +81,11 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
   // The server refuses it too; said here before anyone types.
   const lockedByInvoice = !!def?.taxDate && tracking.taxDate.invoiced === true;
   const canSave = !!def && !!day && !tooLate(day, kind) && (!def.reasonRequired || !!note.trim()) && !lockedByInvoice;
+  const statusOffer = mayChangeStatus ? statusOfferAfter(kind, shipment) : null;
+  const statusToSet = statusTicked && statusOffer && statusOffer.options.includes(nextStatus) ? nextStatus : "";
+  const billingHint = mayChangeStatus ? billingHintAfter(kind, shipment.status) : "";
+  // A warning, never a refusal: an ATD before the Closing or days before the ETD is most often a slip.
+  const atdCheck = kind === "departed" && day ? atdWarning(day.format("YYYY-MM-DD"), shipment) : "";
 
   const save = () => {
     if (!canSave) return;
@@ -74,12 +95,20 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
         kind,
         occurredOn: day.format("YYYY-MM-DD"),
         occurredTime: time ? time.format("HH:mm") : undefined,
-        place: place.trim() || undefined,
+        place: composePlace(place, placeDetail) || undefined,
         containerNumber: container || undefined,
         note: note.trim() || undefined,
         taskKey,
       },
-      { onSuccess: onClose, onError: (err) => setError(apiErrorMessage(err)) },
+      {
+        onSuccess: () => {
+          // The status is the job's own write, after the event is kept; a refusal of it is said as any
+          // status change's is (updateField), and the event stays recorded.
+          if (statusToSet) updateField(shipment.id, "status", statusToSet, shipment);
+          onClose();
+        },
+        onError: (err) => setError(apiErrorMessage(err)),
+      },
     );
   };
 
@@ -126,9 +155,15 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
             <TimePicker id="tracking-time" className="w-full mt-1" format="HH:mm" minuteStep={5} needConfirm={false} value={time} onChange={setTime} />
           </div>
         </div>
-        <div>
-          <label htmlFor="tracking-place" className={LABEL_TEXT}>Place</label>
-          <Input id="tracking-place" className="mt-1" maxLength={200} value={place} onChange={(e) => setPlace(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="tracking-place" className={LABEL_TEXT}>Place</label>
+            <Input id="tracking-place" className="mt-1" maxLength={100} value={place} onChange={(e) => setPlace(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="tracking-place-detail" className={LABEL_TEXT}>Terminal or depot (if known)</label>
+            <Input id="tracking-place-detail" className="mt-1" maxLength={97} value={placeDetail} onChange={(e) => setPlaceDetail(e.target.value)} />
+          </div>
         </div>
         {containers.length > 1 && (
           <div>
@@ -152,6 +187,30 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
           def?.taxDate && <Alert type="info" showIcon message={`This sets the ${def.sets}. It can be the job's tax date, and the ČNB rate locks on it.`} />
         )}
         {!lockedByInvoice && def?.sets && !def.taxDate && <p className={`${HINT} m-0`}>This sets the {def.sets}.</p>}
+        {atdCheck && !lockedByInvoice && <Alert type="warning" showIcon message={atdCheck} />}
+        {statusOffer && (
+          <div>
+            <Checkbox checked={statusTicked} onChange={(e) => setStatusTicked(e.target.checked)} disabled={!nextStatus}>
+              Also set Shipment Status to
+            </Checkbox>
+            <Select
+              aria-label="Shipment Status to set"
+              className="w-full mt-1"
+              placeholder="Pick a status"
+              value={nextStatus || undefined}
+              onChange={(value: string) => {
+                setNextStatus(value);
+                setStatusTicked(true);
+              }}
+              options={statusOffer.options.map((o) => ({ value: o, label: statusLabel(o) }))}
+              popupMatchSelectWidth={false}
+            />
+            <p className={`${HINT} m-0 mt-1`}>
+              Now: {shipment.status ? statusLabel(shipment.status) : "no status"}. Nothing changes unless it is ticked.
+            </p>
+          </div>
+        )}
+        {billingHint && <p className={`${HINT} m-0`}>{billingHint}</p>}
       </div>
     </AppModal>
   );

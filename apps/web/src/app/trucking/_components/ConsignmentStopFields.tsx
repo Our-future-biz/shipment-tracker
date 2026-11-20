@@ -1,12 +1,14 @@
 "use client";
 
 import dayjs from "dayjs";
-import { Checkbox, DatePicker, Input, Select } from "antd";
+import { useState } from "react";
+import { Checkbox, DatePicker, Input, Select, TimePicker } from "antd";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { StopInput } from "@/hooks/useTruckingConsignments";
+import { formatDate } from "@/lib/date";
 import { limitCzechPhone } from "@/lib/phone";
 import { LABEL_TEXT } from "@/styles/ui";
-import { stopFromSite } from "../_lib/consignmentForm";
+import { stopFromSite, windowDay, windowTime, withWindowDay, withWindowTimes } from "../_lib/consignmentForm";
 import { formatPsc, pscDigits } from "../_lib/hauliers";
 import { TruckingField } from "./TruckingField";
 
@@ -18,20 +20,28 @@ interface ConsignmentStopFieldsProps {
   onChange: (stop: StopInput) => void;
   /** After the pick-up only the reference and notes can change. */
   limited?: boolean;
+  /**
+   * The stop's day (YYYY-MM-DD) when the form already says it: the planned pick-up, an Express fixed
+   * delivery date. Without one the day of the time window is picked here.
+   */
+  day?: string | null;
 }
 
-const toIso = (d: dayjs.Dayjs | null) => (d ? d.toISOString() : null);
+const clock = (time: string | null) => (time ? dayjs(`2000-01-01T${time}`) : null);
 
 // One stop of a consignment (pick-up or delivery): a customer site or a typed address, the time
 // window, who to call before arriving (avizace), the reference and notes for the driver.
-export const ConsignmentStopFields = ({ title, stop, sites, onChange, limited = false }: ConsignmentStopFieldsProps) => {
+export const ConsignmentStopFields = ({ title, stop, sites, onChange, limited = false, day = null }: ConsignmentStopFieldsProps) => {
   const set = <K extends keyof StopInput>(key: K, value: StopInput[K]) => onChange({ ...stop, [key]: value });
   const czech = stop.country === "CZ";
+  // A delivery day picked before any time is kept here: the window itself stores times only.
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
+  const windowOn = day ?? windowDay(stop) ?? pickedDay;
 
   return (
     <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 p-3">
       <legend className={`px-1 ${LABEL_TEXT}`}>{title}</legend>
-      <TruckingField label="Customer site" hint={sites.length ? "Fills the address and the avizace contact; anything can be typed instead" : "The customer has no sites — type the address"}>
+      <TruckingField label="Customer site" hint={sites.length ? "Fills the address and the delivery notice contact; anything can be typed instead" : "The customer has no sites — type the address"}>
         <Select
           allowClear
           aria-label={`${title} site`}
@@ -67,16 +77,37 @@ export const ConsignmentStopFields = ({ title, stop, sites, onChange, limited = 
         <TruckingField label="Country" hint="Two letters, e.g. CZ">
           <Input aria-label={`${title} country`} disabled={limited} maxLength={2} value={stop.country} onChange={(e) => set("country", e.target.value.toUpperCase())} />
         </TruckingField>
-        <TruckingField label="Time window">
-          <DatePicker.RangePicker
-            aria-label={`${title} time window`}
-            disabled={limited}
-            showTime={{ format: "HH:mm" }}
-            format="DD.MM.YYYY HH:mm"
-            allowEmpty={[true, true]}
-            value={[stop.windowFrom ? dayjs(stop.windowFrom) : null, stop.windowTo ? dayjs(stop.windowTo) : null]}
-            onChange={(range) => onChange({ ...stop, windowFrom: toIso(range?.[0] ?? null), windowTo: toIso(range?.[1] ?? null) })}
-          />
+        <TruckingField label="Time window" hint={day ? `From–to on ${formatDate(day)}` : windowOn ? undefined : "Pick the day, then the times"}>
+          <div className="flex gap-2">
+            {!day && (
+              <DatePicker
+                aria-label={`${title} time window day`}
+                className="w-[130px] shrink-0"
+                format="DD.MM.YYYY"
+                placeholder="Day"
+                disabled={limited}
+                value={windowOn ? dayjs(windowOn) : null}
+                onChange={(d) => {
+                  const next = d ? d.format("YYYY-MM-DD") : null;
+                  setPickedDay(next);
+                  onChange(next ? withWindowDay(stop, next) : { ...stop, windowFrom: null, windowTo: null });
+                }}
+              />
+            )}
+            <TimePicker.RangePicker
+              aria-label={`${title} time window`}
+              className="min-w-0 flex-1"
+              format="HH:mm"
+              minuteStep={5}
+              needConfirm={false}
+              order={false}
+              placeholder={["From", "To"]}
+              disabled={limited || !windowOn}
+              allowEmpty={[true, true]}
+              value={[clock(windowTime(stop.windowFrom)), clock(windowTime(stop.windowTo))]}
+              onChange={(range) => windowOn && onChange(withWindowTimes(stop, windowOn, range?.[0]?.format("HH:mm") ?? null, range?.[1]?.format("HH:mm") ?? null))}
+            />
+          </div>
         </TruckingField>
         <TruckingField label="Contact name">
           <Input aria-label={`${title} contact name`} disabled={limited} value={stop.contactName} onChange={(e) => set("contactName", e.target.value)} />
@@ -89,7 +120,7 @@ export const ConsignmentStopFields = ({ title, stop, sites, onChange, limited = 
         </TruckingField>
         <div className="flex items-end pb-1">
           <Checkbox disabled={limited} checked={stop.avizaceRequired} onChange={(e) => set("avizaceRequired", e.target.checked)}>
-            Avizace — call before arriving
+            Delivery notice — call before arriving
           </Checkbox>
         </div>
       </div>

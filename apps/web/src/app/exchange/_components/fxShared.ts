@@ -1,4 +1,5 @@
 import { api } from "@/lib/api";
+import { formatDate } from "@/lib/date";
 import { TD, TH } from "@/styles/ui";
 
 // The tables of the four tabs, built alike: a framed table with a light grey header, roomy cells,
@@ -55,4 +56,18 @@ export function fmtAverage(a: { quoted: number; amount: number } | undefined): s
 
 export function fmtPct(value: number): string {
   return `${value.toFixed(3).replace(/\.?0+$/, "")} %`;
+}
+
+/**
+ * The Daily tab's Source of a day, in one style (user council B22: "ČNB no. 222" on some days, plain "ČNB" on
+ * others): "ČNB fixing" for a day of its own fixing - its number, when ČNB gave one, in the hover text - and
+ * "Carried from …" for a weekend or holiday.
+ */
+export function dailySource(day: { kind: string; fixingNo?: number | string | null; rates: readonly { fixingDate?: string | null }[] }): {
+  text: string;
+  title?: string;
+} {
+  if (day.kind === "fixing") return { text: "ČNB fixing", title: day.fixingNo ? `ČNB fixing no. ${day.fixingNo}` : undefined };
+  const carried = day.rates[0]?.fixingDate;
+  return { text: carried ? `Carried from ${formatDate(carried)}` : "" };
 }

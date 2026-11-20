@@ -82,8 +82,15 @@ const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean; title?: s
     label: "Invoiced, charges or credits open",
     title: "Marked Invoiced, not every charge on an invoice - or a credit owed to the customer",
   },
-  // Not released by operations yet, so not to be invoiced from here: what finance chases.
-  { key: "unbilled_arrivals", label: "Unbilled arrivals", dividerBefore: true },
+  // Not released by operations yet, so not to be invoiced from here: what finance chases. Named by what it
+  // lists (user council B14): every job past its tax date - an import arrived, an export departed, a road
+  // job delivered - not only arrivals.
+  {
+    key: "unbilled_arrivals",
+    label: "Unbilled, tax date passed",
+    dividerBefore: true,
+    title: "Arrived (import), departed (export) or delivered (road, domestic), and Shipment Status not Billing yet",
+  },
 ];
 
 interface BillingQueueProps {
@@ -94,7 +101,7 @@ interface BillingQueueProps {
  * The first Invoicing page: the queue. "To bill" are the jobs operations released for billing
  * (Shipment Status "Billing") not invoiced yet, and every job with an issued invoice and a charge on
  * no invoice, whatever its status (User Council B4, owner's answer Q9: a job may be invoiced before
- * Billing). "Invoiced" follows the Invoicing Status, "Unbilled arrivals" are jobs past their tax date
+ * Billing). "Invoiced" follows the Invoicing Status, "Unbilled, tax date passed" are jobs past their tax date
  * that operations hasn't released, and "All" is what is released for billing or invoiced - with To bill's
  * late-charge jobs - cancelled ones left out (owner's decision). The tab, search and filters are kept in
  * the URL, so Back from a job returns to the queue as it was left.
@@ -269,7 +276,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
       : view === "invoiced_charges_open"
         ? "Every job marked Invoiced has all its charges on an invoice, and owes no credit."
       : view === "unbilled_arrivals"
-        ? "No unbilled arrivals — a job appears here once its tax date has happened (it arrived, departed or was delivered) and operations hasn't set its Shipment Status to Billing yet."
+        ? "No unbilled jobs past their tax date — a job appears here once its tax date has happened (it arrived, departed or was delivered) and operations hasn't set its Shipment Status to Billing yet."
       : view === "all"
         ? "No shipments here — a job appears once operations set its Shipment Status to Billing, once it is invoiced, or once a charge is added to a job that has an invoice. Cancelled jobs are left out."
         : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing, or once a charge is added to a job that has an invoice.";

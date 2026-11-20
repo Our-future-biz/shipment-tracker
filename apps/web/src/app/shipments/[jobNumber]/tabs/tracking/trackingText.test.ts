@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrackingTaxDate } from "@/hooks/useShipmentTracking";
-import { clockStatus, customerStateName, customerStates, detentionLineOn, freeTimeWords, mayLieAhead, mayRecordKind, movedDaysLabel, noticeKindOfMoved, noticeWords, readFactWords, taxDateParts } from "./trackingText";
+import { clockStatus, composePlace, customerStateName, customerStates, detentionLineOn, freeTimeWords, mayLieAhead, mayRecordKind, movedDaysLabel, noticeKindOfMoved, noticeWords, readFactWords, taxDateParts } from "./trackingText";
 
 describe("a moved date's mark", () => {
   it("is signed", () => {
@@ -165,5 +165,21 @@ describe("the customer's word for a step", () => {
     expect(customerStateName("done", false)).toBe("Done");
     expect(customerStateName("next", true)).toBe("Next step");
     expect(customerStateName("unconfirmed", true)).toBe("Not yet confirmed");
+  });
+});
+
+describe("an event's place", () => {
+  it("keeps the port and the typed terminal apart", () => {
+    expect(composePlace("Hamburg (DEHAM)", "Hamburg CTA")).toBe("Hamburg (DEHAM) · Hamburg CTA");
+  });
+
+  it("is either part alone when the other is empty, trimmed", () => {
+    expect(composePlace(" Hamburg (DEHAM) ", "  ")).toBe("Hamburg (DEHAM)");
+    expect(composePlace("", "Depot Mělník")).toBe("Depot Mělník");
+    expect(composePlace("", "")).toBe("");
+  });
+
+  it("never exceeds what the server keeps", () => {
+    expect(composePlace("x".repeat(150), "y".repeat(150))).toHaveLength(200);
   });
 });

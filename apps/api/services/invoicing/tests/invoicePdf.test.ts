@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { PDFParse } from "pdf-parse";
-import { czDate, czIbanFromAccount, docMoney, docQty, docRate, renderInvoicePdf, spdPayment, variableSymbol, type InvoiceForPdf } from "../lib/invoicePdf";
+import { czDate, czIbanFromAccount, docMoney, docQty, docRate, renderInvoicePdf, spdPayment, variableSymbol, yourReference, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 
 async function textOf(bytes: Uint8Array): Promise<string> {
@@ -246,6 +246,53 @@ describe("renderInvoicePdf", () => {
     expect(text).toContain("Špatnásazba");
     expect(text).toContain("KVRÁCENÍ");
     expect(text).toContain(squash("1 121.00 EUR"));
+  });
+
+  const creditNote = {
+    ...base,
+    kind: "credit_note",
+    number: "CN2026CZ00000028-001",
+    correctsNumber: "INV2026CZ00000028-001",
+    creditReason: "Sleva",
+    net: "-100.00",
+    vat: "0.00",
+    gross: "-100.00",
+    lines: [{ ...base.lines[0]!, qty: "-1.00", net: "-100.00", unitPrice: "100.00" }],
+  };
+
+  it("says a credit note of an invoice not paid lowers what is due, and to what (B15)", async () => {
+    const bytes = await renderInvoicePdf({ ...creditNote, creditEffect: { reducedTo: 1021, refund: 0 } }, await loadPdfFonts());
+    const text = squash(await textOf(bytes));
+    expect(text).toContain(squash("SNIŽUJE ÚHRADU / REDUCES THE AMOUNT DUE"));
+    expect(text).not.toContain("KVRÁCENÍ");
+    expect(text).toContain(squash("100.00 EUR"));
+    expect(text).toContain(squash("Faktura INV2026CZ00000028-001 nově / Invoice now"));
+    expect(text).toContain(squash("1 021.00 EUR"));
+  });
+
+  it("keeps To be refunded for what was paid beyond the new total, with that amount (B15)", async () => {
+    const bytes = await renderInvoicePdf({ ...creditNote, creditEffect: { reducedTo: 1021, refund: 60 } }, await loadPdfFonts());
+    const text = squash(await textOf(bytes));
+    expect(text).toContain(squash("K VRÁCENÍ / TO BE REFUNDED"));
+    expect(text).toContain(squash("60.00 EUR"));
+    expect(text).not.toContain("SNIŽUJEÚHRADU");
+  });
+
+  it("prints the customer's own reference as Your ref., never the Personal Reference; an older invoice as it did (B17)", async () => {
+    const fonts = await loadPdfFonts();
+    const now = squash(await textOf(await renderInvoicePdf({ ...base, shipment: { ...base.shipment, customerReference: "TEST UC-BILL" } }, fonts)));
+    expect(now).toContain(squash("Vaše ref. / Your ref."));
+    expect(now).toContain("TESTUC-BILL");
+    expect(now).not.toContain("PO-9");
+    // Issued before the Customer Reference was kept: the Personal Reference, as that invoice always printed it.
+    expect(yourReference({ personalReference: "PO-9" })).toBe("PO-9");
+    // Newer, with no Customer Reference: no "Your ref." at all, the Personal Reference may be internal.
+    expect(yourReference({ personalReference: "PO-9", customerReference: " " })).toBe("");
+    expect(yourReference({ personalReference: "PO-9", customerReference: "" })).toBe("");
+    expect(yourReference({ personalReference: "", customerReference: "" })).toBe("");
+    const none = squash(await textOf(await renderInvoicePdf({ ...base, shipment: { ...base.shipment, customerReference: "" } }, fonts)));
+    expect(none).not.toContain(squash("Vaše ref. / Your ref."));
+    expect(none).not.toContain("PO-9");
   });
 
   it("continues long invoices on further pages and keeps the same output", async () => {

@@ -4,6 +4,7 @@ import "./antdReact19";
 import { ConfigProvider, App } from "antd";
 import { StyleProvider } from "@ant-design/cssinjs";
 import { lightTheme } from "./themeConfig";
+import { appLocale } from "./appLocale";
 import type { ReactNode } from "react";
 
 interface ThemeProviderProps {
@@ -20,7 +21,7 @@ const STACKED = { maxCount: 5 };
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   return (
     <StyleProvider layer>
-      <ConfigProvider theme={lightTheme}>
+      <ConfigProvider theme={lightTheme} locale={appLocale}>
         <App message={STACKED} notification={STACKED}>
           {children}
         </App>
