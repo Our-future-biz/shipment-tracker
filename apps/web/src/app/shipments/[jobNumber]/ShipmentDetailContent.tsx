@@ -1725,6 +1725,10 @@ export function ShipmentDetailContent() {
                     { key: "deliveryAddress", label: "Delivery Address" },
                     { key: "deliveryPlace", label: "Delivery Postcode / Country", ro: true },
                     { key: "consigneeOpening", label: "Opening Hours", ro: true },
+                    // Who to call and when, at the end so the two columns mirror row for row: an approved
+                    // Import Instructions form fills them (E5).
+                    { key: "deliveryPhone", label: "Delivery Phone" },
+                    { key: "deliveryNotes", label: "Delivery Notes" },
                   ];
                   // A refused value (e.g. a CZ postcode that is not five digits) is rolled back and said.
                   const saveStop = (data: controllers.ShipmentUpdateRequest) =>

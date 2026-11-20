@@ -156,6 +156,38 @@ describe("the night's actions on a quote", () => {
     expect((data.buyingLines as { tariffRef?: string }[])[1]!.tariffRef).toBe("ocean:v2:r9");
   });
 
+  it("swap gives the lines the new rate's last valid day, not the lapsed one's (Q12)", () => {
+    expect(lapsed([offer({ validTo: "2026-12-31" })])).toEqual({ ref: OLD, do: "swap", newRef: "ocean:v2:r9", validTo: "2026-12-31" });
+    const old = { ...quote, buyingLines: quote.buyingLines.map((l) => ("tariffRef" in l ? { ...l, tariffValidTo: "2026-11-30" } : l)) };
+    const lines = (actions: TariffAction[]) => applyTariffActions(old, actions).data.buyingLines as { tariffRef?: string; tariffValidTo?: string; description: string }[];
+    const later = lines([{ ref: OLD, do: "swap", newRef: "ocean:v2:r9", validTo: "2026-12-31" }]);
+    expect(later.map((l) => l.tariffValidTo)).toEqual(["2026-12-31", "2026-12-31", undefined]);
+    // A new rate with no end: no day is kept. One whose day is not known leaves the lines' as they were.
+    const open = lines([{ ref: OLD, do: "swap", newRef: "ocean:v2:r9", validTo: null }]);
+    expect(open.map((l) => "tariffValidTo" in l)).toEqual([false, false, false]);
+    expect(lines([{ ref: OLD, do: "swap", newRef: "ocean:v2:r9" }]).map((l) => l.tariffValidTo)).toEqual(["2026-11-30", "2026-11-30", undefined]);
+  });
+
+  it("keep gives the lines a valid tariff's end date as it is now, once it was moved (S11)", () => {
+    const old = { ...quote, buyingLines: quote.buyingLines.map((l) => ("tariffRef" in l ? { ...l, tariffValidTo: "2026-11-30" } : l)) };
+    const keep = (validTo?: string | null) => applyTariffActions(old, [{ ref: OLD, do: "keep", ...(validTo !== undefined ? { validTo } : {}) }]);
+    const later = keep("2026-12-31");
+    expect(later.changed).toBe(true);
+    expect(later.messages).toEqual([]);
+    const lines = later.data.buyingLines as { tariffRef?: string; tariffValidTo?: string }[];
+    expect(lines.map((l) => l.tariffValidTo)).toEqual(["2026-12-31", "2026-12-31", undefined]);
+    expect(lines.map((l) => l.tariffRef)).toEqual([OLD, OLD, undefined]);
+    // The same day, or one not known: nothing to save. An end taken away: the lines keep no day.
+    expect(keep("2026-11-30").changed).toBe(false);
+    expect(keep().changed).toBe(false);
+    const open = keep(null);
+    expect(open.changed).toBe(true);
+    expect((open.data.buyingLines as object[]).map((l) => "tariffValidTo" in l)).toEqual([false, false, false]);
+    // A line priced before the day was kept takes it too; an open tariff leaves such a line unsaved.
+    expect((applyTariffActions(quote, [{ ref: OLD, do: "keep", validTo: "2026-12-31" }]).data.buyingLines as { tariffValidTo?: string }[])[0]!.tariffValidTo).toBe("2026-12-31");
+    expect(applyTariffActions(quote, [{ ref: OLD, do: "keep", validTo: null }]).changed).toBe(false);
+  });
+
   const update: TariffAction = { ref: OLD, do: "update", update: { oldRef: OLD, kind: "ocean", newVersionId: "v2", newRateId: "r9", supplierName: "OOCL", was: [{ currency: "USD", amount: 1200 }], now: [{ currency: "USD", amount: 1350 }] } };
 
   it("keep the lines and the selling price while a new rate waits, and tell it once", () => {

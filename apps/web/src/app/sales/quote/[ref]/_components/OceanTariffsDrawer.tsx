@@ -25,6 +25,8 @@ interface OceanTariffsDrawerProps {
   /** The quote's currency, which the all-in totals are ranked and shown in */
   quoteCurrency: string;
   toQuoteCurrency: ToQuoteCurrency;
+  /** The quote's Valid until (YYYY-MM-DD): an offer valid for less is marked. Null while it has none. */
+  validUntil?: string | null;
   /** Puts the offer on the line the drawer was opened from. */
   onPick: (offer: OceanOffer, route: OceanRoute) => void;
   onClose: () => void;
@@ -36,7 +38,7 @@ interface OceanTariffsDrawerProps {
 // can be corrected here (but for the direction: the quote's Trade Direction, which a tariff must be
 // for), other ports of loading compared and the transshipment ports narrowed;
 // picking an offer puts the freight and its surcharges on the buying lines.
-export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency, onPick, onClose }: OceanTariffsDrawerProps) => {
+export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency, validUntil, onPick, onClose }: OceanTariffsDrawerProps) => {
   const [route, setRoute] = useState<OceanRoute>(() => oceanRouteOf(quote, businessToday()));
   // Each opening starts again from the quote as it is now.
   const [wasOpen, setWasOpen] = useState(open);
@@ -69,6 +71,7 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
           {o.validTo ? ` · valid until ${formatDate(o.validTo)}` : ""}
         </div>
       ),
+      validUntil,
     ),
     {
       key: "route",

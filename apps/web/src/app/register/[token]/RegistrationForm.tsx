@@ -3,12 +3,14 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, AutoComplete, Button, Checkbox, Form, Input, Select, Spin } from "antd";
+import type { RefSelectProps } from "antd";
 import { CheckCircleFilled, SearchOutlined } from "@ant-design/icons";
 import { useDebounced } from "@/hooks/useDebounced";
 import { apiErrorMessage, isNotFound, publicApi } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { COUNTRY_OPTIONS } from "@/components/countryOptions";
 import { CONTACT_ROLES } from "@/app/customers/_lib/constants";
+import { ICO_LENGTH, lookupStepOf, MIN_NAME_LENGTH, nameSearchHelpOf } from "@/app/customers/_lib/companyLookup";
 import { ContactPhoneInput, isPossiblePhone } from "@/app/customers/[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "@/app/customers/[id]/_components/CustomerInfoRow";
 import { czechPhoneRule } from "@/lib/phone";
@@ -18,8 +20,6 @@ import { CARD, LABEL_TEXT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 // only ours to decide. Only when the terms are ticked can it be confirmed; a manager then answers it on
 // Sales → Managers → Company approval.
 
-const ICO_LENGTH = 8;
-const MIN_NAME_LENGTH = 3;
 const SEARCH_DELAY_MS = 400;
 const REGISTRY_COUNTRY = "CZ";
 const ROLE_OPTIONS = CONTACT_ROLES.map((role) => ({ value: role, label: role }));
@@ -102,6 +102,10 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
   const [preview, setPreview] = useState<interfaces.AresResult | null>(null);
   const [looking, setLooking] = useState(false);
   const [lookupError, setLookupError] = useState("");
+  // The matches drop down under the box; Look up opens them again after the click took the cursor away.
+  const [matchesOpen, setMatchesOpen] = useState(false);
+  const [nameAsked, setNameAsked] = useState(false);
+  const queryInputRef = useRef<RefSelectProps>(null);
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -124,6 +128,7 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
     setPreview(null);
     setLookupError("");
     setLooking(false);
+    setNameAsked(false);
   };
 
   const lookup = async (ico: string) => {
@@ -151,12 +156,16 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
     resetLookup();
   };
 
+  // An IČO is looked up; a name puts the cursor back in the box and shows its matches, or says it is
+  // still searching or found none (User Council E3): the button used to do nothing for a name.
   const handleLookup = () => {
-    if (isIco) {
-      if (query.length !== ICO_LENGTH) setLookupError(`IČO must be exactly ${ICO_LENGTH} digits`);
-      else void lookup(query);
-    } else if (query.trim().length < MIN_NAME_LENGTH) {
-      setLookupError(`Type at least ${MIN_NAME_LENGTH} characters of the company name, or the IČO`);
+    const step = lookupStepOf(query);
+    if (step.kind === "refuse") setLookupError(step.message);
+    else if (step.kind === "ico") void lookup(query);
+    else {
+      setNameAsked(true);
+      queryInputRef.current?.focus();
+      setMatchesOpen(true);
     }
   };
 
@@ -212,7 +221,11 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
       </div>
     ),
   }));
-  const nameHelp = nameResults?.tooMany ? "Too many companies match. Type more of the name." : nameResults && nameResults.companies.length === 0 ? "No company of this name in the Czech register." : nameSearch.isError ? apiErrorMessage(nameSearch.error) : undefined;
+  const nameHelp = isIco
+    ? undefined
+    : nameSearch.isError
+      ? apiErrorMessage(nameSearch.error)
+      : nameSearchHelpOf({ asked: nameAsked, name: query.trim(), searchedName: searchName, fetching: nameSearch.isFetching, results: nameResults });
 
   const canConfirm = accepted && (!fromRegistry || !!preview);
 
@@ -246,6 +259,7 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
               <Form.Item label={<Label>Company name or IČO</Label>} htmlFor="registration-ico" validateStatus={lookupError ? "error" : undefined} help={lookupError || nameHelp}>
                 <div className="flex gap-2">
                   <AutoComplete
+                    ref={queryInputRef}
                     id="registration-ico"
                     className="flex-1 min-w-0"
                     placeholder="e.g. Alza.cz or 27082440"
@@ -258,6 +272,8 @@ function Filling({ token, terms, onDone }: { token: string; terms: interfaces.Pu
                     }}
                     disabled={submitting}
                     popupMatchSelectWidth
+                    open={matchesOpen}
+                    onOpenChange={setMatchesOpen}
                     notFoundContent={nameSearch.isFetching ? "Searching…" : undefined}
                     onInputKeyDown={(e) => {
                       if (e.key === "Enter" && isIco) handleLookup();

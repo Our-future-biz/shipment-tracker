@@ -56,7 +56,7 @@ import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, serviceTypeLabel } from "../../_l
 import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, cyAtDestination, cyAtOrigin, cyTermsOf, CY_TERMS, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, routingMissing, stripProtected, withLineBasis, type CyTerms, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, basisMismatches, cargoReadyDay, computeTotals, computeCargo, convertLine, cyAtDestination, cyAtOrigin, cyTermsOf, CY_TERMS, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, routingMissing, stripProtected, withLineBasis, type CyTerms, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import {
@@ -92,7 +92,19 @@ import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
 import { fclChanges, fclProfitBlock, usesFclPricing, withContainerTypes, withFclPricing } from "../../_lib/fclPricing";
 import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
-import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
+import {
+  linesForOtherDirection,
+  linesToRecheck,
+  NO_VALIDITY_ADVICE,
+  noValidityWarning,
+  otherDirectionBlock,
+  rechecked,
+  stampDirection,
+  stampPricedFor,
+  TARIFF_VALIDITY_ADVICE,
+  tariffValidityWarning,
+  withPricedForNow,
+} from "../../_lib/tariffRecheck";
 import {
   approvalLineOf,
   isOfferOfUpdate,
@@ -601,6 +613,9 @@ export function QuoteWorkflow() {
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
   // And those priced from a tariff in another Trade Direction than the quote has now: picked again before sending.
   const otherDirection = quoteClosed ? [] : linesForOtherDirection(draft);
+  // Lines charged by a basis the quote's mode no longer offers (per chargeable kg on a Sea quote, W/M
+  // on an Air one): warned of, not blocked, and not changed (User Council S1).
+  const basisMisfits = quoteClosed ? [] : basisMismatches(draft);
   // And those whose lapsed tariff has a new rate waiting for approval.
   const waitingUpdates = quoteClosed ? [] : waitingTariffUpdates(draft);
   const waitingRate = quoteClosed ? [] : linesWaitingForRate(draft);
@@ -806,6 +821,27 @@ export function QuoteWorkflow() {
   const sectionStatus = (key: SectionKey): SectionStatus => (done[key] ? "completed" : partial[key] ? "in-progress" : "empty");
 
   const shownValidity = pendingValidity === undefined ? quote.validUntil : pendingValidity;
+  // A quote valid longer than a tariff its buying was priced from (owner's answer Q12): warned of in
+  // Pricing, Shipping terms and before Ready to Send and Quoted, never blocked. Not on a decided quote.
+  const decided = ["won", "lost", "replaced"].includes(quote.status) && !wonRevision;
+  const tariffValidityFor = (validUntil: string | null) => (decided ? null : tariffValidityWarning(draft, validUntil));
+  const tariffValidity = tariffValidityFor(shownValidity);
+  // The same with what to do about it, for the dialogs that send the quote or make it Ready to Send.
+  const tariffValidityWarningOf = (validUntil: string | null) => {
+    const warning = tariffValidityFor(validUntil);
+    return warning && `${warning}. ${TARIFF_VALIDITY_ADVICE}`;
+  };
+  // "Mark as sent" in the email dialog names no date: the quote goes out with the validity it has,
+  // none included (server validityOnSending), so it is warned of against that - a quote with no
+  // Valid until holds with no end, past its tariff.
+  const tariffSendWarningOf = (validUntil: string | null) => {
+    if (validUntil !== null) return tariffValidityWarningOf(validUntil);
+    const warning = decided ? null : noValidityWarning(draft);
+    return warning && `${warning}. ${NO_VALIDITY_ADVICE}`;
+  };
+  const tariffValidityAlert = tariffValidity && (
+    <Alert type="warning" showIcon message="The quote is valid longer than its tariff" description={`${tariffValidity}. ${TARIFF_VALIDITY_ADVICE}`} />
+  );
 
   const airFreight = draft.serviceType === "Air";
   // By sea (FCL, LCL, Break Bulk), Origin offers the ocean terminals when the CY terms (Shipment
@@ -1585,6 +1621,22 @@ export function QuoteWorkflow() {
               description={`${otherDirectionBlock(draft)}. A tariff only prices the Trade Direction it is for (Import, Export or both, as set on Tariffs). The quote can't be sent until then.`}
             />
           )}
+          {basisMisfits.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message={basisMisfits.length === 1 ? "A line's basis does not fit the quote's freight mode" : "Some lines' basis does not fit the quote's freight mode"}
+              description={
+                <>
+                  {basisMisfits.map((text) => (
+                    <div key={text}>{text}.</div>
+                  ))}
+                  <div>Choose another Basis for {basisMisfits.length === 1 ? "it" : "them"} if that is not meant. The quote can still be sent.</div>
+                </>
+              }
+            />
+          )}
+          {tariffValidityAlert}
           {recheck.length > 0 && (
             <Alert
               type="warning"
@@ -1819,6 +1871,7 @@ export function QuoteWorkflow() {
               }}
             />
           </InfoRow>
+          {tariffValidityAlert}
         </div>
       ),
     },
@@ -2055,6 +2108,7 @@ export function QuoteWorkflow() {
       <LifecycleBar
         quote={quote}
         sendBlocked={sendBlocked}
+        validityWarning={tariffValidityWarningOf}
         onChange={changeStatus}
         hrefOf={hrefOf}
         price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} labelTone={isThinProfit(totals) ? "red" : undefined} />}
@@ -2196,6 +2250,7 @@ export function QuoteWorkflow() {
         validUntil={quote.validUntil}
         allowedTransitions={quote.allowedTransitions}
         sendBlocked={emailBlocked}
+        sendWarning={exportClosesQuote(quote.status) || wonRevision ? tariffSendWarningOf(quote.validUntil) : null}
         onExportPdf={exportPdf}
         onMarkSent={markSent}
         onClose={() => setModal(null)}
@@ -2215,6 +2270,7 @@ export function QuoteWorkflow() {
         quote={draft}
         quoteCurrency={totals.currency}
         toQuoteCurrency={toQuoteCurrency}
+        validUntil={shownValidity}
         onPick={pickRailOffer}
         onClose={() => setRailLine(null)}
       />
@@ -2224,6 +2280,7 @@ export function QuoteWorkflow() {
         hubs={collectionHubs}
         quoteCurrency={totals.currency}
         toQuoteCurrency={toQuoteCurrency}
+        validUntil={shownValidity}
         onPick={pickCollectionOffer}
         onClose={() => setCollectionLine(null)}
       />
@@ -2232,6 +2289,7 @@ export function QuoteWorkflow() {
         quote={draft}
         quoteCurrency={totals.currency}
         toQuoteCurrency={toQuoteCurrency}
+        validUntil={shownValidity}
         onPick={pickOceanOffer}
         onClose={() => setOceanLine(null)}
       />
@@ -2305,7 +2363,7 @@ export function QuoteWorkflow() {
         />
       )}
       {modal === "closeQuote" && (
-        <ExportCloseDialog quoteNumber={ref} validUntil={quote.validUntil} onConfirm={exportAndClose} onClose={() => setModal(null)} />
+        <ExportCloseDialog quoteNumber={ref} validUntil={quote.validUntil} validityWarning={tariffValidityWarningOf} onConfirm={exportAndClose} onClose={() => setModal(null)} />
       )}
       {modal === "allIn" && (
         <ConfirmModal

@@ -45,6 +45,9 @@ interface EmailQuoteModalProps {
   allowedTransitions: readonly string[];
   // Why the quote may not be marked as sent now (its margin waits for a manager); null when nothing stops it.
   sendBlocked: string | null;
+  // What the user should know before the quote goes out, but which stops nothing (a Valid until
+  // later than a tariff its buying was priced from holds); null or absent when there is none.
+  sendWarning?: string | null;
   onExportPdf: () => void;
   // Asks the server to make the quote Quoted. Resolves with why it refused - a sentence that
   // finishes "QCZ… - …" - or with null once the quote is Quoted.
@@ -59,6 +62,7 @@ export function EmailQuoteModal({
   validUntil,
   allowedTransitions,
   sendBlocked,
+  sendWarning,
   onExportPdf,
   onMarkSent,
   onClose,
@@ -259,6 +263,11 @@ export function EmailQuoteModal({
       {sendBlocked && (
         <div className="mb-4">
           <Alert type="warning" showIcon message={sendBlocked} />
+        </div>
+      )}
+      {sendWarning && (
+        <div className="mb-4">
+          <Alert type="warning" showIcon message={sendWarning} />
         </div>
       )}
       <div className="mb-4">

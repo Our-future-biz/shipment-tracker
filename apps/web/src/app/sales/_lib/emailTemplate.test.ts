@@ -10,6 +10,12 @@ describe("quoteValues", () => {
     expect(quoteValues("Q1", {}, null, [])).toMatchObject({ contact: "Sir/Madam", sender: "Sales", validUntil: "" });
   });
 
+  it("takes the port of loading or discharge where the Origin or Destination is left blank, as the document does", () => {
+    const blank = quoteValues("Q1", { origin: "Brno (CZBRQ)", destination: "", pol: "Hamburg (DEHAM)", pod: "Shanghai (CNSGH)" }, null, []);
+    expect(blank).toMatchObject({ route: "Brno (CZBRQ) → Shanghai (CNSGH)", origin: "Brno (CZBRQ)", destination: "Shanghai (CNSGH)" });
+    expect(quoteValues("Q1", { pol: "Hamburg (DEHAM)", destination: "Ostrava (CZOSR)" }, null, []).route).toBe("Hamburg (DEHAM) → Ostrava (CZOSR)");
+  });
+
   it("signs with the owner's name: the customer does not read the e-mail the quote records them by", () => {
     const users = [{ id: "u1", email: "lukas@ourfuture.biz", displayName: "Lukáš Novák" }];
     expect(quoteValues("Q1", { salesOwner: "lukas@ourfuture.biz" }, null, users).sender).toBe("Lukáš Novák");

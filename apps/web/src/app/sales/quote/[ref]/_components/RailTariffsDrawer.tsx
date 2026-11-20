@@ -38,6 +38,8 @@ interface RailTariffsDrawerProps {
   /** The quote's currency, which offers in other currencies are ranked and shown in */
   quoteCurrency: string;
   toQuoteCurrency: ToQuoteCurrency;
+  /** The quote's Valid until (YYYY-MM-DD): an offer valid for less is marked. Null while it has none. */
+  validUntil?: string | null;
   /** Puts the offer on the line the drawer was opened from. */
   onPick: (offer: RailOffer, route: RailRoute) => void;
   onClose: () => void;
@@ -49,7 +51,7 @@ interface RailTariffsDrawerProps {
 // is the quote's Trade Direction, which a tariff must be for; picking an offer puts it on
 // the buying line. The options can be narrowed to the terminals the user wants the train to run
 // via; that choice stays while the quote is open.
-export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency, onPick, onClose }: RailTariffsDrawerProps) => {
+export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency, validUntil, onPick, onClose }: RailTariffsDrawerProps) => {
   const [route, setRoute] = useState<RailRoute>(() => railRouteOf(quote, businessToday()));
   // Each opening starts again from the quote as it is now.
   const [wasOpen, setWasOpen] = useState(open);
@@ -70,7 +72,7 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
 
   const columns: ColumnsType<RailOffer> = [
     rankColumn(),
-    tariffColumn("Operator / tariff", (o) => railVersionHref(o.supplierCustomerId, o.versionId)),
+    tariffColumn("Operator / tariff", (o) => railVersionHref(o.supplierCustomerId, o.versionId), undefined, validUntil),
     {
       key: "place",
       title: "Place",

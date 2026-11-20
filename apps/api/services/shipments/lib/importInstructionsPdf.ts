@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { ImportInstructionAnswers, ImportInstructionChange } from "../interfaces/importInstructions";
+import { DUTY_PAID_BY_TEXT } from "./importInstructions";
 
 // The approved Import Instructions as a page like the paper form, for the shipment's Documents: what the
 // customer confirmed, as sent, and after it every answer the reviewer changed before approving, with who
@@ -94,6 +95,7 @@ export async function importInstructionsPdf(a: ImportInstructionAnswers, meta: M
     M + 10,
   );
   gap(3);
+  field("Duty and VAT paid by", DUTY_PAID_BY_TEXT[a.dutyPaidBy]);
   field("Bank", a.bank);
   field("Account number", a.accountNumber);
   field("Customs office of destination where the goods will be presented", a.t1Office);
@@ -106,12 +108,13 @@ export async function importInstructionsPdf(a: ImportInstructionAnswers, meta: M
   field("What is it?", a.whatIsIt);
   field("What is it made of?", a.madeOf);
   field("What is it used for?", a.usedFor);
-  if (a.deliveryAddress) {
+  if (a.deliveryAddress || a.deliveryContact || a.deliveryPhone || a.deliveryNotes) {
     heading("5. Delivery address");
-    text(a.deliveryAddress, 10, regular, DARK, M + 10);
+    if (a.deliveryAddress) text(a.deliveryAddress, 10, regular, DARK, M + 10);
     gap(3);
     field("Contact person", a.deliveryContact);
     field("Telephone", a.deliveryPhone);
+    field("Delivery time window and unloading notes", a.deliveryNotes);
   }
   heading("6. Billing address");
   text(a.billingAddress, 10, regular, DARK, M + 10);

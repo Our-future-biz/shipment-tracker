@@ -121,11 +121,20 @@ describe("oceanRouteProblem and oceanOffersRequest", () => {
 });
 
 describe("oceanDescription", () => {
+  it("never names the shipping line, which the customer would read (Q27): the Supplier column does", () => {
+    const route = oceanRouteOf(QUOTE, TODAY);
+    const description = oceanDescription(offer({ supplierName: "Maersk Czech Republic s.r.o." }), route);
+    expect(description).toBe("Ocean freight Hamburg → Shanghai");
+    const pick = withOceanOffer([freightLine], 0, offer({ supplierName: "Maersk Czech Republic s.r.o." }), route, QUOTE);
+    expect(pick.lines.every((l) => !l.description.includes("Maersk"))).toBe(true);
+    expect(pick.lines[0]!.supplier).toBe("Maersk Czech Republic s.r.o.");
+  });
+
   it("names the ports as the route does, a short tariff code by its UN/LOCODE, and the transshipment port", () => {
     const route = oceanRouteOf(QUOTE, TODAY);
-    expect(oceanDescription(offer(), route)).toBe("Ocean freight Hamburg → Shanghai (OOCL)");
+    expect(oceanDescription(offer(), route)).toBe("Ocean freight Hamburg → Shanghai");
     expect(oceanDescription(offer({ polCode: "NLRTM", polName: "RTM", podName: "Fuqing", podCode: "CNFQG", via: "Kaohsiung" }), route)).toBe(
-      "Ocean freight NLRTM → Fuqing (OOCL) via Kaohsiung",
+      "Ocean freight NLRTM → Fuqing via Kaohsiung",
     );
   });
 });
@@ -156,8 +165,8 @@ describe("withOceanOffer", () => {
     });
     const pick = withOceanOffer([freightLine], 0, mixed, oceanRouteOf(quote, TODAY), quote);
     expect(pick.lines.map((l) => [l.description, l.basis, l.containerType, l.qty, l.unit, l.unitPrice, l.amount, l.pairId])).toEqual([
-      ["Ocean freight Hamburg → Shanghai (OOCL) - 2 × 40' HC", "container", "40' HC", 2, "40' HC", 25, 50, "p1"],
-      ["Ocean freight Hamburg → Shanghai (OOCL) - 1 × 20' DC", "container", "20' DC", 1, "20' DC", 20, 20, undefined],
+      ["Ocean freight Hamburg → Shanghai - 2 × 40' HC", "container", "40' HC", 2, "40' HC", 25, 50, "p1"],
+      ["Ocean freight Hamburg → Shanghai - 1 × 20' DC", "container", "20' DC", 1, "20' DC", 20, 20, undefined],
     ]);
   });
 
@@ -165,8 +174,15 @@ describe("withOceanOffer", () => {
     const first = withOceanOffer([{ ...freightLine, chargeCode: "other", description: "keep" }, freightLine], 1, offer(), route, QUOTE);
     const again = withOceanOffer(first.lines, 1, offer({ rateId: "rate-2", surcharges: [] }), route, QUOTE);
     expect(again.removed).toEqual([2, 3, 4]);
-    expect(again.lines.map((l) => l.description)).toEqual(["keep", "Ocean freight Hamburg → Shanghai (OOCL)"]);
+    expect(again.lines.map((l) => l.description)).toEqual(["keep", "Ocean freight Hamburg → Shanghai"]);
     expect(again.lines[1]!.tariffRef).toBe("ocean:version-1:rate-2");
+  });
+
+  it("keeps the tariff's last valid day on the freight and every surcharge, and none from an earlier pick of an open tariff", () => {
+    const pick = withOceanOffer([freightLine], 0, offer({ validTo: "2026-11-30" }), route, QUOTE);
+    expect(pick.lines.map((l) => l.tariffValidTo)).toEqual(["2026-11-30", "2026-11-30", "2026-11-30", "2026-11-30"]);
+    const open = withOceanOffer(pick.lines, 0, offer({ validTo: null }), route, QUOTE);
+    expect(open.lines.some((l) => "tariffValidTo" in l)).toBe(false);
   });
 });
 

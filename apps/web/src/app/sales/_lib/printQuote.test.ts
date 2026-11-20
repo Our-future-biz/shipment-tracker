@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { asCompanyDetails } from "./companyDetails";
-import { quoteDocument } from "./printQuote";
+import { quoteDocument, routeEnds } from "./printQuote";
 
 // Only what decides whether the quotation waits for the users: nothing else is looked at here.
 const exchange: Parameters<typeof quoteDocument>[2] = { rates: { CZK: 1 }, isError: false, isLoading: false, roePct: 100, fixingDate: "" };
@@ -29,6 +29,13 @@ describe("quoteDocument", () => {
   it("still names a place it can't say more about", () => {
     const { html } = quoteDocument("Q1", { origin: "Somewhere old", destination: "" }, exchange, company, usersIn, noWhere);
     expect(html).toContain(`<div class="route">Somewhere old<span class="arrow">→</span>—</div>`);
+  });
+
+  it("reads an Origin or Destination left blank as the port of loading or discharge in the headline", () => {
+    const { html } = quoteDocument("Q1", { origin: "Brno (CZBRQ)", destination: "", pol: "Hamburg (DEHAM)", pod: "Shanghai (CNSGH)" }, exchange, company, usersIn, noWhere);
+    expect(html).toContain(`<div class="route">Brno (CZBRQ)<span class="arrow">→</span>Shanghai (CNSGH)</div>`);
+    expect(routeEnds({ origin: " ", pol: "Hamburg (DEHAM)", destination: "Ostrava (CZOSR)" })).toEqual(["Hamburg (DEHAM)", "Ostrava (CZOSR)"]);
+    expect(routeEnds({})).toEqual(["", ""]);
   });
 
   it("waits for the route's places", () => {

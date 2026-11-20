@@ -85,9 +85,13 @@ function Filling({ token, data, onDone }: { token: string; data: interfaces.Publ
 
   return (
     <Page>
+      {/* Whose form it is and whom to ask: the company's name only, as the tracking page shows it (no staff
+          names or e-mails on a public page; owner, User Council Q16). */}
       <header className="mb-4">
+        {data.companyName && <p className={`${LABEL_TEXT} m-0 mb-1`}>{data.companyName}</p>}
         <h1 className={PAGE_TITLE}>Import Instructions</h1>
         <p className={`${PAGE_SUBTITLE} m-0`}>To be completed by the recipient of the arrival notice.</p>
+        <p className={`${PAGE_SUBTITLE} m-0`}>Questions: contact {data.companyName || "whoever sent you this link"}.</p>
       </header>
       <section className={`${CARD} px-6 py-5`}>
         <Form form={form} layout="vertical" requiredMark={false} initialValues={data.prefill} disabled={submitting}>

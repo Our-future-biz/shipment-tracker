@@ -30,6 +30,10 @@ export interface StopFill {
   siteId: null;
   openingFrom: "";
   openingTo: "";
+  // So did the consignee's Delivery Phone and Delivery Notes (User Council E5): left, they would go to
+  // Trucking as the new party's. The shipper's stop has none, so its keys don't name them.
+  phone: "";
+  notes: "";
 }
 
 const STOP_KEYS = {
@@ -48,6 +52,8 @@ const STOP_KEYS = {
     siteId: "deliverySiteId",
     openingFrom: "consigneeOpeningFrom",
     openingTo: "consigneeOpeningTo",
+    phone: "deliveryPhone",
+    notes: "deliveryNotes",
   },
 } as const;
 
@@ -77,7 +83,7 @@ const fromAddress = (a: PartyAddress, customer: PartyCustomer): StopFill | null 
   const address = [a.street, a.city].map((p) => p.trim()).filter(Boolean).join(", ");
   if (!address) return null;
   const country = stopCountry(a.country, customer);
-  return { address, postcode: stopPostcode(a.postalCode, country), country, siteId: null, openingFrom: "", openingTo: "" };
+  return { address, postcode: stopPostcode(a.postalCode, country), country, siteId: null, openingFrom: "", openingTo: "", phone: "", notes: "" };
 };
 
 /**
@@ -99,7 +105,7 @@ export function partyStop(party: Party, customer: PartyCustomer, addresses: read
   const country = stopCountry("", customer);
   const last = address.includes(",") ? address.split(",").pop()!.trim() : "";
   const postcode = /\d/.test(last) && /^[A-Z0-9][A-Z0-9 -]{2,9}$/i.test(last) ? stopPostcode(last, country) : null;
-  return { address, postcode, country, siteId: null, openingFrom: "", openingTo: "" };
+  return { address, postcode, country, siteId: null, openingFrom: "", openingTo: "", phone: "", notes: "" };
 }
 
 /** The parts of a customer contact the shipment's Contact is chosen by. */

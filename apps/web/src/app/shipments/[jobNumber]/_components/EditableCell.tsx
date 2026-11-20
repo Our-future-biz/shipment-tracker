@@ -511,6 +511,7 @@ function EditableCellBody({
         <Input.TextArea
           autoFocus
           autoSize={{ minRows: 2, maxRows: 6 }}
+          maxLength={col?.maxLength}
           defaultValue={original}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => {
@@ -532,6 +533,7 @@ function EditableCellBody({
         size="small"
         autoFocus
         inputMode={digitsOnly ? "numeric" : undefined}
+        maxLength={col?.maxLength}
         value={digitsOnly ? draft : undefined}
         defaultValue={digitsOnly ? undefined : original}
         onChange={(e) => setDraft(clean(e.target.value))}

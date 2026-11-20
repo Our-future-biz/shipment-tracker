@@ -22,9 +22,15 @@ interface TariffRefCheck {
   valid: boolean;
   /** The tariff the version belongs to; null when the version is gone */
   tariffId: string | null;
+  /**
+   * The last day the line's price holds: the version's, or a rail rate's own when it ends first;
+   * null when open. A valid tariff's end date can be moved after the line was priced, and the
+   * quote's lines keep the date the check reads here (quotes lib/tariffOvernight, tariffValidTo).
+   */
+  validTo: string | null;
 }
 
-/** Whether each tariffRef is still valid on the day: its version, and a rail rate's own dates. */
+/** Whether each tariffRef is still valid on the day (its version, and a rail rate's own dates), and its last valid day. */
 export const _quoteTariffRefs = api(
   { expose: false, auth: true, method: "POST", path: "/internal/tariffs/quote-refs" },
   async ({ date, refs }: TariffRefsRequest): Promise<{ checks: TariffRefCheck[] }> => {
@@ -35,13 +41,16 @@ export const _quoteTariffRefs = api(
     });
     const versionIds = [...new Set(parts.map((p) => p.versionId).filter(isUuid))];
     const railRateIds = [...new Set(parts.filter((p) => p.kind === "rail").map((p) => p.rateId).filter(isUuid))];
-    const { versions, validRailRateIds } = await tariffRepository.quoteRefs(companyId, date, versionIds, railRateIds);
+    const { versions, validRailRates } = await tariffRepository.quoteRefs(companyId, date, versionIds, railRateIds);
     const byId = new Map(versions.map((v) => [v.id, v]));
-    const validRates = new Set(validRailRateIds);
+    const validRates = new Map(validRailRates.map((r) => [r.id, r]));
     return {
       checks: parts.map(({ ref, kind, versionId, rateId }) => {
         const version = byId.get(versionId);
-        return { ref, tariffId: version?.tariffId ?? null, valid: !!version?.valid && (kind !== "rail" || !rateId || validRates.has(rateId)) };
+        const rate = kind === "rail" && rateId ? validRates.get(rateId) : undefined;
+        // As a rail offer gives it (railTariff.service offers): the earlier of the rate's and the version's.
+        const validTo = [version?.validTo, rate?.validTo].filter((d): d is string => !!d).sort()[0] ?? null;
+        return { ref, tariffId: version?.tariffId ?? null, validTo, valid: !!version?.valid && (kind !== "rail" || !rateId || !!rate) };
       }),
     };
   },

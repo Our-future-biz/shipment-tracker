@@ -1,4 +1,5 @@
 import { containerType } from "@/lib/cargo";
+import { formatDate } from "@/lib/date";
 import { isCollectionLine } from "./collectionQuote";
 import { isOceanLine } from "./oceanQuote";
 import { isRailLine } from "./railQuote";
@@ -97,4 +98,59 @@ export function withPricedForNow(data: SalesQuoteData, patch: Partial<SalesQuote
   const lines = patch.buyingLines ?? data.buyingLines ?? [];
   const unknown = lines.flatMap((l, i) => (pricedByWeight(l) && l.pricedFor === undefined ? [i] : []));
   return unknown.length ? { ...patch, buyingLines: stampPricedFor(lines, unknown, { ...data, ...patch }) } : patch;
+}
+
+// A buying line priced from a tariff (ocean, rail, collections) keeps the tariff's last valid day
+// (tariffValidTo). A quote valid longer than the earliest of them promises a price past its buying
+// rate: Pricing, Shipping terms and the moves to Ready to Send and Quoted say so. A warning to read,
+// not a block (owner's answer Q12, User Council 20 Nov 2026). Lines priced before the day was kept
+// are not known.
+
+const tariffKindOf = (line: CostLine): string | null => (isOceanLine(line) ? "ocean" : isRailLine(line) ? "rail" : isCollectionLine(line) ? "collections" : null);
+
+/** The tariff the quote's buying holds the shortest by: its last valid day, supplier and kind; null when no line keeps a day. */
+export function earliestTariffValidity(data: Pick<SalesQuoteData, "buyingLines">): { validTo: string; supplier: string; kind: string } | null {
+  let earliest: { validTo: string; supplier: string; kind: string } | null = null;
+  for (const line of data.buyingLines ?? []) {
+    const kind = tariffKindOf(line);
+    if (!kind || !line.tariffValidTo) continue;
+    if (!earliest || line.tariffValidTo < earliest.validTo) earliest = { validTo: line.tariffValidTo, supplier: line.supplier?.trim() ?? "", kind };
+  }
+  return earliest;
+}
+
+/**
+ * Why the quote's Valid until (`validUntil`, YYYY-MM-DD) is later than a tariff its buying lines
+ * were priced from holds, in words; null when it is not, or either day is unknown.
+ */
+export function tariffValidityWarning(data: Pick<SalesQuoteData, "buyingLines">, validUntil: string | null | undefined): string | null {
+  const until = validUntil?.slice(0, 10);
+  const earliest = earliestTariffValidity(data);
+  if (!until || !earliest || until <= earliest.validTo) return null;
+  const tariff = `the ${earliest.supplier ? `${earliest.supplier} ` : ""}${earliest.kind} tariff`;
+  return `The quote is valid until ${formatDate(until)}, but ${tariff} its buying was priced from is valid only until ${formatDate(earliest.validTo)}`;
+}
+
+/** What to do about it, after the warning: the same words wherever it is shown. */
+export const TARIFF_VALIDITY_ADVICE = "Set an earlier Valid until under Shipping terms, or pick a tariff valid longer under Tariffs available. The quote can still be sent.";
+
+/**
+ * The same for a quote sent with no Valid until at all, as "Mark as sent" in the email dialog sends
+ * one (it names no date, the status menu and Export & close ask for one): its price holds with no end,
+ * past a tariff its buying was priced from. Null when no line keeps a tariff's day.
+ */
+export function noValidityWarning(data: Pick<SalesQuoteData, "buyingLines">): string | null {
+  const earliest = earliestTariffValidity(data);
+  if (!earliest) return null;
+  const tariff = `the ${earliest.supplier ? `${earliest.supplier} ` : ""}${earliest.kind} tariff`;
+  return `The quote has no Valid until, but ${tariff} its buying was priced from is valid only until ${formatDate(earliest.validTo)}`;
+}
+
+/** What to do about a quote sent with no Valid until, after its warning. */
+export const NO_VALIDITY_ADVICE = "Set a Valid until under Shipping terms, or pick a tariff valid longer under Tariffs available. The quote can still be sent.";
+
+/** Whether a tariff offer (its last valid day `validTo`) ends before the quote's Valid until: the "Tariffs available" drawers mark it. */
+export function endsBeforeQuote(validTo: string | null | undefined, quoteValidUntil: string | null | undefined): boolean {
+  const until = quoteValidUntil?.slice(0, 10);
+  return !!validTo && !!until && validTo < until;
 }

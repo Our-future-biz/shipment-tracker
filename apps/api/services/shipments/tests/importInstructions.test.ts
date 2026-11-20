@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { answersProblem, changedAnswers, fieldsToFill, importInstructionsUrl, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
+import { ACCOUNT_FORMAT_PROBLEM, answersProblem, changedAnswers, fieldsToFill, importInstructionsUrl, isAccountNumber, mayAskImportInstructions, normalizeAnswers, shipmentProcedureOf } from "../lib/importInstructions";
 import { importInstructionsPdf } from "../lib/importInstructionsPdf";
 import type { ImportInstructionAnswers } from "../interfaces/importInstructions";
 
 const answers = (over: Partial<ImportInstructionAnswers> = {}): ImportInstructionAnswers =>
-  normalizeAnswers({ procedure: "free_circulation", bank: "ČSOB", accountNumber: "123/0300", description: "Machine parts", tariffCode: "8431", billingAddress: "Ulice 1, Praha", name: "Jan Novák", telephone: "+420 123", ...over });
-const empty = { customsProcedure: "", customsOffice: "", hsCode: "", deliveryAddress: "" };
+  normalizeAnswers({ procedure: "free_circulation", dutyPaidBy: "own_account", bank: "ČSOB", accountNumber: "19-2000145399/0800", description: "Machine parts", tariffCode: "8431", billingAddress: "Ulice 1, Praha", name: "Jan Novák", telephone: "+420 123", ...over });
+const empty = { customsProcedure: "", customsOffice: "", hsCode: "", deliveryAddress: "", consigneeContact: "", deliveryPhone: "", deliveryNotes: "" };
 const listed = (office: string) => office === "CZ590201 Praha";
 
 describe("which shipments are asked", () => {
@@ -25,6 +25,50 @@ describe("the form", () => {
     expect(answersProblem(answers({ procedure: "t1", t1Office: "CZ590201 Praha", bank: "", accountNumber: "" }), listed)).toBeNull();
     expect(answersProblem(answers({ procedure: "t1", t1Office: "Praha", bank: "", accountNumber: "" }), listed)).toMatch(/from the list/);
     expect(answersProblem(answers({ procedure: "other", bank: "", accountNumber: "" }), listed)).toBeNull();
+  });
+
+  it("asks the bank under a) only when the duty and VAT are paid from the customer's own account (Q16)", () => {
+    expect(answersProblem(answers({ dutyPaidBy: "", bank: "", accountNumber: "" }), listed)).toBe("Say who pays the duty and VAT");
+    expect(answersProblem(answers({ dutyPaidBy: "us", bank: "", accountNumber: "" }), listed)).toBeNull();
+    expect(answersProblem(answers({ dutyPaidBy: "own_account", accountNumber: "" }), listed)).toBe("Fill in the bank and the account number");
+    expect(answersProblem(answers({ dutyPaidBy: "own_account", accountNumber: "TEST-0000000000/0000" }), listed)).toBe(ACCOUNT_FORMAT_PROBLEM);
+    expect(answersProblem(answers({ dutyPaidBy: "own_account", accountNumber: "CZ65 0800 0000 1920 0014 5399" }), listed)).toBeNull();
+    expect(normalizeAnswers({ dutyPaidBy: "hack" as never }).dutyPaidBy).toBe("");
+  });
+
+  it("lets a form sent before the question stand as it was: the account given, in any form", () => {
+    expect(answersProblem(answers({ dutyPaidBy: "", accountNumber: "123/0300 old" }), listed)).toBeNull();
+  });
+
+  it("takes the answer without the question from a page opened before it, but checks its account when the customer sends it", () => {
+    const fromCustomer = { fromCustomer: true };
+    expect(answersProblem(answers({ dutyPaidBy: "", accountNumber: "123/0300 old" }), listed, fromCustomer)).toBe(ACCOUNT_FORMAT_PROBLEM);
+    expect(answersProblem(answers({ dutyPaidBy: "", accountNumber: "19-2000145399/0800" }), listed, fromCustomer)).toBeNull();
+    expect(answersProblem(answers({ dutyPaidBy: "", bank: "", accountNumber: "" }), listed, fromCustomer)).toBe("Say who pays the duty and VAT");
+    expect(answersProblem(answers({ dutyPaidBy: "us", bank: "", accountNumber: "" }), listed, fromCustomer)).toBeNull();
+    expect(answersProblem(answers({ procedure: "other", dutyPaidBy: "", accountNumber: "anything" }), listed, fromCustomer)).toBeNull();
+  });
+
+  it("keeps no bank or account when the duty and VAT are paid by us", () => {
+    expect(normalizeAnswers({ dutyPaidBy: "us", bank: "ČSOB", accountNumber: "19-2000145399/0800" })).toMatchObject({ bank: "", accountNumber: "" });
+    expect(normalizeAnswers({ dutyPaidBy: "own_account", bank: "ČSOB", accountNumber: "19-2000145399/0800" })).toMatchObject({ bank: "ČSOB", accountNumber: "19-2000145399/0800" });
+    expect(normalizeAnswers({ dutyPaidBy: "", bank: "ČSOB", accountNumber: "1/0300" })).toMatchObject({ bank: "ČSOB", accountNumber: "1/0300" });
+  });
+});
+
+describe("an account number", () => {
+  it("is a Czech account, the prefix optional", () => {
+    for (const v of ["19-2000145399/0800", "2000145399/0800", " 123456789/0300 ", "000019-2000145399/0800"]) expect(isAccountNumber(v)).toBe(true);
+  });
+
+  it("is an IBAN whose check digits add up, spaces and case aside", () => {
+    expect(isAccountNumber("CZ65 0800 0000 1920 0014 5399")).toBe(true);
+    expect(isAccountNumber("de89370400440532013000")).toBe(true);
+    expect(isAccountNumber("CZ66 0800 0000 1920 0014 5399")).toBe(false);
+  });
+
+  it("is nothing else", () => {
+    for (const v of ["", "TEST-0000000000/0000", "2000145399", "2000145399/08", "1234567-2000145399/0800", "CZ65"]) expect(isAccountNumber(v)).toBe(false);
   });
 
   it("needs the three questions only without a tariff code", () => {
@@ -59,7 +103,16 @@ describe("what an approved form writes to the shipment", () => {
   });
 
   it("never replaces what is already filled in", () => {
-    expect(fieldsToFill({ customsProcedure: "SCP", customsOffice: "", hsCode: "1111", deliveryAddress: "Old" }, answers({ deliveryAddress: "Dock 1" }))).toEqual({});
+    const filled = { customsProcedure: "SCP", customsOffice: "", hsCode: "1111", deliveryAddress: "Old", consigneeContact: "Eva", deliveryPhone: "+420 1", deliveryNotes: "Ramp 2" };
+    expect(fieldsToFill(filled, answers({ deliveryAddress: "Dock 1", deliveryContact: "Petr", deliveryPhone: "+420 602", deliveryNotes: "Mon-Fri 8-14" }))).toEqual({});
+  });
+
+  it("gives the delivery contact, telephone and notes to the job, beside the Delivery Address (E5)", () => {
+    expect(fieldsToFill(empty, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420 602 345 678", deliveryNotes: "Mon-Fri 08:00-14:00, ramp 3" }))).toMatchObject({
+      consigneeContact: "Petr Skladník",
+      deliveryPhone: "+420 602 345 678",
+      deliveryNotes: "Mon-Fri 08:00-14:00, ramp 3",
+    });
   });
 
   it("writes a T1 office only under a T1", () => {
@@ -76,7 +129,7 @@ describe("the link and the PDF", () => {
   it("opens the form's own page", () => expect(importInstructionsUrl("https://a.cz/", "t")).toBe("https://a.cz/import-instructions/t"));
 
   it("makes a PDF, with Czech letters", async () => {
-    const bytes = await importInstructionsPdf(answers({ description: "Žluťoučký kůň ".repeat(40), deliveryAddress: "Dock 1" }), { reference: "CZ00000041", confirmedAt: "2026-11-09 10:00", approvedBy: "boss@firm.cz", changes: [] });
+    const bytes = await importInstructionsPdf(answers({ description: "Žluťoučký kůň ".repeat(40), deliveryAddress: "Dock 1", deliveryNotes: "Po-Pá 8-14, rampa" }), { reference: "CZ00000041", confirmedAt: "2026-11-09 10:00", approvedBy: "boss@firm.cz", changes: [] });
     expect(Buffer.from(bytes.subarray(0, 5)).toString()).toBe("%PDF-");
   });
 
@@ -95,6 +148,14 @@ describe("what the reviewer changed", () => {
       { field: "procedure", label: "Customs procedure", sent: "a) Release for free circulation (SAD)", approved: "b) T1 transit" },
       { field: "t1Office", label: "Customs office of destination", sent: "", approved: "CZ590201 Praha" },
       { field: "tariffCode", label: "Customs tariff code", sent: "8431", approved: "" },
+    ]);
+  });
+
+  it("names who pays the duty in words, and the bank and account no longer kept once it is us", () => {
+    expect(changedAnswers(answers(), answers({ dutyPaidBy: "us" }))).toEqual([
+      { field: "dutyPaidBy", label: "Duty and VAT paid by", sent: "From your own account", approved: "Us, invoiced to you" },
+      { field: "bank", label: "Bank", sent: "ČSOB", approved: "" },
+      { field: "accountNumber", label: "Account number", sent: "19-2000145399/0800", approved: "" },
     ]);
   });
 });

@@ -63,9 +63,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   repository.loadSales.mockResolvedValue(record());
   repository.saveDocument.mockImplementation(async () => record({ dataVersion: 8 }));
-  tariffApi._quoteTariffRefs.mockResolvedValue({ checks: [{ ref: OLD, valid: false, tariffId: "t1" }] });
+  tariffApi._quoteTariffRefs.mockResolvedValue({ checks: [{ ref: OLD, valid: false, tariffId: "t1", validTo: "2026-10-31" }] });
   tariffApi._quoteTariffOffers.mockResolvedValue({
-    offers: [{ versionId: "v2", rateId: "r2", tariffId: "t1", supplierName: "OOCL", via: "", totals: [{ currency: "USD", amount: 1350 }], lines: [{ containerType: "40' DC", currency: "USD", amount: 1350 }] }],
+    offers: [{ versionId: "v2", rateId: "r2", tariffId: "t1", supplierName: "OOCL", via: "", validTo: "2026-12-31", totals: [{ currency: "USD", amount: 1350 }], lines: [{ containerType: "40' DC", currency: "USD", amount: 1350 }] }],
     refused: null,
   });
 });
@@ -75,6 +75,18 @@ describe("the overnight tariff check of a quote", () => {
     await checkQuote(found, TODAY);
     expect(tariffApi._quoteTariffRefs).toHaveBeenCalledWith({ date: TODAY, refs: [OLD] }, { authData });
     expect(tariffApi._quoteTariffOffers).toHaveBeenCalledWith(expect.objectContaining({ ocean: expect.objectContaining({ polCode: "DEHAM", podCode: "USEWR" }) }), { authData });
+  });
+
+  it("gives the lines of a tariff still valid its end date as it is now, and saves nothing when it is the same", async () => {
+    tariffApi._quoteTariffRefs.mockResolvedValue({ checks: [{ ref: OLD, valid: true, tariffId: "t1", validTo: "2027-01-31" }] });
+    await expect(checkQuote(found, TODAY)).resolves.toBe(true);
+    expect(tariffApi._quoteTariffOffers).not.toHaveBeenCalled();
+    expect((repository.saveDocument.mock.calls[0]![2].data.buyingLines as { tariffValidTo?: string }[])[0]!.tariffValidTo).toBe("2027-01-31");
+    expect(chat.createForCompany).not.toHaveBeenCalled();
+    repository.saveDocument.mockClear();
+    repository.loadSales.mockResolvedValue(record({ data: { ...data, buyingLines: data.buyingLines.map((l) => ({ ...l, tariffValidTo: "2027-01-31" })) } }));
+    await expect(checkQuote(found, TODAY)).resolves.toBe(false);
+    expect(repository.saveDocument).not.toHaveBeenCalled();
   });
 
   it("reads the quote again when its turn comes, and leaves one sent meanwhile alone", async () => {

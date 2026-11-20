@@ -4,7 +4,8 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
 import type { ChargeBasis, SalesQuoteData, CostLine, PackageLine, QuoteContainerLine, TimelineEntry } from "./types";
 import { containerType, teuForType } from "@/lib/cargo";
-import { withBuyingTerms } from "./costPairs";
+import { AIR_DIVISOR, chargeableKg, isAirFreight } from "@/lib/chargeBasis";
+import { buyingBasis, withBuyingTerms } from "./costPairs";
 import { businessDay, businessToday, formatDate } from "@/lib/date";
 import { FX_DRAFT_STATUSES, PRICING_CLOSED_STATUSES, PRICING_KEYS, PROTECTED_KEYS, type QuoteStatus } from "./types";
 
@@ -204,6 +205,11 @@ export function isSeaQuote(data: Pick<SalesQuoteData, "serviceType">): boolean {
   return /^sea/i.test(data.serviceType ?? "");
 }
 
+// An air quote: charged by chargeable weight, never by W/M (the shipment's rule, @/lib/chargeBasis).
+export function isAirQuote(data: Pick<SalesQuoteData, "serviceType">): boolean {
+  return isAirFreight(data.serviceType);
+}
+
 // A sea quote's CY terms: at origin, then at destination, a container yard (CY) or the store door
 // (SD). In the order Sales asked for.
 export const CY_TERMS = ["CY/CY", "SD/CY", "SD/SD", "CY/SD"] as const;
@@ -296,7 +302,7 @@ export function computeCargo(data: SalesQuoteData) {
   const cbmFromLines = linesCcm > 0;
   const grossWeight = weightFromLines ? linesWeight : n(data.weight);
   const cbm = cbmFromLines ? linesCcm / 1_000_000 : n(data.cbm);
-  const volumetricWeight = (cbm * 1_000_000) / 6000;
+  const volumetricWeight = (cbm * 1_000_000) / AIR_DIVISOR;
   return {
     totalPackages,
     totalContainers,
@@ -311,7 +317,8 @@ export function computeCargo(data: SalesQuoteData) {
     weightFromContainers,
     cbmFromLines,
     volumetricWeight: Math.round(volumetricWeight * 100) / 100,
-    chargeableWeight: Math.round(Math.max(grossWeight, volumetricWeight) * 100) / 100,
+    // The job's rule (@/lib/chargeBasis), from the weight and volume the job is made with (quoteToShipment).
+    chargeableWeight: chargeableKg(Math.round(grossWeight * 100) / 100, Math.round(cbm * 1000) / 1000),
     weightMeasure: Math.round(Math.max(grossWeight / 1000, cbm) * 1000) / 1000,
     /** Cbm per ton of cargo (volume ÷ weight in tons); null until both are known. */
     weightRatio: grossWeight > 0 && cbm > 0 ? Math.round((cbm / (grossWeight / 1000)) * 100) / 100 : null,
@@ -322,9 +329,18 @@ export function computeCargo(data: SalesQuoteData) {
 export const WM_UNIT = "W/M";
 /** The unit of a line charged per container: its quantity is the quote's number of containers. */
 export const CONTAINER_UNIT = "container";
+/**
+ * The unit of a line charged per chargeable kg: its quantity is the quote's chargeable weight. Not
+ * a bare "kg": a trucking tariff's lines are priced per kg too, as lump sums, and keep their unit.
+ */
+export const KG_UNIT = "chargeable kg";
 
-/** Whether a line of this basis is priced per unit (W/M, container) rather than as a lump sum. */
-export const perUnitBasis = (basis: ChargeBasis | undefined): basis is "wm" | "container" => basis === "wm" || basis === "container";
+/** Whether a line of this basis is priced per unit (W/M, container, chargeable kg) rather than as a lump sum. */
+export const perUnitBasis = (basis: ChargeBasis | undefined): basis is "wm" | "container" | "kg" => basis === "wm" || basis === "container" || basis === "kg";
+
+/** A line's basis in running text: " per W/M", " per container", " per chargeable kg"; nothing for a lump sum. */
+export const perBasisText = (basis: ChargeBasis | undefined): string =>
+  basis === "wm" ? " per W/M" : basis === "container" ? " per container" : basis === "kg" ? " per chargeable kg" : "";
 
 /**
  * The containers a line charged per container is counted by: those of a full-container quote, of
@@ -339,14 +355,16 @@ export function quoteContainerCount(data: SalesQuoteData, type?: string): number
 }
 
 /**
- * The units a line of this basis is counted in on this quote: its weight / measure, or its
- * containers - those of its container type, when it has one.
+ * The units a line of this basis is counted in on this quote: its weight / measure, its chargeable
+ * weight in kg (the figure Cargo details shows), or its containers - those of its container type,
+ * when it has one.
  */
 export function basisUnits(data: SalesQuoteData, basis: ChargeBasis | undefined, type?: string): number {
-  return basis === "container" ? quoteContainerCount(data, type) : computeCargo(data).weightMeasure;
+  if (basis === "container") return quoteContainerCount(data, type);
+  return basis === "kg" ? computeCargo(data).chargeableWeight : computeCargo(data).weightMeasure;
 }
 
-/** What a line's Amount column holds: per W/M or container the rate per unit, otherwise the whole line. */
+/** What a line's Amount column holds: per W/M, container or chargeable kg the rate per unit, otherwise the whole line. */
 export function lineRate(line: CostLine): number {
   return Number(perUnitBasis(line.basis) ? (line.unitPrice ?? line.amount) : line.amount) || 0;
 }
@@ -360,14 +378,15 @@ export function lineRate(line: CostLine): number {
 export function withRate(line: CostLine, rate: number, units: number): CostLine {
   if (!perUnitBasis(line.basis)) return { ...line, amount: rate };
   // A line of one container type is counted in those containers, and says so ("40' HC").
-  const unit = line.basis === "container" ? line.containerType || CONTAINER_UNIT : WM_UNIT;
+  const unit = line.basis === "container" ? line.containerType || CONTAINER_UNIT : line.basis === "kg" ? KG_UNIT : WM_UNIT;
   return { ...line, value: units, qty: units, unit, unitPrice: rate, amount: roundCents(rate * units) };
 }
 
-// A line back from W/M or per container to a lump sum: its rate is the amount again, and nothing
-// is priced per unit.
+// A line back from W/M, per chargeable kg or per container to a lump sum: it keeps its total (rate ×
+// quantity becomes the lump sum), and nothing is priced per unit. Not its rate: a line of 640 kg at
+// 2.10 would fall from 1,344.00 to 2.10 without a word (User Council, chair's finding, 20 Nov 2026).
 function asLumpsum(line: CostLine): CostLine {
-  const lumpsum: CostLine = { ...line, amount: Number(line.unitPrice ?? line.amount) || 0 };
+  const lumpsum: CostLine = { ...line, amount: Number(line.amount) || 0 };
   delete lumpsum.qty;
   delete lumpsum.unit;
   delete lumpsum.unitPrice;
@@ -375,21 +394,121 @@ function asLumpsum(line: CostLine): CostLine {
 }
 
 /**
+ * The line given another basis, at the same total. To a per-unit basis its rate is the total ÷ the
+ * new quantity, to the cent (Costs Breakdown takes a rate to 2 decimals, and copies a line per unit
+ * only while quantity × rate gives its amount), so the total can move by that rounding; with no
+ * quantity yet (no chargeable weight, W/M or containers in Cargo details) the rate is 0, never the
+ * lump sum. To a lump sum, the rate × quantity becomes it. A lump sum of 1,344.00 set to per
+ * chargeable kg at 640 kg is 2.10 per kg, not 1,344.00 per kg (User Council, chair's finding,
+ * 20 Nov 2026). basisChangeNote says on the line what was done.
+ */
+export function withBasis(line: CostLine, basis: ChargeBasis, data: SalesQuoteData): CostLine {
+  if ((line.basis ?? "lumpsum") === basis) return line;
+  if (!perUnitBasis(basis)) return asLumpsum({ ...line, basis });
+  const units = basisUnits(data, basis, line.containerType);
+  const total = Number(line.amount) || 0;
+  return withRate({ ...line, basis }, units > 0 ? roundCents(total / units) : 0, units);
+}
+
+const twoDecimals = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// "640 kg", "3.840 W/M", "3 containers", "2 containers (40' HC)": a per-unit line's quantity as Cargo details counts it.
+function unitsText(line: CostLine): string {
+  const qty = Number(line.qty) || 0;
+  if (line.basis === "wm") return `${qty.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} W/M`;
+  if (line.basis === "kg") return `${qty.toLocaleString("en-US", { maximumFractionDigits: 2 })} kg`;
+  const type = line.containerType ? ` (${line.containerType})` : "";
+  return `${qty.toLocaleString("en-US")} container${qty === 1 ? "" : "s"}${type}`;
+}
+
+const basisWords = (basis: ChargeBasis | undefined) => (basis === "kg" ? "chargeable weight" : basis === "wm" ? "W/M" : "containers");
+
+/**
+ * What a change of basis did to a line, said on the line (`before` the line as it was, `after` as
+ * withBasis made it): "Rate set from the lump sum: 1,344.00 ÷ 640 kg = 2.10". Null when the basis
+ * did not change, the line had no amount, or `after` was not made from `before` by withBasis (a
+ * tariff picked again, a rate typed meanwhile).
+ */
+export function basisChangeNote(before: CostLine, after: CostLine): string | null {
+  const from = before.basis ?? "lumpsum";
+  const to = after.basis ?? "lumpsum";
+  const total = Number(before.amount) || 0;
+  if (from === to || !total) return null;
+  if (!perUnitBasis(to)) {
+    if (Number(after.amount) !== total || !perUnitBasis(from)) return null;
+    return `Lump sum set from the rate: ${twoDecimals(lineRate(before))} × ${unitsText(before)} = ${twoDecimals(total)}`;
+  }
+  const units = Number(after.qty) || 0;
+  const rate = Number(after.unitPrice) || 0;
+  const was = from === "lumpsum" ? "the lump sum" : "the line's total";
+  if (!(units > 0)) {
+    if (rate !== 0) return null;
+    return `Cargo details has no ${basisWords(to)} yet, so ${was} of ${twoDecimals(total)} could not be made a rate: type the rate${perBasisText(to)}`;
+  }
+  if (rate !== roundCents(total / units)) return null;
+  const moved = roundCents(rate * units) !== roundCents(total) ? `; the line now comes to ${twoDecimals(Number(after.amount) || 0)}` : "";
+  return `Rate set from ${was}: ${twoDecimals(total)} ÷ ${unitsText(after)} = ${twoDecimals(rate)}${moved}`;
+}
+
+/**
+ * Whether the quote offers a line this basis: per container only with containers, per chargeable kg
+ * only on an air quote, W/M on any but an air one - air is charged by its chargeable weight (User
+ * Council S1, owner answer Q10, 20 Nov 2026). Lump sum always.
+ */
+export function basisOffered(data: SalesQuoteData, basis: ChargeBasis | undefined): boolean {
+  if (basis === "kg") return isAirQuote(data);
+  if (basis === "wm") return !isAirQuote(data);
+  if (basis === "container") return quoteContainerCount(data) > 0;
+  return true;
+}
+
+/**
+ * The lines charged by a basis the quote no longer offers (basisOffered) - its mode changed after
+ * they were set, as per chargeable kg on a quote now Sea LCL - each with what it is charged by now:
+ * Pricing warns of them, and changes none (User Council S1). A selling line that has its buying
+ * line's basis is told of with that buying line. Empty when every line fits.
+ */
+export function basisMismatches(data: SalesQuoteData): string[] {
+  const mode = data.serviceType?.trim() || "no freight mode";
+  const said = (line: CostLine, side: string): string => {
+    const name = line.description?.trim() || line.type?.trim() || "a line";
+    const why =
+      line.basis === "kg"
+        ? `which only an Air quote offers; this ${mode} quote charges it by ${unitsText({ ...line, qty: basisUnits(data, "kg") })} now`
+        : line.basis === "wm"
+          ? `which an Air quote does not offer (it charges by chargeable weight); it is charged by ${unitsText({ ...line, qty: basisUnits(data, "wm") })} now`
+          : "but the quote has no containers; it is charged by 0 containers now";
+    return `${side} line "${name}" is charged${perBasisText(line.basis)}, ${why}`;
+  };
+  const buying = (data.buyingLines ?? []).filter((l) => perUnitBasis(l.basis) && !basisOffered(data, l.basis)).map((l) => said(l, "Buying"));
+  const selling = (data.sellingLines ?? []).filter((l) => perUnitBasis(l.basis) && !basisOffered(data, l.basis) && buyingBasis(l, data.buyingLines ?? []) === undefined).map((l) => said(l, "Selling"));
+  return [...buying, ...selling];
+}
+
+/**
  * The quote's lines as their basis has them: a selling line is charged by its buying line's basis,
  * and as a lump sum has its buying line's quantity;
  * a line charged per W/M has the cargo's weight / measure as its quantity, one charged per
- * container the quote's number of containers (quoteContainerCount), and costs its rate times that - taken as it is set
- * to the basis, and followed while the cargo changes; a line set back to a lump sum costs its rate
- * again. Null when every line has them already.
+ * chargeable kg the chargeable weight, one charged per container the quote's number of containers (quoteContainerCount), and costs its rate times that - taken as it is set
+ * to the basis, and followed while the cargo changes; a line set back to a lump sum keeps its total.
+ * A selling line that takes another basis from its buying line keeps its total (withBasis). Null when
+ * every line has them already.
  */
 export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
   const termsCopied = withBuyingTerms(data.buyingLines, data.sellingLines);
-  const sellingLines = termsCopied ?? data.sellingLines;
-  const wm = computeCargo(data).weightMeasure;
+  // A selling line given another basis by its buying line keeps its total, as the buying line does
+  // in the editor (withBasis): a selling lump sum of 1,500.00 is not made 1,500.00 per kg.
+  const sellingLines = termsCopied?.map((l, i) => {
+    const was = data.sellingLines?.[i];
+    const to = l.basis ?? "lumpsum";
+    return was && perUnitBasis(to) && (was.basis ?? "lumpsum") !== to ? withBasis({ ...l, basis: was.basis }, to, data) : l;
+  }) ?? data.sellingLines;
+  const { weightMeasure: wm, chargeableWeight } = computeCargo(data);
   const asBasis = (l: CostLine): CostLine => {
     if (l.basis === "wm") return withRate(l, lineRate(l), wm);
+    if (l.basis === "kg") return withRate(l, lineRate(l), chargeableWeight);
     if (l.basis === "container") return withRate(l, lineRate(l), quoteContainerCount(data, l.containerType));
-    const perUnit = l.unit === WM_UNIT || l.unit === CONTAINER_UNIT || (!!l.containerType && l.unit === l.containerType);
+    const perUnit = l.unit === WM_UNIT || l.unit === KG_UNIT || l.unit === CONTAINER_UNIT || (!!l.containerType && l.unit === l.containerType);
     return perUnit ? asLumpsum(l) : l;
   };
   const same = (a: CostLine, b: CostLine) => a.value === b.value && a.qty === b.qty && a.unit === b.unit && a.unitPrice === b.unitPrice && a.amount === b.amount;

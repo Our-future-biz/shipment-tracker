@@ -25,6 +25,8 @@ export interface ColumnDef {
   apiField?: string;  // API field name on ShipmentItem (if different from key, or for explicit mapping)
   /** A date column whose exact time may be kept too: the API field holding it ("HH:MM", "" = none) */
   timeField?: string;
+  /** A text column's longest value as the server keeps it, so a longer one can't be typed and then refused. */
+  maxLength?: number;
 }
 
 // ─── Dropdown Options ─────────────────────────────────────────────────
@@ -170,6 +172,10 @@ export const COLUMNS: ColumnDef[] = [
 
   // Delivery + Port of Discharge
   { key: "deliveryAddress", title: "Delivery Address", width: 200, type: "text", apiField: "deliveryAddress" },
+  // Who to call at delivery and the time window / unloading notes; an approved Import Instructions form
+  // fills them while empty (User Council E5).
+  { key: "deliveryPhone", title: "Delivery Phone", width: 150, type: "text", apiField: "deliveryPhone", maxLength: 50 },
+  { key: "deliveryNotes", title: "Delivery Notes", width: 220, type: "text", apiField: "deliveryNotes", maxLength: 500 },
   // Wide enough for its title in caps beside the Master Jobs list's sort arrow.
   { key: "pod", title: "Port of Discharge", width: 170, type: "place", apiField: "pod" },
   { key: "destination", title: "Destination", width: 160, type: "place", apiField: "destination" },

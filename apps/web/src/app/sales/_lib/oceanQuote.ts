@@ -2,7 +2,7 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { containerType } from "@/lib/cargo";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { isContainerQuote } from "./salesQuote";
-import { containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, type ToQuoteCurrency, type TariffPick } from "./tariffQuote";
+import { containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, withTariffValidity, type ToQuoteCurrency, type TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // Pure helpers of shipping lines' ocean tariffs on a quote (Pricing → "Tariffs available" on the
@@ -115,10 +115,14 @@ export function offerPorts(offer: Pick<OceanOffer, "polName" | "polCode" | "podN
   return [portLabel(offer.polName, offer.polCode, route.pol), portLabel(offer.podName, offer.podCode, route.pod)];
 }
 
-/** "Ocean freight Hamburg → Shanghai (OOCL) via Kaohsiung". */
+/**
+ * "Ocean freight Hamburg → Shanghai via Kaohsiung". The shipping line is not named: the description
+ * is what the customer reads on a line not in the all-in price, and no supplier's name goes to the
+ * customer (owner's answer Q27, User Council 20 Nov 2026). The line's Supplier column names it.
+ */
 export function oceanDescription(offer: OceanOffer, route: Pick<OceanRoute, "pol" | "pod">): string {
   const [from, to] = offerPorts(offer, route);
-  return `Ocean freight ${from} → ${to} (${offer.supplierName})${offer.via ? ` via ${offer.via}` : ""}`;
+  return `Ocean freight ${from} → ${to}${offer.via ? ` via ${offer.via}` : ""}`;
 }
 
 /** The unit a surcharge line is counted in; never "container", which the per-container basis owns. */
@@ -129,36 +133,43 @@ const MAPPED_CHARGES = new Set<string>(["fcl_baf", "ams_ens", "fcl_documentation
 /** The buying line a surcharge of an offer becomes: a lump sum of units × rate, on its own charge where the quote has one. */
 function oceanSurchargeLine(s: interfaces.OceanOfferSurcharge, offer: OceanOffer, tariffRef: string): CostLine {
   const code = MAPPED_CHARGES.has(s.charge) ? s.charge : "other";
-  return {
-    type: chargeLabel(code),
-    chargeCode: code,
-    description: `${s.code} – ${s.name}`,
-    supplier: offer.supplierName,
-    supplierCustomerId: offer.supplierCustomerId,
-    currency: s.currency,
-    basis: "lumpsum",
-    amount: s.total,
-    qty: s.units,
-    unit: SURCHARGE_UNIT[s.basis],
-    unitPrice: s.rate,
-    tariffRef,
-  };
+  return withTariffValidity(
+    {
+      type: chargeLabel(code),
+      chargeCode: code,
+      description: `${s.code} – ${s.name}`,
+      supplier: offer.supplierName,
+      supplierCustomerId: offer.supplierCustomerId,
+      currency: s.currency,
+      basis: "lumpsum",
+      amount: s.total,
+      qty: s.units,
+      unit: SURCHARGE_UNIT[s.basis],
+      unitPrice: s.rate,
+      tariffRef,
+    },
+    offer.validTo,
+  );
 }
 
 /**
  * The buying lines a picked offer makes of the line it was picked on: the freight - one line per
  * container or one per container type (containerFreightLines) - and then a line per surcharge. The
- * shipping line is the supplier of each, and each is tagged with the tariff row.
+ * shipping line is the supplier of each, and each is tagged with the tariff row and keeps the
+ * tariff's last valid day, which a quote valid longer is warned of (tariffRecheck tariffValidityWarning).
  */
 function oceanOfferLines(line: CostLine, offer: OceanOffer, route: Pick<OceanRoute, "pol" | "pod">, quote: SalesQuoteData): CostLine[] {
   const tariffRef = `${OCEAN_REF_PREFIX}${offer.versionId}:${offer.rateId}`;
-  const base: CostLine = {
-    ...line,
-    supplier: offer.supplierName,
-    supplierCustomerId: offer.supplierCustomerId,
-    currency: offer.currency,
-    tariffRef,
-  };
+  const base: CostLine = withTariffValidity(
+    {
+      ...line,
+      supplier: offer.supplierName,
+      supplierCustomerId: offer.supplierCustomerId,
+      currency: offer.currency,
+      tariffRef,
+    },
+    offer.validTo,
+  );
   const freight = containerFreightLines(base, oceanDescription(offer, route), offer.lines, quote);
   return [...freight, ...offer.surcharges.map((s) => oceanSurchargeLine(s, offer, tariffRef))];
 }

@@ -45,6 +45,8 @@ interface CollectionTariffsDrawerProps {
   /** The quote's currency, which offers in other currencies are ranked and shown in */
   quoteCurrency: string;
   toQuoteCurrency: ToQuoteCurrency;
+  /** The quote's Valid until (YYYY-MM-DD): an offer valid for less is marked. Null while it has none. */
+  validUntil?: string | null;
   /** Puts the offer on the line the drawer was opened from. */
   onPick: (offer: CollectionOffer, route: CollectionRoute) => void;
   onClose: () => void;
@@ -54,7 +56,7 @@ interface CollectionTariffsDrawerProps {
 // first / last mile haulier asks for the consignment between our hub and the customer, from the
 // most economic to the most expensive. The consignment and its two ends start as the quote has
 // them and can be corrected here; picking an offer puts it on the buying line.
-export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQuoteCurrency, onPick, onClose }: CollectionTariffsDrawerProps) => {
+export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQuoteCurrency, validUntil, onPick, onClose }: CollectionTariffsDrawerProps) => {
   const [route, setRoute] = useState<CollectionRoute>(() => collectionRouteOf(quote, hubs, businessToday()));
   // Each opening starts again from the quote as it is now.
   const [wasOpen, setWasOpen] = useState(open);
@@ -74,7 +76,7 @@ export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQu
 
   const columns: ColumnsType<CollectionOffer> = [
     rankColumn(),
-    tariffColumn("Haulier / tariff", (o) => collectionVersionHref(o.supplierCustomerId, o.versionId)),
+    tariffColumn("Haulier / tariff", (o) => collectionVersionHref(o.supplierCustomerId, o.versionId), undefined, validUntil),
     {
       key: "route",
       title: "Route",

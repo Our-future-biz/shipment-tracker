@@ -136,5 +136,39 @@ export function detentionLineOn(lines: readonly { category: string; description:
   return !!number && detention.some((l) => squeezed(l.description ?? "").includes(number));
 }
 
-/** A milestone's state as the customer's link shows it: late is ours to chase, a plan-only date is still to come. */
-export const customerState = (state: "done" | "next" | "late" | "open" | "planned"): "done" | "next" | "open" => (state === "done" ? "done" : state === "next" || state === "late" ? "next" : "open");
+export type CustomerState = "done" | "next" | "open" | "unconfirmed";
+
+/**
+ * The milestones' states as the customer's link shows them (the server's publicStates in
+ * apps/api/services/shipments/lib/customerLink.ts - keep the two alike): a step whose planned day passed with
+ * no actual is "not yet confirmed", never late; only the first open step is the next one; an earlier step
+ * nobody noted while a later one happened is only planned (User Council E2, Q15). Keyed by milestone key.
+ */
+export function customerStates(milestones: readonly { key: string; state: "done" | "next" | "late" | "open" | "planned" }[]): Map<string, CustomerState> {
+  const lastDone = milestones.reduce((last, m, i) => (m.state === "done" ? i : last), -1);
+  let reached = false;
+  const states = new Map<string, CustomerState>();
+  milestones.forEach((m, i) => {
+    let state: CustomerState;
+    if (m.state === "done") state = "done";
+    else if (i < lastDone) state = "open";
+    else {
+      state = m.state === "late" ? "unconfirmed" : m.state === "next" && !reached ? "next" : "open";
+      if (m.state === "late" || m.state === "next") reached = true;
+    }
+    states.set(m.key, state);
+  });
+  return states;
+}
+
+/**
+ * The word printed beside a step for the customer, on their link and in the Tracking tab's customer view alike,
+ * so the preview reads as the link does (User Council E2): an open step with a planned day is "Planned", one
+ * with no day yet is "Still to come". Never "late" (Q15).
+ */
+export function customerStateName(state: CustomerState, hasPlanned: boolean): string {
+  if (state === "done") return "Done";
+  if (state === "next") return "Next step";
+  if (state === "unconfirmed") return "Not yet confirmed";
+  return hasPlanned ? "Planned" : "Still to come";
+}

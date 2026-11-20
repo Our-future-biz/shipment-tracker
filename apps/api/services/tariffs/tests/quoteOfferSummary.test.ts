@@ -37,4 +37,13 @@ describe("an offer in short, for the overnight check of quotes", () => {
     const collection = { versionId: "v", tariffId: "t", supplierName: "Haulier", currency: "CZK", total: 4200 } as unknown as CollectionOffer;
     expect(collectionOfferSummary(collection)).toMatchObject({ rateId: null, via: "", lines: [{ containerType: null, currency: "CZK", amount: 4200 }] });
   });
+
+  it("gives each offer's last valid day, so a quote moved to it keeps that day on its lines", () => {
+    const ocean = { versionId: "v", rateId: "r", tariffId: "t", supplierName: "OOCL", via: "", currency: "USD", lines: [], surcharges: [], totals: [], validTo: "2026-12-31" } as unknown as OceanOffer;
+    expect(oceanOfferSummary(ocean).validTo).toBe("2026-12-31");
+    const rail = { versionId: "v", rateId: "r", tariffId: "t", supplierName: "Metrans", via: "", currency: "EUR", total: 0, lines: [], validTo: null } as unknown as RailOffer;
+    expect(railOfferSummary(rail).validTo).toBeNull();
+    const collection = { versionId: "v", tariffId: "t", supplierName: "Haulier", currency: "CZK", total: 0, validTo: "2027-01-31" } as unknown as CollectionOffer;
+    expect(collectionOfferSummary(collection).validTo).toBe("2027-01-31");
+  });
 });

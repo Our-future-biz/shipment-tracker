@@ -18,6 +18,10 @@ const COMPARED: { key: keyof interfaces.ImportInstructionShipmentValues; label: 
   { key: "customsOffice", label: "Customs Office" },
   { key: "hsCode", label: "HS code" },
   { key: "deliveryAddress", label: "Delivery address" },
+  // The delivery contact, telephone and notes go beside it (User Council E5).
+  { key: "consigneeContact", label: "Consignee's contact" },
+  { key: "deliveryPhone", label: "Delivery phone" },
+  { key: "deliveryNotes", label: "Delivery notes" },
 ];
 
 // Import Instructions in Shipments → Warehouse → Push to customers: the link for the customer, and once

@@ -308,9 +308,25 @@ describe("offers", () => {
     ]);
   });
 
+  it("says the last day the price holds: the version's, or the row's own when it ends first", async () => {
+    repo.ratesOnRoute.mockResolvedValue([
+      rate({ id: "own", via: "Praha", validTo: "2026-11-30" }),
+      rate({ id: "later", via: "Cetr", validTo: "2027-03-31" }),
+      rate({ id: "open", via: "Brno", versionValidTo: null }),
+    ]);
+    const offers = (await ask()).offers;
+    expect(Object.fromEntries(offers.map((o) => [o.rateId, o.validTo]))).toEqual({ own: "2026-11-30", later: "2026-12-31", open: null });
+  });
+
   it("shows rows asking the same of the same tariff via the same terminal once", async () => {
     repo.ratesOnRoute.mockResolvedValue([rate({ id: "a", place: "Brno" }), rate({ id: "b", place: "Brno-Slatina" })]);
     expect((await ask({ place: "Brno" })).offers.map((o) => o.rateId)).toEqual(["a"]);
+  });
+
+  it("shows two rows alike but for their own end date as two offers, each with its own day", async () => {
+    repo.ratesOnRoute.mockResolvedValue([rate({ id: "a", place: "Brno", validTo: "2026-11-30" }), rate({ id: "b", place: "Brno-Slatina" })]);
+    const offers = (await ask({ place: "Brno" })).offers;
+    expect(Object.fromEntries(offers.map((o) => [o.rateId, o.validTo]))).toEqual({ a: "2026-11-30", b: "2026-12-31" });
   });
 
   it("says which rows could not price a container and which weight is missing", async () => {

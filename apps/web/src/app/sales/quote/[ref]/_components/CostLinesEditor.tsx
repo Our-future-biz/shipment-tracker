@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Input, InputNumber, Select } from "antd";
 import { SupplierPicker } from "@/components/SupplierPicker";
 import { PlusOutlined } from "@ant-design/icons";
@@ -11,7 +11,19 @@ import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { basisUnits, convertLine, lineRate, perUnitBasis, quoteContainerCount, quoteCurrency, withRate, type LivePricing } from "@/app/sales/_lib/salesQuote";
+import {
+  basisChangeNote,
+  basisOffered,
+  basisUnits,
+  convertLine,
+  lineRate,
+  perUnitBasis,
+  quoteContainerCount,
+  quoteCurrency,
+  withBasis,
+  withRate,
+  type LivePricing,
+} from "@/app/sales/_lib/salesQuote";
 import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
@@ -36,8 +48,51 @@ const describedAs = (code: string): string => (code === "other" ? "" : chargeLab
 const BASIS_OPTIONS: { value: ChargeBasis; label: string }[] = [
   { value: "lumpsum", label: "Lumpsum" },
   { value: "wm", label: "W/M" },
+  { value: "kg", label: "Per chargeable kg" },
   { value: "container", label: "Per container" },
 ];
+
+/**
+ * The bases a line of this quote can be given: per container only on a quote with containers, per
+ * chargeable kg only on an air quote, and W/M on any quote but an air one - air is charged by its
+ * chargeable weight (User Council S1, owner answer Q10, 20 Nov 2026). A line keeps the basis it
+ * has, so a W/M line saved on an air quote before still shows and totals as it did.
+ */
+export function basisOptions(quote: SalesQuoteData, line: Pick<CostLine, "basis">): { value: ChargeBasis; label: string }[] {
+  return BASIS_OPTIONS.filter((o) => basisOffered(quote, o.value) || line.basis === o.value);
+}
+
+/** A note on a line, shown while the line is as the note left it (its amount and rate). */
+interface LineNote {
+  text: string;
+  amount: number;
+  unitPrice: number | undefined;
+}
+
+/**
+ * The notes on the lines whose basis changed between two renders, by row key: what the change did
+ * to the rate or the lump sum (basisChangeNote). Kept notes stay; a row that went is forgotten.
+ */
+export function basisNotes(seen: Record<string, CostLine>, keys: readonly string[], lines: readonly CostLine[], kept: Record<string, LineNote>): Record<string, LineNote> {
+  const next: Record<string, LineNote> = {};
+  let changed = false;
+  lines.forEach((line, i) => {
+    const key = keys[i];
+    if (!key) return;
+    const before = seen[key];
+    const text = before ? basisChangeNote(before, line) : null;
+    if (text) {
+      next[key] = { text, amount: Number(line.amount) || 0, unitPrice: line.unitPrice };
+      changed = true;
+    } else if (kept[key]) next[key] = kept[key]!;
+  });
+  // The same notes as before: the same object, so the editor is not drawn again for nothing.
+  return changed || Object.keys(next).length !== Object.keys(kept).length ? next : kept;
+}
+
+/** A line's note while the line is still as the note left it: a rate typed or a cargo change after it makes it stale. */
+export const noteFor = (note: LineNote | undefined, line: CostLine): string | null =>
+  note && note.amount === (Number(line.amount) || 0) && note.unitPrice === line.unitPrice ? note.text : null;
 
 /** A line's amount as a number: a quote's JSON may hold it as text, or not at all (priced by qty × unit price). */
 export const amountOf = (line: CostLine): number => Number(line.amount) || 0;
@@ -134,13 +189,22 @@ export function CostLinesEditor({
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
-  // A line's Amount column: per W/M or container the rate, which the cargo's weight / measure or
-  // the number of containers multiplies.
+  // A line's Amount column: per W/M, chargeable kg or container the rate, which the cargo's weight /
+  // measure, its chargeable weight or the number of containers multiplies.
   const priced = (line: CostLine, rate: number) => withRate(line, rate, basisUnits(quote, line.basis, line.containerType));
-  const containers = quoteContainerCount(quote);
   // The line whose service was changed while its description held text of its own: whether that
   // text gives way to the service's name is asked.
   const [asked, setAsked] = useState<{ index: number; description: string; service: string } | null>(null);
+  // A change of basis keeps the line's total (withBasis); the line says how its rate or lump sum
+  // came about. Read from the lines as they come, so a selling line that followed its buying line's
+  // basis says it too.
+  const seen = useRef<Record<string, CostLine>>({});
+  const [notes, setNotes] = useState<Record<string, LineNote>>({});
+  useEffect(() => {
+    const keys = lineKeys.keys;
+    setNotes((kept) => basisNotes(seen.current, keys, lines, kept));
+    seen.current = Object.fromEntries(lines.map((l, i) => [keys[i], l]));
+  }, [lines, lineKeys.keys]);
 
   const chooseService = (i: number, code: string) => {
     const current = lines[i];
@@ -195,6 +259,7 @@ export function CostLinesEditor({
               const converted = convertLine(l, quote, sheet, { selling: !buying, live });
               const tag = lineTag?.(l);
               const action = lineAction?.(l, i);
+              const note = noteFor(notes[lineKeys.keys[i] ?? ""], l);
               return (
                 <tr key={lineKeys.keys[i]} className={lineWarn?.(i) ? "bg-amber-50" : undefined}>
                   <td className={LINE_TD_CLASS}>
@@ -220,6 +285,7 @@ export function CostLinesEditor({
                         {action}
                       </div>
                     )}
+                    {note && <div className="mt-1 text-[12px] text-slate-500">{note}</div>}
                   </td>
                   {buying && (
                     <td className={LINE_TD_CLASS}>
@@ -265,11 +331,21 @@ export function CostLinesEditor({
                       aria-label="Quantity"
                       min={0}
                       // Per W/M: the cargo's weight / measure, 3 decimals as Cargo details shows it;
-                      // per container: the number of containers.
+                      // per chargeable kg: the chargeable weight; per container: the number of containers.
                       precision={l.basis === "wm" ? 3 : 2}
                       // `undefined`, not `false`, when open: antd's own `false` overrides the lock of a closed quote.
                       disabled={perUnitBasis(l.basis) || !!quantityOf?.(l) || undefined}
-                      title={l.basis === "wm" ? "Weight / measure from Cargo details" : l.basis === "container" ? "Number of containers from Cargo details" : quantityOf?.(l) ? "The same as its buying line" : undefined}
+                      title={
+                        l.basis === "wm"
+                          ? "Weight / measure from Cargo details"
+                          : l.basis === "kg"
+                            ? "Chargeable weight (kg) from Cargo details"
+                            : l.basis === "container"
+                              ? "Number of containers from Cargo details"
+                              : quantityOf?.(l)
+                                ? "The same as its buying line"
+                                : undefined
+                      }
                       parser={moneyInputParser}
                       placeholder="=amt"
                       value={quantityOf?.(l) ? quantityOf(l)!.value : l.value}
@@ -285,10 +361,11 @@ export function CostLinesEditor({
                       disabled={basisOf?.(l) !== undefined || undefined}
                       title={basisOf?.(l) !== undefined ? "The same as its buying line" : undefined}
                       value={basisOf?.(l) ?? l.basis ?? "lumpsum"}
-                      // Per container only on a quote with containers (or a line that has it already).
-                      options={BASIS_OPTIONS.filter((o) => o.value !== "container" || containers > 0 || l.basis === "container")}
+                      // Per container only on a quote with containers, per chargeable kg only on air, W/M not on air (or a line that has it already).
+                      options={basisOptions(quote, { basis: basisOf?.(l) ?? l.basis })}
                       popupMatchSelectWidth={false}
-                      onChange={(basis: ChargeBasis) => patch(i, { basis })}
+                      // The line keeps its total: the rate is the lump sum ÷ the new quantity, or rate × quantity the lump sum.
+                      onChange={(basis: ChargeBasis) => onChange(lines.map((x, j) => (j === i ? withBasis(x, basis, quote) : x)))}
                     />
                   </td>
                   <td className={`${LINE_TD_CLASS} !pl-0`}>

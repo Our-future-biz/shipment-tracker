@@ -1,7 +1,7 @@
 import type { controllers, interfaces } from "@/lib/api/client";
 import { postcodeText } from "@/app/tariffs/_lib/collectionTariffs";
 import { computeCargo } from "./salesQuote";
-import { ADDRESS_POSTCODE, hasTariffRef, isChargeLine, tariffRefVersionId } from "./tariffQuote";
+import { ADDRESS_POSTCODE, hasTariffRef, isChargeLine, tariffRefVersionId, withTariffValidity } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // Pure helpers of first / last mile collections tariffs on a quote (Pricing → "Tariffs available"
@@ -143,12 +143,13 @@ export function collectionDescription(offer: CollectionOffer, route: Pick<Collec
 
 /**
  * The buying line a picked offer makes of the line it was picked on: one lump sum for the whole
- * consignment in the tariff's currency, the haulier as the supplier, tagged with the tariff version.
- * A pairing with a selling line stays; whatever an earlier pick or a basis made of it goes.
+ * consignment in the tariff's currency, the haulier as the supplier, tagged with the tariff version
+ * and its last valid day (tariffRecheck tariffValidityWarning). A pairing with a selling line stays;
+ * whatever an earlier pick or a basis made of it goes.
  */
 function collectionOfferLine(line: CostLine, offer: CollectionOffer, route: Pick<CollectionRoute, "leg" | "hubPostcode" | "customerPostcode">): CostLine {
   const priced: CostLine = {
-    ...line,
+    ...withTariffValidity(line, offer.validTo),
     description: collectionDescription(offer, route),
     supplier: offer.supplierName,
     supplierCustomerId: offer.supplierCustomerId,

@@ -61,6 +61,16 @@ const QUOTES: [string, SalesQuoteData][] = [
       buyingLines: [line(110000, "CZK")],
     } as Partial<SalesQuoteData>),
   ],
+  [
+    "an Air quote priced per chargeable kg (640 kg at 2.10 and 1.65 EUR, User Council S1)",
+    quote({
+      serviceType: "Air",
+      currency: "EUR",
+      packages: [{ qty: 4, type: "Pallet", length: 120, width: 80, height: 100, weight: 87.5 }],
+      sellingLines: [line(1344, "EUR", { basis: "kg", value: 640, qty: 640, unit: "chargeable kg", unitPrice: 2.1 })],
+      buyingLines: [line(1056, "EUR", { basis: "kg", value: 640, qty: 640, unit: "chargeable kg", unitPrice: 1.65 })],
+    } as Partial<SalesQuoteData>),
+  ],
   ["a quote that sells at a loss", quote({ serviceType: "Road", currency: "CZK", sellingLines: [line(9000, "CZK")], buyingLines: [line(9450, "CZK")] })],
   [
     "lines with no amount but a quantity and unit price (an older document)",

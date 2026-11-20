@@ -12,7 +12,7 @@ import { FULL_LOAD } from "@/lib/enums";
 import { EMPTY, EMPTY_STATE, HINT, LINK, REF, TD, TH } from "@/styles/ui";
 import { RecordedBy } from "./RecordedBy";
 import { CELL_LINE, CELL_TEXT, DATE_TEXT, GROUP_BAND, GROUP_GAP, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
-import { customerState } from "./trackingText";
+import { customerStateName, customerStates, type CustomerState } from "./trackingText";
 
 const LEGS: { key: TrackingMilestone["leg"]; label: string }[] = [
   { key: "origin", label: "Origin" },
@@ -20,37 +20,53 @@ const LEGS: { key: TrackingMilestone["leg"]; label: string }[] = [
   { key: "destination", label: "Destination" },
 ];
 
-const STATE_NAME: Record<TrackingMilestone["state"], string> = {
+type RowState = TrackingMilestone["state"] | CustomerState;
+
+const STATE_NAME: Record<RowState, string> = {
   done: "Done",
   next: "Next step",
   late: "Late",
   open: "Still to come",
   planned: "Planned date",
+  unconfirmed: "Not yet confirmed",
 };
 
-const DOT_CLASS: Record<TrackingMilestone["state"], string> = {
+const DOT_CLASS: Record<RowState, string> = {
   done: "border-emerald-600 bg-emerald-600",
   next: "border-indigo-600 bg-indigo-600",
   late: "border-amber-500 bg-amber-500",
   open: "border-slate-300 bg-white",
   planned: "border-slate-200 bg-slate-100",
+  unconfirmed: "border-amber-500 bg-white",
 };
 
-function MilestoneRow({ m, customerView, taxDateWords, onOpen, onTellPod }: { m: TrackingMilestone; customerView: boolean; taxDateWords: string; onOpen: (tab: string) => void; onTellPod: () => void }) {
-  // The customer view shows what the customer's link shows (the server's publicStatusOf): late is
-  // ours to chase, and of the details only the customs row's wording is meant for a customer.
-  const state = customerView ? customerState(m.state) : m.state;
+// The state word's colour in the customer view, as the customer's link prints it (ShipmentStatusView).
+const CUSTOMER_STATE_TEXT: Record<CustomerState, string> = {
+  done: "text-emerald-700",
+  next: "text-indigo-700",
+  open: "text-slate-500",
+  unconfirmed: "text-amber-700",
+};
+
+function MilestoneRow({ m, shownState, customerView, taxDateWords, onOpen, onTellPod }: { m: TrackingMilestone; shownState: RowState; customerView: boolean; taxDateWords: string; onOpen: (tab: string) => void; onTellPod: () => void }) {
+  // The customer view shows what the customer's link shows (the server's publicStatusOf): a passed plan
+  // is "not yet confirmed", never late, and of the details only the customs row's wording is meant for a customer.
+  const state = shownState;
   const detail = customerView && m.key !== "customs" ? "" : m.detail;
+  // In the customer view the state word is printed beside the step, in the link's words (User Council E2).
+  const customerWord = customerView ? customerStateName(state as CustomerState, !!m.planned) : "";
+  const name = customerWord || STATE_NAME[state];
   return (
     <tr className={TROW}>
       <td className={`${TD} !align-top`}>
         <div className="flex items-start gap-2.5 min-w-0">
-          <span title={STATE_NAME[state]} className={`mt-[3px] size-3 shrink-0 rounded-full border-2 ${DOT_CLASS[state]}`}>
-            <span className="sr-only">{STATE_NAME[state]}</span>
+          <span title={customerView ? undefined : name} aria-hidden={customerView || undefined} className={`mt-[3px] size-3 shrink-0 rounded-full border-2 ${DOT_CLASS[state]}`}>
+            {!customerView && <span className="sr-only">{name}</span>}
           </span>
           <div className="min-w-0">
             <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${MAIN_TEXT}`}>
               {m.label}
+              {customerWord && <span className={`text-[12px] font-medium ${CUSTOMER_STATE_TEXT[state as CustomerState]}`}>{customerWord}</span>}
               {/* what the tax date goes by, whether it is firm, the ČNB rates and an invoice, on the pill */}
               {m.taxDate && !customerView && (
                 <Tooltip title={taxDateWords || undefined}>
@@ -70,6 +86,8 @@ function MilestoneRow({ m, customerView, taxDateWords, onOpen, onTellPod }: { m:
           <>
             {formatDate(m.planned)}
             {m.plannedTime && ` ${m.plannedTime}`}
+            {/* the column is narrow, so on its own line, as the link prints it on a phone */}
+            {customerView && state === "unconfirmed" && <div className={HINT}>not yet confirmed</div>}
           </>
         ) : (
           <span className={EMPTY}>—</span>
@@ -175,6 +193,8 @@ interface TimelineCardProps {
 /** The dated facts by leg, planned beside actual. */
 export function TimelineCard({ shipment, milestones, actualsOnly, customerView, taxDateWords, onOpen, onTellPod }: TimelineCardProps) {
   const rows = actualsOnly ? milestones.filter((m) => m.state === "done") : milestones;
+  // Worked out over the whole list, as the link does: which step is next depends on the steps before it.
+  const shownForCustomer = customerStates(milestones);
   const nothingDated = milestones.every((m) => !m.planned && !m.actual && !m.detail);
   const columns = customerView ? 3 : 4;
 
@@ -226,7 +246,7 @@ export function TimelineCard({ shipment, milestones, actualsOnly, customerView, 
                     </th>
                   </tr>
                   {ofLeg.map((m) => (
-                    <MilestoneRow key={m.key} m={m} customerView={customerView} taxDateWords={taxDateWords} onOpen={onOpen} onTellPod={onTellPod} />
+                    <MilestoneRow key={m.key} m={m} shownState={customerView ? (shownForCustomer.get(m.key) ?? "open") : m.state} customerView={customerView} taxDateWords={taxDateWords} onOpen={onOpen} onTellPod={onTellPod} />
                   ))}
                 </tbody>
               );

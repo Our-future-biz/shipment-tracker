@@ -20,6 +20,17 @@ export function tariffRefVersionId(line: Pick<CostLine, "tariffRef">, prefix: st
   return line.tariffRef.slice(prefix.length).split(":")[0] || null;
 }
 
+/**
+ * `line` with the last valid day of the tariff it is priced from (tariffValidTo), or without one when
+ * the tariff has no end - so a day an earlier pick on the line left does not stay behind.
+ */
+export function withTariffValidity(line: CostLine, validTo: string | null | undefined): CostLine {
+  const next: CostLine = { ...line };
+  if (validTo) next.tariffValidTo = validTo;
+  else delete next.tariffValidTo;
+  return next;
+}
+
 /** A postcode written in an address: three and two digits, with or without a space between. */
 export const ADDRESS_POSTCODE = /(?:^|\D)(\d{3}) ?(\d{2})(?!\d)/;
 

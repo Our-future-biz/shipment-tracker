@@ -260,7 +260,7 @@ export interface RailOffer {
   via: string;
   emptyDepot: string;
   note: string;
-  /** The version's last day; null when open */
+  /** The last day the price holds: the version's, or the row's own when it ends first; null when open */
   validTo: string | null;
   lines: RailOfferLine[];
   total: number;

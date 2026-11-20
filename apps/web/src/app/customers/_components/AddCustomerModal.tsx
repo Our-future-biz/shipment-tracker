@@ -14,12 +14,10 @@ import { czechPhoneRule } from "@/lib/phone";
 import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
 import { CONTACT_ROLES, customerRoleOptions } from "../_lib/constants";
+import { ICO_LENGTH, lookupStepOf, MIN_NAME_LENGTH, nameSearchHelpOf } from "../_lib/companyLookup";
 import { useCanManageCustomers, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
-const ICO_LENGTH = 8;
-// ARES is searched by name from this many characters, once typing has paused.
-const MIN_NAME_LENGTH = 3;
 const SEARCH_DELAY_MS = 400;
 const ICO_INPUT_ID = "add-customer-ico";
 // Czech companies are read from ARES; any other country is typed in by hand.
@@ -100,6 +98,9 @@ export function AddCustomerModal({
   const [preview, setPreview] = useState<interfaces.AresResult | null>(null);
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState("");
+  // The matches drop down under the box; Look up opens them again after the click took the cursor away.
+  const [matchesOpen, setMatchesOpen] = useState(false);
+  const [nameAsked, setNameAsked] = useState(false);
   const queryInputRef = useRef<RefSelectProps>(null);
   // Number of the latest lookup. A response that carries an older number is dropped, so a
   // slow earlier request can never replace the result of a newer one.
@@ -128,6 +129,7 @@ export function AddCustomerModal({
     setPreview(null);
     setError("");
     setLooking(false);
+    setNameAsked(false);
   };
 
   const handleCountryChange = (next: string) => {
@@ -162,13 +164,16 @@ export function AddCustomerModal({
     }
   };
 
-  // Enter or the button: an IČO is looked up; a name only waits for its suggestions.
+  // Enter or the button: an IČO is looked up; a name puts the cursor back in the box and shows its
+  // matches, or says it is still searching or found none (User Council E3 / T11).
   const handleLookup = () => {
-    if (isIco) {
-      if (query.length !== ICO_LENGTH) setError(`IČO must be exactly ${ICO_LENGTH} digits`);
-      else void lookup(query);
-    } else if (query.trim().length < MIN_NAME_LENGTH) {
-      setError(`Type at least ${MIN_NAME_LENGTH} characters of the company name, or the IČO`);
+    const step = lookupStepOf(query);
+    if (step.kind === "refuse") setError(step.message);
+    else if (step.kind === "ico") void lookup(query);
+    else {
+      setNameAsked(true);
+      queryInputRef.current?.focus();
+      setMatchesOpen(true);
     }
   };
 
@@ -277,10 +282,8 @@ export function AddCustomerModal({
       nameSearchHelp = errorMessage(err, "ARES can't search for this name. Try other words or the IČO.");
     else nameSearchHelp = errorMessage(err, "Could not search ARES. Please try again.");
   }
-  else if (nameResults?.tooMany)
-    nameSearchHelp = "Too many companies match. Type more of the name.";
-  else if (nameResults && nameResults.companies.length === 0)
-    nameSearchHelp = "No company of this name in ARES.";
+  else if (!isIco)
+    nameSearchHelp = nameSearchHelpOf({ asked: nameAsked, name: query.trim(), searchedName: searchName, fetching: nameSearch.isFetching, results: nameResults });
 
   return (
     <Modal
@@ -372,6 +375,8 @@ export function AddCustomerModal({
                   onSelect={handleSelectCompany}
                   disabled={isCreating}
                   popupMatchSelectWidth
+                  open={matchesOpen}
+                  onOpenChange={setMatchesOpen}
                   notFoundContent={nameSearch.isFetching ? "Searching ARES…" : undefined}
                   // Enter on a highlighted suggestion picks it (onSelect); otherwise it looks the IČO up.
                   onInputKeyDown={(e) => {

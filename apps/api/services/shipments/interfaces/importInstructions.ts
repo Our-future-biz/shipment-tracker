@@ -2,6 +2,12 @@
 export interface ImportInstructionAnswers {
   /** 2 a) release for free circulation, b) T1 transit, c) customs warehousing or another procedure. */
   procedure: "" | "free_circulation" | "t1" | "other";
+  /**
+   * Under a): who pays the duty and VAT - we do and invoice them, or they are paid from the customer's own
+   * account. Only then are the bank and the account asked (owner, User Council Q16). "" on forms sent before
+   * the question was asked, which gave the account instead.
+   */
+  dutyPaidBy: "" | "us" | "own_account";
   bank: string;
   accountNumber: string;
   t1Office: string;
@@ -17,6 +23,8 @@ export interface ImportInstructionAnswers {
   deliveryAddress: string;
   deliveryContact: string;
   deliveryPhone: string;
+  /** The delivery time window and unloading notes; "" on forms sent before the box was there. */
+  deliveryNotes: string;
   /** 6. */
   billingAddress: string;
   eori: string;
@@ -32,6 +40,10 @@ export interface ImportInstructionShipmentValues {
   customsOffice: string;
   hsCode: string;
   deliveryAddress: string;
+  /** The consignee's Contact: the person the delivery is for. */
+  consigneeContact: string;
+  deliveryPhone: string;
+  deliveryNotes: string;
 }
 
 /** One answer the reviewer changed before approving: what the customer sent, and what was approved. */
@@ -67,6 +79,8 @@ export interface ImportInstructionState {
 }
 
 export interface PublicImportInstructionForm {
+  /** Whose form it is, for the customer to know whom to ask; "" when it can't be read. No staff names. */
+  companyName: string;
   reference: string;
   prefill: Partial<ImportInstructionAnswers>;
 }

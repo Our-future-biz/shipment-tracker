@@ -3,7 +3,7 @@ import { containerType } from "@/lib/cargo";
 import { formatPostcode } from "@/lib/postcode";
 import { TARIFF_PORTS, portsText } from "@/app/tariffs/_lib/railTariffs";
 import { isContainerQuote } from "./salesQuote";
-import { ADDRESS_POSTCODE, containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, type TariffPick } from "./tariffQuote";
+import { ADDRESS_POSTCODE, containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, withTariffValidity, type TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // Pure helpers of rail tariffs on a quote (Pricing → "Tariffs available" on an inland container
@@ -115,17 +115,21 @@ export function railDescription(offer: Pick<RailOffer, "place" | "via">, port: s
 
 /**
  * The buying lines a picked offer makes of the line it was picked on: the operator becomes the
- * supplier, the offer's currency the line's, and every line is tagged with the tariff row. One line
- * per container or one per container type (containerFreightLines).
+ * supplier, the offer's currency the line's, and every line is tagged with the tariff row and keeps
+ * its last valid day (tariffRecheck tariffValidityWarning). One line per container or one per
+ * container type (containerFreightLines).
  */
 function railOfferLines(line: CostLine, offer: RailOffer, port: string, direction: interfaces.RailDirection, quote: SalesQuoteData): CostLine[] {
-  const base: CostLine = {
-    ...line,
-    supplier: offer.supplierName,
-    supplierCustomerId: offer.supplierCustomerId,
-    currency: offer.currency,
-    tariffRef: `${RAIL_REF_PREFIX}${offer.versionId}:${offer.rateId}`,
-  };
+  const base: CostLine = withTariffValidity(
+    {
+      ...line,
+      supplier: offer.supplierName,
+      supplierCustomerId: offer.supplierCustomerId,
+      currency: offer.currency,
+      tariffRef: `${RAIL_REF_PREFIX}${offer.versionId}:${offer.rateId}`,
+    },
+    offer.validTo,
+  );
   return containerFreightLines(base, railDescription(offer, port, direction), offer.lines, quote);
 }
 

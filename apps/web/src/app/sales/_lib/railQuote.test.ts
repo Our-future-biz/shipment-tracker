@@ -159,6 +159,11 @@ describe("withRailOffer", () => {
     expect(pick.at).toBe(1);
     expect(pick.lines.map((l) => l.chargeCode)).toEqual(["other", "inland_haulage"]);
   });
+
+  it("keeps the tariff's last valid day on its lines", () => {
+    const pick = withRailOffer([haulage], 0, offer(), "DEHAM", "import", QUOTE);
+    expect(pick.lines.map((l) => l.tariffValidTo)).toEqual(["2026-12-31"]);
+  });
 });
 
 describe("isInlandHaulageLine", () => {

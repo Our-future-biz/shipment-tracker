@@ -181,4 +181,10 @@ describe("withCollectionOffer", () => {
     expect(again).toHaveLength(1);
     expect(again[0]).toMatchObject({ amount: 6900, tariffRef: "collection:version-2" });
   });
+
+  it("keeps the tariff's last valid day, and drops it when picked again from a tariff with no end", () => {
+    const dated = withCollectionOffer([collectionLine], 0, offer({ validTo: "2026-12-31" }), route);
+    expect(dated[0]!.tariffValidTo).toBe("2026-12-31");
+    expect(withCollectionOffer(dated, 0, offer(), route)[0]).not.toHaveProperty("tariffValidTo");
+  });
 });

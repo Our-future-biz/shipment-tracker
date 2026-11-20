@@ -45,11 +45,27 @@ interface StatusShipment {
   voyage: string;
 }
 
-// Late is ours to chase, not a mark to show. A customs row's wording is the one detail meant for a customer.
-const publicState = (state: TrackingMilestone["state"]): "done" | "next" | "open" => (state === "done" ? "done" : state === "next" || state === "late" ? "next" : "open");
+type PublicState = PublicShipmentStatus["milestones"][number]["state"];
+
+// A step whose planned day passed with no actual reads "not yet confirmed", never "late": the customer must
+// not take a planned departure for one that happened, and "late" is ours to chase (User Council E2, Q15).
+// Only the first open step is the next one: after an unconfirmed step the later ones are just planned.
+// An earlier step nobody noted while a later one happened is only planned, as on the Tracking tab.
+function publicStates(milestones: readonly TrackingMilestone[]): PublicState[] {
+  const lastDone = milestones.reduce((last, m, i) => (m.state === "done" ? i : last), -1);
+  let reached = false;
+  return milestones.map((m, i): PublicState => {
+    if (m.state === "done") return "done";
+    if (i < lastDone) return "open";
+    const state: PublicState = m.state === "late" ? "unconfirmed" : m.state === "next" && !reached ? "next" : "open";
+    if (m.state === "late" || m.state === "next") reached = true;
+    return state;
+  });
+}
 
 /** What a customer sees of a shipment: nothing that isn't named here. */
 export function publicStatusOf(shipment: StatusShipment, milestones: readonly TrackingMilestone[], containers: readonly string[], ourCompany: string, now: Date): PublicShipmentStatus {
+  const states = publicStates(milestones);
   return {
     ourCompany,
     reference: shipment.jobNumber,
@@ -60,15 +76,16 @@ export function publicStatusOf(shipment: StatusShipment, milestones: readonly Tr
     pod: shipment.pod,
     vessel: [shipment.vessel, shipment.voyage].filter(Boolean).join(" "),
     containers: [...containers],
-    milestones: milestones.map((m) => ({
+    milestones: milestones.map((m, i) => ({
       key: m.key,
       label: m.label,
       leg: m.leg,
       place: m.place,
       planned: m.planned,
       actual: m.actual,
+      // A customs row's wording is the one detail meant for a customer.
       detail: m.key === "customs" ? m.detail : "",
-      state: publicState(m.state),
+      state: states[i]!,
     })),
     asOf: now.toISOString(),
   };

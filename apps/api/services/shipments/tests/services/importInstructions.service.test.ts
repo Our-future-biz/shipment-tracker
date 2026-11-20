@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ customers: { customerGet: vi.fn(), addressList: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ customers: { customerGet: vi.fn(), addressList: vi.fn() }, invoicing: { invoiceProfileGet: vi.fn() } }));
+vi.mock("../../../../lib/outbox/serviceIdentity", () => ({ serviceActor: async (companyID: string) => ({ userID: "svc", companyID, role: "user" }) }));
 // Who is who: the link's creator, the shipment's Person in Charge, a manager and a colleague.
 const EMAILS = vi.hoisted((): Record<string, string> => ({
   "22222222-2222-4222-8222-222222222222": "rep@firm.cz",
@@ -29,7 +30,7 @@ vi.mock("../../services/shipment.service", async () => {
 });
 vi.mock("../../lib/importInstructionsPdf", () => ({ importInstructionsPdf: vi.fn().mockResolvedValue(new Uint8Array([1])) }));
 
-import { customers } from "~encore/clients";
+import { customers, invoicing } from "~encore/clients";
 import { importInstructionsPdf } from "../../lib/importInstructionsPdf";
 import { newLinkToken } from "../../lib/customerLink";
 import { shipmentRepository } from "../../repositories/shipment.repository";
@@ -51,11 +52,13 @@ const other = { companyID: COMPANY, userID: "33333333-3333-4333-8333-33333333333
 const NOW = new Date("2026-11-09T10:00:00Z");
 const { token } = newLinkToken();
 const answers = { procedure: "free_circulation", bank: "ČSOB", accountNumber: "1/0300", description: "Parts", tariffCode: "8431", billingAddress: "Praha", name: "Jan", telephone: "+420" } as never;
+// As the form sends it now: who pays the duty, and an account that reads as one.
+const sent = { ...(answers as object), dutyPaidBy: "own_account", accountNumber: "19-2000145399/0800" } as never;
 const row = (over: Record<string, unknown> = {}) =>
   ({ id: "r1", companyId: COMPANY, shipmentId: ID, status: "open", prefill: { description: "Parts" }, answers: null, approvedAnswers: null, createdBy: "rep@firm.cz", createdByUserId: CREATOR, createdAt: NOW, expiresAt: new Date("2026-11-20T10:00:00Z"), submittedAt: null, decidedBy: "", decidedAt: null, reason: "", ...over }) as never;
 // The shipment names its Person in Charge, not the link's creator.
 const shipment = (over: Record<string, unknown> = {}) =>
-  ({ id: ID, jobNumber: "CZ00000041", tradeDirection: "Import", customerId: CUSTOMER, cargoDescription: "Parts", deliveryAddress: "", customsProcedure: "", customsOffice: "", hsCode: "", personInCharge: "pic@firm.cz — Pia", holidayCover: "", ...over }) as never;
+  ({ id: ID, jobNumber: "CZ00000041", tradeDirection: "Import", customerId: CUSTOMER, cargoDescription: "Parts", deliveryAddress: "", consigneeContact: "", deliveryPhone: "", deliveryNotes: "", customsProcedure: "", customsOffice: "", hsCode: "", personInCharge: "pic@firm.cz — Pia", holidayCover: "", ...over }) as never;
 const submitted = () => row({ status: "submitted", answers, submittedAt: NOW });
 
 beforeEach(() => {
@@ -69,6 +72,7 @@ beforeEach(() => {
   repository.reopen.mockResolvedValue(undefined);
   vi.mocked(customers.customerGet).mockResolvedValue({ customer: { ico: "12345678", dic: "CZ12345678", registeredAddress: "Seat 1" } } as never);
   vi.mocked(customers.addressList).mockResolvedValue({ data: [{ types: ["Billing"], street: "Bill 2", postalCode: "11000", city: "Praha", country: "CZ" }] } as never);
+  vi.mocked(invoicing.invoiceProfileGet).mockResolvedValue({ profile: { companyName: "Austromar s.r.o." } } as never);
 });
 
 describe("creating a link", () => {
@@ -131,8 +135,14 @@ describe("the customer's page", () => {
     }
   });
 
-  it("shows the reference and what is known, nothing else", async () => {
-    await expect(service.publicForm(token, NOW)).resolves.toEqual({ reference: "CZ00000041", prefill: { description: "Parts" } });
+  it("shows whose form it is, the reference and what is known, nothing else", async () => {
+    await expect(service.publicForm(token, NOW)).resolves.toEqual({ companyName: "Austromar s.r.o.", reference: "CZ00000041", prefill: { description: "Parts" } });
+    expect(invoicing.invoiceProfileGet).toHaveBeenCalledWith({ authData: expect.objectContaining({ companyID: COMPANY }) });
+  });
+
+  it("still opens when the company's name can't be read", async () => {
+    vi.mocked(invoicing.invoiceProfileGet).mockRejectedValueOnce(new Error("down"));
+    await expect(service.publicForm(token, NOW)).resolves.toMatchObject({ companyName: "", reference: "CZ00000041" });
   });
 
   it("refuses without the box ticked or with the form incomplete", async () => {
@@ -141,26 +151,33 @@ describe("the customer's page", () => {
     expect(repository.submit).not.toHaveBeenCalled();
   });
 
+  it("takes the answer of a page opened before the duty question, but refuses its account when it reads as none", async () => {
+    await expect(service.submit(token, { confirmed: true, answers }, NOW)).rejects.toMatchObject({ code: "invalid_argument", message: "Enter the account number as 19-2000145399/0800 or as an IBAN" });
+    expect(repository.submit).not.toHaveBeenCalled();
+    await service.submit(token, { confirmed: true, answers: { ...(answers as object), accountNumber: "19-2000145399/0800" } as never }, NOW);
+    expect(repository.submit).toHaveBeenCalledOnce();
+  });
+
   it("refuses a customs office that is not on the list", async () => {
     await expect(service.submit(token, { confirmed: true, answers: { ...(answers as object), procedure: "t1", t1Office: "Somewhere" } as never }, NOW)).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringMatching(/from the list/) });
     expect(repository.submit).not.toHaveBeenCalled();
   });
 
   it("takes a complete form once", async () => {
-    await service.submit(token, { confirmed: true, answers }, NOW);
+    await service.submit(token, { confirmed: true, answers: sent }, NOW);
     expect(repository.submit).toHaveBeenCalledOnce();
     repository.submit.mockResolvedValue(null as never);
-    await expect(service.submit(token, { confirmed: true, answers }, NOW)).rejects.toMatchObject({ code: "not_found" });
+    await expect(service.submit(token, { confirmed: true, answers: sent }, NOW)).rejects.toMatchObject({ code: "not_found" });
   });
 
   it("writes nothing to the shipment", async () => {
-    await service.submit(token, { confirmed: true, answers }, NOW);
+    await service.submit(token, { confirmed: true, answers: sent }, NOW);
     expect(shipmentService.update).not.toHaveBeenCalled();
   });
 
   it("is refused once the shipment is deleted", async () => {
     vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue(null as never);
-    await expect(service.submit(token, { confirmed: true, answers }, NOW)).rejects.toMatchObject({ code: "not_found", message: "This link is no longer valid" });
+    await expect(service.submit(token, { confirmed: true, answers: sent }, NOW)).rejects.toMatchObject({ code: "not_found", message: "This link is no longer valid" });
     expect(repository.submit).not.toHaveBeenCalled();
   });
 });
@@ -189,6 +206,20 @@ describe("answering", () => {
     await service.approve(ID, pic, answers, NOW);
     expect(shipmentService.update).toHaveBeenCalledWith(ID, COMPANY, { customsProcedure: "JSD" }, PIC, "user");
     expect(attachmentService.addFromModule).toHaveBeenCalledWith(ID, COMPANY, expect.objectContaining({ documentType: "Import Instructions", fileType: "application/pdf", fileName: "Import Instructions CZ00000041.pdf" }), PIC);
+  });
+
+  it("gives the job the delivery contact, telephone and notes, where it has none (E5)", async () => {
+    vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue(shipment({ hsCode: "9999", deliveryPhone: "+420 111" }));
+    await service.approve(ID, pic, { ...(answers as object), deliveryContact: "Petr", deliveryPhone: "+420 602", deliveryNotes: "Mon-Fri 8-14" } as never, NOW);
+    expect(shipmentService.update).toHaveBeenCalledWith(ID, COMPANY, { customsProcedure: "JSD", consigneeContact: "Petr", deliveryNotes: "Mon-Fri 8-14" }, PIC, "user");
+  });
+
+  it("refuses an account that reads as none when the duty is paid from it", async () => {
+    await expect(service.approve(ID, pic, { ...(answers as object), dutyPaidBy: "own_account", accountNumber: "TEST-0000000000/0000" } as never)).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Enter the account number as 19-2000145399/0800 or as an IBAN",
+    });
+    expect(repository.decide).not.toHaveBeenCalled();
   });
 
   it("reads the shipment again before it writes: a field filled in meanwhile stays", async () => {
@@ -248,6 +279,14 @@ describe("the desk's view", () => {
       canAnswer: true,
     });
     await expect(service.get(ID, creator, NOW)).resolves.toMatchObject({ state: { canAnswer: false } });
+  });
+
+  it("reads a form sent before the new questions with them empty, and shows the job's delivery contact", async () => {
+    repository.latest.mockResolvedValue(submitted());
+    vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue(shipment({ consigneeContact: "Eva", deliveryPhone: "+420 1", deliveryNotes: "Ramp 2" }));
+    const { state } = await service.get(ID, pic, NOW);
+    expect(state?.answers).toMatchObject({ procedure: "free_circulation", dutyPaidBy: "", bank: "ČSOB", accountNumber: "1/0300", deliveryNotes: "" });
+    expect(state?.onShipment).toMatchObject({ consigneeContact: "Eva", deliveryPhone: "+420 1", deliveryNotes: "Ramp 2" });
   });
 
   it("changes nothing before an approval", async () => {

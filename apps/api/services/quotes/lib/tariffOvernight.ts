@@ -86,6 +86,8 @@ export interface OfferSummary {
   tariffId: string;
   supplierName: string;
   via: string;
+  /** The tariff's last valid day; null when open. The quote's lines moved to it keep it (tariffValidTo) */
+  validTo?: string | null;
   totals: Money[];
   /** The buying lines the web makes of the offer, in its order (tariffs lib/quoteOfferSummary) */
   lines: OfferLine[];
@@ -98,8 +100,11 @@ export interface OffersAsked {
 }
 
 export type TariffAction =
-  | { ref: string; do: "keep" }
-  | { ref: string; do: "swap"; newRef: string }
+  // `validTo`: the tariff's last valid day as it is now, which its lines keep - its end date can be
+  // moved after the line was priced (null: it has none; absent: not known).
+  | { ref: string; do: "keep"; validTo?: string | null }
+  // `validTo`: the new rate's last valid day, which its lines keep (null: it has none; absent: not known).
+  | { ref: string; do: "swap"; newRef: string; validTo?: string | null }
   | { ref: string; do: "update"; update: TariffUpdate }
   | { ref: string; do: "remove" }
   | { ref: string; do: "unchecked"; reason: string }
@@ -250,7 +255,7 @@ export function actionForLapsed(ref: string, data: Doc, tariffId: string | null,
   if (!offer) return { ref, do: "remove" };
   const newRef = offer.rateId ? `${kind}:${offer.versionId}:${offer.rateId}` : `${kind}:${offer.versionId}`;
   const was = totalsOf(lines);
-  if (sameMoney(was, offer.totals) && sameLines(lines, offer.lines)) return { ref, do: "swap", newRef };
+  if (sameMoney(was, offer.totals) && sameLines(lines, offer.lines)) return { ref, do: "swap", newRef, ...(offer.validTo !== undefined ? { validTo: offer.validTo } : {}) };
   return { ref, do: "update", update: { oldRef: ref, kind, newVersionId: offer.versionId, newRateId: offer.rateId, supplierName: offer.supplierName, was, now: sorted(offer.totals) } };
 }
 
@@ -406,6 +411,14 @@ function roadRefresh(data: Doc, action: Extract<TariffAction, { do: "roadRefresh
   };
 }
 
+// A line with the last valid day of its tariff (tariffValidTo): `validTo` null takes it away, undefined
+// (not known) leaves the line's as it is.
+function withValidTo(line: Line, validTo: string | null | undefined): Line {
+  if (validTo === undefined) return line;
+  if (validTo) return { ...line, tariffValidTo: validTo };
+  return without(line, "tariffValidTo") as Line;
+}
+
 const textList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
@@ -456,8 +469,19 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
     }
     const lines = buying.filter((l) => text(l.tariffRef) === action.ref);
     const name = text(lines[0]?.description) || text(lines[0]?.type) || "a buying line";
-    if (action.do === "swap") {
-      buying = buying.map((l) => (text(l.tariffRef) === action.ref ? { ...l, tariffRef: action.newRef } : l));
+    if (action.do === "keep") {
+      // A tariff still valid whose end date was moved since: its lines take the new day, or the web
+      // keeps warning of a quote valid longer than its buying (web sales/_lib/tariffRecheck
+      // tariffValidityWarning). Written only when a day differs, so a quote that is as it was stays unsaved.
+      const stale = (l: Line) => text(l.tariffRef) === action.ref && action.validTo !== undefined && (text(l.tariffValidTo) || null) !== action.validTo;
+      if (buying.some(stale)) {
+        buying = buying.map((l) => (stale(l) ? withValidTo(l, action.validTo) : l));
+        linesChanged = true;
+      }
+    } else if (action.do === "swap") {
+      // The lines keep the new rate's last valid day, not the lapsed one's: the web warns of a quote
+      // valid longer than it (web sales/_lib/tariffRecheck tariffValidityWarning).
+      buying = buying.map((l) => (text(l.tariffRef) === action.ref ? withValidTo({ ...l, tariffRef: action.newRef }, action.validTo) : l));
       linesChanged = true;
     } else if (action.do === "remove") {
       const pairs = new Set(lines.map((l) => text(l.pairId)).filter(Boolean));

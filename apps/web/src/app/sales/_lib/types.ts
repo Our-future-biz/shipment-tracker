@@ -66,7 +66,8 @@ export interface QuoteOog {
   height?: number;
 }
 
-export type ChargeBasis = "lumpsum" | "wm" | "container";
+// "kg": per chargeable kg, the air rule (User Council S1, owner answer Q10, 20 Nov 2026).
+export type ChargeBasis = "lumpsum" | "wm" | "container" | "kg";
 
 /** A new rate the overnight tariff check found. Twin of TariffUpdate in the API's lib/tariffOvernight. */
 export interface TariffUpdate {
@@ -97,8 +98,8 @@ export interface CostLine {
   // The whole line; with qty and unitPrice it is their product.
   amount: number;
   value?: number;
-  // What the line is charged by: a lump sum (also when absent), per W/M (weight or measure) or per
-  // container (the quote's containers).
+  // What the line is charged by: a lump sum (also when absent), per W/M (weight or measure), per
+  // container (the quote's containers) or per chargeable kg (the quote's chargeable weight).
   basis?: ChargeBasis;
   // A line priced per unit (e.g. by a tariff): copied to Costs Breakdown as qty × unit price.
   qty?: number;
@@ -117,6 +118,9 @@ export interface CostLine {
   // priced in (tariffRecheck.ts). A tariff prices only the directions it is for, so a later change of
   // the Trade Direction asks for the tariff to be picked again.
   pricedDirection?: "import" | "export";
+  // A line priced from a tariff (ocean, rail, collections): the tariff's last valid day, YYYY-MM-DD;
+  // absent when it has no end. A quote valid longer than this is warned of (tariffRecheck.ts).
+  tariffValidTo?: string;
   // A line charged per container of one type only ("40' HC"): those containers are its quantity.
   // Without it a line charged per container counts all of the quote's containers.
   containerType?: string;

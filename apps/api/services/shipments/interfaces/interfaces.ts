@@ -240,6 +240,10 @@ export interface ShipmentItem extends ShipmentStep6Fields {
   shipperOpeningTo: string;
   consigneeOpeningFrom: string;
   consigneeOpeningTo: string;
+  /** Who to call at delivery: the telephone beside the consignee's Contact. */
+  deliveryPhone: string;
+  /** The delivery time window and unloading notes. */
+  deliveryNotes: string;
 
   // Status / mode
   freeComments: string;
@@ -1566,7 +1570,8 @@ export interface PublicMilestone {
   planned: string | null;
   actual: string | null;
   detail: string;
-  state: "done" | "next" | "open";
+  /** "unconfirmed": the planned day passed with no actual; the page says "not yet confirmed", never "late". */
+  state: "done" | "next" | "open" | "unconfirmed";
 }
 
 /** All a customer's link shows: nothing else leaves the app through it. */

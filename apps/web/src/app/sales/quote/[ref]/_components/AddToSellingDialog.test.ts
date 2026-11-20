@@ -30,6 +30,11 @@ describe("sellingFromBuying", () => {
     expect(selling).toMatchObject({ value: 7.551, basis: "wm", qty: 7.551, unit: "W/M", unitPrice: 44, amount: 332.24 });
   });
 
+  it("marks a line per chargeable kg up per kg and keeps its kilos and basis", () => {
+    const selling = sellingFromBuying({ ...buying, value: 640, basis: "kg", qty: 640, unit: "chargeable kg", unitPrice: 1.75, amount: 1120 }, 20);
+    expect(selling).toMatchObject({ value: 640, basis: "kg", qty: 640, unit: "chargeable kg", unitPrice: 2.1, amount: 1344 });
+  });
+
   it("rounds to cents", () => {
     expect(sellingFromBuying({ ...buying, amount: 33.33 }, 15).amount).toBe(38.33);
   });

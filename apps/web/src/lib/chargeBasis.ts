@@ -16,6 +16,18 @@ export interface ChargeBasis {
   digits: number;
 }
 
+/**
+ * The chargeable weight in kg: the greater of the gross weight and the volumetric weight, to 0.1 kg.
+ * One rule for a Sales quote (computeCargo) and its job (chargeBasis), so a Won quote's line per
+ * chargeable kg comes to the job's Costs Breakdown with the kilos its Cargo Details shows (User
+ * Council S1). 0.1 kg keeps the kilos within the 2 decimals Costs Breakdown takes a quantity to.
+ */
+export function chargeableKg(weightKg: number, volumeCbm: number): number {
+  const kg = weightKg > 0 ? weightKg : 0;
+  const m3 = volumeCbm > 0 ? volumeCbm : 0;
+  return Math.round(Math.max(kg, (m3 * 1_000_000) / AIR_DIVISOR) * 10) / 10;
+}
+
 export const isAirFreight = (freightMode: string | null | undefined): boolean => (freightMode ?? "").trim().toLowerCase().startsWith("air");
 
 /**
@@ -33,8 +45,7 @@ export function chargeBasis(freightMode: string | null | undefined, weightKg: nu
   const kg = weightKg > 0 ? weightKg : 0;
   const m3 = volumeCbm > 0 ? volumeCbm : 0;
   if (isAirFreight(freightMode)) {
-    const value = Math.round(Math.max(kg, (m3 * 1_000_000) / AIR_DIVISOR) * 10) / 10;
-    return { label: "Chargeable weight (kg)", name: "chargeable weight", value, unit: "kg", digits: 1 };
+    return { label: "Chargeable weight (kg)", name: "chargeable weight", value: chargeableKg(kg, m3), unit: "kg", digits: 1 };
   }
   const value = Math.round(Math.max(kg / 1000, m3) * 1000) / 1000;
   return { label: "W/M", name: "W/M", value, unit: "", digits: 3 };

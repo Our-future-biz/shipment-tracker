@@ -5,10 +5,17 @@ import type { interfaces } from "@/lib/api/client";
 import { CUSTOMS_OFFICES } from "@/lib/customsOffices";
 import { foldIncludes } from "@/lib/fold";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
+import { ACCOUNT_FORMAT_PROBLEM, accountQuestions, isAccountNumber } from "./importAccount";
 
 export type ImportAnswers = interfaces.ImportInstructionAnswers;
 
 const need = (message: string) => [{ required: true, whitespace: true, message }];
+
+// As the server refuses it: a Czech account or an IBAN, nothing else.
+const ACCOUNT_RULES = [
+  ...need("Fill in the account number"),
+  { validator: (_: unknown, value?: string) => (!value?.trim() || isAccountNumber(value) ? Promise.resolve() : Promise.reject(new Error(ACCOUNT_FORMAT_PROBLEM))) },
+];
 
 // The offices of Shipments → Customs: a T1 office is picked from them, never typed.
 const OFFICE_OPTIONS = CUSTOMS_OFFICES.map((office) => ({ value: office, label: office }));
@@ -27,8 +34,12 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 // Sections 2-6 of the paper form, inside an antd Form: the customer's page and the preview in Warehouse.
 export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAnswers> }) {
   const procedure = Form.useWatch("procedure", form);
+  const dutyPaidBy = Form.useWatch("dutyPaidBy", form);
+  const bank = Form.useWatch("bank", form);
+  const accountNumber = Form.useWatch("accountNumber", form);
   const tariffCode = Form.useWatch("tariffCode", form);
   const needsAnswers = !tariffCode?.trim();
+  const { asksAccount, mustSayWhoPays } = accountQuestions(dutyPaidBy, bank, accountNumber);
 
   return (
     <>
@@ -41,14 +52,27 @@ export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAn
           </Radio.Group>
         </Form.Item>
         {procedure === "free_circulation" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-            <Form.Item name="bank" label="Bank" rules={need("Fill in the bank")}>
-              <Input maxLength={200} />
+          <>
+            <Form.Item name="dutyPaidBy" label="Duty and VAT paid by" rules={mustSayWhoPays ? [{ required: true, message: "Say who pays the duty and VAT" }] : undefined} className="!mb-2">
+              <Radio.Group className="flex flex-col gap-1">
+                <Radio value="us">Us, invoiced to you</Radio>
+                <Radio value="own_account">From your own account</Radio>
+              </Radio.Group>
             </Form.Item>
-            <Form.Item name="accountNumber" label="Account number" rules={need("Fill in the account number")}>
-              <Input maxLength={100} />
-            </Form.Item>
-          </div>
+            {asksAccount && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+                  <Form.Item name="bank" label="Bank" rules={need("Fill in the bank")} className="!mb-1">
+                    <Input maxLength={200} />
+                  </Form.Item>
+                  <Form.Item name="accountNumber" label="Account number" rules={dutyPaidBy === "own_account" ? ACCOUNT_RULES : need("Fill in the account number")} className="!mb-1">
+                    <Input maxLength={100} placeholder="e.g. 19-2000145399/0800 or IBAN" />
+                  </Form.Item>
+                </div>
+                <p className={`${HINT} mt-0 mb-2`}>Your company&apos;s account that the duty and VAT are paid from.</p>
+              </>
+            )}
+          </>
         )}
         {procedure === "t1" && (
           <Form.Item name="t1Office" label="Customs office of destination where the goods will be presented" rules={need("Choose the customs office")}>
@@ -99,6 +123,9 @@ export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAn
             <Input maxLength={50} />
           </Form.Item>
         </div>
+        <Form.Item name="deliveryNotes" label="Delivery time window and unloading notes">
+          <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={500} placeholder="e.g. Mon–Fri 08:00–14:00, ramp 3, call 30 minutes ahead" />
+        </Form.Item>
       </Section>
 
       <Section title="6. Billing address">
@@ -134,9 +161,10 @@ export function ImportInstructionsFields({ form }: { form: FormInstance<ImportAn
 
 /** Every answer as a string, what was left out empty: the API takes them all. */
 export function completeAnswers(values: Partial<ImportAnswers>): ImportAnswers {
-  const text = (key: keyof Omit<ImportAnswers, "procedure">) => values[key] ?? "";
+  const text = (key: keyof Omit<ImportAnswers, "procedure" | "dutyPaidBy">) => values[key] ?? "";
   return {
     procedure: values.procedure ?? "",
+    dutyPaidBy: values.dutyPaidBy ?? "",
     bank: text("bank"),
     accountNumber: text("accountNumber"),
     t1Office: text("t1Office"),
@@ -149,6 +177,7 @@ export function completeAnswers(values: Partial<ImportAnswers>): ImportAnswers {
     deliveryAddress: text("deliveryAddress"),
     deliveryContact: text("deliveryContact"),
     deliveryPhone: text("deliveryPhone"),
+    deliveryNotes: text("deliveryNotes"),
     billingAddress: text("billingAddress"),
     eori: text("eori"),
     companyId: text("companyId"),

@@ -119,6 +119,11 @@ export const shipmentTable = pgTable(
     shipperOpeningTo: text("shipper_opening_to").notNull().default(""),
     consigneeOpeningFrom: text("consignee_opening_from").notNull().default(""),
     consigneeOpeningTo: text("consignee_opening_to").notNull().default(""),
+    // Who to call at delivery and the time window / unloading notes, beside the Delivery Address; an
+    // approved Import Instructions form fills them while empty, and a Trucking order from the job starts
+    // from them (User Council E5).
+    deliveryPhone: text("delivery_phone").notNull().default(""),
+    deliveryNotes: text("delivery_notes").notNull().default(""),
 
     // — Status / mode —
     freeComments: text("free_comments").notNull().default(""),

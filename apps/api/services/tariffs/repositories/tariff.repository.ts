@@ -727,7 +727,12 @@ class TariffRepository {
   }
 
   /** For the overnight check of quotes: the versions and whether each is in force on the day, and which rail rates are. */
-  async quoteRefs(companyId: string, date: string, versionIds: string[], railRateIds: string[]): Promise<{ versions: { id: string; tariffId: string; valid: boolean }[]; validRailRateIds: string[] }> {
+  async quoteRefs(
+    companyId: string,
+    date: string,
+    versionIds: string[],
+    railRateIds: string[],
+  ): Promise<{ versions: { id: string; tariffId: string; valid: boolean; validTo: string | null }[]; validRailRates: { id: string; validTo: string | null }[] }> {
     const versions = versionIds.length
       ? await db
           .select({ id: tariffVersionTable.id, tariffId: tariffVersionTable.tariffId, status: tariffVersionTable.status, validFrom: tariffVersionTable.validFrom, validTo: tariffVersionTable.validTo, deletedAt: tariffTable.deletedAt })
@@ -737,7 +742,7 @@ class TariffRepository {
       : [];
     const rates = railRateIds.length
       ? await db
-          .select({ id: railRateTable.id })
+          .select({ id: railRateTable.id, validTo: railRateTable.validTo })
           .from(railRateTable)
           .where(
             and(
@@ -753,8 +758,9 @@ class TariffRepository {
         id: v.id,
         tariffId: v.tariffId,
         valid: !v.deletedAt && v.status === "active" && !!v.validFrom && v.validFrom <= date && (!v.validTo || v.validTo >= date),
+        validTo: v.validTo ?? null,
       })),
-      validRailRateIds: rates.map((r) => r.id),
+      validRailRates: rates.map((r) => ({ id: r.id, validTo: r.validTo ?? null })),
     };
   }
 

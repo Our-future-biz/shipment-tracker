@@ -1,6 +1,7 @@
 import { formatDate } from "@/lib/date";
 import type { PickableUser } from "@/lib/people";
 import { ownerNameForCustomer } from "./ownerName";
+import { routeEnds } from "./printQuote";
 import type { SalesQuoteData } from "./types";
 
 // The Email dialog's templates: each user keeps their own (the server's /sales-email-templates),
@@ -17,8 +18,8 @@ export const PLACEHOLDERS = [
   { key: "customer", label: "customer" },
   { key: "reference", label: "quote reference" },
   { key: "route", label: "place of loading → place of delivery" },
-  { key: "origin", label: "place of loading" },
-  { key: "destination", label: "place of delivery" },
+  { key: "origin", label: "place of loading (port of loading when blank)" },
+  { key: "destination", label: "place of delivery (port of discharge when blank)" },
   { key: "validUntil", label: "valid until" },
   { key: "sender", label: "quoted by" },
 ] as const;
@@ -40,8 +41,8 @@ export function quoteValues(
   validUntil: string | null,
   users: readonly PickableUser[],
 ): Record<PlaceholderKey, string> {
-  const origin = data.origin?.trim() ?? "";
-  const destination = data.destination?.trim() ?? "";
+  // An Origin or Destination left blank is the port of loading or discharge, as on the document.
+  const [origin, destination] = routeEnds(data);
   return {
     contact: data.customerContact?.trim() || "Sir/Madam",
     customer: data.customerName?.trim() ?? "",

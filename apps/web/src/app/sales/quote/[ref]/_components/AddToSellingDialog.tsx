@@ -5,7 +5,7 @@ import { Button, InputNumber, Modal, type GetRef } from "antd";
 import { DecimalInput } from "@/components/DecimalInput";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { fmtMoney, moneyInputParser, round2 } from "@/lib/money";
-import { lineRate, withRate } from "@/app/sales/_lib/salesQuote";
+import { lineRate, perBasisText, withRate } from "@/app/sales/_lib/salesQuote";
 import { LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 /** The selling line a buying line becomes with a markup in %: the same charge, quantity and basis, its rate marked up. */
@@ -13,7 +13,7 @@ export function sellingFromBuying(line: CostLine, markupPct: number): CostLine {
   return sellingAt(line, round2(lineRate(line) * (1 + markupPct / 100)));
 }
 
-// The selling line of a buying line at this rate (per W/M or container, or the whole line).
+// The selling line of a buying line at this rate (per W/M, container or chargeable kg, or the whole line).
 function sellingAt(line: CostLine, rate: number): CostLine {
   const selling: CostLine = {
     type: line.type,
@@ -36,10 +36,10 @@ interface AddToSellingDialogProps {
 
 // Asked when a buying line gets its amount: whether the charge goes to selling as well, and with
 // what markup - in %, or as a lump sum on top. The selling amount can be typed instead; each of
-// the three follows the one typed. A line charged per W/M or per container is marked up per unit.
+// the three follows the one typed. A line charged per W/M, per container or per chargeable kg is marked up per unit.
 export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogProps) {
   const buying = lineRate(line);
-  const per = line.basis === "wm" ? " per W/M" : line.basis === "container" ? " per container" : "";
+  const per = perBasisText(line.basis);
   const [markup, setMarkup] = useState<number | null>(null);
   const [lump, setLump] = useState<number | null>(null);
   const [selling, setSelling] = useState<number | null>(null);

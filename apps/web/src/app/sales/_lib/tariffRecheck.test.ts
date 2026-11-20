@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { cargoWeightKey, linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "./tariffRecheck";
+import {
+  cargoWeightKey,
+  earliestTariffValidity,
+  endsBeforeQuote,
+  linesForOtherDirection,
+  linesToRecheck,
+  noValidityWarning,
+  otherDirectionBlock,
+  rechecked,
+  stampDirection,
+  stampPricedFor,
+  tariffValidityWarning,
+  withPricedForNow,
+} from "./tariffRecheck";
 import type { CostLine, SalesQuoteData } from "./types";
 
 const rail: CostLine = { type: "Inland container haulage", chargeCode: "inland_haulage", description: "Rail Ostrava → Bremerhaven", currency: "EUR", amount: 1073, tariffRef: "rail:v1:r1", pairId: "r" };
@@ -64,5 +77,41 @@ describe("a rate priced in another Trade Direction", () => {
     );
     // A line priced before the direction was remembered is not known.
     expect(linesForOtherDirection({ ...nowImport, buyingLines: [rail] })).toEqual([]);
+  });
+});
+
+describe("a quote valid longer than its tariffs (Q12)", () => {
+  const lines = [
+    { ...ocean, supplier: "Maersk", tariffValidTo: "2026-11-30" },
+    { ...rail, supplier: "Metrans", tariffValidTo: "2026-12-31" },
+    // A typed line keeps no tariff's day, and one that lost its tariff is no longer priced from it.
+    { ...typed, tariffValidTo: "2026-10-01" },
+  ];
+
+  it("is warned of by the earliest tariff, with its supplier", () => {
+    expect(earliestTariffValidity({ buyingLines: lines })).toEqual({ validTo: "2026-11-30", supplier: "Maersk", kind: "ocean" });
+    expect(tariffValidityWarning({ buyingLines: lines }, "2026-12-15")).toBe(
+      "The quote is valid until 15.12.2026, but the Maersk ocean tariff its buying was priced from is valid only until 30.11.2026",
+    );
+  });
+
+  it("is not warned of up to that day, without a Valid until, or for lines priced before the day was kept", () => {
+    expect(tariffValidityWarning({ buyingLines: lines }, "2026-11-30")).toBeNull();
+    expect(tariffValidityWarning({ buyingLines: lines }, null)).toBeNull();
+    expect(tariffValidityWarning({ buyingLines: [ocean, rail] }, "2027-06-30")).toBeNull();
+  });
+
+  it("is warned of when the quote goes out with no Valid until at all, as Mark as sent sends it", () => {
+    expect(noValidityWarning({ buyingLines: lines })).toBe("The quote has no Valid until, but the Maersk ocean tariff its buying was priced from is valid only until 30.11.2026");
+    expect(noValidityWarning({ buyingLines: [ocean, rail, typed] })).toBeNull();
+  });
+
+  it("marks an offer in Tariffs available that ends before the quote's Valid until", () => {
+    expect(endsBeforeQuote("2026-11-30", "2026-12-15")).toBe(true);
+    expect(endsBeforeQuote("2026-12-15", "2026-12-15")).toBe(false);
+    expect(endsBeforeQuote("2026-11-30", "2026-12-15T00:00:00.000Z")).toBe(true);
+    // An open tariff, or a quote with no Valid until yet: nothing to mark.
+    expect(endsBeforeQuote(null, "2026-12-15")).toBe(false);
+    expect(endsBeforeQuote("2026-11-30", null)).toBe(false);
   });
 });

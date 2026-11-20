@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TrackingTaxDate } from "@/hooks/useShipmentTracking";
-import { clockStatus, customerState, detentionLineOn, freeTimeWords, mayLieAhead, mayRecordKind, movedDaysLabel, noticeKindOfMoved, noticeWords, readFactWords, taxDateParts } from "./trackingText";
+import { clockStatus, customerStateName, customerStates, detentionLineOn, freeTimeWords, mayLieAhead, mayRecordKind, movedDaysLabel, noticeKindOfMoved, noticeWords, readFactWords, taxDateParts } from "./trackingText";
 
 describe("a moved date's mark", () => {
   it("is signed", () => {
@@ -144,9 +144,26 @@ describe("a detention line already on Costs", () => {
 });
 
 describe("the customer view's states", () => {
-  it("shows late as the next step and a plan-only date as still to come, as the link does", () => {
-    expect(customerState("late")).toBe("next");
-    expect(customerState("planned")).toBe("open");
-    expect(customerState("done")).toBe("done");
+  const states = (...list: ("done" | "next" | "late" | "open" | "planned")[]) => [...customerStates(list.map((state, i) => ({ key: `m${i}`, state }))).values()];
+  it("shows a passed plan as not yet confirmed, never late, as the link does (User Council E2, Q15)", () => {
+    expect(states("done", "late", "next", "open")).toEqual(["done", "unconfirmed", "open", "open"]);
+  });
+  it("keeps only the first open step as the next one, and a plan-only date as still to come", () => {
+    expect(states("done", "next", "next", "planned")).toEqual(["done", "next", "open", "open"]);
+  });
+  it("shows an earlier step nobody noted, while a later one happened, as only planned", () => {
+    expect(states("late", "done", "next")).toEqual(["open", "done", "next"]);
+  });
+});
+
+describe("the customer's word for a step", () => {
+  it("calls an open step with a planned day Planned, and one with none Still to come (User Council E2)", () => {
+    expect(customerStateName("open", true)).toBe("Planned");
+    expect(customerStateName("open", false)).toBe("Still to come");
+  });
+  it("names the other states whatever the plan", () => {
+    expect(customerStateName("done", false)).toBe("Done");
+    expect(customerStateName("next", true)).toBe("Next step");
+    expect(customerStateName("unconfirmed", true)).toBe("Not yet confirmed");
   });
 });

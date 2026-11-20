@@ -15,7 +15,7 @@ export const importInstructionsUrl = (appUrl: string, token: string) => `${appUr
 /** Only an import is asked; one whose Trade Direction isn't set yet may turn out to be. */
 export const mayAskImportInstructions = (tradeDirection: string | null | undefined): boolean => /^(imp|$)/i.test((tradeDirection ?? "").trim());
 
-const LIMITS: Record<Exclude<keyof ImportInstructionAnswers, "procedure">, number> = {
+const LIMITS: Record<Exclude<keyof ImportInstructionAnswers, "procedure" | "dutyPaidBy">, number> = {
   bank: 200,
   accountNumber: 100,
   t1Office: 200,
@@ -28,6 +28,7 @@ const LIMITS: Record<Exclude<keyof ImportInstructionAnswers, "procedure">, numbe
   deliveryAddress: 500,
   deliveryContact: 200,
   deliveryPhone: 50,
+  deliveryNotes: 500,
   billingAddress: 500,
   eori: 30,
   companyId: 50,
@@ -40,10 +41,14 @@ const LIMITS: Record<Exclude<keyof ImportInstructionAnswers, "procedure">, numbe
 export function normalizeAnswers(raw: Partial<ImportInstructionAnswers>): ImportInstructionAnswers {
   const text = (key: keyof typeof LIMITS) => String(raw[key] ?? "").trim().slice(0, LIMITS[key]);
   const procedure = raw.procedure === "free_circulation" || raw.procedure === "t1" || raw.procedure === "other" ? raw.procedure : "";
+  const dutyPaidBy = raw.dutyPaidBy === "us" || raw.dutyPaidBy === "own_account" ? raw.dutyPaidBy : "";
+  // Paid by us, the customer's bank isn't asked, so none sent anyway (a direct call, an old page) is kept.
+  const paidByUs = dutyPaidBy === "us";
   return {
     procedure,
-    bank: text("bank"),
-    accountNumber: text("accountNumber"),
+    dutyPaidBy,
+    bank: paidByUs ? "" : text("bank"),
+    accountNumber: paidByUs ? "" : text("accountNumber"),
     t1Office: text("t1Office"),
     otherProcedure: text("otherProcedure"),
     tariffCode: text("tariffCode"),
@@ -54,6 +59,7 @@ export function normalizeAnswers(raw: Partial<ImportInstructionAnswers>): Import
     deliveryAddress: text("deliveryAddress"),
     deliveryContact: text("deliveryContact"),
     deliveryPhone: text("deliveryPhone"),
+    deliveryNotes: text("deliveryNotes"),
     billingAddress: text("billingAddress"),
     eori: text("eori"),
     companyId: text("companyId"),
@@ -63,10 +69,41 @@ export function normalizeAnswers(raw: Partial<ImportInstructionAnswers>): Import
   };
 }
 
-/** What is still missing from the form; null when it is complete. */
-export function answersProblem(a: ImportInstructionAnswers, isListedOffice: (office: string) => boolean): string | null {
+export const ACCOUNT_FORMAT_PROBLEM = "Enter the account number as 19-2000145399/0800 or as an IBAN";
+
+/**
+ * Whether an account number reads as one: a Czech account (prefix-number/bank code, the prefix optional, as
+ * 19-2000145399/0800) or an IBAN whose own check digits add up (ISO 13616: the number mod 97 is 1). The form
+ * is public, so anything else is refused rather than kept.
+ */
+export function isAccountNumber(value: string): boolean {
+  const v = value.trim();
+  if (/^(\d{1,6}-)?\d{2,10}\/\d{4}$/.test(v)) return true;
+  const iban = v.replace(/\s+/g, "").toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) return false;
+  const digits = (iban.slice(4) + iban.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let rest = 0;
+  for (const d of digits) rest = (rest * 10 + Number(d)) % 97;
+  return rest === 1;
+}
+
+/**
+ * What is still missing from the form; null when it is complete. `fromCustomer` is the public submit: what a
+ * customer sends now is checked in full, while a form already sent is answered as it was sent.
+ */
+export function answersProblem(a: ImportInstructionAnswers, isListedOffice: (office: string) => boolean, { fromCustomer = false }: { fromCustomer?: boolean } = {}): string | null {
   if (!a.procedure) return "Choose the customs procedure";
-  if (a.procedure === "free_circulation" && (!a.bank || !a.accountNumber)) return "Fill in the bank and the account number";
+  if (a.procedure === "free_circulation") {
+    // The bank is asked only when the duty and VAT are paid from the customer's own account (owner, Q16). A
+    // form sent before the question gave the account instead, and stands as it was.
+    if (!a.dutyPaidBy && (!a.bank || !a.accountNumber)) return "Say who pays the duty and VAT";
+    if (a.dutyPaidBy === "own_account" && (!a.bank || !a.accountNumber)) return "Fill in the bank and the account number";
+    if (a.dutyPaidBy === "own_account" && !isAccountNumber(a.accountNumber)) return ACCOUNT_FORMAT_PROBLEM;
+    // The same answer without the question still comes from a page opened before it was added, or from a
+    // direct call. It is taken, so a customer on an old page can still send the form; but its account is
+    // checked as any other, so the question can't be skipped to send any text as an account.
+    if (fromCustomer && !a.dutyPaidBy && !isAccountNumber(a.accountNumber)) return ACCOUNT_FORMAT_PROBLEM;
+  }
   if (a.procedure === "t1" && !isListedOffice(a.t1Office)) return "Choose the customs office of destination from the list";
   if (!a.description) return "Describe the goods";
   // Without a code the goods are classified from these.
@@ -79,6 +116,7 @@ export function answersProblem(a: ImportInstructionAnswers, isListedOffice: (off
 /** How each answer is named on the form and in the PDF. */
 export const ANSWER_LABELS: Record<keyof ImportInstructionAnswers, string> = {
   procedure: "Customs procedure",
+  dutyPaidBy: "Duty and VAT paid by",
   bank: "Bank",
   accountNumber: "Account number",
   t1Office: "Customs office of destination",
@@ -91,6 +129,7 @@ export const ANSWER_LABELS: Record<keyof ImportInstructionAnswers, string> = {
   deliveryAddress: "Delivery address",
   deliveryContact: "Delivery contact person",
   deliveryPhone: "Delivery telephone",
+  deliveryNotes: "Delivery time window and unloading notes",
   billingAddress: "Billing address",
   eori: "EORI",
   companyId: "Company ID",
@@ -106,9 +145,15 @@ const PROCEDURE_TEXT: Record<ImportInstructionAnswers["procedure"], string> = {
   other: "c) Customs warehousing (SAD) or another procedure",
 };
 
-/** An answer as it reads: the procedure in words, every other one as it is. */
+export const DUTY_PAID_BY_TEXT: Record<ImportInstructionAnswers["dutyPaidBy"], string> = {
+  "": "",
+  us: "Us, invoiced to you",
+  own_account: "From your own account",
+};
+
+/** An answer as it reads: the procedure and who pays the duty in words, every other one as it is. */
 export const answerText = (key: keyof ImportInstructionAnswers, a: ImportInstructionAnswers): string =>
-  key === "procedure" ? PROCEDURE_TEXT[a.procedure] : a[key];
+  key === "procedure" ? PROCEDURE_TEXT[a.procedure] : key === "dutyPaidBy" ? DUTY_PAID_BY_TEXT[a.dutyPaidBy] : a[key];
 
 /** What the reviewer changed of what the customer sent, in the form's order; [] when nothing. */
 export function changedAnswers(sent: ImportInstructionAnswers, approved: ImportInstructionAnswers): ImportInstructionChange[] {
@@ -124,7 +169,9 @@ export function shipmentProcedureOf(procedure: ImportInstructionAnswers["procedu
 
 /**
  * What approved answers write to the shipment: only fields still empty, nothing already filled in is
- * replaced. A T1 office is written only under a T1.
+ * replaced. A T1 office is written only under a T1. The delivery contact, telephone and notes go beside the
+ * Delivery Address (the consignee's Contact, Delivery Phone, Delivery Notes), so they reach whoever plans
+ * the delivery and the Trucking order made from the job (User Council E5).
  */
 export function fieldsToFill(shipment: ImportInstructionShipmentValues, a: ImportInstructionAnswers): Partial<ImportInstructionShipmentValues> {
   const out: Partial<ImportInstructionShipmentValues> = {};
@@ -134,5 +181,8 @@ export function fieldsToFill(shipment: ImportInstructionShipmentValues, a: Impor
   if (a.procedure === "t1" && isT1 && !shipment.customsOffice.trim() && a.t1Office) out.customsOffice = a.t1Office;
   if (!shipment.hsCode.trim() && a.tariffCode) out.hsCode = a.tariffCode;
   if (!shipment.deliveryAddress.trim() && a.deliveryAddress) out.deliveryAddress = a.deliveryAddress;
+  if (!shipment.consigneeContact.trim() && a.deliveryContact) out.consigneeContact = a.deliveryContact;
+  if (!shipment.deliveryPhone.trim() && a.deliveryPhone) out.deliveryPhone = a.deliveryPhone;
+  if (!shipment.deliveryNotes.trim() && a.deliveryNotes) out.deliveryNotes = a.deliveryNotes;
   return out;
 }

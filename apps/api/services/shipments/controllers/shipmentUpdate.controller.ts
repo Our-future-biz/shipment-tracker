@@ -112,6 +112,9 @@ interface ShipmentUpdateRequest {
   shipperOpeningTo?: string;
   consigneeOpeningFrom?: string;
   consigneeOpeningTo?: string;
+  /** Who to call at delivery, and the delivery time window and unloading notes. */
+  deliveryPhone?: string & MaxLen<50>;
+  deliveryNotes?: string & MaxLen<500>;
 
   // Status / mode
   freeComments?: string;

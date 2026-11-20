@@ -7,8 +7,9 @@ import { isNotFound, publicApi } from "@/lib/api";
 import { businessDateTime, formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { BTN, EMPTY, HINT, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
+import { customerStateName } from "@/app/shipments/[jobNumber]/tabs/tracking/trackingText";
 
-type Milestone = interfaces.PublicMilestone;
+type State = interfaces.PublicMilestone["state"];
 
 const LEGS: { key: string; label: string }[] = [
   { key: "origin", label: "Origin" },
@@ -16,22 +17,31 @@ const LEGS: { key: string; label: string }[] = [
   { key: "destination", label: "Destination" },
 ];
 
-const DOT: Record<Milestone["state"], string> = {
+const DOT: Record<State, string> = {
   done: "border-emerald-600 bg-emerald-600",
   next: "border-indigo-600 bg-indigo-600",
   open: "border-slate-300 bg-white",
+  unconfirmed: "border-amber-500 bg-white",
 };
 
-const STATE_NAME: Record<Milestone["state"], string> = { done: "Done", next: "Next step", open: "Still to come" };
+const STATE_TEXT: Record<State, string> = {
+  done: "text-emerald-700",
+  next: "text-indigo-700",
+  open: "text-slate-500",
+  unconfirmed: "text-amber-700",
+};
 
-function Row({ m }: { m: Milestone }) {
+function Row({ m }: { m: interfaces.PublicMilestone }) {
   return (
     <li className="flex items-start gap-3 px-4 py-3">
-      <span title={STATE_NAME[m.state]} className={`mt-1 size-3 shrink-0 rounded-full border-2 ${DOT[m.state]}`}>
-        <span className="sr-only">{STATE_NAME[m.state]}</span>
-      </span>
+      <span aria-hidden className={`mt-1 size-3 shrink-0 rounded-full border-2 ${DOT[m.state]}`} />
       <div className="min-w-0 flex-1">
-        <div className="font-medium text-slate-900">{m.label}</div>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="font-medium text-slate-900">{m.label}</span>
+          {/* Printed beside the dot, so a phone shows it too, in the words the staff's customer-view preview uses
+              (User Council E2): never "late", and "Still to come" for a step with no planned day yet (Q15). */}
+          <span className={`text-[12px] font-medium ${STATE_TEXT[m.state]}`}>{customerStateName(m.state, !!m.planned)}</span>
+        </div>
         {m.place && <div className={HINT}>{m.place}</div>}
         {m.detail && <div className={HINT}>{m.detail}</div>}
       </div>
@@ -39,7 +49,16 @@ function Row({ m }: { m: Milestone }) {
         {m.actual ? (
           <span className="font-medium text-slate-900">{formatDate(m.actual)}</span>
         ) : m.planned ? (
-          <span className="text-slate-700">Planned {formatDate(m.planned)}</span>
+          <span className="text-slate-700">
+            Planned {formatDate(m.planned)}
+            {/* on a phone its own line, so the step's name keeps its room */}
+            {m.state === "unconfirmed" && (
+              <>
+                <span className="hidden sm:inline"> · </span>
+                <span className="block sm:inline">not yet confirmed</span>
+              </>
+            )}
+          </span>
         ) : (
           <span className={EMPTY}>—</span>
         )}

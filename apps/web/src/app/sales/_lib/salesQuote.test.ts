@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { CostLine, SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
-import { baseRef, computeCargo, cyAtDestination, cyAtOrigin, cyTermsOf, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, routingMissing, routingNeeds, withLineBasis, withRate, CONTAINER_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
+import { chargeBasis } from "@/lib/chargeBasis";
+import { baseRef, computeCargo, cyAtDestination, cyAtOrigin, cyTermsOf, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, routingMissing, routingNeeds, withLineBasis, withRate, withBasis, basisChangeNote, basisMismatches, basisOffered, basisUnits, computeTotals, isAirQuote, perBasisText, CONTAINER_UNIT, KG_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -193,17 +194,18 @@ describe("withLineBasis", () => {
     expect(withLineBasis({ weight: 5917, cbm: 2, buyingLines: [perWm(40)] })?.buyingLines).toEqual([line({ basis: "wm", value: 5.917, qty: 5.917, unit: WM_UNIT, unitPrice: 40, amount: 236.68 })]);
   });
 
-  it("costs the rate again once set back to a lump sum", () => {
-    expect(withLineBasis({ ...cargo, buyingLines: [perWm(40, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 7.551 })]);
+  // The chair's finding (User Council, 20 Nov 2026): a change of basis keeps the line's total.
+  it("keeps its total once set back to a lump sum: rate × quantity becomes the lump sum", () => {
+    expect(withLineBasis({ ...cargo, buyingLines: [perWm(40, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 7.551, amount: 302.04 })]);
   });
 
   it("prices a line charged per container at its amount per container, the number of containers as its quantity", () => {
     const boxes = { serviceType: "Sea FCL", containers: [{ qty: 2, type: "40' HC" }, { qty: 1, type: "20' GP" }] };
     const perBox = (rate: number, n: number) => line({ basis: "container", value: n, qty: n, unit: CONTAINER_UNIT, unitPrice: rate, amount: rate * n });
     expect(withLineBasis({ ...boxes, buyingLines: [line({ basis: "container", amount: 1750 })] })?.buyingLines).toEqual([perBox(1750, 3)]);
-    // It follows the containers, and costs its rate again once set back to a lump sum.
+    // It follows the containers, and keeps its total once set back to a lump sum.
     expect(withLineBasis({ ...boxes, containers: [{ qty: 5, type: "40' HC" }], buyingLines: [perBox(1750, 3)] })?.buyingLines).toEqual([perBox(1750, 5)]);
-    expect(withLineBasis({ ...boxes, buyingLines: [{ ...perBox(1750, 3), basis: "lumpsum" }] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 3, amount: 1750 })]);
+    expect(withLineBasis({ ...boxes, buyingLines: [{ ...perBox(1750, 3), basis: "lumpsum" }] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 3, amount: 5250 })]);
   });
 
   it("counts only a full-container quote's containers: those another mode kept from an earlier one are not shown, and not charged", () => {
@@ -212,10 +214,14 @@ describe("withLineBasis", () => {
     expect(withLineBasis({ ...kept, buyingLines: [perBox(1750, 3)] })?.buyingLines).toEqual([perBox(1750, 0)]);
   });
 
-  it("gives a selling line its buying line's basis, and prices it by that", () => {
-    const data = { ...cargo, buyingLines: [perWm(40, { pairId: "p1" })], sellingLines: [line({ basis: "lumpsum", amount: 45, pairId: "p1" }), line({ value: 1 })] };
+  it("gives a selling line its buying line's basis, and prices it by that at the total it had", () => {
+    const data = { ...cargo, buyingLines: [perWm(40, { pairId: "p1" })], sellingLines: [line({ basis: "lumpsum", amount: 339.8, pairId: "p1" }), line({ value: 1 })] };
     // The second selling line goes with no buying line (the first is taken by its pair): it keeps its own.
+    // The lump sum of 339.80 is 45.00 per W/M at 7.551 W/M, not 339.80 per W/M.
     expect(withLineBasis(data)).toEqual({ buyingLines: data.buyingLines, sellingLines: [perWm(45, { pairId: "p1" }), line({ value: 1 })] });
+    // Set back to a lump sum with its buying line, it keeps its total too.
+    const back = { ...cargo, buyingLines: [line({ basis: "lumpsum", amount: 302.04, pairId: "p1" })], sellingLines: [perWm(45, { pairId: "p1" })] };
+    expect(withLineBasis(back)?.sellingLines).toEqual([line({ basis: "lumpsum", value: undefined, amount: 339.8, pairId: "p1" })]);
   });
 
   it("is null when every line is priced by its basis already, or there is no W/M line", () => {
@@ -225,6 +231,69 @@ describe("withLineBasis", () => {
 
   it("leaves a line priced per unit by a tariff as it is", () => {
     expect(withLineBasis({ ...cargo, buyingLines: [line({ qty: 3, unit: "pallet", unitPrice: 20, amount: 60 })] })).toBeNull();
+  });
+});
+
+// User Council S1, owner answer Q10 (20 Nov 2026): an air quote is priced per chargeable kg.
+describe("per chargeable kg", () => {
+  const line = (over: Partial<CostLine> = {}): CostLine => ({ type: "Air freight", description: "PRG → ORD", currency: "EUR", amount: 2.1, ...over });
+  // The tester's cargo: 4 pallets 120×80×100 cm, 350 kg - 3.84 cbm, volumetric 640 kg, chargeable 640 kg.
+  const air: SalesQuoteData = { serviceType: "Air", packages: [{ qty: 4, type: "Pallet", length: 120, width: 80, height: 100, weight: 87.5 }] };
+  const perKg = (rate: number, kg: number, over: Partial<CostLine> = {}) =>
+    line({ basis: "kg", value: kg, qty: kg, unit: KG_UNIT, unitPrice: rate, amount: Math.round(rate * kg * 100) / 100, ...over });
+
+  it("counts a line in the quote's chargeable weight, the figure Cargo details shows, not its W/M", () => {
+    expect(computeCargo(air)).toMatchObject({ cbm: 3.84, volumetricWeight: 640, chargeableWeight: 640, weightMeasure: 3.84 });
+    expect(basisUnits(air, "kg")).toBe(640);
+    expect(basisUnits(air, "wm")).toBe(3.84);
+  });
+
+  it("prices a line set to it at its amount per kg: 640 kg at 2.10 is 1,344.00, on both sides", () => {
+    const data = { ...air, buyingLines: [line({ basis: "kg", amount: 1.65 })], sellingLines: [line({ basis: "kg" })] };
+    expect(withLineBasis(data)).toEqual({ buyingLines: [perKg(1.65, 640)], sellingLines: [perKg(2.1, 640)] });
+    expect(perKg(2.1, 640).amount).toBe(1344);
+    expect(withRate(line({ basis: "kg" }), 2.1, 640)).toMatchObject({ qty: 640, unit: "chargeable kg", unitPrice: 2.1, amount: 1344 });
+  });
+
+  // The job's rule, to 0.1 kg: a Won quote's line comes to Costs Breakdown with the kilos the job's Cargo Details shows.
+  it("rounds the chargeable weight as the job does, so the quote's kilos are the job's", () => {
+    const odd: SalesQuoteData = { serviceType: "Air", cbm: 3.844 };
+    expect(computeCargo(odd).chargeableWeight).toBe(640.7);
+    expect(computeCargo(odd).chargeableWeight).toBe(chargeBasis("Air Freight", computeCargo(odd).grossWeight, computeCargo(odd).cbm).value);
+    expect(basisUnits(odd, "kg")).toBe(640.7);
+    // Its line stays within the 2 decimals Costs Breakdown checks quantity × rate by.
+    expect(withRate(line({ basis: "kg" }), 2.1, 640.7)).toMatchObject({ qty: 640.7, unitPrice: 2.1, amount: 1345.47 });
+  });
+
+  it("follows the cargo: heavier than its volume, the gross weight is charged", () => {
+    const heavy = { ...air, packages: [{ qty: 4, type: "Pallet", length: 120, width: 80, height: 100, weight: 250 }], buyingLines: [perKg(2.1, 640)] };
+    expect(withLineBasis(heavy)?.buyingLines).toEqual([perKg(2.1, 1000)]);
+  });
+
+  it("keeps its total once set back to a lump sum", () => {
+    expect(withLineBasis({ ...air, buyingLines: [perKg(2.1, 640, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 640, amount: 1344 })]);
+  });
+
+  it("leaves a trucking tariff's line priced per kg as the lump sum it is", () => {
+    expect(withLineBasis({ ...air, buyingLines: [line({ qty: 350, unit: "kg", unitPrice: 0.1, amount: 35 })] })).toBeNull();
+  });
+
+  it("keeps a W/M line an air quote saved before: it still counts the W/M", () => {
+    const perWm = line({ basis: "wm", value: 3.84, qty: 3.84, unit: WM_UNIT, unitPrice: 2.1, amount: 8.06 });
+    expect(withLineBasis({ ...air, buyingLines: [perWm] })).toBeNull();
+  });
+
+  it("is in the quote's totals and margin as rate × kg", () => {
+    const data = { ...air, currency: "EUR", buyingLines: [perKg(1.65, 640)], sellingLines: [perKg(2.1, 640)] };
+    expect(computeTotals(data, { CZK: 1, EUR: 25 })).toMatchObject({ selling: 1344, buying: 1056, profit: 288, margin: 21.4 });
+  });
+
+  it("names the basis in running text", () => {
+    expect(["kg", "wm", "container", "lumpsum", undefined].map((b) => perBasisText(b as CostLine["basis"]))).toEqual([" per chargeable kg", " per W/M", " per container", "", ""]);
+  });
+
+  it("knows an air quote", () => {
+    expect([isAirQuote({ serviceType: "Air" }), isAirQuote({ serviceType: "Sea LCL" }), isAirQuote({})]).toEqual([true, false, false]);
   });
 });
 
@@ -279,5 +348,108 @@ describe("routingMissing", () => {
     expect(routingMissing({ direction: "Export", incoterm: "CFR", origin: "Prague (CZPRG)" })).toEqual([]);
     expect(routingMissing({ direction: "Export", incoterm: "FOB", origin: "Prague (CZPRG)" })).toEqual(["Place of Delivery"]);
     expect(routingMissing({ direction: "Export", incoterm: "FOB", origin: " " })).toEqual(["Place of Loading", "Place of Delivery"]);
+  });
+});
+
+// The chair's finding (User Council, 20 Nov 2026): a hand-worked lump sum of 1,344 set to per
+// chargeable kg became 1,344 × 640 kg = 860,160 EUR without a word. A change of basis keeps the total.
+describe("a change of basis", () => {
+  const air: SalesQuoteData = { serviceType: "Air", packages: [{ qty: 4, type: "Pallet", length: 120, width: 80, height: 100, weight: 87.5 }] };
+  const lump = (amount: number, over: Partial<CostLine> = {}): CostLine => ({ type: "Air freight", description: "PRG → ORD", currency: "EUR", amount, value: 1, ...over });
+
+  it("from a lump sum to per chargeable kg sets the rate from the lump sum: 1,344.00 ÷ 640 kg = 2.10", () => {
+    const line = withBasis(lump(1344, { basis: "lumpsum" }), "kg", air);
+    expect(line).toMatchObject({ basis: "kg", qty: 640, value: 640, unit: KG_UNIT, unitPrice: 2.1, amount: 1344 });
+    expect(basisChangeNote(lump(1344), line)).toBe("Rate set from the lump sum: 1,344.00 ÷ 640 kg = 2.10");
+    // withLineBasis then leaves it as it is.
+    expect(withLineBasis({ ...air, buyingLines: [line] })).toBeNull();
+  });
+
+  it("does the same for W/M and per container", () => {
+    const lcl: SalesQuoteData = { serviceType: "Sea LCL", weight: 5917, cbm: 7.551 };
+    const wm = withBasis(lump(302.04), "wm", lcl);
+    expect(wm).toMatchObject({ basis: "wm", qty: 7.551, unit: WM_UNIT, unitPrice: 40, amount: 302.04 });
+    expect(basisChangeNote(lump(302.04), wm)).toBe("Rate set from the lump sum: 302.04 ÷ 7.551 W/M = 40.00");
+    const fcl: SalesQuoteData = { serviceType: "Sea FCL", containers: [{ qty: 2, type: "40' HC" }, { qty: 1, type: "20' GP" }] };
+    const box = withBasis(lump(5250), "container", fcl);
+    expect(box).toMatchObject({ basis: "container", qty: 3, unit: CONTAINER_UNIT, unitPrice: 1750, amount: 5250 });
+    expect(basisChangeNote(lump(5250), box)).toBe("Rate set from the lump sum: 5,250.00 ÷ 3 containers = 1,750.00");
+    const hc = withBasis(lump(3500, { containerType: "40' HC" }), "container", fcl);
+    expect(hc).toMatchObject({ qty: 2, unit: "40' HC", unitPrice: 1750, amount: 3500 });
+    expect(basisChangeNote(lump(3500, { containerType: "40' HC" }), hc)).toBe("Rate set from the lump sum: 3,500.00 ÷ 2 containers (40' HC) = 1,750.00");
+  });
+
+  it("rounds the rate to the cent, and says so when the total moves by it", () => {
+    const line = withBasis(lump(1000), "kg", air);
+    expect(line).toMatchObject({ qty: 640, unitPrice: 1.56, amount: 998.4 });
+    expect(basisChangeNote(lump(1000), line)).toBe("Rate set from the lump sum: 1,000.00 ÷ 640 kg = 1.56; the line now comes to 998.40");
+  });
+
+  it("with no quantity in Cargo details yet sets no rate of the lump sum, and says so", () => {
+    const line = withBasis(lump(1344), "kg", { serviceType: "Air" });
+    expect(line).toMatchObject({ basis: "kg", qty: 0, unitPrice: 0, amount: 0 });
+    expect(basisChangeNote(lump(1344), line)).toBe("Cargo details has no chargeable weight yet, so the lump sum of 1,344.00 could not be made a rate: type the rate per chargeable kg");
+  });
+
+  it("back to a lump sum keeps the total: rate × quantity becomes the lump sum", () => {
+    const perKg = withBasis(lump(1344), "kg", air);
+    const back = withBasis(perKg, "lumpsum", air);
+    expect(back).toMatchObject({ basis: "lumpsum", amount: 1344 });
+    expect(back).not.toHaveProperty("unitPrice");
+    expect(back).not.toHaveProperty("qty");
+    expect(basisChangeNote(perKg, back)).toBe("Lump sum set from the rate: 2.10 × 640 kg = 1,344.00");
+  });
+
+  it("from one per-unit basis to another keeps the total too", () => {
+    const fcl: SalesQuoteData = { serviceType: "Sea FCL", weight: 5917, cbm: 7.551, containers: [{ qty: 3, type: "40' HC" }] };
+    const wm = withBasis(lump(302.04), "wm", fcl);
+    const box = withBasis(wm, "container", fcl);
+    expect(box).toMatchObject({ basis: "container", qty: 3, unitPrice: 100.68, amount: 302.04 });
+    expect(basisChangeNote(wm, box)).toBe("Rate set from the line's total: 302.04 ÷ 3 containers = 100.68");
+  });
+
+  it("notes nothing when the basis did not change, the line had no amount, or the line was not made from it", () => {
+    expect(withBasis(lump(1344, { basis: "kg" }), "kg", air)).toEqual(lump(1344, { basis: "kg" }));
+    expect(basisChangeNote(lump(1344), lump(1344))).toBeNull();
+    expect(basisChangeNote(lump(0), withBasis(lump(0), "kg", air))).toBeNull();
+    // A tariff picked onto the line meanwhile: another rate, no note.
+    expect(basisChangeNote(lump(1344), withRate(lump(0, { basis: "kg" }), 1.8, 640))).toBeNull();
+  });
+});
+
+// User Council S1: a line keeps the basis it has after the quote's mode changes - warned of, not changed.
+describe("basisMismatches", () => {
+  const line = (over: Partial<CostLine> = {}): CostLine => ({ type: "Air freight", description: "PRG → ORD", currency: "EUR", amount: 1344, ...over });
+  const packages = [{ qty: 4, type: "Pallet", length: 120, width: 80, height: 100, weight: 87.5 }];
+
+  it("offers per chargeable kg on air only, W/M on any other mode, per container only with containers", () => {
+    expect(["lumpsum", "wm", "kg", "container"].map((b) => basisOffered({ serviceType: "Air" }, b as CostLine["basis"]))).toEqual([true, false, true, false]);
+    expect(["lumpsum", "wm", "kg", "container"].map((b) => basisOffered({ serviceType: "Sea LCL" }, b as CostLine["basis"]))).toEqual([true, true, false, false]);
+    expect(basisOffered({ serviceType: "Sea FCL", containers: [{ qty: 1, type: "40' HC" }] }, "container")).toBe(true);
+  });
+
+  it("says what a line per chargeable kg on a Sea quote is charged by now", () => {
+    const data: SalesQuoteData = { serviceType: "Sea LCL", packages, buyingLines: [line({ basis: "kg", qty: 640, unitPrice: 2.1 })] };
+    expect(basisMismatches(data)).toEqual(['Buying line "PRG → ORD" is charged per chargeable kg, which only an Air quote offers; this Sea LCL quote charges it by 640 kg now']);
+  });
+
+  it("says the same of a W/M line on an Air quote and a line per container with no containers", () => {
+    const data: SalesQuoteData = { serviceType: "Air", packages, buyingLines: [line({ basis: "wm", description: "Handling" }), line({ basis: "container", description: "THC" }), line({ basis: "kg" })] };
+    expect(basisMismatches(data)).toEqual([
+      'Buying line "Handling" is charged per W/M, which an Air quote does not offer (it charges by chargeable weight); it is charged by 3.840 W/M now',
+      'Buying line "THC" is charged per container, but the quote has no containers; it is charged by 0 containers now',
+    ]);
+  });
+
+  it("tells of a selling line that has its buying line's basis with that buying line only", () => {
+    const data: SalesQuoteData = {
+      serviceType: "Sea LCL",
+      packages,
+      buyingLines: [line({ basis: "kg", pairId: "p1" })],
+      sellingLines: [line({ basis: "kg", pairId: "p1" }), line({ basis: "kg", description: "Own", pairId: "p2" })],
+    };
+    expect(basisMismatches(data)).toHaveLength(2);
+    expect(basisMismatches(data)[1]).toMatch(/^Selling line "Own"/);
+    expect(basisMismatches({ ...data, serviceType: "Air" })).toEqual([]);
   });
 });

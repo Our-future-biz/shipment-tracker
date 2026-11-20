@@ -6,6 +6,7 @@ import { Pill } from "@/components/Pill";
 import { formatDate } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
 import { offerInQuoteCurrency, type ToQuoteCurrency } from "../../../_lib/tariffQuote";
+import { endsBeforeQuote } from "../../../_lib/tariffRecheck";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 
 // The columns the "Tariffs available" drawers (rail, collections, ocean) have in common: the rank,
@@ -32,8 +33,17 @@ export const rankColumn = <T,>(): ColumnType<T> => ({
 
 const validUntil = (o: TariffOfferSource) => o.validTo && <div className="text-[12px] text-slate-400">valid until {formatDate(o.validTo)}</div>;
 
-/** The supplier, a link to the tariff version (in a new tab), and below it how long it is valid - or `detail`. */
-export const tariffColumn = <T extends TariffOfferSource>(title: string, versionHref: (offer: T) => string, detail: (offer: T) => ReactNode = validUntil): ColumnType<T> => ({
+/**
+ * The supplier, a link to the tariff version (in a new tab), and below it how long it is valid - or
+ * `detail`. An offer that ends before the quote's Valid until (`quoteValidUntil`) says so: said, not
+ * hidden (owner's answer Q12).
+ */
+export const tariffColumn = <T extends TariffOfferSource>(
+  title: string,
+  versionHref: (offer: T) => string,
+  detail: (offer: T) => ReactNode = validUntil,
+  quoteValidUntil?: string | null,
+): ColumnType<T> => ({
   key: "tariff",
   title,
   render: (_, o) => (
@@ -46,6 +56,7 @@ export const tariffColumn = <T extends TariffOfferSource>(title: string, version
         {o.tariffName} v{o.versionNo}
       </a>
       {detail(o)}
+      {endsBeforeQuote(o.validTo, quoteValidUntil) && <div className="text-[12px] text-amber-700">Ends before the quote&apos;s Valid until {formatDate(quoteValidUntil!.slice(0, 10))}</div>}
     </div>
   ),
 });

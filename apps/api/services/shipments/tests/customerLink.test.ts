@@ -71,8 +71,28 @@ describe("what a customer sees", () => {
     for (const inner of ["jana@firma.cz", "Document read", "2026-11-09", "2026-11-01", "margin", "taxDate", "lateDays", "recorded", "proposed"]) expect(text).not.toContain(inner);
   });
 
-  it("shows a late step as the next one", () => {
-    expect(publicStatusOf(shipment, [milestone({ state: "late" })], [], "", new Date()).milestones[0]!.state).toBe("next");
+  const statesOf = (states: TrackingMilestone["state"][]) =>
+    publicStatusOf(shipment, states.map((state, i) => milestone({ key: `k${i}`, state })), [], "", new Date()).milestones.map((m) => m.state);
+
+  it("shows a step whose planned day passed with no actual as not yet confirmed, never late", () => {
+    const row = publicStatusOf(shipment, [milestone({ state: "late", lateDays: 18 })], [], "", new Date()).milestones[0]!;
+    expect(row.state).toBe("unconfirmed");
+    expect(JSON.stringify(row)).not.toMatch(/late|18/i);
+  });
+
+  it("keeps only the first open step as the next one", () => {
+    // The council's link: "Departed" planned 18 days ago with no actual, "Arrived" still ahead.
+    expect(statesOf(["done", "late", "next", "open"])).toEqual(["done", "unconfirmed", "open", "open"]);
+    expect(statesOf(["done", "next", "open"])).toEqual(["done", "next", "open"]);
+    expect(statesOf(["done", "next", "late"])).toEqual(["done", "next", "unconfirmed"]);
+    expect(statesOf(["late", "late", "next"])).toEqual(["unconfirmed", "unconfirmed", "open"]);
+    // A step the Tracking tab won't count for the next one (a planned-only row) stays planned.
+    expect(statesOf(["done", "planned", "next"])).toEqual(["done", "open", "next"]);
+  });
+
+  it("leaves an earlier step nobody noted, while a later one happened, as planned", () => {
+    // The Tracking tab marks it late only when the invoice hangs on it: that is ours, not the customer's.
+    expect(statesOf(["late", "done", "next"])).toEqual(["open", "done", "next"]);
   });
 
   it("keeps a detail only on the customs row: others can hold a person's note", () => {

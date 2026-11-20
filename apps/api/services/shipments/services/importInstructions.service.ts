@@ -1,8 +1,9 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { customers } from "~encore/clients";
+import { customers, invoicing } from "~encore/clients";
 import { appUrl } from "../../../lib/appUrl";
 import { userEmailOf } from "../../../lib/companyUsers";
+import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { isUuid } from "../../../lib/uuid";
 import type { ImportInstructionAnswers, ImportInstructionState, ImportInstructionWaiting, PublicImportInstructionForm } from "../interfaces/importInstructions";
 import { hashLinkToken, looksLikeLinkToken, newLinkToken } from "../lib/customerLink";
@@ -35,6 +36,20 @@ const invalid = () => APIError.notFound(IMPORT_LINK_INVALID);
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
 const addressText = (a: { street: string; postalCode: string; city: string; country: string }) => [a.street, [a.postalCode, a.city].filter(Boolean).join(" "), a.country].filter(Boolean).join(", ");
+
+/**
+ * Whose form it is, as the tracking link names it (customerLink.service): the customer asks them. Not
+ * knowing isn't worth failing the customer's form for.
+ */
+async function ourCompanyName(companyId: string): Promise<string> {
+  try {
+    const { profile } = await invoicing.invoiceProfileGet({ authData: await serviceActor(companyId) });
+    return profile.companyName ?? "";
+  } catch (err) {
+    log.warn(err, "import instructions: the company's name not read");
+    return "";
+  }
+}
 
 class ImportInstructionsService {
   private async requireShipment(shipmentId: string, companyId: string) {
@@ -69,14 +84,23 @@ class ImportInstructionsService {
         createdAt: row.createdAt.toISOString(),
         expiresAt: row.expiresAt.toISOString(),
         submittedAt: iso(row.submittedAt),
-        answers: row.answers,
-        approvedAnswers: row.approvedAnswers,
+        // Every answer present: a form sent before a question was added reads it as empty.
+        answers: row.answers ? normalizeAnswers(row.answers) : null,
+        approvedAnswers: row.approvedAnswers ? normalizeAnswers(row.approvedAnswers) : null,
         changes: row.answers && row.approvedAnswers ? changedAnswers(normalizeAnswers(row.answers), normalizeAnswers(row.approvedAnswers)) : [],
         decidedBy: row.decidedBy,
         decidedAt: iso(row.decidedAt),
         reason: row.reason,
         canAnswer: canAsk,
-        onShipment: { customsProcedure: shipment.customsProcedure, customsOffice: shipment.customsOffice, hsCode: shipment.hsCode, deliveryAddress: shipment.deliveryAddress },
+        onShipment: {
+          customsProcedure: shipment.customsProcedure,
+          customsOffice: shipment.customsOffice,
+          hsCode: shipment.hsCode,
+          deliveryAddress: shipment.deliveryAddress,
+          consigneeContact: shipment.consigneeContact,
+          deliveryPhone: shipment.deliveryPhone,
+          deliveryNotes: shipment.deliveryNotes,
+        },
       },
     };
   }
@@ -199,7 +223,8 @@ class ImportInstructionsService {
     const row = await this.openRow(token, now);
     const shipment = await shipmentRepository.getByIdForCompany(row.shipmentId, row.companyId);
     if (!shipment) throw invalid();
-    return { reference: shipment.jobNumber, prefill: row.prefill };
+    // The company's name only, as the tracking page shows it: no staff names or e-mails on a public page.
+    return { companyName: await ourCompanyName(row.companyId), reference: shipment.jobNumber, prefill: row.prefill };
   }
 
   async submit(token: string, input: { confirmed: boolean; answers: Partial<ImportInstructionAnswers> }, now = new Date()): Promise<void> {
@@ -208,7 +233,7 @@ class ImportInstructionsService {
     // A shipment deleted meanwhile has nobody to read it.
     if (!(await shipmentRepository.getByIdForCompany(row.shipmentId, row.companyId))) throw invalid();
     const answers = normalizeAnswers(input.answers);
-    const problem = answersProblem(answers, isListedCustomsOffice);
+    const problem = answersProblem(answers, isListedCustomsOffice, { fromCustomer: true });
     if (problem) throw APIError.invalidArgument(problem);
     if (!(await repository.submit(row.id, answers, now))) throw invalid();
   }

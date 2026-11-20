@@ -103,9 +103,9 @@ export async function checkQuote(found: { companyId: string; quoteNumber: string
   };
 
   const actions: TariffAction[] = [];
-  for (const { ref, valid, tariffId } of checks) {
+  for (const { ref, valid, tariffId, validTo } of checks) {
     const kind = tariffKindOf(ref)!;
-    actions.push(valid ? { ref, do: "keep" } : actionForLapsed(ref, data, tariffId, await offersFor(kind), unaskableReason(kind)));
+    actions.push(valid ? { ref, do: "keep", validTo } : actionForLapsed(ref, data, tariffId, await offersFor(kind), unaskableReason(kind)));
   }
   const road = await roadAction(quote, data, today, authData);
   if (road) actions.push(road);

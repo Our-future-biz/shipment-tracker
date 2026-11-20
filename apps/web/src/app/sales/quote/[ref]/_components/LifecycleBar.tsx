@@ -29,6 +29,10 @@ interface Props {
   // Why the quote may not be sent or marked Ready to send now (its margin waits for a manager's
   // approval); null when nothing stops it. The server refuses those moves with the same words.
   sendBlocked: string | null;
+  // What to know before the quote is made Ready to Send or Quoted with a validity, which stops
+  // nothing (a Valid until later than a tariff its buying was priced from holds); null when there
+  // is nothing. Absent: never asked.
+  validityWarning?: (validUntil: string | null) => string | null;
   // Asks the server for the change. Resolves with why it was refused - a sentence that finishes
   // "QCZ… - …" - or with null once the quote is changed.
   onChange: (change: StatusChange) => Promise<string | null>;
@@ -49,7 +53,7 @@ const anyOf = new Intl.ListFormat("en", { type: "disjunction" });
 // The moves the margin floor stops until a manager approves the margin.
 const SENDING_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 
-export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, price }: Props) {
+export function LifecycleBar({ quote, sendBlocked, validityWarning, onChange, hrefOf, price }: Props) {
   const data = asData(quote.data);
   // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
   const current = quote.effectiveStatus;
@@ -150,6 +154,10 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, price }: Pr
     );
     return [{ key, label, onClick: () => openTransition(key) }];
   });
+  // Of the validity a move to Ready to Send or Quoted goes with: the date chosen in the dialog for
+  // Quoted, else the one the quote keeps.
+  const sendingWarning =
+    target && SENDING_STATUSES.includes(target) ? (validityWarning?.(target === "quoted" && askValidity ? validUntil : quote.validUntil) ?? null) : null;
 
   return (
     <div className="bg-white border-b border-slate-200 px-6 py-3.5">
@@ -273,6 +281,11 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, price }: Pr
         {refusal && (
           <div className="mb-4">
             <Alert type="error" showIcon message={`${quote.quoteNumber} - ${refusal}`} />
+          </div>
+        )}
+        {sendingWarning && (
+          <div className="mb-4">
+            <Alert type="warning" showIcon message={sendingWarning} />
           </div>
         )}
         <Form layout="vertical" disabled={applying}>

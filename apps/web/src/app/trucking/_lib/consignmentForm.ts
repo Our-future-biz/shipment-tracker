@@ -132,9 +132,19 @@ function stopFrom(siteId: string | null | undefined, postcode: string | null | u
   return { ...emptyStop(), ...fallback, postcode: pscDigits(postcode ?? "") };
 }
 
-/** The order of an existing job: its customer, pick-up and delivery (sites when the job names them). */
+/**
+ * The order of an existing job: its customer, pick-up and delivery (sites when the job names them). The
+ * delivery's contact, telephone and notes also come from the job: the consignee's Contact, Delivery Phone and
+ * Delivery Notes, which an approved Import Instructions form fills (User Council E5), so the dispatcher doesn't
+ * retype them from its PDF. The person and the number are taken as one pair - the site's when it names
+ * someone to call, else the job's - so nobody's name goes out beside someone else's phone. The job's notes
+ * (its time window) are added to the site's own loading notes rather than hidden by them.
+ */
 export function formFromShipment(shipment: ShipmentItem, sites: readonly CustomerSiteItem[], today: string): ConsignmentForm {
   const form = emptyConsignmentForm("job", today);
+  const delivery = stopFrom(shipment.deliverySiteId, shipment.deliveryPostcode, { name: shipment.consignee, street: shipment.deliveryAddress, country: shipment.deliveryCountry || "CZ" }, sites);
+  const siteContact = !!(delivery.contactName || delivery.contactPhone);
+  const jobNotes = (shipment.deliveryNotes ?? "").trim();
   return {
     ...form,
     shipmentId: shipment.id,
@@ -143,7 +153,12 @@ export function formFromShipment(shipment: ShipmentItem, sites: readonly Custome
     customerName: shipment.customer || null,
     pickupDate: /^\d{4}-\d{2}-\d{2}$/.test(shipment.pickupDate ?? "") ? shipment.pickupDate! : today,
     pickup: stopFrom(shipment.pickupSiteId, shipment.pickupPostcode, { name: shipment.shipper, street: shipment.pickupAddress, country: shipment.pickupCountry || "CZ" }, sites),
-    delivery: stopFrom(shipment.deliverySiteId, shipment.deliveryPostcode, { name: shipment.consignee, street: shipment.deliveryAddress, country: shipment.deliveryCountry || "CZ" }, sites),
+    delivery: {
+      ...delivery,
+      contactName: siteContact ? delivery.contactName : shipment.consigneeContact || "",
+      contactPhone: siteContact ? delivery.contactPhone : shipment.deliveryPhone || "",
+      notes: [delivery.notes.trim(), delivery.notes.includes(jobNotes) ? "" : jobNotes].filter(Boolean).join("\n"),
+    },
   };
 }
 

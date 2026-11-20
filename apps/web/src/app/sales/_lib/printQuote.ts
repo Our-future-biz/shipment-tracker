@@ -24,6 +24,15 @@ function senderBlock(company: StoredCompanyDetails): string | null {
   return null;
 }
 
+/**
+ * The two ends of the quote's route as the customer reads them (the document's headline, the
+ * e-mail's {route}): its Origin and Destination, and where one is left blank the port of loading or
+ * discharge in its place; "" when that is blank too.
+ */
+export function routeEnds(data: Pick<SalesQuoteData, "origin" | "destination" | "pol" | "pod">): [string, string] {
+  return [data.origin?.trim() || data.pol?.trim() || "", data.destination?.trim() || data.pod?.trim() || ""];
+}
+
 /** The quotation as an HTML document, or why the customer must not get one. */
 type QuoteDocument = { html: string; blocked: null } | { html: null; blocked: string };
 
@@ -207,6 +216,9 @@ export function quoteDocument(
     const where = route.where[place?.trim() ?? ""];
     return `${esc(place) || "—"}${where ? `<span class="where">${esc(where)}</span>` : ""}`;
   };
+  // An Origin or Destination left blank (Routing's "Keep blank") is read as the port of loading or
+  // discharge, so the headline names where the price runs from and to, not "Brno → —".
+  const [routeFrom, routeTo] = routeEnds(data);
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(quoteNumber)}</title>
   <style>
@@ -273,7 +285,7 @@ export function quoteDocument(
     </div>
 
     <h2>Shipment routing</h2>
-    <div class="route">${routePlace(data.origin)}<span class="arrow">→</span>${routePlace(data.destination)}</div>
+    <div class="route">${routePlace(routeFrom)}<span class="arrow">→</span>${routePlace(routeTo)}</div>
     <div class="grid">
       <div><span>Direction</span>${esc(data.direction) || "—"}</div>
       <div><span>Incoterms</span>${esc(data.incoterm) || "—"}</div>

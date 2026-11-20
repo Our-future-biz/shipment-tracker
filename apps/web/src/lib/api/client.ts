@@ -12433,6 +12433,12 @@ export namespace controllers {
         consigneeOpeningFrom?: string
         consigneeOpeningTo?: string
         /**
+         * Who to call at delivery, and the delivery time window and unloading notes.
+         */
+        deliveryPhone?: string
+
+        deliveryNotes?: string
+        /**
          * Status / mode
          */
         freeComments?: string
@@ -18666,6 +18672,13 @@ export namespace interfaces {
          */
         procedure: "" | "free_circulation" | "t1" | "other"
 
+        /**
+         * Under a): who pays the duty and VAT - we do and invoice them, or they are paid from the customer's own
+         * account. Only then are the bank and the account asked (owner, User Council Q16). "" on forms sent before
+         * the question was asked, which gave the account instead.
+         */
+        dutyPaidBy: "" | "us" | "own_account"
+
         bank: string
         accountNumber: string
         t1Office: string
@@ -18691,6 +18704,11 @@ export namespace interfaces {
         deliveryContact: string
         deliveryPhone: string
         /**
+         * The delivery time window and unloading notes; "" on forms sent before the box was there.
+         */
+        deliveryNotes: string
+
+        /**
          * 6.
          */
         billingAddress: string
@@ -18710,7 +18728,7 @@ export namespace interfaces {
      * One answer the reviewer changed before approving: what the customer sent, and what was approved.
      */
     export interface ImportInstructionChange {
-        field: "procedure" | "bank" | "accountNumber" | "t1Office" | "otherProcedure" | "tariffCode" | "description" | "whatIsIt" | "madeOf" | "usedFor" | "deliveryAddress" | "deliveryContact" | "deliveryPhone" | "billingAddress" | "eori" | "companyId" | "vatId" | "name" | "telephone"
+        field: "procedure" | "dutyPaidBy" | "bank" | "accountNumber" | "t1Office" | "otherProcedure" | "tariffCode" | "description" | "whatIsIt" | "madeOf" | "usedFor" | "deliveryAddress" | "deliveryContact" | "deliveryPhone" | "deliveryNotes" | "billingAddress" | "eori" | "companyId" | "vatId" | "name" | "telephone"
         label: string
         sent: string
         approved: string
@@ -18721,6 +18739,13 @@ export namespace interfaces {
         customsOffice: string
         hsCode: string
         deliveryAddress: string
+        /**
+         * The consignee's Contact: the person the delivery is for.
+         */
+        consigneeContact: string
+
+        deliveryPhone: string
+        deliveryNotes: string
     }
 
     /**
@@ -21773,9 +21798,15 @@ export namespace interfaces {
     }
 
     export interface PublicImportInstructionForm {
+        /**
+         * Whose form it is, for the customer to know whom to ask; "" when it can't be read. No staff names.
+         */
+        companyName: string
+
         reference: string
         prefill: {
             procedure?: "" | "free_circulation" | "t1" | "other"
+            dutyPaidBy?: "" | "us" | "own_account"
             bank?: string
             accountNumber?: string
             t1Office?: string
@@ -21788,6 +21819,7 @@ export namespace interfaces {
             deliveryAddress?: string
             deliveryContact?: string
             deliveryPhone?: string
+            deliveryNotes?: string
             billingAddress?: string
             eori?: string
             companyId?: string
@@ -21808,7 +21840,10 @@ export namespace interfaces {
         planned: string | null
         actual: string | null
         detail: string
-        state: "done" | "next" | "open"
+        /**
+         * "unconfirmed": the planned day passed with no actual; the page says "not yet confirmed", never "late".
+         */
+        state: "done" | "next" | "open" | "unconfirmed"
     }
 
     /**
@@ -22520,7 +22555,7 @@ export namespace interfaces {
         emptyDepot: string
         note: string
         /**
-         * The version's last day; null when open
+         * The last day the price holds: the version's, or the row's own when it ends first; null when open
          */
         validTo: string | null
 
@@ -25349,6 +25384,16 @@ export namespace interfaces {
         shipperOpeningTo: string
         consigneeOpeningFrom: string
         consigneeOpeningTo: string
+        /**
+         * Who to call at delivery: the telephone beside the consignee's Contact.
+         */
+        deliveryPhone: string
+
+        /**
+         * The delivery time window and unloading notes.
+         */
+        deliveryNotes: string
+
         /**
          * Status / mode
          */

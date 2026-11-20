@@ -1032,8 +1032,8 @@ describe("a shipper or consignee picked from the Customer Database", () => {
     expect(customers.customerGet).toHaveBeenCalledTimes(1);
   });
 
-  it("fills the consignee's delivery from its Delivery address and clears the old site and hours", async () => {
-    stored.set(SHIPMENT, row({ consigneeId: null, deliveryAddress: "old street", deliverySiteId: SITE_ID, consigneeOpeningFrom: "08:00" }));
+  it("fills the consignee's delivery from its Delivery address and clears the old site, hours, phone and notes (E5)", async () => {
+    stored.set(SHIPMENT, row({ consigneeId: null, deliveryAddress: "old street", deliverySiteId: SITE_ID, consigneeOpeningFrom: "08:00", deliveryPhone: "+420 602", deliveryNotes: "Mon-Fri 8-14" }));
     await update({ consignee: "Alza.cz a.s.", consigneeId: PARTY });
     expect(customers.addressList).toHaveBeenCalledWith({ customerId: PARTY });
     expect(written()).toMatchObject({
@@ -1043,6 +1043,8 @@ describe("a shipper or consignee picked from the Customer Database", () => {
       deliverySiteId: null,
       consigneeOpeningFrom: "",
       consigneeOpeningTo: "",
+      deliveryPhone: "",
+      deliveryNotes: "",
     });
   });
 
@@ -1053,6 +1055,9 @@ describe("a shipper or consignee picked from the Customer Database", () => {
       pickupPostcode: "17000",
       pickupCountry: "CZ",
     });
+    // A shipper has no delivery telephone or notes to clear.
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).not.toHaveProperty("deliveryPhone");
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).not.toHaveProperty("deliveryNotes");
   });
 
   it("leaves the stop alone when the party is the same, unlinked, sent with its own address, or has no address", async () => {

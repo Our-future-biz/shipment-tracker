@@ -298,7 +298,9 @@ class RailTariffService {
         refused.set(key, { ...entry, rows: entry.rows + 1 });
         continue;
       }
-      const same = `${row.versionId}|${row.via}|${row.emptyDepot}|${offer.lines.map((l) => `${l.bandCode}:${l.price}`).join(",")}`;
+      // Two rows alike but for their own end date are two offers: each holds until its own day, and
+      // the offer shows (and the quote's lines keep) that day.
+      const same = `${row.versionId}|${row.via}|${row.emptyDepot}|${row.validTo ?? ""}|${offer.lines.map((l) => `${l.bandCode}:${l.price}`).join(",")}`;
       if (seen.has(same)) continue;
       seen.add(same);
       offers.push({
@@ -317,7 +319,8 @@ class RailTariffService {
         via: row.via,
         emptyDepot: row.emptyDepot,
         note: row.note,
-        validTo: row.versionValidTo,
+        // The row's own end where it comes before the version's: the price holds only until then.
+        validTo: [row.validTo, row.versionValidTo].filter((d): d is string => !!d).sort()[0] ?? null,
         lines: offer.lines,
         total: offer.total,
       });

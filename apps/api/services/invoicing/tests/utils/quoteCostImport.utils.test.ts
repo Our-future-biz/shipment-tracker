@@ -188,6 +188,18 @@ describe("quoteLinesToCostRows", () => {
     expect(selling(lines).map((row) => [row.qty, row.amount])).toEqual([["1", "2600.00"]]);
   });
 
+  // User Council S1, owner answer Q10 (20 Nov 2026): the job gets the kilos, not quantity 1.
+  it("copies an air line priced per chargeable kg as its kilos and its rate per kg", () => {
+    const perKg = (unitPrice: number, amount: number, qty = 640) => ({ type: "Air freight", description: "PRG → ORD", basis: "kg", value: qty, qty, unit: "chargeable kg", unitPrice, amount, currency: "EUR" });
+    // The quote counts the chargeable weight to 0.1 kg, as the job does (web lib/chargeBasis chargeableKg).
+    const lines = [perKg(1.65, 1056), perKg(2.1, 1345.47, 640.7)];
+    expect(buying(lines).map((row) => [row.estQty, row.estAmount, row.realQty, row.unit])).toEqual([
+      ["640.00", "1.65", "640.00", "chargeable kg"],
+      ["640.70", "2.10", "640.70", "chargeable kg"],
+    ]);
+    expect(selling([perKg(2.1, 1344)]).map((row) => [row.qty, row.amount])).toEqual([["640.00", "2.10"]]);
+  });
+
   it("copies one side without the other", () => {
     expect(quoteLinesToCostRows({ buyingLines: QUOTE.buyingLines })).toMatchObject({ buying: [{}, {}, {}], selling: [] });
     expect(quoteLinesToCostRows({ sellingLines: QUOTE.sellingLines })).toMatchObject({ buying: [], selling: [{}, {}] });

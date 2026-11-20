@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { partyContact, partyStop, type PartyAddress } from "../lib/partyAddress";
+import { partyContact, partyStop, stopKeys, type PartyAddress } from "../lib/partyAddress";
 
 const address = (over: Partial<PartyAddress> = {}): PartyAddress => ({
   types: ["Pickup"],
@@ -13,7 +13,16 @@ const address = (over: Partial<PartyAddress> = {}): PartyAddress => ({
   ...over,
 });
 const customer = (registeredAddress = "", country = "CZ") => ({ registeredAddress, country });
-const cleared = { siteId: null, openingFrom: "", openingTo: "" };
+// What belonged to the party picked before: its site, hours, and (the consignee's) Delivery Phone and Notes.
+const cleared = { siteId: null, openingFrom: "", openingTo: "", phone: "", notes: "" };
+
+describe("stopKeys", () => {
+  it("clears the consignee's Delivery Phone and Delivery Notes with its stop; the shipper's stop has none (E5)", () => {
+    expect(stopKeys("consignee")).toMatchObject({ phone: "deliveryPhone", notes: "deliveryNotes" });
+    expect(stopKeys("shipper")).not.toHaveProperty("phone");
+    expect(stopKeys("shipper")).not.toHaveProperty("notes");
+  });
+});
 
 describe("partyStop", () => {
   const addresses = [

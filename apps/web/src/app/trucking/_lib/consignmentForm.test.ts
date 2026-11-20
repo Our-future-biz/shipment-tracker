@@ -105,7 +105,30 @@ describe("prefill", () => {
     const f = formFromShipment(shipment, [site], TODAY);
     expect(f).toMatchObject({ shipmentId: "sh1", jobNumber: "ECZ2026000001", customerId: "cust", customerName: "ACME", pickupDate: "2026-10-20" });
     expect(f.pickup.name).toBe("Sklad Brno");
-    expect(f.delivery).toMatchObject({ siteId: null, name: "Shop", street: "Na Příkopě 1", postcode: "11000" });
+    expect(f.delivery).toMatchObject({ siteId: null, name: "Shop", street: "Na Příkopě 1", postcode: "11000", contactName: "", contactPhone: "", notes: "" });
+  });
+
+  it("gives the delivery stop the job's contact, telephone and notes, as approved Import Instructions left them (E5)", () => {
+    const job = { id: "sh1", jobNumber: "CZLCL00000054", customerId: "cust", customer: "ACME", deliverySiteId: null, deliveryPostcode: "10200", deliveryAddress: "Sazečská 560/8", consignee: "Shop", deliveryCountry: "CZ", consigneeContact: "Petr Skladník", deliveryPhone: "+420 602 345 678", deliveryNotes: "Mon-Fri 08:00-14:00, ramp" };
+    const f = formFromShipment(job as unknown as ShipmentItem, [], TODAY);
+    expect(f.delivery).toMatchObject({ contactName: "Petr Skladník", contactPhone: "+420 602 345 678", notes: "Mon-Fri 08:00-14:00, ramp", avizaceRequired: false });
+    // A site the job names with nobody to call takes the job's pair.
+    const onSite = formFromShipment({ ...job, deliverySiteId: "s1" } as unknown as ShipmentItem, [{ ...site, avizaceName: "", avizacePhone: "", loadingNotes: "" } as CustomerSiteItem], TODAY);
+    expect(onSite.delivery).toMatchObject({ siteId: "s1", contactName: "Petr Skladník", contactPhone: "+420 602 345 678", notes: "Mon-Fri 08:00-14:00, ramp" });
+    // A site with its own avizace keeps it; its loading notes come first, the job's time window after them.
+    const ownSite = formFromShipment({ ...job, deliverySiteId: "s1" } as unknown as ShipmentItem, [site], TODAY);
+    expect(ownSite.delivery).toMatchObject({ contactName: "Petr", contactPhone: "+420 600 000 000", notes: "Ramp 3\nMon-Fri 08:00-14:00, ramp" });
+  });
+
+  it("takes the delivery's person and telephone as one pair, never the site's name with the job's number", () => {
+    const job = { id: "sh1", jobNumber: "CZLCL00000054", customerId: "cust", customer: "ACME", deliverySiteId: "s1", deliveryPostcode: "10200", deliveryAddress: "Sazečská 560/8", consignee: "Shop", deliveryCountry: "CZ", consigneeContact: "Petr Skladník", deliveryPhone: "+420 602 345 678", deliveryNotes: "" };
+    const nameOnly = formFromShipment(job as unknown as ShipmentItem, [{ ...site, avizacePhone: "" } as CustomerSiteItem], TODAY);
+    expect(nameOnly.delivery).toMatchObject({ contactName: "Petr", contactPhone: "", notes: "Ramp 3" });
+    const phoneOnly = formFromShipment(job as unknown as ShipmentItem, [{ ...site, avizaceName: "" } as CustomerSiteItem], TODAY);
+    expect(phoneOnly.delivery).toMatchObject({ contactName: "", contactPhone: "+420 600 000 000" });
+    // Notes the site already carries are not written twice.
+    const same = formFromShipment({ ...job, deliveryNotes: "Ramp 3" } as unknown as ShipmentItem, [site], TODAY);
+    expect(same.delivery.notes).toBe("Ramp 3");
   });
 
   it("takes a quote's road transport and books it at the quote's price", () => {
