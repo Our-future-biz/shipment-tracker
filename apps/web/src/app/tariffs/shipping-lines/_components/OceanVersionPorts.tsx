@@ -158,6 +158,7 @@ const PortChoice = ({ port, disabled, onSet }: PortChoiceProps) => (
     )}
     <GeoSelect
       kind="place"
+      seaports
       size="small"
       value={null}
       allowClear={false}

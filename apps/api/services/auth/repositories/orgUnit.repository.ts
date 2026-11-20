@@ -4,6 +4,7 @@ import { db } from "../db/db";
 import { departmentTable, branchTable, countryTable } from "../schemas/orgUnit.schema";
 import { locationTable } from "../schemas/location.schema";
 import type { Place } from "../../../lib/geo/place";
+import { CARRIER_PORT_NAMES, carrierCodeWhere, carrierPortsNamed } from "../../../lib/geo/carrierPorts";
 
 class DepartmentRepository extends TenantRepository<typeof departmentTable> {
   constructor() {
@@ -74,6 +75,29 @@ class CountryRepository extends TenantRepository<typeof countryTable> {
   }
 }
 
+// A column of a place as the pickers show it, `shown` naming the codes whose value differs. The
+// values go in as bound parameters, so a name such as "Xi'an" can never break the SQL (review of
+// user council step 3, minor 3); only the column names, fixed here, are written into it.
+const byCode = (column: "name" | "name_ascii" | "subdivision_name", shown: Readonly<Record<string, string>>) =>
+  sql`CASE "location"."code" ${sql.join(
+    Object.entries(shown).map(([code, value]) => sql`WHEN ${code} THEN ${value}`),
+    sql` `,
+  )} ELSE ${sql.raw(`"location"."${column}"`)} END`;
+
+// A place's name as the pickers show it: the carrier codes the release gives an airport (CNSHA, …)
+// by their port's name (lib/geo/carrierPorts).
+const shownName = (column: "name" | "name_ascii") => byCode(column, CARRIER_PORT_NAMES);
+
+// Where a picker says a place is: a carrier code says so, and its port's own code, so the two
+// "Shanghai" rows of the sea pickers are told apart (review of user council step 3, M2).
+const CARRIER_CODE_WHERE: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.keys(CARRIER_PORT_NAMES).flatMap((code) => {
+    const where = carrierCodeWhere(code);
+    return where ? [[code, where]] : [];
+  }),
+);
+const shownSubdivision = () => byCode("subdivision_name", CARRIER_CODE_WHERE);
+
 // UN/LOCODE places: reference data, the same for every company.
 class LocationRepository {
   async listByCountry(countryCode: string) {
@@ -102,37 +126,51 @@ class LocationRepository {
     subdivisionName: locationTable.subdivisionName,
   };
 
+  // The same, named as the pickers show a place.
+  private readonly shownColumns = { ...this.placeColumns, name: sql<string>`${shownName("name")}` };
+
   /**
    * Places worldwide whose code or name starts with the text (or a word of the name does), for
-   * the place pickers. With `pickedBy`, the places that user picked most come first (location_pick);
-   * then the exact code, then names that start with the text.
+   * the place pickers. With `seaports` (the Port of Loading / Discharge of a sea quote or job), the
+   * seaports come first and the other places after them, each in the order below (user council
+   * O1 / S10, owner's answer Q3: "Hamburg" no longer lists towns in Oregon before Hamburg's port).
+   * With `pickedBy`, the places that user picked most come first (location_pick); then the exact
+   * code, then names that start with the text. The carrier codes the release gives an airport are
+   * named, found and ranked by their port's name (CNSHA as "Shanghai"), and say where they are as
+   * "carrier code for Shanghai port CNSGH" (the subdivision the pickers show at the side).
    * `query` is ASCII-folded by the caller, matching `name_ascii`.
    */
-  async search(query: string, countryCode: string | null, limit: number, pickedBy?: { companyId: string; userId: string }) {
+  async search(query: string, countryCode: string | null, limit: number, pickedBy?: { companyId: string; userId: string }, seaports = false) {
     const prefix = `${query}%`;
     const inCountry = countryCode ? sql`AND country_code = ${countryCode}` : sql``;
     const picks = pickedBy
       ? sql`LEFT JOIN location_pick lp ON lp.code = p.code AND lp.company_id = ${pickedBy.companyId} AND lp.user_id = ${pickedBy.userId}`
       : sql`LEFT JOIN (SELECT NULL::text AS code, 0 AS picks) lp ON false`;
+    // Read only when asked, so the other pickers never depend on the column (migration 0024).
+    const seaportColumn = seaports ? sql`, is_seaport` : sql``;
+    const portsFirst = seaports ? sql`p.is_seaport DESC,` : sql``;
+    // The typed text without the caller's LIKE escapes, for the port names of the carrier codes.
+    const carrierCodes = carrierPortsNamed(query.replace(/\\([\\%_])/g, "$1"));
+    const carrierPorts = carrierCodes.length ? sql` OR code IN (${sql.join(carrierCodes.map((c) => sql`${c}`), sql`, `)})` : sql``;
     const result = await db.execute<Place & Record<string, unknown>>(sql`
       SELECT p.code, p.country_code AS "countryCode", p.name, p.subdivision_name AS "subdivisionName" FROM (
-        SELECT DISTINCT ON (code) code, country_code, name, name_ascii, subdivision_name FROM location
-        WHERE (code ILIKE ${prefix} OR name_ascii ILIKE ${prefix} OR name_ascii ILIKE ${`% ${query}%`} OR name_ascii ILIKE ${`%(${query}%`}) ${inCountry}
+        SELECT DISTINCT ON (code) code, country_code, ${shownName("name")} AS name, ${shownName("name_ascii")} AS name_ascii, ${shownSubdivision()} AS subdivision_name${seaportColumn} FROM location
+        WHERE (code ILIKE ${prefix} OR name_ascii ILIKE ${prefix} OR name_ascii ILIKE ${`% ${query}%`} OR name_ascii ILIKE ${`%(${query}%`}${carrierPorts}) ${inCountry}
         ORDER BY code, id
       ) p
       ${picks}
-      ORDER BY COALESCE(lp.picks, 0) DESC,
+      ORDER BY ${portsFirst} COALESCE(lp.picks, 0) DESC,
         CASE WHEN p.code ILIKE ${query} THEN 0 WHEN p.name_ascii ILIKE ${query} THEN 1 WHEN p.name_ascii ILIKE ${prefix} THEN 2 ELSE 3 END,
         length(p.name), p.name, p.code
       LIMIT ${limit}`);
     return result.rows;
   }
 
-  /** One row per known code (the first-listed name where a code has several). */
+  /** One row per known code (the first-listed name where a code has several), named as the pickers show it. */
   async findByCodes(codes: string[]) {
     if (codes.length === 0) return [];
     return db
-      .selectDistinctOn([locationTable.code], this.placeColumns)
+      .selectDistinctOn([locationTable.code], this.shownColumns)
       .from(locationTable)
       .where(inArray(locationTable.code, codes))
       .orderBy(locationTable.code, asc(locationTable.id));

@@ -83,6 +83,23 @@ describe("startingStateDefaults", () => {
   });
 });
 
+describe("startingStateDefaults on an air job (step 3 review M1)", () => {
+  it("does not seed the VGM on an air job, the other starting states as on any job", () => {
+    expect(startingStateDefaults({ freightMode: "Air Freight" })).not.toHaveProperty("vgm");
+    expect(startingStateDefaults({ freightMode: " air freight" })).toMatchObject({ creditCheck: "Red", bookingConfirmation: "Pending", bolDraft: "Not Processed" });
+  });
+
+  it("seeds it on a job switched to sea that has none, and on a job without a mode", () => {
+    expect(startingStateDefaults({ freightMode: "Sea Freight", vgm: "" })).toMatchObject({ vgm: "Pending (Red)" });
+    expect(startingStateDefaults({ freightMode: "Sea Break Bulk" })).toMatchObject({ vgm: "Pending (Red)" });
+    expect(startingStateDefaults({ freightMode: "" })).toMatchObject({ vgm: "Pending (Red)" });
+  });
+
+  it("leaves a VGM an air job already holds as it is", () => {
+    expect(startingStateDefaults({ freightMode: "Air Freight", vgm: "Pending (Red)" })).not.toHaveProperty("vgm");
+  });
+});
+
 describe("isCreditApproval", () => {
   it("fires when the check moves to Green", () => {
     expect(isCreditApproval("Green", "Red")).toBe(true);

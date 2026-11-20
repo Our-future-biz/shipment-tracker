@@ -187,11 +187,12 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
     try {
       // A new master job is created once, under the number the server hands out (the one shown is
       // its guess), and every shipment is then linked to it: the links never create one of their own,
-      // nor join one a colleague created meanwhile under the guessed number.
+      // nor join one a colleague created meanwhile under the guessed number. It starts with what the
+      // chosen shipments all agree on, read on the server (User Council O10), not blank.
       let mczNumber = activeMCZ;
       if (mode === "new") {
         try {
-          mczNumber = (await createMasterJob.mutateAsync()).masterJob.mczNumber;
+          mczNumber = (await createMasterJob.mutateAsync({ fromShipmentIds: chosen })).masterJob.mczNumber;
         } catch (err) {
           toast.error(`The master job could not be created: ${apiErrorMessage(err)}`);
           return;

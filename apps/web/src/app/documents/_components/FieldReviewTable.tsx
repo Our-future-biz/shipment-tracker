@@ -22,6 +22,20 @@ interface FieldReviewTableProps {
   containersOnFile?: string[];
 }
 
+/**
+ * The Freight Mode the record will have once the reading is written: the one read when it is ticked,
+ * else the one it holds ("Sea Freight" on a shipment, "Sea FCL" on a quote). A master job's reading
+ * has no Freight Mode field: "".
+ */
+export function readingFreightMode(fields: readonly ExtractedField[]): string {
+  const mode = fields.find((f) => f.column === "Freight Mode");
+  if (!mode) return "";
+  return (mode.approved && mode.extractedValue.trim()) || mode.existingValue.trim() || mode.extractedValue.trim();
+}
+
+/** Whether a field's place picker lists the seaports first: a sea reading's Port of Loading and Discharge (user council O1 / S10, owner's answer Q3). */
+export const seaportsFirst = (column: string, freightMode: string): boolean => (column === "POL" || column === "POD") && /^sea/i.test(freightMode);
+
 export function FieldReviewTable({
   fields,
   onToggle,
@@ -40,6 +54,7 @@ export function FieldReviewTable({
   const sealsByRowOrder = parseContainerNumbers(containerRow?.extractedValue).length === 0 && containersOnFile.length > 0;
   // A seal goes on a container: one that is neither on file nor ticked to be added leaves it nowhere.
   const sealStranded = !!containerRow && !containerRow.approved && parseContainerNumbers(containerRow.extractedValue).some((n) => !containersOnFile.includes(n));
+  const freightMode = readingFreightMode(fields);
 
   type Row = (typeof rows)[number];
 
@@ -67,7 +82,14 @@ export function FieldReviewTable({
         const value = geoKind ? (
           editable ? (
             <span className="flex items-center">
-              <GeoSelect kind={geoKind} size="small" className="w-full max-w-[320px]" value={v} onChange={(next) => onEdit?.(row.index, next)} />
+              <GeoSelect
+                kind={geoKind}
+                seaports={seaportsFirst(row.column, freightMode)}
+                size="small"
+                className="w-full max-w-[320px]"
+                value={v}
+                onChange={(next) => onEdit?.(row.index, next)}
+              />
               <GeoFlag kind={geoKind} value={v} />
             </span>
           ) : (

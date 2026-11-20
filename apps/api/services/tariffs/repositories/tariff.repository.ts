@@ -2,6 +2,7 @@ import { APIError } from "encore.dev/api";
 import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { containsAllWords, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
+import { samePortCodes } from "../../../lib/geo/carrierPorts";
 import { db } from "../db/db";
 import { giveWay } from "../lib/versionGiveWay";
 import type {
@@ -785,7 +786,12 @@ class TariffRepository {
       .orderBy(asc(tariffTable.name));
   }
 
-  /** The rates of the company's versions to a port of discharge, from one port of loading or (null) any. */
+  /**
+   * The rates of the company's versions to a port of discharge, from one port of loading or (null)
+   * any. A port is found by either of its codes: the carrier code a quote may hold (CNSHA) and the
+   * code the tariffs match the port's name to (CNSGH), both ways (lib/geo/carrierPorts; review of
+   * user council step 3, M2).
+   */
   async oceanRoute(companyId: string, versionIds: string[], podCode: string, polCode: string | null): Promise<OceanRateWithPorts[]> {
     if (!versionIds.length) return [];
     return oceanRatesWithPorts()
@@ -793,8 +799,8 @@ class TariffRepository {
         and(
           eq(oceanRateTable.companyId, companyId),
           inArray(oceanRateTable.versionId, versionIds),
-          eq(podPort.code, podCode),
-          polCode ? eq(polPort.code, polCode) : sql`${polPort.code} IS NOT NULL`,
+          inArray(podPort.code, samePortCodes(podCode)),
+          polCode ? inArray(polPort.code, samePortCodes(polCode)) : sql`${polPort.code} IS NOT NULL`,
         ),
       )
       .orderBy(asc(oceanRateTable.versionId), asc(oceanRateTable.tableNo), asc(oceanRateTable.rowNo))

@@ -1329,6 +1329,7 @@ class ShipmentService {
         masterBolType: shipmentData.masterBolType ?? "",
       }),
       startingStateDefaults({
+        freightMode: shipmentData.freightMode,
         creditCheck: shipmentData.creditCheck,
         vgm: shipmentData.vgm,
         bookingConfirmation: shipmentData.bookingConfirmation,
@@ -1515,6 +1516,7 @@ class ShipmentService {
         masterBolType: after("masterBolType"),
       }),
       startingStateDefaults({
+        freightMode: after("freightMode"),
         creditCheck: after("creditCheck"),
         vgm: after("vgm"),
         bookingConfirmation: after("bookingConfirmation"),

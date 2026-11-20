@@ -49,6 +49,9 @@ export interface LocationInfo {
 // A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
 export type PlaceInfo = Place;
 
+/** What a place picker asks for: "sea" lists the seaports first (a sea quote's or job's POL / POD). */
+export type PlaceSearchMode = "sea";
+
 export interface PlaceCandidateQuery {
   // The written name (accents are folded here).
   name: string;
@@ -174,10 +177,11 @@ class OrgUnitService {
   }
 
   // `pickedBy`: the user searching, whose most picked places are listed first.
-  async searchPlaces(query: string, countryCode?: string, pickedBy?: Picker): Promise<PlaceInfo[]> {
+  // By sea (`mode` "sea": the Port of Loading / Discharge of a sea quote or job), seaports first.
+  async searchPlaces(query: string, countryCode?: string, pickedBy?: Picker, mode?: PlaceSearchMode): Promise<PlaceInfo[]> {
     const q = likeSafe(asciiFold(query ?? ""));
     if (q.length < 2) return [];
-    return locationRepository.search(q, countryCode ? countryCode.toUpperCase() : null, 30, pickedBy);
+    return locationRepository.search(q, countryCode ? countryCode.toUpperCase() : null, 30, pickedBy, mode === "sea");
   }
 
   // IATA airports, offered beside the places when a quote or shipment goes by air. Searched in

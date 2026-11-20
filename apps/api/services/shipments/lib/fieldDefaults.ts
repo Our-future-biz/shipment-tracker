@@ -35,6 +35,9 @@ export function exportBolDefaults(
 
 // The states a shipment starts in: nothing is approved or confirmed yet. Only
 // blank fields are seeded, so these never overwrite a state someone set.
+// The VGM is not seeded on an air job (step 3 review M1, owner's answer Q8): it is a SOLAS rule for
+// containers, and a "Pending (Red)" would show air jobs a VGM that is never due. Switched to sea, a
+// job with no VGM gets it then. A VGM an air job already holds is left as it is.
 export interface StartingStates {
   creditCheck?: string;
   vgm?: string;
@@ -47,7 +50,10 @@ export interface StartingStates {
   bolDraft?: string;
 }
 
+const isAirMode = (freightMode: string | null | undefined): boolean => /^\s*air/i.test(freightMode ?? "");
+
 export function startingStateDefaults(current: {
+  freightMode?: string | null;
   creditCheck?: string | null;
   vgm?: string | null;
   bookingConfirmation?: string | null;
@@ -60,7 +66,7 @@ export function startingStateDefaults(current: {
 }): StartingStates {
   const defaults: StartingStates = {};
   if (isBlank(current.creditCheck)) defaults.creditCheck = DEFAULT_CREDIT_CHECK;
-  if (isBlank(current.vgm)) defaults.vgm = DEFAULT_VGM;
+  if (isBlank(current.vgm) && !isAirMode(current.freightMode)) defaults.vgm = DEFAULT_VGM;
   if (isBlank(current.bookingConfirmation)) defaults.bookingConfirmation = DEFAULT_BOOKING_CONFIRMATION;
   if (isBlank(current.invoicingStatus)) defaults.invoicingStatus = DEFAULT_INVOICING_STATUS;
   if (isBlank(current.shippingInstructions)) defaults.shippingInstructions = DEFAULT_SHIPPING_INSTRUCTIONS;

@@ -9,11 +9,22 @@ const PLACES_KEY = "places";
 const AIRPORTS_KEY = "airports";
 const TERMINALS_KEY = "terminals";
 
+/**
+ * The places request: with `seaports` (the Port of Loading / Discharge of a sea quote or job) the
+ * server lists the seaports first (user council O1 / S10, owner's answer Q3), cached apart from the
+ * plain list of the same text.
+ */
+export function placeSearchQuery(q: string, seaports = false) {
+  return {
+    queryKey: seaports ? [PLACES_KEY, q, "sea"] : [PLACES_KEY, q],
+    queryFn: () => api.auth.placeSearch(seaports ? { q, mode: "sea" } : { q }),
+  };
+}
+
 // Places (UN/LOCODE) matching a search text; asks only once the text has 2+ characters.
-export const usePlaceSearch = (q: string, enabled = true) =>
+export const usePlaceSearch = (q: string, enabled = true, seaports = false) =>
   useQuery({
-    queryKey: [PLACES_KEY, q],
-    queryFn: () => api.auth.placeSearch({ q }),
+    ...placeSearchQuery(q, seaports),
     enabled: enabled && q.length >= 2,
     staleTime: Infinity,
   });

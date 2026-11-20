@@ -383,6 +383,54 @@ describe("the houses a vendor invoice read by B/L is checked against", () => {
   });
 });
 
+// User Council O10, owner's answer Q6: a master job made from houses starts with what they all agree on.
+describe("creating a master job for chosen shipments", () => {
+  const H1 = "00000000-0000-0000-0000-0000000000b1";
+  const H2 = "00000000-0000-0000-0000-0000000000b2";
+  const repo = masterJobRepository as unknown as Record<string, ReturnType<typeof vi.fn>>;
+  const houses: Record<string, Record<string, unknown>> = {
+    [H1]: { id: H1, freightMode: "Sea Freight", tradeDirection: "Import", loadType: "Consolidation", pol: "CNNGB", pod: "DEHAM", vessel: "MSC ANNA", masterBolNumber: "MEDU1234567", masterBolType: "OBL" },
+    [H2]: { id: H2, freightMode: "Sea Freight", tradeDirection: "Import", loadType: "Consolidation", pol: "CNNGB", pod: "DEHAM", vessel: "MSC BELLA", masterBolNumber: "MEDU1234567", masterBolType: "OBL" },
+  };
+
+  beforeEach(() => {
+    // The company's live shipments among the ids, as the one read gives them.
+    repo.liveShipmentsByIds = vi.fn(async (companyId: string, ids: string[]) => (companyId === COMPANY ? ids.flatMap((id) => (houses[id] ? [houses[id]] : [])) : []));
+    repo.createWithMczNumber = vi.fn(async (_companyId: string, createdBy: string, values: Record<string, unknown>) =>
+      record({ mczNumber: values.loadType ? "MCZCONSOL00000009" : "MCZ00000009", createdBy, ...values }),
+    );
+    vi.mocked(userEmailOf).mockResolvedValue("anna@cto.cz");
+  });
+
+  it("stores what the houses agree on with the new master job, in its create - not the Master B/L of the master job they are on (step 3 review M3)", async () => {
+    const { masterJob, reused } = await masterJobService.createForMasterBol(COMPANY, "", USER, [H1, H2]);
+    expect(repo.createWithMczNumber).toHaveBeenCalledWith(COMPANY, "anna@cto.cz", {
+      freightMode: "Sea Freight",
+      tradeDirection: "Import",
+      loadType: "Consolidation",
+      pol: "CNNGB",
+      pod: "DEHAM",
+    });
+    expect(reused).toBe(false);
+    expect(masterJob.mczNumber).toBe("MCZCONSOL00000009");
+    // Nothing is written onto the houses by the create: they are linked afterwards.
+    expect(shipmentService.update).not.toHaveBeenCalled();
+  });
+
+  it("reads the company's live shipments in one read: an unknown id or one that is no id is left out, each id once", async () => {
+    await masterJobService.create(COMPANY, USER, [H1, "not-an-id", "00000000-0000-0000-0000-0000000000ff", H1]);
+    expect(repo.liveShipmentsByIds).toHaveBeenCalledTimes(1);
+    expect(repo.liveShipmentsByIds).toHaveBeenCalledWith(COMPANY, [H1, "00000000-0000-0000-0000-0000000000ff"]);
+    expect(repo.createWithMczNumber.mock.calls[0]![2]).toMatchObject({ vessel: "MSC ANNA", loadType: "Consolidation" });
+  });
+
+  it("is empty without shipments, as before", async () => {
+    repo.liveShipmentsByIds = vi.fn(async () => []);
+    await masterJobService.create(COMPANY, USER);
+    expect(repo.createWithMczNumber).toHaveBeenCalledWith(COMPANY, "anna@cto.cz", {});
+  });
+});
+
 describe("attaching a shipment to a master job", () => {
   const S = "00000000-0000-0000-0000-0000000000s1";
   const OLD = "00000000-0000-0000-0000-0000000000m0";

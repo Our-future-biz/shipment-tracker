@@ -318,6 +318,13 @@ describe("the cut-offs: which are open", () => {
     expect(due({ vgmClosing: null, vgm: "Pending (Red)" })).toEqual([]);
   });
 
+  it("VGM on an air job, which no longer starts with one (step 3 review M1): the same as before, by its closing date alone", () => {
+    expect(due({ freightMode: "Air Freight", vgmClosing: null, vgm: "" })).toEqual([]);
+    expect(due({ freightMode: "Air Freight", vgmClosing: null, vgm: "Pending (Red)" })).toEqual([]);
+    // A VGM closing typed on an air job still speaks, whether the VGM is blank or the old starting value.
+    expect(due({ freightMode: "Air Freight", vgmClosing: "2026-11-19", vgm: "" })).toEqual(due({ freightMode: "Air Freight", vgmClosing: "2026-11-19", vgm: "Pending (Red)" }));
+  });
+
   it("SI: by its closing date, unless Confirmed - Not Applicable does not close it", () => {
     expect(due({ siClosing: "2026-11-18", shippingInstructions: "Pending" })).toEqual(["siClosing 0 urgent"]);
     expect(due({ siClosing: "2026-11-18", shippingInstructions: "Not Applicable" })).toEqual(["siClosing 0 urgent"]);

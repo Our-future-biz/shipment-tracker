@@ -1,4 +1,5 @@
 import { containerType } from "../../../lib/containerTares";
+import { samePortCodes } from "../../../lib/geo/carrierPorts";
 import type { OceanEquipment, OceanOfferLine, OceanOfferSurcharge, OceanSurcharge } from "../interfaces/interfaces";
 import { roundCents } from "./money";
 
@@ -41,11 +42,15 @@ export interface SurchargeContext {
 /** Whether a surcharge applies to a rate: "yes", "no", or "manual" for one only charged on a booking made by hand. */
 export function surchargeApplies(s: OceanSurcharge, ctx: SurchargeContext): "yes" | "no" | "manual" {
   const country = ctx.podCode.slice(0, 2);
+  // A port named by either of its codes: the carrier code (CNSHA) or its port's (CNSGH), as the
+  // route is found (lib/geo/carrierPorts; review of user council step 3, M2).
+  const podCodes = samePortCodes(ctx.podCode);
+  const listed = (ports: readonly string[]) => podCodes.some((code) => ports.includes(code));
   if (s.tables.length && !s.tables.includes(ctx.table)) return "no";
   if (s.countries.length && !s.countries.includes(country)) return "no";
   if (s.exceptCountries.includes(country)) return "no";
-  if (s.ports.length && !s.ports.includes(ctx.podCode)) return "no";
-  if (s.exceptPorts.includes(ctx.podCode)) return "no";
+  if (s.ports.length && !listed(s.ports)) return "no";
+  if (listed(s.exceptPorts)) return "no";
   if (s.condition === "dangerous" && !ctx.dangerous) return "no";
   if (s.condition === "manual_booking") return "manual";
   return "yes";

@@ -5,7 +5,7 @@ import { requireRole } from "../../../lib/rbac";
 import type { Airport } from "../../../lib/geo/airports";
 import type { InlandTerminal, Terminal } from "../../../lib/geo/terminals";
 import { orgUnitService } from "../services/orgUnit.service";
-import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo, PlaceInfo, PlaceCandidateQuery } from "../services/orgUnit.service";
+import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo, PlaceInfo, PlaceCandidateQuery, PlaceSearchMode } from "../services/orgUnit.service";
 
 // The company's departments, branches and countries. Everyone in the company can read them
 // (the noticeboard and user forms need the names); only admins maintain them.
@@ -185,6 +185,8 @@ export const locationList = api(
 interface PlaceSearchRequest {
   q: string;
   countryCode?: string;
+  /** "sea": seaports first, for the Port of Loading / Discharge of a sea quote or job. */
+  mode?: PlaceSearchMode;
 }
 interface PlaceListResponse {
   places: PlaceInfo[];
@@ -194,7 +196,7 @@ interface PlaceListResponse {
 export const placeSearch = api(
   { expose: true, auth: true, method: "GET", path: "/auth/places" },
   async (req: PlaceSearchRequest): Promise<PlaceListResponse> => {
-    return { places: await orgUnitService.searchPlaces(req.q, req.countryCode, picker()) };
+    return { places: await orgUnitService.searchPlaces(req.q, req.countryCode, picker(), req.mode) };
   },
 );
 

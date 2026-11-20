@@ -10,6 +10,7 @@ import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { COLUMN_MAP } from "@/lib/columnConfig";
+import { loadTypeLabel } from "@/lib/enums";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useNextJobNumber } from "@/hooks/useNextJobNumber";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
@@ -50,7 +51,16 @@ type WizardStep = "ask-copy" | "select-fields" | "confirm-costs" | "created";
 // Ordered field keys offered on the "Select Fields to Copy" step. No people: the copy's Person In
 // Charge is whoever creates it, never the source's (which may still be an old free-text name).
 // "origin" is not part of the create payload — it is applied via a follow-up update.
-const COPYABLE_FIELDS = [
+// The customer and what the job is (direction, mode, load type, service type) come along too (User
+// Council O9/M1, owner's answer Q5): sent with the create, so the server gives the copy the status of
+// its direction and the job number of its mode and load type at once.
+export const COPYABLE_FIELDS = [
+  "customer",
+  "customerReference",
+  "tradeDirection",
+  "freightMode",
+  "loadType",
+  "serviceType",
   "shipper",
   "consignee",
   "agent",
@@ -62,9 +72,43 @@ const COPYABLE_FIELDS = [
   "pol",
   "pod",
   "destination",
+  "shippingLine",
   "hsCode",
   "cargoDescription",
 ] as const;
+
+/**
+ * The fields ticked when the step opens: all but the Customer Reference - a new job is a new order,
+ * whose reference the customer gives anew (owner's answer Q5). It can still be ticked.
+ */
+export const DEFAULT_COPY_FIELDS: ReadonlySet<string> = new Set(COPYABLE_FIELDS.filter((key) => key !== "customerReference"));
+
+/**
+ * What a copy sends of the source: each ticked field it has filled in, over what a blank job starts
+ * with (an Import by Sea, unless direction and mode are copied); the Origin apart, set by an update
+ * after the create. `copied` lists the fields the request took, for the links of copied names.
+ */
+export function copyRequest(
+  base: controllers.ShipmentCreateRequest,
+  source: ShipmentItem,
+  selected: ReadonlySet<string>,
+): { request: controllers.ShipmentCreateRequest; copied: string[]; origin: string } {
+  const request = { ...base };
+  const copied: string[] = [];
+  let origin = "";
+  for (const key of COPYABLE_FIELDS) {
+    if (!selected.has(key)) continue;
+    const val = getFieldValue(source, key).trim();
+    if (!val) continue;
+    if (key === "origin") {
+      origin = val;
+      continue;
+    }
+    request[key] = val;
+    copied.push(key);
+  }
+  return { request, copied, origin };
+}
 
 // What a create from a quote made of the quote and of its cost lines, as the result words it.
 // Null for a step that did not work.
@@ -110,7 +154,7 @@ export const CreateShipmentWizard = ({
   // What the server answered to a create from a quote, while the result step shows it.
   const [created, setCreated] = useState<controllers.ShipmentCreateResponse | null>(null);
   const [retrying, setRetrying] = useState(false);
-  const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set(COPYABLE_FIELDS));
+  const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set(DEFAULT_COPY_FIELDS));
   const [copyEstimatedCosts, setCopyEstimatedCosts] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -160,7 +204,7 @@ export const CreateShipmentWizard = ({
     setSource(null);
     pickQuote(null);
     setCreated(null);
-    setSelectedFields(new Set(COPYABLE_FIELDS));
+    setSelectedFields(new Set(DEFAULT_COPY_FIELDS));
     setCopyEstimatedCosts(false);
   };
 
@@ -220,20 +264,9 @@ export const CreateShipmentWizard = ({
     if (!source) return;
     setSubmitting(true);
 
-    const request = baseRequest();
-    const copied: string[] = [];
-    let originValue = "";
-    for (const key of COPYABLE_FIELDS) {
-      if (!selectedFields.has(key)) continue;
-      const val = getFieldValue(source, key).trim();
-      if (!val) continue;
-      if (key === "origin") {
-        originValue = val;
-        continue;
-      }
-      request[key] = val;
-      copied.push(key);
-    }
+    // The server gives the copy the starting status of its direction and the job number of its mode
+    // and load type when it stores it: no renumbering afterwards.
+    const { request, copied, origin: originValue } = copyRequest(baseRequest(), source, selectedFields);
 
     let newId: string;
     try {
@@ -430,8 +463,11 @@ export const CreateShipmentWizard = ({
               {/* Searched on the server, so an old shipment can be copied too. */}
               <ShipmentPicker value={source} onChange={setSource} />
               {/* The copied shipment's customer's credit warning and prepayment terms, as for a quote (mock test
-                  council n5): for the operator to read before creating, never a stop. */}
-              {source?.customerId && <CreditWarning customerId={source.customerId} showPrepayment className="mt-3" />}
+                  council n5): for the operator to read before creating, never a stop. Only while the
+                  customer is copied (User Council O9): a copy without it is no job of that customer. */}
+              {source?.customerId && selectedFields.has("customer") && (
+                <CreditWarning customerId={source.customerId} showPrepayment className="mt-3" />
+              )}
             </>
           ) : (
             <>
@@ -554,7 +590,9 @@ export const CreateShipmentWizard = ({
           <div className="max-h-64 overflow-y-auto -mx-1">
             {COPYABLE_FIELDS.map((key) => {
               const label = COLUMN_MAP.get(key)?.title ?? key;
-              const val = source ? getFieldValue(source, key) : "";
+              // A Load Type named by the job's mode, as every other screen names it (an air Full Load is a Single Shipment).
+              const raw = source ? getFieldValue(source, key) : "";
+              const val = key === "loadType" && source ? loadTypeLabel(raw, source.freightMode) : raw;
               return (
                 <label
                   key={key}

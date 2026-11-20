@@ -1,4 +1,4 @@
-import { pgTable, text, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, index, boolean } from "drizzle-orm/pg-core";
 
 // UN/LOCODE places (UNECE 2025-1), the cities a branch is picked from. Reference data shared by
 // all companies, filled by a migration; `id` is the release's Record ID, since one code can carry
@@ -14,6 +14,10 @@ export const locationTable = pgTable(
     name: text("name").notNull(),
     nameAscii: text("name_ascii").notNull(),
     subdivisionName: text("subdivision_name"),
+    // A seaport: UN/LOCODE Function 1 (port), plus the carrier codes the release gives an airport
+    // (CNSHA, CNNGB, ...: lib/geo/carrierPorts; migration 0024). A sea quote's or job's port pickers
+    // list these first.
+    isSeaport: boolean("is_seaport").notNull().default(false),
   },
   (table) => [
     index("location_country_code_idx").on(table.countryCode),

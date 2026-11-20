@@ -36,6 +36,8 @@ interface GeoSelectProps {
   terminals?: boolean;
   /** Say where the chosen place is, in light grey behind it ("Hamburg (USHG7)  Iowa, US"), to tell places of one name apart. */
   showWhere?: boolean;
+  /** List the seaports first, the other places after them (the Port of Loading / Discharge of a sea quote or job). */
+  seaports?: boolean;
 }
 
 interface GeoOption {
@@ -46,8 +48,9 @@ interface GeoOption {
   where?: string;
 }
 
-// An airport or terminal: its code first, then its name, and where it is at the side.
-const codedOption = (code: string, name: string, where: string): GeoOption => ({
+// A place, airport or terminal: its code first, then its name, and where it is at the side. The code
+// leads so a long name cut by the list never hides it (user council O1 / S10, owner's answer Q3).
+export const codedOption = (code: string, name: string, where: string): GeoOption => ({
   value: `${name} (${code})`,
   where,
   label: (
@@ -63,7 +66,8 @@ const codedOption = (code: string, name: string, where: string): GeoOption => ({
 /**
  * Picks a place (UN/LOCODE, searched worldwide; with `airports`, also an IATA airport; with
  * `terminals`, also an ocean or inland terminal) or a country from the database. Places, airports
- * and terminals are listed with the ones the user picks most first. A value not in the database's form (older data, or what the AI
+ * and terminals are listed with the ones the user picks most first; with `seaports`, the seaports
+ * before the other places. A value not in the database's form (older data, or what the AI
  * could not match) is kept and offered as the search text, so the matching places show up
  * straight away.
  */
@@ -81,6 +85,7 @@ export function GeoSelect({
   airports = false,
   terminals = false,
   showWhere = false,
+  seaports = false,
 }: GeoSelectProps) {
   const current = (value ?? "").trim();
   const unmatched = isUnmatched(kind, current);
@@ -94,7 +99,7 @@ export function GeoSelect({
     setSearch(text);
   };
   const debounced = useDebounced(search.trim(), 250);
-  const places = usePlaceSearch(debounced, kind === "place");
+  const places = usePlaceSearch(debounced, kind === "place", seaports);
   const airportList = useAirportSearch(debounced, kind === "place" && airports);
   const terminalList = useTerminalSearch(debounced, kind === "place" && terminals);
   // Each place picked is counted for the user: the lists show the ones they pick most first
@@ -123,20 +128,7 @@ export function GeoSelect({
     if (kind !== "place") {
       return COUNTRY_OPTIONS.map((c) => ({ value: countryValue(c.code, kind), label: c.label, code: c.code }));
     }
-    const found: GeoOption[] = (places.data?.places ?? []).map((p) => ({
-      value: `${p.name} (${p.code})`,
-      where: placeWhere(p),
-      label: (
-        <span className="flex items-baseline justify-between gap-2">
-          <span className="truncate">
-            {p.name} <span className="text-slate-400">({p.code})</span>
-          </span>
-          <span className="shrink-0 text-xs text-slate-400 truncate max-w-[45%]">
-            {placeWhere(p)}
-          </span>
-        </span>
-      ),
-    }));
+    const found: GeoOption[] = (places.data?.places ?? []).map((p) => codedOption(p.code, p.name, placeWhere(p)));
     // Only the kinds this field offers: a search turned off still hands back what an earlier field
     // of another kind cached for the same text.
     const airportOptions = (airports ? (airportList.data?.airports ?? []) : []).map((a) => codedOption(a.code, a.name, airportWhere(a)));

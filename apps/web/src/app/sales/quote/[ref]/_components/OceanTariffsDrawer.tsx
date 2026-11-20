@@ -151,10 +151,10 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
       <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_1fr_150px] gap-3 items-end">
         <TariffDirectionField direction={route.direction} exportFirst />
         <TariffDrawerField label="Port of Loading">
-          <GeoSelect kind="place" className="w-full" placeholder="Port of Loading" value={route.pol} onChange={(v) => set({ pol: v })} />
+          <GeoSelect kind="place" seaports className="w-full" placeholder="Port of Loading" value={route.pol} onChange={(v) => set({ pol: v })} />
         </TariffDrawerField>
         <TariffDrawerField label="Port of Discharge">
-          <GeoSelect kind="place" className="w-full" placeholder="Port of Discharge" value={route.pod} onChange={(v) => set({ pod: v })} />
+          <GeoSelect kind="place" seaports className="w-full" placeholder="Port of Discharge" value={route.pod} onChange={(v) => set({ pod: v })} />
         </TariffDrawerField>
         <TariffDrawerField label="Rates valid on">
           <DatePicker

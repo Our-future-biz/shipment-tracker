@@ -1,4 +1,5 @@
 import { normalizeContainerNumber } from "./cargoProjection";
+import { placeCodeOf } from "../../../lib/geo/format";
 import type { ContainerLine } from "../interfaces/interfaces";
 
 // Pure rules for how a master job's MBL details flow onto its house shipments.
@@ -67,6 +68,63 @@ export function syncedShipmentData(
   for (const key of MASTER_JOB_SYNCED_FIELDS) {
     const value = masterJob[key];
     if (value != null && value !== "") out[key] = value as string;
+  }
+  return out;
+}
+
+/**
+ * What a master job made from houses starts with (User Council O10, owner's answer Q6): its own Freight
+ * Mode and Trade Direction, which only name it, and the synced fields but the Master B/L. Houses that
+ * agree on a Master B/L carry another master job's (step 3 review M3): taken over, two live master
+ * jobs would hold it, and a pre-alert or a vendor invoice read by that B/L would find the old one.
+ * The Master B/L is typed on the new master job, or comes with a pre-alert (createForMasterBol).
+ */
+const NOT_PREFILLED = new Set<string>(["masterBolNumber", "masterBolType"]);
+export const MASTER_JOB_PREFILLED_FIELDS = ["freightMode", "tradeDirection", ...MASTER_JOB_SYNCED_FIELDS.filter((f) => !NOT_PREFILLED.has(f))] as const;
+export type MasterJobPrefilledField = (typeof MASTER_JOB_PREFILLED_FIELDS)[number];
+
+// The place fields, compared by their UN/LOCODE (step 3 review, minor 2): a place is stored as
+// "Name (CODE)", and the name of a code may change ("Shanghai Hongqiao International Apt (CNSHA)",
+// later "Shanghai (CNSHA)") - the same port all the same. Text that is no "Name (CODE)" compares as it is.
+const PLACE_FIELDS = new Set<string>(["pol", "pod"]);
+const sameAs = (key: string) => (value: string) => (PLACE_FIELDS.has(key) ? (placeCodeOf(value) ?? value) : value);
+
+/** When a house was last written, for which house's text a place agreed on by code takes; 0 when unknown. */
+const writtenAt = (house: Record<string, unknown>): number => {
+  const at = house.updatedAt ?? house.createdAt;
+  const time = at instanceof Date ? at.getTime() : typeof at === "string" ? Date.parse(at) : NaN;
+  return Number.isNaN(time) ? 0 : time;
+};
+
+// The synced times, each with the date it belongs to.
+const TIME_OF_DATE: Partial<Record<MasterJobPrefilledField, MasterJobPrefilledField>> = {
+  closingTime: "closingDate",
+  vgmClosingTime: "vgmClosing",
+  siClosingTime: "siClosing",
+  amsDeadlineTime: "amsDeadline",
+  isfDeadlineTime: "isfDeadline",
+};
+
+/**
+ * The values a new master job takes from the houses it is made from: each field every one of them
+ * has filled in alike. A field they differ on, or one of them leaves empty, stays empty, so linking
+ * them changes nothing on any house (an empty master job field is not written onto a house). A place
+ * agrees by its code, and takes the text of the house written last. A time comes only with its date:
+ * on its own it would be a time of no day.
+ */
+export function agreedHouseValues(houses: readonly Record<string, unknown>[]): Partial<Record<MasterJobPrefilledField, string>> {
+  const out: Partial<Record<MasterJobPrefilledField, string>> = {};
+  if (houses.length === 0) return out;
+  // Newest first: where the houses agree on a place by its code, its text is the latest one written.
+  const newest = [...houses].sort((a, b) => writtenAt(b) - writtenAt(a));
+  for (const key of MASTER_JOB_PREFILLED_FIELDS) {
+    const value = newest[0]![key];
+    if (typeof value !== "string" || value === "") continue;
+    const compared = sameAs(key);
+    if (newest.every((h) => typeof h[key] === "string" && compared(h[key] as string) === compared(value))) out[key] = value;
+  }
+  for (const [time, date] of Object.entries(TIME_OF_DATE) as [MasterJobPrefilledField, MasterJobPrefilledField][]) {
+    if (!(date in out)) delete out[time];
   }
   return out;
 }

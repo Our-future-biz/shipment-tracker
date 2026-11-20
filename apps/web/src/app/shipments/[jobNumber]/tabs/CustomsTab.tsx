@@ -57,9 +57,10 @@ const CUSTOMS_LEFT = [
   { key: "cargoOrigin", label: "Cargo Origin" },
 ];
 
-// Left out of the card in the Customs section: Container Number is a link there instead
-// (ContainerNumberRow), and the seal is listed with its container in the Containers card.
-const CUSTOMS_OVERVIEW_HIDDEN = ["containerNumber", "sealNumber"];
+// Left out of the card in the Customs section: the seal is listed with its container in the
+// Containers card. Container Number stays, drawn there as a link (ContainerNumberRow) in its own row,
+// so an air job leaves it out only when the container number is empty (step 3 review, minor 1).
+const CUSTOMS_OVERVIEW_HIDDEN = ["sealNumber"];
 
 /** Id of the Containers card on the Customs section's page; Container Number links to it. */
 export const CUSTOMS_CONTAINERS_ID = "customs-containers";
@@ -101,6 +102,15 @@ const CUSTOMS_RIGHT = [
   { key: "commercialInvoice", label: "Invoice Number(s)" },
   { key: "commercialInvoiceValue", label: "Invoice Value", ro: true },
 ];
+
+/**
+ * The card's right column: in the Customs section (`canReview`) without the seal; without the status
+ * (its own row draws it), and without Invoice Value when it closes the left column.
+ */
+export const customsRightColumn = (canReview: boolean, civOnLeft: boolean) =>
+  (canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT).filter(
+    (f) => f.key !== "customsStatus" && !(civOnLeft && f.key === "commercialInvoiceValue"),
+  );
 
 // Columns of the documents table. The layout is fixed, so a long file name or reviewer
 // name is cut short instead of pushing the other columns around; File takes the width
@@ -322,9 +332,7 @@ export function CustomsTab({
   const leftFields = civOnLeft ? [...CUSTOMS_LEFT, ...CUSTOMS_RIGHT.filter((f) => f.key === "commercialInvoiceValue")] : CUSTOMS_LEFT;
   // Cargo Origin reads as text for whoever the edit rule doesn't let change the shipment's details.
   const leftColumn = detailsEditable ? leftFields : leftFields.map((f) => (f.key === "cargoOrigin" ? { ...f, ro: true } : f));
-  const rightColumn = (canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT).filter(
-    (f) => f.key !== "customsStatus" && !(civOnLeft && f.key === "commercialInvoiceValue"),
-  );
+  const rightColumn = customsRightColumn(canReview, civOnLeft);
 
   const { attachments, isLoading: documentsLoading, refresh: refreshDocuments, previewSource } = useShipmentAttachments(shipment.id);
   // The required documents, as on the shipment's Documents tab: on the Customs section's Documents tab.
@@ -416,9 +424,9 @@ export function CustomsTab({
           ),
           // The same total weight as everywhere else (stored and worked out in tons), shown in kg.
           totalVolumeCbm: <RoRow label="Total Weight In KG" value={weightKg(cardShipment)} />,
-          // In the Customs section the container number is a link, in the place of the plain field.
-          ...(canReview ? { containerTypeSummary: <ContainerNumberRow value={shipment.containerNumber} /> } : {}),
         }}
+        // In the Customs section the container number is a link, in the place of the plain field.
+        renderField={canReview ? { containerNumber: <ContainerNumberRow value={shipment.containerNumber} /> } : undefined}
       />
       )}
 

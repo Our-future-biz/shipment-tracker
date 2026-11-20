@@ -62,4 +62,10 @@ describe("MCZ numbers", () => {
     const created = await Promise.all(Array.from({ length: 10 }, () => masterJobRepository.createWithMczNumber(companyId)));
     expect(created.map((m) => m.mczNumber).sort()).toEqual(consecutive(8, 10, "MCZ"));
   });
+
+  it("gives a master job created with a Load Type (made from houses) its letters at once, with what it starts with", async () => {
+    const companyId = randomUUID();
+    const created = await masterJobRepository.createWithMczNumber(companyId, "anna@cto.cz", { loadType: "Consolidation", pol: "CNNGB" });
+    expect(created).toMatchObject({ mczNumber: "MCZCONSOL00000001", loadType: "Consolidation", pol: "CNNGB", createdBy: "anna@cto.cz" });
+  });
 });

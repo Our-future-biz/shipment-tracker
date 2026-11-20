@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agreedHouseValues,
   containersFromHouses,
   isLoadTypeChange,
   houseContainerLines,
@@ -148,5 +149,86 @@ describe("isLoadTypeChange", () => {
   it("refuses switching or clearing a chosen one", () => {
     expect(isLoadTypeChange("Full Load", "Consolidation")).toBe(true);
     expect(isLoadTypeChange("Consolidation", "")).toBe(true);
+  });
+});
+
+// A master job made from houses starts with what they all agree on (User Council O10, owner's answer Q6).
+describe("agreedHouseValues", () => {
+  const house = (over: Record<string, unknown> = {}) => ({
+    jobNumber: "CZLCL00000089",
+    customer: "Alfa s.r.o.",
+    freightMode: "Sea Freight",
+    tradeDirection: "Import",
+    loadType: "Consolidation",
+    pol: "CNNGB",
+    pod: "DEHAM",
+    vessel: "MSC ANNA",
+    voyage: "",
+    estimatedDeparture: "2026-11-24",
+    estimatedArrival: null,
+    closingDate: "2026-11-20",
+    closingTime: "12:00",
+    ...over,
+  });
+
+  it("takes each field the houses all have filled in alike, and leaves out one they differ on or leave empty", () => {
+    expect(agreedHouseValues([house(), house({ jobNumber: "CZLCL00000090", vessel: "MSC BELLA" })])).toEqual({
+      freightMode: "Sea Freight",
+      tradeDirection: "Import",
+      loadType: "Consolidation",
+      pol: "CNNGB",
+      pod: "DEHAM",
+      estimatedDeparture: "2026-11-24",
+      closingDate: "2026-11-20",
+      closingTime: "12:00",
+    });
+  });
+
+  it("leaves out a field one house has empty, so linking writes nothing over the others", () => {
+    expect(agreedHouseValues([house(), house({ pol: "" }), house({ pol: null })])).not.toHaveProperty("pol");
+  });
+
+  it("takes only the master job's own fields: no customer, no job number", () => {
+    const values = agreedHouseValues([house()]);
+    expect(values).not.toHaveProperty("customer");
+    expect(values).not.toHaveProperty("jobNumber");
+    expect(values).toMatchObject({ vessel: "MSC ANNA", freightMode: "Sea Freight" });
+  });
+
+  it("takes a time only with its date", () => {
+    const values = agreedHouseValues([house(), house({ closingDate: "2026-11-21" })]);
+    expect(values).not.toHaveProperty("closingDate");
+    expect(values).not.toHaveProperty("closingTime");
+  });
+
+  it("is nothing for no houses", () => {
+    expect(agreedHouseValues([])).toEqual({});
+  });
+
+  it("never takes the Master B/L: houses agreeing on one carry another master job's (step 3 review M3)", () => {
+    const values = agreedHouseValues([house({ masterBolNumber: "MEDU1234567", masterBolType: "OBL" }), house({ masterBolNumber: "MEDU1234567", masterBolType: "OBL" })]);
+    expect(values).not.toHaveProperty("masterBolNumber");
+    expect(values).not.toHaveProperty("masterBolType");
+    // So linking them writes no Master B/L onto them either.
+    expect(syncedShipmentData(values)).not.toHaveProperty("masterBolNumber");
+  });
+
+  it("agrees on a port by its code, with the text of the house written last (step 3 review, minor 2)", () => {
+    const older = house({ pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "Hamburg (DEHAM)", updatedAt: new Date("2026-10-01T08:00:00Z") });
+    const newer = house({ pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", updatedAt: new Date("2026-11-19T08:00:00Z") });
+    expect(agreedHouseValues([older, newer])).toMatchObject({ pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)" });
+    expect(agreedHouseValues([newer, older])).toMatchObject({ pol: "Shanghai (CNSHA)" });
+    // Another code is another port; text without a code compares as it is.
+    expect(agreedHouseValues([older, house({ pol: "Ningbo (CNNGB)" })])).not.toHaveProperty("pol");
+    expect(agreedHouseValues([house({ pol: "Shanghai" }), house({ pol: "Shanghai (CNSHA)" })])).not.toHaveProperty("pol");
+    // Only places compare by a code: other text must match exactly.
+    expect(agreedHouseValues([house({ vessel: "MSC ANNA (CNSHA)" }), house({ vessel: "MSC BELLA (CNSHA)" })])).not.toHaveProperty("vessel");
+  });
+
+  it("writes onto a linked house only what it has already", () => {
+    const houses = [house(), house({ vessel: "MSC BELLA", estimatedDeparture: null })];
+    const onLink = syncedShipmentData(agreedHouseValues(houses));
+    expect(Object.keys(onLink).length).toBeGreaterThan(0);
+    for (const h of houses) for (const [key, value] of Object.entries(onLink)) expect((h as Record<string, unknown>)[key]).toBe(value);
   });
 });

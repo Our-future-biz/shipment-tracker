@@ -1,9 +1,9 @@
 import { and, asc, between, count, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { masterJobTable, type MasterJobRecord } from "../schemas/masterJob.schema";
+import { masterJobTable, type MasterJobRecord, type NewMasterJobRecord } from "../schemas/masterJob.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
-import { MASTER_JOB_LETTERS_PATTERN, masterJobNumberForms } from "../lib/masterJobNumber";
+import { MASTER_JOB_LETTERS_PATTERN, masterJobNumberFor, masterJobNumberForms } from "../lib/masterJobNumber";
 import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
 import { masterJobContainerTable } from "../schemas/masterJobContainer.schema";
 import { containerTable } from "../schemas/container.schema";
@@ -58,13 +58,32 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
   }
 
   // Inserts a master job under the company's next MCZ number, taken in the same transaction
-  // as the insert, so two creates at the same moment never get the same number.
-  async createWithMczNumber(companyId: string, createdBy = ""): Promise<MasterJobRecord> {
+  // as the insert, so two creates at the same moment never get the same number. `values`: what it
+  // starts with (one made from houses); a Load Type among them gives the number its letters at once
+  // (lib/masterJobNumber).
+  async createWithMczNumber(
+    companyId: string,
+    createdBy = "",
+    values: Omit<Partial<NewMasterJobRecord>, "id" | "companyId" | "mczNumber" | "createdBy"> = {},
+  ): Promise<MasterJobRecord> {
     return this.db.transaction(async (tx) => {
-      const mczNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "MCZ");
-      const [created] = await tx.insert(masterJobTable).values({ companyId, mczNumber, createdBy }).returning();
+      const mczNumber = masterJobNumberFor(await shipmentRefCounterRepository.allocate(tx, companyId, "MCZ"), values.loadType);
+      const [created] = await tx.insert(masterJobTable).values({ ...values, companyId, mczNumber, createdBy }).returning();
       return created!;
     });
+  }
+
+  /**
+   * The company's live shipments among `ids`, in one read (step 3 review, minor 4): the houses a
+   * master job is made from (masterJobService.create). An id of another company's or a deleted
+   * shipment is left out.
+   */
+  async liveShipmentsByIds(companyId: string, ids: readonly string[]) {
+    if (!ids.length) return [];
+    return this.db
+      .select()
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, [...ids]), isNull(shipmentTable.deletedAt)));
   }
 
   /**

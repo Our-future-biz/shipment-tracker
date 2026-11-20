@@ -194,6 +194,16 @@ describe("pricing a rate", () => {
     expect(surchargeApplies(surcharge({ condition: "manual_booking" }), ctx)).toBe("manual");
   });
 
+  it("finds a port of discharge by either of its codes: the carrier code and its port's (review of user council step 3, M2)", () => {
+    // The quote on CNSHA, the surcharge written for CNSGH, and the other way round.
+    expect(surchargeApplies(surcharge({ ports: ["CNSGH"] }), ctx)).toBe("yes");
+    expect(surchargeApplies(surcharge({ ports: ["CNSHA"] }), { ...ctx, podCode: "CNSGH" })).toBe("yes");
+    expect(surchargeApplies(surcharge({ exceptPorts: ["CNSGH"] }), ctx)).toBe("no");
+    expect(surchargeApplies(surcharge({ exceptPorts: ["CNSHA"] }), { ...ctx, podCode: "CNSGH" })).toBe("no");
+    // Another Shanghai code (CNSHG "Shanghai Pt") is no twin.
+    expect(surchargeApplies(surcharge({ ports: ["CNSHG"] }), ctx)).toBe("no");
+  });
+
   it("prices every container, adds the surcharges and totals each currency", () => {
     const offer = rateOffer({ prices: { "20DC": 25, "40HC": 30 }, currency: "USD" }, containers, [surcharge({}), surcharge({ name: "AMS", code: "AMS", amount: 25, currency: "EUR", basis: "bl", equipment: [], charge: "ams_ens" }), surcharge({ name: "DOC", code: "DOC", amount: 75, currency: "EUR", basis: "bl", equipment: [], condition: "manual_booking" })], ctx);
     expect(offer).toEqual({

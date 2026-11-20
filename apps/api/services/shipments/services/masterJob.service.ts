@@ -14,6 +14,7 @@ import { masterJobHouseKindsRepository } from "../repositories/masterJobHouseKin
 import { changesTaxDate } from "../lib/taxDate";
 import {
   FULL_LOAD,
+  agreedHouseValues,
   containersFromHouses,
   houseContainerLines,
   isLoadTypeChange,
@@ -266,20 +267,32 @@ class MasterJobService {
 
   // MCZ numbers are a per-company sequence over all rows incl. archived ones,
   // so a number is never reused.
-  async create(companyId: string, userId?: string): Promise<MasterJobItem> {
+  // `fromShipmentIds`: the houses it is made for (the Master Job dialog's choice, linked right after).
+  // It starts with what they all agree on (User Council O10, owner's answer Q6) instead of blank,
+  // so the operator does not type it again, and linking them changes nothing on any of them; its
+  // Load Type gives the number its letters at once. Ids that are no live shipment of the company
+  // are left out.
+  async create(companyId: string, userId?: string, fromShipmentIds: readonly string[] = []): Promise<MasterJobItem> {
     // Who created it, by e-mail as on a shipment ("" when the user can't be looked up).
     const createdBy = userId ? await userEmailOf(userId) : "";
-    const row = await masterJobRepository.createWithMczNumber(companyId, createdBy);
+    const ids = [...new Set(fromShipmentIds)].filter(isUuid);
+    const houses = await masterJobRepository.liveShipmentsByIds(companyId, ids);
+    const row = await masterJobRepository.createWithMczNumber(companyId, createdBy, agreedHouseValues(houses));
     return toItem(row, 0);
   }
 
   /**
    * The master job of a Master B/L (a pre-alert's reading): the live one that has it already -
    * read twice, a pre-alert goes under the same master job - else a new one holding it. Without a
-   * Master B/L, a new empty one.
+   * Master B/L, a new one, starting with what the houses it is made for agree on (create).
    */
-  async createForMasterBol(companyId: string, masterBol: string, userId?: string): Promise<{ masterJob: MasterJobItem; reused: boolean }> {
-    if (!billOfLadingKey(masterBol)) return { masterJob: await this.create(companyId, userId), reused: false };
+  async createForMasterBol(
+    companyId: string,
+    masterBol: string,
+    userId?: string,
+    fromShipmentIds: readonly string[] = [],
+  ): Promise<{ masterJob: MasterJobItem; reused: boolean }> {
+    if (!billOfLadingKey(masterBol)) return { masterJob: await this.create(companyId, userId, fromShipmentIds), reused: false };
     const createdBy = userId ? await userEmailOf(userId) : "";
     const { row, reused } = await masterJobRepository.findOrCreateForMasterBol(companyId, masterBol, createdBy);
     return { masterJob: reused ? await this.itemOf(row, companyId) : toItem(row, 0), reused };

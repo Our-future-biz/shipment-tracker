@@ -169,6 +169,13 @@
       "when": 1795026828070,
       "tag": "0023_user_absence",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795640000000,
+      "tag": "0024_location_seaports",
+      "breakpoints": true
     }
   ]
 }

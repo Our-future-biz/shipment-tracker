@@ -489,6 +489,7 @@ export namespace auth {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 countryCode: params.countryCode,
+                mode:        params.mode === undefined ? undefined : String(params.mode),
                 q:           params.q,
             })
 
@@ -3923,7 +3924,8 @@ export namespace shipments {
         }
 
         /**
-         * Creates an empty master job under the next free MCZ number - or, for a Master B/L, finds its own.
+         * Creates a master job under the next free MCZ number - empty, or with what the shipments it is made
+         * for agree on - or, for a Master B/L, finds its own.
          */
         public async masterJobCreate(params: controllers.MasterJobCreateRequest): Promise<controllers.MasterJobCreateResponse> {
             // Now make the actual call to the API
@@ -10356,6 +10358,14 @@ export namespace controllers {
          * a new one (reused: true); otherwise the new one holds it. Without it an empty master job is made.
          */
         masterBolNumber?: string
+
+        /**
+         * The shipments the new master job is made for (linked to it right after): it starts with each
+         * field they all have filled in alike - Freight Mode, Trade Direction and the fields it writes onto
+         * its houses, but never their Master B/L - and its number with the letters of that Load Type. Not
+         * read with a Master B/L.
+         */
+        fromShipmentIds?: string[]
     }
 
     export interface MasterJobCreateResponse {
@@ -10754,6 +10764,10 @@ export namespace controllers {
     export interface PlaceSearchRequest {
         q: string
         countryCode?: string
+        /**
+         * "sea": seaports first, for the Port of Loading / Discharge of a sea quote or job.
+         */
+        mode?: services.PlaceSearchMode
     }
 
     export interface PohodaExportRequest {
@@ -29225,6 +29239,11 @@ export namespace services {
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
     export type PlaceInfo = geo.Place
+
+    /**
+     * What a place picker asks for: "sea" lists the seaports first (a sea quote's or job's POL / POD).
+     */
+    export type PlaceSearchMode = "sea"
 
     export interface RailOffersResult {
         /**

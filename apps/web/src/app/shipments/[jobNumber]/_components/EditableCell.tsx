@@ -191,6 +191,17 @@ const AIRPORT_FIELDS = new Set(["pol", "pod"]);
 const TERMINAL_FIELDS = new Set(["origin", "destination"]);
 
 /**
+ * What a place cell offers by the shipment's Freight Mode: by air, its POL and POD also IATA airports;
+ * by sea, its Origin and Destination also terminals, and its POL and POD the seaports first (user
+ * council O1 / S10, owner's answer Q3).
+ */
+export function placeListsOf(fieldKey: string, freightMode: string | undefined) {
+  const air = /^air/i.test(freightMode ?? "");
+  const sea = /^sea/i.test(freightMode ?? "");
+  return { airports: AIRPORT_FIELDS.has(fieldKey) && air, terminals: TERMINAL_FIELDS.has(fieldKey) && sea, seaports: AIRPORT_FIELDS.has(fieldKey) && sea };
+}
+
+/**
  * The customer's Contacts tab with this contact picked out: by its id (?contactId=), or by its
  * name (?contact=) for a value stored before ids were kept.
  */
@@ -300,8 +311,7 @@ function EditableCellBody({
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
   const freightMode = useContext(FreightModeContext);
-  const airports = AIRPORT_FIELDS.has(fieldKey) && /^air/i.test(freightMode ?? "");
-  const terminals = TERMINAL_FIELDS.has(fieldKey) && /^sea/i.test(freightMode ?? "");
+  const { airports, terminals, seaports } = placeListsOf(fieldKey, freightMode);
   const cancelOk = useContext(CancelOfferedContext);
   const columnOptions = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
   const options = fieldKey === "status" ? offeredStatuses(columnOptions, cancelOk, value) : columnOptions;
@@ -468,6 +478,7 @@ function EditableCellBody({
           kind={geoKind}
           airports={airports}
           terminals={terminals}
+          seaports={seaports}
           size="small"
           autoFocus
           defaultOpen

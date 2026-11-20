@@ -66,6 +66,7 @@ import { CustomsTab } from "./tabs/CustomsTab";
 import { ApprovedByLockedContext, CancelOfferedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { FROM_LINES_HINT, FROM_LINES_TITLE, lockedByLines } from "../_lib/cargoFromLines";
+import { carrierCardTitle, fieldsForMode, showsContainerTab } from "./freightModeFields";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
@@ -607,12 +608,15 @@ export function DetailCard({
   paired = false,
 }: DetailCardProps) {
   const { visibleKeys } = useCardFields();
-  const allFields = columns.flat();
+  // In the words of the job's freight mode (user council O17): air names, the empty sea-only rows left
+  // out - in the card and in its "Show all" / field picker alike.
+  const modeColumns = columns.map((col) => fieldsForMode(col, shipment.freightMode, (k) => getFieldValue(shipment, k)));
+  const allFields = modeColumns.flat();
   const shown = cardId
     ? new Set(visibleKeys(cardId, allFields.map((f) => f.key)))
     : null;
 
-  const shownColumns = layout === "stack" ? [allFields] : columns;
+  const shownColumns = layout === "stack" ? [allFields] : modeColumns;
   const fieldsOf = (col: FieldDef[]) => col.filter((f) => !shown || shown.has(f.key));
   const fieldRow = (f: FieldDef) =>
     renderField?.[f.key] ? (
@@ -1081,12 +1085,15 @@ function CargoCommercialCard({
   styleFor,
 }: CargoCommercialCardProps) {
   const { visibleKeys } = useCardFields();
+  // An air job leaves out its empty container type and TEU (user council O17), here and in "Show all".
+  const forMode = (col: CargoField[]) => fieldsForMode(col, shipment.freightMode, (k) => getFieldValue(shipment, k));
+  const right = forMode(CARGO_COMMERCIAL_R);
   const cargoShown = new Set(
-    visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R].map((f) => f.key)),
+    visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...right].map((f) => f.key)),
   );
   // A field the job's lines give a value for is read-only, here and in "Show all".
   const lock = (f: CargoField): CargoField => (lockedByLines(shipment, f.key) ? { ...f, ro: true, fromLines: true } : f);
-  const left = CARGO_COMMERCIAL_L.map(lock);
+  const left = forMode(CARGO_COMMERCIAL_L).map(lock);
   const cargoRow = (f: CargoField) => <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />;
   const rows = (col: CargoField[]) => col.filter((f) => cargoShown.has(f.key)).map(cargoRow);
   const lockedRows = Object.fromEntries(left.filter((f) => f.fromLines).map((f) => [f.key, cargoRow(f)]));
@@ -1097,14 +1104,14 @@ function CargoCommercialCard({
         icon={<InboxOutlined />}
         title="Cargo & Commercial"
         cardId="cargo"
-        allFields={[...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R]}
+        allFields={[...left, ...right]}
         shipment={shipment}
         onCommit={onCommit}
         styleFor={styleFor}
         // "Show all" shows Credit Check with its credit warning too.
         renderField={{ ...lockedRows, creditCheck: <CreditCheckRow label="Credit check" shipment={shipment} onCommit={onCommit} styleFor={styleFor} /> }}
       />
-      <PairedColumns left={rows(left)} right={rows(CARGO_COMMERCIAL_R)} />
+      <PairedColumns left={rows(left)} right={rows(right)} />
     </div>
   );
 }
@@ -1190,7 +1197,10 @@ export function ShipmentDetailContent() {
 
 
   const isManager = isDetailsManager(user?.role ?? "");
-  const visibleTabs = TABS.filter((t) => !t.managers || isManager);
+  // An air job has no Container Details tab unless a container was entered (user council O17).
+  const visibleTabs = TABS.filter(
+    (t) => (!t.managers || isManager) && (t.key !== "container" || showsContainerTab(shipment?.freightMode, shipment?.containers?.length ?? 0, shipment?.containerNumber)),
+  );
   const TAB_KEYS = visibleTabs.map((t) => t.key);
   const rawTab = searchParams.get("tab");
   const activeTab = rawTab && TAB_KEYS.includes(rawTab) ? rawTab : "details";
@@ -1578,7 +1588,8 @@ export function ShipmentDetailContent() {
                     in Basic Information. Fields are declared as a list so the field chooser can
                     filter them. */}
                 {(() => {
-                  const left: FieldDef[] = [
+                  // In the words of the job's freight mode (user council O17): the shipping line is the airline on air.
+                  const left: FieldDef[] = fieldsForMode<FieldDef>([
                     // Internal Reference is in Basic Information.
                     { key: "masterJob", label: "Master Job", ro: true },
                     { key: "freightMode", label: "Freight Mode" },
@@ -1589,12 +1600,13 @@ export function ShipmentDetailContent() {
                     { key: "serviceName", label: "Service Name" },
                     // The shipment's own Sales Person: the Quote card shows the uploaded quote's owner instead.
                     { key: "salesPerson", label: "Sales Person", ro: true },
-                    { key: "incotermOrigin", label: "Incoterms Origin", ro: true },
-                    { key: "incotermDestination", label: "Incoterms Destination", ro: true },
+                    // Edited here with the grid's dropdown; the server takes them in any update (user council O8).
+                    { key: "incotermOrigin", label: "Incoterms Origin" },
+                    { key: "incotermDestination", label: "Incoterms Destination" },
                     // Free Comments are kept in the Notes To-Do tab.
                     { key: "houseBolRelease", label: "House BoL Release" },
-                  ];
-                  const right: FieldDef[] = [
+                  ], shipment.freightMode, (k) => getFieldValue(shipment, k));
+                  const right: FieldDef[] = fieldsForMode<FieldDef>([
                     { key: "status", label: "Shipment Status" },
                     // Why it was cancelled (D22): shown on a cancelled job only.
                     { key: "cancelReason", label: "Cancel Reason" },
@@ -1605,7 +1617,7 @@ export function ShipmentDetailContent() {
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
                     { key: "freightPayableAt", label: "Freight Payable At" },
-                  ];
+                  ], shipment.freightMode, (k) => getFieldValue(shipment, k));
 
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
@@ -1834,7 +1846,7 @@ export function ShipmentDetailContent() {
               <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
                 <DetailCard
                   icon={<FileProtectOutlined />}
-                  title="Carrier & Bill of Lading"
+                  title={carrierCardTitle(shipment.freightMode)}
                   cardId="carrier"
                   className="h-full"
                   columns={[CARRIER_BOL]}
