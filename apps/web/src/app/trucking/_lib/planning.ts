@@ -97,14 +97,16 @@ export function groupLegsByZone(legs: readonly PlanningLeg[]): ZoneGroup[] {
 
 // ── Fill ──
 
-/** The fuller of LDM and kg, in whole percent; null when the vehicle's capacity is not known. */
-export function tripFillPercent(fill: Pick<TripFill, "ldmPercent" | "kgPercent">): number | null {
-  if (fill.ldmPercent == null && fill.kgPercent == null) return null;
-  return Math.round(Math.max(fill.ldmPercent ?? 0, fill.kgPercent ?? 0));
+type FillPercents = Pick<TripFill, "ldmPercent" | "kgPercent"> & Partial<Pick<TripFill, "palletPlacesPercent">>;
+
+/** The fuller of LDM (or pallet places, when they stand in for it) and kg, in whole percent; null when the vehicle's capacity is not known. */
+export function tripFillPercent(fill: FillPercents): number | null {
+  if (fill.ldmPercent == null && fill.kgPercent == null && fill.palletPlacesPercent == null) return null;
+  return Math.round(Math.max(fill.ldmPercent ?? 0, fill.kgPercent ?? 0, fill.palletPlacesPercent ?? 0));
 }
 
 /** The colour of both fill bars of a trip: the fuller of LDM and kg drives it (Warehouse colours). */
-export const tripFillTone = (fill: Pick<TripFill, "ldmPercent" | "kgPercent">) => fillTone(tripFillPercent(fill));
+export const tripFillTone = (fill: FillPercents) => fillTone(tripFillPercent(fill));
 
 export interface Capacity {
   ldm: number;
@@ -116,12 +118,23 @@ type Load = Pick<PlanningLeg, "ldm" | "weightKg" | "palletPlaces">;
 
 const percentOf = (value: number, capacity: number) => (capacity > 0 ? Math.round((value / capacity) * 100) : null);
 
-/** The fill of a trip with more legs on it, against its capacity (null capacity = percentages unknown). */
+/**
+ * The fill of a trip with more legs on it, against its capacity (null capacity = percentages unknown).
+ * Pallet places with no LDM fill by places, as the server's tripFill counts (User Council T5).
+ */
 export function projectedFill(fill: Pick<TripFill, "ldm" | "kg" | "palletPlaces">, add: readonly Load[], capacity: Capacity | null): TripFill {
   const ldm = round2(fill.ldm + add.reduce((s, l) => s + l.ldm, 0));
   const kg = round2(fill.kg + add.reduce((s, l) => s + l.weightKg, 0));
   const palletPlaces = round2(fill.palletPlaces + add.reduce((s, l) => s + l.palletPlaces, 0));
-  return { ldm, kg, palletPlaces, ldmPercent: capacity ? percentOf(ldm, capacity.ldm) : null, kgPercent: capacity ? percentOf(kg, capacity.kg) : null };
+  const byPlaces = !!capacity && ldm <= 0 && palletPlaces > 0;
+  return {
+    ldm,
+    kg,
+    palletPlaces,
+    ldmPercent: capacity ? percentOf(ldm, capacity.ldm) : null,
+    kgPercent: capacity ? percentOf(kg, capacity.kg) : null,
+    palletPlacesPercent: byPlaces ? percentOf(palletPlaces, capacity.palletPlaces) : null,
+  };
 }
 
 // ── Warnings (shown, never blocking) ──
@@ -189,6 +202,11 @@ export function planningDayOf(param: string | null, today: string): string {
 export const planningHref = (day: string | null) => (day ? `/trucking?tab=planning&date=${day}` : "/trucking?tab=planning");
 
 export const PLANNING_CONFLICT_TEXT = "Someone changed this trip meanwhile — the board is reloaded, try again.";
+
+/** Whether a failed load leaves no board worth showing: nothing loaded yet, or only the day before
+ *  kept on screen while another day failed (keepPreviousData). A failed refetch after a change
+ *  keeps the good board of this day on screen under the error (User Council, Trucking c3). */
+export const boardUnusable = (b: { failed: boolean; hasData: boolean; isPlaceholderData: boolean }) => b.failed && (!b.hasData || b.isPlaceholderData);
 
 // ── Legs timeline of a consignment ──
 

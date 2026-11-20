@@ -208,10 +208,17 @@ describe("transport order: send and confirm", () => {
     expect(store.links).toHaveLength(1);
     expect(store.links[0]!.tokenHash).toBe(hashToken(token));
     expect(JSON.stringify(store.links)).not.toContain(token);
-    // Sending again renews the link (the old one is revoked).
-    await transportOrderService.send(user, trip.id, { pickupPin: null, language: "cs", to: [], note: "" });
+    // The same link comes back once in the answer (T8/E1), to copy; the history never holds it.
+    expect(res.haulierLink).toBe(link);
+    expect(JSON.stringify(store.events)).not.toContain(token);
+    expect(JSON.stringify(store.trips)).not.toContain(token);
+    // Sending again renews the link (the old one is revoked) and answers the new one.
+    const again = await transportOrderService.send(user, trip.id, { pickupPin: null, language: "cs", to: [], note: "" });
     expect(store.links.filter((l) => !l.revokedAt)).toHaveLength(1);
     expect(store.links).toHaveLength(2);
+    expect(again.haulierLink).toMatch(/\/haulier\/order\/[A-Za-z0-9_-]{43}$/);
+    expect(again.haulierLink).not.toBe(link);
+    expect(store.links.find((l) => !l.revokedAt)!.tokenHash).toBe(hashToken(again.haulierLink!.split("/").pop()!));
   });
 
   it("stores the link before anything is mailed: the mail carries the stored link, keyed by the new version", async () => {

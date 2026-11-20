@@ -17,7 +17,7 @@ import { btnDefault, btnPrimary } from "@/components/buttons";
 import { CountChip } from "@/components/SectionCard";
 import { CARD, CARD_BAR, CARD_TITLE, ICON_BTN, LINK } from "@/styles/ui";
 import { TERMS } from "../_lib/glossary";
-import { PLANNING_CONFLICT_TEXT, TRIP_KIND_LABEL, TRIP_KIND_OPTIONS, addLegsWarnings, groupLegsByZone, openTrips, planningDayOf, warningSummary } from "../_lib/planning";
+import { PLANNING_CONFLICT_TEXT, TRIP_KIND_LABEL, TRIP_KIND_OPTIONS, addLegsWarnings, boardUnusable, groupLegsByZone, openTrips, planningDayOf, warningSummary } from "../_lib/planning";
 import { isVersionConflict } from "../_lib/saveConflict";
 import { HUB_MISSING_TEXT, hubIsSet } from "../_lib/settings";
 import { LabelsModal } from "./LabelsModal";
@@ -56,7 +56,7 @@ export const TruckingPlanningTab = () => {
   const { settings } = useTruckingSettings();
   const { hauliers } = useHauliers();
   const avizacePending = useAvizacePending();
-  const { unplanned, trips, isLoading, isFetching, error, reload, createTrip, assignLegs, isAssigning } = usePlanningBoard(date, kind);
+  const { unplanned, trips, isLoading, isFetching, error, hasData, isPlaceholderData, reload, createTrip, assignLegs, isAssigning } = usePlanningBoard(date, kind);
 
   const groups = useMemo(() => groupLegsByZone(unplanned), [unplanned]);
   const vehicleTypes = useMemo(() => settings?.vehicleTypes ?? [], [settings]);
@@ -172,11 +172,14 @@ export const TruckingPlanningTab = () => {
       )}
       {error && <Alert type="error" showIcon message={`The board could not be loaded: ${apiErrorMessage(error)}.`} />}
 
+      {/* A board that failed to load shows only the error: empty lists under it read "No open legs"
+          although legs may be waiting (User Council, Trucking c3). A failed refetch after a change
+          keeps this day's good board under the error. */}
       {isLoading ? (
         <div className="flex justify-center p-16">
           <Spin size="large" />
         </div>
-      ) : (
+      ) : boardUnusable({ failed: !!error, hasData, isPlaceholderData }) ? null : (
         <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
           <section className={`${CARD} overflow-hidden`} aria-label={`Open ${TERMS.leg.toLowerCase()}s`}>
             <div className={CARD_BAR}>

@@ -13,7 +13,8 @@ import { ltlLegsOf } from "./ltlView";
 // service reads the rows and the holidays and hands them here.
 //
 // Trucking's own rules are reused where it has one:
-//  - lib/consignmentRules.ts attentionReasons: "Pick-up within 24 h and no trip" (BOOKED),
+//  - lib/consignmentRules.ts attentionReasons: "Pick-up within 24 h and no trip" (BOOKED; "Pick-up
+//    date passed and no trip" once the day is gone),
 //    "… and the transport order is not sent" (PLANNED), "The haulier rejected the transport order",
 //    "Pick-up date passed and no pick-up stamped" (ORDERED / CONFIRMED) - same facts, same words;
 //  - lib/tripQueues.ts "Ordered, not confirmed" (ORDERED, the haulier has not confirmed);
@@ -71,12 +72,14 @@ const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 /**
- * When a pick-up counted as "soon" is, in a tag's words: "within 24 h" for today or tomorrow (and
- * one that passed) - Trucking's own words; "on Mon 23.11." for one further out, which only the
+ * When a pick-up counted as "soon" is, in a tag's words: "date passed" for a day before today and
+ * "within 24 h" for today or tomorrow - Trucking's own words (attentionReasons; User Council T6: a
+ * pick-up 36 days ago read "within 24 h"); "on Mon 23.11." for one further out, which only the
  * next working day after a weekend or a holiday reaches: on a Friday a Monday pick-up is not
  * within 24 h, and Trucking's own page, counting the calendar day after today, says nothing of it yet.
  */
 export function pickupWhen(pickupDate: string, today: string): string {
+  if (pickupDate < today) return "date passed";
   if (pickupDate <= addDays(today, 1)) return "within 24 h";
   return `on ${WEEKDAYS[weekday(pickupDate)]} ${pickupDate.slice(8, 10)}.${pickupDate.slice(5, 7)}.`;
 }
@@ -134,7 +137,7 @@ export function shownTrip<T extends Trip>(c: Pick<Consignment, "id" | "scope" | 
  * as does one on the weekend between; Trucking's own list counts the calendar day after today, its
  * words are kept for today and tomorrow, and a later day is named (pickupWhen, m22).
  *  - BOOKED, pick-up by the next working day: "Pick-up within 24 h and no trip" (no_haulier) -
- *    "Pick-up on Mon 23.11. and no trip" on a Friday
+ *    "Pick-up on Mon 23.11. and no trip" on a Friday, "Pick-up date passed and no trip" after the day
  *  - PLANNED, pick-up by the next working day: "… and the transport order is not sent" (haulier_not_confirmed)
  *  - the trip's order rejected and nothing confirmed: "The haulier rejected the transport order"
  *  - ORDERED and not confirmed: pick-up today, or later up to the next working day from 14:00 Prague:

@@ -57,6 +57,14 @@ export interface TransportOrderSendInput extends TransportOrderPrintInput {
   note: string;
 }
 
+/** What Record as sent answers; haulierLink: the new link, given this once (null: an LTL trip has none). */
+export interface TransportOrderSent {
+  trip: TripDetail;
+  recordedOnly: boolean;
+  file: FileDownload;
+  haulierLink: string | null;
+}
+
 const pdfFile = (fileName: string, bytes: Uint8Array): FileDownload => ({
   fileName,
   fileBase64: Buffer.from(bytes).toString("base64"),
@@ -203,9 +211,11 @@ class TransportOrderService {
    * planned pick-up) replaces the old one and is printed on the order. Trip and consignment become
    * ORDERED. The link's hash is stored in the trip's locked, version-checked transaction BEFORE the
    * order is mailed or returned: a send that loses a race (or any conflict) mails and returns
-   * nothing, so the haulier never holds a link that was not stored.
+   * nothing, so the haulier never holds a link that was not stored. The link also comes back once
+   * in the answer (T8/E1, owner's answer Q25), to copy into an SMS or a mail without opening the
+   * PDF; it is never logged, and as only its hash is kept it cannot be shown again.
    */
-  async send(actor: Actor, tripId: string, input: TransportOrderSendInput): Promise<{ trip: TripDetail; recordedOnly: boolean; file: FileDownload }> {
+  async send(actor: Actor, tripId: string, input: TransportOrderSendInput): Promise<TransportOrderSent> {
     const lang = language(input.language);
     const pin = cleanPin(input.pickupPin);
     const to = cleanRecipients(input.to);
@@ -278,7 +288,7 @@ class TransportOrderService {
         })
       : null;
     if (mail && !mail.sent) await this.mailFailed(actor, sentRow, c.id, by, mail);
-    return { trip: await tripService.get(actor, trip.id), recordedOnly: !mail?.sent, file };
+    return { trip: await tripService.get(actor, trip.id), recordedOnly: !mail?.sent, file, haulierLink: link };
   }
 
   // A transport order recorded as sent whose e-mail then failed: recorded only after all (the user
@@ -481,7 +491,7 @@ class TransportOrderService {
     pin: string | null,
     to: string[],
     note: string,
-  ): Promise<{ trip: TripDetail; recordedOnly: boolean; file: FileDownload }> {
+  ): Promise<TransportOrderSent> {
     const companyId = actor.companyID;
     const { trip, settings, haulier, docLegs } = await this.readyLtl(actor, tripId);
     const our = await ourCompany();
@@ -536,7 +546,7 @@ class TransportOrderService {
         })
       : null;
     if (mail && !mail.sent) await this.mailFailed(actor, sentRow, null, by, mail);
-    return { trip: await tripService.get(actor, trip.id), recordedOnly: !mail?.sent, file };
+    return { trip: await tripService.get(actor, trip.id), recordedOnly: !mail?.sent, file, haulierLink: null };
   }
 
   /** Any user: the CMR (consignment note) of a consignment; the carrier is its trip's haulier when planned. */

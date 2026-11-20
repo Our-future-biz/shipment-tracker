@@ -109,7 +109,8 @@ export function planningLeg(l: TruckingLegRecord, c: TruckingConsignmentRecord, 
     tailLift: c.load.tailLift,
     pickupDate: c.pickupDate,
     promisedDate: c.promisedDate,
-    promisedFinal: c.promisedFinal,
+    // The day agreed for Express fixed date is no estimate (Q13).
+    promisedFinal: c.serviceLevel === "EXP_FIXED" ? c.promisedDate !== null : c.promisedFinal,
     deadline: deadlineOf(neededBy(kind, c), today),
   };
 }

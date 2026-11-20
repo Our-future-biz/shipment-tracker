@@ -69,10 +69,14 @@ describe("our warehouse (hub)", () => {
     expect(settingsProblems({ ...draft, hub: { ...hub, postcode: "161" } })).toEqual(["Our warehouse: postcode (PSČ) has 5 digits"]);
   });
 
-  it("is set once street, PSČ and city are there", () => {
+  it("is set once name, PSČ and city are there, the street optional: the server's rule", () => {
     expect(hubIsSet(EMPTY_HUB)).toBe(false);
     expect(hubIsSet(null)).toBe(false);
     expect(hubIsSet(hub)).toBe(true);
+    expect(hubIsSet({ ...hub, street: "" })).toBe(true);
+    expect(hubIsSet({ ...hub, name: " " })).toBe(false);
+    expect(hubIsSet({ ...hub, postcode: "" })).toBe(false);
+    expect(hubIsSet({ ...hub, city: "" })).toBe(false);
   });
 });
 

@@ -92,6 +92,7 @@ const profile = (customerId: string, over: object = {}, lanes: object[] = []) =>
     vatUnreliable: false,
     bankAccountPublished: true,
     vatCheckedAt: "2026-10-10",
+    bankAccounts: ["19-2000145399/0800"],
     costSplitBasis: "chargeable_weight",
     blocked: false,
     blockReason: "",
@@ -256,7 +257,7 @@ describe("rate calculator", () => {
     expect(res.results.map((r) => r.serviceLevel)).toEqual(["D1", "D2", "D3", "D4", "EXP_SAMEDAY", "EXP_1000", "EXP_1200", "EXP_FIXED"]);
     expect(res.results[1].sell).toEqual({ reason: "Standard LTL has no D2 prices" });
     expect(res.results[1].buy).toEqual([]);
-    expect(res.results[7]).toMatchObject({ promisedDate: null, promiseNote: "Date agreed per order" });
+    expect(res.results[7]).toMatchObject({ promisedDate: null, promiseNote: "Asked at booking: the delivery day agreed with the customer" });
   });
 
   it("is unpriced without a Standard list, and tells when the tariff has no valid version", async () => {

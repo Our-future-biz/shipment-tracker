@@ -65,6 +65,10 @@ describe("avizace", () => {
     expect(t.en).toContain("tail lift");
     expect(t).toMatchObject({ subject: "Avizace doručení / Delivery notice TCZ2026000007", to: "+420 777 222 333" });
     expect(JSON.stringify(t)).not.toMatch(/PIN/i);
+    // A "Delivery by" time, kept as the window's end alone, is said as such (as on the transport order).
+    const by = avizaceTemplate(consignment({ delivery: { ...consignment().delivery, windowFrom: null, windowTo: "2026-10-19T12:00:00.000Z" } }));
+    expect(by.cs).toContain("Termín doručení: 19. 10. 2026, do 14:00.");
+    expect(by.en).toContain("Delivery: 19 Oct 2026, by 14:00.");
     const plain = avizaceTemplate(consignment({ promisedDate: null }));
     expect(plain.cs).toContain("bude upřesněn");
     expect(plain.en).not.toMatch(/tail lift|private address/);

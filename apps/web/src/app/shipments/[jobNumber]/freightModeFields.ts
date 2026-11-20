@@ -3,8 +3,40 @@
 // only sea freight has. A row left out on air that already holds a value stays, under its sea name,
 // so nothing typed disappears; switched back to sea, the job shows every row again. The grid's column
 // titles and History's field names stay generic (columnConfig). Pure.
+// A road job leaves out the empty rows a truck has no use for the same way (user council T9).
 
 import { isAirFreight } from "@/lib/chargeBasis";
+import { isDeliveryDated } from "@/lib/deliveryDated";
+
+/** What says how a job travels and whether it is Trucking's; a bare string is its Freight Mode. */
+export interface JobMode {
+  freightMode?: string | null;
+  tradeDirection?: string | null;
+  department?: string | null;
+  mrn?: string | null;
+  customsDeadline?: string | null;
+}
+type ModeArg = JobMode | string | null | undefined;
+const jobOf = (m: ModeArg): JobMode => (m !== null && typeof m === "object" ? m : { freightMode: m });
+
+/**
+ * A Trucking job: a Domestic job or one of the Road Department (lib/deliveryDated), as the server's
+ * lib/trackingEvents isTruckingJob decides it.
+ */
+export const isTruckingJob = (m: ModeArg): boolean => isDeliveryDated(jobOf(m));
+
+/**
+ * A job that goes by road: a Trucking job, or one whose Freight Mode says road - the server's rule
+ * (lib/trackingEvents freightKindOf), which the managers' cockpit and the Tracking tab go by. Road
+ * comes first there too: a Domestic job is road whatever its Freight Mode says.
+ */
+export const isRoadJob = (m: ModeArg): boolean => {
+  const job = jobOf(m);
+  return isTruckingJob(job) || /road/i.test(job.freightMode ?? "");
+};
+
+/** Air, unless the job goes by road. */
+const isAirJob = (m: ModeArg): boolean => !isRoadJob(m) && isAirFreight(jobOf(m).freightMode);
 
 /** An air job's names for rows whose sea name says Vessel, BoL or Port. */
 export const AIR_LABELS: Readonly<Record<string, string>> = {
@@ -34,34 +66,98 @@ export const AIR_HIDDEN: ReadonlySet<string> = new Set(["voyage", "containerNumb
  */
 const AIR_UNTOUCHED: Readonly<Record<string, string>> = { vgm: "Pending (Red)" };
 
-/** Whether a sea-only row holds a value of its own on an air job: not blank, not its untouched starting value. */
-const holdsValue = (key: string, value: string | null | undefined): boolean => {
+/**
+ * Rows a truck has no use for, left out of a road job while they hold nothing of their own (user
+ * council T9): the vessel, voyage, container and TEU, the VGM and the VGM / SI closings, the Shipping
+ * Instructions, the BoL draft, types and release, and AMS / ISF with their deadlines (US sea
+ * filings). The BoL numbers stay: a truck's CMR number has no row of its own.
+ */
+export const ROAD_HIDDEN: ReadonlySet<string> = new Set([
+  "vessel",
+  "voyage",
+  "containerNumber",
+  "containerTypeSummary",
+  "totalTeu",
+  "vgm",
+  "vgmClosing",
+  "siClosing",
+  "shippingInstructions",
+  "bolDraft",
+  "houseBolType",
+  "masterBolType",
+  "houseBolRelease",
+  "ams",
+  "isf",
+  "amsDeadline",
+  "isfDeadline",
+]);
+
+/**
+ * The values the server starts these rows with (fieldDefaults startingStateDefaults on every job,
+ * exportBolDefaults on an export): on a road job they count as empty. Road jobs made before the
+ * server stopped seeding the VGM on road still hold it.
+ */
+const ROAD_UNTOUCHED: Readonly<Record<string, string>> = {
+  vgm: "Pending (Red)",
+  shippingInstructions: "Not Queried",
+  bolDraft: "Not Processed",
+  ams: "Not Applicable",
+  isf: "Not Applicable",
+  houseBolType: "OBL",
+  masterBolType: "OBL",
+};
+
+/** The customs status of a job none of whose paperwork is in yet (the server's PAPERWORK_WAITING). */
+export const PAPERWORK_WAITING = "Waiting For Commercial Paperwork";
+
+/**
+ * Whether a job goes through customs as far as anyone can tell: any job but a Trucking one, and a
+ * Trucking job once it has an MRN or a customs deadline - the rule the managers' cockpit and the
+ * Tracking tab hide its customs by (lib/managersCockpitExtra goesThroughCustoms).
+ */
+export const goesThroughCustoms = (m: ModeArg): boolean => {
+  const job = jobOf(m);
+  return !isTruckingJob(job) || !!(job.mrn ?? "").trim() || !!(job.customsDeadline ?? "").trim();
+};
+
+/** Whether a left-out row holds a value of its own: not blank, not its untouched starting value. */
+const holdsValue = (untouched: Readonly<Record<string, string>>, key: string, value: string | null | undefined): boolean => {
   const text = (value ?? "").trim();
-  return !!text && text !== AIR_UNTOUCHED[key];
+  return !!text && text.toLowerCase() !== (untouched[key] ?? "").toLowerCase();
 };
 
 /**
  * The rows of a card as the job's freight mode shows them, in the card's order: on an air job the
  * air names, and the sea-only rows left out unless `valueOf` gives them a value (their untouched
- * starting value is none). Any other mode keeps
- * the rows as they are. Used for the card and its "Show all" / field picker alike.
+ * starting value is none); on a road job the rows a truck has no use for left out the same way, and
+ * on a Trucking job that goes through no customs (goesThroughCustoms) the Customs Status while it
+ * still waits for paperwork. Any other mode keeps the rows as they are. `mode` is the job (its
+ * Freight Mode, Trade Direction, Department, MRN and customs deadline), or its Freight Mode alone.
+ * Used for the card and its "Show all" / field picker alike.
  */
 export function fieldsForMode<F extends { key: string; label: string }>(
   fields: readonly F[],
-  freightMode: string | null | undefined,
+  mode: ModeArg,
   valueOf: (key: string) => string | null | undefined,
 ): F[] {
-  if (!isAirFreight(freightMode)) return [...fields];
+  if (isRoadJob(mode)) {
+    const customs = goesThroughCustoms(mode);
+    return fields.filter((f) => {
+      if (f.key === "customsStatus" && !customs) return holdsValue({ customsStatus: PAPERWORK_WAITING }, f.key, valueOf(f.key));
+      return !ROAD_HIDDEN.has(f.key) || holdsValue(ROAD_UNTOUCHED, f.key, valueOf(f.key));
+    });
+  }
+  if (!isAirJob(mode)) return [...fields];
   return fields.flatMap((f) => {
-    if (AIR_HIDDEN.has(f.key)) return holdsValue(f.key, valueOf(f.key)) ? [f] : [];
+    if (AIR_HIDDEN.has(f.key)) return holdsValue(AIR_UNTOUCHED, f.key, valueOf(f.key)) ? [f] : [];
     const label = AIR_LABELS[f.key];
     return label ? [{ ...f, label }] : [f];
   });
 }
 
 /** The Carrier card's title: an air job's transport document is the air waybill. */
-export const carrierCardTitle = (freightMode: string | null | undefined): string =>
-  isAirFreight(freightMode) ? "Carrier & Air Waybill" : "Carrier & Bill of Lading";
+export const carrierCardTitle = (mode: ModeArg): string =>
+  isAirJob(mode) ? "Carrier & Air Waybill" : "Carrier & Bill of Lading";
 
 /**
  * Whether the job shows its Container Details tab: always, but on an air job only once it has a
@@ -69,4 +165,60 @@ export const carrierCardTitle = (freightMode: string | null | undefined): string
  */
 export function showsContainerTab(freightMode: string | null | undefined, containerCount: number, containerNumber?: string | null): boolean {
   return !isAirFreight(freightMode) || containerCount > 0 || !!(containerNumber ?? "").trim();
+}
+
+/** One stage of the job page's progress bar: its place among the six (TaskDef.stage) and its name. */
+export interface ProgressStage {
+  index: number;
+  label: string;
+}
+
+/** The six stages as a sea job names them (taskDefinitions: 0 Booking confirmed … 5 Delivered). */
+export const SEA_STAGES: readonly ProgressStage[] = [
+  { index: 0, label: "Booking confirmed" },
+  { index: 1, label: "Cargo ready" },
+  { index: 2, label: "In transit" },
+  { index: 3, label: "Arrive at Port of Discharge" },
+  { index: 4, label: "Customs clearance" },
+  { index: 5, label: "Delivered" },
+];
+
+const ARRIVAL_STAGE = 3;
+const CUSTOMS_STAGE = 4;
+
+/**
+ * The progress bar's stages as the job travels (user council T9): an air job arrives at its
+ * destination airport, a rail job at its terminal; a road job has no port to arrive at, and a
+ * Trucking job that goes through no customs (goesThroughCustoms) no customs stage either - an
+ * international road job keeps it. A stage left out still counts: the ticks and dates behind it move
+ * the bar on to the next stage shown.
+ */
+export function progressStagesFor(mode: ModeArg): ProgressStage[] {
+  if (isRoadJob(mode)) {
+    const customs = goesThroughCustoms(mode);
+    return SEA_STAGES.filter((s) => s.index !== ARRIVAL_STAGE && (customs || s.index !== CUSTOMS_STAGE));
+  }
+  const freightMode = jobOf(mode).freightMode ?? "";
+  const arrival = isAirFreight(freightMode) ? "Arrive at destination airport" : /^\s*rail/i.test(freightMode) ? "Arrive at destination terminal" : null;
+  return SEA_STAGES.map((s) => (s.index === ARRIVAL_STAGE && arrival ? { ...s, label: arrival } : s));
+}
+
+/**
+ * The stage shown as in progress, by its place among the six: the first stage shown from the active
+ * one on, so the ticks of a stage left out (a truck's "Booked for further transport", stage 4) move
+ * the bar on to Delivered. Undefined once every stage shown is done.
+ */
+export const currentStageOf = (stages: readonly ProgressStage[], activeIndex: number): number | undefined =>
+  stages.find((s) => s.index >= activeIndex)?.index;
+
+/**
+ * The Tasks card's heading, after the checklist it shows (taskDefinitions getTasksForDirection): an
+ * export's, or the import list - which a Domestic job gets cut to a truck's tasks, so it is named
+ * Domestic (user council T9). A Road Department job that is not Domestic gets a truck's tasks too,
+ * so it is named Road, not Import or Export. The ticks of the tasks it no longer lists stay stored.
+ */
+export function workflowHeading(tradeDirection: string | null | undefined, department?: string | null): string {
+  if ((tradeDirection ?? "").trim().toLowerCase() === "domestic") return "Domestic Workflow";
+  if (isDeliveryDated({ department })) return "Road Workflow";
+  return tradeDirection === "Export" ? "Export Workflow" : "Import Workflow";
 }

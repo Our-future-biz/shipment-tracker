@@ -201,8 +201,21 @@ describe("trip fill and warnings", () => {
       ],
       tautliner,
     );
-    expect(fill).toEqual({ ldm: 11.2, kg: 9840, palletPlaces: 27, ldmPercent: 82.4, kgPercent: 41 });
+    expect(fill).toEqual({ ldm: 11.2, kg: 9840, palletPlaces: 27, ldmPercent: 82.4, kgPercent: 41, palletPlacesPercent: null });
     expect(tripFill([{ ldm: 1, weightKg: 1, palletPlaces: 1 }], null).ldmPercent).toBeNull();
+  });
+
+  it("fills by pallet places when the load has places and no LDM (User Council T5), LDM kept when both are given", () => {
+    // 33 of 33 places typed without loading metres: a full truck, not "LDM 0 %".
+    const full = tripFill([{ ldm: 0, weightKg: 18000, palletPlaces: 33 }], tautliner);
+    expect(full).toMatchObject({ ldmPercent: 0, kgPercent: 75, palletPlacesPercent: 100 });
+    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }], tautliner).palletPlacesPercent).toBe(33.3);
+    // Any LDM on the trip: the LDM bar stays.
+    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }, { ldm: 2, weightKg: 500, palletPlaces: 4 }], tautliner).palletPlacesPercent).toBeNull();
+    // Nothing given in places, no vehicle, or a vehicle with no places known: no places bar.
+    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 0 }], tautliner).palletPlacesPercent).toBeNull();
+    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }], null).palletPlacesPercent).toBeNull();
+    expect(tripFill([{ ldm: 0, weightKg: 500, palletPlaces: 11 }], { ...tautliner, palletPlaces: 0 }).palletPlacesPercent).toBeNull();
   });
 
   it("warns (never blocks) over capacity, ADR on a haulier without ADR, a promise the trip cannot keep, and a tail lift missing", () => {

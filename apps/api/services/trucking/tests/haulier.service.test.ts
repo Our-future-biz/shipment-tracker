@@ -44,6 +44,7 @@ const record = (over: Record<string, unknown> = {}) => ({
   vatUnreliable: false,
   bankAccountPublished: true,
   vatCheckedAt: "2026-10-10",
+  bankAccounts: ["19-2000145399/0800"],
   costSplitBasis: "chargeable_weight",
   blocked: false,
   blockReason: "",

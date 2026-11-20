@@ -514,6 +514,9 @@ export function margin(
 
 // ---- promised date -----------------------------------------------------------------------------
 
+/** What the rate calculator says of Express fixed date, which gives no date of its own. */
+export const FIXED_DATE_NOTE = "Asked at booking: the delivery day agreed with the customer";
+
 export interface DeliveryPromise {
   promisedDate: string | null;
   promisedTime: string | null;
@@ -532,7 +535,9 @@ export function promise(
   scope: TariffScope,
   extraHolidays: readonly string[],
 ): DeliveryPromise {
-  if (level.code === "EXP_FIXED") return { promisedDate: null, promisedTime: null, promiseNote: "Date agreed per order" };
+  // Express fixed date has no date of its own: the day agreed with the customer is asked when the
+  // consignment is booked and stored as its promised date (User Council Q13).
+  if (level.code === "EXP_FIXED") return { promisedDate: null, promisedTime: null, promiseNote: FIXED_DATE_NOTE };
   const start = effectiveStartDate({ date: pickupDate, time: pickupTime ?? level.cutoff }, level.cutoff, extraHolidays);
   const notes: string[] = [];
   if (start !== pickupDate) {

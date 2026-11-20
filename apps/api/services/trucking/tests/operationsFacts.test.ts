@@ -82,7 +82,8 @@ describe("no haulier and the haulier not confirmed (the Consignments list's rule
     const at = (pickupDate: string) => haulierIssues(consignment({ pickupDate }), null, clock());
     expect(at("2026-11-19")).toEqual([{ kind: "no_haulier", text: "Pick-up within 24 h and no trip", urgent: false, since: "2026-11-10T09:00:00.000Z" }]);
     expect(at(TODAY)[0]).toMatchObject({ kind: "no_haulier", urgent: true });
-    expect(at("2026-11-16")[0]).toMatchObject({ kind: "no_haulier", urgent: true });
+    expect(at("2026-11-16")[0]).toMatchObject({ kind: "no_haulier", text: "Pick-up date passed and no trip", urgent: true });
+    expect(at("2026-11-17")[0]!.text).toBe("Pick-up date passed and no trip");
     expect(at("2026-11-20")).toEqual([]);
   });
 
@@ -92,6 +93,11 @@ describe("no haulier and the haulier not confirmed (the Consignments list's rule
       { kind: "haulier_not_confirmed", text: "Pick-up within 24 h and the transport order is not sent", urgent: false, since: "2026-11-12T09:00:00.000Z" },
     ]);
     expect(haulierIssues(consignment({ status: "PLANNED", tripId: "t1", pickupDate: TODAY }), t, clock())[0]!.urgent).toBe(true);
+    // A pick-up day already gone (User Council T6).
+    expect(haulierIssues(consignment({ status: "PLANNED", tripId: "t1", pickupDate: "2026-10-13" }), t, clock())[0]).toMatchObject({
+      text: "Pick-up date passed and the transport order is not sent",
+      urgent: true,
+    });
     expect(haulierIssues(consignment({ status: "PLANNED", tripId: "t1", pickupDate: "2026-11-20" }), t, clock())).toEqual([]);
   });
 
@@ -140,9 +146,9 @@ describe("no haulier and the haulier not confirmed (the Consignments list's rule
     // A public holiday: on Mon 16 Nov the next working day is Wed 18 (17 Nov).
     const monday: IssueClock = { today: "2026-11-16", now: new Date("2026-11-16T13:00:00Z"), holidays: [] };
     expect(haulierIssues(consignment({ pickupDate: "2026-11-18" }), null, monday)[0]).toMatchObject({ kind: "no_haulier", text: "Pick-up on Wed 18.11. and no trip", urgent: false });
-    // Today and a passed day keep Trucking's words.
+    // Today and a passed day keep Trucking's words: a passed day is no "within 24 h" (User Council T6).
     expect(haulierIssues(consignment({ pickupDate: "2026-11-16" }), null, monday)[0]).toMatchObject({ text: "Pick-up within 24 h and no trip", urgent: true });
-    expect(haulierIssues(consignment({ pickupDate: "2026-11-13" }), null, monday)[0]).toMatchObject({ text: "Pick-up within 24 h and no trip", urgent: true });
+    expect(haulierIssues(consignment({ pickupDate: "2026-11-13" }), null, monday)[0]).toMatchObject({ text: "Pick-up date passed and no trip", urgent: true });
     expect(haulierIssues(consignment({ status: "ORDERED", tripId: "t1", pickupDate: "2026-11-18" }), t, monday)[0]!.text).toBe("Ordered, not confirmed: pick-up on 18 Nov 2026");
   });
 

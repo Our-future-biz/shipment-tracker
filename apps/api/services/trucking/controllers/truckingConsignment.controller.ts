@@ -70,6 +70,8 @@ interface TruckingConsignmentCreateRequest {
   lastMile?: LastMile | null;
   /** LTL with a partner: the partner haulier when already known */
   partnerHaulierCustomerId?: string | null;
+  /** Express fixed date: the delivery day agreed with the customer (YYYY-MM-DD), required for that level; ignored for the others */
+  fixedDeliveryDate?: string | null;
 }
 
 // Creates a consignment (any user): priced from the tariff, a quote or an agreed price. A margin
@@ -110,6 +112,8 @@ interface TruckingConsignmentUpdateRequest {
   lastMile?: LastMile | null;
   /** LTL with a partner: the partner haulier when already known */
   partnerHaulierCustomerId?: string | null;
+  /** Express fixed date: the delivery day agreed with the customer (YYYY-MM-DD), required for that level; ignored for the others */
+  fixedDeliveryDate?: string | null;
   /** The version read */
   version: number;
   /** Price again from the price source; otherwise the stored price stays */

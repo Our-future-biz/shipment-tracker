@@ -111,6 +111,11 @@ describe("margin, gates and attention", () => {
     const now = t("2026-10-15T10:00:00Z");
     expect(attentionReasons(base, "2026-10-15", now)).toEqual(["Pick-up within 24 h and no trip"]);
     expect(attentionReasons({ ...base, pickupDate: "2026-10-20" }, "2026-10-15", now)).toEqual([]);
+    // Today is still "within 24 h"; a day already gone is not (User Council T6: one 36 days ago read so).
+    expect(attentionReasons({ ...base, pickupDate: "2026-10-15" }, "2026-10-15", now)).toEqual(["Pick-up within 24 h and no trip"]);
+    expect(attentionReasons({ ...base, pickupDate: "2026-09-09" }, "2026-10-15", now)).toEqual(["Pick-up date passed and no trip"]);
+    expect(attentionReasons({ ...base, status: "PLANNED", pickupDate: "2026-10-14" }, "2026-10-15", now)).toEqual(["Pick-up date passed and the transport order is not sent"]);
+    expect(attentionReasons({ ...base, status: "PLANNED" }, "2026-10-15", now)).toEqual(["Pick-up within 24 h and the transport order is not sent"]);
     expect(attentionReasons({ ...base, pickupDate: "2026-10-20", belowFloor: true, marginCzk: -10 }, "2026-10-15", now)).toEqual([
       "Margin below the floor: needs a manager's approval",
       "Negative margin",

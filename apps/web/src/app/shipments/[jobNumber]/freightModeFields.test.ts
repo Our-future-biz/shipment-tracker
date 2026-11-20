@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carrierCardTitle, fieldsForMode, showsContainerTab } from "./freightModeFields";
+import { SEA_STAGES, carrierCardTitle, currentStageOf, fieldsForMode, progressStagesFor, showsContainerTab, workflowHeading } from "./freightModeFields";
 
 const CARRIER = [
   { key: "bookingNumber", label: "Booking Number" },
@@ -12,8 +12,8 @@ const CARRIER = [
 const none = () => "";
 
 describe("a job page's rows by freight mode (user council O17)", () => {
-  it("keep their sea names and every row on a sea, rail or road job, or one with no mode", () => {
-    for (const mode of ["Sea Freight", "Rail Freight", "Road", "", null, undefined]) {
+  it("keep their sea names and every row on a sea or rail job, or one with no mode", () => {
+    for (const mode of ["Sea Freight", "Rail Freight", "", null, undefined, { freightMode: "Sea Freight", tradeDirection: "Import", department: "" }]) {
       expect(fieldsForMode(CARRIER, mode, none)).toEqual(CARRIER);
     }
   });
@@ -63,6 +63,100 @@ describe("a job page's rows by freight mode (user council O17)", () => {
   it("hide the VGM and SI closings and the VGM check on air, but keep Shipping Instructions", () => {
     const rows = ["vgmClosing", "siClosing", "vgm", "shippingInstructions", "closingDate"].map((key) => ({ key, label: key }));
     expect(fieldsForMode(rows, "Air Freight", none).map((f) => f.key)).toEqual(["shippingInstructions", "closingDate"]);
+  });
+});
+
+describe("a road job's rows (user council T9)", () => {
+  const SEA_ROWS = [
+    "bookingNumber", "vessel", "voyage", "containerNumber", "containerTypeSummary", "totalTeu", "houseBolNumber", "houseBolType",
+    "masterBolType", "houseBolRelease", "vgm", "vgmClosing", "siClosing", "shippingInstructions", "bolDraft", "ams", "isf",
+    "amsDeadline", "isfDeadline", "insurance", "bookingConfirmation", "customsStatus", "pol",
+  ].map((key) => ({ key, label: key }));
+  // CZROAD00000061 as the server seeded it: the starting states, and no paperwork in.
+  const seeded: Record<string, string> = {
+    vgm: "Pending (Red)", shippingInstructions: "Not Queried", bolDraft: "Not Processed", ams: "Not Applicable", isf: "Not Applicable",
+    insurance: "No", bookingConfirmation: "Pending", customsStatus: "Waiting For Commercial Paperwork",
+  };
+  const seededOf = (k: string) => seeded[k] ?? "";
+  const domestic = { freightMode: "Road Freight", tradeDirection: "Domestic", department: "" };
+
+  it("leave out a Trucking job's empty sea rows and its untouched starting states, and the customs status while no paperwork is in", () => {
+    expect(fieldsForMode(SEA_ROWS, domestic, seededOf).map((f) => f.key)).toEqual(["bookingNumber", "houseBolNumber", "insurance", "bookingConfirmation", "pol"]);
+  });
+
+  it("tell a road job the way the server does: Domestic, the Road Department, or a Freight Mode saying road", () => {
+    const keysOf = (mode: Parameters<typeof fieldsForMode>[1]) => fieldsForMode([{ key: "vgm", label: "VGM" }], mode, seededOf).length;
+    expect(keysOf({ freightMode: "Sea Freight", tradeDirection: " domestic " })).toBe(0);
+    expect(keysOf({ freightMode: "", tradeDirection: "Import", department: "Road Department" })).toBe(0);
+    expect(keysOf({ freightMode: "Road Freight", tradeDirection: "Export" })).toBe(0);
+    expect(keysOf("Road")).toBe(0);
+    expect(keysOf({ freightMode: "Sea Freight", tradeDirection: "Import", department: "Ocean Freight" })).toBe(1);
+  });
+
+  it("never hide a row that holds a value of its own on a road job", () => {
+    const valueOf = (k: string) => ({ ...seeded, vgm: "Confirmed (Green)", vessel: "MSC ANNA", houseBolType: "Seaway", houseBolRelease: "jan — 20. 11. 2026", customsStatus: "Paperwork Verification Pending" })[k] ?? "";
+    const keys = fieldsForMode(SEA_ROWS, domestic, valueOf).map((f) => f.key);
+    expect(keys).toEqual(expect.arrayContaining(["vgm", "vessel", "houseBolType", "houseBolRelease", "customsStatus"]));
+    expect(keys).not.toContain("shippingInstructions");
+  });
+
+  it("keep the customs status on a road job that goes through customs: an international one, or a Trucking job with an MRN or a customs deadline", () => {
+    const has = (mode: Parameters<typeof fieldsForMode>[1]) => fieldsForMode(SEA_ROWS, mode, seededOf).some((f) => f.key === "customsStatus");
+    expect(has({ freightMode: "Road Freight", tradeDirection: "Import" })).toBe(true);
+    expect(has({ ...domestic, mrn: "26CZ000000000001A0" })).toBe(true);
+    expect(has({ ...domestic, customsDeadline: "2026-11-25" })).toBe(true);
+    expect(has({ ...domestic, mrn: " " })).toBe(false);
+  });
+
+  it("keep the sea names on a road job: road comes before air, as on the server", () => {
+    expect(fieldsForMode([{ key: "pol", label: "Port of Loading" }], { freightMode: "Air Freight", tradeDirection: "Domestic" }, none)).toEqual([{ key: "pol", label: "Port of Loading" }]);
+    expect(carrierCardTitle({ freightMode: "Air Freight", tradeDirection: "Domestic" })).toBe("Carrier & Bill of Lading");
+  });
+});
+
+describe("the progress bar's stages (user council T9)", () => {
+  const labels = (mode: Parameters<typeof progressStagesFor>[0]) => progressStagesFor(mode).map((s) => s.label);
+
+  it("are the six sea stages on a sea job or one with no mode", () => {
+    expect(progressStagesFor("Sea Freight")).toEqual(SEA_STAGES);
+    expect(progressStagesFor(undefined)).toEqual(SEA_STAGES);
+  });
+
+  it("arrive at the destination airport on air and at the terminal on rail", () => {
+    expect(labels("Air Freight")).toEqual(["Booking confirmed", "Cargo ready", "In transit", "Arrive at destination airport", "Customs clearance", "Delivered"]);
+    expect(labels("Rail Freight")[3]).toBe("Arrive at destination terminal");
+  });
+
+  it("have no port on a road job, and no customs on a Trucking job that goes through none", () => {
+    expect(labels({ freightMode: "Road Freight", tradeDirection: "Domestic" })).toEqual(["Booking confirmed", "Cargo ready", "In transit", "Delivered"]);
+    expect(progressStagesFor({ freightMode: "Road Freight", tradeDirection: "Domestic" }).map((s) => s.index)).toEqual([0, 1, 2, 5]);
+    expect(labels({ freightMode: "Road Freight", tradeDirection: "Import" })).toEqual(["Booking confirmed", "Cargo ready", "In transit", "Customs clearance", "Delivered"]);
+    expect(labels({ tradeDirection: "Import", department: "Road Department", mrn: "26CZ000000000001A0" })).toContain("Customs clearance");
+  });
+
+  it("move on past a stage left out to the next one shown", () => {
+    const truck = progressStagesFor({ tradeDirection: "Domestic" });
+    expect(currentStageOf(truck, 2)).toBe(2);
+    // "Booked for further transport" (stage 4) ticked, or the ATA in (stage 4 by the facts): Delivered is next.
+    expect(currentStageOf(truck, 3)).toBe(5);
+    expect(currentStageOf(truck, 4)).toBe(5);
+    // All done.
+    expect(currentStageOf(truck, 6)).toBeUndefined();
+    expect(currentStageOf(SEA_STAGES, 3)).toBe(3);
+  });
+});
+
+describe("the Tasks card's heading (user council T9)", () => {
+  it("names the checklist it shows", () => {
+    expect(workflowHeading("Export")).toBe("Export Workflow");
+    expect(workflowHeading("Import")).toBe("Import Workflow");
+    expect(workflowHeading(" Domestic ")).toBe("Domestic Workflow");
+    expect(workflowHeading(null)).toBe("Import Workflow");
+    // A Road Department job gets a truck's tasks whatever its direction (Domestic keeps its own name).
+    expect(workflowHeading("Import", "Road Department")).toBe("Road Workflow");
+    expect(workflowHeading("Export", " road department ")).toBe("Road Workflow");
+    expect(workflowHeading("Domestic", "Road Department")).toBe("Domestic Workflow");
+    expect(workflowHeading("Export", "Sea Department")).toBe("Export Workflow");
   });
 });
 

@@ -13078,6 +13078,11 @@ export namespace controllers {
          * LTL with a partner: the partner haulier when already known
          */
         partnerHaulierCustomerId?: string | null
+
+        /**
+         * Express fixed date: the delivery day agreed with the customer (YYYY-MM-DD), required for that level; ignored for the others
+         */
+        fixedDeliveryDate?: string | null
     }
 
     export interface TruckingConsignmentListRequest {
@@ -13171,6 +13176,11 @@ export namespace controllers {
          * LTL with a partner: the partner haulier when already known
          */
         partnerHaulierCustomerId?: string | null
+
+        /**
+         * Express fixed date: the delivery day agreed with the customer (YYYY-MM-DD), required for that level; ignored for the others
+         */
+        fixedDeliveryDate?: string | null
 
         /**
          * The version read
@@ -13731,6 +13741,12 @@ export namespace controllers {
         recordedOnly: boolean
 
         file: interfaces.FileDownload
+        /**
+         * The haulier's new link to confirm the order and upload the POD, as printed on the PDF. Given
+         * only in this answer (the server keeps only its hash) and never logged; null for an LTL trip,
+         * which has no link.
+         */
+        haulierLink: string | null
     }
 
     export interface TruckingTripAssignLegsRequest {
@@ -18410,7 +18426,7 @@ export namespace interfaces {
         message: string
     }
 
-    export type HaulierIssueCode = "blocked" | "missing_insurance" | "insurance_expired" | "insurance_expiring" | "missing_licence" | "licence_expired" | "licence_expiring" | "vat_unreliable" | "vat_check_due"
+    export type HaulierIssueCode = "blocked" | "missing_insurance" | "insurance_expired" | "insurance_expiring" | "missing_licence" | "licence_expired" | "licence_expiring" | "vat_unreliable" | "vat_check_due" | "no_bank_account"
 
     export interface HaulierListItem {
         customerId: string
@@ -27422,6 +27438,10 @@ export namespace interfaces {
         palletPlaces: number
         ldmPercent: number | null
         kgPercent: number | null
+        /**
+         * Shown instead of the LDM bar when the load has pallet places and no LDM; else null
+         */
+        palletPlacesPercent: number | null
     }
 
     export type TripKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN"

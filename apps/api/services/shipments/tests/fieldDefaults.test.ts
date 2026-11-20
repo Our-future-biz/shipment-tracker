@@ -100,6 +100,21 @@ describe("startingStateDefaults on an air job (step 3 review M1)", () => {
   });
 });
 
+describe("startingStateDefaults on a road job (user council T9)", () => {
+  it("does not seed the VGM on a Trucking job or one whose Freight Mode says road, the other starting states as on any job", () => {
+    expect(startingStateDefaults({ freightMode: "Road Freight", tradeDirection: "Domestic" })).not.toHaveProperty("vgm");
+    expect(startingStateDefaults({ freightMode: "", tradeDirection: " domestic " })).not.toHaveProperty("vgm");
+    expect(startingStateDefaults({ freightMode: "Sea Freight", tradeDirection: "Import", department: "Road Department" })).not.toHaveProperty("vgm");
+    expect(startingStateDefaults({ freightMode: "Road Freight", tradeDirection: "Export" })).not.toHaveProperty("vgm");
+    expect(startingStateDefaults({ tradeDirection: "Domestic" })).toMatchObject({ creditCheck: "Red", bookingConfirmation: "Pending", bolDraft: "Not Processed" });
+  });
+
+  it("seeds it on a sea or rail job of another department", () => {
+    expect(startingStateDefaults({ freightMode: "Sea Freight", tradeDirection: "Import", department: "Ocean Freight" })).toMatchObject({ vgm: "Pending (Red)" });
+    expect(startingStateDefaults({ freightMode: "Rail Freight", tradeDirection: "Import" })).toMatchObject({ vgm: "Pending (Red)" });
+  });
+});
+
 describe("isCreditApproval", () => {
   it("fires when the check moves to Green", () => {
     expect(isCreditApproval("Green", "Red")).toBe(true);

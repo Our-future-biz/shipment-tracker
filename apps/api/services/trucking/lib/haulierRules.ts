@@ -114,6 +114,14 @@ export function haulierIssues(p: HaulierProfile, today: string): HaulierIssue[] 
   } else if (p.vatCheckedAt < addDays(today, -WARN_DAYS)) {
     issues.push(warn("vat_check_due", `The VAT register was last checked on ${formatDay(p.vatCheckedAt)}`));
   }
+  // Payment is never approved into an account not published in the VAT register
+  // (haulierInvoiceRules.ts invoiceBlockReasons). Said here already (T10) so the hauliers list,
+  // the haulier page and Plan trip warn before the trip; transport is never held up, only payment.
+  if (!(p.bankAccounts ?? []).length) {
+    issues.push(warn("no_bank_account", "No bank account from the VAT register listed — its invoices will be blocked"));
+  } else if (!p.bankAccountPublished) {
+    issues.push(warn("no_bank_account", "The bank account is not marked as published in the VAT register — its invoices will be blocked"));
+  }
   return issues;
 }
 

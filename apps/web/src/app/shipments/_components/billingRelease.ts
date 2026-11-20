@@ -76,11 +76,11 @@ export function billingGaps({ shipment, selling, buying, ticked }: BillingReleas
   }
   const taxDate = taxDateGap(shipment);
   if (taxDate) gaps.push(taxDate);
-  if (freightKindOf(shipment.tradeDirection, shipment.freightMode) === "sea" && blank(shipment.houseBolNumber) && blank(shipment.masterBolNumber)) {
+  if (freightKindOf(shipment.tradeDirection, shipment.freightMode, shipment.department) === "sea" && blank(shipment.houseBolNumber) && blank(shipment.masterBolNumber)) {
     gaps.push("No B/L number");
   }
   if (ticked) {
-    const tasks = getTasksForDirection(shipment.tradeDirection, shipment.freightMode).filter((t) => !BILLED_TASKS.has(t.key));
+    const tasks = getTasksForDirection(shipment.tradeDirection, shipment.freightMode, shipment.department).filter((t) => !BILLED_TASKS.has(t.key));
     const left = tasks.filter((t) => !ticked.has(t.key)).length;
     if (left) gaps.push(`${left} of ${lines(tasks.length, "task", "tasks")} not ticked`);
   }

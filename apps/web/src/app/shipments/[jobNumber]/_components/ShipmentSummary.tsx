@@ -9,17 +9,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { CopyButton } from "@/components/CopyButton";
 import { CUSTOMS_CLEARED, getActiveStage, getTasksForDirection } from "./taskDefinitions";
 import { EMPTY } from "./detailStyles";
+import { SEA_STAGES, currentStageOf, progressStagesFor, type ProgressStage } from "../freightModeFields";
 import { CARD, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
-
-/* ── Stepper stages ── */
-const SHIPMENT_STAGES = [
-  "Booking confirmed",
-  "Cargo ready",
-  "In transit",
-  "Arrive at Port of Discharge",
-  "Customs clearance",
-  "Delivered",
-];
 
 interface FactProps {
   label: string;
@@ -118,45 +109,54 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
 }
 
 /**
- * The shipment's progress through the six stages, driven by the completed tasks and its dated facts
- * (either only pushes it forward). Every segment is full length - solid indigo done, light indigo in
+ * The shipment's progress through its stages, driven by the completed tasks and its dated facts
+ * (either only pushes it forward). The stages follow how the job travels (progressStagesFor: no port
+ * on a truck, an airport on air). Every segment is full length - solid indigo done, light indigo in
  * progress, grey not yet - so none reads as a percentage. The names sit centred above the bars, the
  * current one with a dot; the bars line up even when a name wraps.
  */
 export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   const { byKey } = useShipmentTasks(shipment.id);
-  const taskList = getTasksForDirection(shipment.tradeDirection, shipment.freightMode);
+  const taskList = getTasksForDirection(shipment.tradeDirection, shipment.freightMode, shipment.department);
   const activeIndex = getActiveStage(taskList, (key) => !!byKey.get(key)?.completed, shipment);
-  // Which fact a stage rests on, when it rests on one.
-  const factOf: Record<string, string> = {
-    "In transit": shipment.actualDeparture ? `ATD ${formatDate(shipment.actualDeparture)}` : "",
-    "Arrive at Port of Discharge": shipment.actualArrival ? `ATA ${formatDate(shipment.actualArrival)}` : "",
-    "Customs clearance": shipment.customsStatus === CUSTOMS_CLEARED ? CUSTOMS_CLEARED : "",
-    Delivered: shipment.actualDeliveryDate ? `Delivered ${formatDate(shipment.actualDeliveryDate)}` : "",
+  const stages = progressStagesFor(shipment);
+  // Which fact a stage rests on, when it rests on one, by its place among the six.
+  const factAt: Record<number, string> = {
+    2: shipment.actualDeparture ? `ATD ${formatDate(shipment.actualDeparture)}` : "",
+    3: shipment.actualArrival ? `ATA ${formatDate(shipment.actualArrival)}` : "",
+    4: shipment.customsStatus === CUSTOMS_CLEARED ? CUSTOMS_CLEARED : "",
+    5: shipment.actualDeliveryDate ? `Delivered ${formatDate(shipment.actualDeliveryDate)}` : "",
   };
+  const factOf = Object.fromEntries(stages.map((s) => [s.label, factAt[s.index] ?? ""]));
 
-  return <ProgressStages activeIndex={activeIndex} factOf={factOf} ariaLabel="Shipment progress" />;
+  return <ProgressStages activeIndex={activeIndex} factOf={factOf} ariaLabel="Shipment progress" stages={stages} />;
 }
 
 interface ProgressStagesProps {
-  /** The stage in progress (0-based); the ones before it are done. */
+  /** The stage in progress, by its place among the six (0-based); the ones before it are done. */
   activeIndex: number;
-  /** Which fact a stage rests on, for its hover text ("ATD 13.10.2026"). */
+  /** Which fact a stage rests on, by its name, for its hover text ("ATD 13.10.2026"). */
   factOf: Record<string, string>;
   /** What the bar is, for screen readers. */
   ariaLabel: string;
+  /** The stages shown, in order (progressStagesFor); all six under their sea names when not given. */
+  stages?: readonly ProgressStage[];
 }
 
-/** The six stages as a bar of segments: the shipment's (ShipmentProgress) and a master job's. */
-export function ProgressStages({ activeIndex, factOf, ariaLabel }: ProgressStagesProps) {
+// Literal class names, so Tailwind keeps them: one column per stage on a wide screen.
+const COLUMNS_FOR: Record<number, string> = { 4: "md:grid-cols-4", 5: "md:grid-cols-5", 6: "md:grid-cols-6" };
+
+/** The stages as a bar of segments: the shipment's (ShipmentProgress) and a master job's. */
+export function ProgressStages({ activeIndex, factOf, ariaLabel, stages = SEA_STAGES }: ProgressStagesProps) {
+  const currentIndex = currentStageOf(stages, activeIndex);
   return (
     <ol
       aria-label={ariaLabel}
-      className={`${CARD} list-none grid grid-cols-3 md:grid-cols-6 gap-x-1 gap-y-3 px-5 pt-3 pb-3.5`}
+      className={`${CARD} list-none grid grid-cols-3 ${COLUMNS_FOR[stages.length] ?? "md:grid-cols-6"} gap-x-1 gap-y-3 px-5 pt-3 pb-3.5`}
     >
-      {SHIPMENT_STAGES.map((label, i) => {
-        const done = i < activeIndex;
-        const current = i === activeIndex;
+      {stages.map(({ index, label }) => {
+        const done = index < activeIndex;
+        const current = index === currentIndex;
         return (
           <li key={label} className="min-w-0 flex flex-col justify-end" aria-current={current ? "step" : undefined}>
             <div

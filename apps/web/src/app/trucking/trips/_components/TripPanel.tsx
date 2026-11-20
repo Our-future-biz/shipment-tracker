@@ -118,7 +118,19 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
             <Line k="State" v={orderState} />
             <Line k={RECORDED_AS_SENT} v={sent ? `${businessDateTime(order?.sentAt)}${order?.sentBy ? ` · ${order.sentBy}` : ""}${order?.recordedOnly ? " · not e-mailed" : ""}` : ""} />
             <Line k="Pick-up PIN" v={order ? (order.pinPrinted ? "Printed on the order (not kept)" : "Not printed") : ""} />
-            <Line k="Haulier's link" v={order?.podLinkExpiresAt ? `In the PDF · valid to ${pragueDate(order.podLinkExpiresAt)}` : sent ? "" : "Made when the order is recorded as sent"} />
+            {/* The link itself is not kept (only its hash): it is in the PDF and was shown once to copy (T8/E1). */}
+            <Line
+              k="Haulier's link"
+              v={
+                trip.kind !== "FTL"
+                  ? "None on an LTL trip — the PODs are uploaded per consignment"
+                  : order?.podLinkExpiresAt
+                  ? `In the PDF, and shown once to copy when recorded as sent · valid to ${pragueDate(order.podLinkExpiresAt)} · ${recordAsSentLabel(true).replace("…", "")} makes a new one`
+                  : sent
+                    ? ""
+                    : "Made when the order is recorded as sent, and shown once to copy"
+              }
+            />
           </div>
           {!closed && (
             <div className="flex flex-wrap gap-2">

@@ -1,3 +1,4 @@
+import { isDeliveryDated } from "@/lib/deliveryDated";
 export interface TaskDef {
   key: string;
   label: string;
@@ -80,10 +81,13 @@ export const SELF_TICKS: Readonly<Record<string, string>> = {
 
 type FreightKind = "sea" | "air" | "rail" | "road";
 
-/** How a job travels. The server decides the same way (lib/trackingEvents freightKindOf). */
-export function freightKindOf(tradeDirection?: string | null, freightMode?: string | null): FreightKind {
+/**
+ * How a job travels. The server decides the same way (lib/trackingEvents freightKindOf): a Trucking job
+ * (Domestic, or of the Road Department) or one whose Freight Mode says road goes by road.
+ */
+export function freightKindOf(tradeDirection?: string | null, freightMode?: string | null, department?: string | null): FreightKind {
   const mode = (freightMode ?? "").trim();
-  if ((tradeDirection ?? "").trim().toLowerCase() === "domestic" || /road/i.test(mode)) return "road";
+  if (isDeliveryDated({ tradeDirection, department }) || /road/i.test(mode)) return "road";
   if (/^air/i.test(mode)) return "air";
   if (/^rail/i.test(mode)) return "rail";
   return "sea";
@@ -127,9 +131,9 @@ const TASK_WORDS: Partial<Record<FreightKind, Readonly<Record<string, string>>>>
 };
 
 /** The checklist of a job, by its direction and how it travels. Without a mode it is the full list. */
-export function getTasksForDirection(tradeDirection?: string | null, freightMode?: string | null): TaskDef[] {
+export function getTasksForDirection(tradeDirection?: string | null, freightMode?: string | null, department?: string | null): TaskDef[] {
   const tasks = tradeDirection === "Export" ? EXPORT_TASKS : IMPORT_TASKS;
-  const kind = freightKindOf(tradeDirection, freightMode);
+  const kind = freightKindOf(tradeDirection, freightMode, department);
   const words = TASK_WORDS[kind] ?? {};
   return tasks
     .filter((t) => (kind === "road" ? ROAD_TASKS.has(t.key) : !NOT_FILED[kind]?.has(t.key)))

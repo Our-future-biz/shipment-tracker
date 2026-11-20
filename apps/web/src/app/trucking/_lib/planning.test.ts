@@ -24,6 +24,7 @@ import {
   warningSummary,
   planningDayOf,
   planningHref,
+  boardUnusable,
 } from "./planning";
 
 const leg = (id: string, extra: Partial<PlanningLeg> = {}): PlanningLeg => ({
@@ -106,8 +107,20 @@ describe("trip fill", () => {
 
   it("projects the fill with more legs", () => {
     const fill = projectedFill({ ldm: 12, kg: 20000, palletPlaces: 30 }, [leg("1", { ldm: 2, weightKg: 1000, palletPlaces: 4 })], { ldm: 13.6, kg: 24000, palletPlaces: 33 });
-    expect(fill).toEqual({ ldm: 14, kg: 21000, palletPlaces: 34, ldmPercent: 103, kgPercent: 88 });
+    expect(fill).toEqual({ ldm: 14, kg: 21000, palletPlaces: 34, ldmPercent: 103, kgPercent: 88, palletPlacesPercent: null });
     expect(projectedFill({ ldm: 1, kg: 1, palletPlaces: 1 }, [], null).ldmPercent).toBeNull();
+  });
+
+  it("fills by pallet places when there are places and no LDM, as the server does (User Council T5)", () => {
+    const truck = { ldm: 13.6, kg: 24000, palletPlaces: 33 };
+    const full = projectedFill({ ldm: 0, kg: 12000, palletPlaces: 22 }, [leg("1", { ldm: 0, weightKg: 6000, palletPlaces: 11 })], truck);
+    expect(full).toMatchObject({ ldmPercent: 0, kgPercent: 75, palletPlacesPercent: 100 });
+    // The places drive the colour and the Fill column's figure, not "0 %".
+    expect(tripFillPercent(full)).toBe(100);
+    expect(tripFillTone(full)).toBe("bg-amber-500");
+    // Any LDM: the LDM bar stays; no vehicle: nothing known.
+    expect(projectedFill({ ldm: 0, kg: 1, palletPlaces: 22 }, [leg("1", { ldm: 1.2, weightKg: 1, palletPlaces: 3 })], truck).palletPlacesPercent).toBeNull();
+    expect(projectedFill({ ldm: 0, kg: 1, palletPlaces: 22 }, [], null).palletPlacesPercent).toBeNull();
   });
 });
 
@@ -286,5 +299,17 @@ describe("planning day in the address", () => {
   it("links to the Planning tab on a day", () => {
     expect(planningHref("2026-10-23")).toBe("/trucking?tab=planning&date=2026-10-23");
     expect(planningHref(null)).toBe("/trucking?tab=planning");
+  });
+});
+
+describe("a board that failed to load", () => {
+  it("hides the lists only when there is no board of this day to show", () => {
+    // Nothing loaded yet: only the error.
+    expect(boardUnusable({ failed: true, hasData: false, isPlaceholderData: false })).toBe(true);
+    // Another day failed while the day before was kept on screen: the old lists would mislead.
+    expect(boardUnusable({ failed: true, hasData: true, isPlaceholderData: true })).toBe(true);
+    // A refetch after a change failed: this day's board is still good and stays.
+    expect(boardUnusable({ failed: true, hasData: true, isPlaceholderData: false })).toBe(false);
+    expect(boardUnusable({ failed: false, hasData: true, isPlaceholderData: true })).toBe(false);
   });
 });

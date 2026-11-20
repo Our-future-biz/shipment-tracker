@@ -38,13 +38,19 @@ const Bar = ({ label, value, of, unit, pct, tone, compact }: BarProps) => (
 );
 
 // The fill of a trip as two bars, LDM and kg. The fuller of the two sets the colour of both (amber
-// from 90 %, red over 100 %); over capacity is a warning, never a block.
+// from 90 %, red over 100 %); over capacity is a warning, never a block. A load given in pallet
+// places with no LDM shows a pallet-places bar instead of "LDM 0 %" (User Council T5); the server
+// sets palletPlacesPercent only then.
 export const TripFillBars = ({ fill, capacity, compact = false }: TripFillBarsProps) => {
   const tone = tripFillTone(fill);
   const fuller = tripFillPercent(fill);
   return (
     <span className="flex flex-col gap-1" aria-label={fuller == null ? TERMS.fill : `${TERMS.fill} ${fuller} %`}>
-      <Bar label={TERMS.ldm} value={fill.ldm} of={capacity?.ldm ?? null} unit={TERMS.ldm} pct={fill.ldmPercent} tone={tone} compact={compact} />
+      {fill.palletPlacesPercent != null ? (
+        <Bar label="PP" value={fill.palletPlaces} of={capacity?.palletPlaces ?? null} unit="pallet places" pct={fill.palletPlacesPercent} tone={tone} compact={compact} />
+      ) : (
+        <Bar label={TERMS.ldm} value={fill.ldm} of={capacity?.ldm ?? null} unit={TERMS.ldm} pct={fill.ldmPercent} tone={tone} compact={compact} />
+      )}
       <Bar label="kg" value={fill.kg} of={capacity?.kg ?? null} unit="kg" pct={fill.kgPercent} tone={tone} compact={compact} />
     </span>
   );

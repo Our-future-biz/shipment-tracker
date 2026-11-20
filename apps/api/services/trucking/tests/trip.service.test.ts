@@ -120,6 +120,14 @@ describe("FTL trip: haulier and buy price", () => {
     expect(eventsOf("trip_created")[0]!.payload).toMatchObject({ facts: { changedFromSuggestion: false } });
   });
 
+  // Express fixed date has no D+N: planning the trip kept nothing and wiped the day agreed at booking (User Council T4).
+  it("keeps the day agreed for Express fixed date as the promised date and tells the job", async () => {
+    const c = await booked({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21" });
+    const { consignment } = await tripService.createFtl(user, { consignmentId: c.id, haulierCustomerId: null, vehicleTypeCode: null, price: { source: "TARIFF" } });
+    expect(consignment.promisedDate).toBe("2026-10-21");
+    expect(outboxOf("planned")[0]!.payload).toMatchObject({ pickupDate: "2026-10-16", plannedDeliveryDate: "2026-10-21" });
+  });
+
   it("lists an FTL trip with its consignment's fill and no warnings", async () => {
     const c = await booked();
     const { trip } = await tripService.createFtl(user, { consignmentId: c.id, haulierCustomerId: null, vehicleTypeCode: "tautliner_136", price: { source: "TARIFF" } });

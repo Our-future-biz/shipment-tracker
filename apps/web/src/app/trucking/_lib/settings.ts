@@ -37,8 +37,12 @@ export const waitingFreeTimeOf = (m: WaitingFreeMinutes): interfaces.WaitingFree
 
 export const EMPTY_HUB: interfaces.HubAddress = { name: "", street: "", postcode: "", city: "", country: "CZ" };
 
-/** Whether our warehouse's address is set: LTL planning needs it. */
-export const hubIsSet = (hub: interfaces.HubAddress | null | undefined) => !!hub && !!hub.street.trim() && isValidPsc(hub.postcode) && !!hub.city.trim();
+/**
+ * Whether our warehouse's address is set: LTL planning needs it. The server's rule (ltlRules.ts
+ * hubIsSet): a name, a postcode and a city, the street optional - so the page never offers a board
+ * the server refuses, or hides one it would give (User Council, Trucking: the two disagreed).
+ */
+export const hubIsSet = (hub: interfaces.HubAddress | null | undefined) => !!hub && !!hub.name.trim() && !!hub.postcode.trim() && !!hub.city.trim();
 
 export const HUB_MISSING_TEXT = "Set the warehouse address in Trucking settings";
 

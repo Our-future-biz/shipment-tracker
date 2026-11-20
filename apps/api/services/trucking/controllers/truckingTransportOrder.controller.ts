@@ -35,6 +35,12 @@ interface TruckingTransportOrderSendResponse {
   /** E-mail is off: recorded as sent, the PDF comes back for the user to send */
   recordedOnly: boolean;
   file: FileDownload;
+  /**
+   * The haulier's new link to confirm the order and upload the POD, as printed on the PDF. Given
+   * only in this answer (the server keeps only its hash) and never logged; null for an LTL trip,
+   * which has no link.
+   */
+  haulierLink: string | null;
 }
 
 // Sends (or, while e-mail is off, records as sent) the transport order with a new haulier link.

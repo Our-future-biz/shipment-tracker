@@ -107,5 +107,8 @@ describe("getTasksForDirection", () => {
     expect(freightKindOf("Import", "Air Freight")).toBe("air");
     expect(freightKindOf("Domestic", "Rail Freight")).toBe("road");
     expect(freightKindOf("Import", "")).toBe("sea");
+    // A Road Department job is a Trucking job, whatever its Freight Mode says (user council T9).
+    expect(freightKindOf("Import", "Sea Freight", "Road Department")).toBe("road");
+    expect(getTasksForDirection("Import", "Sea Freight", "Road Department")).toEqual(getTasksForDirection("Domestic", ""));
   });
 });

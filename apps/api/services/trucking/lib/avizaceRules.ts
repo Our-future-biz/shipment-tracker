@@ -84,11 +84,19 @@ export function avizaceTemplate(c: Pick<TruckingConsignmentRecord, "ref" | "deli
   const l = c.load;
   const address = [d.street, `${d.postcode} ${d.city}`.trim()].filter(Boolean).join(", ");
   const day = d.windowFrom ?? d.windowTo ?? c.promisedDate;
-  const window = d.windowFrom && d.windowTo ? `${pragueTime(d.windowFrom)}–${pragueTime(d.windowTo)}` : d.windowFrom ? `${pragueTime(d.windowFrom)}` : "";
+  // A "Delivery by" time is kept as the window's end alone: said "by 14:00", as the transport order prints it (truckingDocs windowText).
+  const window = (lang: "cs" | "en") =>
+    d.windowFrom && d.windowTo
+      ? `${pragueTime(d.windowFrom)}–${pragueTime(d.windowTo)}`
+      : d.windowFrom
+        ? `${pragueTime(d.windowFrom)}`
+        : d.windowTo
+          ? `${lang === "cs" ? "do" : "by"} ${pragueTime(d.windowTo)}`
+          : "";
   const when = (lang: "cs" | "en") => {
     if (!day) return lang === "cs" ? "bude upřesněn" : "to be agreed";
     const date = formatDate(day, lang);
-    return window ? `${date}, ${window}` : date;
+    return window(lang) ? `${date}, ${window(lang)}` : date;
   };
   const goods = (lang: "cs" | "en") =>
     lang === "cs"

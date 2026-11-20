@@ -109,7 +109,9 @@ export type HaulierIssueCode =
   | "licence_expired"
   | "licence_expiring"
   | "vat_unreliable"
-  | "vat_check_due";
+  | "vat_check_due"
+  /** A warning: no account published in the VAT register, so every invoice from the haulier is blocked */
+  | "no_bank_account";
 
 export interface HaulierIssue {
   code: HaulierIssueCode;
@@ -944,6 +946,8 @@ export interface ConsignmentFields {
   delivery: StopInput;
   load: LoadInput;
   price: ConsignmentPriceInput;
+  /** Express fixed date: the delivery day agreed with the customer (YYYY-MM-DD), required for that level and stored as the promised date; ignored for the others */
+  fixedDeliveryDate?: string | null;
 }
 
 export type TruckingDocumentKind = "POD" | "CMR" | "DELIVERY_NOTE" | "OTHER";
@@ -1006,6 +1010,8 @@ export interface TripFill {
   palletPlaces: number;
   ldmPercent: number | null;
   kgPercent: number | null;
+  /** Shown instead of the LDM bar when the load has pallet places and no LDM; else null */
+  palletPlacesPercent: number | null;
 }
 
 /** A leg on a trip, with what the trip page and the planning board show of its consignment. */

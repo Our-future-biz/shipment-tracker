@@ -15,6 +15,8 @@ const good = (over: Partial<HaulierProfile> = {}): HaulierProfile => ({
   licenceNo: "KON-123",
   licenceUnlimited: true,
   vatCheckedAt: "2026-10-01",
+  bankAccountPublished: true,
+  bankAccounts: ["123456789/0100"],
   version: 1,
   ...over,
 });
@@ -66,6 +68,19 @@ describe("haulier issues and status", () => {
     expect(codes(good({ vatCheckedAt: null }))).toEqual(["vat_check_due:warn"]);
     expect(codes(good({ vatCheckedAt: "2026-09-15" }))).toEqual([]);
     expect(codes(good({ vatCheckedAt: "2026-09-14" }))).toEqual(["vat_check_due:warn"]);
+  });
+
+  it("warns (never blocks) when no bank account from the VAT register is listed: its invoices will be blocked (T10)", () => {
+    const none = haulierIssues(good({ bankAccounts: [] }), TODAY);
+    expect(none).toEqual([{ code: "no_bank_account", severity: "warn", message: "No bank account from the VAT register listed — its invoices will be blocked" }]);
+    expect(haulierStatus(none)).toBe("warning");
+    expect(haulierIssues(good({ bankAccounts: [], bankAccountPublished: false }), TODAY)).toEqual(none);
+    // Listed but not marked published: payment is refused all the same, so it is said too.
+    expect(haulierIssues(good({ bankAccountPublished: false }), TODAY)).toEqual([
+      { code: "no_bank_account", severity: "warn", message: "The bank account is not marked as published in the VAT register — its invoices will be blocked" },
+    ]);
+    // A new profile has neither: it warns beside its blocks.
+    expect(codes({ ...defaultProfile("c1"), version: 1 })).toContain("no_bank_account:warn");
   });
 
   it("a block issue wins over warnings", () => {

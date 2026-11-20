@@ -350,8 +350,10 @@ export function attentionReasons(c: AttentionFacts, today: string, now: Date): s
   // A price on a fallback matters until the job is billed.
   if (!c.readyToBillAt) reasons.push(...(c.findings ?? []).map((f) => `Priced on a fallback: ${f}`));
   const soon = c.pickupDate <= addDays(today, 1);
-  if (c.status === "BOOKED" && soon) reasons.push("Pick-up within 24 h and no trip");
-  if (c.status === "PLANNED" && soon) reasons.push("Pick-up within 24 h and the transport order is not sent");
+  // A pick-up day already gone is not "within 24 h" (User Council T6: one 36 days ago read so).
+  const when = c.pickupDate < today ? "date passed" : "within 24 h";
+  if (c.status === "BOOKED" && soon) reasons.push(`Pick-up ${when} and no trip`);
+  if (c.status === "PLANNED" && soon) reasons.push(`Pick-up ${when} and the transport order is not sent`);
   if (c.tripRejectedAt && !c.confirmedAt) reasons.push("The haulier rejected the transport order");
   if (c.belowFloor && !c.marginApproved) reasons.push("Margin below the floor: needs a manager's approval");
   if (c.marginCzk !== null && c.marginCzk < 0) reasons.push("Negative margin");

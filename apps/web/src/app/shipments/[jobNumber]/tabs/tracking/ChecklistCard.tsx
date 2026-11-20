@@ -11,9 +11,10 @@ import { personOrSystem } from "./RecordedBy";
 import { CELL_TEXT } from "./trackingUi";
 
 /** The checklist, read-only and folded: work the desk ticked, dated by the click, so it stays out of the timeline. */
-export function ChecklistCard({ tradeDirection, freightMode, ticks }: { tradeDirection: string; freightMode: string; ticks: readonly TrackingTick[] }) {
+export function ChecklistCard({ tradeDirection, freightMode, department, ticks }: { tradeDirection: string; freightMode: string; department: string | null | undefined; ticks: readonly TrackingTick[] }) {
   const [open, setOpen] = useState(false);
-  const tasks = getTasksForDirection(tradeDirection, freightMode);
+  // The same list as the Tasks card: a Road Department job gets a truck's tasks.
+  const tasks = getTasksForDirection(tradeDirection, freightMode, department);
   const byKey = new Map(ticks.map((t) => [t.taskKey, t]));
   const done = tasks.filter((t) => byKey.has(t.key)).length;
 

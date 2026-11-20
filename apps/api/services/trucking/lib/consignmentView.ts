@@ -180,7 +180,8 @@ export function detail(
     partnerHaulierCustomerId: c.partnerHaulierCustomerId,
     legs: ltl ? ltlLegsOf(c.id, legs).map((l) => legItem(l, l.tripId ? (tripRefs.get(l.tripId) ?? null) : null)) : [],
     gateInAt: iso(c.gateInAt),
-    promisedFinal: ltl ? c.promisedFinal : c.promisedDate !== null,
+    // The day agreed for Express fixed date is no estimate, also for LTL before the gate-in (Q13).
+    promisedFinal: ltl && c.serviceLevel !== "EXP_FIXED" ? c.promisedFinal : c.promisedDate !== null,
     pickup: c.pickup,
     delivery: c.delivery,
     load: c.load,

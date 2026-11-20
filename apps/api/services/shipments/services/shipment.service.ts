@@ -1358,6 +1358,8 @@ class ShipmentService {
       }),
       startingStateDefaults({
         freightMode: shipmentData.freightMode,
+        tradeDirection: shipmentData.tradeDirection,
+        department: shipmentData.department,
         creditCheck: shipmentData.creditCheck,
         vgm: shipmentData.vgm,
         bookingConfirmation: shipmentData.bookingConfirmation,
@@ -1545,6 +1547,8 @@ class ShipmentService {
       }),
       startingStateDefaults({
         freightMode: after("freightMode"),
+        tradeDirection: after("tradeDirection"),
+        department: after("department"),
         creditCheck: after("creditCheck"),
         vgm: after("vgm"),
         bookingConfirmation: after("bookingConfirmation"),

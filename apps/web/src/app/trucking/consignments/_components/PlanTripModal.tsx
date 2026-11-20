@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Alert, Button, Input, Modal, Radio, Select, Spin } from "antd";
 import { DecimalInput } from "@/components/DecimalInput";
 import { PushpinFilled } from "@ant-design/icons";
@@ -8,7 +9,7 @@ import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingS
 import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
 import { Badge } from "@/components/Badge";
 import { Pill } from "@/components/Pill";
-import { HINT, LABEL_TEXT } from "@/styles/ui";
+import { HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { useHauliers, useRateQuery, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
@@ -22,6 +23,7 @@ import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
 import { HaulierListError } from "../../_components/HaulierListError";
 import { HaulierRatingNote } from "../../_components/HaulierRatingNote";
 import { bestFirst, needsConfirmation, notInUseOf, pickable, pickName, ratingsOf, reasonsOf } from "../../_lib/haulierRating";
+import { BLOCKED_SHOWN, blockedLeftOut, warningsOf } from "../../_lib/planTrip";
 
 /** The lane of a consignment as the rate engine prices it: FTL, its level, buy side only. */
 export const planRateRequest = (c: ConsignmentDetail): RateRequest => ({
@@ -94,6 +96,10 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
   const vehicles = (settings?.vehicleTypes ?? []).filter((v) => v.active);
   const pickedHaulier = agreed ? agreedHaulier : picked;
   const pickedRating = pickedHaulier ? ratings.get(pickedHaulier) : undefined;
+  // T3: the blocked hauliers the picker leaves out, named with why and a link (those the tariffs priced are listed apart above).
+  const blocked = blockedLeftOut(hauliers, excluded);
+  // T10: what the picked haulier should have fixed (no bank account from the VAT register, …) - said, never in the way.
+  const pickedWarnings = warningsOf(hauliers, pickedHaulier);
   // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24),
   // nor while they could not be read.
   const confirmed = !hauliersLoading && !hauliersError && (!needsConfirmation(pickedRating) || confirmedFor === pickedHaulier);
@@ -171,7 +177,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
 
       {agreed && (
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <TruckingField label={TERMS.haulier} hint="Blocked hauliers are not offered">
+          <TruckingField label={TERMS.haulier} hint={`Blocked hauliers are not offered${blocked.length ? " — listed below with why" : excluded.length ? " — listed above with why" : ""}`}>
             <Select
               showSearch
               aria-label="Haulier"
@@ -195,6 +201,30 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
               <Input aria-label="Why not the tariff" maxLength={300} value={agreedReason} onChange={(e) => setAgreedReason(e.target.value)} />
             </TruckingField>
           </div>
+          {blocked.length > 0 && (
+            <div className="rounded-lg border border-red-100 bg-red-50/50 px-3 py-2 sm:col-span-2">
+              <div className={`mb-1 ${LABEL_TEXT} !text-red-700`}>Not offered — blocked</div>
+              {blocked.slice(0, BLOCKED_SHOWN).map((h) => (
+                <div key={h.customerId} className="py-1">
+                  <Link href={`/trucking/hauliers/${h.customerId}`} className={`${LINK} text-[13px] font-semibold`}>
+                    {pickName(h)}
+                  </Link>
+                  <HaulierIssueList issues={h.issues} limit={2} />
+                </div>
+              ))}
+              {blocked.length > BLOCKED_SHOWN && (
+                <Link href="/trucking?tab=hauliers" className={`${LINK} text-[13px]`}>
+                  +{blocked.length - BLOCKED_SHOWN} more on the Hauliers tab
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {pickedWarnings.length > 0 && (
+        <div className="mt-3">
+          <HaulierIssueList issues={pickedWarnings} />
         </div>
       )}
 

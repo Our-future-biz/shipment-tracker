@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
+import dayjs from "dayjs";
+import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import {
   consignmentFormProblems,
   emptyConsignmentForm,
+  fixedDeliveryTime,
+  formFromDetail,
   formFromQuote,
   formFromShipment,
   stopFromSite,
   toCreateRequest,
   toUpdateRequest,
+  withFixedDelivery,
   type ConsignmentForm,
 } from "./consignmentForm";
 
@@ -96,6 +101,53 @@ describe("requests", () => {
   it("asks for the partner haulier of an LTL partner delivery", () => {
     expect(consignmentFormProblems({ ...valid(), scope: "LTL", lastMile: "PARTNER" })).toEqual(["Pick the partner haulier of the last mile"]);
     expect(consignmentFormProblems({ ...valid(), scope: "LTL", lastMile: "PARTNER", partnerHaulierCustomerId: "p1" })).toEqual([]);
+  });
+});
+
+// Express fixed date had no field for the agreed day, so nothing was promised (User Council T4, Q13).
+describe("Express fixed date", () => {
+  const fixed = (over: Partial<ConsignmentForm> = {}): ConsignmentForm => ({ ...valid(), serviceLevel: "EXP_FIXED", pickupDate: "2026-10-16", ...over });
+  const at = (day: string, time: string) => dayjs(`${day}T${time}`).toISOString();
+
+  it("asks for the fixed delivery date, not before the pick-up; the other levels don't", () => {
+    expect(consignmentFormProblems(fixed())).toEqual(["Express fixed date: the fixed delivery date agreed with the customer"]);
+    expect(consignmentFormProblems(fixed({ fixedDeliveryDate: "2026-10-15" }))).toEqual(["The fixed delivery date cannot be before the pick-up"]);
+    expect(consignmentFormProblems(fixed({ fixedDeliveryDate: "2026-10-21" }))).toEqual([]);
+    expect(consignmentFormProblems({ ...valid(), serviceLevel: "D1" })).toEqual([]);
+  });
+
+  it("after the pick-up an older consignment without the date still saves its notes", () => {
+    expect(consignmentFormProblems(fixed(), { limited: true })).toEqual([]);
+  });
+
+  it("refuses a delivery time window off the agreed day", () => {
+    const f = fixed({ fixedDeliveryDate: "2026-10-21", delivery: { ...valid().delivery, windowFrom: at("2026-10-22", "08:00"), windowTo: null } });
+    expect(consignmentFormProblems(f)).toEqual(["Delivery: the time window is not on the fixed delivery date"]);
+    expect(consignmentFormProblems({ ...f, delivery: { ...f.delivery, windowFrom: at("2026-10-21", "08:00") } })).toEqual([]);
+  });
+
+  it("keeps an agreed time as the end of the Delivery time window, moving with the day", () => {
+    let f = withFixedDelivery(fixed(), "2026-10-21", "14:00");
+    expect(f.fixedDeliveryDate).toBe("2026-10-21");
+    expect(f.delivery.windowTo).toBe(at("2026-10-21", "14:00"));
+    expect(fixedDeliveryTime(f)).toBe("14:00");
+    f = withFixedDelivery(f, "2026-10-23", fixedDeliveryTime(f));
+    expect(f.delivery.windowTo).toBe(at("2026-10-23", "14:00"));
+    f = withFixedDelivery(f, "2026-10-23", null);
+    expect(f.delivery.windowTo).toBeNull();
+    // A window typed for another day is not taken for the agreed time, nor cleared by it.
+    const typed = withFixedDelivery(fixed({ delivery: { ...valid().delivery, windowTo: at("2026-10-25", "10:00") } }), "2026-10-21", null);
+    expect(fixedDeliveryTime(typed)).toBeNull();
+    expect(typed.delivery.windowTo).toBe(at("2026-10-25", "10:00"));
+  });
+
+  it("sends the date only for Express fixed date, and reads it back from the promised date for Edit", () => {
+    expect(toCreateRequest(fixed({ fixedDeliveryDate: "2026-10-21" })).fixedDeliveryDate).toBe("2026-10-21");
+    expect(toUpdateRequest(fixed({ fixedDeliveryDate: "2026-10-21" }), 2, false).fixedDeliveryDate).toBe("2026-10-21");
+    expect(toCreateRequest({ ...valid(), fixedDeliveryDate: "2026-10-21" }).fixedDeliveryDate).toBeNull();
+    const detail = { ...toCreateRequest(valid()), scope: "FTL", serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21", sell: null, load: valid().load } as unknown as ConsignmentDetail;
+    expect(formFromDetail(detail).fixedDeliveryDate).toBe("2026-10-21");
+    expect(formFromDetail({ ...detail, serviceLevel: "D1" }).fixedDeliveryDate).toBeNull();
   });
 });
 

@@ -187,11 +187,17 @@ describe("create and price sources", () => {
     await expect(consignmentService.create(user, input())).rejects.toMatchObject({ code: "failed_precondition" });
   });
 
-  it("refuses a tariff price the engine cannot give, with its reason", async () => {
+  it("refuses a tariff price the engine cannot give, with its reason and what to do instead (User Council T2)", async () => {
     const r = rated(1, []);
     r.results[0]!.sell = { reason: "No zone for postcode 790 01" };
     vi.mocked(rateService.rate).mockResolvedValue(r);
-    await expect(consignmentService.create(user, input())).rejects.toMatchObject({ code: "failed_precondition", message: "No zone for postcode 790 01" });
+    await expect(consignmentService.create(user, input())).rejects.toMatchObject({ code: "failed_precondition", message: "No zone for postcode 790 01: use Agreed price instead" });
+    r.results[0]!.sell = { reason: "No Standard LTL sell list" };
+    await expect(consignmentService.create(user, input())).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "No Standard LTL sell list: add a Standard sell tariff under Tariffs or use Agreed price",
+    });
+    expect(store.consignments).toHaveLength(0);
   });
 
   it("marks a price below the floor (saved, not refused)", async () => {
@@ -615,6 +621,94 @@ describe("update", () => {
     expect(store.trips[0]!.plannedPickupDate).toBe("2026-10-20");
     expect(store.links[0]!.expiresAt.toISOString()).toBe("2026-11-29T22:59:59.000Z");
     expect(eventsOf("consignment_updated").at(-1)!.payload).not.toHaveProperty("facts");
+  });
+});
+
+// Express fixed date had no field for the agreed day: nothing was promised, so no "Delivery today"
+// tile, no lateness and no Planned Delivery on the job (User Council T4, Q13).
+describe("Express fixed date: the day agreed at booking is the promised date", () => {
+  const agreed = { source: "MANUAL" as const, total: 14500, currency: "CZK" as const, reason: "Agreed with the customer" };
+  const fixed = (over: Partial<ConsignmentCreateInput> = {}) => input({ serviceLevel: "EXP_FIXED", fixedDeliveryDate: "2026-10-21", price: agreed, ...over });
+  const fields = (over: Record<string, unknown> = {}) => ({ ...fixed(), version: 1, reprice: false, ...over });
+
+  it("is required, a real date and not before the pick-up - refused before anything is priced or stored", async () => {
+    await expect(consignmentService.create(user, fixed({ fixedDeliveryDate: null }))).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Express fixed date needs the fixed delivery date agreed with the customer",
+    });
+    await expect(consignmentService.create(user, fixed({ fixedDeliveryDate: "2026-02-30" }))).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(consignmentService.create(user, fixed({ fixedDeliveryDate: "2026-10-15" }))).rejects.toMatchObject({
+      message: "The fixed delivery date cannot be before the pick-up date",
+    });
+    expect(rateService.rate).not.toHaveBeenCalled();
+    expect(shipments._internalShipmentCreateRoad).not.toHaveBeenCalled();
+    expect(store.consignments).toHaveLength(0);
+  });
+
+  it("is stored as the promised date (final, also for groupage) and the job's Planned Delivery hears it at once", async () => {
+    const d = await consignmentService.create(user, fixed());
+    expect(d).toMatchObject({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21", promisedFinal: true });
+    expect(outboxOf("planned").map((o) => o.payload)).toEqual([{ plannedDeliveryDate: "2026-10-21" }]);
+    const ltl = await consignmentService.create(user, fixed({ scope: "LTL", lastMile: "OWN_RUN" }));
+    expect(ltl).toMatchObject({ promisedDate: "2026-10-21", promisedFinal: true });
+  });
+
+  it("priced from the tariff too; a new Road job is made with it as its Planned Delivery", async () => {
+    const r = rated(12000, [9000]);
+    Object.assign(r.results[0]!, { serviceLevel: "EXP_FIXED", promisedDate: null });
+    vi.mocked(rateService.rate).mockResolvedValue(r);
+    const d = await consignmentService.create(user, fixed({ shipmentId: null, price: { source: "TARIFF" } }));
+    expect(d.promisedDate).toBe("2026-10-21");
+    expect(shipments._internalShipmentCreateRoad).toHaveBeenCalledWith(expect.objectContaining({ plannedDeliveryDate: "2026-10-21" }));
+    expect(outboxOf("planned")).toHaveLength(0);
+  });
+
+  it("is ignored for the other levels, which count their own date", async () => {
+    const d = await consignmentService.create(user, input({ fixedDeliveryDate: "2026-12-24", price: agreed }));
+    expect(d.promisedDate).toBe("2026-10-19");
+    expect(outboxOf("planned")).toHaveLength(0);
+  });
+
+  it("puts it in the Delivery today tile on its day", async () => {
+    await consignmentService.create(user, fixed({ pickupDate: "2026-10-15", fixedDeliveryDate: "2026-10-15" }));
+    const all = await consignmentService.list(user, {});
+    expect(all.counts.deliveryToday).toBe(1);
+    expect((await consignmentService.list(user, { view: "deliveryToday" })).consignments).toHaveLength(1);
+  });
+
+  it("is edited like the other fields: a new day is promised and told to the job, a missing one refused", async () => {
+    const { c } = await seed({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21" });
+    await consignmentService.update(user, c.id, fields({ fixedDeliveryDate: "2026-10-23" }));
+    expect(row(c.id).promisedDate).toBe("2026-10-23");
+    expect(outboxOf("planned").map((o) => o.payload)).toEqual([{ plannedDeliveryDate: "2026-10-23" }]);
+    await expect(consignmentService.update(user, c.id, fields({ version: 2, fixedDeliveryDate: null }))).rejects.toMatchObject({ code: "invalid_argument" });
+    // Another level counts its own date again, and the job, which held the fixed day, learns it with no trip yet.
+    await consignmentService.update(user, c.id, fields({ version: 2, serviceLevel: "D1", fixedDeliveryDate: null }));
+    expect(row(c.id).promisedDate).toBe("2026-10-19");
+    expect(outboxOf("planned").map((o) => o.payload)).toEqual([{ plannedDeliveryDate: "2026-10-23" }, { plannedDeliveryDate: "2026-10-19" }]);
+    // From one counted level to another nothing is pushed before a trip, as before.
+    await consignmentService.update(user, c.id, fields({ version: 3, serviceLevel: "D2", fixedDeliveryDate: null }));
+    expect(row(c.id).promisedDate).toBe("2026-10-20");
+    expect(outboxOf("planned")).toHaveLength(2);
+  });
+
+  it("after the pick-up it may not change, and an older one without a date still takes notes", async () => {
+    const { c } = await seed({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21", pickedUpAt: new Date(), status: "PICKED_UP" });
+    const delivery = stop({ city: "Brno", postcode: "602 00", notes: "Gate 4" });
+    expect((await consignmentService.update(user, c.id, fields({ delivery, fixedDeliveryDate: "2026-10-21" }))).delivery.notes).toBe("Gate 4");
+    await expect(consignmentService.update(user, c.id, fields({ version: 2, delivery, fixedDeliveryDate: "2026-10-23" }))).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "After the pick-up only notes and references can change",
+    });
+    const old = await seed({ serviceLevel: "EXP_FIXED", promisedDate: null, pickedUpAt: new Date(), status: "PICKED_UP" });
+    const d = await consignmentService.update(user, old.c.id, fields({ delivery, fixedDeliveryDate: null }));
+    expect(d.delivery.notes).toBe("Gate 4");
+  });
+
+  it("keeps the agreed day when the job's pick-up date moves in Shipments", async () => {
+    const { c } = await seed({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21" });
+    await expect(shipmentChangesService.follow(user, SHIPMENT, { pickupDate: { from: "2026-10-16", to: "2026-10-19" } })).resolves.toEqual({ kept: [] });
+    expect(row(c.id)).toMatchObject({ pickupDate: "2026-10-19", promisedDate: "2026-10-21" });
   });
 });
 

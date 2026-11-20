@@ -24,7 +24,7 @@ export const ConsignmentEditModal = ({ c, limited, onClose, onSave }: Consignmen
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   // The job and quote are fixed; their checks do not apply here.
-  const problems = useMemo(() => consignmentFormProblems({ ...form, source: "new" }), [form]);
+  const problems = useMemo(() => consignmentFormProblems({ ...form, source: "new" }, { limited }), [form, limited]);
 
   const handleSave = async () => {
     setBusy(true);

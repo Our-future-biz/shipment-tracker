@@ -6,6 +6,7 @@ import { Alert, Button, Modal, Segmented } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday } from "@/lib/date";
 import { useToast } from "@/lib/toast";
+import { CreditWarning } from "@/components/finance/CreditWarning";
 import { fetchCustomerSites, type CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useCreateConsignment } from "@/hooks/useTruckingConsignments";
@@ -45,7 +46,10 @@ export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: Consign
   const [pickedShipment, setPickedShipment] = useState<ShipmentItem | null>(shipment ?? null);
   const [pickedQuote, setPickedQuote] = useState<SalesQuote | null>(null);
   const [prefilling, setPrefilling] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
+  // The server's refusal, kept with the form it was given for: any change to the form takes it off
+  // the screen, so it never stands under an order it no longer describes (User Council T2).
+  const [refusal, setRefusal] = useState<{ form: ConsignmentForm; text: string } | null>(null);
+  const shownRefusal = refusal && refusal.form === form ? refusal.text : null;
   const problems = useMemo(() => consignmentFormProblems(form), [form]);
 
   // Only the latest pick fills the form: a slow answer for an earlier pick is dropped.
@@ -125,7 +129,7 @@ export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: Consign
       onCreated(c.id);
       onClose();
     } catch (e) {
-      setRefusal(`Not created — ${apiErrorMessage(e)}.`);
+      setRefusal({ form, text: `Not created — ${apiErrorMessage(e)}.` });
     }
   };
 
@@ -171,6 +175,8 @@ export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: Consign
               )}
               {jobLine}
             </div>
+            {/* It makes or books on a job as the New Shipment wizard does: the same credit warning, to read, never a stop (Council Outlay 10, D21; User Council T7). */}
+            <CreditWarning customerId={form.customerId} showPrepayment />
             {pickedQuote && !pickedQuote.data.roadPricing && (
               <Alert type="info" showIcon message={`${pickedQuote.quoteNumber} was not priced from the tariff: the price comes from the tariff now, or type an agreed price.`} />
             )}
@@ -186,7 +192,7 @@ export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: Consign
             {problems.join(" · ")}
           </div>
         )}
-        {refusal && <Alert type="error" showIcon message={refusal} />}
+        {shownRefusal && <Alert type="error" showIcon message={shownRefusal} />}
 
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} disabled={isCreating}>

@@ -177,8 +177,8 @@ class TripService {
     } else {
       buy = await manualSnapshot(price.total, price.currency, price.reason, c.serviceLevel, c.pickupDate);
     }
-    // D+N of an FTL counts from the planned pick-up date.
-    const promisedDate = await consignmentService.promiseFor(companyId, c.serviceLevel, c.pickupDate, c.pickupTime);
+    // D+N of an FTL counts from the planned pick-up date; Express fixed date keeps the day agreed at booking (Q13).
+    const promisedDate = await consignmentService.promiseFor(companyId, c.serviceLevel, c.pickupDate, c.pickupTime, c.promisedDate);
     const belowFloor = marginOf(c.sellCzk, buy.totalCzk, settings.marginFloor).belowFloor;
     const by = await userName(actor.userID);
     const changed = suggested !== null && haulierId !== suggested;

@@ -1,3 +1,4 @@
+import dayjs from "dayjs";
 import type { ConsignmentCreate, ConsignmentDetail, ConsignmentScope, ConsignmentUpdate, LastMile, LoadInput, StopInput } from "@/hooks/useTruckingConsignments";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -18,6 +19,13 @@ export const SOURCE_OPTIONS: { value: ConsignmentSource; label: string }[] = [
 ];
 
 export type PriceSource = "TARIFF" | "QUOTE" | "MANUAL";
+
+/**
+ * Express fixed date gives no date of its own: the delivery day agreed with the customer is asked
+ * here and stored as the promised date (User Council Q13). A time agreed with it is the Delivery
+ * stop's "by" time - the end of its time window - so the transport order prints "21.10.2026, by 14:00".
+ */
+export const FIXED_LEVEL: ServiceLevelCode = "EXP_FIXED";
 
 export const SCOPE_OPTIONS: { value: ConsignmentScope; label: string }[] = [
   { value: "FTL", label: "FTL — direct, a whole truck" },
@@ -44,6 +52,8 @@ export interface ConsignmentForm {
   serviceLevel: ServiceLevelCode | null;
   pickupDate: string;
   pickupTime: string | null;
+  /** Express fixed date: the delivery day agreed with the customer (YYYY-MM-DD); null for the other levels. */
+  fixedDeliveryDate: string | null;
   pickup: StopInput;
   delivery: StopInput;
   load: LoadInput;
@@ -99,6 +109,7 @@ export const emptyConsignmentForm = (source: ConsignmentSource, today: string): 
   serviceLevel: "D1",
   pickupDate: today,
   pickupTime: null,
+  fixedDeliveryDate: null,
   pickup: emptyStop(),
   delivery: emptyStop(),
   load: emptyLoad(),
@@ -227,6 +238,7 @@ export function formFromDetail(c: ConsignmentDetail): ConsignmentForm {
     serviceLevel: c.serviceLevel,
     pickupDate: c.pickupDate,
     pickupTime: null,
+    fixedDeliveryDate: c.serviceLevel === FIXED_LEVEL ? c.promisedDate : null,
     pickup: strip(c.pickup),
     delivery: strip(c.delivery),
     load: { ...c.load },
@@ -235,6 +247,33 @@ export function formFromDetail(c: ConsignmentDetail): ConsignmentForm {
     manualCurrency: sell?.currency ?? "CZK",
     manualReason: sell?.overrideReason ?? "",
   };
+}
+
+/** The "by" time of the fixed delivery date: the end of the delivery window when it falls on that day. */
+export function fixedDeliveryTime(f: Pick<ConsignmentForm, "fixedDeliveryDate" | "delivery">): string | null {
+  const to = f.delivery.windowTo;
+  if (!to || !f.fixedDeliveryDate) return null;
+  const end = dayjs(to);
+  return end.format("YYYY-MM-DD") === f.fixedDeliveryDate ? end.format("HH:mm") : null;
+}
+
+/** The form with the fixed delivery date and its optional time: the time is the delivery window's end and moves with the day. */
+export function withFixedDelivery(f: ConsignmentForm, date: string | null, time: string | null): ConsignmentForm {
+  const ours = fixedDeliveryTime(f) !== null;
+  let windowTo = f.delivery.windowTo;
+  if (date && time) windowTo = dayjs(`${date}T${time}`).toISOString();
+  else if (date && ours) windowTo = null;
+  return { ...f, fixedDeliveryDate: date, delivery: { ...f.delivery, windowTo } };
+}
+
+function fixedDateProblems(f: ConsignmentForm): string[] {
+  if (f.serviceLevel !== FIXED_LEVEL) return [];
+  const day = f.fixedDeliveryDate;
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return ["Express fixed date: the fixed delivery date agreed with the customer"];
+  if (day < f.pickupDate) return ["The fixed delivery date cannot be before the pick-up"];
+  const { windowFrom, windowTo } = f.delivery;
+  const off = (windowFrom && dayjs(windowFrom).format("YYYY-MM-DD") > day) || (windowTo && dayjs(windowTo).format("YYYY-MM-DD") < day);
+  return off ? ["Delivery: the time window is not on the fixed delivery date"] : [];
 }
 
 const isTime = (v: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
@@ -251,8 +290,8 @@ function stopProblems(label: string, s: StopInput): string[] {
   return out;
 }
 
-/** Why the order cannot be saved yet, one line per problem. */
-export function consignmentFormProblems(f: ConsignmentForm): string[] {
+/** Why the order cannot be saved yet, one line per problem. `limited`: picked up, only notes and references change. */
+export function consignmentFormProblems(f: ConsignmentForm, opts: { limited?: boolean } = {}): string[] {
   const out: string[] = [];
   if (f.source === "job" && !f.shipmentId) out.push("Pick the job");
   if (f.source === "quote" && !f.quoteNumber) out.push("Pick the quote");
@@ -261,6 +300,8 @@ export function consignmentFormProblems(f: ConsignmentForm): string[] {
   if (f.scope === "LTL" && f.lastMile === "PARTNER" && !f.partnerHaulierCustomerId) out.push("Pick the partner haulier of the last mile");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(f.pickupDate)) out.push("Pick-up date is required");
   if (f.pickupTime != null && !isTime(f.pickupTime)) out.push("Pick-up time must be HH:MM");
+  // After the pick-up the date stays as stored (an older consignment may have none).
+  if (!opts.limited) out.push(...fixedDateProblems(f));
   out.push(...stopProblems("Pick-up", f.pickup), ...stopProblems("Delivery", f.delivery));
   const l = f.load;
   if (![l.pieces, l.palletPlaces, l.ldm, l.weightKg, l.cbm].every(notNegative)) out.push("Quantities cannot be negative");
@@ -296,6 +337,7 @@ export function toCreateRequest(f: ConsignmentForm): ConsignmentCreate {
     delivery: trimStop(f.delivery),
     load: f.load,
     price: priceOf(f),
+    fixedDeliveryDate: f.serviceLevel === FIXED_LEVEL ? f.fixedDeliveryDate : null,
     ...ltlFields(f),
   };
 }
@@ -324,5 +366,6 @@ export function toUpdateRequest(f: ConsignmentForm, version: number, reprice: bo
     selfDelivered: c.selfDelivered,
     lastMile: c.lastMile,
     partnerHaulierCustomerId: c.partnerHaulierCustomerId,
+    fixedDeliveryDate: c.fixedDeliveryDate,
   };
 }

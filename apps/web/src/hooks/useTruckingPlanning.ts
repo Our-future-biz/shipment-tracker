@@ -39,6 +39,9 @@ export function usePlanningBoard(date: string, kind: LtlTripKind) {
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error,
+    // Whether a board is on screen at all, and whether it is only another day's kept until this one loads.
+    hasData: query.data !== undefined,
+    isPlaceholderData: query.isPlaceholderData,
     reload: query.refetch,
     createTrip: createTrip.mutateAsync,
     isCreating: createTrip.isPending,

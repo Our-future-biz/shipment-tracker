@@ -34,6 +34,7 @@ import { useMasterJob, type MasterJobItem, type MasterJobUpdate } from "@/hooks/
 import type { interfaces } from "@/lib/api/client";
 import { FieldRow, IncotermRow, Label, MasterJobFieldCard, ROW, ReadOnlyRow, type StyleFor } from "./MasterJobFields";
 import { ProgressStages } from "@/app/shipments/[jobNumber]/_components/ShipmentSummary";
+import { progressStagesFor } from "@/app/shipments/[jobNumber]/freightModeFields";
 import { getStageFromFacts } from "@/app/shipments/[jobNumber]/_components/taskDefinitions";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { kgFromTons, tonsFromKg } from "../_lib/mblWeight";
@@ -175,9 +176,12 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   // status or delivery (those are its shipments'), so its own dates move it, by the shipment's
   // rule: departed = In transit, arrived = past Arrive at Port of Discharge.
   const stage = getStageFromFacts({ tradeDirection: mj.tradeDirection, actualDeparture: mj.actualDeparture, actualArrival: mj.actualArrival });
+  // The stages by its freight mode, as a shipment's bar: an air master job arrives at its airport (user council T9).
+  const stages = progressStagesFor(mj.freightMode ?? "");
+  const arrivalLabel = stages.find((s) => s.index === 3)?.label ?? "Arrive at Port of Discharge";
   const stageFacts: Record<string, string> = {
     "In transit": mj.actualDeparture ? `ATD ${formatDate(mj.actualDeparture)}` : "",
-    "Arrive at Port of Discharge": mj.actualArrival ? `ATA ${formatDate(mj.actualArrival)}` : "",
+    [arrivalLabel]: mj.actualArrival ? `ATA ${formatDate(mj.actualArrival)}` : "",
   };
 
   // Its people are changed only by them or a manager (anyone while neither is named), as a
@@ -191,7 +195,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
     <FreightModeContext.Provider value={mj.freightMode || undefined}>
     <div className="@container flex flex-col gap-4 min-w-0">
       {/* The master job's progress, above its cards as on Shipment Details */}
-      <ProgressStages activeIndex={stage} factOf={stageFacts} ariaLabel="Master job progress" />
+      <ProgressStages activeIndex={stage} factOf={stageFacts} stages={stages} ariaLabel="Master job progress" />
       <MasterJobFieldCard
         cardId="masterJob.overview"
         icon={<ProfileOutlined />}

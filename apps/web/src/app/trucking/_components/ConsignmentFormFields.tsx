@@ -7,7 +7,7 @@ import { useCustomerSites } from "@/hooks/useCustomerSites";
 import { useHauliers, useTruckingSettings } from "@/hooks/useTrucking";
 import type { ConsignmentScope } from "@/hooks/useTruckingConsignments";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { LAST_MILE_OPTIONS, SCOPE_OPTIONS, type ConsignmentForm, type PriceSource } from "../_lib/consignmentForm";
+import { FIXED_LEVEL, LAST_MILE_OPTIONS, SCOPE_OPTIONS, fixedDeliveryTime, withFixedDelivery, type ConsignmentForm, type PriceSource } from "../_lib/consignmentForm";
 import { CURRENCIES } from "../_lib/hauliers";
 import { TERMS } from "../_lib/glossary";
 import { ConsignmentLoadFields } from "./ConsignmentLoadFields";
@@ -39,6 +39,9 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
   const set = <K extends keyof ConsignmentForm>(key: K, value: ConsignmentForm[K]) => onChange({ ...form, [key]: value });
 
   const levels = (settings?.serviceLevels ?? []).filter((l) => l.active || l.code === form.serviceLevel);
+  // Express fixed date: the day agreed with the customer is asked here and is the promised date (User Council Q13).
+  const fixed = form.serviceLevel === FIXED_LEVEL;
+  const byTime = fixedDeliveryTime(form);
   const priceOptions: { value: PriceSource; label: string; disabled?: boolean }[] = [
     { value: "TARIFF", label: "From the tariff" },
     { value: "QUOTE", label: form.quoteNumber ? `From quote ${form.quoteNumber}` : "From the quote", disabled: !form.quoteNumber },
@@ -85,7 +88,7 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
         )}
       </fieldset>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-3 ${fixed ? "sm:grid-cols-5" : "sm:grid-cols-3"}`}>
         <TruckingField label={TERMS.serviceLevel} hint={ltl ? `${TERMS.ltl}: counted from the warehouse gate-in` : `${TERMS.ftl}: counted from the planned pick-up`}>
           <Select
             aria-label={TERMS.serviceLevel}
@@ -118,6 +121,33 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
             onChange={(t) => set("pickupTime", t ? t.format("HH:mm") : null)}
           />
         </TruckingField>
+        {fixed && (
+          <TruckingField label="Fixed delivery date" hint="Agreed with the customer: the promised date">
+            <DatePicker
+              aria-label="Fixed delivery date"
+              className="w-full"
+              format="DD.MM.YYYY"
+              disabled={limited}
+              disabledDate={(d) => !!form.pickupDate && d.format("YYYY-MM-DD") < form.pickupDate}
+              value={form.fixedDeliveryDate ? dayjs(form.fixedDeliveryDate) : null}
+              onChange={(d) => onChange(withFixedDelivery(form, d ? d.format("YYYY-MM-DD") : null, byTime))}
+            />
+          </TruckingField>
+        )}
+        {fixed && (
+          <TruckingField label="Delivery by" hint="Optional; the end of the Delivery time window">
+            <TimePicker
+              aria-label="Delivery by time"
+              className="w-full"
+              format="HH:mm"
+              minuteStep={5}
+              needConfirm={false}
+              disabled={limited || !form.fixedDeliveryDate}
+              value={byTime ? dayjs(`2000-01-01T${byTime}`) : null}
+              onChange={(t) => onChange(withFixedDelivery(form, form.fixedDeliveryDate, t ? t.format("HH:mm") : null))}
+            />
+          </TruckingField>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

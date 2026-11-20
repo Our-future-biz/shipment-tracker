@@ -66,7 +66,7 @@ import { CustomsTab } from "./tabs/CustomsTab";
 import { ApprovedByLockedContext, CancelOfferedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { FROM_LINES_HINT, FROM_LINES_TITLE, lockedByLines } from "../_lib/cargoFromLines";
-import { carrierCardTitle, fieldsForMode, showsContainerTab } from "./freightModeFields";
+import { carrierCardTitle, fieldsForMode, showsContainerTab, workflowHeading } from "./freightModeFields";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
@@ -611,8 +611,8 @@ export function DetailCard({
 }: DetailCardProps) {
   const { visibleKeys } = useCardFields();
   // In the words of the job's freight mode (user council O17): air names, the empty sea-only rows left
-  // out - in the card and in its "Show all" / field picker alike.
-  const modeColumns = columns.map((col) => fieldsForMode(col, shipment.freightMode, (k) => getFieldValue(shipment, k)));
+  // out - in the card and in its "Show all" / field picker alike; a road job's empty sea rows too (T9).
+  const modeColumns = columns.map((col) => fieldsForMode(col, shipment, (k) => getFieldValue(shipment, k)));
   const allFields = modeColumns.flat();
   const shown = cardId
     ? new Set(visibleKeys(cardId, allFields.map((f) => f.key)))
@@ -1087,8 +1087,8 @@ function CargoCommercialCard({
   styleFor,
 }: CargoCommercialCardProps) {
   const { visibleKeys } = useCardFields();
-  // An air job leaves out its empty container type and TEU (user council O17), here and in "Show all".
-  const forMode = (col: CargoField[]) => fieldsForMode(col, shipment.freightMode, (k) => getFieldValue(shipment, k));
+  // An air or road job leaves out its empty container type and TEU (user council O17, T9), here and in "Show all".
+  const forMode = (col: CargoField[]) => fieldsForMode(col, shipment, (k) => getFieldValue(shipment, k));
   const right = forMode(CARGO_COMMERCIAL_R);
   const cargoShown = new Set(
     visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...right].map((f) => f.key)),
@@ -1614,7 +1614,7 @@ export function ShipmentDetailContent() {
                     { key: "incotermDestination", label: "Incoterms Destination" },
                     // Free Comments are kept in the Notes To-Do tab.
                     { key: "houseBolRelease", label: "House BoL Release" },
-                  ], shipment.freightMode, (k) => getFieldValue(shipment, k));
+                  ], shipment, (k) => getFieldValue(shipment, k));
                   const right: FieldDef[] = fieldsForMode<FieldDef>([
                     { key: "status", label: "Shipment Status" },
                     // Why it was cancelled (D22): shown on a cancelled job only.
@@ -1626,7 +1626,7 @@ export function ShipmentDetailContent() {
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
                     { key: "freightPayableAt", label: "Freight Payable At" },
-                  ], shipment.freightMode, (k) => getFieldValue(shipment, k));
+                  ], shipment, (k) => getFieldValue(shipment, k));
 
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
@@ -1855,7 +1855,7 @@ export function ShipmentDetailContent() {
               <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
                 <DetailCard
                   icon={<FileProtectOutlined />}
-                  title={carrierCardTitle(shipment.freightMode)}
+                  title={carrierCardTitle(shipment)}
                   cardId="carrier"
                   className="h-full"
                   columns={[CARRIER_BOL]}
@@ -2042,7 +2042,7 @@ export function ShipmentDetailContent() {
                 <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
                 <div className="px-4 pt-2.5 pb-2 min-h-0 overflow-y-auto">
                   <div className={`${LABEL_TEXT} mb-1`}>
-                    {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
+                    {workflowHeading(shipment.tradeDirection, shipment.department)}
                   </div>
                   {/* The ticks and what they open (Tell the customer, Record an event) go by the
                       server's own rules, not the details rule: not disabled with the card. */}

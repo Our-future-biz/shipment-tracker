@@ -286,7 +286,7 @@ describe("planning board", () => {
     expect(after.unplanned.map((l) => l.consignmentRef)).toEqual([b.ref]);
     expect(after.trips).toHaveLength(1);
     expect(after.trips[0]).toMatchObject({ kind: "PICKUP_RUN", haulierName: "Bravo", buyTotal: 3000, transportOrderSent: false });
-    expect(after.trips[0]!.fill).toEqual({ ldm: 0.8, kg: 500, palletPlaces: 2, ldmPercent: 26.7, kgPercent: 41.7 });
+    expect(after.trips[0]!.fill).toEqual({ ldm: 0.8, kg: 500, palletPlaces: 2, ldmPercent: 26.7, kgPercent: 41.7, palletPlacesPercent: null });
     expect(after.trips[0]!.stops.map((s) => s.consignmentRef)).toEqual([a.ref]);
   });
 });
@@ -444,6 +444,8 @@ describe("transport order, our warehouse and the trip's stamps", () => {
     expect(sent.recordedOnly).toBe(true);
     expect(sent.trip.status).toBe("ORDERED");
     expect(store.links).toHaveLength(0);
+    // No link on an LTL trip, so none is given to copy either.
+    expect(sent.haulierLink).toBeNull();
     const doc = vi.mocked(buildLtlTransportOrderPdf).mock.calls[0]![0];
     expect(doc.stops.map((s) => [s.kind, s.consignmentRef])).toEqual([
       ["PICKUP", a.ref],

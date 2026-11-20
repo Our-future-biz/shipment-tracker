@@ -38,7 +38,7 @@ import type {
 } from "../interfaces/interfaces";
 import type { WarehouseExceptionItem } from "../interfaces/avizace.interfaces";
 import type { QuoteRoadPricing } from "../../quotes/interfaces/interfaces";
-import { addDays, businessDay } from "../../../lib/businessDate";
+import { addDays, businessDay, isRealYmd } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { namesReferenceNumber } from "../../../lib/jobNumber";
 import type { Actor } from "../../../lib/rbac";
@@ -84,6 +84,37 @@ import { internalBillingService } from "./internalBilling.service";
 export const CONSIGNMENT_CONFLICT = "The consignment was changed by someone else. Reload and try again.";
 const HOLIDAY_WINDOW_DAYS = 45;
 const bad = (message: string) => APIError.invalidArgument(message);
+
+// Express fixed date gives no date of its own (rateEngine): the delivery day agreed with the
+// customer is asked when the consignment is booked and is its promised date, so the "Delivery
+// today" tile, the lateness warnings and the job's Planned Delivery see it (User Council Q13).
+const FIXED_LEVEL: ServiceLevelCode = "EXP_FIXED";
+
+/** The fixed delivery date of an Express fixed date order, checked; null for every other level. */
+export function fixedDeliveryOf(level: ServiceLevelCode | null, raw: unknown, pickupDate: string): string | null {
+  if (level !== FIXED_LEVEL) return null;
+  if (raw === null || raw === undefined || raw === "") throw bad("Express fixed date needs the fixed delivery date agreed with the customer");
+  if (typeof raw !== "string" || !isRealYmd(raw)) throw bad("The fixed delivery date must be a date like 2026-12-31");
+  if (raw < pickupDate) throw bad("The fixed delivery date cannot be before the pick-up date");
+  return raw;
+}
+
+/**
+ * A booking the tariff cannot price: the reason and what to do instead (User Council T2). Said here,
+ * not in the rate engine: the Rate calculator and the Sales quote have no agreed price, and the
+ * coverage gaps are counted by the reason as it reads.
+ */
+export function tariffRefusal(reason: string): string {
+  if (/^No Standard (FTL|LTL) sell list$/.test(reason)) return `${reason}: add a Standard sell tariff under Tariffs or use Agreed price`;
+  return `${reason}: use Agreed price instead`;
+}
+
+/** The fields of a create or an update, checked; the fixed delivery date is kept only for Express fixed date. */
+function fieldsOf(input: ConsignmentFields): ConsignmentFields {
+  const f = cleanFields(input);
+  return { ...f, fixedDeliveryDate: f.serviceLevel === FIXED_LEVEL ? (input.fixedDeliveryDate ?? null) : null };
+}
+
 // One live consignment per quote, however it is priced (decision 10): from the quote, or at an
 // agreed or tariff price that names it.
 const quoteTaken = (quoteNumber: string, ref: string) => APIError.alreadyExists(`Quote ${quoteNumber} is already on consignment ${ref}: one consignment per quote`);
@@ -397,9 +428,13 @@ class ConsignmentService {
 
   // ---- pricing -----------------------------------------------------------------------------------
 
-  /** The promised delivery date of a level for a pick-up (D+N in working days); null without a level. */
-  async promiseFor(companyId: string, level: ServiceLevelCode | null, pickupDate: string, pickupTime: string | null): Promise<string | null> {
+  /**
+   * The promised delivery date of a level for a pick-up (D+N in working days); null without a level.
+   * Express fixed date: `fixedDate`, the day agreed at booking (Q13).
+   */
+  async promiseFor(companyId: string, level: ServiceLevelCode | null, pickupDate: string, pickupTime: string | null, fixedDate: string | null = null): Promise<string | null> {
     if (!level) return null;
+    if (level === FIXED_LEVEL) return fixedDate;
     const [settings, extra] = await Promise.all([
       settingsService.get(companyId),
       czHolidays(companyId, pickupDate, addDays(pickupDate, HOLIDAY_WINDOW_DAYS)),
@@ -408,15 +443,21 @@ class ConsignmentService {
     return setting ? promise(setting, pickupDate, pickupTime, "FTL", extra).promisedDate : null;
   }
 
-  /** The sell price of a consignment from its source. */
+  /** The sell price of a consignment from its source; Express fixed date promises the day agreed at booking (Q13). */
   async price(companyId: string, customerId: string, f: ConsignmentFields, consignmentId?: string): Promise<Priced> {
+    const priced = await this.sourcePrice(companyId, customerId, f, consignmentId);
+    if (priced.serviceLevel !== FIXED_LEVEL) return priced;
+    return { ...priced, promisedDate: fixedDeliveryOf(priced.serviceLevel, f.fixedDeliveryDate, f.pickupDate) };
+  }
+
+  private async sourcePrice(companyId: string, customerId: string, f: ConsignmentFields, consignmentId?: string): Promise<Priced> {
     const p = f.price;
     if (p.source === "TARIFF") {
       if (!bothCz(f)) throw APIError.failedPrecondition("The tariffs price CZ postcodes only: give an agreed price");
       const rated = await rateService.rate(companyId, rateRequestOf(f, customerId, f.serviceLevel, scopeOf(f)));
       const result = rated.results[0];
       if (!result) throw APIError.failedPrecondition("That service level is not in the trucking settings");
-      if (!isPriced(result.sell)) throw APIError.failedPrecondition(result.sell.reason);
+      if (!isPriced(result.sell)) throw APIError.failedPrecondition(tariffRefusal(result.sell.reason));
       return {
         sell: snapshotOf(result.sell, result.serviceLevel, rated.ratedAt),
         estBuyCzk: result.buy[0]?.totalCzk ?? null,
@@ -580,7 +621,9 @@ class ConsignmentService {
   /** Any user. Prices the consignment (a price below the floor is saved, the transport order then waits for approval). */
   async create(actor: Actor, input: ConsignmentCreateInput): Promise<ConsignmentDetail> {
     const companyId = actor.companyID;
-    const f = cleanFields(input);
+    const f = fieldsOf(input);
+    // Refused before anything is priced or a job is made (a level taken from the quote is checked with its price).
+    fixedDeliveryOf(f.serviceLevel, f.fixedDeliveryDate, f.pickupDate);
     const ltl = f.scope === "LTL" ? cleanLtlChoice(f) : null;
     const customerName = await this.customerName(input.customerId);
     const existingJob = input.shipmentId ? await this.job(input.shipmentId, input.customerId) : null;
@@ -662,6 +705,11 @@ class ConsignmentService {
       });
       if (ltl) await legRepository.insertMany(tx, newLegs(companyId, row, ltl, hub));
       if (!internal) await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, row, "costs", sellCosts(row))]);
+      // The day agreed with the customer is known now: an existing job learns it at once (a job made
+      // above was given it); the other levels tell the job when the trip is planned.
+      if (existingJob && row.serviceLevel === FIXED_LEVEL && row.promisedDate) {
+        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, row, "planned", { plannedDeliveryDate: row.promisedDate })]);
+      }
       return row;
     }).catch(async (err: unknown) => {
       // The job made for this consignment above (another database) is taken back: no empty job is
@@ -684,7 +732,7 @@ class ConsignmentService {
     const { c, trip } = await this.load(companyId, id);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is cancelled");
     if (!Number.isInteger(input.version) || input.version !== c.version) throw APIError.aborted(CONSIGNMENT_CONFLICT);
-    const f = cleanFields({ ...input, scope: input.scope ?? c.scope });
+    const f = fieldsOf({ ...input, scope: input.scope ?? c.scope });
     if (f.scope !== c.scope) throw APIError.failedPrecondition("FTL / LTL cannot change: cancel the consignment and book it again");
     const ltl = c.scope === "LTL" ? cleanLtlChoice(f) : null;
     const legPlan = ltl ? await this.ltlLegPlan(companyId, c, f, ltl) : null;
@@ -694,8 +742,14 @@ class ConsignmentService {
     }
     const priced = input.reprice ? await this.price(companyId, c.customerId, f, c.id) : null;
     const level = priced?.serviceLevel ?? f.serviceLevel;
-    const dateMoved = f.pickupDate !== c.pickupDate || f.pickupTime !== c.pickupTime || level !== c.serviceLevel;
-    let promisedDate = priced ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime) : c.promisedDate;
+    // Express fixed date: the agreed day is edited like the other fields; after the pick-up it stays
+    // as stored (checked above with the rest), so an older one without a date keeps its notes editable.
+    const fixed = c.pickedUpAt || c.gateInAt ? (f.fixedDeliveryDate ?? null) : fixedDeliveryOf(level, f.fixedDeliveryDate, f.pickupDate);
+    const fixedMoved = level === FIXED_LEVEL && fixed !== c.promisedDate;
+    // Away from Express fixed date: the job holds the old agreed day, so it learns the new promise too.
+    const leftFixed = c.serviceLevel === FIXED_LEVEL && level !== FIXED_LEVEL;
+    const dateMoved = f.pickupDate !== c.pickupDate || f.pickupTime !== c.pickupTime || level !== c.serviceLevel || fixedMoved;
+    let promisedDate = priced ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime, fixed) : c.promisedDate;
     // LTL after the gate-in: the date counts from the confirmed gate-in (the level may have changed).
     if (ltl && c.promisedFinal && c.gateInAt) promisedDate = level === c.serviceLevel ? c.promisedDate : await this.promiseFromGateIn(companyId, level, c.gateInAt, c.promisedDate);
     const { marginFloor, hub } = await settingsService.get(companyId);
@@ -752,6 +806,9 @@ class ConsignmentService {
         // as set at the send: a pick-up moved later carries it as far (the haulier uploads the POD
         // through it); one moved earlier never shortens it.
         linkExpiresAt = (await tripRepository.extendLink(tx, companyId, liveTrip.id, linkExpiry(f.pickupDate)))?.expiresAt ?? null;
+      } else if ((fixedMoved || leftFixed) && promisedDate) {
+        // No trip yet: the job still learns the new agreed day, or the new level's day in place of it.
+        owes.push(owed(actor, row, "planned", { plannedDeliveryDate: promisedDate }));
       }
       await appendEvent(tx, companyId, {
         kind: "consignment_updated",
@@ -1364,6 +1421,8 @@ function storedFields(c: TruckingConsignmentRecord): ConsignmentFields {
     selfDelivered: c.selfDelivered,
     lastMile: c.scope === "LTL" ? c.lastMile : null,
     partnerHaulierCustomerId: c.scope === "LTL" ? c.partnerHaulierCustomerId : null,
+    // Last, where fieldsOf puts it (lockedPart compares the two as JSON).
+    fixedDeliveryDate: c.serviceLevel === FIXED_LEVEL ? c.promisedDate : null,
   };
 }
 

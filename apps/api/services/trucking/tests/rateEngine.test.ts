@@ -429,7 +429,7 @@ describe("promised date", () => {
     expect(promise(level("EXP_SAMEDAY"), "2026-10-15", "10:30", "FTL", [])).toMatchObject({ promisedDate: "2026-10-16", promisedTime: "same day" });
     expect(promise(level("EXP_1000"), "2026-10-15", "14:00", "FTL", [])).toMatchObject({ promisedDate: "2026-10-16", promisedTime: "by 10:00" });
     expect(promise(level("EXP_1200"), "2026-10-16", "16:00", "FTL", [])).toMatchObject({ promisedDate: "2026-10-20", promisedTime: "by 12:00" });
-    expect(promise(level("EXP_FIXED"), "2026-10-15", null, "FTL", [])).toEqual({ promisedDate: null, promisedTime: null, promiseNote: "Date agreed per order" });
+    expect(promise(level("EXP_FIXED"), "2026-10-15", null, "FTL", [])).toEqual({ promisedDate: null, promisedTime: null, promiseNote: "Asked at booking: the delivery day agreed with the customer" });
   });
 
   it("says an LTL promise assumes gate-in on the start day", () => {

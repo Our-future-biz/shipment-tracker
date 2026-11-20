@@ -115,7 +115,7 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
       {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} mayRecord={mayRecord} containers={(shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean)} />}
       {!customerView && view === "all" && data.customerNotices.length > 0 && <CustomerNoticesCard notices={data.customerNotices} />}
       {showChanges && <ChangesCard changes={data.changes} capped={data.changesCapped} />}
-      {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} freightMode={shipment.freightMode ?? ""} ticks={data.ticks} />}
+      {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} freightMode={shipment.freightMode ?? ""} department={shipment.department} ticks={data.ticks} />}
       {recording && <RecordEventModal shipment={shipment} tracking={data} onClose={() => setRecording(false)} />}
       {linking && <CustomerLinkModal shipment={shipment} onClose={() => setLinking(false)} />}
       {reading && <ReadNoticeModal shipment={shipment} onClose={() => setReading(false)} />}

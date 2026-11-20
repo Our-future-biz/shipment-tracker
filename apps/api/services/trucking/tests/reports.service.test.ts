@@ -100,7 +100,7 @@ const profile = (customerId: string) => ({
     vatUnreliable: false,
     bankAccountPublished: true,
     vatCheckedAt: "2026-10-10",
-    bankAccounts: [],
+    bankAccounts: ["19-2000145399/0800"],
     costSplitBasis: "chargeable_weight",
     blocked: false,
     blockReason: "",

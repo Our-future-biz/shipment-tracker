@@ -279,7 +279,7 @@ export const TruckingReadme = () => (
         <li>
           <b>Delivered</b> is the promised date: the start day is the pick-up date, or the next working day when the pick-up is after the level&apos;s{" "}
           {TERMS.cutoff.toLowerCase()}; +1 … +4 add that many working days (weekends and Czech public holidays do not count); Express same day is that day, by
-          10:00 / 12:00 the next working day; Express fixed date is agreed per order. For {TERMS.ltl} the real clock starts at the warehouse gate-in — the
+          10:00 / 12:00 the next working day; Express fixed date is agreed per order — the calculator gives no date, Create consignment asks for it. For {TERMS.ltl} the real clock starts at the warehouse gate-in — the
           calculator assumes it on the start day.
         </li>
         <li>
@@ -419,8 +419,9 @@ export const TruckingReadme = () => (
     <Part title="When a consignment is due">
       <p>
         Its <b>{TERMS.serviceLevel.toLowerCase()}</b> sets the date: <b>+1 … +4</b> working days, counted for {TERMS.ltl} from the gate-in confirmed by the warehouse
-        and for {TERMS.ftl} from the planned pick-up; or <b>Express</b> — same day, by 10:00, by 12:00 or on a fixed date. Weekends and public holidays are not
-        working days.
+        and for {TERMS.ftl} from the planned pick-up; or <b>Express</b> — same day, by 10:00, by 12:00 or on a fixed date. The fixed date is agreed with the customer and asked when the
+        consignment is booked (with an optional &quot;by&quot; time, the end of the Delivery time window); it is the promised date. Weekends and public
+        holidays are not working days.
       </p>
     </Part>
 

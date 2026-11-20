@@ -34,6 +34,7 @@ const bad = (message: string) => APIError.invalidArgument(message);
 export const EMPTY_HUB: HubAddress = { name: "", street: "", postcode: "", city: "", country: "CZ" };
 export const HUB_MISSING = "Set the warehouse address in Trucking settings";
 
+/** A name, a postcode and a city (the street optional); the web's hubIsSet (trucking/_lib/settings.ts) is the same rule. */
 export const hubIsSet = (h: HubAddress): boolean => !!(h.name && h.postcode && h.city);
 
 /** "Sklad Praha, 250 01 Brandýs" */
@@ -247,12 +248,25 @@ export function capacityOf(v: VehicleTypeSetting | null): TripCapacity | null {
 
 const percent = (used: number, cap: number) => (cap > 0 ? roundToStep((used / cap) * 100, 0.1) : null);
 
-/** What the legs fill of the vehicle. */
+/**
+ * What the legs fill of the vehicle. A load given in pallet places with no LDM is filled by its
+ * places against the vehicle's (User Council T5: a full truck of 33 places read "LDM 0 %"); with
+ * any LDM the LDM bar stays, so palletPlacesPercent is then null. The web's projectedFill
+ * (trucking/_lib/planning.ts) counts the same way.
+ */
 export function tripFill(loads: { ldm: number; weightKg: number; palletPlaces: number }[], cap: TripCapacity | null): TripFill {
   const ldm = roundToStep(loads.reduce((a, l) => a + l.ldm, 0), 0.01);
   const kg = roundToStep(loads.reduce((a, l) => a + l.weightKg, 0), 0.01);
   const palletPlaces = roundToStep(loads.reduce((a, l) => a + l.palletPlaces, 0), 0.01);
-  return { ldm, kg, palletPlaces, ldmPercent: cap ? percent(ldm, cap.ldm) : null, kgPercent: cap ? percent(kg, cap.kg) : null };
+  const byPlaces = !!cap && ldm <= 0 && palletPlaces > 0;
+  return {
+    ldm,
+    kg,
+    palletPlaces,
+    ldmPercent: cap ? percent(ldm, cap.ldm) : null,
+    kgPercent: cap ? percent(kg, cap.kg) : null,
+    palletPlacesPercent: byPlaces ? percent(palletPlaces, cap.palletPlaces) : null,
+  };
 }
 
 /** Working days a trip of the kind needs before the goods can be at the consignee. */
