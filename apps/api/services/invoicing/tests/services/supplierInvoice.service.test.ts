@@ -250,6 +250,16 @@ describe("approve", () => {
     await expect(service.approve(manager, INV, 3)).rejects.toMatchObject({ code: "aborted" });
   });
 
+  it("does not approve an invoice none of whose lines has a real cost yet (User Council A1)", async () => {
+    repo.costLinesOf.mockResolvedValue([costLine({ realAmount: null })]);
+    await expect(service.approve(manager, INV, 3)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/no amount yet/) });
+    expect(repo.decide).not.toHaveBeenCalled();
+    // A master job's line with a real cost is an amount too.
+    repo.masterLinesOf.mockResolvedValue([costLine({ realAmount: "250.00" })]);
+    await service.approve(manager, INV, 3);
+    expect(repo.decide).toHaveBeenCalledTimes(1);
+  });
+
   it("needs the supplier linked to a company the Customer Database still has (D13)", async () => {
     repo.byId.mockResolvedValue(header({ supplierCustomerId: null, supplierKey: "n:msc" }));
     await expect(service.approve(manager, INV, 3)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/Link the supplier first/) });
@@ -370,6 +380,12 @@ describe("markPaid", () => {
   it("pays only an approved invoice", async () => {
     repo.byId.mockResolvedValue(header({ status: "booked" }));
     await expect(service.markPaid(manager, INV, 3, "2026-11-15")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/Approve the invoice first/) });
+    expect(repo.setLinesPaid).not.toHaveBeenCalled();
+  });
+
+  it("does not pay an invoice none of whose lines has a real cost (User Council A1)", async () => {
+    repo.costLinesOf.mockResolvedValue([costLine({ realAmount: null })]);
+    await expect(service.markPaid(manager, INV, 3, "2026-11-15")).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/no amount yet/) });
     expect(repo.setLinesPaid).not.toHaveBeenCalled();
   });
 

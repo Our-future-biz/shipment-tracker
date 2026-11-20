@@ -16,14 +16,18 @@ const concept = (figures: object) => JSON.stringify({ ...figures, comparedWith: 
 const warehouse = (figures: object) => JSON.stringify({ ...figures, comparedWith: "dimensions" });
 
 describe("shownCargo: the shipment as its page shows it", () => {
-  it("takes the Pcs from the detail rows - containers first, then cargo items, then dimension lines - and the stored Pcs only with no rows", () => {
+  it("takes the Pcs from the detail rows - containers first, then cargo items, then dimension lines - and the stored Pcs where they give none", () => {
     const stored = { pcs: "10", totalWeightTons: "1.2000", totalVolumeCbm: "5.0000" };
     expect(shownCargo(stored, NO_ROWS)).toEqual({ pcs: "10", totalWeightTons: "1.2000", totalVolumeCbm: "5.0000", cargoDimensions: [] });
     expect(shownCargo(stored, { ...NO_ROWS, dimensions: [line({ pieces: "7" })] }).pcs).toBe("7");
     expect(shownCargo(stored, { ...NO_ROWS, items: [item()], dimensions: [line()] }).pcs).toBe("8");
     expect(shownCargo(stored, { containers: [box()], items: [item()], dimensions: [line()] }).pcs).toBe("12");
-    // Rows that count no pieces show none: the stored Pcs is not shown beside them.
-    expect(shownCargo(stored, { ...NO_ROWS, items: [item({ pieces: "" })] }).pcs).toBe("");
+    // Rows that count no pieces leave the typed Pcs showing, as the job page does (user council O2,
+    // owner's answer Q2): typed Colli 22 beside a cargo line without pieces is 22, not nothing.
+    expect(shownCargo({ ...stored, pcs: "22" }, { ...NO_ROWS, items: [item({ pieces: "" })] }).pcs).toBe("22");
+    expect(shownCargo({ ...stored, pcs: "22" }, { ...NO_ROWS, dimensions: [line({ pieces: "" })] }).pcs).toBe("22");
+    // With neither, nothing.
+    expect(shownCargo({ pcs: "" }, { ...NO_ROWS, items: [item({ pieces: "" })] }).pcs).toBeNull();
   });
 
   it("keeps Total Weight and Total Volume as stored, and nothing for a field the row did not carry", () => {
@@ -58,6 +62,8 @@ describe("matchesNow", () => {
     const stored = { pcs: "10", totalWeightTons: "1.2000", totalVolumeCbm: "5.0000" };
     expect(matchesNow(shownCargo(stored, NO_ROWS), concept(remeasured))).toBe(true);
     expect(matchesNow(shownCargo(stored, { ...NO_ROWS, items: [item()] }), concept(remeasured))).toBe(false);
+    // A cargo line without pieces leaves the typed Pcs as the page shows it, and that is compared.
+    expect(matchesNow(shownCargo(stored, { ...NO_ROWS, items: [item({ pieces: "", grossWeight: "" })] }), concept(remeasured))).toBe(true);
   });
 
   it("says no when no figure is known on both sides", () => {

@@ -65,6 +65,7 @@ import { CustomsProcedureRow } from "./_components/CustomsProcedureRow";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { ApprovedByLockedContext, CancelOfferedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
+import { FROM_LINES_HINT, FROM_LINES_TITLE, lockedByLines } from "../_lib/cargoFromLines";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
@@ -918,14 +919,18 @@ const DESTINATION_ROUTING_FIELDS: FieldDef[] = [
 /* ── Cargo & Commercial card (mirrors the standalone cargo-details design) ── */
 // `ro` fields are read-only projections computed from the Container/Cargo
 // Details rows (the value falls back to the stored legacy field for shipments
-// that predate the detail tables).
-type CargoField = { key: string; label: string; highlight?: boolean; ro?: boolean };
+// that predate the detail tables, or whose rows give none).
+// `fromLines`: one of the four fields the job's lines work out, read-only while they give it a value.
+type CargoField = { key: string; label: string; highlight?: boolean; ro?: boolean; fromLines?: boolean };
 
 // Load type / freight mode / trade direction / service type / invoicing status
 // moved to the Shipment Overview card (agreed overview mockup).
 // Split so both columns hold about the same number of rows.
 // Pieces, packages, HS code and description are filled in here when the shipment has no
-// cargo or container lines yet; once it has, the lines compute them and win.
+// cargo or container lines yet; once it has, the lines compute them and win, field by field. A
+// field the lines give a value for is read-only here with a "From Cargo Details" hint, so nothing
+// is typed that is then never shown; one they give none for stays typed here, showing the value
+// typed on the job (user council O2 / E7, owner's answer Q2, locked per field; _lib/cargoFromLines).
 const CARGO_COMMERCIAL_L: CargoField[] = [
   { key: "pcs", label: "COLLI" },
   { key: "typeOfPackages", label: "Type of packages" },
@@ -983,6 +988,11 @@ function CargoRow({
         >
           {value || "—"}
         </span>
+        {field.fromLines && (
+          <span className={`ml-1.5 shrink-0 whitespace-nowrap ${HINT}`} title={FROM_LINES_TITLE}>
+            {FROM_LINES_HINT}
+          </span>
+        )}
       </div>
     );
   }
@@ -1074,8 +1084,12 @@ function CargoCommercialCard({
   const cargoShown = new Set(
     visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R].map((f) => f.key)),
   );
-  const rows = (col: CargoField[]) =>
-    col.filter((f) => cargoShown.has(f.key)).map((f) => <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />);
+  // A field the job's lines give a value for is read-only, here and in "Show all".
+  const lock = (f: CargoField): CargoField => (lockedByLines(shipment, f.key) ? { ...f, ro: true, fromLines: true } : f);
+  const left = CARGO_COMMERCIAL_L.map(lock);
+  const cargoRow = (f: CargoField) => <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />;
+  const rows = (col: CargoField[]) => col.filter((f) => cargoShown.has(f.key)).map(cargoRow);
+  const lockedRows = Object.fromEntries(left.filter((f) => f.fromLines).map((f) => [f.key, cargoRow(f)]));
 
   return (
     <div className={CARD}>
@@ -1088,9 +1102,9 @@ function CargoCommercialCard({
         onCommit={onCommit}
         styleFor={styleFor}
         // "Show all" shows Credit Check with its credit warning too.
-        renderField={{ creditCheck: <CreditCheckRow label="Credit check" shipment={shipment} onCommit={onCommit} styleFor={styleFor} /> }}
+        renderField={{ ...lockedRows, creditCheck: <CreditCheckRow label="Credit check" shipment={shipment} onCommit={onCommit} styleFor={styleFor} /> }}
       />
-      <PairedColumns left={rows(CARGO_COMMERCIAL_L)} right={rows(CARGO_COMMERCIAL_R)} />
+      <PairedColumns left={rows(left)} right={rows(CARGO_COMMERCIAL_R)} />
     </div>
   );
 }

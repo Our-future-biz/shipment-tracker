@@ -236,6 +236,13 @@ describe("a house's cargo on its master job", () => {
     expect(cargoStackability([dim()])).toBe("");
   });
 
+  // User council O2 / E7: a dimension row gives the pieces but no package type; the typed one stays.
+  it("takes each field the rows give none of from the stored fields, and the rows' where they give one", () => {
+    const typed = { pcs: "22", typeOfPackages: "Pallets", totalWeightTons: null, totalVolumeCbm: null };
+    expect(houseCargo(typed, [], [], [dim()])).toMatchObject({ pieces: "2", packages: "Pallets" });
+    expect(houseCargo(typed, [container({ packages: "", packageType: "Cartons" })], [], [])).toMatchObject({ pieces: "22", packages: "Cartons" });
+  });
+
   it("falls back to the stored fields on a shipment without rows, weight from tons to kg", () => {
     const cargo = houseCargo({ pcs: "12", typeOfPackages: "Pallets", totalWeightTons: "1.25", totalVolumeCbm: "3.5" }, [], [], []);
     expect(cargo).toEqual({ pieces: "12", packages: "Pallets", weightKg: "1,250", volumeM3: "3.5", stackability: "" });

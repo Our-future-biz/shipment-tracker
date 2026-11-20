@@ -264,6 +264,37 @@ describe("a billed shipment", () => {
     expect(rows).toEqual([expect.objectContaining({ estAmount: "100.00", realAmount: null })]);
   });
 
+  it("takes a late supplier invoice typed by hand: its number, then its real cost (User Council Q1)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00", estCurrency: "USD" });
+    billing.billed.add(SHIP_A);
+    // No number yet: the real cost waits for it.
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450" })).rejects.toThrow(/Fill in the invoice number first/);
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "TESTUC-AP-001", received: true });
+    // Its quantity and currency, then its amount, each saved on its own while the line has no real amount.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realQty: "1" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "USD" });
+    const saved = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450.00" });
+    expect(saved).toMatchObject({ invoiceNumber: "TESTUC-AP-001", realQty: "1", realAmount: "1450.00", realCurrency: "USD", estAmount: "1500.00" });
+    // Once its amount is in, the real cost stays as it is, as the rest of the billed buying does.
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "EUR" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    // The estimate stays as billed.
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { estAmount: "1450" })).rejects.toThrow(BILLED);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400", vendor: "Maersk" })).rejects.toThrow(BILLED);
+    expect(rows).toEqual([expect.objectContaining({ estAmount: "1500.00", realAmount: "1450.00", realCurrency: "USD" })]);
+  });
+
+  it("keeps a real cost that was in when the customer was billed, number or not (User Council review, Major 1)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "X-1", received: true, realAmount: "1000.00" });
+    billing.billed.add(SHIP_A);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "500" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realQty: "2" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "X-2", realAmount: "500" })).rejects.toThrow(/a real cost already on the line stays as billed/);
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1000.00", invoiceNumber: "X-1" })]);
+  });
+
   it("still takes a supplier's invoice onto an estimate that has none yet", async () => {
     await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "100.00" });
     billing.billed.add(SHIP_A);

@@ -373,8 +373,11 @@ describe("a billed shipment's buying", () => {
     await expect(invoicingService.updateBuyingCost("row", "co", "ship", { estAmount: "10" })).rejects.toThrow(refused);
     billed();
     await expect(invoicingService.addBuyingCost("ship", "co", { realAmount: "10" })).rejects.toThrow(refused);
+    // A real cost goes in on a billed line only with a supplier's invoice number (User Council Q1): this one has none.
     billed();
-    await expect(invoicingService.updateBuyingCost("row", "co", "ship", { realAmount: "10" })).rejects.toThrow(refused);
+    (invoiceCostRepository as unknown as { findLine: unknown }).findLine = vi.fn(async () => ({ id: "row", invoiceNumber: "", sourceQuoteNumber: null, supplierCustomerId: null }));
+    await expect(invoicingService.updateBuyingCost("row", "co", "ship", { realAmount: "10" })).rejects.toThrow(/billed: a real cost goes in only with the supplier's invoice number/);
+    delete (invoiceCostRepository as unknown as { findLine?: unknown }).findLine;
     billed();
     await expect(invoicingService.deleteBuyingCost("row", "co", "ship")).rejects.toThrow(refused);
     billed();

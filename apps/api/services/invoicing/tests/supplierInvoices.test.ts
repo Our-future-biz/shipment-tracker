@@ -4,6 +4,7 @@ import {
   claimsOf,
   daysOverdue,
   dueDayOf,
+  hasNoAmount,
   holdsPayment,
   invoiceKeyOf,
   invoiceNumberKey,
@@ -239,6 +240,23 @@ describe("approvalProblem", () => {
     expect(approvalProblem({ ...base, enteredByUserId: null, approverUserId: "u-boss", anotherManager: false })).toEqual({ problem: null, selfDecision: false });
     expect(approvalProblem({ ...base, enteredByUserId: "", approverUserId: "" })).toEqual({ problem: null, selfDecision: false });
   });
+
+  it("does not approve an invoice with no amount: none of its lines has a real cost (User Council A1)", () => {
+    expect(approvalProblem({ ...base, noAmount: true })).toEqual({ problem: expect.stringMatching(/has no amount yet: fill in the real cost/), selfDecision: false });
+    // Said before the supplier link, so what to do first is the amount.
+    expect(approvalProblem({ ...base, noAmount: true, linked: false, facts: null }).problem).toMatch(/no amount/);
+    expect(approvalProblem({ ...base, noAmount: false }).problem).toBeNull();
+  });
+});
+
+describe("hasNoAmount", () => {
+  it("is true only when no line has a real cost", () => {
+    expect(hasNoAmount([{ realAmount: null }, { realAmount: null }])).toBe(true);
+    expect(hasNoAmount([])).toBe(true);
+    expect(hasNoAmount([{ realAmount: null }, { realAmount: "1450.00" }])).toBe(false);
+    // A real cost of 0 is an amount typed, not a missing one.
+    expect(hasNoAmount([{ realAmount: "0" }])).toBe(false);
+  });
 });
 
 describe("claimsOf / holdsPayment", () => {
@@ -298,6 +316,11 @@ describe("paymentProblem", () => {
   it("refuses a day after today or before it was booked", () => {
     expect(paymentProblem({ ...base, day: "2026-11-18" })).toMatch(/after today/);
     expect(paymentProblem({ ...base, day: "2026-11-02" })).toBe("The day it was paid cannot be before it was booked (2026-11-03)");
+  });
+
+  it("does not pay an invoice with no amount (User Council A1)", () => {
+    expect(paymentProblem({ ...base, noAmount: true })).toMatch(/has no amount yet: fill in the real cost/);
+    expect(paymentProblem({ ...base, noAmount: false })).toBeNull();
   });
 });
 

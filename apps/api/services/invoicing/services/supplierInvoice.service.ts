@@ -14,6 +14,7 @@ import {
   claimsOf,
   daysOverdue,
   dueDayOf,
+  hasNoAmount,
   holdsPayment,
   lineAmount,
   marksOf,
@@ -539,8 +540,11 @@ class SupplierInvoiceService {
     }
     const users = await companyUsersWithRoles();
     const anotherManager = users.some((u) => canDecideQuoteInquiry(u.role) && u.id !== actor.userID);
+    // No line with a real cost: nothing to approve yet (User Council A1).
+    const [costLines, masterLines] = await Promise.all([repo.costLinesOf(actor.companyID, [h.id]), repo.masterLinesOf(actor.companyID, [h.id])]);
     const { problem, selfDecision } = approvalProblem({
       status: h.status,
+      noAmount: hasNoAmount([...costLines, ...masterLines]),
       // Linked: to a company the Customer Database still has.
       linked: !!supplierId && facts !== null,
       facts,
@@ -617,7 +621,7 @@ class SupplierInvoiceService {
     if (!isRealYmd(paidOn)) throw APIError.invalidArgument("The day it was paid must be a date (yyyy-mm-dd)");
     const h = await this.header(actor, id);
     this.assertVersion(h, version);
-    const costLines = await repo.costLinesOf(actor.companyID, [h.id]);
+    const [costLines, masterLines] = await Promise.all([repo.costLinesOf(actor.companyID, [h.id]), repo.masterLinesOf(actor.companyID, [h.id])]);
     let claims: PayableClaimFact[];
     try {
       claims = await claimsFor(actor.companyID, [...new Set(costLines.map((l) => l.shipmentId))], [h.id]);
@@ -633,6 +637,8 @@ class SupplierInvoiceService {
       today: businessDay(new Date()),
       bookedOn: paidNotBefore(h),
       openClaim: open,
+      // No line with a real cost: nothing to pay yet (User Council A1).
+      noAmount: hasNoAmount([...costLines, ...masterLines]),
     });
     if (problem) throw APIError.failedPrecondition(problem);
     const by = await userEmailOf(actor.userID);

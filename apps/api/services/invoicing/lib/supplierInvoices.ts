@@ -140,12 +140,21 @@ export function marksOf(
   return marks;
 }
 
+// An invoice none of whose lines has a real cost owes nothing anyone could pay: the list shows "—" and the export
+// 0. It is neither approved nor paid until its amount is in (User Council A1, owner's answer Q1).
+const NO_AMOUNT = "This invoice has no amount yet: fill in the real cost on its job's buying line, with the invoice number";
+
+/** Whether none of an invoice's lines has a real cost, so the invoice has no amount (the list's "—"). */
+export const hasNoAmount = (lines: readonly { realAmount: string | number | null }[]) => lines.every((l) => l.realAmount === null);
+
 /**
  * Why this manager may not approve the invoice, or null (D8, D9, D13, D14). `enteredByUserId` is null for an
  * invoice gathered from lines, whose enterer is not known. Returns whether the approval is the enterer's own.
+ * `noAmount`: none of its lines has a real cost (hasNoAmount).
  */
 export function approvalProblem(input: {
   status: string;
+  noAmount?: boolean;
   linked: boolean;
   facts: SupplierFactsLike | null;
   enteredByUserId: string | null;
@@ -154,6 +163,7 @@ export function approvalProblem(input: {
 }): { problem: string | null; selfDecision: boolean } {
   if (input.status === "approved") return { problem: "This invoice is approved already", selfDecision: false };
   if (input.status === "refused") return { problem: "This invoice was refused: the corrected invoice is booked as a new one", selfDecision: false };
+  if (input.noAmount) return { problem: NO_AMOUNT, selfDecision: false };
   if (!input.linked) return { problem: "Link the supplier first: an invoice is approved only for a supplier of the Customer Database", selfDecision: false };
   if (input.facts && isCzechVatPayer(input.facts)) {
     if (input.facts.vatUnreliable) return { problem: "The supplier is an unreliable VAT payer: its invoice can't be approved", selfDecision: false };
@@ -188,10 +198,19 @@ export function claimsOf<T extends CostClaimLike>(invoice: { id: string; numberK
 /** Whether an open claim holds the payment (D15). */
 export const holdsPayment = (claims: readonly { status: string }[]) => claims.some((c) => c.status === "open");
 
-/** Why the invoice may not be marked paid on `day`, or null (D11, D15). */
-export function paymentProblem(input: { status: string; paidOn: string | null; day: string; today: string; bookedOn: string | null; openClaim: boolean }): string | null {
+/** Why the invoice may not be marked paid on `day`, or null (D11, D15). `noAmount`: none of its lines has a real cost. */
+export function paymentProblem(input: {
+  status: string;
+  paidOn: string | null;
+  day: string;
+  today: string;
+  bookedOn: string | null;
+  openClaim: boolean;
+  noAmount?: boolean;
+}): string | null {
   if (input.status !== "approved") return "Approve the invoice first: only an approved invoice is paid";
   if (input.paidOn) return `This invoice is marked paid already (${input.paidOn})`;
+  if (input.noAmount) return NO_AMOUNT;
   if (input.openClaim) return "A claim on this invoice is open: settle or withdraw it before paying";
   if (input.day > input.today) return "The day it was paid cannot be after today";
   if (input.bookedOn && input.day < input.bookedOn) return `The day it was paid cannot be before it was booked (${input.bookedOn})`;

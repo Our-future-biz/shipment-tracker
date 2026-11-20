@@ -334,9 +334,12 @@ function aggregate(containers: ContainerLine[], field: "containerNumber" | "seal
     .join(", ");
 }
 
-// Attach detail rows and the read-only projections to a shipment row. Computed
-// values win over the stored legacy fields; the stored value only shows for
-// shipments that predate the detail tables and have no rows to compute from.
+// Attach detail rows and the read-only projections to a shipment row. Colli, Type of
+// packages, HS code and Cargo description: what the lines give wins over the value typed
+// on the shipment, field by field; where the lines give nothing - a job with only a
+// dimension line has no HS code or description to compute - the typed value still shows
+// (user council O2 / E7, owner's answer Q2), so nothing typed on the job vanishes from the
+// job page, the Customs tab or the Warehouse Concept import once a line is saved.
 function enrich(
   shipment: ShipmentRecord,
   containers: ContainerLine[],
@@ -347,7 +350,6 @@ function enrich(
   const ids = containers.map((c) => c.id);
   cargoItems = withOnlyContainer(cargoItems, ids);
   cargoDimensions = withOnlyContainer(cargoDimensions, ids);
-  const hasDetailRows = containers.length > 0 || cargoItems.length > 0 || cargoDimensions.length > 0;
   const p = projectCargo(containers, cargoItems, cargoDimensions);
   return {
     ...shipment,
@@ -362,10 +364,11 @@ function enrich(
       : shipment.commercialInvoice,
     containerNumber: aggregate(containers, "containerNumber"),
     sealNumber: aggregate(containers, "sealNumber"),
-    pcs: hasDetailRows ? p.pcs : shipment.pcs,
-    typeOfPackages: hasDetailRows ? p.typeOfPackages : shipment.typeOfPackages,
-    hsCode: hasDetailRows ? p.hsCode : shipment.hsCode,
-    cargoDescription: hasDetailRows ? p.cargoDescription : shipment.cargoDescription,
+    // With no lines the projection gives "" for each, so the typed value shows as before.
+    pcs: p.pcs || shipment.pcs,
+    typeOfPackages: p.typeOfPackages || shipment.typeOfPackages,
+    hsCode: p.hsCode || shipment.hsCode,
+    cargoDescription: p.cargoDescription || shipment.cargoDescription,
     civByCurrency: invoiceValueByCurrency(commercialInvoices),
     containerTypeSummary: p.containerTypeSummary,
     totalTeu: p.totalTeu,

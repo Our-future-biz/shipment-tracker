@@ -284,6 +284,53 @@ export interface PayableActions {
   editDetails: ActionState;
 }
 
+// As the server words it (lib/supplierInvoices NO_AMOUNT).
+const NO_AMOUNT = "This invoice has no amount yet: fill in the real cost on its job's buying line, with the invoice number";
+
+/** Whether none of its lines has a real cost: the invoice has no amount (the list's "—", amounts are the lines'). */
+export const hasNoAmount = (i: Pick<PayableInvoice, "amounts">): boolean => i.amounts.length === 0;
+
+// ── The totals of "Edit details…" or the reading (User Council, Anything new 2) ──
+
+/** Where the invoice's own totals come from: typed in "Edit details…", read from the document, both, or nowhere. */
+export type TotalsSource = "typed" | "read" | "read_then_typed" | "none";
+
+const TOTAL_KEYS = ["totalNet", "vatAmount", "totalGross"];
+
+/**
+ * Totals typed in "Edit details…" leave a "details changed" event naming them; a reading only fills what is empty
+ * (supplierInvoiceRepository.fillFromReading), so typed totals stay typed.
+ */
+export function totalsSource(i: Pick<PayableInvoice, "totalNet" | "vatAmount" | "totalGross" | "source" | "document">, events: readonly Pick<interfaces.PayableEventItem, "action" | "payload">[]): TotalsSource {
+  if (i.totalNet === null && i.vatAmount === null && i.totalGross === null) return "none";
+  const typed = events.some((e) => e.action === "details_changed" && TOTAL_KEYS.some((k) => k in (e.payload ?? {})));
+  const read = i.source === "reading" || !!i.document;
+  return typed ? (read ? "read_then_typed" : "typed") : "read";
+}
+
+export const TOTALS_SOURCE_LABELS: Record<TotalsSource, string> = {
+  typed: "Typed by hand (Edit details…)",
+  read: "As read from the document",
+  read_then_typed: "Read from the document, changed by hand (Edit details…)",
+  none: "",
+};
+
+/**
+ * When the invoice's total without VAT is not what its job lines bill: both figures, for a plain warning; null when
+ * they agree or no total is given. A credit note's total may be written without its minus. Never for a refused
+ * invoice: its lines were taken off the jobs and nothing is owed on it, so there is nothing to put right.
+ */
+export function totalVsLines(i: Pick<PayableInvoice, "totalNet" | "currency" | "amounts" | "kind" | "status">): { total: number; currency: string; lines: Amounts } | null {
+  if (i.status === "refused" || i.totalNet === null) return null;
+  const total = Number(i.totalNet);
+  if (!Number.isFinite(total)) return null;
+  const currency = i.currency || i.amounts[0]?.currency || "";
+  const [only, ...more] = i.amounts;
+  const same = (a: number, b: number) => (i.kind === "credit_note" ? round2(Math.abs(a)) === round2(Math.abs(b)) : round2(a) === round2(b));
+  if (only && !more.length && only.currency === currency && same(only.amount, total)) return null;
+  return { total, currency, lines: i.amounts };
+}
+
 const off: ActionState = { shown: false, blocked: "" };
 const on = (blocked = ""): ActionState => ({ shown: true, blocked });
 
@@ -300,11 +347,16 @@ export function actionsFor(i: PayableInvoice, canDecide: boolean): PayableAction
     : i.marks.includes("account_not_published")
       ? MARK_CHIPS.account_not_published.tip
       : "";
+  // No line has a real cost: there is nothing to approve or pay yet (the server's NO_AMOUNT, User Council A1).
+  const noAmount = hasNoAmount(i) ? NO_AMOUNT : "";
   return {
-    approve: canDecide && i.status === "booked" ? on(notLinked ? "Link the supplier first: an invoice is approved only for a supplier of the Customer Database (D13)" : vatStop) : off,
+    approve:
+      canDecide && i.status === "booked"
+        ? on(noAmount || (notLinked ? "Link the supplier first: an invoice is approved only for a supplier of the Customer Database (D13)" : vatStop))
+        : off,
     refuse: canDecide && i.status !== "refused" && !paid ? on() : off,
     takeBackApproval: canDecide && i.status === "approved" && !paid ? on() : off,
-    markPaid: canDecide && i.status === "approved" && !paid ? on(i.claimed ? "A claim on this invoice is open: settle or withdraw it before paying (D15)" : "") : off,
+    markPaid: canDecide && i.status === "approved" && !paid ? on(noAmount || (i.claimed ? "A claim on this invoice is open: settle or withdraw it before paying (D15)" : "")) : off,
     takeBackPayment: canDecide && paid ? on() : off,
     linkSupplier: canDecide && i.status === "booked" ? on() : off,
     editDetails: i.status !== "refused" && !paid && (i.status === "booked" || canDecide) ? on() : off,

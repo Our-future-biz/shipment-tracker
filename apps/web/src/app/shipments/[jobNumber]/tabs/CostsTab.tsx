@@ -13,6 +13,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
 import { amountInBox, normaliseAmount } from "@/lib/money";
 import { onAmountBlur } from "./amountBox";
+import { billedRealCostOpen, closesRow } from "./costRowRules";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
@@ -96,6 +97,27 @@ const printedText = (r: SellingRow) =>
   r.customer.trim() || r.description.trim() || (r.category ? chargeLabel(r.category) : "");
 /** A column head of the cost tables: the app's (TH) at the tables' padding. */
 const HEAD = `${TH} !px-[6px]`;
+
+/* ── column widths ──
+   The cost tables are laid out fixed: picking a category no longer widens its column and squeezes the
+   others while a row is typed in (User Council O7). Description and Vendor show about 25 and 20 letters; the
+   text column with no width (Description, Invoice text) takes what a wider screen adds. On a narrower one the
+   table scrolls sideways inside its card - an open row stays open meanwhile (data-cost-scroll). */
+const COST_TABLE = "w-full table-fixed border-separate border-spacing-0";
+// Category, Description, Vendor · Qty, Est. Amount, Cur · Qty, Real Cost, Cur · Invoice number, Received · Paid, Total, buttons
+// Qty fits "1.00" and Cur a currency box with its arrow ("USD"), without cutting them to "1.0(" or "U…".
+const BUYING_COLS = [170, null, 170, 64, 104, 90, 64, 104, 90, 124, 84, 124, 70];
+// Invoice, Category, Invoice text, Qty, Amount, Cur, Total, buttons
+const SELLING_COLS = [64, 250, null, 64, 110, 84, 130, 76];
+const Cols = ({ widths }: { widths: (number | null)[] }) => (
+  <colgroup>
+    {widths.map((w, at) => (
+      <col key={at} style={w === null ? undefined : { width: w }} />
+    ))}
+  </colgroup>
+);
+const BuyingCols = () => <Cols widths={BUYING_COLS} />;
+const SellingCols = () => <Cols widths={SELLING_COLS} />;
 /** The totals row: its label in small caps, its figures as TD_TOTAL, a currency as a hint. */
 const FOOT_LINE = "border-t-2 border-slate-200";
 const FOOT_LABEL = `px-[6px] py-2 ${FOOT_LINE} ${LABEL_TEXT}`;
@@ -165,7 +187,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   /* Row locking: a filled row turns read-only once left, a double-click opens it again.
      The ids of unlocked rows are kept; every other filled row is locked. */
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
-  // A billed shipment's buying stays shut (buyLocked) but for its invoice number (D6); its selling rows open as anywhere until invoiced.
+  // A billed shipment's buying stays shut (buyLocked) but for its invoice number (D6) and, once that is in, its real
+  // cost while the line has none (User Council Q1); its selling rows open as anywhere until invoiced.
   const unlock = (id: string) => setUnlocked((p) => new Set(p).add(id));
   const lock = (id: string) => setUnlocked((p) => {
     const n = new Set(p);
@@ -174,15 +197,19 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   });
   // A row opened with a double-click stays open while its own fields are clicked; a click
   // anywhere else closes it again (its field being left still saves on blur). The pop-ups of its
-  // fields (a Select's list, a date picker, a tooltip) are part of the row; so is a dialog.
+  // fields (a Select's list, a date picker, a tooltip) are part of the row; so is a dialog. So is the rest of
+  // its own table that is no other row - its scrollbar above all, dragged to reach Real Cost on a narrow screen,
+  // its head and its totals (User Council).
   useEffect(() => {
     if (!unlocked.size) return;
     const onDown = (e: PointerEvent) => {
       const el = e.target instanceof Element ? e.target : null;
       if (!el || el.closest(".ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown, .ant-popover, .ant-tooltip, .ant-modal-root, .ant-message")) return;
       const inRow = el.closest("[data-cost-row]")?.getAttribute("data-cost-row");
+      // Its own table's scroll box, pressed off any row of its body: the open rows of that table stay open.
+      const table = el.closest("tbody > tr") ? null : el.closest("[data-cost-scroll]");
       setUnlocked((p) => {
-        const n = new Set([...p].filter((id) => id === inRow));
+        const n = new Set([...p].filter((id) => id === inRow || !!table?.querySelector(`[data-cost-row="${id}"]`)));
         return n.size === p.size ? p : n;
       });
     };
@@ -425,13 +452,19 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
       if (e.key !== "Enter") return;
       if (locked) {
-        if (e.target !== e.currentTarget) return;
+        if (e.target !== e.currentTarget) {
+          // A billed row's field that stays open (its invoice number, a late invoice's real cost): Enter saves it,
+          // as it does in an open row (User Council B3); the row stays as it is.
+          if (closesRow(e.target, e.currentTarget) && !(e.target as HTMLInputElement).readOnly) (e.target as HTMLElement).blur();
+          return;
+        }
         // opened, the row is no Tab stop any more: the focus goes on to its first field
         const row = e.currentTarget;
         unlock(id);
         window.setTimeout(() => row.querySelector<HTMLElement>('input:not([readonly]):not([disabled]):not([tabindex="-1"])')?.focus(), 0);
         return;
       }
+      if (!closesRow(e.target, e.currentTarget)) return;
       (e.target as HTMLElement).blur();
       lock(id);
     },
@@ -561,12 +594,35 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   /* ── Received follows the invoice number being filled in; it can't be ticked by hand ──
      Clearing the number of a paid line also takes its payment back: that is asked first (K8). */
+  /* A billed row's invoice number as typed, before its save is back: its real cost opens with it (billedRealCostOpen),
+     so a click on Real Cost right after typing the number is not lost. A real cost saved meanwhile waits for the
+     number's save, as the server reads the number from the line. */
+  const [typedNumbers, setTypedNumbers] = useState<Map<string, string>>(new Map());
+  const setTypedNumber = (id: string, value: string | null) =>
+    setTypedNumbers((p) => {
+      if (value === null && !p.has(id)) return p;
+      const n = new Map(p);
+      if (value === null) n.delete(id);
+      else n.set(id, value);
+      return n;
+    });
+  const numberSaves = useRef(new Map<string, Promise<unknown>>());
+  const afterNumber = (id: string) => numberSaves.current.get(id) ?? Promise.resolve();
   const changeInvoiceNumber = (r: BuyingRow, field: HTMLInputElement) => {
     const value = field.value;
-    if (value === r.invoiceNumber) return;
+    if (value === r.invoiceNumber) return setTypedNumber(r.id, null);
     // A refused number (a paid supplier invoice's line, …) shows the stored one again; onError says why.
-    const save = () =>
-      updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() }, { onError: () => { field.value = r.invoiceNumber; } });
+    const save = () => {
+      const saving = updateBuy.mutateAsync({ id: r.id, invoiceNumber: value, received: !!value.trim() }).then(
+        () => undefined,
+        () => {
+          field.value = r.invoiceNumber;
+          setTypedNumber(r.id, null);
+        },
+      );
+      numberSaves.current.set(r.id, saving);
+      void saving.finally(() => numberSaves.current.get(r.id) === saving && numberSaves.current.delete(r.id));
+    };
     if (value.trim() || !r.paidOn) return save();
     modal.confirm({
       title: "Take back the payment?",
@@ -577,6 +633,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       onOk: save,
       onCancel: () => {
         field.value = r.invoiceNumber;
+        setTypedNumber(r.id, null);
       },
     });
   };
@@ -691,7 +748,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
           showIcon
           icon={<LockOutlined />}
           message="This shipment is billed: what is invoiced is locked"
-          description="The rows on the issued invoice and the buying costs stay as they are until the invoice is credited. Selling rows can still be added and changed: they go on the next invoice. A supplier's invoice that comes later can still be booked on its line: its invoice number, here or through Document / Text Reading. Its payment is noted on Finance → Accounts Payable."
+          description="The rows on the issued invoice and the buying costs stay as they are until the invoice is credited. Selling rows can still be added and changed: they go on the next invoice. A supplier's invoice that comes later can still be booked on its line, here or through Document / Text Reading: fill in its invoice number first, then its real cost on a line that has none yet: its quantity and currency, and its amount last. Once the amount is in, the real cost stays as billed, as the estimate does. Its payment is noted on Finance → Accounts Payable."
         />
       )}
       {/* ═══════════ 1. BUYING COSTS ═══════════ */}
@@ -713,8 +770,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
           </>
         }
       >
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1240px] border-separate border-spacing-0">
+        <div className="overflow-x-auto" data-cost-scroll>
+          <table className={`${COST_TABLE} min-w-[1460px]`}>
+            <BuyingCols />
             <thead>
               {/* grouped Estimated / Real header */}
               <tr>
@@ -728,19 +786,20 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 <th colSpan={2} className="border-b border-slate-200" />
               </tr>
               <tr>
-                <th className={`${HEAD} w-[13%]`}>Category</th>
-                <th className={`${HEAD} w-[12%]`}>Description</th>
-                <th className={`${HEAD} w-[8%]`}>Vendor</th>
-                <th className={`${HEAD} !text-center w-[4%]`}>Qty</th>
-                <th className={`${HEAD} text-right w-[8%]`}>Est. Amount</th>
-                <th className={`${HEAD} w-[6%]`}>Cur</th>
-                <th className={`${HEAD} ${SPLIT} !text-center w-[4%]`}>Qty</th>
-                <th className={`${HEAD} text-right w-[8%]`}>Real Cost</th>
-                <th className={`${HEAD} w-[6%]`}>Cur</th>
-                <th className={`${HEAD} w-[8%]`}>Invoice number</th>
-                <th className={`${HEAD} !text-center w-[5%]`} title="Supplier invoice received · paid">Received · Paid</th>
-                <th className={`${HEAD} text-right w-[10%]`}>Total in {billingCur}</th>
-                <th className={`${HEAD} w-[70px]`} />
+                {/* widths: BUYING_COLS */}
+                <th className={HEAD}>Category</th>
+                <th className={HEAD}>Description</th>
+                <th className={HEAD}>Vendor</th>
+                <th className={`${HEAD} !text-center`}>Qty</th>
+                <th className={`${HEAD} text-right`}>Est. Amount</th>
+                <th className={HEAD}>Cur</th>
+                <th className={`${HEAD} ${SPLIT} !text-center`}>Qty</th>
+                <th className={`${HEAD} text-right`}>Real Cost</th>
+                <th className={HEAD}>Cur</th>
+                <th className={HEAD}>Invoice number</th>
+                <th className={`${HEAD} !text-center`} title="Supplier invoice received · paid">Received · Paid</th>
+                <th className={`${HEAD} text-right`}>Total in {billingCur}</th>
+                <th className={HEAD} />
               </tr>
             </thead>
             <tbody>
@@ -792,17 +851,21 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 // refused until the payment is taken back on Finance → Accounts Payable (Council Outlay 9, D11).
                 const invoicePaid = !!r.supplierInvoiceId && !!r.paidOn;
                 const realLocked = locked || invoicePaid;
-                const real = lockedField(realLocked);
                 // On a billed shipment the invoice number stays open (D6): a supplier's invoice that comes after
-                // the billing is booked on the line it bills, and Received follows it as anywhere.
+                // the billing is booked on the line it bills, and Received follows it as anywhere. Its real cost
+                // opens with the number while the line has none, so the invoice reaches Accounts Payable with its
+                // amount (User Council Q1); a real cost already in, the vendor and the estimate stay as billed.
                 const numberLocked = billed ? invoicePaid : realLocked;
+                const realCostLocked = billed ? !billedRealCostOpen(r, invoicePaid, typedNumbers.get(r.id)) : realLocked;
+                const real = lockedField(realLocked);
+                const realCost = lockedField(realCostLocked);
                 return (
                 <tr
                   key={r.id}
                   className={`hover:bg-slate-50/60 ${locked && !billed ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
                   title={
                     billed
-                      ? `Billed: the buying costs stay as they are until the invoice is credited${invoicePaid ? "" : " - a supplier's invoice number can still be filled in"}`
+                      ? `Billed: the buying costs stay as they are until the invoice is credited${invoicePaid ? "" : " - a supplier's invoice number can still be filled in, and with it its real cost while the line has none"}`
                       : invoicePaid
                         ? "On a supplier invoice marked paid: its real cost, invoice number and vendor stay as paid until the payment is taken back on Finance → Accounts Payable"
                         : locked ? "Double-click to edit" : undefined
@@ -868,12 +931,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   {/* Real */}
                   <td className={`${CELL} ${SPLIT}`}>
                     <input
-                      className={`${FIELD} text-center${real}`}
-                      {...closed(realLocked)}
+                      className={`${FIELD} text-center${realCost}`}
+                      {...closed(realCostLocked)}
                       defaultValue={amountInBox(r.realQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.realQty, (realQty, refused) => updateBuy.mutateAsync({ id: r.id, realQty }).catch(refused))}
+                      onBlur={onAmountBlur(r.realQty, (realQty, refused) => afterNumber(r.id).then(() => updateBuy.mutateAsync({ id: r.id, realQty })).catch(refused))}
                     />
                   </td>
                   <td
@@ -886,16 +949,16 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     }
                   >
                     <input
-                      className={`${FIELD} text-right${real} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
-                      {...closed(realLocked)}
+                      className={`${FIELD} text-right${realCost} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
+                      {...closed(realCostLocked)}
                       defaultValue={amountInBox(r.realAmount)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.realAmount, (realAmount, refused) => updateBuy.mutateAsync({ id: r.id, realAmount }).catch(refused))}
+                      onBlur={onAmountBlur(r.realAmount, (realAmount, refused) => afterNumber(r.id).then(() => updateBuy.mutateAsync({ id: r.id, realAmount })).catch(refused))}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker locked={realLocked} value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
+                    <CurrencyPicker locked={realCostLocked} value={r.realCurrency} onChange={(v) => void afterNumber(r.id).then(() => updateBuy.mutate({ id: r.id, realCurrency: v }))} />
                   </td>
                   <td className={CELL}>
                     <input
@@ -903,6 +966,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       {...closed(numberLocked)}
                       defaultValue={r.invoiceNumber}
                       aria-label="Invoice number"
+                      onChange={billed ? (e) => setTypedNumber(r.id, e.target.value) : undefined}
                       onBlur={(e) => changeInvoiceNumber(r, e.target)}
                     />
                   </td>
@@ -1023,20 +1087,22 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
             Could not check which rows are invoiced — the server still refuses changes to invoiced rows.
           </div>
         )}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1040px] border-separate border-spacing-0">
+        <div className="overflow-x-auto" data-cost-scroll>
+          <table className={`${COST_TABLE} min-w-[1080px]`}>
+            <SellingCols />
             <thead>
               <tr>
-                <th className={`${HEAD} !text-center w-[64px]`} title="Include in the billing calculation sheet">Invoice</th>
+                {/* widths: SELLING_COLS */}
+                <th className={`${HEAD} !text-center`} title="Include in the billing calculation sheet">Invoice</th>
                 {/* each head starts (or ends) where its column's text does: a Select's 12px, an input's 9px */}
-                <th className={`${HEAD} !pl-[18px] w-[250px]`}>Category</th>
+                <th className={`${HEAD} !pl-[18px]`}>Category</th>
                 {/* what the invoice line prints: the row's own text (set in Issue invoice), else its Description, else the category */}
-                <th className={`${HEAD} !pl-[15px] w-[26%]`} title="Printed on the invoice line: the row's Description, or a text of its own set in Issue invoice">Invoice text</th>
-                <th className={`${HEAD} !text-center w-[6%]`}>Qty</th>
-                <th className={`${HEAD} !text-right !pr-[15px] w-[10%]`}>Amount</th>
-                <th className={`${HEAD} !pl-[18px] w-[7%]`}>Cur</th>
-                <th className={`${HEAD} !text-right w-[10%]`}>Total in {billingCur}</th>
-                <th className={`${HEAD} w-[76px]`} />
+                <th className={`${HEAD} !pl-[15px]`} title="Printed on the invoice line: the row's Description, or a text of its own set in Issue invoice">Invoice text</th>
+                <th className={`${HEAD} !text-center`}>Qty</th>
+                <th className={`${HEAD} !text-right !pr-[15px]`}>Amount</th>
+                <th className={`${HEAD} !pl-[18px]`}>Cur</th>
+                <th className={`${HEAD} !text-right`}>Total in {billingCur}</th>
+                <th className={HEAD} />
               </tr>
             </thead>
             <tbody>
@@ -1638,8 +1704,8 @@ function VendorCell({ row, locked, className, onSave }: VendorCellProps) {
   const [value, setValue] = useState<SupplierValue>(stored);
   // What the field holds now, for the blur that follows a pick before the state has caught up.
   const latest = useRef(stored);
-  // What was last saved (or read): an Enter that picks also leaves the row, and its blur must not save the
-  // same pick again before the row is read back (F-5).
+  // What was last saved (or read): the blur after a pick must not save the same pick again before the row is
+  // read back (F-5). An Enter that picks no longer leaves the row (closesRow).
   const sent = useRef(stored);
   useEffect(() => {
     const next = { name: row.vendor, supplierCustomerId: row.supplierCustomerId };

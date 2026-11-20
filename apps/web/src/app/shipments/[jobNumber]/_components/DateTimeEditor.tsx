@@ -4,12 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Button, DatePicker, TimePicker, Tooltip } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
-import { joinDateTime, splitDateTime } from "@/lib/columnConfig";
+import { splitDateTime } from "@/lib/columnConfig";
+import { DATE_INPUT_FORMATS, resolveDateTime } from "./typedDate";
 
 const DATE_LABEL = "Date";
 const TIME_LABEL = "Time (optional)";
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 interface Props {
   /** "YYYY-MM-DD HH:MM", "YYYY-MM-DD" or "" */
@@ -22,12 +21,15 @@ interface Props {
 /**
  * A date with an optional exact time (closings, AMS / ISF deadlines). Picking the day opens the
  * time; the time may stay empty. Saved by ✓, Enter or a click elsewhere; Escape leaves it as it was.
+ * A typed date or time that can't be read keeps the editor open and says how to type it (user
+ * council O4): saving the old value instead would let a corrected cut-off look saved.
  */
 export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) {
   const initial = splitDateTime(value);
   const [date, setDateState] = useState<Dayjs | null>(initial.date && dayjs(initial.date).isValid() ? dayjs(initial.date) : null);
   const [time, setTimeState] = useState(initial.time);
   const [timeOpen, setTimeOpen] = useState(false);
+  const [error, setError] = useState<{ text: string; box: "date" | "time" } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   // What save() reads: set together with the state, since Enter in a picker sets its value and
   // saves in the same keystroke, before the state has re-rendered.
@@ -38,29 +40,34 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
   // The box's own text can't be read instead: hovering a day or an hour in an open panel writes a
   // preview into it, which is not what was picked.
   const typedText = useRef<Record<string, string | null>>({ [DATE_LABEL]: null, [TIME_LABEL]: null });
+  // A day or time set by its picker replaces what was typed into that box, and with it the box's
+  // message; the other box's message stays while its text still can't be read.
   const setDate = (d: Dayjs | null) => {
     latest.current = { ...latest.current, date: d };
     typedText.current[DATE_LABEL] = null;
+    setError((e) => (e?.box === "date" ? null : e));
     setDateState(d);
   };
   const setTime = (t: string) => {
     latest.current = { ...latest.current, time: t };
     typedText.current[TIME_LABEL] = null;
+    setError((e) => (e?.box === "time" ? null : e));
     setTimeState(t);
   };
 
-  const typed = (label: string) => typedText.current[label]?.trim();
   const save = () => {
     if (finished.current) return;
+    const { date: d, time: t } = latest.current;
+    const next = resolveDateTime(
+      { date: d ? d.format("YYYY-MM-DD") : "", time: t },
+      { date: typedText.current[DATE_LABEL], time: typedText.current[TIME_LABEL] },
+    );
+    if ("error" in next) {
+      setError({ text: next.error, box: next.box });
+      return;
+    }
     finished.current = true;
-    let { date: d, time: t } = latest.current;
-    const dateText = typed(DATE_LABEL);
-    if (dateText === "") d = null;
-    else if (dateText && ISO_DAY.test(dateText) && dayjs(dateText).isValid()) d = dayjs(dateText);
-    const timeText = typed(TIME_LABEL);
-    if (timeText === "") t = "";
-    else if (timeText && HH_MM.test(timeText)) t = timeText;
-    onCommit(d ? joinDateTime(d.format("YYYY-MM-DD"), t) : "");
+    onCommit(next.value);
   };
   const cancel = () => {
     finished.current = true;
@@ -81,61 +88,73 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
   }, []);
 
   return (
-    <div
-      ref={wrapperRef}
-      className={`flex items-center gap-1 ${className ?? ""}`}
-      // Only real typing fires input events; a panel's hover preview doesn't.
-      onInput={(e) => {
-        const box = e.target as HTMLInputElement;
-        const label = box.getAttribute("aria-label");
-        if (label === DATE_LABEL || label === TIME_LABEL) typedText.current[label] = box.value;
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") cancel();
-        else if (e.key === "Enter") save();
-      }}
-    >
-      <DatePicker
-        size="small"
-        autoFocus
-        defaultOpen
-        format="YYYY-MM-DD"
-        className="min-w-[120px]"
-        value={date}
-        onChange={(d) => {
-          setDate(d);
-          if (d) setTimeOpen(true);
-          else setTime("");
+    <Tooltip open={!!error} title={error ? <span role="alert">{error.text}</span> : null} placement="topLeft">
+      <div
+        ref={wrapperRef}
+        // The boxes keep the width their text needs; in a narrow card the time goes under the date (O5).
+        className={`flex flex-wrap items-center gap-1 ${className ?? ""}`}
+        // Only real typing fires input events; a panel's hover preview doesn't.
+        onInput={(e) => {
+          const box = e.target as HTMLInputElement;
+          const label = box.getAttribute("aria-label");
+          if (label === DATE_LABEL || label === TIME_LABEL) {
+            typedText.current[label] = box.value;
+            setError(null);
+          }
         }}
-        aria-label={DATE_LABEL}
-      />
-      <TimePicker
-        size="small"
-        format="HH:mm"
-        placeholder="Time"
-        // The panel's OK, as on Commercial Parties' opening hours (no "Now"), saves the date and time.
-        needConfirm
-        showNow={false}
-        onOk={(t) => {
-          if (t) setTime(t.format("HH:mm"));
-          save();
+        onKeyDown={(e) => {
+          if (e.key === "Escape") cancel();
+          else if (e.key === "Enter") save();
         }}
-        open={timeOpen}
-        onOpenChange={setTimeOpen}
-        className="w-[84px]"
-        value={time ? dayjs(`2000-01-01T${time}`) : null}
-        onChange={(t) => setTime(t ? t.format("HH:mm") : "")}
-        // An hour or minute clicked in the panel counts at once: the picker itself passes it on
-        // only when it loses focus, after the ✓ or a click elsewhere has saved.
-        onCalendarChange={(t) => {
-          const picked = Array.isArray(t) ? t[0] : t;
-          if (picked) setTime(picked.format("HH:mm"));
-        }}
-        aria-label={TIME_LABEL}
-      />
-      <Tooltip title="Save">
-        <Button size="small" type="text" icon={<CheckOutlined />} onClick={save} aria-label="Save" />
-      </Tooltip>
-    </div>
+      >
+        <DatePicker
+          size="small"
+          autoFocus
+          defaultOpen
+          // Shown as on every screen (DD.MM.YYYY); typed forms the picker doesn't read are read by save().
+          format={DATE_INPUT_FORMATS}
+          // A typed date that can't be read stays in the box beside its message, not the old date.
+          preserveInvalidOnBlur
+          status={error?.box === "date" ? "error" : undefined}
+          className="min-w-[120px] shrink-0"
+          value={date}
+          onChange={(d) => {
+            setDate(d);
+            if (d) setTimeOpen(true);
+            else setTime("");
+          }}
+          aria-label={DATE_LABEL}
+        />
+        <TimePicker
+          size="small"
+          format="HH:mm"
+          placeholder="Time"
+          preserveInvalidOnBlur
+          status={error?.box === "time" ? "error" : undefined}
+          // The panel's OK, as on Commercial Parties' opening hours (no "Now"), saves the date and time.
+          needConfirm
+          showNow={false}
+          onOk={(t) => {
+            if (t) setTime(t.format("HH:mm"));
+            save();
+          }}
+          open={timeOpen}
+          onOpenChange={setTimeOpen}
+          className="w-[84px] shrink-0"
+          value={time ? dayjs(`2000-01-01T${time}`) : null}
+          onChange={(t) => setTime(t ? t.format("HH:mm") : "")}
+          // An hour or minute clicked in the panel counts at once: the picker itself passes it on
+          // only when it loses focus, after the ✓ or a click elsewhere has saved.
+          onCalendarChange={(t) => {
+            const picked = Array.isArray(t) ? t[0] : t;
+            if (picked) setTime(picked.format("HH:mm"));
+          }}
+          aria-label={TIME_LABEL}
+        />
+        <Tooltip title="Save">
+          <Button size="small" type="text" icon={<CheckOutlined />} onClick={save} aria-label="Save" />
+        </Tooltip>
+      </div>
+    </Tooltip>
   );
 }

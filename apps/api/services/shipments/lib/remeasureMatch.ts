@@ -13,7 +13,7 @@ import { informedCharge, informedSource, remeasureVerdict, shipmentFiguresFor, t
 // Pcs: compared with the stored fields, a warning ran its full week after the lines were put
 // right, and a stale stored Pcs could end it falsely. What the shipment shows is
 // services/shipment.service enrich: Pcs worked out from its Container and Cargo Details rows
-// (lib/cargoProjection projectCargo; the stored Pcs only on a shipment with no rows), Total Weight
+// (lib/cargoProjection projectCargo; the stored Pcs where the rows give none), Total Weight
 // and Total Volume as stored, and its dimension lines, which fill in a figure the others lack
 // (lib/remeasureNotice shipmentFiguresFor).
 
@@ -41,13 +41,14 @@ export interface ShownCargo {
 
 /**
  * A shipment's cargo as its page shows it (services/shipment.service enrich): the Pcs of its
- * detail rows when it has any - the stored Pcs only when it has none - Total Weight and Total
- * Volume as stored, its dimension lines.
+ * detail rows when they give one, else the stored (typed) Pcs - as the job page has shown it since
+ * user council O2 (owner's answer Q2): typed Colli 22 beside a cargo line without pieces shows 22,
+ * so Accept remeasurement's "before" and the managers' cockpit compare 22 too. Total Weight and
+ * Total Volume as stored, its dimension lines.
  */
 export function shownCargo(stored: StoredCargo, rows: CargoRows): ShownCargo {
-  const hasRows = rows.containers.length > 0 || rows.items.length > 0 || rows.dimensions.length > 0;
   return {
-    pcs: hasRows ? projectCargo([...rows.containers], [...rows.items], [...rows.dimensions]).pcs : (stored.pcs ?? null),
+    pcs: projectCargo([...rows.containers], [...rows.items], [...rows.dimensions]).pcs || stored.pcs || null,
     totalWeightTons: stored.totalWeightTons ?? null,
     totalVolumeCbm: stored.totalVolumeCbm ?? null,
     cargoDimensions: rows.dimensions,

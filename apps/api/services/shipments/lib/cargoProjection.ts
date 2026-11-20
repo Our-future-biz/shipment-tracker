@@ -208,8 +208,8 @@ export interface HouseCargo {
 
 /**
  * A house's pieces, packages, weight, volume and stackability, as its own page shows them: worked
- * out from its Container and Cargo Details rows, the stored fields only for a shipment that has
- * none (as the Shipments grid, weight and volume also when the rows give none).
+ * out from its Container and Cargo Details rows, field by field the stored value where the rows
+ * give none (user council O2 / E7, as the shipment's own read in shipment.service enrich).
  */
 export function houseCargo(
   stored: { pcs: string; typeOfPackages: string; totalWeightTons: string | null; totalVolumeCbm: string | null },
@@ -217,13 +217,12 @@ export function houseCargo(
   items: ItemCargo[],
   dimensions: (DimensionCargo & { stackable: string })[],
 ): HouseCargo {
-  const hasRows = containers.length > 0 || items.length > 0 || dimensions.length > 0;
   const p = projectCargo(containers, items, dimensions);
   const tons = num(stored.totalWeightTons);
   const cbm = num(stored.totalVolumeCbm);
   return {
-    pieces: hasRows ? p.pcs : stored.pcs,
-    packages: hasRows ? p.typeOfPackages : stored.typeOfPackages,
+    pieces: p.pcs || stored.pcs,
+    packages: p.typeOfPackages || stored.typeOfPackages,
     weightKg: p.totalGrossWeightKg || (tons ? fmtNum(tons * 1000) : ""),
     volumeM3: p.totalVolumeM3 || (cbm ? fmtNum(cbm) : ""),
     stackability: cargoStackability(dimensions),

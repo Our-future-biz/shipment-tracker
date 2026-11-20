@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useRef } from "react";
 import Link from "next/link";
 import { EditableLink } from "@/components/EditableLink";
-import { ConfigProvider, Input, Select, DatePicker } from "antd";
+import { ConfigProvider, Input, Select, DatePicker, Tooltip } from "antd";
 import { CalendarOutlined, ClockCircleOutlined } from "@ant-design/icons";
 import { LockedBox } from "@/components/LockedBox";
 import type { InputRef } from "antd";
@@ -23,6 +23,7 @@ import { loadTypeLabel } from "@/lib/enums";
 import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
 import { contactLinks, type ContactLinks } from "@/app/shipments/_lib/parties";
 import { DateTimeEditor } from "./DateTimeEditor";
+import { DATE_INPUT_FORMATS, leaveTypedDay, readTypedDay } from "./typedDate";
 
 // Dates are stored as ISO "YYYY-MM-DD" (matches the native date input).
 // Still tolerate legacy "MM/DD/YY" values for display prefill.
@@ -42,10 +43,98 @@ function toInputISO(s: string): string {
 function DateTimeBoxes({ value, style, title }: { value: string; style?: React.CSSProperties; title?: string }) {
   const { date, time } = splitDateTime(value);
   return (
-    <span className="flex items-center gap-1.5 min-w-0" title={title}>
-      <LockedBox className="w-[118px]" value={date ? formatDate(date) : ""} placeholder="Date" icon={<CalendarOutlined />} style={style} />
-      <LockedBox className="w-[78px]" value={time} placeholder="Time" icon={<ClockCircleOutlined />} style={style} />
+    // The boxes keep the width "24.11.2026" and "16:00" need: in a card too narrow for both (Key Dates
+    // at 1440 px) the time goes under the date rather than both being cut (user council O5).
+    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 min-w-0" title={title}>
+      <LockedBox className="w-[118px] shrink-0" value={date ? formatDate(date) : ""} placeholder="Date" icon={<CalendarOutlined />} style={style} />
+      <LockedBox className="w-[78px] shrink-0" value={time} placeholder="Time" icon={<ClockCircleOutlined />} style={style} />
     </span>
+  );
+}
+
+/**
+ * A date alone (ETD, ETA, ATD…): a day picked in the panel is saved at once; a day typed is saved by
+ * Enter, Tab or a click elsewhere, as DD.MM.YYYY as the screens show it, D.M.YYYY, DD.MM.YY or
+ * YYYY-MM-DD (user council O4 / E8 / M2), as the date + time editor saves it. Typing that isn't a
+ * day keeps the editor open and says how to type it, where the picker alone did nothing and the old
+ * date silently stayed. Escape, or leaving without typing, leaves it as it was.
+ */
+function DayEditor({ fieldKey, value, className, onCommit, onClose }: { fieldKey: string; value: string; className?: string; onCommit: (next: string) => void; onClose: () => void }) {
+  const iso = toInputISO(value);
+  const initial = iso ? dayjs(iso) : null;
+  const [error, setError] = useState<string | null>(null);
+  // The panel's open state is held here: the picker closing on a typed day that can't be read must
+  // not close the editor, or the typing would go with it.
+  const [open, setOpen] = useState(true);
+  // What was typed into the box since it opened, or null. Only real typing fires input events; a
+  // panel's hover preview, which writes into the box too, doesn't.
+  const typed = useRef<string | null>(null);
+  const escaped = useRef(false);
+  // Tab confirms in the picker and then closes it: one save, not two.
+  const finished = useRef(false);
+  const blocked = PAST_DAY_FIELDS.has(fieldKey) ? (day: string) => dayBlocked(fieldKey, day, businessToday()) : undefined;
+  const save = (day: string) => {
+    if (finished.current) return;
+    finished.current = true;
+    onCommit(day);
+  };
+  const leave = () => {
+    if (finished.current) return;
+    const left = leaveTypedDay(typed.current, escaped.current, blocked);
+    if ("close" in left) {
+      finished.current = true;
+      setOpen(false);
+      onClose();
+    } else if ("error" in left) setError(left.error);
+    else save(left.day);
+  };
+  return (
+    <Tooltip open={!!error} title={error ? <span role="alert">{error}</span> : null} placement="topLeft">
+      <div
+        className={className}
+        onInput={(e) => {
+          typed.current = (e.target as HTMLInputElement).value;
+          escaped.current = false;
+          setError(null);
+        }}
+        // Enter and Tab on typed text are read here, before the picker, which reads only its own
+        // formats (and would take "26.11.26" for the year 26).
+        onKeyDownCapture={(e) => {
+          if (e.key === "Escape") {
+            escaped.current = true;
+            return;
+          }
+          if ((e.key !== "Enter" && e.key !== "Tab") || typed.current === null) return;
+          e.stopPropagation();
+          const read = readTypedDay(typed.current, blocked);
+          // Tab moves on once the day is saved; Enter, or a day that can't be read, stays.
+          if ("error" in read || e.key === "Enter") e.preventDefault();
+          if ("error" in read) setError(read.error);
+          else save(read.day);
+        }}
+      >
+        <DatePicker
+          size="small"
+          autoFocus
+          open={open}
+          // Shown as on every screen (DD.MM.YYYY).
+          format={DATE_INPUT_FORMATS}
+          // A typed day that can't be read stays in the box beside its message, not the old date.
+          preserveInvalidOnBlur
+          status={error ? "error" : undefined}
+          className="w-full min-w-[150px]"
+          defaultValue={initial && initial.isValid() ? initial : undefined}
+          disabledDate={blocked ? (d) => blocked(d.format("YYYY-MM-DD")) : undefined}
+          // Commit only when a day is picked — browsing months/years keeps the panel open.
+          onChange={(d) => save(d ? d.format("YYYY-MM-DD") : "")}
+          // A click away or Escape closes the panel: what was typed is saved first (leaveTypedDay).
+          onOpenChange={(next) => {
+            if (next) setOpen(true);
+            else leave();
+          }}
+        />
+      </div>
+    </Tooltip>
   );
 }
 
@@ -396,25 +485,7 @@ function EditableCellBody({
   }
 
   if (isDate) {
-    const iso = toInputISO(original);
-    const initial = iso ? dayjs(iso) : null;
-    return (
-      <div className={className}>
-        <DatePicker
-          size="small"
-          autoFocus
-          defaultOpen
-          format="YYYY-MM-DD"
-          className="w-full min-w-[150px]"
-          defaultValue={initial && initial.isValid() ? initial : undefined}
-          disabledDate={PAST_DAY_FIELDS.has(fieldKey) ? (d) => dayBlocked(fieldKey, d.format("YYYY-MM-DD"), businessToday()) : undefined}
-          // Commit only when a day is picked — browsing months/years keeps the panel open.
-          onChange={(d) => commit(d ? d.format("YYYY-MM-DD") : "")}
-          // Close (without committing) when the panel is dismissed via click-away or Escape.
-          onOpenChange={(open) => { if (!open) setEditing(false); }}
-        />
-      </div>
-    );
+    return <DayEditor fieldKey={fieldKey} value={original} className={className} onCommit={commit} onClose={() => setEditing(false)} />;
   }
 
   if (isDropdown) {

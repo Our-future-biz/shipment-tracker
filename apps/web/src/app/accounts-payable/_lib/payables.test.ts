@@ -13,7 +13,11 @@ import {
   expectedMatches,
   haulierChip,
   haulierRow,
+  hasNoAmount,
   inTab,
+  TOTALS_SOURCE_LABELS,
+  totalsSource,
+  totalVsLines,
   invoicesCsv,
   lineHref,
   matchesFilters,
@@ -311,6 +315,18 @@ describe("actions", () => {
     expect(paid.editDetails.shown).toBe(false);
   });
 
+  it("greys Approve and Mark paid on an invoice with no amount, with the reason (User Council A1)", () => {
+    const none = invoice({ amounts: [] });
+    expect(hasNoAmount(none)).toBe(true);
+    expect(hasNoAmount(invoice())).toBe(false);
+    expect(actionsFor(none, true).approve).toEqual({ shown: true, blocked: expect.stringMatching(/has no amount yet: fill in the real cost on its job's buying line/) });
+    // Said before the supplier link: the amount comes first.
+    expect(actionsFor(invoice({ amounts: [], supplierCustomerId: null }), true).approve.blocked).toMatch(/no amount/);
+    expect(actionsFor(invoice({ amounts: [], status: "approved" }), true).markPaid.blocked).toMatch(/no amount/);
+    // Refusing it stays open.
+    expect(actionsFor(none, true).refuse).toEqual({ shown: true, blocked: "" });
+  });
+
   it("leaves a refused invoice as it was", () => {
     const a = actionsFor(invoice({ status: "refused" }), true);
     expect(Object.values(a).some((s) => s.shown)).toBe(false);
@@ -352,5 +368,36 @@ describe("links", () => {
   it("opens a shipment's line on its Costs Breakdown and a master job's on the master jobs page", () => {
     expect(lineHref({ kind: "job", shipmentId: "s-1", masterJobId: null })).toBe("/shipments/s-1?tab=costs");
     expect(lineHref({ kind: "master_job", shipmentId: null, masterJobId: "m-1" })).toBe("/master-jobs?open=m-1");
+  });
+});
+
+describe("the invoice's own totals (User Council, Anything new 2)", () => {
+  const typedEvent = { action: "details_changed", payload: { totalNet: { from: null, to: "1450.00" } } };
+  const dateEvent = { action: "details_changed", payload: { dueDate: { from: null, to: "2026-12-18" } } };
+
+  it("says totals typed in Edit details… are typed by hand, not read", () => {
+    const typed = invoice({ source: "typed", totalNet: "1450.00", currency: "USD" });
+    expect(totalsSource(typed, [typedEvent])).toBe("typed");
+    expect(TOTALS_SOURCE_LABELS.typed).toMatch(/Typed by hand/);
+    // Only a change of a total counts, not of a date.
+    expect(totalsSource(invoice({ totalNet: "1450.00" }), [dateEvent])).toBe("read");
+    expect(totalsSource(invoice({ totalNet: "1450.00" }), [typedEvent])).toBe("read_then_typed");
+    expect(totalsSource(invoice(), [typedEvent])).toBe("none");
+  });
+
+  it("warns when the total without VAT is not what the job lines bill, with both figures", () => {
+    expect(totalVsLines(invoice({ totalNet: "12500.00" }))).toBeNull();
+    expect(totalVsLines(invoice())).toBeNull();
+    expect(totalVsLines(invoice({ totalNet: "1450.00", currency: "USD", amounts: [] }))).toEqual({ total: 1450, currency: "USD", lines: [] });
+    expect(totalVsLines(invoice({ totalNet: "12000" }))).toEqual({ total: 12000, currency: "EUR", lines: [{ currency: "EUR", amount: 12500 }] });
+    // Another currency, or two, is not the same figure.
+    expect(totalVsLines(invoice({ totalNet: "12500", currency: "USD" }))).not.toBeNull();
+    expect(totalVsLines(invoice({ totalNet: "12500", amounts: [{ currency: "EUR", amount: 12500 }, { currency: "USD", amount: 5 }] }))).not.toBeNull();
+    // No currency typed: the lines' one.
+    expect(totalVsLines(invoice({ totalNet: "12500", currency: "" }))).toBeNull();
+    // A credit note's total written without its minus.
+    expect(totalVsLines(invoice({ kind: "credit_note", totalNet: "300", amounts: [{ currency: "EUR", amount: -300 }] }))).toBeNull();
+    // A refused invoice owes nothing: its refused lines are not compared (User Council review, Minor 6).
+    expect(totalVsLines(invoice({ status: "refused", totalNet: "12000" }))).toBeNull();
   });
 });

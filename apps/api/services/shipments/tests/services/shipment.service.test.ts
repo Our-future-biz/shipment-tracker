@@ -2265,6 +2265,32 @@ describe("the Pick-up tab's License Plate", () => {
   });
 });
 
+// User council O2 / E7: a job with only a dimension line has no HS code, description or package
+// type to compute; what was typed on the job still shows. What a line gives wins.
+describe("Colli, Type of packages, HS code and Cargo description of a job with lines", () => {
+  const typed = { pcs: "22", typeOfPackages: "Pallets", hsCode: "85044090", cargoDescription: "Power adapters, 3 pallets" };
+  const dimension = { id: "d1", containerId: null, pieces: "3", lengthCm: "120", widthCm: "80", heightCm: "100", dimensionUnit: "cm", weightPerPcKg: "100", volumePerPcM3: "", packageType: "", stackable: "", palletType: null, adrUn: "", adrClass: "", adrPackingGroup: null, adrLimitedQuantity: false };
+  const item = { id: "i1", containerId: null, cargoDescription: "Gears", hsCode: "84834021", pieces: "", packageType: "", grossWeight: "", commercialInvoiceValue: "", currency: "EUR" };
+  beforeEach(() => stored.set(SHIPMENT, row(typed)));
+
+  it("keep each typed value the lines give none of", async () => {
+    vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimension] as never);
+    const shipment = await shipmentService.getById(SHIPMENT, COMPANY);
+    // The dimension line gives the pieces; the rest stays as typed.
+    expect(shipment).toMatchObject({ pcs: "3", typeOfPackages: "Pallets", hsCode: "85044090", cargoDescription: "Power adapters, 3 pallets" });
+  });
+
+  it("show what a cargo line gives in place of the typed value, field by field", async () => {
+    vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([item] as never);
+    const shipment = await shipmentService.getById(SHIPMENT, COMPANY);
+    expect(shipment).toMatchObject({ pcs: "22", typeOfPackages: "Pallets", hsCode: "84834021", cargoDescription: "Gears" });
+  });
+
+  it("are the typed values on a job with no lines", async () => {
+    expect(await shipmentService.getById(SHIPMENT, COMPANY)).toMatchObject(typed);
+  });
+});
+
 describe("who may change a shipment's details", () => {
   const asRole = (data: Record<string, unknown>, role?: string) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role);
   const named = (personInCharge: string, holidayCover = "") => stored.set(SHIPMENT, row({ personInCharge, holidayCover }));

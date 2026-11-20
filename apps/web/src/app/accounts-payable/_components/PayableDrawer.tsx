@@ -19,7 +19,7 @@ import { MarkPills } from "./MarkPills";
 import { PayableActions } from "./PayableActions";
 import { PayableLines } from "./PayableLines";
 import { RaiseClaim } from "./RaiseClaim";
-import { EVENT_LABELS, SOURCE_LABELS, statusChip, type PayableInvoice } from "../_lib/payables";
+import { EVENT_LABELS, SOURCE_LABELS, TOTALS_SOURCE_LABELS, statusChip, totalVsLines, totalsSource, type PayableInvoice } from "../_lib/payables";
 
 // One supplier invoice on a row click (or ?invoice=<id> from Costs Breakdown and the bell): its facts, lines,
 // document, claims and history, and what a manager may do to it. Amounts are not edited here (D1). A claim on
@@ -67,9 +67,11 @@ function DocumentLink({ document, state }: { document: NonNullable<PayableInvoic
   );
 }
 
-function Facts({ invoice, documentFile }: { invoice: PayableInvoice; documentFile: DocumentFileState }) {
+function Facts({ invoice, events, documentFile }: { invoice: PayableInvoice; events: interfaces.PayableEventItem[]; documentFile: DocumentFileState }) {
   const linkedId = invoice.supplierCustomerId ?? invoice.haulierId;
-  const read = invoice.totalNet !== null || invoice.vatAmount !== null || invoice.totalGross !== null;
+  // The totals are labelled by where they came from: typed in "Edit details…" is not "as read" (User Council).
+  const totals = totalsSource(invoice, events);
+  const mismatch = totalVsLines(invoice);
   return (
     <div className="grid grid-cols-2 gap-x-6 gap-y-3">
       <Fact label="Supplier">
@@ -112,17 +114,30 @@ function Facts({ invoice, documentFile }: { invoice: PayableInvoice; documentFil
         <span className="font-semibold text-slate-900 tabular-nums">{amountsText(invoice.amounts)}</span>
         <div className={HINT}>Without VAT, per currency</div>
       </Fact>
-      <Fact label="As read from the document">
-        {read ? (
-          <span className="tabular-nums">
-            {invoice.totalNet !== null ? `${formatAmount(Number(invoice.totalNet), invoice.currency)} without VAT` : "—"}
-            {invoice.vatAmount !== null && ` · VAT ${formatAmount(Number(invoice.vatAmount), invoice.currency)}`}
-            {invoice.totalGross !== null && ` · ${formatAmount(Number(invoice.totalGross), invoice.currency)} with VAT`}
-          </span>
+      <Fact label="Invoice totals">
+        {totals !== "none" ? (
+          <>
+            <span className="tabular-nums">
+              {invoice.totalNet !== null ? `${formatAmount(Number(invoice.totalNet), invoice.currency)} without VAT` : "—"}
+              {invoice.vatAmount !== null && ` · VAT ${formatAmount(Number(invoice.vatAmount), invoice.currency)}`}
+              {invoice.totalGross !== null && ` · ${formatAmount(Number(invoice.totalGross), invoice.currency)} with VAT`}
+            </span>
+            <div className={HINT}>{TOTALS_SOURCE_LABELS[totals]}</div>
+          </>
         ) : (
-          <span className="text-slate-500">Not read</span>
+          <span className="text-slate-500">Not read nor typed in</span>
         )}
       </Fact>
+      {mismatch && (
+        <div className="col-span-2">
+          <Alert
+            type="warning"
+            showIcon
+            message={`The invoice's total without VAT (${formatAmount(mismatch.total, mismatch.currency)}) is not what its job lines bill (${amountsText(mismatch.lines)})`}
+            description="Check the real cost on the job's buying lines: Accounts Payable owes what the lines bill."
+          />
+        </div>
+      )}
       <Fact label="Paid">
         {invoice.paidOn ? (
           <>
@@ -306,6 +321,7 @@ export function PayableDrawer({ id, onClose }: { id: string | null; onClose: () 
           <MarkPills invoice={invoice} empty={false} />
           <Facts
             invoice={invoice}
+            events={detail.events}
             documentFile={{
               file: detail.documentFile,
               gone: detail.documentGone,

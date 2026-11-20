@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { customers, quotes, shipments } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
-import { BILLED, assertNotBilled, isBilled, leavesBuyingCostAlone } from "../lib/billedLock";
+import { BILLED, assertNotBilled, billedBuyingProblem, billedRefusesOutright, isBilled, leavesBuyingCostAlone } from "../lib/billedLock";
 import { toChargeCode } from "../../../lib/chargeCodes";
 import { statusesFollow } from "./sellingStatusFollow";
 import { canDecideQuoteInquiry, quoteCostCopyRefusal } from "../../../lib/salesPolicy";
@@ -405,10 +405,15 @@ class InvoicingService {
   // a change to them is refused, the same value sent back with the rest of the row is not one.
   // Which quote a row came from is set when it is copied and never changes afterwards.
   async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput, actorUserId = ""): Promise<InvoiceCostItem> {
-    if (!leavesBuyingCostAlone(input)) await assertNotBilled(shipmentId, companyId);
+    // Billed: what leaves the cost alone goes on, and so does a late supplier invoice's real cost typed with
+    // its number on a line that has no real cost yet (User Council Q1); whether the line has them is read with it.
+    const billed = !leavesBuyingCostAlone(input) && (await isBilled(shipmentId, companyId));
+    if (billed && billedRefusesOutright(input)) throw APIError.failedPrecondition(BILLED);
     const changes = buyingChanges(input);
     const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
     if (!current) throw APIError.notFound("Buying cost not found");
+    const billedProblem = billed ? billedBuyingProblem(input, current) : null;
+    if (billedProblem) throw APIError.failedPrecondition(billedProblem);
     await assertSupplierCompany(changes.supplierCustomerId, current.supplierCustomerId);
     if (current.sourceQuoteNumber && quoteFixedChanged(current, changes).length) {
       throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: its category, description and estimate stay as the quote has them`);
