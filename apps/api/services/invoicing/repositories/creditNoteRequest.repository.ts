@@ -5,6 +5,11 @@ import { creditNoteRequestTable as t, type CreditNoteRequestRecord, type NewCred
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Reader = typeof db | Tx;
 
+// Taken back by the app, not by the one who asked: the invoice was credited or cancelled meanwhile, and the
+// comment says how (services/invoiceDocument). Unlike a request taken back by hand, it is news to whoever
+// asked and part of the managers' record (user council B5): a withdrawal by hand carries no comment.
+const withdrawnByTheApp = and(eq(t.status, "withdrawn"), ne(t.comment, ""));
+
 /** Requests to credit an invoice in part (schemas/creditNoteRequest), and their answers. */
 class CreditNoteRequestRepository {
   /** A new request; null when one already waits for this invoice. */
@@ -95,12 +100,12 @@ class CreditNoteRequestRepository {
       .where(and(eq(t.companyId, companyId), eq(t.invoiceId, invoiceId), eq(t.status, "pending"), isNull(t.deletedAt)));
   }
 
-  /** The managers' list: what waits, and what was answered since `since` (not what was taken back). */
+  /** The managers' list: what waits, and what was answered (or taken back by the app) since `since`; not what its asker took back. */
   async list(companyId: string, since: Date, limit: number): Promise<CreditNoteRequestRecord[]> {
     return db
       .select()
       .from(t)
-      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), or(eq(t.status, "pending"), and(ne(t.status, "withdrawn"), gte(t.decidedAt, since)))))
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), or(eq(t.status, "pending"), and(or(ne(t.status, "withdrawn"), withdrawnByTheApp), gte(t.decidedAt, since)))))
       .orderBy(desc(t.requestedAt))
       .limit(limit);
   }
@@ -116,8 +121,8 @@ class CreditNoteRequestRepository {
   }
 
   /**
-   * Answers to what this user asked, for their bell: unread ones since `since`, read ones since
-   * `seenSince`. The one who answered is not told their own answer.
+   * Answers to what this user asked (a withdrawal by the app too), for their bell: unread ones since
+   * `since`, read ones since `seenSince`. The one who answered is not told their own answer.
    */
   async answersFor(companyId: string, userId: string, since: Date, seenSince: Date, limit: number): Promise<CreditNoteRequestRecord[]> {
     return db
@@ -128,7 +133,7 @@ class CreditNoteRequestRepository {
           eq(t.companyId, companyId),
           isNull(t.deletedAt),
           eq(t.requestedById, userId),
-          inArray(t.status, ["approved", "rejected"]),
+          or(inArray(t.status, ["approved", "rejected"]), withdrawnByTheApp),
           ne(t.decidedById, userId),
           gte(t.decidedAt, since),
           or(isNull(t.answerSeenAt), gte(t.answerSeenAt, seenSince)),

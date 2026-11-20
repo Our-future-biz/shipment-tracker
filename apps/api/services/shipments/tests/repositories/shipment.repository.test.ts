@@ -114,8 +114,20 @@ vi.mock("../../db/db", () => ({ db: fake.db }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
 import { LETTERED_SALES_REFERENCE, PLAIN_SALES_REFERENCE_REPLACEMENT, SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
-import { attentionMatch, directionMatch, handledByMatch, modeMatch, searchMatch, searchedColumns, shipmentRepository, tilePredicate } from "../../repositories/shipment.repository";
+import {
+  INVOICING_FILTERS_WITH_LATE_CHARGES,
+  attentionMatch,
+  directionMatch,
+  handledByMatch,
+  invoicingPredicate,
+  modeMatch,
+  searchMatch,
+  searchedColumns,
+  shipmentRepository,
+  tilePredicate,
+} from "../../repositories/shipment.repository";
 import { shipmentTable } from "../../schemas/shipment.schema";
+import { CANCELLED_STATUS } from "../../lib/fieldDefaults";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const REF = "QCZ20261010001";
@@ -559,6 +571,44 @@ describe("the list's tile filters", () => {
     // No job named - or no ids handed over at all - finds nothing, never everything.
     expect(sent(attentionMatch([]))).toEqual({ sql: "false", params: [] });
     expect(sent(attentionMatch(undefined))).toEqual({ sql: "false", params: [] });
+  });
+});
+
+describe("the Invoicing page's lists (User Council B4 / Q9)", () => {
+  const BILLING = `"shipment"."status" IN ('Billing [IMP]', 'Billing [EXP]', 'Billing [DOM]')`;
+  const RELEASED = `(${BILLING} AND "shipment"."invoicing_status" IS DISTINCT FROM 'Invoiced')`;
+  const INVOICED = `"shipment"."invoicing_status" = 'Invoiced'`;
+  const UNBILLED_ARRIVAL = sent(invoicingPredicate("unbilled-arrivals")).sql;
+  // CZFCL00000055: invoiced while "Booking Confirmation Pending", demurrage EUR 150 added after - invoicing names it.
+  const JOB_55 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c55";
+
+  it("To bill: released and not invoiced yet, or a job with a charge added after its invoice, whatever its status", () => {
+    expect(sent(invoicingPredicate("billing", [JOB_55]))).toEqual({ sql: `(${RELEASED} OR "shipment"."id" in ($1))`, params: [JOB_55] });
+    // No such job named finds none of them - never everything.
+    expect(sent(invoicingPredicate("billing", []))).toEqual({ sql: `(${RELEASED} OR false)`, params: [] });
+    expect(sent(invoicingPredicate("billing"))).toEqual({ sql: `(${RELEASED} OR false)`, params: [] });
+  });
+
+  // Owner's decision (a434fd85), kept by the chair: released for billing or invoiced, cancelled ones left out - now
+  // with To bill's late-charge jobs (Q9). The unbilled arrivals stay their own tab.
+  it("All: released for billing or invoiced, with To bill's late charges, cancelled ones left out - no unbilled arrivals", () => {
+    const { sql, params } = sent(invoicingPredicate("all", [JOB_55]));
+    expect(sql).toBe(`((${RELEASED} OR "shipment"."id" in ($1)) OR ${INVOICED}) AND "shipment"."status" IS DISTINCT FROM $2`);
+    expect(params).toEqual([JOB_55, CANCELLED_STATUS]);
+    expect(sql).not.toContain("NOT ILIKE 'bill%'");
+    // No late-charge job named: All is released or invoiced, never everything.
+    expect(sent(invoicingPredicate("all")).sql).toBe(`((${RELEASED} OR false) OR ${INVOICED}) AND "shipment"."status" IS DISTINCT FROM $1`);
+  });
+
+  it("keeps Invoiced and the unbilled arrivals as they were, and asks nothing for a word that is no list", () => {
+    expect(sent(invoicingPredicate("invoiced", [JOB_55]))).toEqual({ sql: INVOICED, params: [] });
+    expect(UNBILLED_ARRIVAL).toContain(`"shipment"."status" NOT ILIKE 'bill%'`);
+    expect(sent(invoicingPredicate("unbilled-arrivals", [JOB_55])).params).not.toContain(JOB_55);
+    for (const filter of ["", "billed", "constructor", "toString"]) expect(invoicingPredicate(filter, [JOB_55])).toBeUndefined();
+  });
+
+  it("only All and To bill take in the late charges: the service asks invoicing for them for those two", () => {
+    expect(INVOICING_FILTERS_WITH_LATE_CHARGES).toEqual(["all", "billing"]);
   });
 });
 

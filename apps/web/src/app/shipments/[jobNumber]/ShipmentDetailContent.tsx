@@ -96,6 +96,8 @@ import {
 import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
 import { CancelReasonDialog } from "../_components/CancelReasonDialog";
 import { asksCancelReason, cancelOffered, cancelUpdate, isCancelled } from "../_components/cancelReason";
+import { asksBillingRelease } from "../_components/billingRelease";
+import { BillingReleaseDialog } from "../_components/BillingReleaseDialog";
 import { CANCELLED_STATUS } from "@/lib/enums";
 import { HistoryTab } from "./tabs/HistoryTab";
 import { CONTAINER_PARAM, containerToShow } from "../_lib/containerLink";
@@ -1141,6 +1143,8 @@ export function ShipmentDetailContent() {
   const [releasedStop, setReleasedStop] = useState<ReleasedStop | null>(null);
   // The cancel reason's dialog (D22): asked when the status is set to Cancelled Shipment, or opened to change the reason.
   const [cancelAsk, setCancelAsk] = useState<"cancel" | "change" | null>(null);
+  // Setting the status to Billing warns of what the job still lacks first (O11 / Q9 b): the Billing status picked.
+  const [billingAsk, setBillingAsk] = useState<string | null>(null);
   const queryClient = useQueryClient();
   // vyber poli zobrazenych v kartach (tuzka v hlavicce karty)
   const { visibleKeys: visibleCardKeys } = useCardFields();
@@ -1340,8 +1344,13 @@ export function ShipmentDetailContent() {
     updateField(shipment.id, fieldKey, value, shipment, links, { onReleaseStop: (stop, resend) => setReleasedStop({ stop, resend }) });
   };
   // Setting the status to Cancelled Shipment asks why first (D22): the status and the reason then go in one write.
+  // Setting it to Billing warns first of what the job still lacks (O11 / Q9 b); the user may set it all the same.
   const handleCommit: CommitFn = (fieldKey, value, links) =>
-    asksCancelReason(fieldKey, value, shipment.status) ? setCancelAsk("cancel") : commitField(fieldKey, value, links);
+    asksCancelReason(fieldKey, value, shipment.status)
+      ? setCancelAsk("cancel")
+      : asksBillingRelease(fieldKey, value, shipment.status)
+        ? setBillingAsk(value)
+        : commitField(fieldKey, value, links);
   const confirmCancelReason = (reason: string) => {
     if (cancelAsk === "cancel") commitField("status", CANCELLED_STATUS, cancelUpdate(reason));
     else void saveShipment({ cancelReason: reason });
@@ -2216,6 +2225,17 @@ export function ShipmentDetailContent() {
           initial={shipment.cancelReason}
           onClose={() => setCancelAsk(null)}
           onConfirm={confirmCancelReason}
+        />
+      )}
+
+      {billingAsk && (
+        <BillingReleaseDialog
+          shipment={shipment}
+          onClose={() => setBillingAsk(null)}
+          onConfirm={() => {
+            commitField("status", billingAsk);
+            setBillingAsk(null);
+          }}
         />
       )}
 

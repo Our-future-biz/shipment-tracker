@@ -32,7 +32,10 @@ import {
   LINE_KIND_LABEL,
   lineState,
   mailLine,
+  NO_REMINDER_CONTACT,
   NOTE_LABELS,
+  REMINDERS_CANNOT_GO_OUT,
+  remindersBlocked,
   shipmentHref,
   takenBackText,
   waitingTotal,
@@ -317,7 +320,7 @@ function Chasing({ notes }: { notes: interfaces.ReceivableNoteItem[] }) {
   );
 }
 
-function CustomerFacts({ detail }: { detail: ReceivableDetail }) {
+function CustomerFacts({ detail, autoRemindersSince }: { detail: ReceivableDetail; autoRemindersSince: string | null }) {
   const f = detail.customerFacts;
   if (!f) return <div className={HINT}>The customer&apos;s terms and limit could not be read just now.</div>;
   return (
@@ -342,7 +345,11 @@ function CustomerFacts({ detail }: { detail: ReceivableDetail }) {
             </div>
           </>
         ) : (
-          <span className="text-slate-500">No contact with an e-mail</span>
+          <>
+            <span className="text-slate-500">{NO_REMINDER_CONTACT}</span>
+            {/* The daily run skips such a customer with only a line in the server's log (user council A7). */}
+            {remindersBlocked(detail.row, f.reminderTo, autoRemindersSince) && <div className="text-[12px] font-medium text-red-600 mt-0.5">{REMINDERS_CANNOT_GO_OUT}</div>}
+          </>
         )}
       </Fact>
     </div>
@@ -429,7 +436,8 @@ function Mails({ invoiceId }: { invoiceId: string }) {
   );
 }
 
-export function ReceivableDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+/** `autoRemindersSince`: the list's own (null while the automatic reminders are off): whether to warn that they skip the customer. */
+export function ReceivableDrawer({ id, onClose, autoRemindersSince = null }: { id: string | null; onClose: () => void; autoRemindersSince?: string | null }) {
   const query = useReceivable(id);
   const actions = useReceivableActions();
   const preview = useFilePreview();
@@ -534,7 +542,7 @@ export function ReceivableDrawer({ id, onClose }: { id: string | null; onClose: 
             title="Customer"
             extra={row.customerId ? <StatementMenu customerId={row.customerId} customer={row.customer} currency={row.currency} canSend={detail.canAct} small /> : undefined}
           >
-            <CustomerFacts detail={detail} />
+            <CustomerFacts detail={detail} autoRemindersSince={autoRemindersSince} />
           </Section>
           <Section title="History">
             <History row={row} creditNotes={detail.creditNotes} events={detail.events} />

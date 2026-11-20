@@ -525,7 +525,8 @@ class ReceivableMailService {
     if (await mails.byKey(companyId, key)) return "skipped";
     const to = customer?.reminderTo?.email?.trim() ?? "";
     if (!to) {
-      log.info("automatic reminder skipped: the customer has no contact with an e-mail", { companyId, invoice: f.invoice.number, level });
+      // The page says it too: the invoice's drawer warns "Reminders can't go out" while the automatic reminders are on (user council A7).
+      log.info("automatic reminder skipped: the customer has no Accounts payable, Finance / Accounting or main contact with an e-mail", { companyId, invoice: f.invoice.number, level });
       return "skipped";
     }
     // Read again just before sending: a payment, a promise or a dispute noted since counts.

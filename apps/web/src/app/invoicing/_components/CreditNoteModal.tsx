@@ -11,6 +11,7 @@ import { TD, TH } from "@/styles/ui";
 import { useCreditOptions, useCreditRequestMutations, type CreditableLine } from "@/hooks/useCreditOptions";
 import type { InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { partialCreditDraft, type CreditMode } from "../_lib/partialCreditDraft";
+import { waitingRequestReason } from "../_lib/waitingRequest";
 
 interface CreditNoteModalProps {
   /** The invoice to credit; null = closed */
@@ -18,6 +19,11 @@ interface CreditNoteModalProps {
   /** Issues the credit note of the whole invoice (or of what partial ones left of it), at once */
   onCreditWhole: (reason: string) => Promise<void>;
   isCrediting: boolean;
+  /**
+   * A change of the invoice waiting for a manager on its issue day: one request waits at a time (user
+   * council B5), so no part can be asked until it is answered or taken back. The whole invoice still can.
+   */
+  waitingChange?: { requestedAt: string } | null;
   onClose: () => void;
 }
 
@@ -27,7 +33,7 @@ interface CreditNoteModalProps {
  * currency - is asked of a manager, who approves it on Sales → Managers → Billing approvals; the
  * credit note is issued then (API services/creditNoteRequest).
  */
-export function CreditNoteModal({ doc, onCreditWhole, isCrediting, onClose }: CreditNoteModalProps) {
+export function CreditNoteModal({ doc, onCreditWhole, isCrediting, waitingChange = null, onClose }: CreditNoteModalProps) {
   const toast = useToast();
   const { user } = useAuth();
   const { data: options, isLoading, error } = useCreditOptions(doc?.id ?? null);
@@ -69,7 +75,7 @@ export function CreditNoteModal({ doc, onCreditWhole, isCrediting, onClose }: Cr
   };
 
   const submitPart = async () => {
-    if (!doc || !draft.ok || !reason.trim()) return;
+    if (!doc || waitingChange || !draft.ok || !reason.trim()) return;
     try {
       await ask({ invoiceId: doc.id, lines: draft.lines, reason: reason.trim() });
       toast.success(`Partial credit note of ${doc.number} sent to a manager for approval`);
@@ -111,7 +117,7 @@ export function CreditNoteModal({ doc, onCreditWhole, isCrediting, onClose }: Cr
     ) : (
       <>
         <Button onClick={close}>Cancel</Button>
-        <Button type="primary" disabled={!!pending || !draft.ok || !reason.trim()} loading={isAsking} onClick={() => void submitPart()}>
+        <Button type="primary" disabled={!!pending || !!waitingChange || !draft.ok || !reason.trim()} loading={isAsking} onClick={() => void submitPart()}>
           Ask for approval
         </Button>
       </>
@@ -146,6 +152,9 @@ export function CreditNoteModal({ doc, onCreditWhole, isCrediting, onClose }: Cr
             {pending && (
               <Alert type="warning" showIcon message="The partial credit note waiting for a manager is taken back: nothing is left to credit in part once the whole invoice is." />
             )}
+            {waitingChange && (
+              <Alert type="warning" showIcon message="The change waiting for a manager is taken back: a credited invoice is no longer cancelled to be issued again." />
+            )}
             {reasonField}
           </>
         ) : pending ? (
@@ -172,6 +181,8 @@ export function CreditNoteModal({ doc, onCreditWhole, isCrediting, onClose }: Cr
               </div>
             }
           />
+        ) : waitingChange ? (
+          <Alert type="warning" showIcon message={waitingRequestReason("change", waitingChange.requestedAt)} />
         ) : (
           <>
             <p className="m-0">

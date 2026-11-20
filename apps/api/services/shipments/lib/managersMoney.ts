@@ -16,6 +16,7 @@ import type {
   OpsMoneyPerson,
   OpsMoneyRow,
   OpsMoneyTiles,
+  OpsMoneyUnbilledList,
   ShipmentsManagersMoney,
 } from "../interfaces/interfaces";
 import {
@@ -55,7 +56,8 @@ import { TAX_DATE_LATE_DAYS } from "./trackingThresholds";
 //              customer's credit, the other "not invoiced" rules or a line not ticked
 //   cards      a job appears once, with all its money tags: in URGENT when any is urgent
 //   tiles      work not yet invoiced per currency (an invoiced job's late charge too), and how many
-//              rows carry each signal family
+//              rows carry each signal family; the jobs the work not yet invoiced is in are listed
+//              apart (notYetInvoicedList), so its "in N jobs" can be opened (user council M4)
 //   people     per Handled By, over the same jobs before the Handled By filter; no ranking (D27)
 //
 // D24: an amount is never added to one of another currency. Sums are per currency; a tag that
@@ -956,6 +958,27 @@ function peopleOf(jobs: readonly Judged[], known: Known, input: Pick<OpsMoneyInp
     .sort(byActiveThenEmail);
 }
 
+/**
+ * The jobs with work not yet invoiced, the newest job first (no ranking: amounts of different currencies are not
+ * compared), each with its own amounts per currency; at most COCKPIT_LIST_LIMIT rows, the total over all of them. Past
+ * the limit it is the oldest jobs that are left out, never the latest (review 4, Minor 8).
+ */
+function unbilledListOf(jobs: readonly Judged[]): OpsMoneyUnbilledList {
+  const rows = [...jobs]
+    .sort((a, b) => b.job.createdAt.getTime() - a.job.createdAt.getTime() || b.job.jobNumber.localeCompare(a.job.jobNumber) || b.job.id.localeCompare(a.job.id))
+    .map(({ job, invoiced, money }) => ({
+      id: job.id,
+      jobNumber: job.jobNumber,
+      customer: job.customer,
+      status: job.status,
+      invoiced,
+      handledBy: job.personInCharge.trim(),
+      holidayCover: job.holidayCover.trim(),
+      notYetInvoiced: perCurrency(valued(money?.notYetInvoiced ?? [])),
+    }));
+  return { total: rows.length, rows: rows.slice(0, COCKPIT_LIST_LIMIT) };
+}
+
 export function buildOpsMoney(input: OpsMoneyInput): ShipmentsManagersMoney {
   const { now, mode, direction, reports } = input;
   const handledBy = handledByFilter(input.handledBy);
@@ -982,10 +1005,13 @@ export function buildOpsMoney(input: OpsMoneyInput): ShipmentsManagersMoney {
   const ratesNotRead = noMargin.filter((note) => note === "not_fixed" || note === "unreadable").length;
   // A margin worked out at an older fixing, the job's own not imported: known, but stale - and said so (m20).
   const ratesStale = known.lines ? shown.filter((j) => j.money?.totals.ratesStale && j.money.totals.profitCzk !== null).length : 0;
+  // The jobs the headline counts, so "in 15 jobs" can be opened (user council M4): every one with work still to bill,
+  // also one no signal names yet (not due for invoicing) - the "Invoicing late or stuck" tile is the narrower list.
+  const unbilledJobs = shown.filter((j) => valued(j.money?.notYetInvoiced ?? []).length > 0);
   const tiles: OpsMoneyTiles = {
     notYetInvoiced: known.unbilled ? perCurrency(unbilled) : null,
     notYetInvoicedCzk: known.unbilled ? czkTotalOf(unbilled, input.czk) : null,
-    notYetInvoicedJobs: known.unbilled ? shown.filter((j) => valued(j.money?.notYetInvoiced ?? []).length > 0).length : null,
+    notYetInvoicedJobs: known.unbilled ? unbilledJobs.length : null,
     signals,
     signalsNotKnown: signalsNotKnownOf(known, input),
     marginNotKnown: known.lines ? noMargin.length : null,
@@ -1008,6 +1034,7 @@ export function buildOpsMoney(input: OpsMoneyInput): ShipmentsManagersMoney {
     handledBy,
     reports,
     tiles,
+    notYetInvoicedList: known.unbilled ? unbilledListOf(unbilledJobs) : null,
     urgent: cockpitCard(rows.filter((r) => r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
     attention: cockpitCard(rows.filter((r) => !r.urgent), COCKPIT_LIST_LIMIT, byJobNumber),
     people: peopleOf(scoped, known, input),

@@ -59,8 +59,20 @@ const FIXED_QUEUE_COLUMNS = [FIRST_QUEUE_COLUMN];
 
 // The stage tabs, set apart by thin lines.
 const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean; title?: string }[] = [
-  { key: "all", label: "All" },
-  { key: "to_bill", label: "To bill", dividerBefore: true },
+  // Owner's decision (a434fd85): released for billing or invoiced, cancelled ones left out - with To bill's
+  // late-charge jobs too (Q9). The unbilled arrivals are not released, so they are their own tab only.
+  {
+    key: "all",
+    label: "All",
+    title: "Released for billing or invoiced, and every job with an invoice and a charge on no invoice - cancelled jobs left out",
+  },
+  // Q9: a job with an invoice and a charge added since is to bill, whatever its Shipment Status.
+  {
+    key: "to_bill",
+    label: "To bill",
+    dividerBefore: true,
+    title: "Shipment Status Billing and not invoiced yet - and every job with an invoice and a charge on no invoice",
+  },
   { key: "invoiced", label: "Invoiced", dividerBefore: true },
   // A check (P16): jobs that read Invoiced while a charge is still on no invoice - or a credit is
   // owed to the customer (M3), however long ago the job was invoiced. Its count is there only once
@@ -79,10 +91,13 @@ interface BillingQueueProps {
 }
 
 /**
- * The first Invoicing page: the queue. It lists only jobs operations released for billing
- * (Shipment Status "Billing") and jobs already invoiced: "To bill" are the released ones not
- * invoiced yet, "Invoiced" follows the Invoicing Status, "Unbilled arrivals" are jobs past their tax date that operations hasn't released. The tab, search and filters are kept in the URL, so Back from a
- * job returns to the queue as it was left.
+ * The first Invoicing page: the queue. "To bill" are the jobs operations released for billing
+ * (Shipment Status "Billing") not invoiced yet, and every job with an issued invoice and a charge on
+ * no invoice, whatever its status (User Council B4, owner's answer Q9: a job may be invoiced before
+ * Billing). "Invoiced" follows the Invoicing Status, "Unbilled arrivals" are jobs past their tax date
+ * that operations hasn't released, and "All" is what is released for billing or invoiced - with To bill's
+ * late-charge jobs - cancelled ones left out (owner's decision). The tab, search and filters are kept in
+ * the URL, so Back from a job returns to the queue as it was left.
  */
 export function BillingQueue({ onOpen }: BillingQueueProps) {
   const pathname = usePathname();
@@ -255,7 +270,9 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
         ? "Every job marked Invoiced has all its charges on an invoice, and owes no credit."
       : view === "unbilled_arrivals"
         ? "No unbilled arrivals — a job appears here once its tax date has happened (it arrived, departed or was delivered) and operations hasn't set its Shipment Status to Billing yet."
-        : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing.";
+      : view === "all"
+        ? "No shipments here — a job appears once operations set its Shipment Status to Billing, once it is invoiced, or once a charge is added to a job that has an invoice. Cancelled jobs are left out."
+        : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing, or once a charge is added to a job that has an invoice.";
   if (debounced || hasListFilters) emptyText = "No shipments match these filters.";
   if (isFetching) emptyText = "Loading the queue…";
   if (isError) emptyText = "Could not load the invoicing queue.";

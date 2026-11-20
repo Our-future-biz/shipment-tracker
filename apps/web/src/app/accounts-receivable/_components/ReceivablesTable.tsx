@@ -13,7 +13,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { shownColumns } from "@/lib/tableModel";
 import { EMPTY, HINT, LINK, REF } from "@/styles/ui";
-import { amountText, batchSelectable, shipmentHref, type ReceivableRow } from "../_lib/receivables";
+import { amountText, batchSelectable, shipmentHref, shortInvoiceNumber, type ReceivableRow } from "../_lib/receivables";
 
 // The invoices of a tab: one row per issued invoice, its credit notes folded in (D1), opened to its lines, its credit
 // notes and the job's people. A click anywhere else opens the drawer.
@@ -24,13 +24,16 @@ const cmp = (a: string | null | undefined, b: string | null | undefined) => (a ?
 const amount = (v: number, currency: string, strong = false) => (
   <span className={`tabular-nums whitespace-nowrap ${strong ? "font-semibold text-slate-900" : ""}`}>{amountText(v, currency)}</span>
 );
-const text = (v: string) => (v ? <span className="block max-w-[220px] truncate" title={v}>{v}</span> : none);
+const text = (v: string, width = "max-w-[220px]") => (v ? <span className={`block ${width} truncate`} title={v}>{v}</span> : none);
 
-/** The status and its marks; Overdue is said in the Due column already, so it is not repeated here. */
+/**
+ * The status and its marks; Overdue is said in the Due column already, so it is not repeated here. The marks wrap under
+ * the status in a narrow column (A5): up to three side by side took 253 px.
+ */
 function StatusCell({ r }: { r: ReceivableRow }) {
   const chips = markChips(r).filter((c) => c.key !== "overdue");
   return (
-    <div className="flex flex-wrap items-center gap-1 max-w-[320px]">
+    <div className="flex flex-wrap items-center gap-1 max-w-[170px]">
       <Tooltip title={statusTitle(r.status)}>
         <Pill tone={statusTone(r.status)}>{statusLabel(r.status)}</Pill>
       </Tooltip>
@@ -39,23 +42,38 @@ function StatusCell({ r }: { r: ReceivableRow }) {
   );
 }
 
+// The table's order and its widths (user council A5): the number shortened in its middle and the customer cut, each
+// whole on hover, the credit notes under the number, Status right after it - so the mock's columns up to Currency fit a
+// 1440 px screen. The order is receivableColumns' RECEIVABLE_COLUMNS, which the shown columns follow.
 const columns: ColumnsType<ReceivableRow> = [
   {
     title: "Invoice number",
     key: "number",
     sorter: (a, b) => a.number.localeCompare(b.number),
-    render: (_, r) => (
-      <span className="whitespace-nowrap">
-        <span className={`${REF} font-semibold text-slate-900`}>{r.number || "—"}</span>
-        {r.creditNoteNumbers.length > 0 && (
-          <Tooltip title={`Credit notes: ${r.creditNoteNumbers.join(", ")}`}>
-            <span className="ml-1.5 text-[11px] text-slate-500">+{r.creditNoteNumbers.length} CN</span>
-          </Tooltip>
-        )}
-      </span>
-    ),
+    render: (_, r) => {
+      const shown = shortInvoiceNumber(r.number);
+      return (
+        <div className="whitespace-nowrap">
+          {shown === r.number ? (
+            <span className={`${REF} font-semibold text-slate-900`}>{r.number || "—"}</span>
+          ) : (
+            <Tooltip title={r.number}>
+              <span className={`${REF} font-semibold text-slate-900`} aria-label={r.number}>
+                {shown}
+              </span>
+            </Tooltip>
+          )}
+          {r.creditNoteNumbers.length > 0 && (
+            <Tooltip title={`Credit notes: ${r.creditNoteNumbers.join(", ")}`}>
+              <div className="text-[11px] text-slate-500">+{r.creditNoteNumbers.length} CN</div>
+            </Tooltip>
+          )}
+        </div>
+      );
+    },
   },
-  { title: "Customer", key: "customer", sorter: (a, b) => a.customer.localeCompare(b.customer), render: (_, r) => <span className="font-medium text-slate-900">{text(r.customer)}</span> },
+  { title: "Status", key: "status", render: (_, r) => <StatusCell r={r} /> },
+  { title: "Customer", key: "customer", sorter: (a, b) => a.customer.localeCompare(b.customer), render: (_, r) => <span className="font-medium text-slate-900">{text(r.customer, "max-w-[150px]")}</span> },
   {
     title: "Job",
     key: "job",
@@ -69,7 +87,6 @@ const columns: ColumnsType<ReceivableRow> = [
         <span className={REF}>{r.jobNumber || "—"}</span>
       ),
   },
-  { title: "Issued", key: "issued", sorter: (a, b) => cmp(a.issueDate, b.issueDate), render: (_, r) => day(r.issueDate) },
   {
     title: "Due",
     key: "due",
@@ -90,7 +107,20 @@ const columns: ColumnsType<ReceivableRow> = [
         </div>
       ),
   },
-  { title: "Amount with VAT", key: "gross", align: "right", sorter: (a, b) => a.gross - b.gross, render: (_, r) => amount(r.gross, r.currency) },
+  {
+    // On two lines: a title in one line made the column wider than its amounts.
+    title: (
+      <>
+        Amount
+        <br />
+        with VAT
+      </>
+    ),
+    key: "gross",
+    align: "right",
+    sorter: (a, b) => a.gross - b.gross,
+    render: (_, r) => amount(r.gross, r.currency),
+  },
   {
     title: "Left to pay",
     key: "left",
@@ -104,7 +134,6 @@ const columns: ColumnsType<ReceivableRow> = [
       ),
   },
   { title: "Currency", key: "currency", sorter: (a, b) => a.currency.localeCompare(b.currency), render: (_, r) => <span className="tabular-nums">{r.currency}</span> },
-  { title: "Status", key: "status", render: (_, r) => <StatusCell r={r} /> },
   {
     title: "Paid",
     key: "paid",
@@ -121,6 +150,7 @@ const columns: ColumnsType<ReceivableRow> = [
         none
       ),
   },
+  { title: "Issued", key: "issued", sorter: (a, b) => cmp(a.issueDate, b.issueDate), render: (_, r) => day(r.issueDate) },
   { title: "DUZP", key: "duzp", sorter: (a, b) => cmp(a.duzp, b.duzp), render: (_, r) => day(r.duzp) },
   {
     title: "Amount in CZK",

@@ -9,10 +9,16 @@ import { useToast } from "@/lib/toast";
 import { useInvoiceChangeAsk } from "@/hooks/useInvoiceChangeAsk";
 import type { InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { INVOICE_FIXES, INVOICE_FIX_LABELS } from "../_lib/invoiceFixes";
+import { waitingRequestReason } from "../_lib/waitingRequest";
 
 interface InvoiceChangeModalProps {
   /** The invoice to change; null = closed */
   doc: InvoiceDoc | null;
+  /**
+   * A partial credit note of the invoice waiting for a manager: one request waits at a time (user council
+   * B5), so nothing can be asked until it is answered or taken back.
+   */
+  waitingCredit?: { requestedAt: string } | null;
   onClose: () => void;
 }
 
@@ -21,7 +27,7 @@ interface InvoiceChangeModalProps {
  * what is wrong, ticked, and why. Approved - the same day, on Sales → Managers → Billing approvals -
  * the invoice is cancelled, and its lines are billed again, corrected, under the next number.
  */
-export function InvoiceChangeModal({ doc, onClose }: InvoiceChangeModalProps) {
+export function InvoiceChangeModal({ doc, waitingCredit = null, onClose }: InvoiceChangeModalProps) {
   const toast = useToast();
   const { ask, isAsking } = useInvoiceChangeAsk();
   const [fixes, setFixes] = useState<interfaces.InvoiceFixItem[]>([]);
@@ -34,7 +40,7 @@ export function InvoiceChangeModal({ doc, onClose }: InvoiceChangeModalProps) {
   };
 
   const submit = async () => {
-    if (!doc || !fixes.length || !reason.trim()) return;
+    if (!doc || waitingCredit || !fixes.length || !reason.trim()) return;
     try {
       await ask({ invoiceId: doc.id, fixes, reason: reason.trim() });
       toast.success(`Change of ${doc.number} sent to a manager for approval`);
@@ -53,7 +59,7 @@ export function InvoiceChangeModal({ doc, onClose }: InvoiceChangeModalProps) {
       footer={
         <>
           <Button onClick={close}>Cancel</Button>
-          <Button type="primary" disabled={!fixes.length || !reason.trim()} loading={isAsking} onClick={() => void submit()}>
+          <Button type="primary" disabled={!!waitingCredit || !fixes.length || !reason.trim()} loading={isAsking} onClick={() => void submit()}>
             Ask for approval
           </Button>
         </>
@@ -65,6 +71,7 @@ export function InvoiceChangeModal({ doc, onClose }: InvoiceChangeModalProps) {
           Sales → Managers → Billing approvals <strong>today</strong>: the invoice is then cancelled (kept on record, no credit note), and you correct it and issue it again
           under the next number. Not answered by midnight, the request expires and a credit note corrects the invoice.
         </p>
+        {waitingCredit && <Alert type="warning" showIcon message={waitingRequestReason("credit", waitingCredit.requestedAt)} />}
         <div>
           <div className="font-medium text-slate-900 mb-1">What is wrong?</div>
           <Checkbox.Group

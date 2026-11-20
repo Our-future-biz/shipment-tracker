@@ -6,16 +6,19 @@ import { isUuid } from "../../../lib/uuid";
 import { round2 } from "../lib/invoiceCalc";
 import { partialCreditTotals, planPartialCredit, type AskedLine, type RemainingLine } from "../lib/partialCredit";
 import { answerProblem } from "../lib/sellingAmount";
+import { waitingRequestProblem } from "../lib/waitingRequest";
+import { invoiceChangeRequestRepository as changeRequests } from "../repositories/invoiceChangeRequest.repository";
 import { creditNoteRequestRepository as requests } from "../repositories/creditNoteRequest.repository";
 import type { CreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
 import type { CreditNoteRequestItem, CreditOptionsItem, CreditableLineItem } from "../interfaces/interfaces";
-import { invoiceDocumentService } from "./invoiceDocument.service";
+import { invoiceDocumentService, pragueToday } from "./invoiceDocument.service";
 
 // Partial credit notes (owner's decision, 17 Nov 2026; lib/partialCredit). Anyone who may credit an
 // invoice asks for one from the invoice, line by line, with a reason. A manager answers it on Sales →
 // Managers → Billing approvals: approving issues the credit note at once, rejecting needs a reason.
-// The one who asked may take it back while it waits. One request waits per invoice. A credit note of
-// the whole invoice stays instant and takes back a request still waiting for it.
+// The one who asked may take it back while it waits. One request waits per invoice, a partial credit
+// note or a change on the issue day (user council B5). A credit note of the whole invoice stays instant
+// and takes back a request still waiting for it.
 
 const ANSWERED_DAYS = 30;
 const LIST_LIMIT = 300;
@@ -92,6 +95,10 @@ class CreditNoteRequestService {
     const { original, remaining } = await invoiceDocumentService.creditState(invoiceId, actor.companyID);
     if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
     if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been ${original.status === "cancelled" ? "cancelled" : "credited"}`);
+    // Approving a change on the issue day would cancel the invoice and take this request back unasked
+    // (user council B5): one waits at a time. A change waits on its issue day only; an older one has expired.
+    const change = await changeRequests.pendingFor(actor.companyID, original.id);
+    if (change && change.issueDate === pragueToday()) throw APIError.failedPrecondition(waitingRequestProblem("change", change.requestedAt));
     const plan = planPartialCredit(remaining, input.lines ?? []);
     if ("problem" in plan) throw APIError.invalidArgument(plan.problem);
     const totals = partialCreditTotals(plan.lines, Number(original.fxRate));

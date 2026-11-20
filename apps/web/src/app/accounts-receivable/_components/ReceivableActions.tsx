@@ -30,6 +30,7 @@ import {
   reasonOk,
   takeBackFormProblem,
   type TakeBackKind,
+  NO_REMINDER_CONTACT,
   reminderLevels,
   promiseProblem,
   PROMISE_MAX_DAYS,
@@ -450,7 +451,7 @@ function ReminderForm({ row, canAct, reminderTo, drafts, paymentWaiting, saving,
               {reminderTo.role ? ` · ${reminderTo.role}` : ""}
             </span>
           ) : (
-            <span className="text-[12px] text-slate-500 mt-1">No contact of the customer has an e-mail: type the address</span>
+            <span className="text-[12px] text-slate-500 mt-1">{NO_REMINDER_CONTACT}: type the address</span>
           )}
           <FieldProblem id={recipientProblemId} text={recipientBad ? "Give an e-mail address" : ""} />
         </label>

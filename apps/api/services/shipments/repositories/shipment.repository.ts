@@ -355,8 +355,10 @@ export interface ShipmentListFilters {
   warehouse?: string;
   /** Customs page: urgent */
   customs?: string;
-  /** Invoicing page: all (released for billing or invoiced) | billing (Billing, not invoiced yet) | not-invoiced | invoiced (Invoicing Status) */
+  /** Invoicing page: all (released for billing or invoiced, not cancelled) | billing (To bill) | not-invoiced | invoiced (Invoicing Status) | unbilled-arrivals (invoicingPredicate) */
   invoicing?: string;
+  /** With invoicing "all" / "billing": the jobs with an open invoice and a charge on no invoice, named by the service (from invoicing). */
+  lateChargeIds?: readonly string[];
   search?: string;
   /** The grid columns (their keys) the search looks in; without them, SEARCHED_TEXT. */
   searchColumns?: string[];
@@ -367,7 +369,10 @@ export interface ShipmentListFilters {
 
 // Invoicing page queue. "Billing" is the Shipment Status operations set when a job is ready to
 // be invoiced (stored with its direction); Invoicing Status is Invoiced / Not Invoiced.
-// A job reaches the Invoicing page only once operations release it (Billing) or once it is invoiced.
+// A job reaches the Invoicing page once operations release it (Billing), once it is invoiced, once its tax date
+// has passed (Unbilled arrivals) - or, whatever its status, once it has an open invoice and a charge on no invoice
+// (User Council B4, owner's answer Q9: issuing before Billing is allowed, so such a job may never have been
+// released; the service names these jobs, from invoicing, as lateChargeIds).
 type InvoicingFilterId = "all" | "billing" | "not-invoiced" | "invoiced" | "unbilled-arrivals";
 const BILLING_STATUS = sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]', 'Billing [DOM]')`;
 const INVOICED = sql`${shipmentTable.invoicingStatus} = 'Invoiced'`;
@@ -378,13 +383,29 @@ const TAX_DATE_REACHED = sql`CASE
   WHEN ${IS_DELIVERY_DATED} THEN ${shipmentTable.actualDeliveryDate} IS NOT NULL
   WHEN lower(${shipmentTable.tradeDirection}) = 'export' THEN ${shipmentTable.actualDeparture} IS NOT NULL
   ELSE ${shipmentTable.actualArrival} IS NOT NULL END`;
-const INVOICING_PREDICATES: Record<InvoicingFilterId, ReturnType<typeof sql>> = {
-  all: sql`(${BILLING_STATUS} OR ${INVOICED}) AND ${NOT_CANCELLED}`,
-  billing: sql`${BILLING_STATUS} AND ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,
-  "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
-  invoiced: INVOICED,
-  "unbilled-arrivals": sql`${TAX_DATE_REACHED} AND ${shipmentTable.status} NOT ILIKE 'bill%' AND ${ACTIVE}`,
-};
+const UNBILLED_ARRIVAL = sql`${TAX_DATE_REACHED} AND ${shipmentTable.status} NOT ILIKE 'bill%' AND ${ACTIVE}`;
+
+/**
+ * The Invoicing page's lists. "To bill": released (Billing) and not invoiced yet, and every job with a charge added
+ * after its invoice (`lateChargeIds`, Q9). "All" (owner's decision, a434fd85): released for billing or invoiced,
+ * cancelled ones left out - now with To bill's late-charge jobs too (Q9). The unbilled arrivals are not released, so
+ * they stay their own tab and are not in All. With no late-charge jobs named, none is added - never everything.
+ */
+export function invoicingPredicate(filter: string, lateChargeIds?: readonly string[]): SQL | undefined {
+  const lateCharge = lateChargeIds?.length ? inArray(shipmentTable.id, [...lateChargeIds]) : sql`false`;
+  const toBill = sql`((${BILLING_STATUS} AND ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced') OR ${lateCharge})`;
+  const predicates: Record<InvoicingFilterId, SQL> = {
+    all: sql`(${toBill} OR ${INVOICED}) AND ${NOT_CANCELLED}`,
+    billing: toBill,
+    "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
+    invoiced: INVOICED,
+    "unbilled-arrivals": UNBILLED_ARRIVAL,
+  };
+  return Object.hasOwn(predicates, filter) ? predicates[filter as InvoicingFilterId] : undefined;
+}
+
+/** The Invoicing lists that take in the jobs with a charge added after their invoice: the service names those only for these. */
+export const INVOICING_FILTERS_WITH_LATE_CHARGES: readonly string[] = ["all", "billing"];
 
 // The status column holds long free-text labels ("Booked For Further Transport [IMP]", …).
 // The shipments UI groups them into coarse buckets; each bucket matches if the status
@@ -943,7 +964,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       if (predicate) clauses.push(predicate);
     }
     if (f.invoicing) {
-      const predicate = INVOICING_PREDICATES[f.invoicing as InvoicingFilterId];
+      const predicate = invoicingPredicate(f.invoicing, f.lateChargeIds);
       if (predicate) clauses.push(predicate);
     }
     // Every word typed, anywhere in these columns, without regard to diacritics or case.

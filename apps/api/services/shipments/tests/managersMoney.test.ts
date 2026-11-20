@@ -925,6 +925,7 @@ describe("the Money tab", () => {
       signalsNotKnown: [],
       marginNotKnown: 0,
     });
+    expect(a.notYetInvoicedList).toEqual({ total: 0, rows: [] });
     expect(a.urgent).toEqual({ total: 0, rows: [] });
     expect(a.attention).toEqual({ total: 0, rows: [] });
     expect(a.people).toEqual([person("jan@firma.cz", { active: 2 })]);
@@ -1003,6 +1004,48 @@ describe("the Money tab", () => {
     expect(a.tiles.notYetInvoicedCzk).toEqual({ amount: 42_797.5, label: LABEL });
     expect(a.notKnown).toEqual([]);
     expect(a.people[0]!.notYetInvoiced).toEqual([czk(5000), eur(1450.3), { currency: "USD", amount: 70 }]);
+  });
+
+  it("lists the jobs 'in N jobs' counts (M4): every job with work still to bill, one no signal names too, each with its own amounts", () => {
+    // a1 is not due for invoicing yet: no signal, but work to bill. a2 is invoiced with a late charge. a3 has nothing left; a4 nobody handles.
+    const [a1, a2, a3] = [job({ customer: "Alza a.s." }), job({ personInCharge: "eva@firma.cz", holidayCover: "jan@firma.cz", status: "Arrived [IMP]" }), job()];
+    const a4 = job({ personInCharge: "" });
+    const invoicing = facts(
+      money(a1.id, { notYetInvoiced: [eur(100), czk(0)] }),
+      money(a2.id, { notYetInvoiced: [{ currency: "USD", amount: 70 }], lateChargeSince: "2026-11-14" }),
+      money(a3.id, { notYetInvoiced: [eur(0)] }),
+      money(a4.id, { notYetInvoiced: [czk(2500)] }),
+    );
+    const a = answer([a4, a3, a2, a1], { invoicing, invoicedIds: new Set([a2.id]) });
+    expect(a.tiles.notYetInvoicedJobs).toBe(3);
+    expect(a.attention.total + a.urgent.total).toBeLessThan(3);
+    expect(a.notYetInvoicedList).toEqual({
+      total: 3,
+      // The newest job first (created at the same moment here, so the higher job number).
+      rows: [
+        { id: a4.id, jobNumber: a4.jobNumber, customer: "ACME s.r.o.", status: "Booked [IMP]", invoiced: false, handledBy: "", holidayCover: "", notYetInvoiced: [czk(2500)] },
+        { id: a2.id, jobNumber: a2.jobNumber, customer: "ACME s.r.o.", status: "Arrived [IMP]", invoiced: true, handledBy: "eva@firma.cz", holidayCover: "jan@firma.cz", notYetInvoiced: [{ currency: "USD", amount: 70 }] },
+        { id: a1.id, jobNumber: a1.jobNumber, customer: "Alza a.s.", status: "Booked [IMP]", invoiced: false, handledBy: "jan@firma.cz", holidayCover: "", notYetInvoiced: [eur(100)] },
+      ],
+    });
+    // Narrowed to a person as the headline is.
+    const eva = answer([a4, a3, a2, a1], { invoicing, invoicedIds: new Set([a2.id]), handledBy: "eva@firma.cz" });
+    expect(eva.notYetInvoicedList?.rows.map((r) => r.id)).toEqual([a2.id]);
+    expect(eva.notYetInvoicedList?.total).toBe(eva.tiles.notYetInvoicedJobs);
+    // Invoicing not read: no list, as no figure (null, never an empty list that reads "none").
+    expect(answer([a1], { invoicing: null }).notYetInvoicedList).toBeNull();
+  });
+
+  // Review 4, Minor 8: past 200 the oldest jobs are left out, never the newest.
+  it("cuts the not-yet-invoiced list at 200 jobs, the newest kept and first, while its total counts them all", () => {
+    // Created a minute apart, the oldest first: the job numbers say nothing here (the series differ).
+    const jobs = Array.from({ length: COCKPIT_LIST_LIMIT + 3 }, (_, i) =>
+      job({ createdAt: new Date(Date.parse("2026-11-01T08:00:00Z") + i * 60_000), jobNumber: i % 2 ? `CZAIR${String(i).padStart(8, "0")}` : `CZFCL${String(i).padStart(8, "0")}` }),
+    );
+    const a = answer(jobs, { invoicing: facts(...jobs.map((j) => money(j.id, { notYetInvoiced: [eur(10)] }))) });
+    expect(a.notYetInvoicedList?.total).toBe(COCKPIT_LIST_LIMIT + 3);
+    expect(a.notYetInvoicedList?.rows).toHaveLength(COCKPIT_LIST_LIMIT);
+    expect(a.notYetInvoicedList?.rows.map((r) => r.id)).toEqual(jobs.slice(3).reverse().map((j) => j.id));
   });
 
   it("gives the one CZK total at today's rates with its label - and none, naming the currencies, when one has no rate", () => {

@@ -256,6 +256,14 @@ describe("preview", () => {
     expect(noCzk.warnings).toEqual(["No bank account in CZK (Settings → Organization): the invoice has no payment details or QR payment"]);
     expect(noCzk.problems).not.toContainEqual(expect.stringContaining("bank account"));
   });
+
+  it("warns, without blocking, of a customer with no DIČ and still a Prospect - not of the job's own Credit Check, Red on every new job (user council B6)", async () => {
+    clients.customerGet.mockResolvedValue({ customer: { ...customer, dic: "", status: "Prospect" } });
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, creditCheck: "Red" } });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(p.warnings).toEqual(["The customer has no DIČ in the Customer Database", "The customer is still a Prospect"]);
+    expect(p.problems).toEqual([]);
+  });
 });
 
 describe("ČNB rates", () => {

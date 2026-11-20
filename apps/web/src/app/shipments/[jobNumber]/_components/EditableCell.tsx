@@ -19,6 +19,7 @@ import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMa
 import { businessToday, formatDate } from "@/lib/date";
 import { offeredStatuses } from "@/app/shipments/_components/cancelReason";
 import { statusLabel } from "@/lib/shipmentStatus";
+import { BILLING_HINT, isBillingStatus } from "../../_components/billingRelease";
 import { loadTypeLabel } from "@/lib/enums";
 import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
 import { contactLinks, type ContactLinks } from "@/app/shipments/_lib/parties";
@@ -509,6 +510,20 @@ function EditableCellBody({
           className="w-full min-w-[140px]"
           defaultValue={original || undefined}
           options={options.map((o) => ({ value: o, label: optionLabel(o) }))}
+          // The "Billing" status says what it does (O11 / Q9): one line under its name in the list.
+          optionRender={
+            fieldKey === "status"
+              ? (o) =>
+                  isBillingStatus(String(o.value)) ? (
+                    <span className="flex flex-col leading-tight py-0.5">
+                      <span>{o.label}</span>
+                      <span className="text-[11px] text-slate-500 whitespace-normal">{BILLING_HINT}</span>
+                    </span>
+                  ) : (
+                    o.label
+                  )
+              : undefined
+          }
           onChange={(v) => commit(v)}
           onBlur={() => setEditing(false)}
         />

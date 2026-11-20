@@ -13,10 +13,12 @@ const requests = vi.hoisted(() => ({
 }));
 const invoices = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), creditNotesOf: vi.fn() }));
 const docs = vi.hoisted(() => ({ cancelOnIssueDay: vi.fn() }));
+const creditRequests = vi.hoisted(() => ({ pendingFor: vi.fn() }));
 const TODAY = "2026-11-17";
 
 vi.mock("../repositories/invoiceChangeRequest.repository", () => ({ invoiceChangeRequestRepository: requests }));
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: invoices }));
+vi.mock("../repositories/creditNoteRequest.repository", () => ({ creditNoteRequestRepository: creditRequests }));
 vi.mock("../services/invoiceDocument.service", () => ({ invoiceDocumentService: docs, pragueToday: () => TODAY }));
 vi.mock("../../../lib/companyUsers", () => ({ userEmailOf: async (id: string) => `${id}@test.cz` }));
 vi.mock("encore.dev/api", () => {
@@ -47,6 +49,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   invoices.getByIdForCompany.mockResolvedValue(invoice);
   invoices.creditNotesOf.mockResolvedValue([]);
+  creditRequests.pendingFor.mockResolvedValue(null);
   requests.create.mockImplementation(async (values: Record<string, unknown>) => row(values));
 });
 
@@ -84,6 +87,17 @@ describe("asking to change an invoice", () => {
     await expect(invoiceChangeRequestService.ask(user, INVOICE, { fixes: ["duzp"], reason: "Wrong" })).rejects.toThrow(/credited in part/);
     requests.create.mockResolvedValueOnce(null);
     await expect(invoiceChangeRequestService.ask(user, INVOICE, { fixes: ["duzp"], reason: "Wrong" })).rejects.toThrow(/already waits for a manager/);
+  });
+
+  it("is refused while a partial credit note of the invoice waits, naming it and when it was asked (B5)", async () => {
+    // 08:13 UTC is 09:13 in Prague in November
+    creditRequests.pendingFor.mockResolvedValueOnce({ id: "cr1", requestedAt: new Date("2026-11-17T08:13:00Z") });
+    await expect(invoiceChangeRequestService.ask(user, INVOICE, { fixes: ["duzp"], reason: "Wrong" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "A partial credit note for this invoice is waiting for approval (asked 17.11.2026 09:13): wait for it or take it back",
+    });
+    expect(creditRequests.pendingFor).toHaveBeenCalledWith(COMPANY, INVOICE);
+    expect(requests.create).not.toHaveBeenCalled();
   });
 });
 

@@ -33,7 +33,11 @@ export function HistoryTab({ shipmentId }: { shipmentId: string }) {
           <HistoryOutlined />
         </span>
         <h3 className={`${CARD_TITLE} min-w-0`}>History</h3>
-        <span className={`${HINT} ml-auto`}>Every change recorded on the job, newest first · Prague time</span>
+        {/* Only the job's own record is logged here (shipment_audit): cost lines have no change log
+            yet and tracking events have their own tab, so the heading does not promise them (council O14 / Q7). */}
+        <span className={`${HINT} ml-auto`}>
+          Changes to the job&apos;s details, newest first · Prague time. Costs and tracking events are on their own tabs.
+        </span>
       </div>
       {isLoading ? (
         <div className="flex justify-center py-10">

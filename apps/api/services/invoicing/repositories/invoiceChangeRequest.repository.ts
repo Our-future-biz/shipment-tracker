@@ -5,6 +5,11 @@ import { invoiceChangeRequestTable as t, type InvoiceChangeRequestRecord, type N
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Reader = typeof db | Tx;
 
+// Taken back by the app, not by the one who asked: the invoice was credited or cancelled meanwhile, and the
+// comment says how (services/invoiceDocument). Unlike a request taken back by hand, it is news to whoever
+// asked and part of the managers' record (user council B5): a withdrawal by hand carries no comment.
+const withdrawnByTheApp = and(eq(t.status, "withdrawn"), ne(t.comment, ""));
+
 export const EXPIRED_COMMENT = "Not answered on the day the invoice was issued: only a credit note corrects it now";
 
 /** Requests to change an invoice on its issue day (schemas/invoiceChangeRequest), and their answers. */
@@ -102,12 +107,12 @@ class InvoiceChangeRequestRepository {
     return row ?? null;
   }
 
-  /** The managers' list: what waits, and what was answered (or expired) since `since`; not what was taken back. */
+  /** The managers' list: what waits, and what was answered, expired or taken back by the app since `since`; not what its asker took back. */
   async list(companyId: string, since: Date, limit: number): Promise<InvoiceChangeRequestRecord[]> {
     return db
       .select()
       .from(t)
-      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), or(eq(t.status, "pending"), and(ne(t.status, "withdrawn"), gte(t.decidedAt, since)))))
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), or(eq(t.status, "pending"), and(or(ne(t.status, "withdrawn"), withdrawnByTheApp), gte(t.decidedAt, since)))))
       .orderBy(desc(t.requestedAt))
       .limit(limit);
   }
@@ -122,7 +127,7 @@ class InvoiceChangeRequestRepository {
       .limit(limit);
   }
 
-  /** Answers to what this user asked (an expiry too), for their bell; the one who answered is not told their own answer. */
+  /** Answers to what this user asked (an expiry and a withdrawal by the app too), for their bell; the one who answered is not told their own answer. */
   async answersFor(companyId: string, userId: string, since: Date, seenSince: Date, limit: number): Promise<InvoiceChangeRequestRecord[]> {
     return db
       .select()
@@ -132,7 +137,7 @@ class InvoiceChangeRequestRepository {
           eq(t.companyId, companyId),
           isNull(t.deletedAt),
           eq(t.requestedById, userId),
-          inArray(t.status, ["approved", "rejected", "expired"]),
+          or(inArray(t.status, ["approved", "rejected", "expired"]), withdrawnByTheApp),
           or(isNull(t.decidedById), ne(t.decidedById, userId)),
           gte(t.decidedAt, since),
           or(isNull(t.answerSeenAt), gte(t.answerSeenAt, seenSince)),

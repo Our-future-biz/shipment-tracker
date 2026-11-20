@@ -25,17 +25,21 @@ const day = (v: string | null | undefined) => (v ? formatDate(v) : "");
 export const RECEIVABLE_SCOPE = "accounts-receivable";
 export const CUSTOMER_SCOPE = "accounts-receivable-customers";
 
+// The table's order (user council A5): at 1440 px the mock's ten columns were 1,566 px in a 1,114 px box, and Status,
+// Currency and Paid were off-screen. So Status comes right after the number, and Issued after Paid - Due is the day that
+// is chased. Only this order moved: a saved set of columns is a set (normalizeColumns puts it in this order), so every
+// saved set and template still shows what it showed.
 export const RECEIVABLE_COLUMNS = [
   { key: "number", title: "Invoice number" },
+  { key: "status", title: "Status", options: ["Unpaid", "Part paid", "Paid", "Written off", "Credited", "Cancelled"] },
   { key: "customer", title: "Customer" },
   { key: "job", title: "Job" },
-  { key: "issued", title: "Issued" },
   { key: "due", title: "Due" },
   { key: "gross", title: "Amount with VAT" },
   { key: "left", title: "Left to pay" },
   { key: "currency", title: "Currency" },
-  { key: "status", title: "Status", options: ["Unpaid", "Part paid", "Paid", "Written off", "Credited", "Cancelled"] },
   { key: "paid", title: "Paid" },
+  { key: "issued", title: "Issued" },
   // Off at first (the page): picked in Columns.
   { key: "duzp", title: "DUZP" },
   { key: "czk", title: "Amount in CZK" },
@@ -49,7 +53,7 @@ export const RECEIVABLE_COLUMNS = [
 ];
 
 /** The columns shown at first: the mock's; one stable array, as useColumnPrefs needs. */
-export const RECEIVABLE_DEFAULT_COLUMNS: string[] = ["number", "customer", "job", "issued", "due", "gross", "left", "currency", "status", "paid"];
+export const RECEIVABLE_DEFAULT_COLUMNS: string[] = ["number", "status", "customer", "job", "due", "gross", "left", "currency", "paid", "issued"];
 
 const RECEIVABLE_VIEW = { scope: RECEIVABLE_SCOPE, defaults: RECEIVABLE_DEFAULT_COLUMNS };
 

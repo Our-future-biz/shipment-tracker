@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Tooltip } from "antd";
+import { Modal, Tooltip } from "antd";
 import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
@@ -13,7 +13,8 @@ import { CockpitNote, NOTE_TONES } from "@/components/cockpit/CockpitLine";
 import { tileValue } from "@/components/cockpit/CockpitTiles";
 import { Amounts } from "@/components/finance/Amounts";
 import type { OpsMoneyRow, ShipmentsManagersMoney as Money } from "@/hooks/useShipmentsManagersMoney";
-import { CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
+import type { interfaces } from "@/lib/api";
+import { CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 import { moneyRowHref } from "../_lib/cockpitAddress";
 import {
   MONEY_FAMILIES,
@@ -23,8 +24,10 @@ import {
   moneyNotes,
   moneyPersonRows,
   moneySignalFigure,
+  notYetInvoicedListHint,
   notYetInvoicedView,
   NOT_YET_INVOICED_HINT,
+  NOT_YET_INVOICED_LIST_NOTE,
   PERSON_NOT_YET_INVOICED_HINT,
   type MoneyCard,
   type MoneyPage,
@@ -54,8 +57,10 @@ const CARDS: Record<CockpitCardKey, CockpitCardDef> = {
   attention: { ...WORDS.attention, dialog: "ATTENTION · money" },
 };
 
+type UnbilledJob = interfaces.OpsMoneyUnbilledJob;
+
 // A job's number opens its shipment on Costs Breakdown.
-const jobLink = (r: OpsMoneyRow) => (
+const jobLink = (r: Pick<OpsMoneyRow, "id" | "jobNumber">) => (
   <Link href={moneyRowHref(r)} className={`${REF} font-semibold ${LINK}`}>
     {r.jobNumber || "No job number"}
   </Link>
@@ -65,9 +70,9 @@ const jobLink = (r: OpsMoneyRow) => (
 // look (a cost after billing, an open estimate, a loss), and says so where an active job shows
 // its status.
 const invoicedChip = <Pill tone="slate">Invoiced</Pill>;
-const statusChip = (r: OpsMoneyRow, className?: string) => (r.invoiced ? invoicedChip : r.status ? <StatusBadge status={r.status} className={className} /> : null);
+const statusChip = (r: Pick<OpsMoneyRow, "invoiced" | "status">, className?: string) => (r.invoiced ? invoicedChip : r.status ? <StatusBadge status={r.status} className={className} /> : null);
 
-const handledBy = (r: OpsMoneyRow) => r.handledBy || <span className={NOBODY_TEXT}>Nobody</span>;
+const handledBy = (r: Pick<OpsMoneyRow, "handledBy">) => r.handledBy || <span className={NOBODY_TEXT}>Nobody</span>;
 
 // As the Cockpit's cards: the mode and the status under the job number, the customer and Handled
 // By under the signals; the dialog gives them columns. A Money row has no actions.
@@ -137,8 +142,10 @@ const AMOUNT_CHIP = "inline-flex items-center h-8 px-3 rounded-lg border border-
 // One chip per currency; the CZK figure beside them is the server's, under the label it sends.
 // Not read is "–" - never 0, and never an empty row of chips. A load that failed is said here in
 // the words the cards and the table say it.
-function NotYetInvoiced({ money, isLoading, isError, loadFailed }: AnswerState & { loadFailed: string }) {
+// "in 15 jobs" opens those jobs (user council M4) when the answer lists them.
+function NotYetInvoiced({ money, isLoading, isError, loadFailed, onOpenJobs }: AnswerState & { loadFailed: string; onOpenJobs: () => void }) {
   const view = money ? notYetInvoicedView(money.tiles) : null;
+  const listed = !!money?.notYetInvoicedList?.total;
   return (
     <section aria-label="Work not yet invoiced" className={`${CARD} px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2`}>
       {/* The name can be focused, so the keyboard reaches what it explains as the mouse does. */}
@@ -169,7 +176,14 @@ function NotYetInvoiced({ money, isLoading, isError, loadFailed }: AnswerState &
           ))}
         </span>
       )}
-      {view?.jobs && <span className="text-[13px] text-slate-700">{view.jobs}</span>}
+      {view?.jobs &&
+        (listed ? (
+          <button type="button" onClick={onOpenJobs} className={`text-[13px] font-medium cursor-pointer bg-transparent border-0 p-0 ${LINK}`}>
+            {view.jobs}
+          </button>
+        ) : (
+          <span className="text-[13px] text-slate-700">{view.jobs}</span>
+        ))}
       {view?.czk && (
         <span className="text-[13px] text-slate-700">
           <span className={HINT}>All in CZK:</span> <b className="tabular-nums text-slate-900">{view.czk.amount}</b> {view.czk.label}
@@ -177,6 +191,74 @@ function NotYetInvoiced({ money, isLoading, isError, loadFailed }: AnswerState &
       )}
       {isError && !money && <span className="text-[13px] text-red-500">{loadFailed}</span>}
     </section>
+  );
+}
+
+const UNBILLED_COLUMNS: ColumnsType<UnbilledJob> = [
+  { title: "Internal Reference", key: "ref", width: 170, render: (_: unknown, r) => jobLink(r) },
+  { title: "Customer", dataIndex: "customer", width: 220, render: (v: string) => (v ? <span className="block max-w-[220px] truncate" title={v}>{v}</span> : dash) },
+  {
+    title: "Handled By",
+    key: "handledBy",
+    width: 230,
+    render: (_: unknown, r) => (
+      <div className="min-w-0">
+        {handledBy(r)}
+        {r.holidayCover && <div className={HINT}>Holiday Cover: {r.holidayCover}</div>}
+      </div>
+    ),
+  },
+  { title: "Status", key: "status", width: 190, render: (_: unknown, r) => statusChip(r) ?? dash },
+  {
+    title: "Not yet invoiced",
+    key: "amount",
+    width: 170,
+    align: "right",
+    render: (_: unknown, r) => (
+      <div className="tabular-nums font-semibold text-slate-900">
+        <Amounts list={r.notYetInvoiced} />
+      </div>
+    ),
+  },
+];
+
+// The jobs "Work not yet invoiced … in 15 jobs" counts, with what is left to bill on each, one amount per currency
+// (D24). Read-only like the cards: a row opens the job on Costs Breakdown, where it is invoiced.
+function NotYetInvoicedJobs({ list, open, onClose }: { list: interfaces.OpsMoneyUnbilledList | null | undefined; open: boolean; onClose: () => void }) {
+  const router = useRouter();
+  return (
+    <Modal
+      open={open && !!list}
+      onCancel={onClose}
+      title={
+        list && (
+          <div>
+            <div className={MODAL_TITLE}>Work not yet invoiced</div>
+            <div className={`${HINT} font-normal mt-0.5`}>{notYetInvoicedListHint(list)}</div>
+          </div>
+        )
+      }
+      width="min(1000px, calc(100vw - 48px))"
+      footer={null}
+      destroyOnHidden
+    >
+      <p className={`${HINT} mt-0 mb-2`}>{NOT_YET_INVOICED_LIST_NOTE}</p>
+      <Table<UnbilledJob>
+        size="small"
+        rowKey={(r) => r.id}
+        scroll={{ x: "max-content" }}
+        dataSource={list?.rows ?? []}
+        columns={UNBILLED_COLUMNS}
+        pagination={{ pageSize: 15, hideOnSinglePage: true, size: "small" }}
+        rowClassName="cursor-pointer"
+        onRow={(r) => ({
+          onClick: (e: React.MouseEvent) => {
+            if ((e.target as HTMLElement).closest("a, button")) return;
+            router.push(moneyRowHref(r));
+          },
+        })}
+      />
+    </Modal>
   );
 }
 
@@ -291,6 +373,7 @@ interface MoneyTabProps extends AnswerState {
 export function MoneyTab({ money, isLoading, isError, loadFailed, page, scope, signal, onSignal }: MoneyTabProps) {
   const router = useRouter();
   const [openCard, setOpenCard] = useState<CockpitCardKey | null>(null);
+  const [jobsOpen, setJobsOpen] = useState(false);
   const state = { isLoading, isError };
 
   // The cards as shown: whole, or narrowed to the signal over the rows the server sent. The tiles
@@ -334,7 +417,7 @@ export function MoneyTab({ money, isLoading, isError, loadFailed, page, scope, s
 
   return (
     <>
-      <NotYetInvoiced money={money} isLoading={isLoading} isError={isError} loadFailed={loadFailed} />
+      <NotYetInvoiced money={money} isLoading={isLoading} isError={isError} loadFailed={loadFailed} onOpenJobs={() => setJobsOpen(true)} />
 
       <TileGroup label="Signals" title="Each shows only the jobs it counts on the two cards below">
         <div className="flex items-center gap-2 flex-wrap">
@@ -389,6 +472,8 @@ export function MoneyTab({ money, isLoading, isError, loadFailed, page, scope, s
         isError={isError}
         loadFailed={loadFailed}
       />
+
+      <NotYetInvoicedJobs list={money?.notYetInvoicedList} open={jobsOpen} onClose={() => setJobsOpen(false)} />
 
       <CockpitDialog<OpsMoneyRow>
         card={openCard ? card(openCard).card : null}

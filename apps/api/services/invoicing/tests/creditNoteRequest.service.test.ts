@@ -11,9 +11,12 @@ const requests = vi.hoisted(() => ({
   answersFor: vi.fn(),
 }));
 const docs = vi.hoisted(() => ({ creditState: vi.fn(), issuePartialCredit: vi.fn() }));
+const changeRequests = vi.hoisted(() => ({ pendingFor: vi.fn() }));
+const TODAY = "2026-11-17";
 
 vi.mock("../repositories/creditNoteRequest.repository", () => ({ creditNoteRequestRepository: requests }));
-vi.mock("../services/invoiceDocument.service", () => ({ invoiceDocumentService: docs }));
+vi.mock("../services/invoiceDocument.service", () => ({ invoiceDocumentService: docs, pragueToday: () => TODAY }));
+vi.mock("../repositories/invoiceChangeRequest.repository", () => ({ invoiceChangeRequestRepository: changeRequests }));
 vi.mock("../../../lib/companyUsers", () => ({ userEmailOf: async (id: string) => `${id}@test.cz` }));
 vi.mock("encore.dev/api", () => {
   const err = (code: string) => (message: string) => Object.assign(new Error(message), { code });
@@ -47,6 +50,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   docs.creditState.mockResolvedValue({ original, credits: [], remaining });
+  changeRequests.pendingFor.mockResolvedValue(null);
   requests.create.mockImplementation(async (values: Record<string, unknown>) => row(values));
 });
 
@@ -81,6 +85,21 @@ describe("asking for a partial credit note", () => {
     await expect(creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l1", amount: "5" }], reason: "Discount" })).rejects.toThrow(/already been credited/);
     requests.create.mockResolvedValueOnce(null);
     await expect(creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l1", amount: "5" }], reason: "Discount" })).rejects.toThrow(/already waits for a manager/);
+  });
+
+  it("refuses while a change of the invoice waits today, naming it and when it was asked (B5)", async () => {
+    changeRequests.pendingFor.mockResolvedValueOnce({ id: "ch1", issueDate: TODAY, requestedAt: new Date("2026-11-17T08:13:00Z") });
+    await expect(creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l1", amount: "5" }], reason: "Discount" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "A change of this invoice is waiting for approval (asked 17.11.2026 09:13): wait for it or take it back",
+    });
+    expect(changeRequests.pendingFor).toHaveBeenCalledWith(COMPANY, "inv1");
+    expect(requests.create).not.toHaveBeenCalled();
+  });
+
+  it("a change still marked waiting from an earlier issue day has expired: it does not stand in the way", async () => {
+    changeRequests.pendingFor.mockResolvedValueOnce({ id: "ch1", issueDate: "2026-11-16", requestedAt: new Date("2026-11-16T08:13:00Z") });
+    await expect(creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l1", amount: "50" }], reason: "Discount" })).resolves.toMatchObject({ status: "pending" });
   });
 });
 

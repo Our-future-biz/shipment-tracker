@@ -22,3 +22,28 @@ describe("the reminder settings", () => {
     expect(view).not.toContain("around 10:00");
   });
 });
+
+describe("the reminder contact's words (A7)", () => {
+  it("say the rule in the drawer and the reminder form, and the drawer warns with the list's switch-on day", () => {
+    const drawer = source("ReceivableDrawer.tsx");
+    const actions = source("ReceivableActions.tsx");
+    for (const file of [drawer, actions]) {
+      expect(file).not.toContain("No contact with an e-mail");
+      expect(file).not.toContain("No contact of the customer has an e-mail");
+      expect(file).toContain("{NO_REMINDER_CONTACT}");
+    }
+    expect(drawer).toMatch(/remindersBlocked\(detail\.row, f\.reminderTo, autoRemindersSince\)/);
+    expect(source("AccountsReceivableView.tsx")).toMatch(/<ReceivableDrawer id=\{openId\} .* autoRemindersSince=\{autoRemindersSince\} \/>/);
+  });
+});
+
+describe("the list at 1440 px (A5)", () => {
+  it("draws its columns in the order the Columns model keeps, and lets the To collect label wrap", () => {
+    const table = source("ReceivablesTable.tsx");
+    const keys = [...table.slice(table.indexOf("const columns: ColumnsType<ReceivableRow>"), table.indexOf("/** The row opened")).matchAll(/key: "([a-zA-Z]+)"/g)].map((m) => m[1]);
+    const model = source("../_lib/receivableColumns.ts");
+    const list = model.slice(model.indexOf("export const RECEIVABLE_COLUMNS"), model.indexOf("/** The columns shown at first"));
+    expect(keys).toEqual([...list.matchAll(/key: "([a-zA-Z]+)"/g)].map((m) => m[1]));
+    expect(source("AccountsReceivableView.tsx")).toMatch(/wrapLabel\s+label=\{a \? `To collect/);
+  });
+});

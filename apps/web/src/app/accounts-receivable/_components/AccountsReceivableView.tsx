@@ -263,6 +263,8 @@ export function AccountsReceivableView() {
             return (
               <KpiTile
                 key={a?.currency ?? "none"}
+                // Its label takes a second line rather than be cut at 1440 px (user council A5).
+                wrapLabel
                 label={a ? `To collect · ${a.currency} · with VAT` : "To collect · with VAT"}
                 value={!totals ? "—" : a ? formatAmount(a.amount, a.currency) : <Amounts list={[]} />}
                 hint={overdue ? `${formatAmount(overdue.amount, overdue.currency)} overdue` : totals ? "none overdue" : undefined}
@@ -353,7 +355,7 @@ export function AccountsReceivableView() {
           />
         )}
 
-        <ReceivableDrawer id={openId} onClose={() => setParams({ invoice: null })} />
+        <ReceivableDrawer id={openId} onClose={() => setParams({ invoice: null })} autoRemindersSince={autoRemindersSince} />
       </div>
     </div>
   );

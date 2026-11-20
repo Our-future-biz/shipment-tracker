@@ -332,3 +332,41 @@ describe("the jobs owing their customer a credit (creditOwedShipmentIds, M3)", (
     expect(await snapshot(a)).toBe(before);
   });
 });
+
+describe("the jobs with a charge added after their invoice (lateChargeShipmentIds, User Council B4 / Q9)", () => {
+  it("is every job with an open invoice and a line above nothing on no document billing now - CZFCL00000055 among them", async () => {
+    const a = randomUUID();
+    const [job55, allBilled, notInvoiced, credited, owesOnly] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    // CZFCL00000055: its freight invoiced (3,589.66 EUR) while "Booking Confirmation Pending", demurrage EUR 150 added after.
+    const freight = await sellLine(a, job55, { amount: "3589.66" });
+    await invoiceLine(a, (await customerInvoice(a, job55, { gross: "3589.66" })).id, freight.id);
+    await sellLine(a, job55, { category: "demurrage", amount: "150.00" });
+    // Every charge on its invoice: nothing to bill.
+    const billed = await sellLine(a, allBilled);
+    await invoiceLine(a, (await customerInvoice(a, allBilled)).id, billed.id);
+    // No invoice yet: it waits for Billing as any job does.
+    await sellLine(a, notInvoiced);
+    // Its only invoice credited in full: To bill lists it once operations release it again (Billing).
+    const creditedRow = await sellLine(a, credited);
+    await invoiceLine(a, (await customerInvoice(a, credited, { status: "credited" })).id, creditedRow.id);
+    await sellLine(a, credited, { category: "demurrage", amount: "150.00" });
+    // A price lowered after the invoice is a credit owed, no charge to bill; a line of no value, or deleted, neither.
+    const owedRow = await sellLine(a, owesOnly);
+    await invoiceLine(a, (await customerInvoice(a, owesOnly)).id, owedRow.id);
+    await sellLine(a, owesOnly, { amount: "-50.00" });
+    await sellLine(a, owesOnly, { amount: "0.00" });
+    await sellLine(a, owesOnly, { amount: "80.00", deletedAt: new Date() });
+    // Another company's job with a late charge: never.
+    const b = randomUUID();
+    const theirs = randomUUID();
+    const theirRow = await sellLine(b, theirs);
+    await invoiceLine(b, (await customerInvoice(b, theirs)).id, theirRow.id);
+    await sellLine(b, theirs, { amount: "40.00" });
+
+    const before = await snapshot(a);
+    expect(await invoiceRepository.lateChargeShipmentIds(a, 100)).toEqual([job55]);
+    expect(await invoiceRepository.lateChargeShipmentIds(b, 100)).toEqual([theirs]);
+    // Read only.
+    expect(await snapshot(a)).toBe(before);
+  });
+});

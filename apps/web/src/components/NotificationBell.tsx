@@ -133,12 +133,17 @@ const sellingAnswerText = (r: SellingAmountRequest) =>
 const creditWaitingTitle = (r: CreditNoteRequest) => `Partial credit note waiting · ${r.invoiceNumber}`;
 const creditWaitingText = (r: CreditNoteRequest) =>
   `${r.requestedByName || "A colleague"} asks to credit ${formatAmount(Number(r.gross), r.currency)} of ${formatAmount(Number(r.invoiceGross), r.currency)} (${r.jobNumber}, ${r.customerName}) — ${r.reason}`;
+// A request the app took back (the invoice was credited or cancelled meanwhile) is told too, with why (user council B5).
 const creditAnswerTitle = (r: CreditNoteRequest) =>
-  `Partial credit note on ${r.invoiceNumber} ${r.status === "approved" ? `approved${r.creditNoteNumber ? ` (${r.creditNoteNumber})` : ""}` : "rejected"}`;
+  `Partial credit note on ${r.invoiceNumber} ${
+    r.status === "approved" ? `approved${r.creditNoteNumber ? ` (${r.creditNoteNumber})` : ""}` : r.status === "withdrawn" ? "withdrawn" : "rejected"
+  }`;
 const creditAnswerText = (r: CreditNoteRequest) =>
   r.status === "approved"
     ? `${formatAmount(Number(r.gross), r.currency)} credited · ${r.jobNumber}${r.comment ? ` — ${r.comment}` : ""}`
-    : `Rejected: ${r.comment}`;
+    : r.status === "withdrawn"
+      ? `Withdrawn: ${r.comment}`
+      : `Rejected: ${r.comment}`;
 // A request to change an invoice on its issue day, waiting for a manager (today only), and the answer
 // to whoever asked: approved cancels the invoice, to be issued again corrected; unanswered by midnight, it expires.
 const changeWaitingTitle = (r: InvoiceChangeRequestItem) => `Invoice change waiting · ${r.invoiceNumber}`;
@@ -153,7 +158,9 @@ const changeAnswerText = (r: InvoiceChangeRequestItem) =>
     ? `${r.jobNumber}${r.comment ? ` — ${r.comment}` : ""}`
     : r.status === "expired"
       ? r.comment || "Not answered on the invoice's issue day"
-      : `Rejected: ${r.comment}`;
+      : r.status === "withdrawn"
+        ? `Withdrawn: ${r.comment}`
+        : `Rejected: ${r.comment}`;
 // Accounts Payable (Council Outlay 9, D10): how many supplier invoices wait for a manager (approved on the
 // Accounts Payable page), and an invoice someone else booked on one of the user's jobs, until it is opened.
 const payablesWaitingTitle = (n: number) => `${n} supplier invoice${n === 1 ? "" : "s"} to approve`;
@@ -796,7 +803,7 @@ export function NotificationBell() {
       {creditAnswersShown.map((a) => (
         <button key={`ca:${a.id}`} type="button" onClick={() => openCreditAnswer(a)} className={rowClass}>
           <span className="flex items-center gap-2">
-            {!a.answerSeenAt && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
+            {!a.answerSeenAt && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : a.status === "withdrawn" ? "bg-slate-400" : "bg-red-500"}`} />}
             <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{creditAnswerTitle(a)}</span>
           </span>
           <span className="text-[12px] text-slate-700 line-clamp-2">{creditAnswerText(a)}</span>

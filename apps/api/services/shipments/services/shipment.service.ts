@@ -5,9 +5,10 @@ import { canManageSales, shipmentFromQuoteBlocked, shipmentFromQuoteRefusal, shi
 import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
+import { asCompany } from "../../../lib/internalCall";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { Tx } from "../db/db";
-import { shipmentRepository, ATTENTION_TILE, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
+import { shipmentRepository, ATTENTION_TILE, INVOICING_FILTERS_WITH_LATE_CHARGES, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRefCounterRepository } from "../repositories/shipmentRefCounter.repository";
@@ -396,6 +397,30 @@ async function pickupPlates(shipmentIds: string[], companyId: string): Promise<M
     log.warn(err, "pick-up license plates not read");
     return new Map();
   }
+}
+
+/** How long the jobs with a late charge, once read, serve a company's next lists: one Invoicing queue load asks up to 7. */
+export const LATE_CHARGE_IDS_KEPT_MS = 3_000;
+const lateChargeReads = new Map<string, { at: number; ids: Promise<readonly string[] | undefined> }>();
+
+// The jobs with an open invoice and a charge on no invoice, that To bill and All take in (B4 / Q9). Read once for
+// the company's lists of the next few seconds - the queue's view, its pages and its counts - so they agree, and the
+// read is not repeated. When invoicing doesn't answer, the lists show what they did before Q9 (no late-charge job is
+// added) rather than every Invoicing tab failing, as the Managers' money tiles do with their parts.
+function lateChargeShipmentIds(companyId: string): Promise<readonly string[] | undefined> {
+  const now = Date.now();
+  const kept = lateChargeReads.get(companyId);
+  if (kept && now - kept.at < LATE_CHARGE_IDS_KEPT_MS) return kept.ids;
+  for (const [company, read] of lateChargeReads) if (now - read.at >= LATE_CHARGE_IDS_KEPT_MS) lateChargeReads.delete(company);
+  const ids = invoicing
+    ._internalLateChargeShipments(asCompany(companyId))
+    .then((r): readonly string[] | undefined => r.shipmentIds)
+    .catch((err: unknown) => {
+      log.warn(err, "jobs with a charge added after their invoice not read; To bill and All list without them");
+      return undefined;
+    });
+  lateChargeReads.set(companyId, { at: now, ids });
+  return ids;
 }
 
 // The API shape of an enriched shipment: dates as ISO strings, no tenant/soft-delete columns.
@@ -861,7 +886,10 @@ class ShipmentService {
     // The Overview tile "Needs Attention" opens the jobs of the URGENT card: the rule names them
     // once for this page of the list (lib/needsAttention), and the query filters by their ids.
     const attentionIds = filters.tile === ATTENTION_TILE ? await needsAttentionService.urgentIds(companyId, now) : undefined;
-    const result = await shipmentRepository.listFiltered(companyId, { ...filters, attentionIds });
+    // Invoicing → To bill (and All) also list every job with an open invoice and a charge on no invoice, whatever its
+    // status (User Council B4, owner's answer Q9): invoicing names them, the query takes them in by their ids.
+    const lateChargeIds = filters.invoicing && INVOICING_FILTERS_WITH_LATE_CHARGES.includes(filters.invoicing) ? await lateChargeShipmentIds(companyId) : undefined;
+    const result = await shipmentRepository.listFiltered(companyId, { ...filters, attentionIds, lateChargeIds });
 
     // The MCZ numbers of the page's master jobs, read in one query.
     const masterJobIds = [...new Set(result.data.flatMap((s) => (s.masterJobId ? [s.masterJobId] : [])))];

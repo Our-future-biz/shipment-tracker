@@ -9,6 +9,7 @@ import {
   MONEY_LOAD_FAILED,
   MONEY_SIGNAL_NOT_KNOWN,
   NOT_YET_INVOICED_HINT,
+  NOT_YET_INVOICED_LIST_NOTE,
   PERSON_NOT_YET_INVOICED_HINT,
   approvalLinks,
   isMoneySignalNotKnown,
@@ -19,6 +20,7 @@ import {
   moneyPersonRows,
   moneySignalFigure,
   moneySignalOf,
+  notYetInvoicedListHint,
   notYetInvoicedView,
 } from "./cockpitMoney";
 import { SIGNAL_FAMILIES, figureText, listWithSignal, tagsShown, type SignalFamily } from "./cockpitSignals";
@@ -78,7 +80,7 @@ describe("Shipments → Managers, Money: the signal tiles", () => {
   it("has one tile per family of the server's money tags, under the labels the page shows", () => {
     expect(MONEY_FAMILIES.map((f) => f.label)).toEqual([
       "Margin",
-      "Not invoiced",
+      "Invoicing late or stuck",
       "Selling not ticked",
       "Costs after billing",
       "Estimates with no invoice",
@@ -317,6 +319,14 @@ describe("Shipments → Managers, Money: work not yet invoiced", () => {
 
   it("with Invoicing not read, knows none of it - never 0 and never an empty list", () => {
     expect(notYetInvoicedView({ notYetInvoiced: null, notYetInvoicedCzk: null, notYetInvoicedJobs: null })).toEqual({ chips: null, jobs: null, czk: null });
+  });
+
+  it("words the dialog 'in N jobs' opens (M4): how many, the first ones only when the server cut the list, and the tile apart", () => {
+    expect(notYetInvoicedListHint({ total: 15, rows: Array.from({ length: 15 }) })).toBe("15 jobs with selling lines still to bill, on no open invoice");
+    expect(notYetInvoicedListHint({ total: 1, rows: [{}] })).toBe("1 job with selling lines still to bill, on no open invoice");
+    expect(notYetInvoicedListHint({ total: 230, rows: Array.from({ length: 200 }) })).toBe("230 jobs with selling lines still to bill, on no open invoice · the newest 200 are listed");
+    // The headline's jobs and the narrower tile are named apart, so "in 15 jobs" and "2" are not read as one count.
+    expect(NOT_YET_INVOICED_LIST_NOTE).toContain(moneySignalOf("not_invoiced")!.label);
   });
 
   it("with the amounts read and the number of jobs not, shows the amounts and says no number", () => {

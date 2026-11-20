@@ -54,6 +54,8 @@ import { useShipmentChangeRequests } from "@/hooks/useInvoiceChangeAsk";
 import { InvoiceChangeModal } from "./InvoiceChangeModal";
 import { InvoiceCustomerSelect } from "./InvoiceCustomerSelect";
 import { useShipmentReceivables, type ReceivableItem } from "@/hooks/useReceivables";
+import { useCreditWarningView } from "@/components/finance/CreditWarning";
+import { blockingChangeOn, waitingOn } from "../_lib/waitingRequest";
 import { arInvoiceHref, statusLabel as receivableStatusLabel, statusTitle as receivableStatusTitle, statusTone as receivableStatusTone } from "@/lib/accountsReceivable";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
@@ -156,11 +158,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   const [creditTarget, setCreditTarget] = useState<{ doc: InvoiceDoc; key: string } | null>(null);
   // Partial credit notes asked of a manager: the one waiting shows on its invoice.
   const { data: creditRequests } = useShipmentCreditRequests(shipment.id);
-  const waitingCredit = (invoiceId: string) => (creditRequests ?? []).some((r) => r.invoiceId === invoiceId && r.status === "pending");
+  const waitingCredit = (invoiceId: string) => !!waitingOn(creditRequests, invoiceId);
   // Changing an invoice on its issue day (asked of a manager): the one waiting shows on its invoice.
   const [changeTarget, setChangeTarget] = useState<InvoiceDoc | null>(null);
   const { data: changeRequests } = useShipmentChangeRequests(shipment.id);
-  const waitingChange = (invoiceId: string) => (changeRequests ?? []).some((r) => r.invoiceId === invoiceId && r.status === "pending");
+  const waitingChange = (invoiceId: string) => !!waitingOn(changeRequests, invoiceId);
   // On its issue day (Prague), not credited in any part, nothing asked yet: it can still be changed.
   const changeable = (d: InvoiceDoc) =>
     d.kind === "invoice" && d.status === "issued" && d.issueDate === businessToday() && !waitingChange(d.id) && !docs.some((c) => c.correctsInvoiceId === d.id);
@@ -343,6 +345,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   };
 
   const p = preview;
+  // The invoiced customer's credit, read as the credit warning on a new quote or shipment reads it.
+  const creditWarning = useCreditWarningView(p?.customerId ?? null);
   const nextDuzp = duzp ?? p?.duzp;
   useEffect(() => {
     if (nextDuzp) onDuzpChange?.(nextDuzp);
@@ -365,9 +369,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
     if (p.roePct !== 100 && p.lines.some((l) => l.unitCurrency !== p.currency)) {
       warnings.push(`Lines in another currency are converted at the ČNB rate × ROE ${p.roePct} % (Exchange page). The CZK tax amounts use the pure ČNB rate.`);
     }
-    // The server's own (e.g. no bank account in the billing currency).
+    // The server's own (no bank account in the billing currency, the customer's DIČ or status); the credit warning is below.
     warnings.push(...p.warnings);
   }
+  // The customer over its credit limit or with overdue invoices, as a new quote or shipment warns of it
+  // (Council Outlay 10, D21; user council B6): a warning only, never a stop.
+  warnings.push(...creditWarning.lines);
   const problems = p?.problems ?? [];
   // A change still being saved, or the job's rows read again after one: the preview is computed from
   // those rows, so until its own refetch it is a step behind what was just changed. Issuing waits for it
@@ -1110,10 +1117,18 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
               <strong className="tabular-nums">{money(p.gross)} {p.currency}</strong>
               {foreign && <> (= {money(p.grossCzk)} CZK)</>}, DUZP {czDate(p.duzp)}, due {czDate(p.dueDate)}.
             </p>
-            {notReleasedWarning && <Alert type="warning" showIcon message={notReleasedWarning} />}
+            {/* What the card warned of, once more where the decision is made (user council B7): never a stop. */}
+            {warnings.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message={warnings.length === 1 ? warnings[0] : <div className="flex flex-col gap-0.5">{warnings.map((x) => <div key={x}>{x}</div>)}</div>}
+              />
+            )}
             <p className="m-0 text-slate-500">
-              It gets the next number of {shipment.jobNumber} and a PDF. An issued invoice can&apos;t be edited: today a manager can
-              still cancel it for you to issue it again corrected (Request change…); after today a mistake is corrected with a credit note.
+              It gets the next number of {shipment.jobNumber}. Its PDF is then saved to your downloads and your e-mail program opens, for you to
+              attach the PDF. An issued invoice can&apos;t be edited: today a manager can still cancel it for you to issue it again corrected
+              (Request change…); after today a mistake is corrected with a credit note.
             </p>
           </div>
         )}
@@ -1131,10 +1146,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
       {filePreview.modal}
 
       {/* ── Credit note: the whole invoice at once, or part of it asked of a manager ── */}
-      <CreditNoteModal doc={creditTarget?.doc ?? null} onCreditWhole={confirmCredit} isCrediting={isCrediting} onClose={() => setCreditTarget(null)} />
+      <CreditNoteModal
+        doc={creditTarget?.doc ?? null}
+        onCreditWhole={confirmCredit}
+        isCrediting={isCrediting}
+        waitingChange={creditTarget ? blockingChangeOn(changeRequests, creditTarget.doc.id, businessToday()) : null}
+        onClose={() => setCreditTarget(null)}
+      />
 
       {/* ── Change on the issue day: asked of a manager, who cancels it to be issued again ── */}
-      <InvoiceChangeModal doc={changeTarget} onClose={() => setChangeTarget(null)} />
+      <InvoiceChangeModal doc={changeTarget} waitingCredit={changeTarget ? waitingOn(creditRequests, changeTarget.id) : null} onClose={() => setChangeTarget(null)} />
     </>
   );
 }

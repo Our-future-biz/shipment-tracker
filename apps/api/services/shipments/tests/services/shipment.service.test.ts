@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // What the shipments service does about the sales quote a shipment names - on create, on a
 // changed Sales Number and on delete - run for real against stand-ins for its repositories, for
@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } })
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn(), departmentList: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn(), _internalReleaseCheck: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn(), _internalReleaseCheck: vi.fn(), _internalLateChargeShipments: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
   warehouse: { _internalPickupPlates: vi.fn(), warehouseSectionGet: vi.fn() },
   holidays: { _internalHolidaysCzNational: vi.fn() },
@@ -17,6 +17,7 @@ vi.mock("~encore/clients", () => ({
 const TX = vi.hoisted(() => ({ fake: "tx" }));
 vi.mock("../../repositories/shipment.repository", () => ({
   ATTENTION_TILE: "attention",
+  INVOICING_FILTERS_WITH_LATE_CHARGES: ["all", "billing"],
   shipmentRepository: {
     createWithJobNumber: vi.fn(),
     createFromQuote: vi.fn(),
@@ -92,7 +93,7 @@ import { shipmentAuditRepository } from "../../repositories/shipmentAudit.reposi
 import { shipmentTaskRepository } from "../../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../../repositories/shipmentTrackingEvent.repository";
 import { quoteLinksService } from "../../services/quoteLinks.service";
-import { shipmentService } from "../../services/shipment.service";
+import { LATE_CHARGE_IDS_KEPT_MS, shipmentService } from "../../services/shipment.service";
 import { shipmentPartiesChanged } from "../../topics";
 import { RELEASED_BEFORE_RECEIVED } from "../../lib/shipmentEditRule";
 import { addDays, businessDay } from "../../../../lib/businessDate";
@@ -3702,5 +3703,83 @@ describe("the last accepted remeasurement and its Quantities checked", () => {
       placed(null);
       expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY, { ...jana, role: "manager" })).toMatchObject({ mayCheckCosts: true });
     });
+  });
+});
+
+// User Council B4 / owner's answer Q9: Invoicing → To bill (and All) list every job with an open invoice and a
+// charge on no invoice, whatever its status - CZFCL00000055, invoiced while "Booking Confirmation Pending", then
+// given a demurrage of EUR 150. Invoicing names those jobs; the list takes them in by their ids.
+describe("the Invoicing lists' jobs with a charge added after their invoice", () => {
+  const JOB_55 = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c55";
+  const lateCharges = vi.mocked(invoicing._internalLateChargeShipments);
+  const listOf = (invoicingFilter?: string, company = COMPANY) =>
+    shipmentService.list(company, { ...(invoicingFilter ? { invoicing: invoicingFilter } : {}), limit: 200, offset: 0, sortDirection: "desc" });
+  // The ids, once read, serve the company's lists of the next few seconds: each test (and each step that must read
+  // again) moves the clock on by a minute, past what an earlier one kept.
+  let clock = Date.now();
+  const later = () => vi.setSystemTime((clock += 60_000));
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    later();
+    repository.listFiltered.mockResolvedValue({ data: [], total: 0 } as never);
+    vi.mocked(masterJobRepository.mczNumbersByIds).mockResolvedValue(new Map() as never);
+    for (const read of [containerRepository, cargoItemRepository, cargoDimensionRepository, commercialInvoiceRepository]) vi.mocked(read.listByShipmentIds).mockResolvedValue([] as never);
+    vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds).mockResolvedValue([] as never);
+    vi.mocked(shipmentTrackingEventRepository.latestPerShipment).mockResolvedValue(new Map() as never);
+    lateCharges.mockResolvedValue({ shipmentIds: [JOB_55] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("are asked of invoicing, for the list's own company, and handed to To bill and All", async () => {
+    for (const filter of ["billing", "all"]) {
+      later();
+      repository.listFiltered.mockClear();
+      lateCharges.mockClear();
+      await listOf(filter);
+      expect(lateCharges).toHaveBeenCalledWith({ authData: { userID: "", companyID: COMPANY, role: "user" } });
+      expect(repository.listFiltered).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ invoicing: filter, lateChargeIds: [JOB_55] }));
+    }
+  });
+
+  it("are not asked for any other list", async () => {
+    for (const filter of [undefined, "invoiced", "unbilled-arrivals", "not-invoiced"]) {
+      repository.listFiltered.mockClear();
+      await listOf(filter);
+      expect(repository.listFiltered).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ lateChargeIds: undefined }));
+    }
+    expect(lateCharges).not.toHaveBeenCalled();
+  });
+
+  // Review 4, Minor 1: one queue load lists its view page by page and counts All and To bill - up to 7 lists.
+  it("are read once for the company's lists of the next few seconds - all of them at once too - and again after, or for another company", async () => {
+    lateCharges.mockClear();
+    repository.listFiltered.mockClear();
+    await Promise.all([listOf("all"), listOf("billing")]);
+    await listOf("all");
+    expect(lateCharges).toHaveBeenCalledTimes(1);
+    expect(repository.listFiltered.mock.calls.map((c) => c[1].lateChargeIds)).toEqual([[JOB_55], [JOB_55], [JOB_55]]);
+
+    const OTHER = "1d6f9a40-5c1e-4c51-9f0a-2b3c4d5e6f70";
+    await listOf("billing", OTHER);
+    expect(lateCharges).toHaveBeenCalledTimes(2);
+    expect(lateCharges).toHaveBeenLastCalledWith({ authData: { userID: "", companyID: OTHER, role: "user" } });
+
+    vi.setSystemTime(clock + LATE_CHARGE_IDS_KEPT_MS);
+    await listOf("billing");
+    expect(lateCharges).toHaveBeenCalledTimes(3);
+  });
+
+  // Review 4, M-1: the late charges must not take the list - and every Invoicing tab - down with them.
+  it("when invoicing doesn't answer, To bill and All list without them - not failing - and it is logged", async () => {
+    lateCharges.mockRejectedValueOnce(new Error("invoicing restarting"));
+    vi.mocked(log.warn).mockClear();
+    await expect(listOf("billing")).resolves.toMatchObject({ data: [] });
+    expect(repository.listFiltered).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ invoicing: "billing", lateChargeIds: undefined }));
+    expect(log.warn).toHaveBeenCalledWith(expect.any(Error), expect.stringContaining("not read"));
+    // The same load's other lists agree: none of them adds a late-charge job either.
+    await listOf("all");
+    expect(repository.listFiltered).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ invoicing: "all", lateChargeIds: undefined }));
   });
 });

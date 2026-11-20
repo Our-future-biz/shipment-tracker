@@ -4,6 +4,8 @@ import type { Actor } from "../../../lib/rbac";
 import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
 import { isUuid } from "../../../lib/uuid";
 import { answerProblem } from "../lib/sellingAmount";
+import { waitingRequestProblem } from "../lib/waitingRequest";
+import { creditNoteRequestRepository as creditRequests } from "../repositories/creditNoteRequest.repository";
 import { invoiceRepository } from "../repositories/invoice.repository";
 import { invoiceChangeRequestRepository as requests } from "../repositories/invoiceChangeRequest.repository";
 import { INVOICE_FIXES, type InvoiceChangeRequestRecord, type InvoiceFix } from "../schemas/invoiceChangeRequest.schema";
@@ -15,7 +17,8 @@ import { invoiceDocumentService, pragueToday } from "./invoiceDocument.service";
 // answers it on Sales → Managers → Billing approvals, the same day too: approving cancels the invoice
 // (services/invoiceDocument cancelOnIssueDay) and its lines are billed again, corrected, under the next
 // number; rejecting needs a reason. At midnight (Prague) a request still waiting expires; after that a
-// credit note corrects the invoice. One request waits per invoice; the one who asked may take it back.
+// credit note corrects the invoice. One request waits per invoice, a change or a partial credit note
+// (user council B5); the one who asked may take it back.
 
 const ANSWERED_DAYS = 30;
 const LIST_LIMIT = 300;
@@ -72,6 +75,9 @@ class InvoiceChangeRequestService {
     if ((await invoiceRepository.creditNotesOf(invoice.id, actor.companyID)).length) {
       throw APIError.failedPrecondition(`Invoice ${invoice.number} has been credited in part: correct it with a credit note`);
     }
+    // Approving a partial credit note would take this change back unasked (user council B5): one waits at a time.
+    const credit = await creditRequests.pendingFor(actor.companyID, invoice.id);
+    if (credit) throw APIError.failedPrecondition(waitingRequestProblem("credit", credit.requestedAt));
     const created = await requests.create({
       companyId: actor.companyID,
       shipmentId: invoice.shipmentId,

@@ -42,6 +42,16 @@ export interface IssueHooks {
 const openInvoice = (companyId: string) =>
   and(eq(t.companyId, companyId), eq(t.kind, "invoice"), eq(t.status, "issued"), isNull(t.deletedAt));
 
+// A live selling row "sc" of a job with an open invoice that no document billing now (billsNow, in SQL) has a line
+// of: what the two reads below look through - below nothing it is a credit owed, above nothing a charge to bill.
+const OPEN_INVOICE_ROW_UNBILLED = sql`exists (select 1 from "invoice" oi where oi.company_id = sc.company_id and oi.shipment_id = sc.shipment_id
+          and oi.kind = 'invoice' and oi.status = 'issued' and oi.deleted_at is null)
+        and not exists (select 1 from "invoice_line" bl join "invoice" bd on bd.id = bl.invoice_id
+          where bl.source_selling_cost_id = sc.id and bl.company_id = sc.company_id and bd.company_id = sc.company_id and bd.deleted_at is null
+            and ((bd.kind = 'invoice' and bd.status = 'issued')
+              or (bd.kind = 'credit_note' and exists (select 1 from "invoice" corrected where corrected.id = bd.corrects_invoice_id
+                and corrected.status = 'issued' and corrected.deleted_at is null))))`;
+
 /**
  * A document whose lines bill selling rows now: an open invoice, or a partial credit note of one -
  * its lines' rows (the negative rows it put on the shipment) are settled while the invoice stands.
@@ -214,13 +224,26 @@ class InvoiceRepository extends TenantRepository<typeof t> {
       select sc.shipment_id from "invoice_selling_cost" sc
       where sc.company_id = ${companyId} and sc.deleted_at is null
         and coalesce(sc.amount, 0) * coalesce(sc.qty, 1) < 0
-        and exists (select 1 from "invoice" oi where oi.company_id = sc.company_id and oi.shipment_id = sc.shipment_id
-          and oi.kind = 'invoice' and oi.status = 'issued' and oi.deleted_at is null)
-        and not exists (select 1 from "invoice_line" bl join "invoice" bd on bd.id = bl.invoice_id
-          where bl.source_selling_cost_id = sc.id and bl.company_id = sc.company_id and bd.company_id = sc.company_id and bd.deleted_at is null
-            and ((bd.kind = 'invoice' and bd.status = 'issued')
-              or (bd.kind = 'credit_note' and exists (select 1 from "invoice" corrected where corrected.id = bd.corrects_invoice_id
-                and corrected.status = 'issued' and corrected.deleted_at is null))))
+        and ${OPEN_INVOICE_ROW_UNBILLED}
+      group by sc.shipment_id
+      order by max(sc.created_at) desc
+      limit ${limit}`);
+    return rows.rows.map((r) => r.shipment_id);
+  }
+
+  /**
+   * The company's jobs with a charge added after their invoice (User Council B4, owner's answer Q9): an open invoice,
+   * and a live selling row above nothing that no document billing now has a line of (lib/billingQueue
+   * countInvoicedLines, in SQL: a charge on no invoice). Such a job reads Not Invoiced, and its Shipment Status may
+   * never have been Billing (issuing before Billing is allowed), so Invoicing → To bill lists it by this, whatever
+   * its status. The newest such row first, at most `limit` jobs.
+   */
+  async lateChargeShipmentIds(companyId: string, limit: number): Promise<string[]> {
+    const rows = await this.db.execute<{ shipment_id: string }>(sql`
+      select sc.shipment_id from "invoice_selling_cost" sc
+      where sc.company_id = ${companyId} and sc.deleted_at is null
+        and coalesce(sc.amount, 0) * coalesce(sc.qty, 1) > 0
+        and ${OPEN_INVOICE_ROW_UNBILLED}
       group by sc.shipment_id
       order by max(sc.created_at) desc
       limit ${limit}`);

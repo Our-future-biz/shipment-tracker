@@ -38,7 +38,9 @@ export const MONEY_FAMILIES: readonly SignalFamily[] = [
   {
     key: "not_invoiced",
     kinds: ["not_invoiced"],
-    label: "Not invoiced",
+    // Not "Not invoiced": beside "Work not yet invoiced … in 15 jobs" a "Not invoiced: 2" read as a contradiction. The
+    // headline is all work still to bill; this tile is the jobs whose invoicing is late or stuck (user council M4).
+    label: "Invoicing late or stuck",
     // The server's rules (lib/managersMoney inBillingSignals, notInvoicedSignals, chargeAfterInvoicingSignals) go by the
     // work left to bill, whether or not some invoice exists already - on a job that reads Invoiced too.
     hint: "In Billing for more than 2 working days with work still to invoice (an invoice may already be issued), or past its tax date and not released for billing - with the amount not yet invoiced; urgent from 15 days after the tax date, or after the day a late charge was added. Also a charge added after invoicing on a job that reads Invoiced (urgent), and a credit owed to the customer until a credit note gives it",
@@ -182,6 +184,19 @@ export function notYetInvoicedView(tiles: Pick<OpsMoneyTiles, "notYetInvoiced" |
     czk: total && converted ? { amount: formatAmount(total.amount, "CZK"), label: total.label } : null,
   };
 }
+
+/**
+ * The line under the title of the dialog "in 15 jobs" opens (user council M4): how many jobs, and that only the newest
+ * ones are listed when the server cut the list (it leaves out the oldest).
+ */
+export function notYetInvoicedListHint(list: { total: number; rows: readonly unknown[] }): string {
+  const cut = list.total > list.rows.length ? ` · the newest ${list.rows.length} are listed` : "";
+  return `${jobsText(list.total)} with selling lines still to bill, on no open invoice${cut}`;
+}
+
+/** What the dialog says of the narrower tile, so the two counts are not read as one. */
+export const NOT_YET_INVOICED_LIST_NOTE =
+  "Every job with work still to bill, also those not due for invoicing yet. The tile “Invoicing late or stuck” shows the ones to chase.";
 
 /** A row of the Money tab's people table. A figure that was not read is null ("–" on the page). */
 export interface MoneyPersonRow {

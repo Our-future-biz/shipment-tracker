@@ -11,6 +11,7 @@ import { truckingLinesLock, truckingLinesRepository } from "../repositories/truc
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import type { CustomerSnapshot, InvoiceLineRecord, InvoiceRecord, ShipmentSnapshot, SupplierSnapshot } from "../schemas/invoice.schema";
 import { missingForIssue, normaliseProfile } from "../lib/invoiceProfile";
+import { customerIssueWarnings } from "../lib/issueWarnings";
 import { invoiceSeriesPrefix, jobYear } from "../lib/invoiceNumber";
 import {
   addDays,
@@ -211,12 +212,15 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   let customer: CustomerSnapshot | null = null;
   // What the customer may be billed in, for the preview's currency picker (not part of the invoice).
   let customerCurrencies: InvoicePreviewItem["customerCurrencies"] = null;
+  // Its status in the Customer Database, for the warnings below (not part of the invoice).
+  let customerStatus = "";
   if (!customerId) {
     problems.push("Choose the customer to invoice");
   } else {
     try {
       const { customer: c } = await customers.customerGet({ id: customerId });
       customerCurrencies = { currency: c.currency, secondaryCurrencies: c.secondaryCurrencies };
+      customerStatus = c.status;
       customer = {
         customerId: c.id,
         companyName: c.companyName,
@@ -263,6 +267,8 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   if (profile && !profile.bankAccounts.some((a) => a.currency === currency)) {
     warnings.push(`No bank account in ${currency} (Settings → Organization): the invoice has no payment details or QR payment`);
   }
+  // The customer's DIČ and its status: warned of, never a block (user council B6).
+  warnings.push(...customerIssueWarnings(customer && { dic: customer.dic, country: customer.country, status: customerStatus }));
   const picked = await ratesForDuzp(isIsoDate(duzp) ? duzp : issueDate, issueDate);
   // The ČNB rate of the tax date only matters when something is converted: a CZK invoice of CZK
   // rows needs none, so it is not held for the 15:00 import or a fixing that is missing.
@@ -943,9 +949,12 @@ class InvoiceDocumentService {
   /**
    * The Invoicing queue. Which shipments are listed comes from the shipment itself
    * (owner's decision): "All shipments" = the jobs released for billing (Shipment Status Billing)
-   * or invoiced, cancelled ones left out; "To bill" = Shipment Status Billing, not invoiced yet;
-   * "Not invoiced" / "Invoiced" = Invoicing Status. The selling lines add the amount still to bill
-   * and the invoices issued.
+   * or invoiced, cancelled ones left out - and, as in To bill, every job with an open invoice and a
+   * charge on no invoice (Q9); the unbilled arrivals are not released, so they are their own tab only.
+   * "To bill" = Shipment Status Billing, not invoiced yet, and every job with an open invoice and a
+   * charge on no invoice, whatever its status (User Council B4, owner's answer Q9); "Not invoiced" /
+   * "Invoiced" = Invoicing Status (the shipments list's invoicingPredicate). The selling lines add the
+   * amount still to bill and the invoices issued.
    */
   async queue(
     companyId: string,

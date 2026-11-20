@@ -678,6 +678,47 @@ export function prunedSelection(selected: readonly string[], rows: readonly Pick
   return selected.filter((id) => ok.has(id));
 }
 
+// ── The list's widths (user council A5) ──
+
+/** The most of an invoice number the list shows before it shortens it. */
+export const NUMBER_SHOWN = 16;
+
+/**
+ * An invoice number as the list shows it in a column of its own width: a long one loses its middle, never its end -
+ * "INV2026CZFCL00000062-001" is "INV2026…0062-001", so the document, the year and the sequence of the job's series stay
+ * (the job is in the column beside it). The whole number is on hover, and the Filter panel matches the whole number.
+ */
+export function shortInvoiceNumber(number: string, max = NUMBER_SHOWN): string {
+  if (number.length <= max) return number;
+  const head = 7;
+  return `${number.slice(0, head)}…${number.slice(number.length - (max - head - 1))}`;
+}
+
+// ── Whom the reminders go to (D17; user council A7) ──
+
+/**
+ * The customer has no contact a reminder goes to - Accounts payable, else Finance / Accounting, else the main contact,
+ * each only with an e-mail (customers lib/receivable reminderContact) - and where one is added. Not "no contact with an
+ * e-mail": a customer whose only contact is, say, its Logistics Manager has one, and still gets no reminder.
+ */
+export const NO_REMINDER_CONTACT = "No accounts, finance or main contact with an e-mail (Customer Database → Contacts)";
+
+/** Said while the automatic reminders are on: the daily run skips such a customer, and nothing else tells of it. */
+export const REMINDERS_CANNOT_GO_OUT = "Reminders can't go out: no accounts, finance or main contact with an e-mail";
+
+/**
+ * Whether the drawer warns that the automatic reminders skip this invoice: they are on (the list's autoRemindersSince;
+ * null while they are off or e-mail from the app is), the invoice is still owed, and the customer has no reminder
+ * contact. While they are off a reminder is sent by hand, where the address can be typed: the plain line says enough.
+ */
+export function remindersBlocked(
+  row: Pick<ReceivableRow, "status" | "leftToPay">,
+  reminderTo: interfaces.ReceivableCustomerFacts["reminderTo"] | undefined,
+  autoRemindersSince: string | null,
+): boolean {
+  return !!autoRemindersSince && !reminderTo && isOwed(row);
+}
+
 // ── Statements and e-mails (step 7) ──
 
 /** "E-mail from the app is switched off": the words every screen uses while it is (the owner's answer, 18 Nov). */

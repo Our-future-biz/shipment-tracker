@@ -20,6 +20,8 @@ import {
   newIdempotencyKey,
   nextReminderLevel,
   NO_FILTERS,
+  NO_REMINDER_CONTACT,
+  NUMBER_SHOWN,
   paidText,
   passesCheck,
   paymentIdempotencyKey,
@@ -27,6 +29,9 @@ import {
   receivablesCsv,
   reminderLevels,
   reminderMail,
+  REMINDERS_CANNOT_GO_OUT,
+  remindersBlocked,
+  shortInvoiceNumber,
   tabCount,
   tileCheckToggles,
   visibleTabs,
@@ -422,5 +427,35 @@ describe("the drawer", () => {
     expect(eventDetail({ action: "reminded", payload: { level: 3, recipient: "ucetni@gama.cz" } }, "CZK")).toBe("Final notice to ucetni@gama.cz");
     expect(eventDetail({ action: "promised", payload: { promisedOn: "2026-11-25" } }, "CZK")).toBe("to pay by 25.11.2026");
     expect(eventDetail({ action: "note_added", payload: {} }, "CZK")).toBe("");
+  });
+});
+
+describe("the list's invoice number (A5)", () => {
+  it("shortens a long number in its middle, keeping its document, year and sequence", () => {
+    expect(shortInvoiceNumber("INV2026CZFCL00000062-001")).toBe("INV2026…0062-001");
+    expect(shortInvoiceNumber("INV2026CZ00000053-002")).toBe("INV2026…0053-002");
+    expect(shortInvoiceNumber("INV2026CZ00000053-002")).toHaveLength(NUMBER_SHOWN);
+    // A short one (the old format) is shown whole.
+    expect(shortInvoiceNumber("CZ00000028-001")).toBe("CZ00000028-001");
+    expect(shortInvoiceNumber("")).toBe("");
+  });
+});
+
+describe("whom the reminders go to (A7)", () => {
+  const owed = { status: "unpaid" as const, leftToPay: 100 };
+  const contact = { name: "Eva", email: "eva@alza.cz", role: "Accounts payable" };
+
+  it("names the rule, not 'no contact with an e-mail', and where a contact is added", () => {
+    expect(NO_REMINDER_CONTACT).toBe("No accounts, finance or main contact with an e-mail (Customer Database → Contacts)");
+    expect(REMINDERS_CANNOT_GO_OUT).toBe("Reminders can't go out: no accounts, finance or main contact with an e-mail");
+  });
+
+  it("warns that the automatic reminders skip the invoice only while they are on, it is owed and the customer has nobody to send to", () => {
+    expect(remindersBlocked(owed, null, "2026-11-01")).toBe(true);
+    // Off (or e-mail off): a reminder is sent by hand, where the address is typed.
+    expect(remindersBlocked(owed, null, null)).toBe(false);
+    expect(remindersBlocked(owed, contact, "2026-11-01")).toBe(false);
+    expect(remindersBlocked({ status: "paid", leftToPay: 0 }, null, "2026-11-01")).toBe(false);
+    expect(remindersBlocked({ status: "part_paid", leftToPay: 40 }, undefined, "2026-11-01")).toBe(true);
   });
 });

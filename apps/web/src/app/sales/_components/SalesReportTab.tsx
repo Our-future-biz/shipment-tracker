@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Alert, Button, Spin } from "antd";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Alert, Button, DatePicker, Spin } from "antd";
+import dayjs from "dayjs";
 import { Table } from "@/components/Table";
 import type { ColumnsType } from "antd/es/table";
 import { KPI_GRID_CLASS, KpiTile } from "@/components/KpiTile";
@@ -10,7 +11,7 @@ import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { computeTotals, fmtByCurrency, newestFirst, type CurrencyAmount, type QuoteTotals, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { isSentQuote, QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
-import { reportMonthOf } from "@/app/sales/_lib/salesReport";
+import { hitRate, inMonthRange, percentText, reportMonthOf, weightedMargin, type CzkFigures } from "@/app/sales/_lib/salesReport";
 import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
 import { ExchangeRatesError } from "./ExchangeRatesError";
 import { QuotesLoadError } from "./QuotesLoadError";
@@ -18,12 +19,13 @@ import { QuotesLoading } from "./QuotesLoading";
 import { QuoteRefLink } from "./QuoteRefLink";
 import { QuoteStatusPill } from "./QuoteStatusPill";
 import { SalesDialog } from "./SalesDialog";
-import { formatDate } from "@/lib/date";
-import { LINK } from "@/styles/ui";
+import { businessToday, formatDate } from "@/lib/date";
+import { CARD, LINK } from "@/styles/ui";
 
 interface Kpi {
   label: string;
   value: string;
+  hint?: string;
 }
 
 // Money in the rows below is in CZK: each quote's figures converted at the ČNB average of the month
@@ -34,7 +36,7 @@ interface ServiceRow {
   won: number;
   selling: string;
   profit: string;
-  avgMargin: number;
+  margin: number | null;
 }
 
 interface StatusRow {
@@ -49,8 +51,8 @@ interface OwnerRow {
   won: number;
   lost: number;
   selling: string;
-  avgMargin: number;
-  conversion: number;
+  margin: number | null;
+  hitRate: number | null;
 }
 
 // A quote with its totals, which are in the quote's own currency, and those in CZK (null when the
@@ -67,18 +69,18 @@ interface Group {
   lost: number;
   selling: CurrencyAmount[];
   profit: CurrencyAmount[];
-  marginSum: number;
+  // Profit over selling of the row's quotes, in CZK (weightedMargin).
+  margin: number | null;
 }
 
-// A margin is a percentage within one quote, so averaging it over quotes mixes no currencies. A
-// quote without selling counts as 0, as it always has in this report.
+// One quote's own margin, in the dialog that lists a row's quotes; a quote without selling shows 0.
 const marginOf = (q: PricedQuote) => q.totals.margin ?? 0;
 
 function groupQuotes(priced: PricedQuote[], keyOf: (q: PricedQuote) => string): [string, Group][] {
-  const groups = new Map<string, Group>();
+  const groups = new Map<string, Group & { figures: CzkFigures[] }>();
   for (const q of priced) {
     const key = keyOf(q);
-    const group = groups.get(key) ?? { quotes: 0, won: 0, lost: 0, selling: [], profit: [], marginSum: 0 };
+    const group = groups.get(key) ?? { quotes: 0, won: 0, lost: 0, selling: [], profit: [], margin: null, figures: [] };
     group.quotes += 1;
     if (q.status === "won") group.won += 1;
     if (q.status === "lost") group.lost += 1;
@@ -86,10 +88,10 @@ function groupQuotes(priced: PricedQuote[], keyOf: (q: PricedQuote) => string): 
       group.selling.push(["CZK", q.czk.selling]);
       group.profit.push(["CZK", q.czk.profit]);
     }
-    group.marginSum += marginOf(q);
+    group.figures.push(q.czk);
     groups.set(key, group);
   }
-  return [...groups];
+  return [...groups].map(([key, { figures, ...group }]) => [key, { ...group, margin: weightedMargin(figures) }]);
 }
 
 // What a quote is counted under in each table.
@@ -120,18 +122,31 @@ export function SalesReportTab() {
   const exchange = useCurrentExchangeRates();
   // The row whose quotes are listed in the dialog, while it is open.
   const [group, setGroup] = useState<QuoteGroup | null>(null);
+  // The period the report counts (S6): months by the quote's report month - sent, or created if
+  // never sent - as Job Profit's month range. The default (this year to this month) is Prague's month, as
+  // reportMonthOf counts (not the browser's own clock), read after mount, so a page rendered on the
+  // server can't disagree with it.
+  const [range, setRange] = useState<[string, string] | null>(null);
+  useEffect(() => {
+    const thisMonth = businessToday().slice(0, 7);
+    setRange((r) => r ?? [`${thisMonth.slice(0, 4)}-01`, thisMonth]);
+  }, []);
+  // The averages of every quote's year, so choosing another period does not wait for them again.
   const avg = usePeriodAverages(quotes.map((q) => Number(reportMonthOf(q).slice(0, 4))).filter(Boolean));
 
   const priced = useMemo<PricedQuote[]>(
     () =>
-      [...quotes].sort(newestFirst).map((q) => {
+      [...quotes]
+        .filter((q) => range !== null && inMonthRange(reportMonthOf(q), range))
+        .sort(newestFirst)
+        .map((q) => {
         const totals = computeTotals(q.data, exchange.rates, exchange);
         const month = reportMonthOf(q);
         const selling = toCzkAt(totals.selling, totals.currency, month, avg);
         const profit = toCzkAt(totals.profit, totals.currency, month, avg);
         return { ...q, totals, czk: selling === null || profit === null ? null : { selling, profit } };
       }),
-    [quotes, exchange, avg],
+    [quotes, exchange, avg, range],
   );
 
   // The report counts the quotes that went to the customer (Quotes Sent); only By status lists every quote.
@@ -147,16 +162,15 @@ export function SalesReportTab() {
     const won = sent.filter((q) => q.status === "won");
     const lost = sent.filter((q) => q.status === "lost");
     const wonRevenue = fmtByCurrency(won.flatMap((q): CurrencyAmount[] => (q.czk ? [["CZK", q.czk.selling]] : [])));
-    const avgMargin = total ? Math.round(sent.reduce((sum, q) => sum + marginOf(q), 0) / total) : 0;
-    const decided = won.length + lost.length;
-    const conversion = decided ? Math.round((won.length / decided) * 100) : 0;
     return [
       { label: "Quotes Sent", value: String(total) },
       { label: "Won", value: String(won.length) },
       { label: "Lost", value: String(lost.length) },
       { label: "Revenue (Won)", value: wonRevenue || "—" },
-      { label: "Avg Margin", value: `${avgMargin}%` },
-      { label: "Conversion", value: `${conversion}%` },
+      // Money-weighted (S6 / Q11): profit over selling of the quotes sent, in CZK.
+      { label: "Margin", value: percentText(weightedMargin(sent.map((q) => q.czk))), hint: "profit ÷ selling" },
+      // Named and counted as on the Managers page: won over won + lost, never over every quote sent.
+      { label: "Hit rate", value: percentText(hitRate(won.length, lost.length)), hint: `${won.length} won / ${lost.length} lost` },
     ];
   }, [sent]);
 
@@ -168,7 +182,7 @@ export function SalesReportTab() {
         won: g.won,
         selling: fmtByCurrency(g.selling),
         profit: fmtByCurrency(g.profit),
-        avgMargin: Math.round(g.marginSum / g.quotes),
+        margin: g.margin,
       })),
     [sent],
   );
@@ -186,18 +200,15 @@ export function SalesReportTab() {
 
   const ownerRows = useMemo<OwnerRow[]>(
     () =>
-      groupQuotes(sent, ownerOf).map(([owner, g]) => {
-        const decided = g.won + g.lost;
-        return {
-          owner,
-          quotes: g.quotes,
-          won: g.won,
-          lost: g.lost,
-          selling: fmtByCurrency(g.selling),
-          avgMargin: Math.round(g.marginSum / g.quotes),
-          conversion: decided ? Math.round((g.won / decided) * 100) : 0,
-        };
-      }),
+      groupQuotes(sent, ownerOf).map(([owner, g]) => ({
+        owner,
+        quotes: g.quotes,
+        won: g.won,
+        lost: g.lost,
+        selling: fmtByCurrency(g.selling),
+        margin: g.margin,
+        hitRate: hitRate(g.won, g.lost),
+      })),
     [sent],
   );
 
@@ -211,9 +222,10 @@ export function SalesReportTab() {
     { title: "Quotes Sent", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
     { title: "Lost", dataIndex: "lost" },
-    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
-    { title: "Avg Margin", dataIndex: "avgMargin", align: "right", render: (v: number) => `${v}%` },
-    { title: "Conversion", dataIndex: "conversion", align: "right", render: (v: number) => `${v}%` },
+    { title: "Selling total", dataIndex: "selling", align: "right", render: money },
+    { title: "Margin", dataIndex: "margin", align: "right", render: percentText },
+    // Won over won + lost; the Won and Lost columns beside it are the counts.
+    { title: "Hit rate", dataIndex: "hitRate", align: "right", render: percentText },
   ];
 
   const serviceColumns: ColumnsType<ServiceRow> = [
@@ -224,9 +236,9 @@ export function SalesReportTab() {
     },
     { title: "Quotes Sent", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
-    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
+    { title: "Selling total", dataIndex: "selling", align: "right", render: money },
     { title: "Profit", dataIndex: "profit", align: "right", render: money },
-    { title: "Avg Margin", dataIndex: "avgMargin", align: "right", render: (v: number) => `${v}%` },
+    { title: "Margin", dataIndex: "margin", align: "right", render: percentText },
   ];
 
   const statusColumns: ColumnsType<StatusRow> = [
@@ -244,7 +256,7 @@ export function SalesReportTab() {
       },
     },
     { title: "Count", dataIndex: "count" },
-    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
+    { title: "Selling total", dataIndex: "selling", align: "right", render: money },
   ];
 
   // Figures over the quotes that happened to load would be too small, and zeros would be a lie.
@@ -252,7 +264,7 @@ export function SalesReportTab() {
   if (isLoading) return <QuotesLoading progress={progress} />;
 
   // Drafts are priced at today's ČNB rates and the sums use the monthly averages: both must be in.
-  if (exchange.isLoading || avg.loading) {
+  if (exchange.isLoading || avg.loading || !range) {
     return (
       <div className="flex items-center justify-center py-16">
         <Spin />
@@ -279,12 +291,25 @@ export function SalesReportTab() {
 
   return (
     <div className="space-y-4">
-      {/* What the figures cover: the quotes that were really loaded - all of them, or the report would not be shown. */}
-      <div className="text-xs text-slate-500">
-        {sent.length.toLocaleString("en-US")} quotes sent of all {quotes.length.toLocaleString("en-US")}: the figures count the quotes that went to
-        the customer (Quoted, Feedback, Won, Lost, Expired, Replaced); By status lists every quote.
+      <div className={`flex flex-wrap items-center gap-3 ${CARD} px-4 py-3`}>
+        <DatePicker.RangePicker
+          picker="month"
+          allowClear={false}
+          value={[dayjs(`${range[0]}-01`), dayjs(`${range[1]}-01`)]}
+          onChange={(v) => v && v[0] && v[1] && setRange([v[0].format("YYYY-MM"), v[1].format("YYYY-MM")])}
+          format="MMM YYYY"
+        />
+        <span className="text-[13px] text-slate-500">A quote counts in the month it was sent (or created, if never sent)</span>
       </div>
-      <div className="text-xs text-slate-500">Amounts in CZK at the ČNB average of the month each quote was sent (or created).</div>
+      {/* What the figures cover: the quotes of the period that were really loaded - all of them, or the report would not be shown. */}
+      <div className="text-xs text-slate-500">
+        {sent.length.toLocaleString("en-US")} quotes sent of {priced.length.toLocaleString("en-US")} in the period: the figures count the quotes
+        that went to the customer (Quoted, Feedback, Won, Lost, Expired, Replaced); By status lists every quote.
+      </div>
+      <div className="text-xs text-slate-500">
+        Amounts in CZK at the ČNB average of the month each quote was sent (or created). Margin is profit ÷ selling of the quotes together. Hit
+        rate is won ÷ (won + lost): open, expired and replaced quotes are not in it, and a quote is Lost only once someone marks it.
+      </div>
       {/* Rates that could not be read leave the same lines out, but nothing is missing. */}
       <ExchangeRatesError exchange={exchange} />
       {!exchange.isError && incomplete.length > 0 && (
@@ -305,7 +330,7 @@ export function SalesReportTab() {
       )}
       <div className={`${KPI_GRID_CLASS} mb-4`}>
         {kpis.map((k) => (
-          <KpiTile key={k.label} label={k.label} value={k.value} />
+          <KpiTile key={k.label} label={k.label} value={k.value} hint={k.hint} />
         ))}
       </div>
 
@@ -316,7 +341,7 @@ export function SalesReportTab() {
           dataSource={ownerRows}
           columns={ownerColumns}
           pagination={false}
-          locale={{ emptyText: "No quotes sent yet" }}
+          locale={{ emptyText: "No quotes sent in the period" }}
         />
       </SectionCard>
 
@@ -335,7 +360,7 @@ export function SalesReportTab() {
           dataSource={serviceRows}
           columns={serviceColumns}
           pagination={false}
-          locale={{ emptyText: "No quotes sent yet" }}
+          locale={{ emptyText: "No quotes sent in the period" }}
         />
       </SectionCard>
 
@@ -346,7 +371,7 @@ export function SalesReportTab() {
           dataSource={statusRows}
           columns={statusColumns}
           pagination={false}
-          locale={{ emptyText: "No quotes yet" }}
+          locale={{ emptyText: "No quotes in the period" }}
         />
       </SectionCard>
     </div>

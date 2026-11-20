@@ -1952,6 +1952,30 @@ export interface OpsMoneyTiles {
   marginNotKnown: number | null;
 }
 
+/**
+ * A job with work not yet invoiced, as "Work not yet invoiced … in N jobs" opens them (user council M4): every job the
+ * headline counts, not only those a signal names - a job not yet due for invoicing too.
+ */
+export interface OpsMoneyUnbilledJob {
+  id: string;
+  jobNumber: string;
+  customer: string;
+  status: string;
+  /** The job reads Invoicing Status "Invoiced": what is left to bill is a charge added after invoicing. */
+  invoiced: boolean;
+  /** Handled By as stored (an e-mail), "" when nobody. */
+  handledBy: string;
+  holidayCover: string;
+  /** The work not yet invoiced on the job, one amount per currency - never added across. */
+  notYetInvoiced: MoneyAmount[];
+}
+
+export interface OpsMoneyUnbilledList {
+  /** Every job the headline counts (`tiles.notYetInvoicedJobs`); `rows` holds the newest 200 of them. */
+  total: number;
+  rows: OpsMoneyUnbilledJob[];
+}
+
 /** GET /shipments/managers-money: the Money tab of Shipments → Managers. Read-only; its facts are kept for five minutes per company, mode, direction and "My reports" - picking a Handled By reads nothing. */
 export interface ShipmentsManagersMoney {
   /** When the facts were read (the answer may be up to five minutes old). */
@@ -1964,6 +1988,8 @@ export interface ShipmentsManagersMoney {
   handledBy: string | null;
   reports: OpsCockpitReports;
   tiles: OpsMoneyTiles;
+  /** The jobs "Work not yet invoiced" counts, by job number; null when Invoicing could not be read (as the tile's figures). */
+  notYetInvoicedList: OpsMoneyUnbilledList | null;
   urgent: OpsMoneyList;
   attention: OpsMoneyList;
   people: OpsMoneyPerson[];

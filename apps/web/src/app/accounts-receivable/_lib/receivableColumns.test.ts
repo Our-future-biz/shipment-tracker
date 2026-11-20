@@ -91,6 +91,15 @@ describe("the invoices' Columns", () => {
     expect(receivableTable("2026-11-19").view).toBe(TABLE.view);
   });
 
+  it("puts Status right after the number and Issued after Paid (A5), and keeps a set saved in the old order whole", () => {
+    expect(RECEIVABLE_DEFAULT_COLUMNS).toEqual(["number", "status", "customer", "job", "due", "gross", "left", "currency", "paid", "issued"]);
+    expect(TABLE.columns.slice(0, 10).map((c) => c.key)).toEqual(RECEIVABLE_DEFAULT_COLUMNS);
+    // A set saved before the move (the old defaults, in their old order): nothing lost, nothing added - only the order is the table's.
+    const saved = ["number", "customer", "job", "issued", "due", "gross", "left", "currency", "status", "paid"];
+    expect(normalizeColumns(TABLE, saved)).toEqual(RECEIVABLE_DEFAULT_COLUMNS);
+    expect(normalizeColumns(TABLE, ["number", "customer", "status", "czk"])).toEqual(["number", "status", "customer", "czk"]);
+  });
+
   it("keeps the shown columns in table order, the number always among them", () => {
     expect(normalizeColumns(TABLE, ["czk", "customer", "nope"])).toEqual(["number", "customer", "czk"]);
     expect(normalizeColumns(TABLE, null)).toEqual(["number"]);
