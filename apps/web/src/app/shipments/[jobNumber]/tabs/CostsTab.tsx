@@ -13,7 +13,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
 import { amountInBox, normaliseAmount } from "@/lib/money";
 import { onAmountBlur } from "./amountBox";
-import { billedRealCostOpen, closesRow, curBoxAfter, ownDirectionFirst } from "./costRowRules";
+import { billedRealCostOpen, closesRow, curBoxAfter, ownDirectionFirst, typedNumbersAfterSave } from "./costRowRules";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
@@ -611,7 +611,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   /* ── Received follows the invoice number being filled in; it can't be ticked by hand ──
      Clearing the number of a paid line also takes its payment back: that is asked first (K8). */
-  /* A billed row's invoice number as typed, before its save is back: its real cost opens with it (billedRealCostOpen),
+  /* A billed row's invoice number as typed, until its save is back: its real cost opens with it (billedRealCostOpen),
      so a click on Real Cost right after typing the number is not lost. A real cost saved meanwhile waits for the
      number's save, as the server reads the number from the line. */
   const [typedNumbers, setTypedNumbers] = useState<Map<string, string>>(new Map());
@@ -650,7 +650,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     // A refused number (a paid supplier invoice's line, …) shows the stored one again; onError says why.
     const save = () => {
       const saving = updateBuy.mutateAsync({ id: r.id, invoiceNumber: value, received: !!value.trim() }).then(
-        () => undefined,
+        // Saved, and the line read again with it (updateBuy's onSuccess): its real cost follows the line's number from now on.
+        () => setTypedNumbers((p) => typedNumbersAfterSave(p, r.id, value)),
         () => {
           field.value = r.invoiceNumber;
           setTypedNumber(r.id, null);

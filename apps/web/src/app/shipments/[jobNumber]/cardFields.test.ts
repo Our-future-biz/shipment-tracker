@@ -19,6 +19,20 @@ describe("the fields a shipment card shows", () => {
     expect(cardWithoutChoice(next, "route")).toEqual(stored);
   });
 
+  it("keep what was chosen for the rows a job's freight mode leaves out (fieldsForMode) when a field is toggled on that job", () => {
+    const sea = ["vessel", "voyage", "pol"];
+    // An air job leaves out the empty Voyage: its card is toggled by the rows it shows.
+    const air = ["vessel", "pol"];
+    const voyageHidden = cardWithFieldToggled({}, "carrier", "voyage", sea);
+    const thenOnAir = cardWithFieldToggled(voyageHidden, "carrier", "pol", air);
+    expect(visibleCardKeys(thenOnAir, "carrier", air)).toEqual(["vessel"]);
+    expect(visibleCardKeys(thenOnAir, "carrier", sea)).toEqual(["vessel"]);
+    // A Voyage shown on sea stays shown, and one nobody ever hid shows on sea as before.
+    const polHidden = cardWithFieldToggled({}, "carrier", "pol", sea);
+    expect(visibleCardKeys(cardWithFieldToggled(polHidden, "carrier", "vessel", air), "carrier", sea)).toEqual(["voyage"]);
+    expect(visibleCardKeys(cardWithFieldToggled({}, "carrier", "pol", air), "carrier", sea)).toEqual(["vessel", "voyage"]);
+  });
+
   it("come from stored JSON, anything else being no choice", () => {
     expect(parseCardFields('{"route":["pol"]}')).toEqual({ route: ["pol"] });
     expect(parseCardFields("not json")).toEqual({});

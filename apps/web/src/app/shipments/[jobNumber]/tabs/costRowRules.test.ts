@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { billedRealCostOpen, closesRow, curBoxAfter, ownDirectionFirst } from "./costRowRules";
+import { billedRealCostOpen, closesRow, curBoxAfter, ownDirectionFirst, typedNumbersAfterSave } from "./costRowRules";
 import { chargeOptions } from "@/lib/chargeCodes";
 
 // A stand-in for an element: its tag, its type and the selectors it sits inside.
@@ -69,6 +69,17 @@ describe("a billed shipment's buying row (User Council Q1)", () => {
     expect(billedRealCostOpen(late, false, "")).toBe(false);
     expect(billedRealCostOpen(late, true)).toBe(false);
     expect(billedRealCostOpen({ ...late, lateRealCostOpen: false }, false)).toBe(false);
+  });
+
+  it("follows the line's own number again once the typed one is saved: a number cleared from elsewhere since shuts it", () => {
+    const typed = new Map([["a", "TESTUC-AP-001"], ["b", "X-9"]]);
+    const saved = typedNumbersAfterSave(typed, "a", "TESTUC-AP-001");
+    expect([...saved]).toEqual([["b", "X-9"]]);
+    // Another user (or Document Reading) took the number off the line after the save.
+    expect(billedRealCostOpen(line(""), false, saved.get("a"))).toBe(false);
+    // A number typed on since stays until its own save is back.
+    const typedOn = new Map([["a", "TESTUC-AP-0012"]]);
+    expect(typedNumbersAfterSave(typedOn, "a", "TESTUC-AP-001")).toBe(typedOn);
   });
 });
 

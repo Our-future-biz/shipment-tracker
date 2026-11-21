@@ -65,6 +65,9 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
     );
     if ("error" in next) {
       setError({ text: next.error, box: next.box });
+      // Back into the box that can't be read: a click elsewhere or a Tab out took the focus, and Escape - which
+      // keeps the old date, as the message says - is read only inside the editor.
+      wrapperRef.current?.querySelector<HTMLInputElement>(`input[aria-label="${next.box === "date" ? DATE_LABEL : TIME_LABEL}"]`)?.focus();
       return;
     }
     finished.current = true;

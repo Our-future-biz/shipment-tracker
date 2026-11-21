@@ -100,6 +100,20 @@ describe("a road job's rows (user council T9)", () => {
     expect(keys).not.toContain("shippingInstructions");
   });
 
+  it("leave out an OBL as untouched on a road export only, as the server seeds it (exportBolDefaults), and keep the BoL types while the job waits for an original B/L", () => {
+    const rows = [{ key: "houseBolType", label: "House BoL Type" }, { key: "masterBolType", label: "Master BoL Type" }];
+    const roadImport = { freightMode: "Road Freight", tradeDirection: "Import" };
+    // A road import at OBL reads red and says its House or Master BoL Type is OBL (waitsForOriginalBl): both rows show.
+    expect(fieldsForMode(rows, roadImport, (k) => ({ houseBolType: "OBL" })[k]).map((f) => f.key)).toEqual(["houseBolType", "masterBolType"]);
+    // With the B/L in hand it waits for none: the OBL is still a value of its own, the empty type is left out.
+    const inHand = (k: string) => ({ houseBolType: "OBL", telexReleaseReceivedDate: "2026-11-20" })[k];
+    expect(fieldsForMode(rows, roadImport, inHand).map((f) => f.key)).toEqual(["houseBolType"]);
+    expect(fieldsForMode(rows, { ...roadImport, tradeDirection: "Domestic" }, () => "OBL")).toHaveLength(2);
+    // An export's OBL is the one the server started it with.
+    expect(fieldsForMode(rows, { freightMode: "Road Freight", tradeDirection: "Export" }, () => " obl ")).toEqual([]);
+    expect(fieldsForMode(rows, { freightMode: "Road Freight", tradeDirection: "Export" }, () => "Seaway")).toHaveLength(2);
+  });
+
   it("keep the customs status on a road job that goes through customs: an international one, or a Trucking job with an MRN or a customs deadline", () => {
     const has = (mode: Parameters<typeof fieldsForMode>[1]) => fieldsForMode(SEA_ROWS, mode, seededOf).some((f) => f.key === "customsStatus");
     expect(has({ freightMode: "Road Freight", tradeDirection: "Import" })).toBe(true);

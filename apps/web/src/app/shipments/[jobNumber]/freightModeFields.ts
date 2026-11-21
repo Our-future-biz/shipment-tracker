@@ -6,6 +6,7 @@
 // A road job leaves out the empty rows a truck has no use for the same way (user council T9).
 
 import { chargeBasis, fmtChargeBasis, isAirFreight } from "@/lib/chargeBasis";
+import { waitsForOriginalBl } from "@/lib/columnConfig";
 import { isDeliveryDated } from "@/lib/deliveryDated";
 
 /** What says how a job travels and whether it is Trucking's; a bare string is its Freight Mode. */
@@ -105,9 +106,9 @@ export const ROAD_HIDDEN: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The values the server starts these rows with (fieldDefaults startingStateDefaults on every job,
- * exportBolDefaults on an export): on a road job they count as empty. Road jobs made before the
- * server stopped seeding the VGM on road still hold it.
+ * The values the server starts these rows with on every job (fieldDefaults startingStateDefaults):
+ * on a road job they count as empty. Road jobs made before the server stopped seeding the VGM on
+ * road still hold it.
  */
 const ROAD_UNTOUCHED: Readonly<Record<string, string>> = {
   vgm: "Pending (Red)",
@@ -115,9 +116,16 @@ const ROAD_UNTOUCHED: Readonly<Record<string, string>> = {
   bolDraft: "Not Processed",
   ams: "Not Applicable",
   isf: "Not Applicable",
-  houseBolType: "OBL",
-  masterBolType: "OBL",
 };
+
+/**
+ * A road export's too: the OBL the server starts an export's House and Master BoL Type with
+ * (fieldDefaults exportBolDefaults). No other job gets a type seeded, so an OBL on an import was
+ * set - and makes the job wait for an original B/L (waitsForOriginalBl).
+ */
+const ROAD_EXPORT_UNTOUCHED: Readonly<Record<string, string>> = { ...ROAD_UNTOUCHED, houseBolType: "OBL", masterBolType: "OBL" };
+
+const BOL_TYPES: ReadonlySet<string> = new Set(["houseBolType", "masterBolType"]);
 
 /** The customs status of a job none of whose paperwork is in yet (the server's PAPERWORK_WAITING). */
 export const PAPERWORK_WAITING = "Waiting For Commercial Paperwork";
@@ -141,11 +149,13 @@ const holdsValue = (untouched: Readonly<Record<string, string>>, key: string, va
 /**
  * The rows of a card as the job's freight mode shows them, in the card's order: on an air job the
  * air names, and the sea-only rows left out unless `valueOf` gives them a value (their untouched
- * starting value is none); on a road job the rows a truck has no use for left out the same way, and
- * on a Trucking job that goes through no customs (goesThroughCustoms) the Customs Status while it
- * still waits for paperwork. Any other mode keeps the rows as they are. `mode` is the job (its
- * Freight Mode, Trade Direction, Department, MRN and customs deadline), or its Freight Mode alone.
- * Used for the card and its "Show all" / field picker alike.
+ * starting value is none); on a road job the rows a truck has no use for left out the same way -
+ * but never the House and Master BoL Type while the job waits for an original B/L, which the page
+ * says in red by those types - and on a Trucking job that goes through no customs
+ * (goesThroughCustoms) the Customs Status while it still waits for paperwork. Any other mode keeps
+ * the rows as they are. `mode` is the job (its Freight Mode, Trade Direction, Department, MRN and
+ * customs deadline), or its Freight Mode alone. Used for the card and its "Show all" / field picker
+ * alike.
  */
 export function fieldsForMode<F extends { key: string; label: string }>(
   fields: readonly F[],
@@ -153,10 +163,21 @@ export function fieldsForMode<F extends { key: string; label: string }>(
   valueOf: (key: string) => string | null | undefined,
 ): F[] {
   if (isRoadJob(mode)) {
-    const customs = goesThroughCustoms(mode);
+    const job = jobOf(mode);
+    const customs = goesThroughCustoms(job);
+    const untouched = (job.tradeDirection ?? "").trim().toLowerCase() === "export" ? ROAD_EXPORT_UNTOUCHED : ROAD_UNTOUCHED;
+    const text = (key: string) => valueOf(key) ?? "";
+    const oblWaiting = waitsForOriginalBl({
+      tradeDirection: job.tradeDirection ?? "",
+      houseBolType: text("houseBolType"),
+      masterBolType: text("masterBolType"),
+      originalsReceivedDate: text("originalsReceivedDate"),
+      telexReleaseReceivedDate: text("telexReleaseReceivedDate"),
+    });
     return fields.filter((f) => {
       if (f.key === "customsStatus" && !customs) return holdsValue({ customsStatus: PAPERWORK_WAITING }, f.key, valueOf(f.key));
-      return !ROAD_HIDDEN.has(f.key) || holdsValue(ROAD_UNTOUCHED, f.key, valueOf(f.key));
+      if (oblWaiting && BOL_TYPES.has(f.key)) return true;
+      return !ROAD_HIDDEN.has(f.key) || holdsValue(untouched, f.key, valueOf(f.key));
     });
   }
   if (!isAirJob(mode)) return [...fields];

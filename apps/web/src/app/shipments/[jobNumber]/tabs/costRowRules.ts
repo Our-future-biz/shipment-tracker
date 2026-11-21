@@ -55,6 +55,19 @@ export const billedRealCostOpen = (
   number: string = row.invoiceNumber,
 ): boolean => !invoicePaid && !!number.trim() && (!row.realAmount.trim() || !!row.lateRealCostOpen);
 
+/**
+ * The invoice numbers typed into a billed shipment's rows (billedRealCostOpen's `number`), once a row's save of
+ * `saved` is back: its own dropped, so the row's real cost follows the number the line holds again - one changed
+ * from elsewhere later (another user, Document Reading) no longer leaves it open on the number typed here, to be
+ * refused as "number first". A number typed on since stays until its own save.
+ */
+export function typedNumbersAfterSave(typed: Map<string, string>, id: string, saved: string): Map<string, string> {
+  if (typed.get(id) !== saved) return typed;
+  const next = new Map(typed);
+  next.delete(id);
+  return next;
+}
+
 /** The codes that come as an import and an export twin, the import's first. */
 const DIRECTION_TWINS: readonly (readonly [string, string])[] = [
   ["customs_import", "customs_export"],

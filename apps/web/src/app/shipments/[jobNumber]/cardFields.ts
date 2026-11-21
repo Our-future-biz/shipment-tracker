@@ -27,11 +27,17 @@ export function visibleCardKeys(map: CardFieldMap, cardId: string, allKeys: stri
   return allKeys.filter((k) => chosen.includes(k) || isNew(k));
 }
 
-/** The choices with one field of a card shown or hidden; the other cards' stay as they are. */
+/**
+ * The choices with one field of a card shown or hidden; the other cards' stay as they are. `allKeys`
+ * are the fields the card has on this job: a row its freight mode leaves out (fieldsForMode - an air
+ * job's empty Voyage) keeps what was chosen for it and stays known, or a Voyage hidden on a sea job
+ * would count as new, and show again there, once a field was toggled on an air job.
+ */
 export function cardWithFieldToggled(map: CardFieldMap, cardId: string, key: string, allKeys: string[]): CardFieldMap {
   const current = visibleCardKeys(map, cardId, allKeys);
   const next = current.includes(key) ? current.filter((k) => k !== key) : [...current, key];
-  return { ...map, [cardId]: next, [knownKey(cardId)]: allKeys };
+  const leftOut = (stored: string[] | undefined) => (Array.isArray(stored) ? stored.filter((k) => !allKeys.includes(k)) : []);
+  return { ...map, [cardId]: [...next, ...leftOut(map[cardId])], [knownKey(cardId)]: [...allKeys, ...leftOut(map[knownKey(cardId)])] };
 }
 
 /** The choices with a card back to showing all its fields. */

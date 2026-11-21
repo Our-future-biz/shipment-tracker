@@ -75,6 +75,7 @@ function DayEditor({ fieldKey, value, className, onCommit, onClose }: { fieldKey
   const escaped = useRef(false);
   // Tab confirms in the picker and then closes it: one save, not two.
   const finished = useRef(false);
+  const boxRef = useRef<HTMLDivElement>(null);
   const blocked = PAST_DAY_FIELDS.has(fieldKey) ? (day: string) => dayBlocked(fieldKey, day, businessToday()) : undefined;
   const save = (day: string) => {
     if (finished.current) return;
@@ -88,12 +89,17 @@ function DayEditor({ fieldKey, value, className, onCommit, onClose }: { fieldKey
       finished.current = true;
       setOpen(false);
       onClose();
-    } else if ("error" in left) setError(left.error);
-    else save(left.day);
+    } else if ("error" in left) {
+      setError(left.error);
+      // Back into the box: the click that left it took the focus, and Escape - which keeps the old date, as the
+      // message says - is read only here.
+      boxRef.current?.querySelector("input")?.focus();
+    } else save(left.day);
   };
   return (
     <Tooltip open={!!error} title={error ? <span role="alert">{error}</span> : null} placement="topLeft">
       <div
+        ref={boxRef}
         className={className}
         onInput={(e) => {
           typed.current = (e.target as HTMLInputElement).value;
