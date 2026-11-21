@@ -108,7 +108,9 @@ function columnKeyOf(col: { key?: unknown; dataIndex?: unknown }): string | unde
  * icon column, keeps its width). For a table as wide as its content (scroll x "max-content"), where
  * a column is never narrower than its text: one the user sized is held at that width on every
  * cell, and a value too long for it fades out at the end (the whole of it shows after a 1 s
- * hover), as the editable cells do. The table's header cell must be DraggableHeaderCell.
+ * hover), as the editable cells do. The table's header cell must be DraggableHeaderCell. In a
+ * fixed-layout table (the Shipments list since mock test S21-058) every column holds its width
+ * anyway; the one the user sized simply wins over the default.
  */
 export function resizableColumns<T>(columns: ColumnsType<T>, sizing: ColumnSizing): ColumnsType<T> {
   return columns.map((col) => {

@@ -34,7 +34,7 @@ import { useMasterJob, type MasterJobItem, type MasterJobUpdate } from "@/hooks/
 import type { interfaces } from "@/lib/api/client";
 import { FieldRow, IncotermRow, Label, MasterJobFieldCard, ROW, ReadOnlyRow, type StyleFor } from "./MasterJobFields";
 import { ProgressStages } from "@/app/shipments/[jobNumber]/_components/ShipmentSummary";
-import { carrierCardTitle, fieldsForMode, modeLabel, progressStagesFor } from "@/app/shipments/[jobNumber]/freightModeFields";
+import { carrierCardTitle, fieldsForMode, masterBolWord, modeLabel, progressStagesFor } from "@/app/shipments/[jobNumber]/freightModeFields";
 import { getStageFromFacts } from "@/app/shipments/[jobNumber]/_components/taskDefinitions";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { kgFromTons, tonsFromKg } from "../_lib/mblWeight";
@@ -196,6 +196,17 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   const rowValue = (key: string): string | null | undefined =>
     key === "containerNumber" ? containerNumbers : (mj as unknown as Record<string, string | null | undefined>)[key];
   const byMode = <F extends { key: string; label: string }>(columns: F[][]): F[][] => columns.map((column) => fieldsForMode(column, mode, rowValue));
+  // The empty container's release and redelivery, left out of an air master job while empty; with all four
+  // left out the card is too (mock test S21-044).
+  const equipColumns = byMode([
+    [
+      { key: "releaseReference", label: "Release Reference", row: <FieldRow label="Release Reference" fieldKey="releaseReference" value={mj.releaseReference} onCommit={handleCommit} styleFor={styleFor} synced /> },
+      { key: "releaseDepot", label: "Release Depot", row: <FieldRow label="Release Depot" fieldKey="releaseDepot" value={mj.releaseDepot} onCommit={handleCommit} styleFor={styleFor} synced /> },
+      { key: "redeliveryReference", label: "Redelivery Reference", row: <FieldRow label="Redelivery Reference" fieldKey="redeliveryReference" value={mj.redeliveryReference} onCommit={handleCommit} styleFor={styleFor} synced /> },
+      { key: "redeliveryDepot", label: "Redelivery Depot", row: <FieldRow label="Redelivery Depot" fieldKey="redeliveryDepot" value={mj.redeliveryDepot} onCommit={handleCommit} styleFor={styleFor} synced /> },
+    ],
+  ]);
+  const showsEquip = equipColumns.some((column) => column.length > 0);
   const arrivalLabel = stages.find((s) => s.index === 3)?.label ?? "Arrive at Port of Discharge";
   const stageFacts: Record<string, string> = {
     "In transit": mj.actualDeparture ? `ATD ${formatDate(mj.actualDeparture)}` : "",
@@ -323,27 +334,16 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
         />
       </div>
 
-      {/* EQUIPMENT & DEPOT  |  MBL CARGO */}
+      {/* EQUIPMENT & DEPOT  |  MBL CARGO (an air master job's MAWB Cargo) */}
       <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
-        <MasterJobFieldCard
-          cardId="masterJob.equip"
-          icon={<ContainerOutlined />}
-          title="Equipment & Depot"
-          className="h-full"
-          columns={[
-            [
-              { key: "releaseReference", label: "Release Reference", row: <FieldRow label="Release Reference" fieldKey="releaseReference" value={mj.releaseReference} onCommit={handleCommit} styleFor={styleFor} synced /> },
-              { key: "releaseDepot", label: "Release Depot", row: <FieldRow label="Release Depot" fieldKey="releaseDepot" value={mj.releaseDepot} onCommit={handleCommit} styleFor={styleFor} synced /> },
-              { key: "redeliveryReference", label: "Redelivery Reference", row: <FieldRow label="Redelivery Reference" fieldKey="redeliveryReference" value={mj.redeliveryReference} onCommit={handleCommit} styleFor={styleFor} synced /> },
-              { key: "redeliveryDepot", label: "Redelivery Depot", row: <FieldRow label="Redelivery Depot" fieldKey="redeliveryDepot" value={mj.redeliveryDepot} onCommit={handleCommit} styleFor={styleFor} synced /> },
-            ],
-          ]}
-        />
+        {showsEquip && (
+          <MasterJobFieldCard cardId="masterJob.equip" icon={<ContainerOutlined />} title="Equipment & Depot" className="h-full" columns={equipColumns} />
+        )}
         {/* Totals of the whole MBL; each house keeps its own cargo, so these are not copied. */}
         <MasterJobFieldCard
           cardId="masterJob.cargo"
           icon={<InboxOutlined />}
-          title="MBL Cargo"
+          title={`${masterBolWord(mode)} Cargo`}
           className="h-full"
           columns={[
             [

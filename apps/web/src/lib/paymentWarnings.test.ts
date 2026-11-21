@@ -282,6 +282,13 @@ describe("Warehouse Released set by hand (step 7): the same stop on the field's 
     // Not "or the shipment's detail": it has no Warehouse Released field (mock test S19-084 / S20-232).
     expect(RELEASE_ELSEWHERE).toBe("Release it from Stock → release to truck: there a manager gives a reason, and anyone else asks a manager to release it.");
   });
+
+  it("closes the server's sentence with a full stop before where to release it (retest S19-084)", () => {
+    const open = "As a manager you can release it all the same: give a reason (at least 3 characters)";
+    expect(releaseElsewhereText({ kind: "unpaid", message: open })).toBe(`${open}. ${RELEASE_ELSEWHERE}`);
+    expect(releaseElsewhereText({ kind: "unpaid", message: "Not paid." })).toBe(`Not paid. ${RELEASE_ELSEWHERE}`);
+    expect(releaseElsewhereText({ kind: "unpaid", message: "  " })).toBe(RELEASE_ELSEWHERE);
+  });
 });
 
 describe("Ask a manager to release (Council Outlay 11, D16): the request's state on the job", () => {

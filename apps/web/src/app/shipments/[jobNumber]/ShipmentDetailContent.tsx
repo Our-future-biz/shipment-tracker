@@ -16,6 +16,7 @@ import {
   ClockCircleOutlined,
   CalendarOutlined,
   ContainerOutlined,
+  CarOutlined,
   SplitCellsOutlined,
   WarningOutlined,
   ProfileOutlined,
@@ -69,7 +70,7 @@ import { CustomsTab } from "./tabs/CustomsTab";
 import { ApprovedByLockedContext, CancelOfferedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { FROM_LINES_HINT, FROM_LINES_TITLE, lockedByLines } from "../_lib/cargoFromLines";
-import { airChargeableWeight, carrierCardTitle, fieldsForMode, houseReleaseWords, showsChargeableWeight, showsContainerTab, workflowHeading } from "./freightModeFields";
+import { airChargeableWeight, carrierCardTitle, equipmentCardTitle, fieldsForMode, houseReleaseWords, showsChargeableWeight, showsContainerTab, workflowHeading } from "./freightModeFields";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
@@ -645,6 +646,8 @@ export function DetailCard({
   // out - in the card and in its "Show all" / field picker alike; a road job's empty sea rows too (T9).
   const modeColumns = columns.map((col) => fieldsForMode(col, shipment, (k) => getFieldValue(shipment, k)));
   const allFields = modeColumns.flat();
+  // A card whose every row the job's freight mode leaves out is left out too (mock test S21-044).
+  const allLeftOut = columns.some((col) => col.length > 0) && allFields.length === 0 && !children;
   const shown = cardId
     ? new Set(visibleKeys(cardId, allFields.map((f) => f.key)))
     : null;
@@ -670,6 +673,7 @@ export function DetailCard({
     </div>
   );
 
+  if (allLeftOut) return null;
   return (
     <div className={`${CARD} ${className ?? ""}`}>
       <SectionHeader
@@ -1405,6 +1409,8 @@ export function ShipmentDetailContent() {
   const commitContact = (field: ContactField, name: string, contactId: string | null) => saveShipment(contactUpdate(field, name, contactId));
 
   const styleFor = makeStyleFor(shipment);
+  // Equipment & Depot on an air job with its container rows empty: the truck's Plate Number, named after the truck (mock test S21-044).
+  const equipTitle = equipmentCardTitle(shipment, (k) => getFieldValue(shipment, k));
   // The list's red row text, which colours every value on the cards too: an original B/L not in hand.
   const oblWaiting = waitsForOriginalBl(buildRowData(shipment));
   // The quote the shipment was sold from is the one its Sales Number names, when that is the
@@ -1915,8 +1921,8 @@ export function ShipmentDetailContent() {
                   }}
                 />
                 <DetailCard
-                  icon={<ContainerOutlined />}
-                  title="Equipment & Depot"
+                  icon={equipTitle === "Truck" ? <CarOutlined /> : <ContainerOutlined />}
+                  title={equipTitle}
                   cardId="equip"
                   layout="stack"
                   // Labels 170px wide, so "Delivery/Pick-Up Address" keeps to one line.

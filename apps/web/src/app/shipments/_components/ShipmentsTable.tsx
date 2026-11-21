@@ -35,6 +35,8 @@ import { DEFAULT_SHIPMENT_COLUMNS, SHIPMENT_DEFAULTS_VERSION } from "@/hooks/use
 import { NewDefaultColumnsNotice } from "@/components/NewDefaultColumnsNotice";
 import { MY_JOBS_PARAM, asksMyJobs, withMyJobs } from "@/app/shipments/_lib/myJobs";
 import { resizableColumns, useColumnWidths } from "@/hooks/useColumnWidths";
+import { FadeText } from "@/components/FadeText";
+import { CELL_PADDING_CLASS, PINNED_ICON_WIDTHS, TICK_BOX_WIDTH, shipmentsTableWidth } from "@/app/shipments/_lib/listLayout";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useMessages, useToast } from "@/lib/toast";
 import { RECEIVED_TICKS, isReceivedTick, receivedFollowsDocuments, receivedValue, toggledReceivedOverride } from "@/lib/customsReceived";
@@ -532,7 +534,9 @@ export const ShipmentsTable = ({
       align: isReceivedTick(col.key) ? ("center" as const) : undefined,
       // Internal Reference + Master job stay frozen on the left while the rest scrolls.
       fixed: isFixedColumn(col.key) || col.key === leadColumn ? ("left" as const) : undefined,
-      onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
+      // A title wraps to two lines rather than being cut: the columns are held at their widths, some
+      // narrower than their title in one line (mock test S21-058).
+      onHeaderCell: () => ({ id: col.key, style: { whiteSpace: "normal" } }) as React.HTMLAttributes<HTMLTableCellElement>,
       // Per-column conditional background tint (applies on every row).
       onCell: (record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
@@ -676,7 +680,8 @@ export const ShipmentsTable = ({
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
         if (col.readonly || viewReadonly?.includes(col.key)) {
           const shown = col.key === "loadType" ? loadTypeLabel(val, record.freightMode) : val;
-          return shown ? <span className="text-slate-700" style={textStyle}>{shown}</span> : <span className={EMPTY}>{"\u2014"}</span>;
+          // One line that fades out at the column's edge, whole on hover, as the editable cells (mock test S21-058).
+          return shown ? <FadeText className="text-slate-700" style={textStyle}>{shown}</FadeText> : <span className={EMPTY}>{"\u2014"}</span>;
         }
         // A T1 shipment with its Customs Office chosen keeps its procedure, unless a manager changes
         // it (the server refuses anyone else, as in the shipment's cards).
@@ -741,7 +746,7 @@ export const ShipmentsTable = ({
     cols.push({
       key: "__docs",
       title: "",
-      width: 30,
+      width: PINNED_ICON_WIDTHS.docs,
       fixed: "right",
       // Paddings tuned so both icons sit centred with 10px left, between and right.
       onCell: () => ({ className: "!pl-1.5 !pr-0.5" }),
@@ -762,7 +767,7 @@ export const ShipmentsTable = ({
       title: "",
       // 4px narrower than the icon columns around it, so the gap to the warning
       // triangle on the right matches the gap to the documents icon on the left.
-      width: 24,
+      width: PINNED_ICON_WIDTHS.chat,
       fixed: "right",
       // The unread badge hangs over the right edge of this narrow cell; the raised z-index
       // keeps it above the opaque fixed cell of the warning triangle next to it.
@@ -789,7 +794,7 @@ export const ShipmentsTable = ({
     cols.push({
       key: "__alert",
       title: "",
-      width: 28,
+      width: PINNED_ICON_WIDTHS.alert,
       fixed: "right",
       onCell: () => ({ className: "!pl-0 !pr-1.5" }),
       render: (_: unknown, record: ShipmentItem) => {
@@ -815,6 +820,14 @@ export const ShipmentsTable = ({
     // Each titled column's width can be dragged (not the icon columns).
     return resizableColumns(cols, { widthOf, resizeProps });
   }, [user, canChangeOffice, visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, message, unreadBy, detailHref, widthOf, resizeProps]);
+
+  // The table as wide as its columns' widths together (the dragged ones included), drawn with a fixed
+  // layout: each column keeps its width instead of growing with a long customer or port, so the default
+  // columns end where they were planned to (mock test S21-058).
+  const tableWidth = useMemo(
+    () => shipmentsTableWidth(columns.filter((c) => !String(c.key).startsWith("__")).map((c) => Number(c.width) || 0)),
+    [columns],
+  );
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;
@@ -1137,9 +1150,11 @@ export const ShipmentsTable = ({
                 onChange: setSelectedKeys,
                 preserveSelectedRowKeys: true,
                 fixed: true,
-                columnWidth: 44,
+                columnWidth: TICK_BOX_WIDTH,
               }}
-              scroll={{ x: "max-content" }}
+              tableLayout="fixed"
+              scroll={{ x: tableWidth }}
+              className={CELL_PADDING_CLASS}
               rowClassName={(record) => (rowInfo.get(record.id)?.rowStyle?.color ? "cf-row-fg" : "")}
               onRow={(record) => {
                 const fg = rowInfo.get(record.id)?.rowStyle?.color;

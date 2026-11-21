@@ -40,23 +40,39 @@ describe("the reminder contact's words (A7)", () => {
 describe("the list at 1440 px (A5)", () => {
   it("draws its columns in the order the Columns model keeps, and lets the To collect label wrap", () => {
     const table = source("ReceivablesTable.tsx");
-    const keys = [...table.slice(table.indexOf("const columns: ColumnsType<ReceivableRow>"), table.indexOf("/** The row opened")).matchAll(/key: "([a-zA-Z]+)"/g)].map((m) => m[1]);
+    const keys = [...table.slice(table.indexOf("const listColumns = "), table.indexOf("/** The row opened")).matchAll(/key: "([a-zA-Z]+)"/g)].map((m) => m[1]);
     const model = source("../_lib/receivableColumns.ts");
     const list = model.slice(model.indexOf("export const RECEIVABLE_COLUMNS"), model.indexOf("/** The columns shown at first"));
     expect(keys).toEqual([...list.matchAll(/key: "([a-zA-Z]+)"/g)].map((m) => m[1]));
     expect(source("AccountsReceivableView.tsx")).toMatch(/wrapLabel\s+label=\{a \? `To collect/);
   });
 
-  it("gives each column up to Currency its LIST_WIDTHS width, and the tick box and expand arrow theirs (mock test run)", () => {
+  it("gives each of the ten first columns its LIST_WIDTHS width, and the tick box and expand arrow theirs (mock test S21-079)", () => {
     const table = source("ReceivablesTable.tsx");
-    for (const key of ["number", "status", "customer", "job", "due", "gross", "left", "currency"]) {
+    for (const key of ["number", "status", "customer", "job", "due", "gross", "left", "currency", "paid", "issued"]) {
       expect(table).toMatch(new RegExp(`key: "${key}",\\s*width: LIST_WIDTHS\\.${key},`));
     }
     expect(table).toContain("columnWidth: LIST_TICK_WIDTH");
     expect(table).toContain("columnWidth: LIST_EXPAND_WIDTH");
+    expect(table).toContain("className={LIST_CELL_CLASS}");
+    // What could make a column wider than its width is held to it: the number, the status marks, the customer, the job.
+    expect(table).toContain("style={inner(LIST_WIDTHS.number)}");
     expect(table).toContain("style={inner(LIST_WIDTHS.status)}");
     expect(table).toContain("style={inner(LIST_WIDTHS.customer)}");
+    expect(table).toContain("style={inner(LIST_WIDTHS.job)}");
+    expect(table).toContain("style={inner(LIST_WIDTHS.due)}");
+    expect(table).toContain('className="!whitespace-normal"');
+    expect(table).toContain("shortJobNumber(r.jobNumber)");
     expect(table).not.toContain("max-w-[170px]");
+  });
+
+  it("leaves the currency out of the amounts while the Currency column shows it, and draws the table anew when the tick boxes come (mock test S21-079)", () => {
+    const table = source("ReceivablesTable.tsx");
+    expect(table).toContain('const currencyShown = visible.includes("currency");');
+    expect(table).toContain("figure(r.gross, r.currency, currencyShown)");
+    expect(table).toContain("figure(r.leftToPay, r.currency, currencyShown, r.leftToPay > 0)");
+    expect(table).toContain("figure(r.paid, r.currency, currencyShown)");
+    expect(table).toContain('key={selection ? "with-ticks" : "without-ticks"}');
   });
 });
 

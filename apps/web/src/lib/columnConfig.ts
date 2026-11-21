@@ -145,9 +145,16 @@ export const COMPUTED_COLUMNS = new Set([
 // ─── Column Definitions (Full Sheet) ──────────────────────────────────
 
 export const COLUMNS: ColumnDef[] = [
-  // Internal Reference is locked (always first); Master job is an ordinary column
-  { key: "jobNumber", title: "Internal Reference", width: 170, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
-  { key: "masterJob", title: "Master job", width: 140, type: "text", readonly: true, apiField: "masterJobMczNumber" },
+  // Internal Reference is locked (always first); Master job is an ordinary column.
+  // The Shipments list holds every column at its width (a longer value is cut, whole on hover), and the
+  // default columns from Internal Reference to ETA fit its first screen at 1440 px with the menu open,
+  // the tick box and the pinned Documents, Chat and warning icons counted (mock test S21-058, checked in
+  // shipments/_lib/listLayout.test.ts). Their titles wrap to two lines where they need to.
+  // Its cells have 6 px a side (shipments/_lib/listLayout CELL_PADDING). 162: the longest reference,
+  // "CZPROJECT00000023", is 148 px in bold - whole, not cut (review of the S21-058 fix).
+  { key: "jobNumber", title: "Internal Reference", width: 162, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
+  // 172: the longest master job number, "MCZPROJECT00000004", is 157 px (review of the S21-058 fix).
+  { key: "masterJob", title: "Master job", width: 172, type: "text", readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
   { key: "shipmentsDate", title: "Shipments Month", width: 120, type: "computed", readonly: true },
@@ -157,9 +164,9 @@ export const COLUMNS: ColumnDef[] = [
   { key: "holidayCover", title: "Holiday Cover", width: 140, type: "user", apiField: "holidayCover" },
 
   // Customer block
-  // 150, not 180, so the default columns up to Closing fit a 1440 px screen (mock test S21-058); a longer
+  // 128, not 180, so the default columns up to ETA fit a 1440 px screen (mock test S21-058; 6 px padding a side); a longer
   // name is cut in the cell (a linked customer's card shows it whole).
-  { key: "customer", title: "Customer", width: 150, type: "text", apiField: "customer" },
+  { key: "customer", title: "Customer", width: 128, type: "text", apiField: "customer" },
   // Chosen in the Customs detail (a company from the customer database).
   { key: "principalParty", title: "Principal Party", width: 180, type: "text", readonly: true, apiField: "principalParty" },
   { key: "customerPic", title: "Customer's Contact", width: 170, type: "contact", apiField: "customerPic" },
@@ -167,8 +174,8 @@ export const COLUMNS: ColumnDef[] = [
 
   // Pickup + Port of Loading
   { key: "pickupAddress", title: "Pickup Address", width: 200, type: "text", apiField: "pickupAddress" },
-  // 145, not 160, as Customer (mock test S21-058); a longer place fades out, whole on hover.
-  { key: "pol", title: "Port of Loading", width: 145, type: "place", apiField: "pol" },
+  // 130, not 160, as Customer (mock test S21-058): "Shanghai (CNSHA)" just fits; a longer place fades out, whole on hover.
+  { key: "pol", title: "Port of Loading", width: 130, type: "place", apiField: "pol" },
 
   // Shipper/Consignee
   { key: "shipper", title: "Shipper", width: 180, type: "text", apiField: "shipper" },
@@ -180,9 +187,9 @@ export const COLUMNS: ColumnDef[] = [
   // fills them while empty (User Council E5).
   { key: "deliveryPhone", title: "Delivery Phone", width: 150, type: "text", apiField: "deliveryPhone", maxLength: 50 },
   { key: "deliveryNotes", title: "Delivery Notes", width: 220, type: "text", apiField: "deliveryNotes", maxLength: 500 },
-  // Wide enough for its title in caps beside the Master Jobs list's sort arrow; 160, not 170, as Customer
-  // (mock test S21-058).
-  { key: "pod", title: "Port of Discharge", width: 160, type: "place", apiField: "pod" },
+  // 130 as Port of Loading (mock test S21-058); its title wraps to two lines in the Shipments list. The
+  // Master Jobs list draws its columns as wide as their titles and sort arrows, so it is not cut there.
+  { key: "pod", title: "Port of Discharge", width: 130, type: "place", apiField: "pod" },
   { key: "destination", title: "Destination", width: 160, type: "place", apiField: "destination" },
 
   // Status block
@@ -191,11 +198,11 @@ export const COLUMNS: ColumnDef[] = [
   // Read-only in the lists: switching to Urgent asks for a deadline, which happens in the Customs detail.
   { key: "customsPriority", title: "Customs Priority", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
-  // 200 (once 320, then 250): with the defaults around it, the columns up to Closing then end inside the
-  // first screen at 1440 px, the Documents, Chat and warning icons pinned on the right counted too (mock
+  // 186 (once 320, then 250, then 200): with the defaults around it, the columns up to ETA then end inside
+  // the first screen at 1440 px, the Documents, Chat and warning icons pinned on the right counted too (mock
   // council S9-1, mock test S21-058). A longer status fades out in the cell (whole on hover), and the
   // dropdown is wider than the cell, so every option reads in full there.
-  { key: "status", title: "Shipment Status", width: 200, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
+  { key: "status", title: "Shipment Status", width: 186, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
   { key: "lastEvent", title: "Last Event", width: 240, type: "text", readonly: true, apiField: "lastEvent" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
   { key: "freightPayableAt", title: "Freight Payable At", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Payable At"], apiField: "freightPayableAt" },
@@ -225,14 +232,16 @@ export const COLUMNS: ColumnDef[] = [
   // Dates
   { key: "cargoReadinessDate", title: "Cargo Readiness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
   { key: "pickupDate", title: "Pick-Up Date", width: 140, type: "date", apiField: "pickupDate", timeField: "pickupTime" },
-  { key: "closingDate", title: "Closing Date", width: 140, type: "date", apiField: "closingDate", timeField: "closingTime" },
+  // Closing, ETD and ETA as narrow as a date ("28.12.2026") with the cell's padding, so they fit beside the
+  // ports at 1440 px (mock test S21-058); a closing time with it fades out, whole on hover.
+  { key: "closingDate", title: "Closing Date", width: 84, type: "date", apiField: "closingDate", timeField: "closingTime" },
   { key: "vgmClosing", title: "VGM Closing", width: 140, type: "date", apiField: "vgmClosing", timeField: "vgmClosingTime" },
   { key: "siClosing", title: "SI Closing", width: 140, type: "date", apiField: "siClosing", timeField: "siClosingTime" },
   { key: "amsDeadline", title: "AMS Deadline", width: 140, type: "date", apiField: "amsDeadline", timeField: "amsDeadlineTime" },
   { key: "isfDeadline", title: "ISF Deadline", width: 140, type: "date", apiField: "isfDeadline", timeField: "isfDeadlineTime" },
-  { key: "estimatedDeparture", title: "ETD Estimated", width: 130, type: "date", apiField: "estimatedDeparture" },
+  { key: "estimatedDeparture", title: "ETD Estimated", width: 82, type: "date", apiField: "estimatedDeparture" },
   { key: "estimatedDepartureWeek", title: "Estimated Departure Week", width: 120, type: "computed", readonly: true },
-  { key: "estimatedArrival", title: "ETA Estimated", width: 130, type: "date", apiField: "estimatedArrival" },
+  { key: "estimatedArrival", title: "ETA Estimated", width: 82, type: "date", apiField: "estimatedArrival" },
   { key: "estimatedArrivalWeek", title: "Estimated Arrival Week", width: 120, type: "computed", readonly: true },
   { key: "actualDeparture", title: "ATD Actual", width: 130, type: "date", apiField: "actualDeparture" },
   { key: "actualDepartureWeek", title: "Actual Departure Week", width: 120, type: "computed", readonly: true },

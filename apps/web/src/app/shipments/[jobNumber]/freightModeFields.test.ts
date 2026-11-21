@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEA_STAGES, airChargeableWeight, carrierCardTitle, currentStageOf, fieldsForMode, houseReleaseWords, modeLabel, progressStagesFor, showsChargeableWeight, showsContainerTab, workflowHeading } from "./freightModeFields";
+import { SEA_STAGES, airChargeableWeight, carrierCardTitle, currentStageOf, equipmentCardTitle, fieldsForMode, houseReleaseWords, masterBolWord, modeLabel, progressStagesFor, showsChargeableWeight, showsContainerTab, workflowHeading } from "./freightModeFields";
 
 const CARRIER = [
   { key: "bookingNumber", label: "Booking Number" },
@@ -222,5 +222,62 @@ describe("an air job's chargeable weight", () => {
     expect(showsChargeableWeight("Sea Freight")).toBe(false);
     expect(showsChargeableWeight({ freightMode: "Air Freight", tradeDirection: "Domestic" })).toBe(false);
     expect(airChargeableWeight("Sea Freight", "640", "1.2")).toBe("");
+  });
+});
+
+// Mock test S21-044: an air job (and air master job) shows no empty container or US ocean-filing rows.
+describe("an air job's container rows and AMS / ISF deadlines (mock test S21-044)", () => {
+  const EQUIP = ["releaseReference", "releaseDepot", "plateNumber", "redeliveryReference", "redeliveryDepot", "equipmentDelivery", "equipmentDeliveryDate"].map((key) => ({ key, label: key }));
+  const DATES = ["estimatedDeparture", "pickupDate", "amsDeadline", "isfDeadline"].map((key) => ({ key, label: key }));
+
+  it("leaves out the empty release / redelivery and equipment delivery rows on air, but keeps the truck's Plate Number", () => {
+    expect(fieldsForMode(EQUIP, "Air Freight", none).map((f) => f.key)).toEqual(["plateNumber"]);
+    // A master job's Equipment row too.
+    expect(fieldsForMode([{ key: "equipment", label: "Equipment" }], "Air Freight", none)).toEqual([]);
+  });
+
+  it("leaves out the empty AMS and ISF deadlines on air", () => {
+    expect(fieldsForMode(DATES, "Air Freight", none).map((f) => f.key)).toEqual(["estimatedDeparture", "pickupDate"]);
+  });
+
+  it("leaves out the ISF on air while it is Not Applicable as the server starts it, but keeps the AMS (US air cargo has one)", () => {
+    const rows = [{ key: "ams", label: "AMS (if any)" }, { key: "isf", label: "ISF (if any)" }];
+    expect(fieldsForMode(rows, "Air Freight", () => "Not Applicable").map((f) => f.key)).toEqual(["ams"]);
+    expect(fieldsForMode(rows, "Air Freight", () => "Pending").map((f) => f.key)).toEqual(["ams", "isf"]);
+    expect(fieldsForMode(rows, "Sea Freight", () => "Not Applicable")).toEqual(rows);
+  });
+
+  it("keeps any of them that holds a value, under its sea name", () => {
+    const valueOf = (k: string) => ({ releaseDepot: "CTD Praha", isfDeadline: "2026-11-30", equipment: "1x40HC" })[k] ?? "";
+    expect(fieldsForMode(EQUIP, "Air Freight", valueOf).map((f) => f.key)).toEqual(["releaseDepot", "plateNumber"]);
+    expect(fieldsForMode(DATES, "Air Freight", valueOf).map((f) => f.key)).toEqual(["estimatedDeparture", "pickupDate", "isfDeadline"]);
+    expect(fieldsForMode([{ key: "equipment", label: "Equipment" }], "Air Freight", valueOf)).toEqual([{ key: "equipment", label: "Equipment" }]);
+  });
+
+  it("leaves sea, rail and road jobs as they were", () => {
+    for (const mode of ["Sea Freight", "Rail Freight", "", null]) {
+      expect(fieldsForMode(EQUIP, mode, none)).toEqual(EQUIP);
+      expect(fieldsForMode(DATES, mode, none)).toEqual(DATES);
+    }
+    // A road job keeps its equipment rows and leaves out the AMS / ISF deadlines by its own rule (T9).
+    expect(fieldsForMode(EQUIP, "Road Freight", none)).toEqual(EQUIP);
+    expect(fieldsForMode(DATES, "Road Freight", none).map((f) => f.key)).toEqual(["estimatedDeparture", "pickupDate"]);
+  });
+
+  it("names the Equipment & Depot card after the truck on air while its container rows are empty", () => {
+    expect(equipmentCardTitle("Air Freight", none)).toBe("Truck");
+    // The plate is the truck's: it keeps the name.
+    expect(equipmentCardTitle("Air Freight", (k) => (k === "plateNumber" ? "1AB 2345" : ""))).toBe("Truck");
+    // A container row filled in shows, so the card keeps its sea name.
+    expect(equipmentCardTitle("Air Freight", (k) => (k === "redeliveryDepot" ? "CTD" : ""))).toBe("Equipment & Depot");
+    expect(equipmentCardTitle("Sea Freight", none)).toBe("Equipment & Depot");
+    expect(equipmentCardTitle("Road Freight", none)).toBe("Equipment & Depot");
+    expect(equipmentCardTitle({ freightMode: "Air Freight", tradeDirection: "Domestic" }, none)).toBe("Equipment & Depot");
+  });
+
+  it("calls a master job's document the MAWB on air, the MBL elsewhere", () => {
+    expect(masterBolWord("Air Freight")).toBe("MAWB");
+    expect(masterBolWord("Sea Freight")).toBe("MBL");
+    expect(masterBolWord("")).toBe("MBL");
   });
 });

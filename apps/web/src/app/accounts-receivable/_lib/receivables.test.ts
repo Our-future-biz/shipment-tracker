@@ -21,11 +21,14 @@ import {
   nextReminderLevel,
   NO_FILTERS,
   NO_REMINDER_CONTACT,
+  LIST_CELL_CLASS,
   LIST_CELL_PADDING,
   LIST_EXPAND_WIDTH,
   LIST_ROOM,
   LIST_TICK_WIDTH,
   LIST_WIDTHS,
+  listAmountText,
+  JOB_SHOWN,
   NUMBER_SHOWN,
   paidText,
   passesCheck,
@@ -37,6 +40,7 @@ import {
   REMINDERS_CANNOT_GO_OUT,
   remindersBlocked,
   shortInvoiceNumber,
+  shortJobNumber,
   tabCount,
   tileCheckToggles,
   visibleTabs,
@@ -446,17 +450,55 @@ describe("the list's invoice number (A5)", () => {
     expect(shortInvoiceNumber("")).toBe("");
   });
 
-  it("fits the columns up to Currency in a 1440 px screen with the menu, the tick box and the expand arrow (mock test run)", () => {
-    const upToCurrency = RECEIVABLE_DEFAULT_COLUMNS.slice(0, RECEIVABLE_DEFAULT_COLUMNS.indexOf("currency") + 1);
-    expect(Object.keys(LIST_WIDTHS)).toEqual(upToCurrency);
+  it("fits all ten first columns in a 1440 px screen with the menu, the tick box and the expand arrow, Issued too (mock test S21-079)", () => {
+    // All the columns shown at first, not only those up to Currency: Paid and Issued fell off the screen.
+    expect(Object.keys(LIST_WIDTHS)).toEqual(RECEIVABLE_DEFAULT_COLUMNS);
     const used = Object.values(LIST_WIDTHS).reduce((sum, w) => sum + w, 0) + LIST_TICK_WIDTH + LIST_EXPAND_WIDTH;
-    expect(used).toBe(1064);
-    expect(used).toBeLessThanOrEqual(LIST_ROOM);
+    expect(used).toBe(1104);
     expect(LIST_ROOM).toBe(1440 - 260 - 2 * 32 - 2);
-    // Status (its marks wrap) and the customer (cut, whole on hover) at about 120 px.
-    expect(LIST_WIDTHS.status).toBeLessThanOrEqual(120);
-    expect(LIST_WIDTHS.customer).toBeLessThanOrEqual(120);
-    expect(LIST_WIDTHS.status - LIST_CELL_PADDING).toBe(104);
+    // A little room left over, so a pixel more somewhere does not scroll the list.
+    expect(LIST_ROOM - used).toBeGreaterThanOrEqual(8);
+    // The cells' padding (6 px a side) is the class the list carries.
+    expect(LIST_CELL_PADDING).toBe(12);
+    expect(LIST_CELL_CLASS).toBe("[&_.ant-table-cell]:!px-1.5");
+  });
+
+  it("gives each column room for what it holds, as the app measured it at 1440 px (mock test S21-079)", () => {
+    const room = (key: keyof typeof LIST_WIDTHS) => LIST_WIDTHS[key] - LIST_CELL_PADDING;
+    // The shortened number "INV2026…0125-003" (bold) is 142 px, the shortened job "CZROAD…0094" 102 px.
+    expect(room("number")).toBeGreaterThanOrEqual(142);
+    expect(room("job")).toBeGreaterThanOrEqual(102);
+    // A day "28.12.2026" 75 px; under Due "12 days overdue" 86 px (a longer one wraps).
+    for (const key of ["due", "issued", "paid"] as const) expect(room(key)).toBeGreaterThanOrEqual(75);
+    expect(room("due")).toBeGreaterThanOrEqual(86);
+    // "1,234,567.89" whole, bold in Left to pay: 87 px.
+    for (const key of ["gross", "left", "paid"] as const) expect(room(key)).toBeGreaterThanOrEqual(87);
+    // The widest single mark, "Part credited" (88 px), on one line; longer ones wrap.
+    expect(room("status")).toBeGreaterThanOrEqual(88);
+    // The title CURRENCY (no sorter arrows) 66 px; "EUR" and "CZK" under it.
+    expect(room("currency")).toBeGreaterThanOrEqual(66);
+    // The customer is cut, whole on hover, but keeps some words.
+    expect(room("customer")).toBeGreaterThanOrEqual(88);
+  });
+
+  it("shortens a long job number to its letters and the last four digits, a short one whole (mock test S21-079)", () => {
+    expect(shortJobNumber("CZROAD00000094")).toBe("CZROAD…0094");
+    expect(shortJobNumber("CZFCL00000062")).toBe("CZFCL…0062");
+    // At most 6 letters, so it is not cut again at its end in the 104 px cell (review of the S21-079 fix).
+    expect(shortJobNumber("CZPROJECT00000023")).toBe("CZPROJ…0023");
+    expect(shortJobNumber("CZ00000053")).toBe("CZ00000053");
+    expect(shortJobNumber("CZ00000053")).toHaveLength(JOB_SHOWN);
+    expect(shortJobNumber("")).toBe("");
+    // Another text is cut in its middle, its end kept.
+    expect(shortJobNumber("SOMETHING-ELSE-42")).toBe("SOMET…E-42");
+  });
+
+  it("shows an amount without its currency while the Currency column does, with it otherwise (mock test S21-079)", () => {
+    expect(listAmountText(1234567.89, "CZK", true)).toBe("1,234,567.89");
+    expect(listAmountText(20692.66, "EUR", true)).toBe("20,692.66");
+    expect(listAmountText(-30, "EUR", true)).toBe("−30.00");
+    expect(listAmountText(20692.66, "EUR", false)).toBe("20,692.66 EUR");
+    expect(listAmountText(null, "EUR", true)).toBe("—");
   });
 });
 

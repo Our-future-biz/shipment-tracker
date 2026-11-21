@@ -69,15 +69,39 @@ export function houseReleaseWords(mode: ModeArg): { label: string; button: strin
  * Rows only sea freight has, left out of an air job while they are empty: the voyage (the flight
  * says it), the container and its TEU, and the VGM (a SOLAS rule for containers) with the VGM and SI
  * closings. Compliance's Shipping Instructions stay: an air shipper gives instructions too (SLI).
+ * Also the container's own rows (mock test S21-044): a master job's Equipment, the empty container's
+ * release and redelivery (reference and depot) and its delivery / pick-up at the shipper, and the
+ * AMS / ISF deadlines (US ocean filings, 24 hours before loading) and the ISF itself (the Importer
+ * Security Filing is for ocean cargo only). The AMS row stays: US air cargo has an AMS of its own. The
+ * Plate Number stays: it is the truck's (Trucking's FTL trip, the warehouse gate), which picks up air
+ * cargo too.
  */
-export const AIR_HIDDEN: ReadonlySet<string> = new Set(["voyage", "containerNumber", "containerTypeSummary", "totalTeu", "vgmClosing", "siClosing", "vgm"]);
+export const AIR_HIDDEN: ReadonlySet<string> = new Set([
+  "voyage",
+  "containerNumber",
+  "containerTypeSummary",
+  "totalTeu",
+  "vgmClosing",
+  "siClosing",
+  "vgm",
+  "equipment",
+  "releaseReference",
+  "releaseDepot",
+  "redeliveryReference",
+  "redeliveryDepot",
+  "equipmentDelivery",
+  "equipmentDeliveryDate",
+  "amsDeadline",
+  "isfDeadline",
+  "isf",
+]);
 
 /**
  * The value a sea-only row starts with before anyone touches it (the server's starting states,
  * fieldDefaults): on an air job it counts as empty, so the row is still left out (step 3 review M1).
  * Air jobs made before the server stopped seeding the VGM on air still hold it.
  */
-const AIR_UNTOUCHED: Readonly<Record<string, string>> = { vgm: "Pending (Red)" };
+const AIR_UNTOUCHED: Readonly<Record<string, string>> = { vgm: "Pending (Red)", isf: "Not Applicable" };
 
 /**
  * Rows a truck has no use for, left out of a road job while they hold nothing of their own (user
@@ -207,6 +231,20 @@ export const showsChargeableWeight = (mode: ModeArg): boolean => isAirJob(mode);
 /** The Carrier card's title: an air job's transport document is the air waybill. */
 export const carrierCardTitle = (mode: ModeArg): string =>
   isAirJob(mode) ? "Carrier & Air Waybill" : "Carrier & Bill of Lading";
+
+/** What a master job's tab and cargo card call its master document (mock test S21-044): an air master job's is the MAWB. */
+export const masterBolWord = (mode: ModeArg): string => (isAirJob(mode) ? "MAWB" : "MBL");
+
+/** The Equipment & Depot card's container rows, which an air job leaves out while they are empty (AIR_HIDDEN). */
+const EQUIPMENT_ROWS = ["releaseReference", "releaseDepot", "redeliveryReference", "redeliveryDepot", "equipmentDelivery", "equipmentDeliveryDate"] as const;
+
+/**
+ * The Equipment & Depot card's title (mock test S21-044): on an air job whose container rows are all
+ * left out (empty) the truck's Plate Number is all it holds, so it is named after the truck; one of
+ * them filled in keeps the sea name with its row.
+ */
+export const equipmentCardTitle = (mode: ModeArg, valueOf: (key: string) => string | null | undefined): string =>
+  isAirJob(mode) && !EQUIPMENT_ROWS.some((key) => holdsValue(AIR_UNTOUCHED, key, valueOf(key))) ? "Truck" : "Equipment & Depot";
 
 /**
  * Whether the job shows its Container Details tab: always, but on an air job only once it has a

@@ -18,6 +18,8 @@ import { CARD_BODY_PADDED, MasterJobCard, jumpTo } from "./MasterJobFields";
 import { MasterJobCostsTab } from "./MasterJobCostsTab";
 import { MasterJobDocumentsTab } from "./MasterJobDocumentsTab";
 import { MasterJobTrackingTab } from "./MasterJobTrackingTab";
+import { masterBolWord, showsContainerTab } from "@/app/shipments/[jobNumber]/freightModeFields";
+import { masterJobModeOf } from "../_lib/masterJobWords";
 
 // Tabs of an opened master job; more will follow. Documents sits where it does on a shipment, after the costs.
 const DETAIL_TABS = [
@@ -41,6 +43,16 @@ function jumpToDateRow(target: string): string | null {
   return `${name} is hidden in Key Dates: choose it in the card's fields, or use Show all, to see it`;
 }
 const isDetailTab = (key: string | null): key is DetailTab => DETAIL_TABS.some((t) => t.key === key);
+
+/**
+ * The tabs of a master job in the words of its freight mode (mock test S21-044): an air master job's MAWB
+ * Details, and its Container Details only once it has a container - as an air shipment's (showsContainerTab).
+ */
+export function masterJobTabs(mode: string, containerCount: number): { key: DetailTab; label: string }[] {
+  return DETAIL_TABS.filter((t) => t.key !== "containers" || showsContainerTab(mode, containerCount)).map((t) =>
+    t.key === "mbl" ? { key: t.key, label: `${masterBolWord(mode)} Details` } : { key: t.key, label: t.label },
+  );
+}
 
 // Master Jobs in the same shape as Customs: a list, and a master job opened
 // inside the page (?open=<id>) with its tabs (?tab=<key>). Back returns to the
@@ -90,15 +102,18 @@ export function MasterJobsView() {
   };
 
   const mj = detail.masterJob;
+  const tabs = masterJobTabs(mj ? masterJobModeOf(mj) : "", detail.containers.length);
+  // A tab the master job does not show (an air master job's Container Details with none) opens the first.
+  const shownTab: DetailTab = tabs.some((t) => t.key === detailTab) ? detailTab : "mbl";
 
   // A date that waits for MBL Details: the tab follows the URL, so it is shown a moment later.
   const pendingJump = useRef<string | null>(null);
   useEffect(() => {
-    if (detailTab !== "mbl" || !pendingJump.current) return;
+    if (shownTab !== "mbl" || !pendingJump.current) return;
     const hidden = jumpToDateRow(pendingJump.current);
     if (hidden) message.info(hidden);
     pendingJump.current = null;
-  }, [detailTab, message]);
+  }, [shownTab, message]);
 
   // A count in the summary opens its tab (Container Details, Linked Shipments); a date jumps to its
   // row on MBL Details, opening that tab first when another is open.
@@ -107,7 +122,7 @@ export function MasterJobsView() {
       setDetailTab(target === MJ_ANCHORS.shipments ? "shipments" : "containers");
       return;
     }
-    if (detailTab === "mbl") {
+    if (shownTab === "mbl") {
       const hidden = jumpToDateRow(target);
       if (hidden) message.info(hidden);
       return;
@@ -138,8 +153,8 @@ export function MasterJobsView() {
 
               {/* Tabs, in the shipment header's look */}
               <nav aria-label="Master job sections" className="flex gap-0 mt-3.5 -mb-px overflow-x-auto">
-                {DETAIL_TABS.map((tab) => {
-                  const selected = detailTab === tab.key;
+                {tabs.map((tab) => {
+                  const selected = shownTab === tab.key;
                   return (
                     <button
                       key={tab.key}
@@ -169,7 +184,7 @@ export function MasterJobsView() {
         {/* ── Tab content ── */}
         <div className="px-4 md:px-6 pt-4 pb-8">
           {mj ? (
-            detailTab === "containers" ? (
+            shownTab === "containers" ? (
               // The master job's containers, which go on to its houses (as the card used to show them on MBL Details).
               <MasterJobContainers
                 id={MJ_ANCHORS.containers}
@@ -178,7 +193,7 @@ export function MasterJobsView() {
                 shipments={detail.shipments}
                 onSave={(containers) => detail.setContainers.mutateAsync(containers)}
               />
-            ) : detailTab === "shipments" ? (
+            ) : shownTab === "shipments" ? (
               // The houses on this master job, with Add and Remove: who they are (Details) or where each
               // one stands (Status), switched inside the card.
               <MasterJobCard
@@ -194,13 +209,13 @@ export function MasterJobsView() {
                   onUnlink={(id) => detail.unlinkShipment.mutateAsync(id)}
                 />
               </MasterJobCard>
-            ) : detailTab === "costs" ? (
+            ) : shownTab === "costs" ? (
               <MasterJobCostsTab masterJob={mj} />
-            ) : detailTab === "documents" ? (
+            ) : shownTab === "documents" ? (
               // The master job's own files, apart from its houses' documents. Keyed: files waiting in the
               // box (and the search) belong to this master job and never carry over to the next one opened.
               <MasterJobDocumentsTab key={mj.id} masterJob={mj} />
-            ) : detailTab === "tracking" ? (
+            ) : shownTab === "tracking" ? (
               <MasterJobTrackingTab />
             ) : (
               <MblDetailsTab masterJob={mj} onSave={(data) => detail.update.mutateAsync(data)} />

@@ -250,8 +250,14 @@ export const releasedEditStop = (fieldKey: string, err: unknown): ReleaseStop | 
  */
 export const RELEASE_ELSEWHERE = "Release it from Stock → release to truck: there a manager gives a reason, and anyone else asks a manager to release it.";
 
-/** The grid's error for a stopped Warehouse Released: the server's sentence, then where to release it. */
-export const releaseElsewhereText = (stop: ReleaseStop): string => `${stop.message.trim()} ${RELEASE_ELSEWHERE}`;
+/**
+ * The grid's error for a stopped Warehouse Released: the server's sentence, closed with a full stop when it has none
+ * (it ends "(at least 3 characters)" - mock test retest S19-084), then where to release it.
+ */
+export const releaseElsewhereText = (stop: ReleaseStop): string => {
+  const message = stop.message.trim();
+  return `${/[.!?]$/.test(message) || !message ? message : `${message}.`} ${RELEASE_ELSEWHERE}`.trim();
+};
 
 // ── "Ask a manager to release" (Council Outlay 11, D16): a user the stop refused asks, a manager decides ──
 //

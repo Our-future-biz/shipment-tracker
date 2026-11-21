@@ -1,19 +1,31 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import { useMemo, type MouseEvent } from "react";
 import Link from "next/link";
 import { Spin, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DataTable } from "@/components/DataTable";
 import { Pill } from "@/components/Pill";
-import { ChipList } from "@/components/finance/ChipList";
 import { useReceivable } from "@/hooks/useReceivables";
 import { AGING_LABEL, markChips, REMINDER_LEVEL_LABEL, statusLabel, statusTitle, statusTone } from "@/lib/accountsReceivable";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { shownColumns } from "@/lib/tableModel";
 import { EMPTY, HINT, LINK, REF } from "@/styles/ui";
-import { amountText, batchSelectable, LIST_CELL_PADDING, LIST_EXPAND_WIDTH, LIST_TICK_WIDTH, LIST_WIDTHS, shipmentHref, shortInvoiceNumber, type ReceivableRow } from "../_lib/receivables";
+import {
+  amountText,
+  batchSelectable,
+  LIST_CELL_CLASS,
+  LIST_CELL_PADDING,
+  LIST_EXPAND_WIDTH,
+  LIST_TICK_WIDTH,
+  LIST_WIDTHS,
+  listAmountText,
+  shipmentHref,
+  shortInvoiceNumber,
+  shortJobNumber,
+  type ReceivableRow,
+} from "../_lib/receivables";
 import { PersonName } from "./PersonName";
 
 // The invoices of a tab: one row per issued invoice, its credit notes folded in (D1), opened to its lines, its credit
@@ -22,8 +34,11 @@ import { PersonName } from "./PersonName";
 const none = <span className={EMPTY}>—</span>;
 const day = (v: string | null | undefined) => (v ? <span className="tabular-nums whitespace-nowrap">{formatDate(v)}</span> : none);
 const cmp = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").localeCompare(b ?? "");
-const amount = (v: number, currency: string, strong = false) => (
-  <span className={`tabular-nums whitespace-nowrap ${strong ? "font-semibold text-slate-900" : ""}`}>{amountText(v, currency)}</span>
+const amountClass = (strong: boolean) => `tabular-nums whitespace-nowrap ${strong ? "font-semibold text-slate-900" : ""}`;
+const amount = (v: number, currency: string, strong = false) => <span className={amountClass(strong)}>{amountText(v, currency)}</span>;
+/** An amount of the first columns: without its currency while the Currency column shows it (listAmountText). */
+const figure = (v: number, currency: string, currencyShown: boolean, strong = false) => (
+  <span className={amountClass(strong)}>{listAmountText(v, currency, currencyShown)}</span>
 );
 const text = (v: string, width = "max-w-[220px]") => (v ? <span className={`block ${width} truncate`} title={v}>{v}</span> : none);
 /** A person by name, the e-mail on hover (mock test run). */
@@ -34,7 +49,8 @@ const inner = (width: number) => ({ maxWidth: width - LIST_CELL_PADDING });
 /**
  * The status and its marks; Overdue is said in the Due column already, so it is not repeated here. The marks wrap under
  * the status in a narrow column (A5): up to three side by side took 253 px; at 170 px Currency still fell off a 1440 px
- * screen (mock test run), so the column is LIST_WIDTHS.status.
+ * screen (mock test run), so the column is LIST_WIDTHS.status. A long mark wraps inside itself too ("Waiting for a
+ * second manager" was 177 px on one line, past its column, mock test S21-079).
  */
 function StatusCell({ r }: { r: ReceivableRow }) {
   const chips = markChips(r).filter((c) => c.key !== "overdue");
@@ -43,17 +59,31 @@ function StatusCell({ r }: { r: ReceivableRow }) {
       <Tooltip title={statusTitle(r.status)}>
         <Pill tone={statusTone(r.status)}>{statusLabel(r.status)}</Pill>
       </Tooltip>
-      <ChipList chips={chips} empty={false} />
+      {chips.map((c) => (
+        <Tooltip key={c.key ?? c.label} title={c.title}>
+          <Pill tone={c.tone} className="!whitespace-normal">
+            {c.label}
+          </Pill>
+        </Tooltip>
+      ))}
     </div>
   );
 }
 
-// The table's order and its widths (user council A5): the number shortened in its middle and the customer cut, each
-// whole on hover, the credit notes under the number, Status right after it - so the mock's columns up to Currency fit a
-// 1440 px screen, as LIST_WIDTHS sums them. The order is receivableColumns' RECEIVABLE_COLUMNS, which the shown columns follow.
-const columns: ColumnsType<ReceivableRow> = [
+// The table's order and its widths (user council A5): the number and the job shortened in their middle and the customer
+// cut, each whole on hover, the credit notes under the number, Status right after it - so all the mock's columns fit a
+// 1440 px screen, as LIST_WIDTHS sums them (mock test S21-079). The order is receivableColumns' RECEIVABLE_COLUMNS, which
+// the shown columns follow. `currencyShown`: the Currency column is shown, so the amounts beside it leave the currency out.
+const listColumns = (currencyShown: boolean): ColumnsType<ReceivableRow> => [
   {
-    title: "Invoice number",
+    // On two lines, as Amount with VAT: in one line the title made the column wider than its numbers.
+    title: (
+      <>
+        Invoice
+        <br />
+        number
+      </>
+    ),
     key: "number",
     width: LIST_WIDTHS.number,
     sorter: (a, b) => a.number.localeCompare(b.number),
@@ -62,10 +92,12 @@ const columns: ColumnsType<ReceivableRow> = [
       return (
         <div className="whitespace-nowrap">
           {shown === r.number ? (
-            <span className={`${REF} font-semibold text-slate-900`}>{r.number || "—"}</span>
+            <span className={`${REF} block truncate font-semibold text-slate-900`} style={inner(LIST_WIDTHS.number)} title={r.number}>
+              {r.number || "—"}
+            </span>
           ) : (
             <Tooltip title={r.number}>
-              <span className={`${REF} font-semibold text-slate-900`} aria-label={r.number}>
+              <span className={`${REF} block truncate font-semibold text-slate-900`} style={inner(LIST_WIDTHS.number)} aria-label={r.number}>
                 {shown}
               </span>
             </Tooltip>
@@ -99,13 +131,24 @@ const columns: ColumnsType<ReceivableRow> = [
     key: "job",
     width: LIST_WIDTHS.job,
     sorter: (a, b) => a.jobNumber.localeCompare(b.jobNumber),
+    // Shortened (shortJobNumber) and held to its column, the whole number on hover (mock test S21-079); the link only as
+    // wide as its text, so a click beside it still opens the invoice.
     render: (_, r) =>
       r.shipmentId ? (
-        <Link href={shipmentHref(r.shipmentId)} className={`${REF} whitespace-nowrap ${LINK}`} onClick={(e) => e.stopPropagation()}>
-          {r.jobNumber || "Job"}
+        <Link
+          href={shipmentHref(r.shipmentId)}
+          className={`${REF} inline-block truncate whitespace-nowrap align-bottom ${LINK}`}
+          style={inner(LIST_WIDTHS.job)}
+          title={r.jobNumber}
+          aria-label={r.jobNumber || "Job"}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {shortJobNumber(r.jobNumber) || "Job"}
         </Link>
       ) : (
-        <span className={REF}>{r.jobNumber || "—"}</span>
+        <span className={`${REF} block truncate whitespace-nowrap`} style={inner(LIST_WIDTHS.job)} title={r.jobNumber} aria-label={r.jobNumber || undefined}>
+          {shortJobNumber(r.jobNumber) || "—"}
+        </span>
       ),
   },
   {
@@ -117,8 +160,9 @@ const columns: ColumnsType<ReceivableRow> = [
       r.status === "cancelled" ? (
         none
       ) : (
-        <div className="whitespace-nowrap">
-          <span className="tabular-nums">{formatDate(r.dueDate)}</span>
+        // The day stays on one line; "125 days overdue" may wrap under it, so the column holds (mock test S21-079).
+        <div style={inner(LIST_WIDTHS.due)}>
+          <span className="tabular-nums whitespace-nowrap">{formatDate(r.dueDate)}</span>
           {r.daysOverdue > 0 && (
             <Tooltip title="Past its due day, by the day in Prague">
               <div className="text-[11px] font-medium text-red-600">
@@ -142,10 +186,17 @@ const columns: ColumnsType<ReceivableRow> = [
     width: LIST_WIDTHS.gross,
     align: "right",
     sorter: (a, b) => a.gross - b.gross,
-    render: (_, r) => amount(r.gross, r.currency),
+    render: (_, r) => figure(r.gross, r.currency, currencyShown),
   },
   {
-    title: "Left to pay",
+    // On two lines too: "LEFT TO PAY" in one was wider than its numbers.
+    title: (
+      <>
+        Left
+        <br />
+        to pay
+      </>
+    ),
     key: "left",
     width: LIST_WIDTHS.left,
     align: "right",
@@ -154,19 +205,22 @@ const columns: ColumnsType<ReceivableRow> = [
       r.status === "cancelled" && r.leftToPay === 0 ? (
         none
       ) : (
-        <span className={r.leftToPay < 0 ? "text-amber-700" : ""}>{amount(r.leftToPay, r.currency, r.leftToPay > 0)}</span>
+        <span className={r.leftToPay < 0 ? "text-amber-700" : ""}>{figure(r.leftToPay, r.currency, currencyShown, r.leftToPay > 0)}</span>
       ),
   },
-  { title: "Currency", key: "currency", width: LIST_WIDTHS.currency, sorter: (a, b) => a.currency.localeCompare(b.currency), render: (_, r) => <span className="tabular-nums">{r.currency}</span> },
+  // No sorter: its arrows made the column 96 px for three letters, and the whole list fits only without them (mock test
+  // S21-079); the Filter panel shows one currency.
+  { title: "Currency", key: "currency", width: LIST_WIDTHS.currency, render: (_, r) => <span className="tabular-nums">{r.currency}</span> },
   {
     title: "Paid",
     key: "paid",
+    width: LIST_WIDTHS.paid,
     sorter: (a, b) => cmp(a.lastPaidOn, b.lastPaidOn),
     render: (_, r) =>
       r.paid > 0 ? (
         <Tooltip title="Paid by the customer, as noted by a manager">
           <div className="whitespace-nowrap">
-            {amount(r.paid, r.currency)}
+            {figure(r.paid, r.currency, currencyShown)}
             <div className="text-[11px] text-slate-500 tabular-nums">{r.lastPaidOn ? formatDate(r.lastPaidOn) : "day not known"}</div>
           </div>
         </Tooltip>
@@ -174,7 +228,7 @@ const columns: ColumnsType<ReceivableRow> = [
         none
       ),
   },
-  { title: "Issued", key: "issued", sorter: (a, b) => cmp(a.issueDate, b.issueDate), render: (_, r) => day(r.issueDate) },
+  { title: "Issued", key: "issued", width: LIST_WIDTHS.issued, sorter: (a, b) => cmp(a.issueDate, b.issueDate), render: (_, r) => day(r.issueDate) },
   { title: "DUZP", key: "duzp", sorter: (a, b) => cmp(a.duzp, b.duzp), render: (_, r) => day(r.duzp) },
   {
     title: "Amount in CZK",
@@ -276,11 +330,18 @@ interface ReceivablesTableProps {
 }
 
 export function ReceivablesTable({ rows, loading, emptyText, resetKey, visible, onOpen, selection }: ReceivablesTableProps) {
+  const currencyShown = visible.includes("currency");
+  const columns = useMemo(() => shownColumns(listColumns(currencyShown), visible), [currencyShown, visible]);
   return (
     <DataTable<ReceivableRow>
+      // Drawn anew when the tick boxes come or go: the list fits its card, so antd stretches the columns to it, and it
+      // measures the titles' widths once - they kept the widths of the list without the tick boxes (as it is while the
+      // invoices load) beside rows with them, out of line (mock test S21-079).
+      key={selection ? "with-ticks" : "without-ticks"}
       resizeKey="accounts-receivable:invoices"
+      className={LIST_CELL_CLASS}
       dataSource={rows}
-      columns={shownColumns(columns, visible)}
+      columns={columns}
       rowKey="id"
       loading={loading}
       scroll={{ x: "max-content" }}

@@ -714,19 +714,43 @@ export function prunedSelection(selected: readonly string[], rows: readonly Pick
 export const NUMBER_SHOWN = 16;
 
 /**
- * The list's widths up to Currency, in px with each cell's 8 px padding on both sides (mock test run): at 1440 px the
- * 260 px menu, the page's 32 px sides and the card's border leave the table LIST_ROOM, which these, the tick box and the
- * expand arrow fit (1,064 px) - so Currency ends on screen. Each is what its cell holds: the number shortened, the
- * Status marks wrapping under it and the customer cut (both 120 px), each whole on hover.
+ * The list's widths of all ten columns it shows at first, in px with each cell's 6 px padding on both sides: at 1440 px
+ * the 260 px menu, the page's 32 px sides and the card's border leave the table LIST_ROOM, which these, the tick box and
+ * the expand arrow fit (1,104 px) - so the whole list, Issued too, is on screen with no scrolling (mock test S21-079;
+ * at first only Currency was aimed for, and Paid and Issued fell off). Each is what its cell holds, measured in the app
+ * at 1440 px: the number shortened ("INV2026…0125-003", 142 px), the Status marks wrapping, the customer cut and the job
+ * shortened ("CZROAD…0094", 102 px), each whole on hover; a day "28.12.2026" (75 px) with "12 days overdue" under it
+ * (86 px, a longer one wraps); the amounts without their currency while the Currency column shows it ("1,234,567.89",
+ * 87 px, bold too), and Currency as wide as its title. A header wider than its column is on two lines.
  */
-export const LIST_WIDTHS = { number: 150, status: 120, customer: 120, job: 120, due: 110, gross: 130, left: 130, currency: 92 } as const;
+export const LIST_WIDTHS = {
+  number: 156,
+  status: 100,
+  customer: 102,
+  job: 116,
+  due: 100,
+  gross: 100,
+  left: 100,
+  currency: 80,
+  paid: 100,
+  issued: 88,
+} as const;
 /** The table's room at 1440 px: 1440 − 260 (menu) − 2 × 32 (page sides) − 2 (card border). */
 export const LIST_ROOM = 1114;
-/** The tick box column (one payment over several invoices) and antd's expand arrow column. */
-export const LIST_TICK_WIDTH = 44;
-export const LIST_EXPAND_WIDTH = 48;
-/** A cell's padding, left and right: what its content may take is its width less this. */
-export const LIST_CELL_PADDING = 16;
+/**
+ * The tick box column (one payment over several invoices) and antd's expand arrow column: the box or the arrow and the
+ * padding (antd keeps the tick box column at 32 px at least).
+ */
+export const LIST_TICK_WIDTH = 32;
+export const LIST_EXPAND_WIDTH = 30;
+/**
+ * A cell's padding, left and right: what its content may take is its width less this. The list's cells have 6 px a
+ * side, not antd's 8 (LIST_CELL_CLASS): with 8 the ten columns fit only with the customer cut to a few letters (mock test
+ * S21-079).
+ */
+export const LIST_CELL_PADDING = 12;
+/** The class that gives the list's cells their LIST_CELL_PADDING. */
+export const LIST_CELL_CLASS = "[&_.ant-table-cell]:!px-1.5";
 
 /**
  * An invoice number as the list shows it in a column of its own width: a long one loses its middle, never its end -
@@ -737,6 +761,33 @@ export function shortInvoiceNumber(number: string, max = NUMBER_SHOWN): string {
   if (number.length <= max) return number;
   const head = 7;
   return `${number.slice(0, head)}…${number.slice(number.length - (max - head - 1))}`;
+}
+
+/** The most of a job number the list shows before it shortens it ("CZ00000053" is whole). */
+export const JOB_SHOWN = 10;
+
+/**
+ * A job number as the list shows it (mock test S21-079): a long one keeps its letters and the last four digits of its
+ * number, its leading zeros go - "CZROAD00000094" is "CZROAD…0094", "CZFCL00000062" "CZFCL…0062". At most `max` - 4
+ * letters, so it never runs past the column ("CZPROJECT00000023" is "CZPROJ…0023", not cut again at its end - review
+ * of the S21-079 fix). The whole number is on hover, and the Filter panel matches the whole number. Another text is
+ * cut in its middle, as an invoice number is.
+ */
+export function shortJobNumber(job: string, max = JOB_SHOWN): string {
+  if (job.length <= max) return job;
+  const [, letters, digits] = /^(CZ[A-Z]*)(\d+)$/.exec(job) ?? [];
+  if (letters && digits && digits.length > 4) return `${letters.slice(0, Math.max(2, max - 4))}…${digits.slice(-4)}`;
+  const tail = 4;
+  return `${job.slice(0, max - tail - 1)}…${job.slice(-tail)}`;
+}
+
+/**
+ * An amount as a column of the list shows it: without its currency while the Currency column beside it says it
+ * ("1,234,567.89", so the whole list fits a 1440 px screen, mock test S21-079), with it while Currency is hidden.
+ */
+export function listAmountText(amount: number | null | undefined, currency: string, currencyShown: boolean): string {
+  const text = amountText(amount, currency);
+  return currencyShown && text.endsWith(` ${currency}`) ? text.slice(0, -(currency.length + 1)) : text;
 }
 
 // ── Whom the reminders go to (D17; user council A7) ──
