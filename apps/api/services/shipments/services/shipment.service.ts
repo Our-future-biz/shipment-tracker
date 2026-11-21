@@ -89,7 +89,7 @@ import {
 } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
-import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
+import { isConsigneeChange, partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { AGENT_CONTACT, CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentPartiesChanged } from "../topics";
 import { deliverShipmentEvents } from "./shipmentEvents.service";
@@ -1171,8 +1171,11 @@ class ShipmentService {
     // The Delivery Phone and Delivery Notes belonged to the consignee picked before, whatever comes
     // next: a consignee with no address, one typed as free text (unlinked), or none (mock council
     // S3-6). Left, the Trucking order would pair them with the new consignee's Contact. A write that
-    // sends them itself keeps them; the new consignee's address fill below clears them as well.
-    if (existing && "consigneeId" in data && (data.consigneeId ?? null) !== (existing.consigneeId ?? null)) {
+    // sends them itself keeps them. They go with the consignee, not its record (isConsigneeChange,
+    // Shipments review): "Alfa s.r.o." linked to its own record keeps its phone from the Import
+    // Instructions. Nor are they part of the stop the new consignee's address fills below, so one sent
+    // with the new consignee does not keep its address from being filled.
+    if (existing && isConsigneeChange(data, existing)) {
       if (!("deliveryPhone" in data) && existing.deliveryPhone) written.deliveryPhone = "";
       if (!("deliveryNotes" in data) && existing.deliveryNotes) written.deliveryNotes = "";
     }

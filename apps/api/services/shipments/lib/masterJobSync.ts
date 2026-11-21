@@ -85,7 +85,8 @@ export type MasterJobPrefilledField = (typeof MASTER_JOB_PREFILLED_FIELDS)[numbe
 
 // The place fields, compared by their UN/LOCODE (step 3 review, minor 2): a place is stored as
 // "Name (CODE)", and the name of a code may change ("Shanghai Hongqiao International Apt (CNSHA)",
-// later "Shanghai (CNSHA)") - the same port all the same. Text that is no "Name (CODE)" compares as it is.
+// later "Shanghai (CNSHA)") - the same port all the same. Text that is no "Name (CODE)" compares as it
+// is, so a house's bare "CNSHA" is that port too (Shipments review).
 const PLACE_FIELDS = new Set<string>(["pol", "pod"]);
 const sameAs = (key: string) => (value: string) => (PLACE_FIELDS.has(key) ? (placeCodeOf(value) ?? value) : value);
 
@@ -109,9 +110,10 @@ const TIME_OF_DATE: Partial<Record<MasterJobPrefilledField, MasterJobPrefilledFi
  * The values a new master job takes from the houses it is made from: each field every one of them
  * has filled in alike. A field they differ on, or one of them leaves empty, stays empty, so linking
  * them changes nothing on any house (an empty master job field is not written onto a house). A place
- * agrees by its code, and takes the text of the house written last; linking leaves a house's place
- * that has the master job's code as it is (linkedHouseData, mock council S4-7). A time comes only
- * with its date: on its own it would be a time of no day.
+ * agrees by its code, and takes the text of the house written last that names it - "Shanghai (CNSHA)"
+ * over a newer bare "CNSHA" (Shipments review); linking leaves a house's place that has the master
+ * job's code as it is (linkedHouseData, mock council S4-7). A time comes only with its date: on its
+ * own it would be a time of no day.
  */
 export function agreedHouseValues(houses: readonly Record<string, unknown>[]): Partial<Record<MasterJobPrefilledField, string>> {
   const out: Partial<Record<MasterJobPrefilledField, string>> = {};
@@ -122,7 +124,9 @@ export function agreedHouseValues(houses: readonly Record<string, unknown>[]): P
     const value = newest[0]![key];
     if (typeof value !== "string" || value === "") continue;
     const compared = sameAs(key);
-    if (newest.every((h) => typeof h[key] === "string" && compared(h[key] as string) === compared(value))) out[key] = value;
+    if (!newest.every((h) => typeof h[key] === "string" && compared(h[key] as string) === compared(value))) continue;
+    const named = PLACE_FIELDS.has(key) ? newest.map((h) => h[key] as string).find((v) => placeCodeOf(v) !== null) : undefined;
+    out[key] = named ?? value;
   }
   for (const [time, date] of Object.entries(TIME_OF_DATE) as [MasterJobPrefilledField, MasterJobPrefilledField][]) {
     if (!(date in out)) delete out[time];
@@ -134,6 +138,8 @@ export function agreedHouseValues(houses: readonly Record<string, unknown>[]): P
  * The synced values a house just linked takes, without a place it already has by the same code: an
  * older house's "Shanghai Hongqiao International Apt (CNSHA)" is the master job's "Shanghai (CNSHA)",
  * and rewriting its text would change it, with a History entry, for no new port (mock council S4-7).
+ * The code is read as agreedHouseValues reads it, so a house's bare "CNSHA" is kept as well, and a
+ * bare "DEHAM" on the master job leaves a house's "Hamburg (DEHAM)" as it is (Shipments review).
  */
 export function linkedHouseData(
   synced: Partial<Record<MasterJobSyncedField, string | null>>,
@@ -143,9 +149,9 @@ export function linkedHouseData(
   for (const key of ["pol", "pod"] as const) {
     const value = out[key];
     const own = house[key];
-    if (typeof value !== "string" || typeof own !== "string" || own === value) continue;
-    const code = placeCodeOf(value);
-    if (code && placeCodeOf(own) === code) delete out[key];
+    if (typeof value !== "string" || typeof own !== "string") continue;
+    const compared = sameAs(key);
+    if (compared(own) === compared(value)) delete out[key];
   }
   return out;
 }

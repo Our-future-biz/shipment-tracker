@@ -176,11 +176,13 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   // status or delivery (those are its shipments'), so its own dates move it, by the shipment's
   // rule: departed = In transit, arrived = past Arrive at Port of Discharge.
   const stage = getStageFromFacts({ tradeDirection: mj.tradeDirection, actualDeparture: mj.actualDeparture, actualArrival: mj.actualArrival });
+  // The freight mode it goes by - its own, else its shipments' one while it has none - for its stages, its rows and
+  // every cell alike (Shipments review): a master job of air houses with no Freight Mode is air throughout.
+  const mode = masterJobModeOf(mj);
   // The stages by its freight mode, as a shipment's bar: an air master job arrives at its airport (user council T9).
-  const stages = progressStagesFor(mj.freightMode ?? "");
+  const stages = progressStagesFor(mode);
   // Its rows in the words of its freight mode, as a shipment's (mock council S4-4): an air master job names its
   // MAWB, flight and airports, and leaves out the empty sea-only rows (voyage, container, VGM / SI closings).
-  const mode = masterJobModeOf(mj);
   const named = (key: string, sea: string) => modeLabel(key, sea, mode);
   const rowValue = (key: string): string | null | undefined =>
     key === "containerNumber" ? containerNumbers : (mj as unknown as Record<string, string | null | undefined>)[key];
@@ -199,7 +201,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   return (
     // The freight mode reaches every cell, as on a shipment: by air Port of Loading and Port of Discharge also offer
     // airports, by sea Destination ocean terminals, and by air a Full Load reads Single Shipment.
-    <FreightModeContext.Provider value={mj.freightMode || undefined}>
+    <FreightModeContext.Provider value={mode || undefined}>
     <div className="@container flex flex-col gap-4 min-w-0">
       {/* The master job's progress, above its cards as on Shipment Details */}
       <ProgressStages activeIndex={stage} factOf={stageFacts} stages={stages} ariaLabel="Master job progress" />
@@ -215,7 +217,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
               key: "loadType",
               label: "Load Type",
               row: mj.loadType ? (
-                <LockedLoadType value={loadTypeLabel(mj.loadType, masterJobModeOf(mj))} />
+                <LockedLoadType value={loadTypeLabel(mj.loadType, mode)} />
               ) : (
                 <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} styleFor={styleFor} synced />
               ),

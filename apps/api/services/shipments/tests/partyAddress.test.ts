@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { partyContact, partyStop, stopKeys, type PartyAddress } from "../lib/partyAddress";
+import { isConsigneeChange, partyContact, partyStop, stopKeys, type PartyAddress } from "../lib/partyAddress";
 
 const address = (over: Partial<PartyAddress> = {}): PartyAddress => ({
   types: ["Pickup"],
@@ -13,14 +13,14 @@ const address = (over: Partial<PartyAddress> = {}): PartyAddress => ({
   ...over,
 });
 const customer = (registeredAddress = "", country = "CZ") => ({ registeredAddress, country });
-// What belonged to the party picked before: its site, hours, and (the consignee's) Delivery Phone and Notes.
-const cleared = { siteId: null, openingFrom: "", openingTo: "", phone: "", notes: "" };
+// What belonged to the party picked before: its site and hours.
+const cleared = { siteId: null, openingFrom: "", openingTo: "" };
 
 describe("stopKeys", () => {
-  it("clears the consignee's Delivery Phone and Delivery Notes with its stop; the shipper's stop has none (E5)", () => {
-    expect(stopKeys("consignee")).toMatchObject({ phone: "deliveryPhone", notes: "deliveryNotes" });
-    expect(stopKeys("shipper")).not.toHaveProperty("phone");
-    expect(stopKeys("shipper")).not.toHaveProperty("notes");
+  it("leaves the consignee's Delivery Phone and Delivery Notes out of its stop: they go with the consignee, not its address (Shipments review)", () => {
+    expect(stopKeys("consignee")).toMatchObject({ address: "deliveryAddress", siteId: "deliverySiteId" });
+    expect(Object.values(stopKeys("consignee"))).not.toContain("deliveryPhone");
+    expect(Object.values(stopKeys("consignee"))).not.toContain("deliveryNotes");
   });
 });
 
@@ -68,8 +68,35 @@ describe("partyStop", () => {
   });
 });
 
+// The Delivery Phone and Notes go with the consignee, not its Customer Database record (Shipments review).
+describe("isConsigneeChange", () => {
+  const A = "3c1e2f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+  const B = "8d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5d";
+
+  it("reads two linked consignees by their record", () => {
+    expect(isConsigneeChange({ consignee: "Alfa s.r.o.", consigneeId: B }, { consignee: "Alfa s.r.o.", consigneeId: A })).toBe(true);
+    expect(isConsigneeChange({ consignee: "Alfa a.s.", consigneeId: A }, { consignee: "Alfa s.r.o.", consigneeId: A })).toBe(false);
+  });
+
+  it("reads a free-text one by its name, trimmed and in any case", () => {
+    expect(isConsigneeChange({ consignee: "Beta s.r.o.", consigneeId: null }, { consignee: "Alfa s.r.o.", consigneeId: null })).toBe(true);
+    expect(isConsigneeChange({ consignee: "Beta s.r.o." }, { consignee: "Alfa s.r.o.", consigneeId: null })).toBe(true);
+    expect(isConsigneeChange({ consignee: " ALFA s.r.o. " }, { consignee: "Alfa s.r.o.", consigneeId: null })).toBe(false);
+  });
+
+  it("is no change to link a free-text consignee to its own record, or to unlink it", () => {
+    expect(isConsigneeChange({ consignee: "Alfa s.r.o.", consigneeId: A }, { consignee: "Alfa s.r.o.", consigneeId: null })).toBe(false);
+    expect(isConsigneeChange({ consigneeId: null }, { consignee: "Alfa s.r.o.", consigneeId: A })).toBe(false);
+    expect(isConsigneeChange({ consignee: "Beta s.r.o.", consigneeId: A }, { consignee: "Alfa s.r.o.", consigneeId: null })).toBe(true);
+  });
+
+  it("is none for a write that names no consignee", () => {
+    expect(isConsigneeChange({}, { consignee: "Alfa s.r.o.", consigneeId: A })).toBe(false);
+  });
+});
+
 describe("partyContact", () => {
-  const contact = (name: string, role: string, isMain = false) => ({ name, role, isMain });
+  const contact =(name: string, role: string, isMain = false) => ({ name, role, isMain });
 
   it("takes Customer Service, else the Logistics Manager, else anyone", () => {
     const all = [contact("Eva Sales", "Sales", true), contact("Petr Logistika", "Logistics Manager"), contact("Jana Servis", "Customer Service")];

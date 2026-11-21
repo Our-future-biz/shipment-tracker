@@ -27,13 +27,13 @@ export interface StopFill {
   postcode: string | null;
   country: string | null;
   // The trucking site and opening hours belonged to the party picked before; they are cleared.
+  // The consignee's Delivery Phone and Delivery Notes are no part of the stop (Shipments review): they
+  // go with the consignee, not its address - shipmentService.fillPartyStops clears them when the
+  // consignee changes, linked or not (User Council E5, mock council S3-6), and a write that sends
+  // one with a new consignee still has that consignee's address filled.
   siteId: null;
   openingFrom: "";
   openingTo: "";
-  // So did the consignee's Delivery Phone and Delivery Notes (User Council E5): left, they would go to
-  // Trucking as the new party's. The shipper's stop has none, so its keys don't name them.
-  phone: "";
-  notes: "";
 }
 
 const STOP_KEYS = {
@@ -52,13 +52,33 @@ const STOP_KEYS = {
     siteId: "deliverySiteId",
     openingFrom: "consigneeOpeningFrom",
     openingTo: "consigneeOpeningTo",
-    phone: "deliveryPhone",
-    notes: "deliveryNotes",
   },
 } as const;
 
 /** The shipment fields of the stop a party fills, by what they hold. */
 export const stopKeys = (party: Party) => STOP_KEYS[party];
+
+/** The consignee a shipment names: its Customer Database record, if linked, and its name. */
+export interface ConsigneeOf {
+  consignee?: string | null;
+  consigneeId?: string | null;
+}
+
+const sameName = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
+/**
+ * Whether a write names another consignee than the shipment has (Shipments review): by the record
+ * when both are linked, else by the name, trimmed and in any case - a free-text "Alfa s.r.o." retyped
+ * as "Beta s.r.o." is another consignee, while "Alfa s.r.o." linked to its own record, or unlinked,
+ * is the same one. A write that names no consignee changes none.
+ */
+export function isConsigneeChange(data: ConsigneeOf, existing: ConsigneeOf): boolean {
+  if (!("consigneeId" in data) && !("consignee" in data)) return false;
+  const before = existing.consigneeId ?? null;
+  const after = "consigneeId" in data ? (data.consigneeId ?? null) : before;
+  if (before && after) return before !== after;
+  return !sameName("consignee" in data ? data.consignee : existing.consignee, existing.consignee);
+}
 
 const ADDRESS_TYPE: Record<Party, string> = { shipper: "Pickup", consignee: "Delivery" };
 
@@ -83,7 +103,7 @@ const fromAddress = (a: PartyAddress, customer: PartyCustomer): StopFill | null 
   const address = [a.street, a.city].map((p) => p.trim()).filter(Boolean).join(", ");
   if (!address) return null;
   const country = stopCountry(a.country, customer);
-  return { address, postcode: stopPostcode(a.postalCode, country), country, siteId: null, openingFrom: "", openingTo: "", phone: "", notes: "" };
+  return { address, postcode: stopPostcode(a.postalCode, country), country, siteId: null, openingFrom: "", openingTo: "" };
 };
 
 /**
@@ -105,7 +125,7 @@ export function partyStop(party: Party, customer: PartyCustomer, addresses: read
   const country = stopCountry("", customer);
   const last = address.includes(",") ? address.split(",").pop()!.trim() : "";
   const postcode = /\d/.test(last) && /^[A-Z0-9][A-Z0-9 -]{2,9}$/i.test(last) ? stopPostcode(last, country) : null;
-  return { address, postcode, country, siteId: null, openingFrom: "", openingTo: "", phone: "", notes: "" };
+  return { address, postcode, country, siteId: null, openingFrom: "", openingTo: "" };
 }
 
 /** The parts of a customer contact the shipment's Contact is chosen by. */

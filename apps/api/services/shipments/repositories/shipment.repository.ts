@@ -172,19 +172,36 @@ const sameJobNumber = (word: string): SQL | undefined => {
 /** The person columns of the list's "all fields" search: Handled By and Holiday Cover. */
 const PERSON_COLUMNS = [...PERSON_SEARCH_COLUMNS].map((key) => SHIPMENT_COLUMNS[key]!);
 
+// A person column's stored text as the "all fields" search reads it (Shipments review): the e-mail's
+// local part ("eva.mala" of "eva.mala@cto-logistics.cz") and a legacy name after it ("e-mail — Name"),
+// never the domain - "logistics" would find every job the company's people handle.
+const personSearchText = (column: PgColumn): SQL =>
+  sql`concat_ws(' ', split_part(split_part(${column}, ' — ', 1), '@', 1), split_part(${column}, ' — ', 2))`;
+const PERSON_TEXT = PERSON_COLUMNS.map(personSearchText);
+
+// A word typed with an "@" is an e-mail being typed: that one is looked for in the whole stored text
+// of Handled By and Holiday Cover, domain and all ("jan@firma" finds the jobs of jan@firma.cz).
+const personEmailMatch = (word: string): SQL | undefined =>
+  word.includes("@") ? sql`(${sql.join(PERSON_COLUMNS.map((column) => sql`${foldSql(sql`${column}`)} LIKE ${`%${word}%`}`), sql` OR `)})` : undefined;
+
 /**
  * The Shipments search: every word typed, in the chosen grid columns (searchedColumns) or else in
  * SEARCHED_TEXT, without regard to diacritics or case - a reference also by its number. With the
  * users' `names` (the Shipments list; the main search sends none), a word also finds a chosen
  * person column - or, searching all fields, Handled By and Holiday Cover, their stored text
- * searched as well - by the user's name the grid shows (mock council S7-5).
+ * searched as well but for an e-mail's domain (personSearchText) unless the word is an e-mail
+ * typed (personEmailMatch) - by the user's name the grid shows (mock council S7-5).
  */
 export function searchMatch(search: string, columnKeys?: string[], names?: SearchPeopleNames): SQL | undefined {
   const chosen = !!columnKeys?.length;
   const people = !names ? [] : chosen ? [...new Set(columnKeys)].filter((key) => PERSON_SEARCH_COLUMNS.has(key)).map((key) => SHIPMENT_COLUMNS[key]!) : PERSON_COLUMNS;
-  const text = chosen ? searchedColumns(columnKeys) : names ? [...SEARCHED_TEXT, ...PERSON_COLUMNS] : SEARCHED_TEXT;
+  const text = chosen ? searchedColumns(columnKeys) : names ? [...SEARCHED_TEXT, ...PERSON_TEXT] : SEARCHED_TEXT;
   const orWord = (word: string) => {
-    const matches = [sameJobNumber(word), names ? personNameMatch(people, names, word) : undefined].filter((x): x is SQL => !!x);
+    const matches = [
+      sameJobNumber(word),
+      names ? personNameMatch(people, names, word) : undefined,
+      names && !chosen ? personEmailMatch(word) : undefined,
+    ].filter((x): x is SQL => !!x);
     return matches.length > 1 ? sql`(${sql.join(matches, sql` OR `)})` : matches[0];
   };
   return containsAllWords(text, search, orWord);

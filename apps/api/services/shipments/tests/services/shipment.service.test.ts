@@ -1111,16 +1111,50 @@ describe("a shipper or consignee picked from the Customer Database", () => {
       { consigneeId: "8d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5d", deliveryAddress: "typed by hand" },
       // The same consignee, or a write that sends the phone itself, keeps them.
       { consigneeId: PARTY },
-      { consigneeId: null, deliveryPhone: "+420 777" },
+      { consignee: "Typed s.r.o.", consigneeId: null, deliveryPhone: "+420 777" },
     ];
     for (const data of writes) {
-      stored.set(SHIPMENT, row({ consigneeId: PARTY, ...old }));
+      stored.set(SHIPMENT, row({ consignee: "Alza.cz a.s.", consigneeId: PARTY, ...old }));
       await update(data);
     }
     const calls = repository.updateForCompany.mock.calls.map((c) => c[2] as Record<string, unknown>);
     for (const data of calls.slice(0, 3)) expect(data).toMatchObject({ deliveryPhone: "", deliveryNotes: "" });
     expect(calls[3]).not.toHaveProperty("deliveryPhone");
     expect(calls[4]).toMatchObject({ deliveryPhone: "+420 777", deliveryNotes: "" });
+  });
+
+  it("clears them when a consignee typed as free text is retyped as another, linked or not (Shipments review)", async () => {
+    const alfa = { consignee: "Alfa s.r.o.", consigneeId: null, deliveryPhone: "+420 602", deliveryNotes: "Ramp 2" };
+    for (const data of [{ consignee: "Beta s.r.o.", consigneeId: null }, { consignee: "Beta s.r.o." }]) {
+      stored.set(SHIPMENT, row(alfa));
+      await update(data);
+    }
+    const calls = repository.updateForCompany.mock.calls.map((c) => c[2] as Record<string, unknown>);
+    for (const data of calls) expect(data).toMatchObject({ deliveryPhone: "", deliveryNotes: "" });
+  });
+
+  it("keeps them while the consignee stays the same: retyped in another case, linked to its own record, or unlinked (Shipments review)", async () => {
+    const phone = { deliveryPhone: "+420 602", deliveryNotes: "Ramp 2" };
+    stored.set(SHIPMENT, row({ consignee: "Alfa s.r.o.", consigneeId: null, ...phone }));
+    await update({ consignee: "  ALFA s.r.o. ", consigneeId: null });
+    stored.set(SHIPMENT, row({ consignee: "Alza.cz a.s.", consigneeId: null, ...phone }));
+    await update({ consignee: "Alza.cz a.s.", consigneeId: PARTY });
+    stored.set(SHIPMENT, row({ consignee: "Alza.cz a.s.", consigneeId: PARTY, ...phone }));
+    await update({ consigneeId: null });
+    const calls = repository.updateForCompany.mock.calls.map((c) => c[2] as Record<string, unknown>);
+    for (const data of calls) {
+      expect(data).not.toHaveProperty("deliveryPhone");
+      expect(data).not.toHaveProperty("deliveryNotes");
+    }
+    // Linked, it still takes its record's delivery address.
+    expect(calls[1]).toMatchObject({ deliveryAddress: "Dopravní, Praha 11" });
+  });
+
+  it("fills a new consignee's delivery address though the write sends a Delivery Phone, and keeps that phone (Shipments review)", async () => {
+    stored.set(SHIPMENT, row({ consignee: "Old s.r.o.", consigneeId: null, deliveryAddress: "old street", deliveryNotes: "Ramp 2" }));
+    await update({ consigneeId: PARTY, deliveryPhone: "+420 999" });
+    expect(customers.addressList).toHaveBeenCalledWith({ customerId: PARTY });
+    expect(written()).toMatchObject({ deliveryAddress: "Dopravní, Praha 11", deliveryPostcode: "18000", deliveryPhone: "+420 999", deliveryNotes: "" });
   });
 
   it("fills the shipper's pick-up from the Registered address when there is no Pickup one", async () => {

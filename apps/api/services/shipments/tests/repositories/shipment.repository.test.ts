@@ -433,12 +433,32 @@ describe("a person searched by the name the grid shows (mock council S7-5)", () 
 
   it("searching all fields: Handled By and Holiday Cover too, by their stored text and by the user's name", () => {
     const { sql: text, params } = sent(searchMatch("Malá", undefined, names));
-    expect(text).toContain('"shipment"."person_in_charge", "shipment"."holiday_cover")');
+    for (const column of ["person_in_charge", "holiday_cover"]) {
+      expect(text).toContain(`split_part(split_part("shipment"."${column}", ' — ', 1), '@', 1)`);
+      expect(text).toContain(`split_part("shipment"."${column}", ' — ', 2)`);
+    }
     expect(text).toContain(`${EMAIL_OF("person_in_charge")}`);
     expect(params).toContain("%mala%");
     expect(params).toContain("eva.mala@cto.cz");
     // The main search sends no names: as before, no person columns.
     expect(sent(searchMatch("Malá")).sql).not.toContain("person_in_charge");
+  });
+
+  it("searching all fields: never a person's whole stored e-mail, so its domain finds no job (Shipments review)", () => {
+    // "logistics" of "…@cto-logistics.cz" would find every job its people handle.
+    const { sql: text } = sent(searchMatch("logistics", undefined, names));
+    // A column joined into the searched text is one of concat_ws's arguments, after ", ".
+    expect(text).not.toMatch(/, "shipment"\."(person_in_charge|holiday_cover)"[,)]/);
+    expect(text).not.toContain('normalize("shipment"."person_in_charge"');
+    expect(text).toContain(`split_part(split_part("shipment"."person_in_charge", ' — ', 1), '@', 1)`);
+    // An e-mail typed, "@" and all, is looked for in the whole stored text: that word alone.
+    const typed = sent(searchMatch("jan@firma Shanghai", undefined, names));
+    expect(typed.sql).toContain(`normalize("shipment"."person_in_charge", NFD)`);
+    expect(typed.sql).toContain(`normalize("shipment"."holiday_cover", NFD)`);
+    expect(typed.params.filter((p) => p === "%jan@firma%")).toHaveLength(3);
+    expect(typed.params.filter((p) => p === "%shanghai%")).toHaveLength(1);
+    // Chosen columns hold the person column's stored text already.
+    expect(sent(searchMatch("jan@firma", ["pol"], names)).sql).not.toContain("person_in_charge");
   });
 
   it("searching chosen columns: only the chosen person columns by the name; others not at all", () => {

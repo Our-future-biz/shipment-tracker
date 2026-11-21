@@ -34,6 +34,8 @@ describe("the Shipments search by a person's name", () => {
     expect(await found(companyId, { search: "Eva Malá" })).toEqual(["CZ00000301", "CZ00000302"]);
     expect(await found(companyId, { search: "maly" })).toEqual(["CZ00000304"]);
     expect(await found(companyId, { search: "jan@firma" })).toEqual(["CZ00000303"]);
+    // The e-mails' domain finds no job: every one of them has it (Shipments review).
+    expect(await found(companyId, { search: "firma" })).toEqual([]);
     // Chosen columns: only the chosen person column.
     expect(await found(companyId, { search: "mala", searchColumns: ["personInCharge"] })).toEqual(["CZ00000301"]);
     expect(await found(companyId, { search: "mala", searchColumns: ["customer"] })).toEqual([]);

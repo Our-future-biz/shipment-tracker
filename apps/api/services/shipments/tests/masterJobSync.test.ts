@@ -226,6 +226,24 @@ describe("agreedHouseValues", () => {
     expect(agreedHouseValues([house({ vessel: "MSC ANNA (CNSHA)" }), house({ vessel: "MSC BELLA (CNSHA)" })])).not.toHaveProperty("vessel");
   });
 
+  it("keeps a port's named text where one house has the bare code (Shipments review)", () => {
+    const older = house({ pol: "Shanghai (CNSHA)", pod: "DEHAM", updatedAt: new Date("2026-10-01T08:00:00Z") });
+    const newer = house({ pol: "CNSHA", pod: "Hamburg (DEHAM)", updatedAt: new Date("2026-11-19T08:00:00Z") });
+    expect(agreedHouseValues([older, newer])).toMatchObject({ pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)" });
+    expect(agreedHouseValues([house({ pol: "CNSHA" }), house({ pol: "CNSHA" })])).toMatchObject({ pol: "CNSHA" });
+  });
+
+  it("links houses agreeing on a port by its code, one by the bare code, without rewriting either", () => {
+    const older = house({ pol: "Shanghai (CNSHA)", pod: "DEHAM", updatedAt: new Date("2026-10-01T08:00:00Z") });
+    const newer = house({ pol: "CNSHA", pod: "Hamburg (DEHAM)", updatedAt: new Date("2026-11-19T08:00:00Z") });
+    const synced = syncedShipmentData(agreedHouseValues([older, newer]));
+    for (const h of [older, newer]) {
+      const onLink = linkedHouseData(synced, h);
+      expect(onLink).not.toHaveProperty("pol");
+      expect(onLink).not.toHaveProperty("pod");
+    }
+  });
+
   it("writes onto a linked house only what it has already", () => {
     const houses = [house(), house({ vessel: "MSC BELLA", estimatedDeparture: null })];
     const onLink = syncedShipmentData(agreedHouseValues(houses));
@@ -240,6 +258,13 @@ describe("linkedHouseData", () => {
     const synced = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", vessel: "MSC ANNA" };
     const house = { pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "" };
     expect(linkedHouseData(synced, house)).toEqual({ pod: "Hamburg (DEHAM)", vessel: "MSC ANNA" });
+  });
+
+  it("keeps a house's place written as the bare code of the master job's, and the other way round", () => {
+    expect(linkedHouseData({ pol: "Shanghai (CNSHA)", vessel: "MSC ANNA" }, { pol: "CNSHA" })).toEqual({ vessel: "MSC ANNA" });
+    expect(linkedHouseData({ pod: "DEHAM" }, { pod: "Hamburg (DEHAM)" })).toEqual({});
+    // A bare code of another port is another port.
+    expect(linkedHouseData({ pol: "Shanghai (CNSHA)" }, { pol: "CNNGB" })).toEqual({ pol: "Shanghai (CNSHA)" });
   });
 
   it("still writes a place of another code, and a text with no code", () => {
