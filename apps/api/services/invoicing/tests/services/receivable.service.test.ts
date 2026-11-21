@@ -698,7 +698,7 @@ describe("the detail", () => {
         ["u-eva", { name: "Eva Nová", email: "eva@test.cz", role: "manager" }],
       ]),
     );
-    // Priced in EUR, billed in CZK: the line's figures are in the invoice's currency.
+    // Priced in EUR, billed in CZK: the unit price in its own EUR (mock test run F4), the line's figures in the invoice's CZK.
     repo.linesOf.mockResolvedValue([{ description: "Ocean freight", qty: "1.00", unitPrice: "40.00", unitCurrency: "EUR", net: "1000.00", vatRate: "21.00" }]);
     repo.paymentsOf.mockResolvedValue([
       { id: PAYMENT, kind: "payment", paidOn: "2026-11-14", amount: "300.00", note: "", by: "boss@test.cz", createdAt: new Date("2026-11-15T09:00:00Z"), takenBackAt: null, takenBackBy: "", takenBackReason: "" },
@@ -706,7 +706,7 @@ describe("the detail", () => {
     repo.figures.mockResolvedValue([figures({ invoice: { dueDate: "2026-11-10" } }), figures({ invoice: { id: INV_B, currency: "EUR", gross: "50.00" } })]);
     const answer = await service.detail(clerk, INV);
     expect(answer.row).toMatchObject({ status: "credited", leftToPay: -300, marks: ["to_refund"] });
-    expect(answer.lines).toEqual([{ description: "Ocean freight", qty: 1, unit: "", unitPrice: 40, currency: "CZK", net: 1000, vatRate: 21, vat: 210, gross: 1210 }]);
+    expect(answer.lines).toEqual([{ description: "Ocean freight", qty: 1, unit: "", unitPrice: 40, currency: "EUR", net: 1000, vatRate: 21, vat: 210, gross: 1210 }]);
     expect(answer.creditNotes.map((c) => [c.number, c.gross, c.full])).toEqual([
       ["CN-1", -210, false],
       ["CN-2", -1000, true],

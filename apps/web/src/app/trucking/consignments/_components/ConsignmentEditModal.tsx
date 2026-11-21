@@ -16,8 +16,9 @@ interface ConsignmentEditModalProps {
   onSave: (req: ConsignmentUpdate) => Promise<unknown>;
 }
 
-// Edit a consignment: the same fields as Create, the job and customer fixed. The stored price stays
-// unless "Price again" is ticked. A save over someone else's change is refused (reload first).
+// Edit a consignment: the same fields as Create, the job and customer fixed. A tariff or quote price
+// stays unless "Price again" is ticked; a changed agreed price is saved as given. A save over someone
+// else's change is refused (reload first).
 export const ConsignmentEditModal = ({ c, limited, onClose, onSave }: ConsignmentEditModalProps) => {
   const [form, setForm] = useState<ConsignmentForm>(() => formFromDetail(c));
   const [reprice, setReprice] = useState(false);
@@ -53,7 +54,11 @@ export const ConsignmentEditModal = ({ c, limited, onClose, onSave }: Consignmen
           <Alert type="warning" showIcon message="No fixed delivery date agreed with the customer yet. Give it when it is known; this edit saves without it." />
         )}
         <ConsignmentFormFields form={form} onChange={setForm} limited={limited} />
-        {!limited && (
+        {/* An agreed price is saved as typed; only a tariff or quote price is priced again (mock test run F2). */}
+        {!limited && form.priceSource === "MANUAL" && (
+          <div className="text-[12px] text-slate-600">A changed agreed price is saved as the new price; the job&apos;s selling costs follow.</div>
+        )}
+        {!limited && form.priceSource !== "MANUAL" && (
           <Checkbox checked={reprice} onChange={(e) => setReprice(e.target.checked)}>
             Price again from the {form.priceSource === "QUOTE" ? "quote" : "tariff"} (the stored price is kept otherwise; the job&apos;s selling costs follow)
           </Checkbox>

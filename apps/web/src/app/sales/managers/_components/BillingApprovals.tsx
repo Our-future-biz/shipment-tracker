@@ -42,6 +42,7 @@ export function BillingApprovals() {
   return (
     <div className="flex flex-col gap-4">
       <SupplierInvoiceApprovals />
+      <WriteOffsWaiting />
       <InvoiceChangeApprovals />
       <CreditNoteApprovals />
     </div>
@@ -186,7 +187,6 @@ function SupplierInvoiceApprovals() {
           <div className={isError ? "text-[12px] text-red-600" : HINT}>
             {isError ? "Could not load the count." : "Approved or refused on Accounts Payable, where the invoice, its lines and its file are."}
           </div>
-          <WriteOffsWaiting />
         </div>
         <Link href="/accounts-payable?tab=to_approve" className={`${BTN} !text-slate-700 hover:!text-slate-900`}>
           Open Accounts Payable
@@ -200,27 +200,37 @@ function SupplierInvoiceApprovals() {
  * Accounts Receivable's write-offs and bank charges waiting for a second manager (step 7, D13): the count of those this
  * manager can confirm, linking to the first one's invoice on Accounts Receivable, where it is confirmed or taken back;
  * the manager's own apart ("2 of yours wait for another manager"), as another manager confirms them. Nothing when none
- * waits.
+ * waits. A small card of its own: inside the supplier invoices' card it read as theirs (mock test run).
  */
 function WriteOffsWaiting() {
   const { data, isError } = useReceivableWaiting();
   const { user } = useAuth();
-  if (isError) return <div className="text-[12px] text-red-600">Could not load the write-offs waiting for a second manager.</div>;
   const { confirmable, mine } = waitingSplit(data?.lines ?? [], user?.email);
-  if (!confirmable.length && !mine.length) return null;
+  if (!isError && !confirmable.length && !mine.length) return null;
   const first = confirmable[0];
   return (
-    <div className="text-[12px] text-amber-700 mt-0.5">
-      {first && (
-        <>
-          <Link href={arInvoiceHref(first.invoiceId)} className={LINK_CLASS}>
-            {waitingText(confirmable)}
-          </Link>{" "}
-          <span className="text-slate-500">· confirmed or taken back on Accounts Receivable{confirmable.length > 1 ? `, the first: ${first.number}` : `: ${first.number}`}</span>
-        </>
-      )}
-      {mine.length > 0 && <span className="text-slate-500">{first ? " · " : ""}{mineWaitingText(mine.length)}</span>}
-    </div>
+    <section className={`${CARD} overflow-hidden`}>
+      <div className={CARD_BAR}>
+        <div>
+          <h3 className={CARD_TITLE}>Write-offs and bank charges to confirm</h3>
+          {isError ? (
+            <div className="text-[12px] text-red-600">Could not load the write-offs waiting for a second manager.</div>
+          ) : (
+            <div className="text-[12px] text-amber-700 mt-0.5">
+              {first && (
+                <>
+                  <Link href={arInvoiceHref(first.invoiceId)} className={LINK_CLASS}>
+                    {waitingText(confirmable)}
+                  </Link>{" "}
+                  <span className="text-slate-500">· confirmed or taken back on Accounts Receivable{confirmable.length > 1 ? `, the first: ${first.number}` : `: ${first.number}`}</span>
+                </>
+              )}
+              {mine.length > 0 && <span className="text-slate-500">{first ? " · " : ""}{mineWaitingText(mine.length)}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

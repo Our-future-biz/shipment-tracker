@@ -27,7 +27,35 @@ export function madeAlreadyNumbers(existing: readonly (MadeAlready | null)[]): s
   return [...new Set(existing.flatMap((e) => (e ? [e.number] : [])))];
 }
 
-/** The Master B/L a new master job is asked for: the one read, when it is ticked to be filed onto it. */
-export function masterBolToFile(info: Record<string, string> | null, ticked: Record<string, boolean>): string {
-  return info && ticked[MASTER_BOL] ? (info[MASTER_BOL] ?? "").trim() : "";
+// A B/L number as two are compared (as the server's billOfLadingKey): letters and digits, upper case.
+const bolKey = (ref: string | undefined) => (ref ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/** The Master B/L the houses read name, when every house that names one names the same; "" otherwise. */
+export function housesMasterBol(houses: readonly Record<string, string>[]): string {
+  const named = houses.map((h) => (h[MASTER_BOL] ?? "").trim()).filter((b) => bolKey(b));
+  return named.length > 0 && new Set(named.map(bolKey)).size === 1 ? (named[0] ?? "") : "";
+}
+
+/**
+ * The Master B/L of the houses the review shows ("Master B/L from the houses"), ticked to be filed like a read
+ * one: only when no Master B/L number was read, and the houses agree on one ("" when two differ).
+ */
+export function housesMasterBolShown(info: Record<string, string> | null, houses: readonly Record<string, string>[]): string {
+  return bolKey(info?.[MASTER_BOL]) ? "" : housesMasterBol(houses);
+}
+
+/**
+ * The Master B/L a new master job is asked for: the one read, when it is ticked to be filed onto it.
+ * With no Master B/L number read (no Master B/L page), the one the houses agree on (mock test run F3:
+ * the master job was made without it, so a second read found none and offered a second master job),
+ * when it is left ticked on the review (`housesTicked`; mock test run F3, m1: it was used unseen).
+ */
+export function masterBolToFile(
+  info: Record<string, string> | null,
+  ticked: Record<string, boolean>,
+  houses: readonly Record<string, string>[] = [],
+  housesTicked = true,
+): string {
+  if (!bolKey(info?.[MASTER_BOL])) return housesTicked ? housesMasterBol(houses) : "";
+  return ticked[MASTER_BOL] ? (info?.[MASTER_BOL] ?? "").trim() : "";
 }

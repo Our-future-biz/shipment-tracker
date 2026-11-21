@@ -95,6 +95,16 @@ describe("the milestones", () => {
     expect(row(t, "arrived")).toMatchObject({ state: "open", planned: "2026-12-10", taxDate: true });
   });
 
+  // Mock test S21-041: a sea job's carrier code saved as the airport's name showed that name.
+  it("names a sea job's ports by their port name, an air job's as stored", () => {
+    const old = { pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "Ningbo Lishe International Apt (CNNGB)", estimatedDeparture: "2026-11-20" };
+    const sea = build({ shipment: shipment(old) });
+    expect(row(sea, "departed")?.place).toBe("Shanghai (CNSHA)");
+    expect(row(sea, "arrived")?.place).toBe("Ningbo (CNNGB)");
+    const air = build({ shipment: shipment({ ...old, freightMode: "Air Freight" }) });
+    expect(row(air, "departed")?.place).toBe("Shanghai Hongqiao International Apt (CNSHA)");
+  });
+
   it("marks an actual date done and says who recorded it", () => {
     const t = build({
       shipment: shipment({ estimatedDeparture: "2026-09-19", actualDeparture: "2026-09-20" }),

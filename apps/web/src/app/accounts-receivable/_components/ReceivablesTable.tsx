@@ -13,7 +13,8 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { shownColumns } from "@/lib/tableModel";
 import { EMPTY, HINT, LINK, REF } from "@/styles/ui";
-import { amountText, batchSelectable, shipmentHref, shortInvoiceNumber, type ReceivableRow } from "../_lib/receivables";
+import { amountText, batchSelectable, LIST_CELL_PADDING, LIST_EXPAND_WIDTH, LIST_TICK_WIDTH, LIST_WIDTHS, shipmentHref, shortInvoiceNumber, type ReceivableRow } from "../_lib/receivables";
+import { PersonName } from "./PersonName";
 
 // The invoices of a tab: one row per issued invoice, its credit notes folded in (D1), opened to its lines, its credit
 // notes and the job's people. A click anywhere else opens the drawer.
@@ -25,15 +26,20 @@ const amount = (v: number, currency: string, strong = false) => (
   <span className={`tabular-nums whitespace-nowrap ${strong ? "font-semibold text-slate-900" : ""}`}>{amountText(v, currency)}</span>
 );
 const text = (v: string, width = "max-w-[220px]") => (v ? <span className={`block ${width} truncate`} title={v}>{v}</span> : none);
+/** A person by name, the e-mail on hover (mock test run). */
+const person = (email: string) => (email ? <PersonName email={email} className="block max-w-[220px] truncate" /> : none);
+/** What a cell of the list may hold: its width less its padding (LIST_WIDTHS). */
+const inner = (width: number) => ({ maxWidth: width - LIST_CELL_PADDING });
 
 /**
  * The status and its marks; Overdue is said in the Due column already, so it is not repeated here. The marks wrap under
- * the status in a narrow column (A5): up to three side by side took 253 px.
+ * the status in a narrow column (A5): up to three side by side took 253 px; at 170 px Currency still fell off a 1440 px
+ * screen (mock test run), so the column is LIST_WIDTHS.status.
  */
 function StatusCell({ r }: { r: ReceivableRow }) {
   const chips = markChips(r).filter((c) => c.key !== "overdue");
   return (
-    <div className="flex flex-wrap items-center gap-1 max-w-[170px]">
+    <div className="flex flex-wrap items-center gap-1" style={inner(LIST_WIDTHS.status)}>
       <Tooltip title={statusTitle(r.status)}>
         <Pill tone={statusTone(r.status)}>{statusLabel(r.status)}</Pill>
       </Tooltip>
@@ -44,11 +50,12 @@ function StatusCell({ r }: { r: ReceivableRow }) {
 
 // The table's order and its widths (user council A5): the number shortened in its middle and the customer cut, each
 // whole on hover, the credit notes under the number, Status right after it - so the mock's columns up to Currency fit a
-// 1440 px screen. The order is receivableColumns' RECEIVABLE_COLUMNS, which the shown columns follow.
+// 1440 px screen, as LIST_WIDTHS sums them. The order is receivableColumns' RECEIVABLE_COLUMNS, which the shown columns follow.
 const columns: ColumnsType<ReceivableRow> = [
   {
     title: "Invoice number",
     key: "number",
+    width: LIST_WIDTHS.number,
     sorter: (a, b) => a.number.localeCompare(b.number),
     render: (_, r) => {
       const shown = shortInvoiceNumber(r.number);
@@ -72,11 +79,25 @@ const columns: ColumnsType<ReceivableRow> = [
       );
     },
   },
-  { title: "Status", key: "status", render: (_, r) => <StatusCell r={r} /> },
-  { title: "Customer", key: "customer", sorter: (a, b) => a.customer.localeCompare(b.customer), render: (_, r) => <span className="font-medium text-slate-900">{text(r.customer, "max-w-[150px]")}</span> },
+  { title: "Status", key: "status", width: LIST_WIDTHS.status, render: (_, r) => <StatusCell r={r} /> },
+  {
+    title: "Customer",
+    key: "customer",
+    width: LIST_WIDTHS.customer,
+    sorter: (a, b) => a.customer.localeCompare(b.customer),
+    render: (_, r) =>
+      r.customer ? (
+        <span className="block truncate font-medium text-slate-900" style={inner(LIST_WIDTHS.customer)} title={r.customer}>
+          {r.customer}
+        </span>
+      ) : (
+        none
+      ),
+  },
   {
     title: "Job",
     key: "job",
+    width: LIST_WIDTHS.job,
     sorter: (a, b) => a.jobNumber.localeCompare(b.jobNumber),
     render: (_, r) =>
       r.shipmentId ? (
@@ -90,6 +111,7 @@ const columns: ColumnsType<ReceivableRow> = [
   {
     title: "Due",
     key: "due",
+    width: LIST_WIDTHS.due,
     sorter: (a, b) => cmp(a.dueDate, b.dueDate),
     render: (_, r) =>
       r.status === "cancelled" ? (
@@ -117,6 +139,7 @@ const columns: ColumnsType<ReceivableRow> = [
       </>
     ),
     key: "gross",
+    width: LIST_WIDTHS.gross,
     align: "right",
     sorter: (a, b) => a.gross - b.gross,
     render: (_, r) => amount(r.gross, r.currency),
@@ -124,6 +147,7 @@ const columns: ColumnsType<ReceivableRow> = [
   {
     title: "Left to pay",
     key: "left",
+    width: LIST_WIDTHS.left,
     align: "right",
     sorter: (a, b) => a.leftToPay - b.leftToPay,
     render: (_, r) =>
@@ -133,7 +157,7 @@ const columns: ColumnsType<ReceivableRow> = [
         <span className={r.leftToPay < 0 ? "text-amber-700" : ""}>{amount(r.leftToPay, r.currency, r.leftToPay > 0)}</span>
       ),
   },
-  { title: "Currency", key: "currency", sorter: (a, b) => a.currency.localeCompare(b.currency), render: (_, r) => <span className="tabular-nums">{r.currency}</span> },
+  { title: "Currency", key: "currency", width: LIST_WIDTHS.currency, sorter: (a, b) => a.currency.localeCompare(b.currency), render: (_, r) => <span className="tabular-nums">{r.currency}</span> },
   {
     title: "Paid",
     key: "paid",
@@ -171,12 +195,16 @@ const columns: ColumnsType<ReceivableRow> = [
     sorter: (a, b) => a.personInCharge.localeCompare(b.personInCharge),
     render: (_, r) => (
       <div>
-        {text(r.personInCharge)}
-        {r.holidayCover && <div className="text-[11px] text-slate-500 max-w-[220px] truncate">Holiday Cover: {r.holidayCover}</div>}
+        {person(r.personInCharge)}
+        {r.holidayCover && (
+          <div className="text-[11px] text-slate-500 max-w-[220px] truncate">
+            Holiday Cover: <PersonName email={r.holidayCover} />
+          </div>
+        )}
       </div>
     ),
   },
-  { title: "Issued by", key: "issuedBy", sorter: (a, b) => a.issuedBy.localeCompare(b.issuedBy), render: (_, r) => text(r.issuedBy) },
+  { title: "Issued by", key: "issuedBy", sorter: (a, b) => a.issuedBy.localeCompare(b.issuedBy), render: (_, r) => person(r.issuedBy) },
   { title: "Payment terms", key: "terms", render: (_, r) => text(r.paymentTerms) },
   {
     title: "Last reminder",
@@ -219,8 +247,14 @@ function RowDetail({ r }: { r: ReceivableRow }) {
         </div>
       )}
       <div className={HINT}>
-        Person in Charge: {r.personInCharge || "—"}
-        {r.holidayCover ? ` · Holiday Cover: ${r.holidayCover}` : ""} · Sales Owner: {r.salesOwner || "—"}
+        Person in Charge: {r.personInCharge ? <PersonName email={r.personInCharge} /> : "—"}
+        {r.holidayCover && (
+          <>
+            {" · Holiday Cover: "}
+            <PersonName email={r.holidayCover} />
+          </>
+        )}{" "}
+        · Sales Owner: {r.salesOwner || "—"}
       </div>
     </div>
   );
@@ -252,7 +286,7 @@ export function ReceivablesTable({ rows, loading, emptyText, resetKey, visible, 
       scroll={{ x: "max-content" }}
       resetKey={resetKey}
       locale={{ emptyText }}
-      expandable={{ expandedRowRender: (r) => <RowDetail r={r} /> }}
+      expandable={{ expandedRowRender: (r) => <RowDetail r={r} />, columnWidth: LIST_EXPAND_WIDTH }}
       rowSelection={
         selection
           ? {
@@ -261,7 +295,7 @@ export function ReceivablesTable({ rows, loading, emptyText, resetKey, visible, 
               preserveSelectedRowKeys: true,
               getCheckboxProps: (r) => ({ disabled: !batchSelectable(r), "aria-label": `Tick ${r.number} for one payment` }),
               fixed: true,
-              columnWidth: 44,
+              columnWidth: LIST_TICK_WIDTH,
             }
           : undefined
       }

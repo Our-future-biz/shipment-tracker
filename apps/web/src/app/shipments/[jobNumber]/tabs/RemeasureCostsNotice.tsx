@@ -32,7 +32,8 @@ export function RemeasureCostsNotice({ shipmentId }: { shipmentId: string }) {
 
   const onChecked = async () => {
     try {
-      await markCostsChecked();
+      // The acceptance this warning shows: a newer one accepted meanwhile is not marked by it (mock test S20-079).
+      await markCostsChecked(acceptance.acceptedAt);
       messageApi.success("Marked as checked");
     } catch (e) {
       messageApi.error(`Not marked: ${apiErrorMessage(e)}`);

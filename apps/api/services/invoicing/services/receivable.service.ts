@@ -520,8 +520,9 @@ class ReceivableService {
         const net = Number(l.net);
         const vatRate = Number(l.vatRate);
         const vat = round2((net * vatRate) / 100);
-        // Net, VAT and gross of a line are in the invoice's currency (the unit price may be in another one: it is not shown).
-        return { description: l.description, qty: Number(l.qty), unit: "", unitPrice: Number(l.unitPrice), currency: f.invoice.currency, net, vatRate, vat, gross: round2(net + vat) };
+        // The unit price in its own currency - a CZK charge on a EUR invoice is CZK (mock test run F4); net, VAT and
+        // gross are in the invoice's.
+        return { description: l.description, qty: Number(l.qty), unit: "", unitPrice: Number(l.unitPrice), currency: l.unitCurrency, net, vatRate, vat, gross: round2(net + vat) };
       }),
       // A credited invoice's last credit note is the one of the whole invoice (none can follow it).
       creditNotes: creditNotes.map((c, i) => ({

@@ -58,8 +58,15 @@ export const RECEIVABLE_DEFAULT_COLUMNS: string[] = ["number", "status", "custom
 
 const RECEIVABLE_VIEW = { scope: RECEIVABLE_SCOPE, defaults: RECEIVABLE_DEFAULT_COLUMNS };
 
+/** A user's name by the e-mail a person is stored by; "" when unknown (the users not loaded, or no user's e-mail). */
+export type NameOf = (email: string) => string;
+const noNames: NameOf = () => "";
+
+/** A person as the Filter panel matches them: the name the list shows and the e-mail it is stored by (mock test run). */
+const personText = (email: string, nameOf: NameOf) => [nameOf(email), email].filter(Boolean).join(" ");
+
 /** A cell's text in the invoices table, as the row shows it (the Filter panel matches it). */
-export function receivableCellText(r: ReceivableRow, key: string): string {
+export function receivableCellText(r: ReceivableRow, key: string, nameOf: NameOf = noNames): string {
   switch (key) {
     case "number":
       return [r.number, ...r.creditNoteNumbers].join(" ");
@@ -90,9 +97,9 @@ export function receivableCellText(r: ReceivableRow, key: string): string {
     case "salesOwner":
       return r.salesOwner;
     case "pic":
-      return [r.personInCharge, r.holidayCover].filter(Boolean).join(" ");
+      return [personText(r.personInCharge, nameOf), personText(r.holidayCover, nameOf)].filter(Boolean).join(" ");
     case "issuedBy":
-      return r.issuedBy;
+      return personText(r.issuedBy, nameOf);
     case "terms":
       return r.paymentTerms;
     case "reminder":
@@ -108,15 +115,16 @@ export function receivableCellText(r: ReceivableRow, key: string): string {
  * The invoices table's model. Its checks read today (Prague's day, as the server's `today` says it), so the model is
  * made per day; its column view keeps one stable defaults array, so the saved columns are read once. "Not reminded by
  * the app" reads the day the automatic reminders start (the server's autoRemindersSince; null: off or not set).
+ * `nameOf`: the users' names, so the Filter panel finds a person by the name the list shows as well as by e-mail.
  */
-export function receivableTable(today: string, autoRemindersSince: string | null = null): TableModel<ReceivableRow, ReceivableCheck> {
+export function receivableTable(today: string, autoRemindersSince: string | null = null, nameOf: NameOf = noNames): TableModel<ReceivableRow, ReceivableCheck> {
   const m = tableModel<ReceivableRow, ReceivableCheck>({
     scope: RECEIVABLE_SCOPE,
     columns: RECEIVABLE_COLUMNS,
     first: "number",
     checks: RECEIVABLE_CHECKS,
     checksTitle: "Show only",
-    cellText: receivableCellText,
+    cellText: (r, key) => receivableCellText(r, key, nameOf),
     passesCheck: (r, check) => passesCheck(r, check, today, autoRemindersSince),
   });
   return { ...m, view: RECEIVABLE_VIEW };

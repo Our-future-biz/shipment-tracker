@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APIError, ErrCode } from "@/lib/api";
-import { houseRefusedAsMade, housesMadeAlready, madeAlreadyNumbers, masterBolToFile } from "./preAlertMadeAlready";
+import { houseRefusedAsMade, housesMadeAlready, housesMasterBol, housesMasterBolShown, madeAlreadyNumbers, masterBolToFile } from "./preAlertMadeAlready";
 
 // X6: read again, the pre-alert's houses showed as new and HBLTEST-A1 was created twice.
 describe("a pre-alert read again", () => {
@@ -29,5 +29,30 @@ describe("a pre-alert read again", () => {
     expect(masterBolToFile(info, { "Master BoL Number": true })).toBe("HLCUX6TEST001");
     expect(masterBolToFile(info, { "Master BoL Number": false })).toBe("");
     expect(masterBolToFile(null, { "Master BoL Number": true })).toBe("");
+  });
+
+  // Mock test run F3: a manifest and House B/Ls with no Master B/L page made a master job without its B/L.
+  it("asks for the Master B/L the houses agree on when none was read, but not over one read and unticked", () => {
+    const houses: Record<string, string>[] = [{ "Master BoL Number": " MEDU123 " }, { "Master BoL Number": "medu-123" }, {}];
+    expect(masterBolToFile(null, {}, houses)).toBe("MEDU123");
+    expect(masterBolToFile({ Vessel: "X", "Master BoL Number": " " }, {}, houses)).toBe("MEDU123");
+    expect(masterBolToFile(null, {}, [{ "Master BoL Number": "MEDU123" }, { "Master BoL Number": "MEDU999" }])).toBe("");
+    expect(masterBolToFile(null, {}, [{}])).toBe("");
+    expect(masterBolToFile({ "Master BoL Number": "HLCUX6TEST001" }, { "Master BoL Number": false }, houses)).toBe("");
+    expect(housesMasterBol([])).toBe("");
+  });
+
+  // Mock test run F3, m1: the houses' Master B/L was filed, and its master job taken, unseen.
+  it("shows the houses' Master B/L only when none was read, and files it only while it stays ticked", () => {
+    const houses: Record<string, string>[] = [{ "Master BoL Number": "MEDU123" }, {}];
+    expect(housesMasterBolShown(null, houses)).toBe("MEDU123");
+    expect(housesMasterBolShown({ Vessel: "X" }, houses)).toBe("MEDU123");
+    expect(housesMasterBolShown({ "Master BoL Number": "HLCUX6TEST001" }, houses)).toBe("");
+    // Two houses naming two: none shown, none filed.
+    expect(housesMasterBolShown(null, [{ "Master BoL Number": "MEDU123" }, { "Master BoL Number": "MEDU999" }])).toBe("");
+    expect(masterBolToFile(null, {}, houses, true)).toBe("MEDU123");
+    expect(masterBolToFile(null, {}, houses, false)).toBe("");
+    // A read one goes by its own tick, whatever the houses' one.
+    expect(masterBolToFile({ "Master BoL Number": "HLCUX6TEST001" }, { "Master BoL Number": true }, houses, false)).toBe("HLCUX6TEST001");
   });
 });

@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { followRecord } from "./saveConflict";
+import { APIError, ErrCode } from "@/lib/api/client";
+import { followRecord, isVersionConflict } from "./saveConflict";
+
+// Mock test S18-159: every 409 was read as "changed by someone else", so "one consignment per
+// quote" (already_exists, also 409) was hidden behind a reload request.
+describe("a version conflict", () => {
+  it("is an aborted save, or a failed precondition that says so in words", () => {
+    expect(isVersionConflict(new APIError(409, { code: ErrCode.Aborted, message: "The consignment was changed by someone else" }))).toBe(true);
+    expect(isVersionConflict(new APIError(400, { code: ErrCode.FailedPrecondition, message: "The trip was changed by someone else. Reload and try again." }))).toBe(true);
+  });
+
+  it("is not another refusal with a 409, nor any other error", () => {
+    const taken = new APIError(409, { code: ErrCode.AlreadyExists, message: "Quote QCZ20261010001 is already on consignment TCZ2026000001: one consignment per quote" });
+    expect(isVersionConflict(taken)).toBe(false);
+    expect(isVersionConflict(new APIError(400, { code: ErrCode.FailedPrecondition, message: "After the pick-up the price cannot change" }))).toBe(false);
+    expect(isVersionConflict(new Error("Network down"))).toBe(false);
+  });
+});
 
 const v = (vatUnreliable: boolean, notes: string, version: number) => ({ draft: { vatUnreliable, notes }, version });
 

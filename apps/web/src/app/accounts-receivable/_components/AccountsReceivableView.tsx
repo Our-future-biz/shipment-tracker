@@ -11,11 +11,13 @@ import { CountedTabs } from "@/components/finance/CountedTabs";
 import { KPI_GRID_CLASS, KpiTile } from "@/components/KpiTile";
 import { SectionBackLink } from "@/components/SectionBackLink";
 import { useReceivables } from "@/hooks/useReceivables";
+import { useUsers } from "@/hooks/useUsers";
 import { useTableControls } from "@/hooks/useTableControls";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { useLatestRates } from "@/lib/fx";
 import { formatAmount } from "@/lib/money";
+import { userByEmail } from "@/lib/people";
 import { matchesTableFilters } from "@/lib/tableModel";
 import { replaceSearchParams } from "@/lib/urlParams";
 import { BTN, BTN_PRIMARY, CARD, CHIP, CHIP_ON, HINT, PAGE_TITLE } from "@/styles/ui";
@@ -70,6 +72,7 @@ type Param = "tab" | "invoice" | "period";
 
 // Why "Note one payment…" is grey, said on the button too, not only on hover (user council A16).
 const NOTE_ONE_PAYMENT_HINT = "Tick the invoices one bank payment pays, then note it once";
+const NO_USERS: ReturnType<typeof useUsers>["users"] = [];
 
 export function AccountsReceivableView() {
   const router = useRouter();
@@ -99,7 +102,14 @@ export function AccountsReceivableView() {
   const today = data?.today ?? businessToday();
   // "Not reminded by the app" (P18) reads the day the automatic reminders start; none while they are off.
   const autoRemindersSince = data?.autoRemindersSince ?? null;
-  const invoiceTable = useMemo(() => receivableTable(today, autoRemindersSince), [today, autoRemindersSince]);
+  // People by name, as the list shows them: the Filter panel finds them by it too (mock test run).
+  const people = useUsers();
+  // Until read, one empty list (not a new one each render, which would make the table's model anew every time).
+  const users = people.loaded ? people.users : NO_USERS;
+  const invoiceTable = useMemo(
+    () => receivableTable(today, autoRemindersSince, (email) => userByEmail(email, users)?.displayName.trim() ?? ""),
+    [today, autoRemindersSince, users],
+  );
   const invoiceControls = useTableControls(invoiceTable);
   const customerControls = useTableControls(CUSTOMER_TABLE);
   const byCustomer = tab === "customers";

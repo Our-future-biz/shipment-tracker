@@ -87,17 +87,27 @@ export function handOverPreview(jobs: readonly HandOverJob[], target: HandOverTa
 /** How many jobs of a preview change at all. */
 export const handOverChanging = (rows: readonly HandOverPreviewRow[]): number => rows.filter((r) => r.handledBy || r.holidayCover).length;
 
-/** The request: a field left alone is left out, so the server leaves it alone too. */
+/**
+ * The request: a field left alone is left out, so the server leaves it alone too. `shown` carries the people each
+ * job had in the preview (mock test S20-123): a job somebody changed since is left as they made it, not overwritten.
+ */
 export function handOverRequest(
   jobs: readonly HandOverJob[],
   target: HandOverTarget,
   reason: string,
-): { shipmentIds: string[]; handledBy?: string; holidayCover?: string; reason: string } {
+): {
+  shipmentIds: string[];
+  handledBy?: string;
+  holidayCover?: string;
+  reason: string;
+  shown: Record<string, { handledBy: string; holidayCover: string }>;
+} {
   return {
     shipmentIds: jobs.map((j) => j.id),
     ...(target.handledBy !== null ? { handledBy: target.handledBy } : {}),
     ...(target.holidayCover !== null ? { holidayCover: target.holidayCover } : {}),
     reason: reason.trim(),
+    shown: Object.fromEntries(jobs.map((j) => [j.id, { handledBy: j.handledBy, holidayCover: j.holidayCover }])),
   };
 }
 
@@ -211,6 +221,8 @@ export function handOverAllNote(
     return `${listed.jobs.length} of ${listed.total} ${of}: at most ${HAND_OVER_MAX_JOBS} go in one hand-over. Hand over the rest the same way once these are done.`;
   }
   if (opts.changing && listed.total === 0) return `No active job with ${person} ${role}${scope ? ` (${scope})` : ""} changes: they are all so already.`;
+  // One job reads as one, not "All 1 active job…, quiet ones too" (mock test of 21 Nov).
+  if (listed.total === 1) return `The one ${of} - whether or not it has a signal on the cards.`;
   return `All ${listed.total} ${of}, quiet ones too - not only those with a signal on the cards.`;
 }
 

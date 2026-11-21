@@ -5,7 +5,7 @@ import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment
 import type { ShipmentAttachmentRecord } from "../schemas/shipmentAttachment.schema";
 import { attachmentBucket } from "../storage/attachmentBucket";
 import { APPROVED_DOCUMENT_REFUSAL, canManageDocuments, documentReviewRefusal, ownUploadApprovalRefusal } from "../lib/documentRules";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken";
 import { iso, isoOrNull } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
@@ -13,8 +13,8 @@ import type { FileContent } from "../../../lib/fileContent";
 import type { AttachmentCustomsStatus, AttachmentFileLink, AttachmentItem } from "../interfaces/interfaces";
 import { shipmentService } from "./shipment.service";
 
-/** An attachment row as the API shows it: who uploaded and reviewed it by e-mail, a download link, no storage key. */
-function toItem(row: ShipmentAttachmentRecord, emails: Map<string, string>): AttachmentItem {
+/** An attachment row as the API shows it: who uploaded and reviewed it by name (the e-mail for a user with none; mock test of 21 Nov), a download link, no storage key. */
+function toItem(row: ShipmentAttachmentRecord, names: Map<string, string>): AttachmentItem {
   return {
     id: row.id,
     shipmentId: row.shipmentId,
@@ -27,8 +27,8 @@ function toItem(row: ShipmentAttachmentRecord, emails: Map<string, string>): Att
     customsStatus: row.customsStatus,
     customsNote: row.customsNote,
     customsReviewedAt: isoOrNull(row.customsReviewedAt),
-    uploadedByName: row.uploadedById ? emails.get(row.uploadedById) || "Unknown" : "Unknown",
-    customsReviewedByName: row.customsReviewedById ? emails.get(row.customsReviewedById) || "Unknown" : "",
+    uploadedByName: row.uploadedById ? names.get(row.uploadedById) || "Unknown" : "Unknown",
+    customsReviewedByName: row.customsReviewedById ? names.get(row.customsReviewedById) || "Unknown" : "",
   };
 }
 
@@ -42,11 +42,11 @@ export interface NewAttachment {
 class AttachmentService {
   async list(shipmentId: string, companyId: string): Promise<AttachmentItem[]> {
     await shipmentService.requireLive(shipmentId, companyId);
-    const [rows, emails] = await Promise.all([
+    const [rows, names] = await Promise.all([
       shipmentAttachmentRepository.listByShipmentId(shipmentId, companyId),
-      userEmails(),
+      userNames(),
     ]);
-    return rows.map((r) => toItem(r, emails));
+    return rows.map((r) => toItem(r, names));
   }
 
   /**
@@ -79,7 +79,7 @@ class AttachmentService {
         documentType: file.documentType,
         uploadedById,
       });
-      return toItem(row, await userEmails());
+      return toItem(row, await userNames());
     } catch (err) {
       await attachmentBucket
         .remove(storageKey)
@@ -152,7 +152,7 @@ class AttachmentService {
       if (current?.customsStatus === "approved") throw APIError.permissionDenied(APPROVED_DOCUMENT_REFUSAL);
       throw APIError.notFound("Attachment not found");
     }
-    return toItem(row, await userEmails());
+    return toItem(row, await userNames());
   }
 
   /**
@@ -178,7 +178,7 @@ class AttachmentService {
       if (!current) throw APIError.notFound("Attachment not found");
       const refusal = documentReviewRefusal(current.customsStatus, status, role);
       if (refusal) throw APIError.permissionDenied(refusal);
-      if (current.customsStatus === "approved") return toItem(current, await userEmails());
+      if (current.customsStatus === "approved") return toItem(current, await userNames());
       // Four eyes: a regular user does not approve their own upload (lib/documentRules).
       const own = ownUploadApprovalRefusal(current, status, userId, role);
       if (own) throw APIError.permissionDenied(own);
@@ -199,7 +199,7 @@ class AttachmentService {
     // Approved by someone else between the read and the write.
     if (!row && guarded) throw APIError.permissionDenied(APPROVED_DOCUMENT_REFUSAL);
     if (!row) throw APIError.notFound("Attachment not found");
-    return toItem(row, await userEmails());
+    return toItem(row, await userNames());
   }
 
   /**

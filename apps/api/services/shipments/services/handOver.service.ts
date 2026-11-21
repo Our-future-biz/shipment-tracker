@@ -13,10 +13,12 @@ import {
   JOB_NOT_FOUND,
   MAX_HAND_OVER_REASON,
   MIN_HAND_OVER_REASON,
+  asShown,
   handOverChange,
   handOverLine,
   listTarget,
   stillAsDecided,
+  type HandOverShown,
   type HandOverTarget,
 } from "../lib/handOver";
 import { PERSON_FIELDS } from "../lib/people";
@@ -32,6 +34,11 @@ export interface HandOverInput {
   /** The new Holiday Cover (a user's e-mail), or "" to clear it; left out leaves it as it is. */
   holidayCover?: string;
   reason: string;
+  /**
+   * The people each job had in the dialog's preview, by shipment id (mock test S20-123): a job whose
+   * Handled By / Holiday Cover is no longer so is left as it is. Left out (or a job missing), not checked.
+   */
+  shown?: Record<string, HandOverShown>;
 }
 
 // Jobs changed side by side: each is its own write turn on its own row, so they do not wait for
@@ -78,7 +85,7 @@ class HandOverService {
     const queue = [...ids];
     const worker = async () => {
       for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
-        const outcome = await this.one(actor, id, target, reason);
+        const outcome = await this.one(actor, id, target, reason, shownOf(input.shown, id));
         if (outcome === null) changed++;
         else skipped.push({ shipmentId: id, ...outcome });
       }
@@ -90,12 +97,15 @@ class HandOverService {
   }
 
   // One job: null when it was changed, else why it was left as it is. Never throws.
-  private async one(actor: Actor, id: string, target: HandOverTarget, reason: string): Promise<{ jobNumber: string; why: string } | null> {
+  private async one(actor: Actor, id: string, target: HandOverTarget, reason: string, shown?: HandOverShown): Promise<{ jobNumber: string; why: string } | null> {
     let jobNumber = "";
     try {
       const job = isUuid(id) ? await shipmentRepository.getByIdForCompany(id, actor.companyID) : null;
       if (!job) return { jobNumber, why: JOB_NOT_FOUND };
       jobNumber = job.jobNumber ?? "";
+      // Before "already so": a job the preview showed as already so, changed since to somebody else, would
+      // otherwise be handed over on top of a change the manager never saw (mock test S20-123).
+      if (!asShown(job, shown, target)) return { jobNumber, why: CHANGED_MEANWHILE };
       const change = handOverChange(job, target);
       if (!change) return { jobNumber, why: ALREADY_SO };
       // Checked again in the write turn: the line names `job`'s people as "from", so it is written
@@ -158,6 +168,12 @@ class HandOverService {
       throw APIError.unavailable("The company's users could not be read just now - try again in a moment");
     }
   }
+}
+
+// The preview's people for one job, when the page sent them as strings (anything else: not checked).
+function shownOf(shown: HandOverInput["shown"], id: string): HandOverShown | undefined {
+  const one = shown && Object.prototype.hasOwnProperty.call(shown, id) ? shown[id] : undefined;
+  return one && typeof one.handledBy === "string" && typeof one.holidayCover === "string" ? one : undefined;
 }
 
 export const handOverService = new HandOverService();

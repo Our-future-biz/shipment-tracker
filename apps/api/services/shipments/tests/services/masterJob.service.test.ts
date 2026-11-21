@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), inf
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/masterJob.repository", () => ({
-  masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn(), basicsByIds: vi.fn(), findByMczNumber: vi.fn() },
+  masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn(), basicsByIds: vi.fn(), findByMczNumber: vi.fn(), searchMain: vi.fn() },
 }));
 vi.mock("../../repositories/masterJobContainer.repository", () => ({ masterJobContainerRepository: {} }));
 vi.mock("../../repositories/masterJobHouseKinds.repository", () => ({ masterJobHouseKindsRepository: { ofMasterJobs: vi.fn(async () => new Map()) } }));
@@ -529,5 +529,28 @@ describe("the basics of master jobs (for Accounts Payable)", () => {
     expect(repository.basicsByIds).not.toHaveBeenCalled();
     const many = Array.from({ length: 501 }, (_, i) => `00000000-0000-0000-0000-${String(i).padStart(12, "0")}`);
     await expect(masterJobService.basics(COMPANY, many)).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+});
+
+// Mock test S21-041: the top bar listed a sea master job's old carrier code by the airport's name.
+describe("the main search in master jobs", () => {
+  it("names a sea master job's ports by their port name - by its houses' mode when it has none - and an air one's as stored", async () => {
+    const old = { masterBolNumber: "", vessel: "", voyage: "", pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "Hamburg (DEHAM)" };
+    repository.searchMain.mockResolvedValue({
+      rows: [
+        { ...old, id: "m1", mczNumber: "MCZ00000001", freightMode: "Sea Freight" },
+        { ...old, id: "m2", mczNumber: "MCZ00000002", freightMode: "" },
+        { ...old, id: "m3", mczNumber: "MCZ00000003", freightMode: "Air Freight" },
+      ],
+      total: 3,
+    } as never);
+    repository.shipmentCounts.mockResolvedValue(new Map([["m1", 2]]));
+    vi.mocked(masterJobHouseKindsRepository.ofMasterJobs).mockResolvedValue(new Map([["m2", [{ loadType: "Full Load", freightMode: "Sea Freight", status: "Booked" }]]]));
+    const { items } = await masterJobService.searchMain(COMPANY, "shanghai", 5);
+    expect(items.map((i) => [i.pol, i.pod, i.shipmentCount])).toEqual([
+      ["Shanghai (CNSHA)", "Hamburg (DEHAM)", 2],
+      ["Shanghai (CNSHA)", "Hamburg (DEHAM)", 0],
+      ["Shanghai Hongqiao International Apt (CNSHA)", "Hamburg (DEHAM)", 0],
+    ]);
   });
 });

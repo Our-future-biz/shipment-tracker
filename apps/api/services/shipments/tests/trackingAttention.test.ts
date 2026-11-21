@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionFlags, type AttentionFacts, type AttentionShipment } from "../lib/trackingAttention";
+import { attentionFlags, daysAgo, DEFAULT_ATTENTION_RULES, type AttentionFacts, type AttentionShipment } from "../lib/trackingAttention";
 import { lastEventOf } from "../lib/trackingEvents";
 import { changesTaxDate } from "../lib/taxDate";
 
@@ -33,6 +33,14 @@ describe("what the dates say", () => {
     expect(attentionFlags(shipment({ estimatedArrival: "2026-11-04" }), facts(), TODAY)).toEqual([
       { kind: "eta_passed", severity: "urgent", area: "tracking", label: "ETA passed, no ATA", detail: "ETA 04.11.2026, 2 days ago" },
     ]);
+  });
+
+  it("says 1 day, not 1 days, when the rules ask after one day (mock test of 21 Nov)", () => {
+    const rules = { ...DEFAULT_ATTENTION_RULES, arrivalLateAfterDays: 1, departureLateAfterDays: 1 };
+    const details = attentionFlags(shipment({ tradeDirection: "Export", estimatedDeparture: "2026-11-05", estimatedArrival: "2026-11-05" }), facts(), TODAY, rules).map((f) => f.detail);
+    expect(details).toEqual(["ETA 05.11.2026, 1 day ago", "ETD 05.11.2026, 1 day ago"]);
+    expect(daysAgo(1)).toBe("1 day ago");
+    expect(daysAgo(2)).toBe("2 days ago");
   });
 
   it("asks for the ATD of an export from 2 days after the ETD, of an import not", () => {

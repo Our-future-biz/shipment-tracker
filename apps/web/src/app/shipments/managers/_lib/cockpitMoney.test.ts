@@ -109,7 +109,8 @@ describe("Shipments → Managers, Money: the signal tiles", () => {
       expect(hint).not.toContain("on the active jobs counted");
       expect(hint).toMatch(/after invoicing on (their )?jobs that read Invoiced/);
     }
-    expect(NOT_YET_INVOICED_HINT).toContain("A credit owed is not in it");
+    // The people table's title says it too (mock test run).
+    for (const hint of [NOT_YET_INVOICED_HINT, PERSON_NOT_YET_INVOICED_HINT]) expect(hint).toContain("A credit owed is not in it.");
   });
 
   it("words the Estimates tile as the server's rule: urgent at 60 days or once the job reads Invoiced, not for a Billing status", () => {

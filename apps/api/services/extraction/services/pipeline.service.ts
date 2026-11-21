@@ -209,6 +209,23 @@ async function existingMasterJob(mblInfo: Record<string, string> | null): Promis
   return masterJob ? { id: masterJob.id, number: masterJob.mczNumber } : null;
 }
 
+/**
+ * The Master B/L the houses read name, when they agree on one: every house that names one names the
+ * same B/L. "" when none names one or two differ. Mock test run F3: a pre-alert of a manifest and
+ * House B/Ls, with no Master B/L page, made its master job without the B/L, so a second read found none.
+ */
+export function housesMasterBol(shipments: Record<string, string>[]): string {
+  const named = shipments.map((s) => (s[MASTER_BOL] ?? "").trim()).filter((b) => billOfLadingKey(b));
+  return named.length > 0 && new Set(named.map(billOfLadingKey)).size === 1 ? named[0] : "";
+}
+
+/** The live master job of the houses' common Master B/L, when no Master B/L number was read (else extractMbl answers it). */
+async function housesMasterJob(session: PipelineSession): Promise<ReadingMadeAlready | null> {
+  if (billOfLadingKey(session.mblInfo?.[MASTER_BOL])) return null;
+  const masterBol = housesMasterBol(session.shipments);
+  return masterBol ? existingMasterJob({ [MASTER_BOL]: masterBol }) : null;
+}
+
 /** For each shipment read: the live shipment that has its House B/L already, or null. */
 export async function existingHouses(shipments: Record<string, string>[]): Promise<(ReadingMadeAlready | null)[]> {
   const houseBols = shipments.map((s) => s[HOUSE_BOL] ?? "");
@@ -277,7 +294,14 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
 
   // Read once: a batch asked for again answers what it read (no second paid call, no shipments twice).
   const earlier = session.hblBatches.get(batchIndex);
-  if (earlier) return { ...earlier, totalExtracted: session.shipments.length, existing: await existingHouses(earlier.shipments) };
+  if (earlier) {
+    return {
+      ...earlier,
+      totalExtracted: session.shipments.length,
+      existing: await existingHouses(earlier.shipments),
+      existingMasterJob: await housesMasterJob(session),
+    };
+  }
 
   const batch = hbls.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
   const perHbl = await Promise.all(
@@ -329,7 +353,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
     done,
   };
   session.hblBatches.set(batchIndex, result);
-  return { ...result, existing: await existingHouses(shipments) };
+  return { ...result, existing: await existingHouses(shipments), existingMasterJob: await housesMasterJob(session) };
 }
 
 /**

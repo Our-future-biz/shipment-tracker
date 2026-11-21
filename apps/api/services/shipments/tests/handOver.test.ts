@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HAND_OVER_FIELD, HAND_OVER_MAX_IDS_SENT, HAND_OVER_MAX_JOBS, handOverChange, handOverLine, listTarget, stillAsDecided } from "../lib/handOver";
+import { HAND_OVER_FIELD, HAND_OVER_MAX_IDS_SENT, HAND_OVER_MAX_JOBS, asShown, handOverChange, handOverLine, listTarget, stillAsDecided } from "../lib/handOver";
 
 const job = { personInCharge: "jan@firma.cz", holidayCover: "" };
 
@@ -52,6 +52,25 @@ describe("stillAsDecided", () => {
     expect(stillAsDecided({ personInCharge: "eva@firma.cz", holidayCover: "" }, read, { personInCharge: "eva@firma.cz" })).toBe(false);
     expect(stillAsDecided({ personInCharge: "petr@firma.cz", holidayCover: "" }, read, { personInCharge: "eva@firma.cz" })).toBe(false);
     expect(stillAsDecided({ personInCharge: "jan@firma.cz", holidayCover: "petr@firma.cz" }, read, { holidayCover: "eva@firma.cz" })).toBe(false);
+  });
+});
+
+describe("asShown (mock test S20-123: the people the dialog's preview showed)", () => {
+  const shown = { handledBy: "jan@firma.cz", holidayCover: "" };
+
+  it("holds while each field the hand-over writes is as the preview showed it, by e-mail - a field it leaves alone may have moved", () => {
+    expect(asShown({ personInCharge: "Jan@Firma.cz — Jan Novák", holidayCover: "" }, shown, { handledBy: "eva@firma.cz", holidayCover: null })).toBe(true);
+    expect(asShown({ personInCharge: "jan@firma.cz", holidayCover: "petr@firma.cz" }, shown, { handledBy: "eva@firma.cz", holidayCover: null })).toBe(true);
+    expect(asShown({ personInCharge: "petr@firma.cz", holidayCover: "" }, shown, { handledBy: null, holidayCover: "eva@firma.cz" })).toBe(true);
+  });
+
+  it("does not hold once a field it writes was changed after the preview: by hand, or by another hand-over", () => {
+    expect(asShown({ personInCharge: "petr@firma.cz", holidayCover: "" }, shown, { handledBy: "eva@firma.cz", holidayCover: null })).toBe(false);
+    expect(asShown({ personInCharge: "jan@firma.cz", holidayCover: "petr@firma.cz" }, shown, { handledBy: null, holidayCover: "" })).toBe(false);
+  });
+
+  it("is not checked when the page sent nothing (an older page)", () => {
+    expect(asShown({ personInCharge: "petr@firma.cz", holidayCover: "x@firma.cz" }, undefined, { handledBy: "eva@firma.cz", holidayCover: "" })).toBe(true);
   });
 });
 

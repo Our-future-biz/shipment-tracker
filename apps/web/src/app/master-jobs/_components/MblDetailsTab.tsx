@@ -39,6 +39,8 @@ import { getStageFromFacts } from "@/app/shipments/[jobNumber]/_components/taskD
 import { formatDate, formatDateTime } from "@/lib/date";
 import { kgFromTons, tonsFromKg } from "../_lib/mblWeight";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { personShown } from "@/app/shipments/_lib/personNames";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 
 // Load Type is chosen once; the server refuses switching it, so the row stops being editable.
@@ -74,6 +76,13 @@ function ContainerNumberLinkRow({ value, href }: { value: string; href: string }
       )}
     </div>
   );
+}
+
+// Created By by name, with the stored e-mail on hover, as a shipment's Created By (PersonRoRow;
+// mock test run: the master job showed the e-mail).
+function CreatedByRow({ value }: { value: string | null | undefined }) {
+  const shown = personShown(value, usePeopleNames());
+  return <ReadOnlyRow label="Created By" value={shown.text ? <span title={shown.email || undefined}>{shown.text}</span> : null} />;
 }
 
 // The master job's own fields; its containers and linked shipments have tabs of their own.
@@ -360,7 +369,7 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
             { key: "holidayCover", label: "Holiday Cover", row: peopleRow(<FieldRow label="Holiday Cover" fieldKey="holidayCover" value={mj.holidayCover} onCommit={handleCommit} />) },
           ],
           [
-            { key: "createdBy", label: "Created By", row: <ReadOnlyRow label="Created By" value={mj.createdBy} /> },
+            { key: "createdBy", label: "Created By", row: <CreatedByRow value={mj.createdBy} /> },
             { key: "createdAt", label: "Created On", row: <ReadOnlyRow label="Created On" value={formatDateTime(mj.createdAt)} /> },
           ],
         ]}

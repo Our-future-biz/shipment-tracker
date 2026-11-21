@@ -984,8 +984,9 @@ class ShipmentService {
         jobNumber: r.jobNumber,
         customer: r.customer ?? "",
         customerId: r.customerId ?? null,
-        pol: r.pol ?? "",
-        pod: r.pod ?? "",
+        // An old carrier code's place text, as a sea job shows it (mock test S21-041); stored as it is.
+        pol: seaPortText(r.pol, r.freightMode),
+        pod: seaPortText(r.pod, r.freightMode),
         status: r.status ?? "",
         tradeDirection: r.tradeDirection ?? "",
         freightMode: r.freightMode ?? "",
@@ -1394,10 +1395,11 @@ class ShipmentService {
     await linkContacts(shipmentData, undefined, contactsOf, { picMode: "lenient", pic: !fromQuote });
     Object.assign(
       shipmentData,
-      exportBolDefaults(shipmentData.tradeDirection ?? "", {
-        houseBolType: shipmentData.houseBolType ?? "",
-        masterBolType: shipmentData.masterBolType ?? "",
-      }),
+      exportBolDefaults(
+        shipmentData.tradeDirection ?? "",
+        { houseBolType: shipmentData.houseBolType ?? "", masterBolType: shipmentData.masterBolType ?? "" },
+        { freightMode: shipmentData.freightMode, department: shipmentData.department },
+      ),
       startingStateDefaults({
         freightMode: shipmentData.freightMode,
         tradeDirection: shipmentData.tradeDirection,
@@ -1583,10 +1585,11 @@ class ShipmentService {
     }
     Object.assign(
       shipmentData,
-      exportBolDefaults(after("tradeDirection"), {
-        houseBolType: after("houseBolType"),
-        masterBolType: after("masterBolType"),
-      }),
+      exportBolDefaults(
+        after("tradeDirection"),
+        { houseBolType: after("houseBolType"), masterBolType: after("masterBolType") },
+        { freightMode: after("freightMode"), department: after("department") },
+      ),
       startingStateDefaults({
         freightMode: after("freightMode"),
         tradeDirection: after("tradeDirection"),
@@ -2206,14 +2209,23 @@ class ShipmentService {
     };
   }
 
-  /** Costs Breakdown: the quantities were checked after the last accepted remeasurement. */
-  async markRemeasureCostsChecked(id: string, actor: { companyID: string; userID: string; role: string }): Promise<RemeasureAcceptance | null> {
+  /**
+   * Costs Breakdown: the quantities were checked after the last accepted remeasurement. `acceptedAt`: the
+   * acceptance the page shows (its acceptedAt) - a page left open while a newer remeasurement was accepted
+   * would else put away the warning of one nobody looked at (mock test S20-079). Left out (an older page),
+   * the newest is taken.
+   */
+  async markRemeasureCostsChecked(id: string, actor: { companyID: string; userID: string; role: string }, acceptedAt?: string): Promise<RemeasureAcceptance | null> {
     if (!isUuid(id)) throw APIError.notFound("Shipment not found");
     const existing = await shipmentRepository.getByIdForCompany(id, actor.companyID);
     if (!existing) throw APIError.notFound("Shipment not found");
     if (!(await this.mayCheckRemeasureCosts(existing, actor))) throw APIError.permissionDenied(COSTS_CHECK_REFUSAL);
     const [accepted] = await shipmentAuditRepository.listByShipmentId(id, actor.companyID, [REMEASURE_ACCEPTED], 1);
     if (!accepted) throw APIError.failedPrecondition("No remeasurement was accepted on this shipment");
+    const newest = iso(accepted.changedAt);
+    if (acceptedAt !== undefined && acceptedAt !== newest && Date.parse(acceptedAt) !== Date.parse(newest ?? "")) {
+      throw APIError.failedPrecondition("A newer remeasurement was accepted: reload to see it");
+    }
     await shipmentAuditRepository.create({ companyId: actor.companyID, shipmentId: id, userId: actor.userID, field: REMEASURE_COSTS_CHECKED, oldValue: null, newValue: iso(accepted.changedAt) });
     return this.remeasureAcceptance(id, actor.companyID, actor);
   }

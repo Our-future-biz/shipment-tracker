@@ -16,6 +16,17 @@ describe("Trucking times", () => {
   });
 });
 
+// The English screens call it a delivery notice (TERMS.avizace); "Record avizace…" was left on the
+// text drawer (mock test S21-094). The Czech word stays in the bilingual e-mail text, built in _lib.
+describe("Trucking's English screens", () => {
+  it("never show the word avizace", () => {
+    const code = (f: string) => readFileSync(f, "utf8").replace(/\/\/.*|\/\*[\s\S]*?\*\/|\{\/\*[\s\S]*?\*\/\}/g, "");
+    const shown = /<[^<>]*>[^<>{}]*\bavizace\b[^<>{}]*<|"[^"\n]* avizace\b[^"\n]*"|`[^`]* avizace\b[^`]*`/i;
+    const wrong = ROOTS.flatMap(filesOf).filter((f) => f.endsWith(".tsx") && shown.test(code(f)));
+    expect(wrong).toEqual([]);
+  });
+});
+
 describe("Trucking's links to a job", () => {
   it("never ask for a tab the job page doesn't have (user council T12)", () => {
     const wrong = ROOTS.flatMap(filesOf).filter((f) => /\?tab=trucking/.test(readFileSync(f, "utf8").replace(/\/\/.*|\/\*[\s\S]*?\*\//g, "")));

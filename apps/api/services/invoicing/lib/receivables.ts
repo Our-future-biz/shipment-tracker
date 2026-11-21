@@ -580,7 +580,9 @@ export function releaseWarning(
     customer: first?.customer ?? "",
     prepayment: warning.some((r) => isPrepayment(r.paymentTerms)),
     customerOverdueCount: first ? (overdueByCustomer.get(first.customerId) ?? 0) : 0,
-    unpaid: owed.map((r) => ({ invoiceId: r.invoiceId, number: r.number, leftToPay: r.leftToPay, currency: r.currency, daysOverdue: r.daysOverdue })),
+    // The invoices it warns about, as the server's stop names them (mock test run): not another payer's on terms with
+    // nothing overdue. With no warning, every owed one.
+    unpaid: (warning.length ? warning : owed).map((r) => ({ invoiceId: r.invoiceId, number: r.number, leftToPay: r.leftToPay, currency: r.currency, daysOverdue: r.daysOverdue })),
   };
 }
 

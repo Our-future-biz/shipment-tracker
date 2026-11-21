@@ -46,4 +46,31 @@ describe("the list at 1440 px (A5)", () => {
     expect(keys).toEqual([...list.matchAll(/key: "([a-zA-Z]+)"/g)].map((m) => m[1]));
     expect(source("AccountsReceivableView.tsx")).toMatch(/wrapLabel\s+label=\{a \? `To collect/);
   });
+
+  it("gives each column up to Currency its LIST_WIDTHS width, and the tick box and expand arrow theirs (mock test run)", () => {
+    const table = source("ReceivablesTable.tsx");
+    for (const key of ["number", "status", "customer", "job", "due", "gross", "left", "currency"]) {
+      expect(table).toMatch(new RegExp(`key: "${key}",\\s*width: LIST_WIDTHS\\.${key},`));
+    }
+    expect(table).toContain("columnWidth: LIST_TICK_WIDTH");
+    expect(table).toContain("columnWidth: LIST_EXPAND_WIDTH");
+    expect(table).toContain("style={inner(LIST_WIDTHS.status)}");
+    expect(table).toContain("style={inner(LIST_WIDTHS.customer)}");
+    expect(table).not.toContain("max-w-[170px]");
+  });
+});
+
+describe("people by name (mock test run)", () => {
+  it("shows Person in Charge, Holiday Cover and Issued by by name in the list and the drawer, and filters by it", () => {
+    const table = source("ReceivablesTable.tsx");
+    expect(table).toContain("person(r.personInCharge)");
+    expect(table).toContain('Holiday Cover: <PersonName email={r.holidayCover} />');
+    expect(table).toContain("person(r.issuedBy)");
+    expect(table).not.toMatch(/Holiday Cover: \{r\.holidayCover\}|\$\{r\.holidayCover\}|text\(r\.(personInCharge|issuedBy)\)/);
+    const drawer = source("ReceivableDrawer.tsx");
+    expect(drawer).toContain("issued by <PersonName email={r.issuedBy} />");
+    expect(drawer).toContain('<PersonName email={r.personInCharge} />');
+    expect(drawer).not.toMatch(/\$\{r\.issuedBy\}|\{r\.personInCharge \|\| "—"\}|Holiday Cover: \{r\.holidayCover\}/);
+    expect(source("AccountsReceivableView.tsx")).toMatch(/receivableTable\(today, autoRemindersSince, \(email\) => userByEmail\(email, users\)/);
+  });
 });

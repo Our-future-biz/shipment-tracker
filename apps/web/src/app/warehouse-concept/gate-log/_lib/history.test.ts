@@ -26,6 +26,10 @@ describe("history categories", () => {
     expect(categoryOf("positionReceiptVoided")).toBe("voids");
     expect(categoryCounts([ev("reweighed", "2026-10-14T08:00:00Z")])).toMatchObject({ cargo: 1 });
   });
+  it("files the edits of customs, transport legs and checklist icons under Record & details (mock test)", () => {
+    for (const k of ["customsEdited", "transportLegEdited", "checklistEdited"]) expect(categoryOf(k)).toBe("records");
+    expect(categoryCounts([ev("customsEdited", "2026-11-21T08:00:00Z"), ev("checklistEdited", "2026-11-21T08:01:00Z")])).toMatchObject({ records: 2 });
+  });
   it("counts per category", () => {
     const counts = categoryCounts([ev("gateIn", "2026-10-14T08:00:00Z"), ev("gateOut", "2026-10-14T09:00:00Z"), ev("archived", "2026-10-14T10:00:00Z")]);
     expect(counts).toMatchObject({ stamps: 2, records: 1, voids: 0 });

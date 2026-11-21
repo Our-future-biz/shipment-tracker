@@ -94,6 +94,9 @@ function taxDayOf(s: AttentionShipment): string | null {
   return s.tradeDirection.trim().toLowerCase() === "export" ? s.actualDeparture : s.actualArrival;
 }
 
+/** "1 day ago", "3 days ago": a flag reads as plain English, not "1 days ago" (mock test of 21 Nov). */
+export const daysAgo = (days: number): string => `${days} ${days === 1 ? "day" : "days"} ago`;
+
 /**
  * The shipment's flags, the most urgent first. It is an active one: not invoiced, not cancelled.
  * `rules` are the thresholds it is judged by: left out, the ones everybody but the managers'
@@ -115,11 +118,11 @@ export function attentionFlags(s: AttentionShipment, facts: AttentionFacts, toda
 
   if (!trucking) {
     if (s.estimatedArrival && !s.actualArrival && !(isExport && s.actualDeliveryDate) && s.estimatedArrival <= addDays(today, -rules.arrivalLateAfterDays)) {
-      add("eta_passed", "urgent", "tracking", "ETA passed, no ATA", `ETA ${czDay(s.estimatedArrival)}, ${daysBetween(s.estimatedArrival, today)} days ago`);
+      add("eta_passed", "urgent", "tracking", "ETA passed, no ATA", `ETA ${czDay(s.estimatedArrival)}, ${daysAgo(daysBetween(s.estimatedArrival, today))}`);
     }
     const askedForAtd = isExport || (rules.departureLateForImports && !s.actualArrival && !s.actualDeliveryDate);
     if (askedForAtd && s.estimatedDeparture && !s.actualDeparture && s.estimatedDeparture <= addDays(today, -rules.departureLateAfterDays)) {
-      add("etd_passed", "urgent", "tracking", "ETD passed, no ATD", `ETD ${czDay(s.estimatedDeparture)}, ${daysBetween(s.estimatedDeparture, today)} days ago`);
+      add("etd_passed", "urgent", "tracking", "ETD passed, no ATD", `ETD ${czDay(s.estimatedDeparture)}, ${daysAgo(daysBetween(s.estimatedDeparture, today))}`);
     }
     const noOnward = !isExport && s.actualArrival && !s.warehouseReceivedDate && !s.actualDeliveryDate && !facts.arrivedAtHub;
     if (noOnward && workingDaysSince(s.actualArrival!, today, rules.extraHolidays) >= rules.noOnwardAfterWorkingDays) {
@@ -141,7 +144,7 @@ export function attentionFlags(s: AttentionShipment, facts: AttentionFacts, toda
   if (taxDay) {
     const age = daysBetween(taxDay, today);
     if (age >= TAX_DATE_WARN_DAYS) {
-      add("tax_date", age >= TAX_DATE_LATE_DAYS ? "urgent" : "attention", "finance", "Tax date running out", `Tax date ${czDay(taxDay)}, ${age} days ago, no invoice`);
+      add("tax_date", age >= TAX_DATE_LATE_DAYS ? "urgent" : "attention", "finance", "Tax date running out", `Tax date ${czDay(taxDay)}, ${daysAgo(age)}, no invoice`);
     }
     if (!isDeliveryDated(s) && !isReleased(s.status) && workingDaysSince(taxDay, today, rules.extraHolidays) >= NOT_RELEASED_AFTER_WORKING_DAYS) {
       add("not_released", "attention", "finance", "Not released for billing", `${isExport ? "ATD" : "ATA"} ${czDay(taxDay)}`);

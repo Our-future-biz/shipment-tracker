@@ -157,7 +157,9 @@ export const COLUMNS: ColumnDef[] = [
   { key: "holidayCover", title: "Holiday Cover", width: 140, type: "user", apiField: "holidayCover" },
 
   // Customer block
-  { key: "customer", title: "Customer", width: 180, type: "text", apiField: "customer" },
+  // 150, not 180, so the default columns up to Closing fit a 1440 px screen (mock test S21-058); a longer
+  // name is cut in the cell (a linked customer's card shows it whole).
+  { key: "customer", title: "Customer", width: 150, type: "text", apiField: "customer" },
   // Chosen in the Customs detail (a company from the customer database).
   { key: "principalParty", title: "Principal Party", width: 180, type: "text", readonly: true, apiField: "principalParty" },
   { key: "customerPic", title: "Customer's Contact", width: 170, type: "contact", apiField: "customerPic" },
@@ -165,7 +167,8 @@ export const COLUMNS: ColumnDef[] = [
 
   // Pickup + Port of Loading
   { key: "pickupAddress", title: "Pickup Address", width: 200, type: "text", apiField: "pickupAddress" },
-  { key: "pol", title: "Port of Loading", width: 160, type: "place", apiField: "pol" },
+  // 145, not 160, as Customer (mock test S21-058); a longer place fades out, whole on hover.
+  { key: "pol", title: "Port of Loading", width: 145, type: "place", apiField: "pol" },
 
   // Shipper/Consignee
   { key: "shipper", title: "Shipper", width: 180, type: "text", apiField: "shipper" },
@@ -177,8 +180,9 @@ export const COLUMNS: ColumnDef[] = [
   // fills them while empty (User Council E5).
   { key: "deliveryPhone", title: "Delivery Phone", width: 150, type: "text", apiField: "deliveryPhone", maxLength: 50 },
   { key: "deliveryNotes", title: "Delivery Notes", width: 220, type: "text", apiField: "deliveryNotes", maxLength: 500 },
-  // Wide enough for its title in caps beside the Master Jobs list's sort arrow.
-  { key: "pod", title: "Port of Discharge", width: 170, type: "place", apiField: "pod" },
+  // Wide enough for its title in caps beside the Master Jobs list's sort arrow; 160, not 170, as Customer
+  // (mock test S21-058).
+  { key: "pod", title: "Port of Discharge", width: 160, type: "place", apiField: "pod" },
   { key: "destination", title: "Destination", width: 160, type: "place", apiField: "destination" },
 
   // Status block
@@ -187,10 +191,11 @@ export const COLUMNS: ColumnDef[] = [
   // Read-only in the lists: switching to Urgent asks for a deadline, which happens in the Customs detail.
   { key: "customsPriority", title: "Customs Priority", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
-  // 250, not 320: with the defaults before it, it then ends inside the first screen at 1440 px (mock council
-  // S9-1). Most statuses fit; the three longest are cut with "…" in the cell (full on hover), and the
+  // 200 (once 320, then 250): with the defaults around it, the columns up to Closing then end inside the
+  // first screen at 1440 px, the Documents, Chat and warning icons pinned on the right counted too (mock
+  // council S9-1, mock test S21-058). A longer status fades out in the cell (whole on hover), and the
   // dropdown is wider than the cell, so every option reads in full there.
-  { key: "status", title: "Shipment Status", width: 250, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
+  { key: "status", title: "Shipment Status", width: 200, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
   { key: "lastEvent", title: "Last Event", width: 240, type: "text", readonly: true, apiField: "lastEvent" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
   { key: "freightPayableAt", title: "Freight Payable At", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Payable At"], apiField: "freightPayableAt" },

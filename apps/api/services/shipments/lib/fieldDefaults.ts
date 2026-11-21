@@ -21,14 +21,25 @@ const isBlank = (v: string | null | undefined): boolean => !(v ?? "").trim();
 const eq = (v: string | null | undefined, expected: string): boolean =>
   (v ?? "").trim().toLowerCase() === expected.toLowerCase();
 
+type JobModeFields = { freightMode?: string | null; tradeDirection?: string | null; department?: string | null };
+
+/** A job by air or by road, by the rule of lib/trackingEvents freightKindOf (a Trucking job is road). */
+const byAirOrRoad = (job: JobModeFields): boolean => {
+  const kind = freightKindOf({ freightMode: job.freightMode ?? "", tradeDirection: job.tradeDirection ?? "", department: job.department });
+  return kind === "air" || kind === "road";
+};
+
 // Export shipments start with an OBL on both bills of lading. Only a blank field
 // is filled, so a type someone picked is never overwritten — the default is a
-// starting point, not an enforced value.
+// starting point, not an enforced value. Not on an air or road job: an air waybill
+// or a CMR is no original bill of lading (mock test run: a new air export started
+// with HAWB Type and MAWB Type "OBL"). `mode` is the job's Freight Mode and Department.
 export function exportBolDefaults(
   tradeDirection: string | null | undefined,
   current: { houseBolType?: string | null; masterBolType?: string | null },
+  mode: { freightMode?: string | null; department?: string | null } = {},
 ): { houseBolType?: string; masterBolType?: string } {
-  if (!eq(tradeDirection, "Export")) return {};
+  if (!eq(tradeDirection, "Export") || byAirOrRoad({ ...mode, tradeDirection })) return {};
   const defaults: { houseBolType?: string; masterBolType?: string } = {};
   if (isBlank(current.houseBolType)) defaults.houseBolType = EXPORT_DEFAULT_BOL_TYPE;
   if (isBlank(current.masterBolType)) defaults.masterBolType = EXPORT_DEFAULT_BOL_TYPE;
@@ -55,10 +66,7 @@ export interface StartingStates {
 }
 
 /** Whether a job of this mode is weighed for a ship: not one by air or by road. */
-const takesVgm = (job: { freightMode?: string | null; tradeDirection?: string | null; department?: string | null }): boolean => {
-  const kind = freightKindOf({ freightMode: job.freightMode ?? "", tradeDirection: job.tradeDirection ?? "", department: job.department });
-  return kind !== "air" && kind !== "road";
-};
+const takesVgm = (job: JobModeFields): boolean => !byAirOrRoad(job);
 
 export function startingStateDefaults(current: {
   freightMode?: string | null;

@@ -9,16 +9,20 @@ describe("DEFAULT_SHIPMENT_COLUMNS", () => {
 
   it("puts the morning check right after Customer, Shipment Status first, on the first screen at 1440 px (mock council S9-1 and its review)", () => {
     expect(DEFAULT_SHIPMENT_COLUMNS.slice(0, 8)).toEqual(["jobNumber", "customer", "status", "pol", "pod", "closingDate", "estimatedDeparture", "estimatedArrival"]);
-    // At a 1440 px window the 260 px menu and px-8 each side leave the grid 1116 px; the row tick box takes 44.
-    const screen = 1440 - 260 - 2 * 32;
+    // At a 1440 px window the 260 px menu and px-8 each side leave the grid 1116 px, less the card's 1 px
+    // border each side; the row tick box takes 44 on the left, and the Documents, Chat and warning icon
+    // columns pinned on the right (ShipmentsTable: 30 + 24 + 28) take 82, so a column ending under them is
+    // cut (mock test S21-058).
+    const pinnedRight = 30 + 24 + 28;
+    const screen = 1440 - 260 - 2 * 32 - 2 - pinnedRight;
     const ends = new Map<string, number>();
     let left = 44;
     for (const key of DEFAULT_SHIPMENT_COLUMNS.slice(0, 8)) {
       left += COLUMN_MAP.get(key)!.width;
       ends.set(key, left);
     }
-    // Shipment Status, the ports and the Closing end on the first screen; ETD and ETA are the next ones along.
-    for (const key of ["status", "pol", "pod", "closingDate"]) expect(ends.get(key)).toBeLessThanOrEqual(screen);
+    // Internal Reference … Closing end on the first screen; ETD and ETA are the next ones along.
+    for (const key of ["jobNumber", "customer", "status", "pol", "pod", "closingDate"]) expect(ends.get(key)).toBeLessThanOrEqual(screen);
   });
 
   it("no longer shows Shipments Month, Year and Department at first", () => {

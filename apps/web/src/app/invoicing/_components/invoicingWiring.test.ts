@@ -21,6 +21,15 @@ describe("Invoicing job view wiring", () => {
     expect(source("queueColumns.tsx")).toMatch(/linesInvoicedCell\(r\)/);
   });
 
+  it("takes a Billed job as released for billing, not warned about as no Billing (mock test run)", () => {
+    const panel = source("InvoicePanel.tsx");
+    const found = /const isBillingStatus = [^\n]*?\/(\^[^\n]*?\$)\/\.test/.exec(panel);
+    expect(found).not.toBeNull();
+    const released = new RegExp(found![1]!);
+    for (const status of ["Billing [IMP]", "Billing [EXP]", "Billing [DOM]", "Billed [IMP]", "Billed [EXP]", "Billed [DOM]"]) expect(released.test(status)).toBe(true);
+    for (const status of ["Delivered [IMP]", "Invoiced [EXP]", "Billed", ""]) expect(released.test(status)).toBe(false);
+  });
+
   it("builds the lines table with the tested helper", () => {
     expect(source("InvoicePanel.tsx")).toMatch(/lineTableRows\(/);
   });

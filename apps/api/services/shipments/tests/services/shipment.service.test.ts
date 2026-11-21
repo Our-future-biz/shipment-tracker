@@ -49,6 +49,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
     openJobIdsOfCustomer: vi.fn(),
     writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
     moveSalesNumber: vi.fn(async () => true),
+    searchMain: vi.fn(),
   },
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
@@ -2738,6 +2739,25 @@ describe("requireLive", () => {
   });
 });
 
+// Mock test S21-041: the top bar listed a sea job's old carrier code by the airport's name.
+describe("the main search in shipments", () => {
+  it("names a sea job's ports by their port name and leaves an air job's as stored", async () => {
+    const old = { customer: "ACME", customerId: null, status: "Booked", tradeDirection: "Import", etd: null, eta: null };
+    vi.mocked(shipmentRepository.searchMain).mockResolvedValue({
+      rows: [
+        { ...old, id: "s1", jobNumber: "CZFCL00000301", freightMode: "Sea Freight", pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "Hamburg (DEHAM)" },
+        { ...old, id: "s2", jobNumber: "CZAIR00000302", freightMode: "Air Freight", pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: null },
+      ],
+      total: 2,
+    } as never);
+    const { items } = await shipmentService.searchMain(COMPANY, "shanghai", 5);
+    expect(items.map((i) => [i.pol, i.pod])).toEqual([
+      ["Shanghai (CNSHA)", "Hamburg (DEHAM)"],
+      ["Shanghai Hongqiao International Apt (CNSHA)", ""],
+    ]);
+  });
+});
+
 describe("the main search in containers", () => {
   const search = vi.mocked(containerRepository.searchMain);
   const row = { id: "c1", containerNumber: "MSCU1234567", type: "40HC", shipmentId: SHIPMENT, jobNumber: "CZFCL00000301", masterJobId: null, mczNumber: null };
@@ -3845,6 +3865,18 @@ describe("the last accepted remeasurement and its Quantities checked", () => {
       expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "remeasurementCostsChecked", userId: JANA.id, newValue: "2026-11-18T10:00:00.000Z" }));
       placed(null);
       expect(await shipmentService.remeasureAcceptance(SHIPMENT, COMPANY, { ...jana, role: "manager" })).toMatchObject({ mayCheckCosts: true });
+    });
+
+    it("marks only the acceptance the page shows: a page left open while a newer one was accepted is refused, nothing written (mock test S20-079)", async () => {
+      const manager = { ...jana, role: "manager" };
+      await expect(shipmentService.markRemeasureCostsChecked(SHIPMENT, manager, "2026-11-17T09:00:00.000Z")).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "A newer remeasurement was accepted: reload to see it",
+      });
+      expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+
+      await shipmentService.markRemeasureCostsChecked(SHIPMENT, manager, "2026-11-18T10:00:00.000Z");
+      expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "remeasurementCostsChecked", newValue: "2026-11-18T10:00:00.000Z" }));
     });
   });
 });

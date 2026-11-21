@@ -21,6 +21,11 @@ import {
   nextReminderLevel,
   NO_FILTERS,
   NO_REMINDER_CONTACT,
+  LIST_CELL_PADDING,
+  LIST_EXPAND_WIDTH,
+  LIST_ROOM,
+  LIST_TICK_WIDTH,
+  LIST_WIDTHS,
   NUMBER_SHOWN,
   paidText,
   passesCheck,
@@ -41,6 +46,7 @@ import {
   type ReceivableRow,
   type ReceivableTab,
 } from "./receivables";
+import { RECEIVABLE_DEFAULT_COLUMNS } from "./receivableColumns";
 
 const row = (over: Partial<ReceivableRow> = {}): ReceivableRow => ({
   id: "inv-1",
@@ -438,6 +444,19 @@ describe("the list's invoice number (A5)", () => {
     // A short one (the old format) is shown whole.
     expect(shortInvoiceNumber("CZ00000028-001")).toBe("CZ00000028-001");
     expect(shortInvoiceNumber("")).toBe("");
+  });
+
+  it("fits the columns up to Currency in a 1440 px screen with the menu, the tick box and the expand arrow (mock test run)", () => {
+    const upToCurrency = RECEIVABLE_DEFAULT_COLUMNS.slice(0, RECEIVABLE_DEFAULT_COLUMNS.indexOf("currency") + 1);
+    expect(Object.keys(LIST_WIDTHS)).toEqual(upToCurrency);
+    const used = Object.values(LIST_WIDTHS).reduce((sum, w) => sum + w, 0) + LIST_TICK_WIDTH + LIST_EXPAND_WIDTH;
+    expect(used).toBe(1064);
+    expect(used).toBeLessThanOrEqual(LIST_ROOM);
+    expect(LIST_ROOM).toBe(1440 - 260 - 2 * 32 - 2);
+    // Status (its marks wrap) and the customer (cut, whole on hover) at about 120 px.
+    expect(LIST_WIDTHS.status).toBeLessThanOrEqual(120);
+    expect(LIST_WIDTHS.customer).toBeLessThanOrEqual(120);
+    expect(LIST_WIDTHS.status - LIST_CELL_PADDING).toBe(104);
   });
 });
 

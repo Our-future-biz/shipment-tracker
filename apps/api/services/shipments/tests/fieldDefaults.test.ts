@@ -27,6 +27,16 @@ describe("exportBolDefaults", () => {
     expect(exportBolDefaults("", {})).toEqual({});
     expect(exportBolDefaults(null, {})).toEqual({});
   });
+
+  // Mock test run: a new air export started with HAWB Type and MAWB Type "OBL".
+  it("leaves an air or road export alone, and seeds a sea or rail one", () => {
+    expect(exportBolDefaults("Export", {}, { freightMode: "Air Freight" })).toEqual({});
+    expect(exportBolDefaults("Export", {}, { freightMode: "Road Freight" })).toEqual({});
+    // A job of the Road Department goes by road, whatever its Freight Mode says.
+    expect(exportBolDefaults("Export", {}, { freightMode: "Sea Freight", department: "Road Department" })).toEqual({});
+    expect(exportBolDefaults("Export", {}, { freightMode: "Sea Freight", department: "Operation Department" })).toEqual({ houseBolType: "OBL", masterBolType: "OBL" });
+    expect(exportBolDefaults("Export", {}, { freightMode: "Rail Freight" })).toEqual({ houseBolType: "OBL", masterBolType: "OBL" });
+  });
 });
 
 describe("startingStateDefaults", () => {

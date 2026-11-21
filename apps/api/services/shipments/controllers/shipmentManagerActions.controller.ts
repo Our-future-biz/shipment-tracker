@@ -20,6 +20,18 @@ interface ShipmentHandOverRequest {
   holidayCover?: string & MaxLen<320>;
   /** Why (at least 3 characters): kept in each job's history. */
   reason: string & MaxLen<500>;
+  /**
+   * What the dialog's preview showed for each job, by shipment id (mock test S20-123). A job whose Handled By /
+   * Holiday Cover (whichever the hand-over writes) is no longer so is left as it is, in `skipped` with "Changed
+   * by somebody else meanwhile". Left out, or a job missing from it, that job is not checked.
+   */
+  shown?: Record<string, HandOverShownPeople>;
+}
+
+/** A job's people as the hand-over dialog showed them: as stored, "" for nobody. */
+interface HandOverShownPeople {
+  handledBy: string & MaxLen<1000>;
+  holidayCover: string & MaxLen<1000>;
 }
 
 // D11. Each job is changed as an edit of the two fields on the job itself changes it; a job that

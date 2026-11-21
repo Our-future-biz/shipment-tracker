@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { emailBehind, nameOf, namesOf, NO_NAMES, personShown } from "./personNames";
+import { foldIncludes } from "@/lib/fold";
+import { emailBehind, nameOf, namesOf, NO_NAMES, personShown, personText } from "./personNames";
 
 const names = namesOf([
   { email: "Claude-Test@local.test", displayName: "Claude Test" },
@@ -42,5 +43,27 @@ describe("personShown", () => {
     expect(personShown("26. 10. 2026 14:03:05", names)).toEqual({ text: "26. 10. 2026 14:03:05", email: "" });
     expect(personShown("", names)).toEqual({ text: "", email: "" });
     expect(personShown(null, names)).toEqual({ text: "", email: "" });
+  });
+});
+
+describe("personText (mock test S21-061)", () => {
+  const names = namesOf([{ email: "Eva@Firm.cz", displayName: "Eva Malá" }]);
+
+  it("gives the name with the e-mail in brackets, for the CSV export", () => {
+    expect(personText("eva@firm.cz", names)).toBe("Eva Malá (eva@firm.cz)");
+  });
+
+  it("lets the Filters find the person by name or by e-mail", () => {
+    const text = personText("eva@firm.cz", names);
+    expect(foldIncludes(text, "eva mala")).toBe(true);
+    expect(foldIncludes(text, "Malá")).toBe(true);
+    expect(foldIncludes(text, "eva@firm")).toBe(true);
+    expect(foldIncludes(text, "petr")).toBe(false);
+  });
+
+  it("keeps a value no named user has as it is stored", () => {
+    expect(personText("old.colleague@firm.cz", names)).toBe("old.colleague@firm.cz");
+    expect(personText("", names)).toBe("");
+    expect(personText(null, names)).toBe("");
   });
 });

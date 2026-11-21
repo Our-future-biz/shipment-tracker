@@ -74,6 +74,7 @@ import type {
   SellingCostItem,
   QuoteImportResult,
   QuoteImportTarget,
+  RealCostWas,
 } from "../interfaces/interfaces";
 
 // ── Rows → API items ──
@@ -106,11 +107,37 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   sourceQuoteNumber: r.sourceQuoteNumber,
 });
 
-/** The parts of a billed line's real cost its write is made on, as read (mock council S1-06): the amount, and each other part changed. */
-const realCostAsRead = (current: InvoiceCostRecord, changes: Partial<NewInvoiceCostRecord>): RealCostAsRead => ({
+/** A line's real cost as the page sent it was ("" for none), as stored: undefined for a part not sent. */
+const realCostWasOf = (was: RealCostWas): RealCostAsRead =>
+  definedOnly({
+    realQty: toDecimal(was.realQtyWas, "realQtyWas"),
+    realAmount: toDecimal(was.realAmountWas, "realAmountWas"),
+    // A line always has a currency: none sent is no part of it.
+    realCurrency: was.realCurrencyWas || undefined,
+  });
+
+/** Whether the line's real cost is no longer what the page sent it was: amounts compared as numbers (mock test run F1). */
+const realCostMovedOn = (current: InvoiceCostRecord, was: RealCostAsRead): boolean => {
+  const differs = (now: string | null, then: string | null | undefined) =>
+    then !== undefined && (now === null || then === null ? now !== then : Number(now) !== Number(then));
+  return (
+    differs(current.realQty, was.realQty) ||
+    differs(current.realAmount, was.realAmount) ||
+    (was.realCurrency !== undefined && current.realCurrency !== was.realCurrency)
+  );
+};
+
+/**
+ * The real cost a billed line's write is made on, as read (mock council S1-06): all three parts - quantity, amount and
+ * currency - as the page sent them where it did (mock test run F1), else as read here. Read here alone, two people who
+ * both loaded the line before either saved both pass, and the later save silently wins; on the changed part alone, a
+ * currency picked over someone else's newer amount goes in beside it (mock test run F1, M1).
+ */
+const realCostAsRead = (current: InvoiceCostRecord, was: RealCostAsRead = {}): RealCostAsRead => ({
+  realQty: current.realQty,
   realAmount: current.realAmount,
-  ...(changes.realQty !== undefined ? { realQty: current.realQty } : {}),
-  ...(changes.realCurrency !== undefined ? { realCurrency: current.realCurrency } : {}),
+  realCurrency: current.realCurrency,
+  ...was,
 });
 
 const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
@@ -435,7 +462,9 @@ class InvoicingService {
   // A row copied from a quote keeps the quote's charge, words and estimate (QUOTE_FIXED_FIELDS):
   // a change to them is refused, the same value sent back with the rest of the row is not one.
   // Which quote a row came from is set when it is copied and never changes afterwards.
-  async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput, actorUserId = ""): Promise<InvoiceCostItem> {
+  async updateBuyingCost(id: string, companyId: string, shipmentId: string, request: BuyingCostInput & RealCostWas, actorUserId = ""): Promise<InvoiceCostItem> {
+    // The real cost the page last loaded is no change of the line: kept apart from what is written (mock test run F1).
+    const { realQtyWas, realAmountWas, realCurrencyWas, ...input } = request;
     // Billed: what leaves the cost alone goes on, and so does a late supplier invoice's real cost typed with
     // its number on a line that has no real cost yet (User Council Q1); whether the line has them is read with it.
     const billed = !leavesBuyingCostAlone(input) && (await isBilled(shipmentId, companyId));
@@ -443,6 +472,10 @@ class InvoicingService {
     const changes = buyingChanges(input);
     const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
     if (!current) throw APIError.notFound("Buying cost not found");
+    // A billed line's real cost typed by someone who loaded it before another's save of it: refused at once, not
+    // written over theirs (mock test run F1). The write below is made on it too, for a save landing in between.
+    const was = billed && touchesRealCost(input) ? realCostWasOf({ realQtyWas, realAmountWas, realCurrencyWas }) : {};
+    if (realCostMovedOn(current, was)) throw APIError.aborted(BILLED_REAL_COST_CHANGED);
     // A late real cost stays open until its supplier invoice is approved or paid (mock council M1).
     const billedProblem = billed ? billedBuyingProblem(input, current, await lateRealCost(shipmentId, companyId, current)) : null;
     if (billedProblem) throw APIError.failedPrecondition(billedProblem);
@@ -478,9 +511,9 @@ class InvoicingService {
     if (stamp) delete receipt.receivedAt;
     // A billed line's real cost is written only onto the real cost as it was read above: two people typing a late
     // real cost on one line at once both read it, and the later save is refused instead of silently winning (mock
-    // council S1-06). Its amount always, as whether it is open rests on it, and each other part being changed. A late
+    // council S1-06). All three parts of it, whichever is changed, as the page sent them (mock test run F1, M1). A late
     // fix, and a line leaving its invoice, only while that invoice is still on the line, booked and unpaid.
-    const asRead = billed && touchesRealCost(input) ? realCostAsRead(current, changes) : undefined;
+    const asRead = billed && touchesRealCost(input) ? realCostAsRead(current, was) : undefined;
     const openInvoiceId = keepDecided ? (current.supplierInvoiceId as string) : undefined;
     const condition = asRead || openInvoiceId ? { ...asRead, ...(openInvoiceId ? { openInvoiceId } : {}) } : undefined;
     let row: InvoiceCostRecord | null;

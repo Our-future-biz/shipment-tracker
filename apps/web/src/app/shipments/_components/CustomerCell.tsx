@@ -109,8 +109,9 @@ export function CustomerCell({ name, customerId, textStyle, onChange, locked = f
   return (
     <span
       className={`rounded px-1 -mx-1 transition-colors block truncate ${locked ? "" : "cursor-pointer hover:bg-slate-100"}`}
-      // A linked customer shows its card on hover instead of this tooltip.
-      title={(name && customerId) || locked ? undefined : "Double-click to edit"}
+      // A linked customer shows its card on hover instead of this tooltip. A name not linked shows whole here,
+      // as the narrower column (mock test S21-058) cuts a long one.
+      title={name && customerId ? undefined : [name, locked ? "" : "Double-click to edit"].filter(Boolean).join(" · ") || undefined}
       onDoubleClick={locked ? undefined : startEdit}
     >
       {name ? (

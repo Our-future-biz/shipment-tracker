@@ -433,6 +433,71 @@ describe("a billed shipment", () => {
     expect(Number(rows[0]!.realAmount)).toBe(1450);
   });
 
+  it("refuses a billed line's real cost typed on what the page loaded before someone else's save (mock test run F1)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "F-1", received: true });
+    apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "booked", paidOn: null });
+    Object.assign(rows[0]!, { supplierInvoiceId: "si-late" });
+    // Both loaded the line with no real cost. The first save goes in; the second, typed on the empty line, is refused.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1000.00", realAmountWas: "" });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1450", realAmountWas: "" })).rejects.toMatchObject({
+      code: "aborted",
+      message: expect.stringMatching(/changed meanwhile by someone else/),
+    });
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1000.00" })]);
+    // A stale amount, quantity or currency the page loaded: each refused, nothing written.
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400", realAmountWas: "900" })).rejects.toMatchObject({ code: "aborted" });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400", realAmountWas: "1000", realQtyWas: "2" })).rejects.toMatchObject({ code: "aborted" });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "USD", realCurrencyWas: "EUR" })).rejects.toMatchObject({ code: "aborted" });
+    expect(rows).toEqual([expect.objectContaining({ realAmount: "1000.00", realQty: null, realCurrency: "CZK" })]);
+    // Loaded as it is - the amount compared as a number, whatever its decimals - it goes through, the "was" not written.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1405.00", realAmountWas: "1000", realQtyWas: "", realCurrencyWas: "CZK" });
+    expect(rows[0]).toMatchObject({ realAmount: "1405.00", realQty: null, realCurrency: "CZK" });
+    expect(rows[0]).not.toHaveProperty("realAmountWas");
+    // A save landing between the read and the write is still caught: the write is made on what the page sent.
+    vi.mocked(supplierInvoiceService.beforeLineChange).mockImplementationOnce(async () => {
+      rows[0]!.realAmount = "1300.00";
+    });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1400", realAmountWas: "1405" })).rejects.toMatchObject({ code: "aborted" });
+    expect(rows[0]).toMatchObject({ realAmount: "1300.00" });
+  });
+
+  it("refuses a currency picked on a real cost whose amount someone else changed, every save sending all three (mock test run F1, M1)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "F-1", received: true });
+    apInvoices.set("si-late", { createdAt: new Date("2026-11-12T09:00:00Z"), status: "booked", paidOn: null });
+    Object.assign(rows[0]!, { supplierInvoiceId: "si-late" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1000.00", realAmountWas: "", realQtyWas: "", realCurrencyWas: "CZK" });
+    // B saves 1200; A, who loaded 1000 CZK, then picks EUR: refused, B's amount does not end up in A's currency.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "1200.00", realAmountWas: "1000", realQtyWas: "", realCurrencyWas: "CZK" });
+    await expect(
+      invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "EUR", realAmountWas: "1000", realQtyWas: "", realCurrencyWas: "CZK" }),
+    ).rejects.toMatchObject({ code: "aborted", message: expect.stringMatching(/changed meanwhile by someone else/) });
+    expect(rows[0]).toMatchObject({ realAmount: "1200.00", realCurrency: "CZK" });
+    // A quantity landing between the read and the write of a currency save is caught too: the write is made on all three.
+    vi.mocked(supplierInvoiceService.beforeLineChange).mockImplementationOnce(async () => {
+      Object.assign(rows[0]!, { realQty: "2.00" });
+    });
+    await expect(
+      invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "EUR", realAmountWas: "1200", realQtyWas: "", realCurrencyWas: "CZK" }),
+    ).rejects.toMatchObject({ code: "aborted" });
+    expect(rows[0]).toMatchObject({ realQty: "2.00", realCurrency: "CZK" });
+    // Sent as it is, the currency goes in.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realCurrency: "EUR", realAmountWas: "1200", realQtyWas: "2", realCurrencyWas: "CZK" });
+    expect(rows[0]).toMatchObject({ realAmount: "1200.00", realQty: "2.00", realCurrency: "EUR" });
+  });
+
+  it("asks nothing of the real cost the page loaded on a job not billed, nor of a change that leaves the cost alone (mock test run F1)", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", realAmount: "100.00" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "120.00", realAmountWas: "90" });
+    expect(rows[0]).toMatchObject({ realAmount: "120.00" });
+    billing.billed.add(SHIP_A);
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { sortOrder: 3, realAmountWas: "90" });
+    expect(rows[0]).toMatchObject({ realAmount: "120.00", sortOrder: 3 });
+  });
+
   it("keeps a real cost that was in when the customer was billed, number or not (User Council review, Major 1)", async () => {
     const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
     await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "X-1", received: true, realAmount: "1000.00" });

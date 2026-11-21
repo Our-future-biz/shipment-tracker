@@ -33,6 +33,16 @@ export const emailBehind = (value: string | null | undefined, names: PeopleNames
 };
 
 /**
+ * A person as text for the list's Filters and its CSV export: the name with the stored e-mail in
+ * brackets ("Eva Malá (eva@firm.cz)"), so a filter finds the person by either and the export reads as
+ * the cell does (mock test S21-061). A value no named user has stays as it is stored.
+ */
+export const personText = (value: string | null | undefined, names: PeopleNames): string => {
+  const email = emailBehind(value, names);
+  return email ? `${nameOf(value, names)} (${email})` : (value ?? "").trim();
+};
+
+/**
  * A person field or a server stamp as the job page shows it (user council x4): who by name - a stamp's
  * date after it as it is stored ("Eva Malá — 26. 10. 2026 14:03:05") - and the e-mail for the hover.
  * A value no user's e-mail is shows as it is stored, with no e-mail beside it.

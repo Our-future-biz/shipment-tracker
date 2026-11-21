@@ -5,7 +5,7 @@ import log from "encore.dev/log";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
-import { userEmails } from "../lib/userEmails";
+import { nameOf, userNames } from "../../../lib/userNames";
 import { attachmentContentUrl } from "../lib/contentToken";
 import { customsOfficeRequestNotice, documentChangeNotice } from "../lib/customsOfficeNotice";
 import { canManageDocuments } from "../lib/documentRules";
@@ -47,29 +47,30 @@ export const READ_MENTION_KEEP_DAYS = 7;
 class CommentService {
   async list(shipmentId: string, companyId: string, userId: string): Promise<CommentItem[]> {
     await shipmentService.requireLive(shipmentId, companyId);
-    const [comments, files, othersReadAt, emails] = await Promise.all([
+    const [comments, files, othersReadAt, names] = await Promise.all([
       shipmentCommentRepository.listByShipmentId(shipmentId, companyId),
       shipmentAttachmentRepository.listChatFilesByShipmentId(shipmentId, companyId),
       shipmentCommentRepository.lastReadByOthers(companyId, userId, shipmentId),
-      userEmails(),
+      userNames(),
     ]);
-    return comments.map((c) => this.toItem(c, files, othersReadAt, emails, userId));
+    return comments.map((c) => this.toItem(c, files, othersReadAt, names, userId));
   }
 
-  // The API shape of a message: its author by e-mail (as every person is shown), its files with
-  // download links, and — on the reader's own messages — whether a colleague has opened the chat since.
+  // The API shape of a message: its author by name, the e-mail for a user with none (user council x4,
+  // mock test of 21 Nov), its files with download links, and — on the reader's own messages — whether
+  // a colleague has opened the chat since.
   private toItem(
     c: ShipmentCommentRecord,
     files: ChatFile[],
     othersReadAt: Date | null,
-    emails: Map<string, string>,
+    names: Map<string, string>,
     userId: string,
   ): CommentItem {
     return {
       id: c.id,
       shipmentId: c.shipmentId,
       authorId: c.authorId,
-      authorName: emails.get(c.authorId) ?? "",
+      authorName: names.get(c.authorId) ?? "",
       message: c.message,
       createdAt: iso(c.createdAt),
       attachments: files
@@ -97,12 +98,12 @@ class CommentService {
 
   // The bell's mentions: unread ones, and read ones written in the last READ_MENTION_KEEP_DAYS days.
   async unreadMentions(companyId: string, userId: string): Promise<CommentMentionItem[]> {
-    const [rows, emails] = await Promise.all([shipmentCommentRepository.unreadMentions(companyId, userId, READ_MENTION_KEEP_DAYS), userEmails()]);
+    const [rows, names] = await Promise.all([shipmentCommentRepository.unreadMentions(companyId, userId, READ_MENTION_KEEP_DAYS), userNames()]);
     return rows.map((r) => ({
       id: r.id,
       shipmentId: r.shipmentId,
       jobNumber: r.jobNumber ?? "",
-      authorName: emails.get(r.authorId) ?? "",
+      authorName: names.get(r.authorId) ?? "",
       message: r.message,
       createdAt: iso(r.createdAt),
       unread: !r.readAt || r.createdAt > r.readAt,
@@ -117,7 +118,7 @@ class CommentService {
     // Only real colleagues from the same company can be tagged, and never yourself (the @ list never
     // offers the writer; the warehouse's notice, which may tag its writer, is postRemeasureNotice).
     const tagged = [...new Set(input.mentionedUserIds)].filter((id) => id !== authorId);
-    const colleagues = tagged.length ? await this.colleaguesToTag() : await userEmails();
+    const colleagues = tagged.length ? await this.colleaguesToTag() : await userNames();
     const mentions = tagged.filter((id) => colleagues.has(id));
     const comment = await shipmentCommentRepository.createForCompany(companyId, {
       shipmentId,
@@ -133,10 +134,10 @@ class CommentService {
   // The company's users by id, for a message that tags somebody: they decide who is tagged, so when
   // they can't be read the message is refused (it can be sent again) rather than saved with its
   // tags quietly dropped - nobody would hear of it. A message that tags nobody reads them with
-  // userEmails, which only shows the author.
+  // userNames, which only shows the author. By id, each user's name (the e-mail for one with none).
   private async colleaguesToTag(): Promise<Map<string, string>> {
     try {
-      return new Map((await companyUsers()).map((u) => [u.id, u.email]));
+      return new Map((await companyUsers()).map((u) => [u.id, nameOf(u)]));
     } catch (err) {
       log.warn(err, "chat: the colleagues a message tags could not be read");
       throw APIError.unavailable("The colleagues you tagged can't be checked right now - send the message again in a moment");

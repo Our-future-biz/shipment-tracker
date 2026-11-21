@@ -53,10 +53,20 @@ export const shipmentRemeasureAcceptance = api(
   },
 );
 
+interface RemeasureCostsCheckedRequest {
+  shipmentId: string;
+  /**
+   * The acceptedAt of the acceptance the page shows (mock test S20-079): when a newer remeasurement was
+   * accepted meanwhile, nothing is marked ("A newer remeasurement was accepted: reload to see it").
+   * Left out, the newest acceptance is taken.
+   */
+  acceptedAt?: string & MaxLen<40>;
+}
+
 /** Costs Breakdown: its quantities were checked after the last accepted remeasurement (the warning is then put away). */
 export const shipmentRemeasureCostsChecked = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/remeasurement/costs-checked" },
-  async (req: RemeasureAcceptanceRequest): Promise<RemeasureAcceptanceResponse> => {
-    return { acceptance: await shipmentService.markRemeasureCostsChecked(req.shipmentId, getAuthData()!) };
+  async (req: RemeasureCostsCheckedRequest): Promise<RemeasureAcceptanceResponse> => {
+    return { acceptance: await shipmentService.markRemeasureCostsChecked(req.shipmentId, getAuthData()!, req.acceptedAt) };
   },
 );
