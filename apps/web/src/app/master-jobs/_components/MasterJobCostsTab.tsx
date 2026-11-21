@@ -12,6 +12,7 @@ import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, normaliseAmount } from "@/lib/money";
 import { useLatestRates } from "@/lib/fx";
 import { eurTotal, type EurTotal } from "../_lib/eurTotal";
+import { masterJobModeOf } from "../_lib/masterJobWords";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { Pill, type PillTone } from "@/components/Pill";
@@ -397,7 +398,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       optionFilterProp="label"
                       placeholder="—"
                       value={line.category || undefined}
-                      options={chargeOptions(line.category, masterJob.freightMode)}
+                      options={chargeOptions(line.category, masterJobModeOf(masterJob))}
                       popupMatchSelectWidth={380}
                       onChange={(v: string) => save(line, { category: v })}
                       aria-label="Category"
