@@ -9,7 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // the calls start first and outside the limiter, and that the statements never hold more than
 // five connections at once.
 const db = vi.hoisted(() => {
-  const state = { running: 0, peak: 0, sent: [] as string[], calls: [] as { name: string; statementsBefore: number; statementsDoneAtEnd: number }[], done: 0 };
+  // `expected`: the statements the answer sends, which a call waits for (see `call`); 0 - it answers at once.
+  const state = { running: 0, peak: 0, sent: [] as string[], calls: [] as { name: string; statementsBefore: number; statementsDoneAtEnd: number }[], done: 0, expected: 0 };
   /** A repository of which every method is a statement answering `answers[method]` ([] when not named). */
   const repository = (name: string, answers: Record<string, () => unknown> = {}) =>
     new Proxy(
@@ -25,11 +26,17 @@ const db = vi.hoisted(() => {
         },
       },
     );
-  /** A module's endpoint: a slow call (40 ms), counted apart from the statements, that answers nothing in play. */
+  /**
+   * A module's endpoint: a slow call, counted apart from the statements, that answers nothing in play. It is out
+   * until the answer's statements are all done (`expected`), or 2 s at most: so "the statements all ran while
+   * the calls were out" holds however busy the machine is (a fixed 40 ms did not, on a loaded test run), and a
+   * service that waited for the calls before its statements still fails - on the count, after the 2 s.
+   */
   const call = (name: string) => async () => {
     const entry = { name, statementsBefore: state.sent.length, statementsDoneAtEnd: 0 };
     state.calls.push(entry);
-    await new Promise((done) => setTimeout(done, 40));
+    const started = Date.now();
+    while (state.done < state.expected && Date.now() - started < 2_000) await new Promise((done) => setTimeout(done, 2));
     entry.statementsDoneAtEnd = state.done;
     return { shipments: [], notKnown: [], issuesRead: true, updatesRead: true };
   };
@@ -180,6 +187,7 @@ beforeEach(() => {
   db.state.sent.length = 0;
   db.state.calls.length = 0;
   db.state.done = 0;
+  db.state.expected = 0;
   // Jobs that give every read something to ask about: a missed cut-off, a Full Load import arriving, a Holiday Cover.
   db.jobs = [
     job(1, { vgmClosing: "2026-11-16", vgm: "Pending (Red)", estimatedDeparture: "2026-11-20" }),
@@ -198,6 +206,7 @@ beforeEach(() => {
 
 describe("one answer of Shipments → Managers, every statement of it", () => {
   it("never holds more than five connections at once - whoever sends the statement", async () => {
+    db.state.expected = 29;
     const c = await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
 
     expect(COCKPIT_READS_AT_ONCE).toBe(5);
@@ -232,6 +241,7 @@ describe("one answer of Shipments → Managers, every statement of it", () => {
 
   it("shares the five with every other answer being built: two companies' pages asking at once hold no more than five together", async () => {
     const OTHER = "0d6f5a1e-2b8c-4c3d-9e7f-1a2b3c4d5e6f";
+    db.state.expected = 58;
     await Promise.all([managersCockpitService.cockpit(COMPANY, EVERYONE, NOW), managersCockpitService.cockpit(OTHER, EVERYONE, NOW)]);
     // Each answer whole - nothing of one company's is kept for the other's.
     expect(db.state.sent).toHaveLength(58);
@@ -239,6 +249,7 @@ describe("one answer of Shipments → Managers, every statement of it", () => {
   });
 
   it("sends six statements fewer and no call while the company's audit line and the modules' answers are kept: 23, and still five at once", async () => {
+    db.state.expected = 29;
     await managersCockpitService.cockpit(COMPANY, EVERYONE, NOW);
     db.state.sent.length = 0;
     db.state.calls.length = 0;
